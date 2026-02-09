@@ -1,0 +1,11 @@
+C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\bin\Release\net8.0\Porta.Agent.Common.deps.json
+C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\bin\Release\net8.0\Porta.Agent.Common.dll
+C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\bin\Release\net8.0\Porta.Agent.Common.pdb
+C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\obj\Release\net8.0\Porta.Agent.Common.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\obj\Release\net8.0\Porta.Agent.Common.AssemblyInfoInputs.cache
+C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\obj\Release\net8.0\Porta.Agent.Common.AssemblyInfo.cs
+C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\obj\Release\net8.0\Porta.Agent.Common.csproj.CoreCompileInputs.cache
+C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\obj\Release\net8.0\Porta.Agent.Common.dll
+C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\obj\Release\net8.0\refint\Porta.Agent.Common.dll
+C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\obj\Release\net8.0\Porta.Agent.Common.pdb
+C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\obj\Release\net8.0\ref\Porta.Agent.Common.dll
