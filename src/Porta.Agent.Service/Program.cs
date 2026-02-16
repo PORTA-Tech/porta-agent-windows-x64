@@ -1,7 +1,12 @@
-using Porta.Agent.Service;
+using System;
 
-var builder = Host.CreateApplicationBuilder(args);
-builder.Services.AddHostedService<Worker>();
-
-var host = builder.Build();
-host.Run();
+namespace Porta.Agent.Service
+{
+    internal static class Program
+    {
+        public static void Main()
+        {
+            Console.WriteLine("Porta Agent Service placeholder running.");
+        }
+    }
+}
