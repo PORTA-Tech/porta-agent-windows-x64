@@ -1,23 +1,23 @@
 ﻿using System;
 using System.Threading.Tasks;
+using Porta.Agent.Runtime;
 
-namespace Porta.Agent.Runtime;
-
-class Program
+internal class Program
 {
-    static async Task Main(string[] args)
+    static async Task Main()
     {
-        using var host = new AgentHost();
-
-        await host.StartAsync();
-
         Console.WriteLine("PORTA Agent Runtime started.");
-        Console.WriteLine("Spin your mouse wheel to see scroll deltas.");
+        Console.WriteLine("Scroll using trackpad.");
         Console.WriteLine("Press ESC to exit.");
 
-        while (Console.ReadKey(true).Key != ConsoleKey.Escape) { }
+        using var host = new AgentHost();
+        await host.StartAsync();
+
+        while (Console.ReadKey(true).Key != ConsoleKey.Escape)
+        {
+            // keep running
+        }
 
         await host.StopAsync();
-        Console.WriteLine("PORTA Agent Runtime stopped.");
     }
 }

@@ -1,12 +1,25 @@
 using System;
+using System.Threading.Tasks;
+using Porta.Agent.Runtime;
 
-namespace Porta.Agent.Service
+class Program
 {
-    internal static class Program
+    static async Task Main()
     {
-        public static void Main()
+        using var host = new AgentHost();
+        await host.StartAsync();
+
+        Console.WriteLine("PORTA Agent Runtime started.");
+        Console.WriteLine("Scroll using mouse or trackpad. Press ESC to exit.");
+
+        while (true)
         {
-            Console.WriteLine("Porta Agent Service placeholder running.");
+            var key = Console.ReadKey(intercept: true);
+            if (key.Key == ConsoleKey.Escape)
+                break;
         }
+
+        await host.StopAsync();
+        Console.WriteLine("Stopped.");
     }
 }
