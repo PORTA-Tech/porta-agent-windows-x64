@@ -1,25 +1,44 @@
 using System;
-using System.Threading.Tasks;
+using System.Runtime.InteropServices;
 using Porta.Agent.Runtime;
 
 class Program
 {
-    static async Task Main()
+    [DllImport("user32.dll")]
+    private static extern bool GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSG
+    {
+        public IntPtr hwnd;
+        public uint message;
+        public IntPtr wParam;
+        public IntPtr lParam;
+        public uint time;
+        public POINT pt;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int x; public int y; }
+
+    static void Main()
     {
         using var host = new AgentHost();
-        await host.StartAsync();
-
-        Console.WriteLine("PORTA Agent Runtime started.");
+        host.Start();
         Console.WriteLine("Scroll using mouse or trackpad. Press ESC to exit.");
 
+        MSG msg;
         while (true)
         {
-            var key = Console.ReadKey(intercept: true);
-            if (key.Key == ConsoleKey.Escape)
-                break;
+            while (GetMessage(out msg, IntPtr.Zero, 0, 0))
+            {
+                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                    goto exit;
+            }
         }
 
-        await host.StopAsync();
-        Console.WriteLine("Stopped.");
+    exit:
+        host.Stop();
+        Console.WriteLine("AgentHost stopped.");
     }
 }

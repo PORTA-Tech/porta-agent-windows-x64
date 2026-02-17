@@ -1,23 +1,26 @@
 ﻿using System;
-using System.Threading.Tasks;
+using System.Threading;
 using Porta.Agent.Runtime;
 
-internal class Program
+class Program
 {
-    static async Task Main()
+    static void Main()
     {
-        Console.WriteLine("PORTA Agent Runtime started.");
-        Console.WriteLine("Scroll using trackpad.");
-        Console.WriteLine("Press ESC to exit.");
-
         using var host = new AgentHost();
-        await host.StartAsync();
+        host.Start();
 
-        while (Console.ReadKey(true).Key != ConsoleKey.Escape)
+        Console.WriteLine("Scroll using mouse or trackpad. Press ESC to exit.");
+
+        // Keep running until ESC is pressed
+        while (true)
         {
-            // keep running
+            if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                break;
+
+            Thread.Sleep(10); // avoid busy-wait
         }
 
-        await host.StopAsync();
+        host.Stop();
+        Console.WriteLine("AgentHost stopped.");
     }
 }
