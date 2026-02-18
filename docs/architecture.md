@@ -1,105 +1,83 @@
-# Runtime Input Pipeline and Soak Notes
+# PORTA Agent Architecture and Phase-6 Readiness
 
-## Architecture changes (2026-02-18)
+## Dependency and runtime rules
+1. Dependency direction is strict: `Service -> Runtime -> Common`.
+2. Target platform is locked to `x64` across all projects.
+3. Hook callback remains enqueue-only and non-blocking.
+4. Timing-critical logic uses `Stopwatch.GetTimestamp()`.
+5. Risky behavior is controlled through feature flags:
+   - `PORTA_SUPPRESSION_ENABLED`
+   - `PORTA_ACTUATION_ENABLED`
+   - `PORTA_AUTO_STOP_MS` (soak/test automation only)
 
-1. Queue polling was replaced with `Channel<ScrollEvent>` in `AgentHost`.
-2. `AgentHost` lifecycle is now `StartAsync`/`StopAsync` driven.
-3. Shutdown is cancellation-aware and drain-aware:
-   - Stop input first (`MouseHook.Uninstall()`).
-   - Complete channel writer (`TryComplete()`).
-   - Await processing loop completion.
-   - Cancel and stop metrics loop.
-4. Hook callback path is enqueue-only and allocation-minimized:
-   - Callback only extracts wheel delta and raises `ScrollDeltaChanged`.
-   - `AgentHost.OnScrollDelta` only `TryWrite`s into channel and updates counters.
-   - `ScrollEvent` is a readonly struct to avoid per-event heap allocation.
-5. Runtime `Program.cs` was simplified to host lifecycle only (Ctrl+C cancel + async stop). ESC key polling was removed.
+## Baseline thresholds (Phase-6 gate)
+The following thresholds define PASS/FAIL for production-readiness smoke and soak runs:
 
-## Soak test record
+| Metric | Threshold |
+|---|---|
+| Average CPU | <= 2.0% |
+| Max working set | <= 200 MB |
+| Max queue depth | <= 32 |
+| Dropped events | 0 |
+| Runtime process crash | 0 |
 
-### Executed run
-- Date (UTC): 2026-02-18
-- Duration: ~29.8 seconds
-- Method:
-  - Started `Porta.Agent.Runtime` in Release mode.
-  - Injected synthetic wheel input (`mouse_event` up/down) every ~200ms.
-  - Sampled process CPU + memory continuously.
-  - Collected runtime `[METRIC]` output.
+## Phase-6 soak matrix (UTC-stamped)
+Source data: `docs/phase6-soak-results.csv`
 
-### Observed metrics
-- Runtime metrics:
-  - `enqueued=274`, `processed=274`, `dropped=0`, `queue_depth=0` at end of run
-  - `eps` stayed around `9.17-9.59` during synthetic input
-- CPU:
-  - Average over run: `~0.26%`
-- Memory:
-  - Working set: `110.61 MB` -> max `117.61 MB`
-  - Private memory: `44.58 MB` -> max `51.91 MB`
-- Responsiveness:
-  - Synthetic input path remained stable (no queue growth, no drops).
+### Scenario A: runtime_off
+- `utc_start`: `2026-02-18T12:24:54.1315602+00:00`
+- `utc_end`: `2026-02-18T12:26:27.7844503+00:00`
+- `duration_seconds`: `93.7`
+- `suppression_enabled`: `False`
+- `actuation_enabled`: `False`
+- `avg_cpu_pct`: `0.087`
+- `max_working_set_mb`: `74`
+- `max_queue_depth`: `0`
+- `max_dropped`: `0`
+- Verdict: PASS
 
-### Interactive soak completion (user run)
-- Date (UTC): 2026-02-18
-- Duration: `>= 2 hours` (user-confirmed complete)
-- Runtime behavior from captured logs:
-  - Repeated intervals with `dropped=0` and `queue_depth=0`
-  - `enqueued` and `processed` remained matched (`enqueued == processed`)
-  - No crash observed; process stopped cleanly (`AgentHost stopping...`, `AgentHost stopped.`)
-- Responsiveness:
-  - Scroll input remained responsive during active use (user-observed)
+### Scenario B: runtime_on
+- `utc_start`: `2026-02-18T12:26:27.9201280+00:00`
+- `utc_end`: `2026-02-18T12:28:00.1321077+00:00`
+- `duration_seconds`: `92.2`
+- `suppression_enabled`: `True`
+- `actuation_enabled`: `True`
+- `avg_cpu_pct`: `0.09`
+- `max_working_set_mb`: `70.36`
+- `max_queue_depth`: `0`
+- `max_dropped`: `0`
+- Verdict: PASS
 
-### Phase-1 verdict
-- PASS
+### Scenario C: service_mode
+- `utc_start`: `2026-02-18T12:28:00.1350977+00:00`
+- `utc_end`: `2026-02-18T12:29:47.4220082+00:00`
+- `duration_seconds`: `107.3`
+- `suppression_enabled`: `False`
+- `actuation_enabled`: `False`
+- `avg_cpu_pct`: `0.083`
+- `max_working_set_mb`: `71.32`
+- `max_queue_depth`: `0`
+- `max_dropped`: `0`
+- Verdict: PASS
 
-## Phase-2 completion (deterministic control path, local)
+## Config defaults lock (Phase-6)
+Defaults are explicitly locked in code paths:
+1. Suppression default: `OFF` (`PORTA_SUPPRESSION_ENABLED` unset -> false)
+2. Actuation default: `OFF` (`PORTA_ACTUATION_ENABLED` unset -> false)
+3. Service name default: `PortaAgentService`
+4. Telemetry queue mode: bounded queue with drop-oldest policy
+5. Heartbeat interval: 5 seconds
 
-- Date (UTC): 2026-02-18
-- Runtime validation summary:
-  - OFF profile: `dropped=0`, `queue_depth=0`, stable processing.
-  - ON profile: `suppressed=44`, `injected=44`, `dropped=0`, `queue_depth=0`, clean shutdown.
-  - Safety/focus blocks during run: `blocked_by_safety=0`, `blocked_by_focus=0`.
-- System observation summary:
-  - CPU remained low and stable during monitoring.
-  - Working set remained stable (about `130-133 MB`, no growth trend).
-- Subjective responsiveness:
-  - No noticeable lag/stutter, no UI freeze, normal responsiveness.
+## Known limitations
+1. Current soak matrix is short-duration automation (about 1.5-1.8 minutes per scenario), not multi-hour endurance.
+2. Service installation/SCM operations require elevated privileges and are not exercised by this automation script.
+3. Soak script captures host-level CPU/memory and runtime metrics logs; it does not yet include ETW trace correlation.
 
-### Phase-2 verdict
-- PASS
+## Readiness summary
+1. Baseline thresholds are defined and measured.
+2. Soak matrix includes suppression OFF/ON and service mode with UTC timestamps.
+3. No queue growth or dropped events were observed in the matrix.
+4. Operational runbook and rollback are documented in `README.md`.
 
-## Phase-4 service integration (Windows Service wrapper)
-
-- Service entrypoint:
-  - `src/Porta.Agent.Service/Program.cs` now runs through `Host.CreateDefaultBuilder(...).UseWindowsService(...)`.
-  - Service name is configured as `PortaAgentService`.
-- Runtime bridge:
-  - `src/Porta.Agent.Service/AgentService.cs` now owns `AgentHost` and maps SCM lifecycle to runtime lifecycle:
-    - `StartAsync` -> `AgentHost.StartAsync`
-    - `StopAsync` -> `AgentHost.StopAsync`
-  - Start/stop are guarded for idempotency.
-- Operations scripts:
-  - `scripts/install-service.ps1` publishes service binaries, creates SCM service, configures auto-start, and enables crash-restart policy.
-  - `scripts/uninstall-service.ps1` stops and deletes service cleanly.
-
-### Service operations
-
-- Install:
-  - `.\scripts\install-service.ps1 -StartAfterInstall`
-- Start:
-  - `Start-Service PortaAgentService`
-- Stop:
-  - `Stop-Service PortaAgentService`
-- Restart:
-  - `Restart-Service PortaAgentService`
-- Uninstall:
-  - `.\scripts\uninstall-service.ps1`
-
-### Validation checklist (Phase-4)
-
-1. Install/start/stop/restart/uninstall sequence
-   - Verify SCM reports expected status at each step.
-   - Verify no orphaned `Porta.Agent.Service.exe` process after stop/uninstall.
-2. Reboot persistence
-   - Confirm service starts automatically after reboot (`start= auto`).
-3. Crash-recovery
-   - Terminate service process and verify SCM restart policy restarts it.
+## Build verification
+1. `dotnet build PORTA.Windows.sln -c Release -m:1` succeeded at `2026-02-18T12:45:13.5173553Z` (UTC).

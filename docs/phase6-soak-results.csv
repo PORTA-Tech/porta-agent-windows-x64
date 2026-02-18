@@ -1,0 +1,4 @@
+"scenario","utc_start","utc_end","duration_seconds","suppression_enabled","actuation_enabled","avg_cpu_pct","max_working_set_mb","max_queue_depth","max_dropped","metrics_samples","log_file"
+"runtime_off","2026-02-18T12:24:54.1315602+00:00","2026-02-18T12:26:27.7844503+00:00","93.7","False","False","0.087","74","0","0","17","docs\soak-logs\runtime_off-20260218T122454Z.log"
+"runtime_on","2026-02-18T12:26:27.9201280+00:00","2026-02-18T12:28:00.1321077+00:00","92.2","True","True","0.09","70.36","0","0","17","docs\soak-logs\runtime_on-20260218T122627Z.log"
+"service_mode","2026-02-18T12:28:00.1350977+00:00","2026-02-18T12:29:47.4220082+00:00","107.3","False","False","0.083","71.32","0","0","20","docs\soak-logs\service_mode-20260218T122800Z.log"

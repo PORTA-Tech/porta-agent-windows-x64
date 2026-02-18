@@ -2,13 +2,14 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64</Platforms>
     <OutputType>Exe</OutputType>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Porta.Agent.Runtime\Porta.Agent.Runtime.csproj"
-                      SkipGetTargetFrameworkProperties="true" />
+    <ProjectReference Include="..\Porta.Agent.Runtime\Porta.Agent.Runtime.csproj" />
   </ItemGroup>
 
   <ItemGroup>

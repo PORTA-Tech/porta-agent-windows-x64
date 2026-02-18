@@ -1,0 +1,66 @@
+[INFO] ts=2026-02-18T12:24:57.1328556+00:00 Focus tracking disabled (set PORTA_TARGET_PROCESS to enable).
+[INFO] ts=2026-02-18T12:24:57.1596369+00:00 Scroll suppression disabled.
+[INFO] ts=2026-02-18T12:24:57.1622394+00:00 Scroll actuation disabled.
+[INFO] ts=2026-02-18T12:24:57.1680529+00:00 AgentHost starting.
+[EVENT] ts=2026-02-18T12:24:57.1794169+00:00 name=mouse_hook_install_succeeded attempt=1
+[EVENT] ts=2026-02-18T12:24:57.1989933+00:00 name=lifecycle_transition to=Running
+[INFO] ts=2026-02-18T12:24:57.2014711+00:00 Create file 'C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Runtime\bin\Debug\net8.0-windows\porta-agent.kill' to request graceful shutdown.
+[INFO] ts=2026-02-18T12:24:57.2019492+00:00 Scroll anywhere. Press Ctrl+C to exit.
+[EVENT] ts=2026-02-18T12:25:02.2078213+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:25:02.2086012+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:25:07.2178925+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:25:07.2183924+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:25:12.2188580+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:25:12.2533807+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:25:17.2824578+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:25:17.2829145+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:25:22.2865808+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:25:22.2872752+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:25:27.2978870+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:25:27.2988714+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:25:32.3128186+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:25:32.3132933+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:25:37.3141393+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:25:37.3253618+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:25:42.3268926+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:25:42.3282629+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:25:47.3356171+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:25:47.3487244+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:25:52.3579971+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:25:52.3592478+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:25:57.3595253+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:25:57.3600039+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:26:02.3622135+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=0 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=0 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:26:02.3628305+00:00 name=queue_depth value=0 state=Running
+Scroll delta: 58, velocity: 58.00, timestamp: 2563802574964
+Scroll delta: 16, velocity: 6289.56, timestamp: 2563802600403
+Scroll delta: 23, velocity: 4081.20, timestamp: 2563802656759
+Scroll delta: 23, velocity: 3109.96, timestamp: 2563802730715
+Scroll delta: 29, velocity: 4039.90, timestamp: 2563802802499
+Scroll delta: 18, velocity: 2778.85, timestamp: 2563802867274
+Scroll delta: 27, velocity: 3527.11, timestamp: 2563802943824
+Scroll delta: 20, velocity: 3073.28, timestamp: 2563803008901
+Scroll delta: 19, velocity: 2305.69, timestamp: 2563803091306
+Scroll delta: 12, velocity: 1712.13, timestamp: 2563803161394
+Scroll delta: 13, velocity: 1777.15, timestamp: 2563803234545
+Scroll delta: 6, velocity: 900.66, timestamp: 2563803301163
+Scroll delta: 4, velocity: 629.59, timestamp: 2563803364696
+Scroll delta: 14, velocity: 873.12, timestamp: 2563803525040
+Scroll delta: 22, velocity: 1307.08, timestamp: 2563803693354
+Scroll delta: 13, velocity: 901.23, timestamp: 2563803837601
+Scroll delta: 13, velocity: 736.93, timestamp: 2563804014009
+Scroll delta: 6, velocity: 369.36, timestamp: 2563804176450
+Scroll delta: 6, velocity: 259.56, timestamp: 2563804407614
+Scroll delta: 1, velocity: 66.08, timestamp: 2563804558945
+[EVENT] ts=2026-02-18T12:26:07.3677767+00:00 name=runtime_metrics enqueued=20 processed=20 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=20 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=20 telemetry_queue_depth=0 eps=4.00
+[COUNTER] ts=2026-02-18T12:26:07.3682040+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:26:12.3787316+00:00 name=runtime_metrics enqueued=20 processed=20 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=20 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=20 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:26:12.3799397+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:26:17.3820158+00:00 name=runtime_metrics enqueued=20 processed=20 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=20 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=20 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:26:17.3877576+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T12:26:22.3913525+00:00 name=runtime_metrics enqueued=20 processed=20 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 queue_depth=0 telemetry_enqueued=20 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=20 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T12:26:22.3961028+00:00 name=queue_depth value=0 state=Running
+[INFO] ts=2026-02-18T12:26:27.2174898+00:00 AgentHost stopping.
+[EVENT] ts=2026-02-18T12:26:27.2208650+00:00 name=lifecycle_transition to=Stopped
+[INFO] ts=2026-02-18T12:26:27.2211431+00:00 AgentHost stopped.
+[EVENT] ts=2026-02-18T12:26:27.2214260+00:00 name=lifecycle_transition_ignored operation=stop state=Stopped
