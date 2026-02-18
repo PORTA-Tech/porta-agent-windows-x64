@@ -1,40 +1,29 @@
 using System;
+using System.ServiceProcess;
 using System.Threading;
-using System.Threading.Tasks;
-using Porta.Agent.Runtime;
+using Porta.Agent.Service;
 
-class Program
+var service = new AgentService();
+
+if (Environment.UserInteractive)
 {
-    static void Main()
+    Console.WriteLine("Starting PortaAgentService in console mode. Press Ctrl+C to stop.");
+    using var stopSignal = new ManualResetEventSlim(false);
+
+    Console.CancelKeyPress += (_, e) =>
     {
-        using var host = new AgentHost();
-        using var stopSignal = new ManualResetEventSlim(false);
+        e.Cancel = true;
+        stopSignal.Set();
+    };
 
-        host.Start();
-
-        Console.WriteLine("AgentHost started. Press ESC to stop.");
-        if (Environment.UserInteractive && !Console.IsInputRedirected)
-        {
-            _ = Task.Run(() =>
-            {
-                while (!stopSignal.IsSet)
-                {
-                    try
-                    {
-                        if (Console.ReadKey(intercept: true).Key == ConsoleKey.Escape)
-                        {
-                            stopSignal.Set();
-                            break;
-                        }
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        break;
-                    }
-                }
-            });
-        }
-
-        stopSignal.Wait();
-    }
+    service.StartForConsole();
+    stopSignal.Wait();
+    service.StopForConsole();
+}
+else
+{
+    ServiceBase.Run(new ServiceBase[]
+    {
+        service
+    });
 }

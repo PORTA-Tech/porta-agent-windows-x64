@@ -66,3 +66,40 @@
 
 ### Phase-2 verdict
 - PASS
+
+## Phase-4 service integration (Windows Service wrapper)
+
+- Service entrypoint:
+  - `src/Porta.Agent.Service/Program.cs` now runs through `Host.CreateDefaultBuilder(...).UseWindowsService(...)`.
+  - Service name is configured as `PortaAgentService`.
+- Runtime bridge:
+  - `src/Porta.Agent.Service/AgentService.cs` now owns `AgentHost` and maps SCM lifecycle to runtime lifecycle:
+    - `StartAsync` -> `AgentHost.StartAsync`
+    - `StopAsync` -> `AgentHost.StopAsync`
+  - Start/stop are guarded for idempotency.
+- Operations scripts:
+  - `scripts/install-service.ps1` publishes service binaries, creates SCM service, configures auto-start, and enables crash-restart policy.
+  - `scripts/uninstall-service.ps1` stops and deletes service cleanly.
+
+### Service operations
+
+- Install:
+  - `.\scripts\install-service.ps1 -StartAfterInstall`
+- Start:
+  - `Start-Service PortaAgentService`
+- Stop:
+  - `Stop-Service PortaAgentService`
+- Restart:
+  - `Restart-Service PortaAgentService`
+- Uninstall:
+  - `.\scripts\uninstall-service.ps1`
+
+### Validation checklist (Phase-4)
+
+1. Install/start/stop/restart/uninstall sequence
+   - Verify SCM reports expected status at each step.
+   - Verify no orphaned `Porta.Agent.Service.exe` process after stop/uninstall.
+2. Reboot persistence
+   - Confirm service starts automatically after reboot (`start= auto`).
+3. Crash-recovery
+   - Terminate service process and verify SCM restart policy restarts it.
