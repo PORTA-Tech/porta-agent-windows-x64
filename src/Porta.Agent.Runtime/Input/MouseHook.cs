@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using Porta.Agent.Runtime.Diagnostics;
 using Porta.Agent.Runtime.Win32;
 
 namespace Porta.Agent.Runtime.Input
@@ -11,65 +12,149 @@ namespace Porta.Agent.Runtime.Input
         private uint _hookThreadId;
         private NativeMethods.LowLevelMouseProc? _hookProc;
         private readonly ManualResetEventSlim _installedSignal = new(false);
+        private readonly object _gate = new();
+        private volatile bool _installSucceeded;
+        private int _lastInstallError;
 
         public Func<int, bool>? ShouldSuppressScroll { get; set; }
         public event Action<int, bool> ScrollDeltaChanged = delegate { };
 
-        public void Install()
+        public bool Install(int maxAttempts = 3, int retryDelayMs = 200)
         {
-            if (_hookThread != null)
-                return;
-
-            _installedSignal.Reset();
-            _hookThread = new Thread(HookThreadMain)
+            if (string.Equals(Environment.GetEnvironmentVariable("PORTA_FORCE_HOOK_INSTALL_FAIL"), "1", StringComparison.Ordinal))
             {
-                IsBackground = true,
-                Name = "MouseHookThread"
-            };
-            _hookThread.Start();
-
-            if (!_installedSignal.Wait(TimeSpan.FromSeconds(2)) || _hookId == IntPtr.Zero)
-            {
-                Console.WriteLine("[ERROR] Mouse hook installation timed out or failed.");
+                Logger.Warn("Mouse hook install forced to fail by PORTA_FORCE_HOOK_INSTALL_FAIL=1.");
+                return false;
             }
+
+            lock (_gate)
+            {
+                if (_hookThread != null && _hookThread.IsAlive && _hookId != IntPtr.Zero)
+                {
+                    return true;
+                }
+            }
+
+            for (int attempt = 1; attempt <= Math.Max(1, maxAttempts); attempt++)
+            {
+                _installedSignal.Reset();
+                _installSucceeded = false;
+                _lastInstallError = 0;
+
+                var thread = new Thread(HookThreadMain)
+                {
+                    IsBackground = true,
+                    Name = "MouseHookThread"
+                };
+
+                lock (_gate)
+                {
+                    _hookThread = thread;
+                }
+
+                thread.Start();
+
+                bool signaled = _installedSignal.Wait(TimeSpan.FromSeconds(2));
+                if (signaled && _installSucceeded)
+                {
+                    Logger.Event("mouse_hook_install_succeeded", ("attempt", attempt));
+                    return true;
+                }
+
+                Logger.Warn(
+                    $"Mouse hook install attempt {attempt} failed (signaled={signaled}, error=0x{_lastInstallError:X8}).");
+                CleanupFailedInstallThread();
+
+                if (attempt < maxAttempts)
+                {
+                    Thread.Sleep(Math.Max(0, retryDelayMs));
+                }
+            }
+
+            Logger.Error("Mouse hook installation failed after retries.");
+            return false;
         }
 
         public void Uninstall()
         {
-            if (_hookThread == null)
-                return;
+            Thread? thread;
+            uint threadId;
 
-            NativeMethods.PostThreadMessage(_hookThreadId, Constants.WmQuit, UIntPtr.Zero, IntPtr.Zero);
-            _hookThread.Join(2000);
-            _hookThread = null;
-            _hookThreadId = 0;
-            _hookProc = null;
+            lock (_gate)
+            {
+                thread = _hookThread;
+                threadId = _hookThreadId;
+            }
+
+            if (thread == null)
+            {
+                return;
+            }
+
+            if (threadId != 0 && !NativeMethods.PostThreadMessage(threadId, Constants.WmQuit, UIntPtr.Zero, IntPtr.Zero))
+            {
+                int error = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                Logger.Warn($"Mouse hook uninstall PostThreadMessage failed: 0x{error:X8}.");
+            }
+
+            if (!thread.Join(2000))
+            {
+                Logger.Warn("Mouse hook thread did not stop within timeout.");
+            }
+
+            lock (_gate)
+            {
+                _hookThread = null;
+                _hookThreadId = 0;
+                _hookProc = null;
+                _hookId = IntPtr.Zero;
+            }
         }
 
         private void HookThreadMain()
         {
-            _hookThreadId = NativeMethods.GetCurrentThreadId();
-            _hookProc = HookCallback;
-            _hookId = NativeMethods.SetWindowsHookEx(Constants.WhMouseLl, _hookProc, IntPtr.Zero, 0);
-
-            if (_hookId == IntPtr.Zero)
+            try
             {
-                int error = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
-                Console.WriteLine($"[ERROR] SetWindowsHookEx failed: 0x{error:X8}");
+                _hookThreadId = NativeMethods.GetCurrentThreadId();
+                _hookProc = HookCallback;
+                _hookId = NativeMethods.SetWindowsHookEx(Constants.WhMouseLl, _hookProc, IntPtr.Zero, 0);
+
+                if (_hookId == IntPtr.Zero)
+                {
+                    _lastInstallError = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                    _installSucceeded = false;
+                    return;
+                }
+
+                _installSucceeded = true;
                 _installedSignal.Set();
-                return;
+
+                while (NativeMethods.GetMessage(out var msg, IntPtr.Zero, 0, 0))
+                {
+                    NativeMethods.TranslateMessage(ref msg);
+                    NativeMethods.DispatchMessage(ref msg);
+                }
             }
-
-            _installedSignal.Set();
-
-            while (NativeMethods.GetMessage(out var msg, IntPtr.Zero, 0, 0))
+            catch (Exception ex)
             {
-                NativeMethods.TranslateMessage(ref msg);
-                NativeMethods.DispatchMessage(ref msg);
+                _installSucceeded = false;
+                Logger.Error(ex, "Mouse hook thread crashed.");
             }
+            finally
+            {
+                _installedSignal.Set();
 
-            NativeMethods.UnhookWindowsHookEx(_hookId);
-            _hookId = IntPtr.Zero;
+                if (_hookId != IntPtr.Zero)
+                {
+                    if (!NativeMethods.UnhookWindowsHookEx(_hookId))
+                    {
+                        int error = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                        Logger.Warn($"UnhookWindowsHookEx failed: 0x{error:X8}.");
+                    }
+
+                    _hookId = IntPtr.Zero;
+                }
+            }
         }
 
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
@@ -100,7 +185,15 @@ namespace Porta.Agent.Runtime.Input
                     }
                 }
 
-                ScrollDeltaChanged(delta, suppress);
+                try
+                {
+                    ScrollDeltaChanged(delta, suppress);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "Mouse hook callback listener failed.");
+                }
+
                 if (suppress)
                 {
                     return (IntPtr)1;
@@ -108,6 +201,32 @@ namespace Porta.Agent.Runtime.Input
             }
 
             return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+        }
+
+        private void CleanupFailedInstallThread()
+        {
+            Thread? thread;
+            uint threadId;
+
+            lock (_gate)
+            {
+                thread = _hookThread;
+                threadId = _hookThreadId;
+            }
+
+            if (thread != null && threadId != 0)
+            {
+                NativeMethods.PostThreadMessage(threadId, Constants.WmQuit, UIntPtr.Zero, IntPtr.Zero);
+                thread.Join(500);
+            }
+
+            lock (_gate)
+            {
+                _hookThread = null;
+                _hookThreadId = 0;
+                _hookProc = null;
+                _hookId = IntPtr.Zero;
+            }
         }
 
         public void Dispose() => Uninstall();

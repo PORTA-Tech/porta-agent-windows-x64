@@ -20,10 +20,30 @@ internal sealed class KillSwitch
     {
         while (!token.IsCancellationRequested)
         {
-            if (File.Exists(_flagPath))
+            bool isTriggered;
+            try
+            {
+                isTriggered = File.Exists(_flagPath);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Kill switch probe failed.");
+                isTriggered = false;
+            }
+
+            if (isTriggered)
             {
                 TryDeleteFlag();
-                onTriggered();
+
+                try
+                {
+                    onTriggered();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "Kill switch callback failed.");
+                }
+
                 return;
             }
 

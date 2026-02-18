@@ -10,6 +10,15 @@ using Porta.Agent.Runtime.Input;
 
 namespace Porta.Agent.Runtime
 {
+    internal enum HostLifecycleState
+    {
+        Stopped = 0,
+        Starting = 1,
+        Running = 2,
+        Stopping = 3,
+        Faulted = 4
+    }
+
     internal sealed class ScrollProcessor
     {
         private ScrollEvent? _lastEvent;
@@ -49,7 +58,7 @@ namespace Porta.Agent.Runtime
         private Task? _processingTask;
         private Task? _metricsTask;
         private Task? _killSwitchTask;
-        private bool _running;
+        private int _lifecycleState = (int)HostLifecycleState.Stopped;
         private long _enqueuedEvents;
         private long _processedEvents;
         private long _droppedEvents;
@@ -61,7 +70,9 @@ namespace Porta.Agent.Runtime
         private int _suppressScrollInput;
         private int _actuationEnabled;
         private int _injectedThisWindow;
+        private int _stopRequested;
         private long _injectionWindowStartedTimestamp;
+        private long _processingErrors;
 
         public event Action? KillSwitchTriggered;
 
@@ -97,7 +108,7 @@ namespace Porta.Agent.Runtime
         private void OnScrollDelta(int delta, bool wasSuppressed)
         {
             var events = _events;
-            if (_running && events != null)
+            if (IsRunning && events != null)
             {
                 if (wasSuppressed)
                 {
@@ -122,31 +133,52 @@ namespace Porta.Agent.Runtime
 
         private async Task ProcessQueueAsync(ChannelReader<ScrollEvent> reader, CancellationToken token)
         {
-            while (await reader.WaitToReadAsync(token).ConfigureAwait(false))
+            try
             {
-                while (reader.TryRead(out var evt))
+                while (await reader.WaitToReadAsync(token).ConfigureAwait(false))
                 {
-                    _processor.Process(evt);
-
-                    if (evt.WasSuppressed && IsActuationEnabled)
+                    while (reader.TryRead(out var evt))
                     {
-                        int boundedDelta = SafetyLimits.ClampInjectionDelta(evt.Delta);
-                        if (SafetyLimits.IsInjectableDelta(boundedDelta) && TryConsumeInjectionBudget())
+                        try
                         {
-                            long targetTimestamp = _delayController.ComputeTargetTimestamp(evt.Timestamp);
-                            await _delayController.WaitUntilAsync(targetTimestamp, token).ConfigureAwait(false);
-                            _scrollInjector.InjectVerticalWheel(boundedDelta);
-                            Interlocked.Increment(ref _injectedEvents);
+                            _processor.Process(evt);
+
+                            if (evt.WasSuppressed && IsActuationEnabled)
+                            {
+                                int boundedDelta = SafetyLimits.ClampInjectionDelta(evt.Delta);
+                                if (SafetyLimits.IsInjectableDelta(boundedDelta) && TryConsumeInjectionBudget())
+                                {
+                                    long targetTimestamp = _delayController.ComputeTargetTimestamp(evt.Timestamp);
+                                    await _delayController.WaitUntilAsync(targetTimestamp, token).ConfigureAwait(false);
+                                    _scrollInjector.InjectVerticalWheel(boundedDelta);
+                                    Interlocked.Increment(ref _injectedEvents);
+                                }
+                                else
+                                {
+                                    Interlocked.Increment(ref _blockedBySafetyEvents);
+                                }
+                            }
                         }
-                        else
+                        catch (Exception ex)
                         {
-                            Interlocked.Increment(ref _blockedBySafetyEvents);
+                            Interlocked.Increment(ref _processingErrors);
+                            Logger.Error(ex, "Processing loop event failed.");
+                        }
+                        finally
+                        {
+                            Interlocked.Increment(ref _processedEvents);
+                            Interlocked.Decrement(ref _queueDepth);
                         }
                     }
-
-                    Interlocked.Increment(ref _processedEvents);
-                    Interlocked.Decrement(ref _queueDepth);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Increment(ref _processingErrors);
+                Logger.Error(ex, "Processing loop terminated unexpectedly.");
             }
         }
 
@@ -174,26 +206,49 @@ namespace Porta.Agent.Runtime
                 long injected = Interlocked.Read(ref _injectedEvents);
                 long blockedBySafety = Interlocked.Read(ref _blockedBySafetyEvents);
                 long blockedByFocus = Interlocked.Read(ref _blockedByFocusEvents);
+                long processingErrors = Interlocked.Read(ref _processingErrors);
                 int queueDepth = Interlocked.CompareExchange(ref _queueDepth, 0, 0);
                 double elapsedSeconds = Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001);
                 double eventsPerSecond = (processed - previousProcessed) / elapsedSeconds;
                 previousProcessed = processed;
                 stopwatch.Restart();
 
-                Console.WriteLine(
-                    $"[METRIC] ts={DateTimeOffset.UtcNow:O} enqueued={enqueued} processed={processed} dropped={dropped} suppressed={suppressed} injected={injected} blocked_by_safety={blockedBySafety} blocked_by_focus={blockedByFocus} queue_depth={queueDepth} eps={eventsPerSecond:F2}");
+                Logger.Event(
+                    "runtime_metrics",
+                    ("enqueued", enqueued),
+                    ("processed", processed),
+                    ("dropped", dropped),
+                    ("suppressed", suppressed),
+                    ("injected", injected),
+                    ("blocked_by_safety", blockedBySafety),
+                    ("blocked_by_focus", blockedByFocus),
+                    ("processing_errors", processingErrors),
+                    ("queue_depth", queueDepth),
+                    ("eps", eventsPerSecond.ToString("F2")));
+                Logger.Counter("queue_depth", queueDepth, ("state", LifecycleState.ToString()));
             }
         }
 
         public async Task StartAsync(CancellationToken token)
         {
+            CancellationTokenSource? lifecycleCts = null;
+            Channel<ScrollEvent>? events = null;
+
             lock (_gate)
             {
-                if (_running)
+                if (LifecycleState is HostLifecycleState.Running or HostLifecycleState.Starting)
                 {
+                    Logger.Event("lifecycle_transition_ignored", ("operation", "start"), ("state", LifecycleState.ToString()));
                     return;
                 }
 
+                if (LifecycleState == HostLifecycleState.Stopping)
+                {
+                    Logger.Warn("Start ignored while host is stopping.");
+                    return;
+                }
+
+                TransitionState(HostLifecycleState.Starting);
                 Logger.Info("AgentHost starting.");
                 Interlocked.Exchange(ref _enqueuedEvents, 0);
                 Interlocked.Exchange(ref _processedEvents, 0);
@@ -202,22 +257,62 @@ namespace Porta.Agent.Runtime
                 Interlocked.Exchange(ref _injectedEvents, 0);
                 Interlocked.Exchange(ref _blockedBySafetyEvents, 0);
                 Interlocked.Exchange(ref _blockedByFocusEvents, 0);
+                Interlocked.Exchange(ref _processingErrors, 0);
                 Interlocked.Exchange(ref _queueDepth, 0);
+                Interlocked.Exchange(ref _stopRequested, 0);
                 _injectedThisWindow = 0;
                 _injectionWindowStartedTimestamp = Stopwatch.GetTimestamp();
-                _events = Channel.CreateUnbounded<ScrollEvent>(
+                events = Channel.CreateUnbounded<ScrollEvent>(
                     new UnboundedChannelOptions
                     {
                         SingleReader = true,
                         SingleWriter = true
                     });
-                _lifecycleCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-                _mouseHook.Install();
-                _processingTask = ProcessQueueAsync(_events.Reader, _lifecycleCts.Token);
-                _metricsTask = ReportMetricsAsync(_lifecycleCts.Token);
-                _killSwitchTask = _killSwitch.MonitorAsync(_lifecycleCts.Token, OnKillSwitchTriggered);
-                _running = true;
-                Logger.Info(_killSwitch.DescribeTrigger());
+                lifecycleCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                _events = events;
+                _lifecycleCts = lifecycleCts;
+            }
+
+            try
+            {
+                if (!_mouseHook.Install())
+                {
+                    throw new InvalidOperationException("Mouse hook install failed after retries.");
+                }
+
+                lock (_gate)
+                {
+                    if (_lifecycleCts == null || _events == null)
+                    {
+                        throw new InvalidOperationException("Host resources were disposed during startup.");
+                    }
+
+                    _processingTask = ProcessQueueAsync(_events.Reader, _lifecycleCts.Token);
+                    _metricsTask = ReportMetricsAsync(_lifecycleCts.Token);
+                    _killSwitchTask = _killSwitch.MonitorAsync(_lifecycleCts.Token, OnKillSwitchTriggered);
+                    TransitionState(HostLifecycleState.Running);
+                    Logger.Event("lifecycle_transition", ("to", HostLifecycleState.Running.ToString()));
+                    Logger.Info(_killSwitch.DescribeTrigger());
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "AgentHost start failed.");
+                _mouseHook.Uninstall();
+                lifecycleCts?.Cancel();
+                lifecycleCts?.Dispose();
+
+                lock (_gate)
+                {
+                    _events = null;
+                    _lifecycleCts = null;
+                    _processingTask = null;
+                    _metricsTask = null;
+                    _killSwitchTask = null;
+                    TransitionState(HostLifecycleState.Faulted);
+                }
+
+                throw;
             }
 
             await Task.CompletedTask.ConfigureAwait(false);
@@ -230,17 +325,25 @@ namespace Porta.Agent.Runtime
             Task? killSwitchTask;
             CancellationTokenSource? lifecycleCts;
             Channel<ScrollEvent>? events;
+            HostLifecycleState stateAtStop;
 
             lock (_gate)
             {
-                if (!_running)
+                stateAtStop = LifecycleState;
+                if (stateAtStop == HostLifecycleState.Stopped)
                 {
+                    Logger.Event("lifecycle_transition_ignored", ("operation", "stop"), ("state", stateAtStop.ToString()));
                     return;
                 }
 
+                if (stateAtStop == HostLifecycleState.Stopping)
+                {
+                    Logger.Event("lifecycle_transition_ignored", ("operation", "stop"), ("state", stateAtStop.ToString()));
+                    return;
+                }
+
+                TransitionState(HostLifecycleState.Stopping);
                 Logger.Info("AgentHost stopping.");
-                _running = false;
-                _mouseHook.Uninstall();
 
                 events = _events;
                 processingTask = _processingTask;
@@ -254,55 +357,49 @@ namespace Porta.Agent.Runtime
                 _lifecycleCts = null;
             }
 
+            try
+            {
+                _mouseHook.Uninstall();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Mouse hook uninstall failed.");
+            }
+
             events?.Writer.TryComplete();
 
-            if (processingTask != null)
-            {
-                try
-                {
-                    await processingTask.ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                }
-            }
+            await SafeAwaitTask(processingTask, "processing task").ConfigureAwait(false);
 
-            if (lifecycleCts != null)
-            {
-                lifecycleCts.Cancel();
-            }
+            lifecycleCts?.Cancel();
 
-            if (metricsTask != null)
-            {
-                try
-                {
-                    await metricsTask.ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                }
-            }
-
-            if (killSwitchTask != null)
-            {
-                try
-                {
-                    await killSwitchTask.ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                }
-            }
+            await SafeAwaitTask(metricsTask, "metrics task").ConfigureAwait(false);
+            await SafeAwaitTask(killSwitchTask, "kill switch task").ConfigureAwait(false);
 
             lifecycleCts?.Dispose();
+
+            lock (_gate)
+            {
+                TransitionState(HostLifecycleState.Stopped);
+            }
+            Logger.Event("lifecycle_transition", ("to", HostLifecycleState.Stopped.ToString()));
             Logger.Info("AgentHost stopped.");
         }
 
         private void OnKillSwitchTriggered()
         {
             Logger.Warn("Kill switch triggered.");
-            _lifecycleCts?.Cancel();
-            KillSwitchTriggered?.Invoke();
+            RequestStop("kill_switch");
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await StopAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "StopAsync failed after kill switch trigger.");
+                }
+            });
         }
 
         private bool ShouldSuppressScroll(int _)
@@ -326,6 +423,59 @@ namespace Porta.Agent.Runtime
 
             _injectedThisWindow++;
             return true;
+        }
+
+        private void RequestStop(string reason)
+        {
+            if (Interlocked.Exchange(ref _stopRequested, 1) != 0)
+            {
+                return;
+            }
+
+            Logger.Event("stop_requested", ("reason", reason), ("state", LifecycleState.ToString()));
+            _lifecycleCts?.Cancel();
+            TryRaiseKillSwitchTriggered();
+        }
+
+        private void TryRaiseKillSwitchTriggered()
+        {
+            try
+            {
+                KillSwitchTriggered?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "KillSwitchTriggered handler failed.");
+            }
+        }
+
+        private async Task SafeAwaitTask(Task? task, string taskName)
+        {
+            if (task == null)
+            {
+                return;
+            }
+
+            try
+            {
+                await task.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, $"Error while awaiting {taskName}.");
+            }
+        }
+
+        private HostLifecycleState LifecycleState => (HostLifecycleState)Volatile.Read(ref _lifecycleState);
+
+        private bool IsRunning => LifecycleState == HostLifecycleState.Running;
+
+        private void TransitionState(HostLifecycleState state)
+        {
+            Volatile.Write(ref _lifecycleState, (int)state);
         }
 
         public void Start() => StartAsync(CancellationToken.None).GetAwaiter().GetResult();
