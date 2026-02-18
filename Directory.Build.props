@@ -2,5 +2,7 @@
   <PropertyGroup>
     <!-- Avoid local SDK workload resolver failures (MSB4276) breaking design-time reference resolution. -->
     <MSBuildEnableWorkloadResolver>false</MSBuildEnableWorkloadResolver>
+    <!-- Keep local/offline builds deterministic when nuget.org audit feed is unavailable. -->
+    <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
 </Project>
