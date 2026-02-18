@@ -1,10 +1,12 @@
 using System;
 using System.Diagnostics;
-using System.ServiceProcess;
 using System.Threading;
 using Porta.Agent.Runtime;
 
 namespace Porta.Agent.Service;
+
+#if WINDOWS
+using System.ServiceProcess;
 
 internal sealed class AgentService : ServiceBase
 {
@@ -129,3 +131,24 @@ internal sealed class AgentService : ServiceBase
         }
     }
 }
+#else
+internal sealed class AgentService : IDisposable
+{
+    private readonly AgentHost _agentHost = new();
+
+    public void StartForConsole()
+    {
+        _agentHost.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    public void StopForConsole()
+    {
+        _agentHost.StopAsync().GetAwaiter().GetResult();
+    }
+
+    public void Dispose()
+    {
+        _agentHost.Dispose();
+    }
+}
+#endif

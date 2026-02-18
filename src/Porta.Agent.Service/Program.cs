@@ -1,7 +1,9 @@
 using System;
-using System.ServiceProcess;
 using System.Threading;
 using Porta.Agent.Service;
+#if WINDOWS
+using System.ServiceProcess;
+#endif
 
 var service = new AgentService();
 
@@ -22,8 +24,13 @@ if (Environment.UserInteractive)
 }
 else
 {
+#if WINDOWS
     ServiceBase.Run(new ServiceBase[]
     {
         service
     });
+#else
+    service.StartForConsole();
+    Thread.Sleep(Timeout.Infinite);
+#endif
 }
