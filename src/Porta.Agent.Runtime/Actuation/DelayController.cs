@@ -15,6 +15,8 @@ internal sealed class DelayController
         _fixedDelayMs = Math.Clamp(fixedDelayMs, 0, SafetyLimits.MaxActuationDelayMs);
     }
 
+    public int FixedDelayMs => _fixedDelayMs;
+
     public long ComputeTargetTimestamp(long sourceTimestamp)
     {
         if (_fixedDelayMs == 0)

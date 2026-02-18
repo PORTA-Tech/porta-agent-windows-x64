@@ -3,10 +3,12 @@ using System.Diagnostics;
 using System.Threading.Channels;
 using System.Threading;
 using System.Threading.Tasks;
+using Porta.Agent.Common.Contracts;
 using Porta.Agent.Common.Control;
 using Porta.Agent.Runtime.Actuation;
 using Porta.Agent.Runtime.Diagnostics;
 using Porta.Agent.Runtime.Input;
+using Porta.Agent.Runtime.Transport;
 
 namespace Porta.Agent.Runtime
 {
@@ -51,13 +53,18 @@ namespace Porta.Agent.Runtime
         private readonly DelayController _delayController = new();
         private readonly ScrollInjector _scrollInjector = new();
         private readonly KillSwitch _killSwitch = new();
+        private readonly PortaClient _portaClient;
+        private readonly Heartbeat _heartbeat;
         private readonly object _gate = new();
 
         private Channel<ScrollEvent>? _events;
+        private Channel<AgentTelemetry>? _telemetry;
         private CancellationTokenSource? _lifecycleCts;
         private Task? _processingTask;
         private Task? _metricsTask;
         private Task? _killSwitchTask;
+        private Task? _telemetryTask;
+        private Task? _heartbeatTask;
         private int _lifecycleState = (int)HostLifecycleState.Stopped;
         private long _enqueuedEvents;
         private long _processedEvents;
@@ -73,6 +80,11 @@ namespace Porta.Agent.Runtime
         private int _stopRequested;
         private long _injectionWindowStartedTimestamp;
         private long _processingErrors;
+        private long _telemetryEnqueued;
+        private long _telemetrySent;
+        private long _telemetryDropped;
+        private long _telemetrySendFailures;
+        private int _telemetryQueueDepth;
 
         public event Action? KillSwitchTriggered;
 
@@ -80,6 +92,8 @@ namespace Porta.Agent.Runtime
         {
             _mouseHook = new MouseHook();
             _focusTracker = new FocusTracker(Environment.GetEnvironmentVariable("PORTA_TARGET_PROCESS"));
+            _portaClient = new PortaClient();
+            _heartbeat = new Heartbeat(_portaClient, BuildControlSnapshot, BuildAgentStatusSnapshot);
             _mouseHook.ScrollDeltaChanged += OnScrollDelta;
             _mouseHook.ShouldSuppressScroll = ShouldSuppressScroll;
             _injectionWindowStartedTimestamp = Stopwatch.GetTimestamp();
@@ -118,6 +132,15 @@ namespace Porta.Agent.Runtime
                 {
                     Interlocked.Increment(ref _blockedByFocusEvents);
                 }
+
+                EnqueueTelemetry(new AgentTelemetry
+                {
+                    AgentId = _portaClient.AgentId,
+                    TimestampUtc = DateTimeOffset.UtcNow,
+                    Kind = "scroll",
+                    Delta = delta,
+                    WasSuppressed = wasSuppressed
+                });
 
                 if (events.Writer.TryWrite(new ScrollEvent(Stopwatch.GetTimestamp(), delta, wasSuppressed)))
                 {
@@ -207,7 +230,12 @@ namespace Porta.Agent.Runtime
                 long blockedBySafety = Interlocked.Read(ref _blockedBySafetyEvents);
                 long blockedByFocus = Interlocked.Read(ref _blockedByFocusEvents);
                 long processingErrors = Interlocked.Read(ref _processingErrors);
+                long telemetryEnqueued = Interlocked.Read(ref _telemetryEnqueued);
+                long telemetrySent = Interlocked.Read(ref _telemetrySent);
+                long telemetryDropped = Interlocked.Read(ref _telemetryDropped);
+                long telemetrySendFailures = Interlocked.Read(ref _telemetrySendFailures);
                 int queueDepth = Interlocked.CompareExchange(ref _queueDepth, 0, 0);
+                int telemetryQueueDepth = Interlocked.CompareExchange(ref _telemetryQueueDepth, 0, 0);
                 double elapsedSeconds = Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001);
                 double eventsPerSecond = (processed - previousProcessed) / elapsedSeconds;
                 previousProcessed = processed;
@@ -224,8 +252,52 @@ namespace Porta.Agent.Runtime
                     ("blocked_by_focus", blockedByFocus),
                     ("processing_errors", processingErrors),
                     ("queue_depth", queueDepth),
+                    ("telemetry_enqueued", telemetryEnqueued),
+                    ("telemetry_sent", telemetrySent),
+                    ("telemetry_dropped", telemetryDropped),
+                    ("telemetry_send_failures", telemetrySendFailures),
+                    ("telemetry_queue_depth", telemetryQueueDepth),
                     ("eps", eventsPerSecond.ToString("F2")));
                 Logger.Counter("queue_depth", queueDepth, ("state", LifecycleState.ToString()));
+            }
+        }
+
+        private async Task ProcessTelemetryAsync(ChannelReader<AgentTelemetry> reader, CancellationToken token)
+        {
+            var batch = new List<AgentTelemetry>(64);
+            try
+            {
+                while (await reader.WaitToReadAsync(token).ConfigureAwait(false))
+                {
+                    batch.Clear();
+                    while (batch.Count < 64 && reader.TryRead(out var item))
+                    {
+                        batch.Add(item);
+                        Interlocked.Decrement(ref _telemetryQueueDepth);
+                    }
+
+                    if (batch.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    bool sent = await _portaClient.SendTelemetryBatchAsync(batch, token).ConfigureAwait(false);
+                    if (sent)
+                    {
+                        Interlocked.Add(ref _telemetrySent, batch.Count);
+                    }
+                    else
+                    {
+                        Interlocked.Add(ref _telemetrySendFailures, batch.Count);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Telemetry loop terminated unexpectedly.");
             }
         }
 
@@ -233,6 +305,7 @@ namespace Porta.Agent.Runtime
         {
             CancellationTokenSource? lifecycleCts = null;
             Channel<ScrollEvent>? events = null;
+            Channel<AgentTelemetry>? telemetry = null;
 
             lock (_gate)
             {
@@ -260,6 +333,11 @@ namespace Porta.Agent.Runtime
                 Interlocked.Exchange(ref _processingErrors, 0);
                 Interlocked.Exchange(ref _queueDepth, 0);
                 Interlocked.Exchange(ref _stopRequested, 0);
+                Interlocked.Exchange(ref _telemetryEnqueued, 0);
+                Interlocked.Exchange(ref _telemetrySent, 0);
+                Interlocked.Exchange(ref _telemetryDropped, 0);
+                Interlocked.Exchange(ref _telemetrySendFailures, 0);
+                Interlocked.Exchange(ref _telemetryQueueDepth, 0);
                 _injectedThisWindow = 0;
                 _injectionWindowStartedTimestamp = Stopwatch.GetTimestamp();
                 events = Channel.CreateUnbounded<ScrollEvent>(
@@ -268,8 +346,16 @@ namespace Porta.Agent.Runtime
                         SingleReader = true,
                         SingleWriter = true
                     });
+                telemetry = Channel.CreateBounded<AgentTelemetry>(
+                    new BoundedChannelOptions(1024)
+                    {
+                        SingleReader = true,
+                        SingleWriter = false,
+                        FullMode = BoundedChannelFullMode.DropOldest
+                    });
                 lifecycleCts = CancellationTokenSource.CreateLinkedTokenSource(token);
                 _events = events;
+                _telemetry = telemetry;
                 _lifecycleCts = lifecycleCts;
             }
 
@@ -280,9 +366,12 @@ namespace Porta.Agent.Runtime
                     throw new InvalidOperationException("Mouse hook install failed after retries.");
                 }
 
+                await _portaClient.StartAsync(lifecycleCts.Token).ConfigureAwait(false);
+                SendHeartbeatTransitionNoWait("starting");
+
                 lock (_gate)
                 {
-                    if (_lifecycleCts == null || _events == null)
+                    if (_lifecycleCts == null || _events == null || _telemetry == null)
                     {
                         throw new InvalidOperationException("Host resources were disposed during startup.");
                     }
@@ -290,25 +379,39 @@ namespace Porta.Agent.Runtime
                     _processingTask = ProcessQueueAsync(_events.Reader, _lifecycleCts.Token);
                     _metricsTask = ReportMetricsAsync(_lifecycleCts.Token);
                     _killSwitchTask = _killSwitch.MonitorAsync(_lifecycleCts.Token, OnKillSwitchTriggered);
+                    _telemetryTask = ProcessTelemetryAsync(_telemetry.Reader, _lifecycleCts.Token);
+                    _heartbeatTask = _heartbeat.RunAsync(_lifecycleCts.Token);
                     TransitionState(HostLifecycleState.Running);
                     Logger.Event("lifecycle_transition", ("to", HostLifecycleState.Running.ToString()));
                     Logger.Info(_killSwitch.DescribeTrigger());
                 }
+
+                SendHeartbeatTransitionNoWait("running");
             }
             catch (Exception ex)
             {
                 Logger.Error(ex, "AgentHost start failed.");
                 _mouseHook.Uninstall();
+                try
+                {
+                    await _portaClient.StopAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+                catch
+                {
+                }
                 lifecycleCts?.Cancel();
                 lifecycleCts?.Dispose();
 
                 lock (_gate)
                 {
                     _events = null;
+                    _telemetry = null;
                     _lifecycleCts = null;
                     _processingTask = null;
                     _metricsTask = null;
                     _killSwitchTask = null;
+                    _telemetryTask = null;
+                    _heartbeatTask = null;
                     TransitionState(HostLifecycleState.Faulted);
                 }
 
@@ -323,8 +426,11 @@ namespace Porta.Agent.Runtime
             Task? processingTask;
             Task? metricsTask;
             Task? killSwitchTask;
+            Task? telemetryTask;
+            Task? heartbeatTask;
             CancellationTokenSource? lifecycleCts;
             Channel<ScrollEvent>? events;
+            Channel<AgentTelemetry>? telemetry;
             HostLifecycleState stateAtStop;
 
             lock (_gate)
@@ -349,11 +455,17 @@ namespace Porta.Agent.Runtime
                 processingTask = _processingTask;
                 metricsTask = _metricsTask;
                 killSwitchTask = _killSwitchTask;
+                telemetryTask = _telemetryTask;
+                heartbeatTask = _heartbeatTask;
                 lifecycleCts = _lifecycleCts;
+                telemetry = _telemetry;
                 _events = null;
+                _telemetry = null;
                 _processingTask = null;
                 _metricsTask = null;
                 _killSwitchTask = null;
+                _telemetryTask = null;
+                _heartbeatTask = null;
                 _lifecycleCts = null;
             }
 
@@ -367,6 +479,7 @@ namespace Porta.Agent.Runtime
             }
 
             events?.Writer.TryComplete();
+            telemetry?.Writer.TryComplete();
 
             await SafeAwaitTask(processingTask, "processing task").ConfigureAwait(false);
 
@@ -374,6 +487,10 @@ namespace Porta.Agent.Runtime
 
             await SafeAwaitTask(metricsTask, "metrics task").ConfigureAwait(false);
             await SafeAwaitTask(killSwitchTask, "kill switch task").ConfigureAwait(false);
+            SendHeartbeatTransitionNoWait("stopping");
+            await SafeAwaitTask(telemetryTask, "telemetry task").ConfigureAwait(false);
+            await SafeAwaitTask(heartbeatTask, "heartbeat task").ConfigureAwait(false);
+            await _portaClient.StopAsync(CancellationToken.None).ConfigureAwait(false);
 
             lifecycleCts?.Dispose();
 
@@ -476,6 +593,63 @@ namespace Porta.Agent.Runtime
         private void TransitionState(HostLifecycleState state)
         {
             Volatile.Write(ref _lifecycleState, (int)state);
+        }
+
+        private AgentStatus BuildAgentStatusSnapshot()
+        {
+            return LifecycleState switch
+            {
+                HostLifecycleState.Starting => AgentStatus.Starting,
+                HostLifecycleState.Running => AgentStatus.Running,
+                HostLifecycleState.Stopping => AgentStatus.Stopping,
+                HostLifecycleState.Faulted => AgentStatus.Degraded,
+                _ => AgentStatus.Stopped
+            };
+        }
+
+        private ControlParameters BuildControlSnapshot()
+        {
+            return new ControlParameters
+            {
+                SuppressionEnabled = IsScrollSuppressionEnabled,
+                ActuationEnabled = IsActuationEnabled,
+                FixedDelayMs = _delayController.FixedDelayMs,
+                TargetProcess = _focusTracker.TargetProcessName
+            };
+        }
+
+        private void EnqueueTelemetry(AgentTelemetry telemetry)
+        {
+            var channel = _telemetry;
+            if (channel == null)
+            {
+                return;
+            }
+
+            if (channel.Writer.TryWrite(telemetry))
+            {
+                Interlocked.Increment(ref _telemetryEnqueued);
+                Interlocked.Increment(ref _telemetryQueueDepth);
+            }
+            else
+            {
+                Interlocked.Increment(ref _telemetryDropped);
+            }
+        }
+
+        private void SendHeartbeatTransitionNoWait(string note)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _heartbeat.SendTransitionAsync(note, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, $"Heartbeat transition '{note}' failed.");
+                }
+            });
         }
 
         public void Start() => StartAsync(CancellationToken.None).GetAwaiter().GetResult();
