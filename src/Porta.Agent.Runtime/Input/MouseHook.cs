@@ -12,7 +12,8 @@ namespace Porta.Agent.Runtime.Input
         private NativeMethods.LowLevelMouseProc? _hookProc;
         private readonly ManualResetEventSlim _installedSignal = new(false);
 
-        public event Action<int> ScrollDeltaChanged = delegate { };
+        public Func<int, bool>? ShouldSuppressScroll { get; set; }
+        public event Action<int, bool> ScrollDeltaChanged = delegate { };
 
         public void Install()
         {
@@ -75,9 +76,35 @@ namespace Porta.Agent.Runtime.Input
         {
             if (nCode >= 0 && (uint)wParam == Constants.WmMouseWheel)
             {
+                int extraInfoOffset = IntPtr.Size == 8 ? Constants.DwExtraInfoOffsetX64 : Constants.DwExtraInfoOffsetX86;
+                uint extraInfo = unchecked((uint)(nuint)System.Runtime.InteropServices.Marshal.ReadIntPtr(lParam, extraInfoOffset));
+                if (extraInfo == Constants.InjectedScrollSignature)
+                {
+                    return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+                }
+
                 int mouseData = System.Runtime.InteropServices.Marshal.ReadInt32(lParam, Constants.MouseDataOffset);
                 int delta = (short)(mouseData >> 16);
-                ScrollDeltaChanged(delta);
+                bool suppress = false;
+
+                var shouldSuppress = ShouldSuppressScroll;
+                if (shouldSuppress != null)
+                {
+                    try
+                    {
+                        suppress = shouldSuppress(delta);
+                    }
+                    catch
+                    {
+                        suppress = false;
+                    }
+                }
+
+                ScrollDeltaChanged(delta, suppress);
+                if (suppress)
+                {
+                    return (IntPtr)1;
+                }
             }
 
             return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);

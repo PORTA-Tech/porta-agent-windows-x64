@@ -30,6 +30,15 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern bool PostThreadMessage(uint idThread, uint msg, UIntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll")]
+    internal static extern void mouse_event(uint dwFlags, int dx, int dy, int dwData, UIntPtr dwExtraInfo);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
     [DllImport("kernel32.dll")]
     internal static extern uint GetCurrentThreadId();
 }

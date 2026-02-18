@@ -19,6 +19,8 @@ class Program
             stopCts.Cancel();
         };
 
+        host.SetScrollSuppression(enabled: false);
+        host.SetActuationEnabled(enabled: false);
         await host.StartAsync(stopCts.Token);
         Logger.Info("Scroll anywhere. Press Ctrl+C to exit.");
 

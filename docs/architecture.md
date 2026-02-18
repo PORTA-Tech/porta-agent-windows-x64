@@ -50,3 +50,19 @@
 
 ### Phase-1 verdict
 - PASS
+
+## Phase-2 completion (deterministic control path, local)
+
+- Date (UTC): 2026-02-18
+- Runtime validation summary:
+  - OFF profile: `dropped=0`, `queue_depth=0`, stable processing.
+  - ON profile: `suppressed=44`, `injected=44`, `dropped=0`, `queue_depth=0`, clean shutdown.
+  - Safety/focus blocks during run: `blocked_by_safety=0`, `blocked_by_focus=0`.
+- System observation summary:
+  - CPU remained low and stable during monitoring.
+  - Working set remained stable (about `130-133 MB`, no growth trend).
+- Subjective responsiveness:
+  - No noticeable lag/stutter, no UI freeze, normal responsiveness.
+
+### Phase-2 verdict
+- PASS

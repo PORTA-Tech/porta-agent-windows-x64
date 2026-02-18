@@ -7,4 +7,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Porta.Agent.Common\Porta.Agent.Common.csproj" />
+  </ItemGroup>
+
 </Project>

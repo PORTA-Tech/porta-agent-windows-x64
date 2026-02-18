@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.Threading.Channels;
 using System.Threading;
 using System.Threading.Tasks;
+using Porta.Agent.Common.Control;
+using Porta.Agent.Runtime.Actuation;
 using Porta.Agent.Runtime.Diagnostics;
 using Porta.Agent.Runtime.Input;
 
@@ -35,7 +37,10 @@ namespace Porta.Agent.Runtime
     public sealed class AgentHost : IDisposable
     {
         private readonly MouseHook _mouseHook;
+        private readonly FocusTracker _focusTracker;
         private readonly ScrollProcessor _processor = new();
+        private readonly DelayController _delayController = new();
+        private readonly ScrollInjector _scrollInjector = new();
         private readonly KillSwitch _killSwitch = new();
         private readonly object _gate = new();
 
@@ -48,22 +53,62 @@ namespace Porta.Agent.Runtime
         private long _enqueuedEvents;
         private long _processedEvents;
         private long _droppedEvents;
+        private long _suppressedEvents;
+        private long _injectedEvents;
+        private long _blockedBySafetyEvents;
+        private long _blockedByFocusEvents;
         private int _queueDepth;
+        private int _suppressScrollInput;
+        private int _actuationEnabled;
+        private int _injectedThisWindow;
+        private long _injectionWindowStartedTimestamp;
 
         public event Action? KillSwitchTriggered;
 
         public AgentHost()
         {
             _mouseHook = new MouseHook();
+            _focusTracker = new FocusTracker(Environment.GetEnvironmentVariable("PORTA_TARGET_PROCESS"));
             _mouseHook.ScrollDeltaChanged += OnScrollDelta;
+            _mouseHook.ShouldSuppressScroll = ShouldSuppressScroll;
+            _injectionWindowStartedTimestamp = Stopwatch.GetTimestamp();
+            Logger.Info(
+                _focusTracker.IsEnabled
+                    ? $"Focus tracking enabled for process '{_focusTracker.TargetProcessName}'."
+                    : "Focus tracking disabled (set PORTA_TARGET_PROCESS to enable).");
         }
 
-        private void OnScrollDelta(int delta)
+        public bool IsScrollSuppressionEnabled => Volatile.Read(ref _suppressScrollInput) == 1;
+
+        public void SetScrollSuppression(bool enabled)
+        {
+            Volatile.Write(ref _suppressScrollInput, enabled ? 1 : 0);
+            Logger.Info($"Scroll suppression {(enabled ? "enabled" : "disabled")}.");
+        }
+
+        public bool IsActuationEnabled => Volatile.Read(ref _actuationEnabled) == 1;
+
+        public void SetActuationEnabled(bool enabled)
+        {
+            Volatile.Write(ref _actuationEnabled, enabled ? 1 : 0);
+            Logger.Info($"Scroll actuation {(enabled ? "enabled" : "disabled")}.");
+        }
+
+        private void OnScrollDelta(int delta, bool wasSuppressed)
         {
             var events = _events;
             if (_running && events != null)
             {
-                if (events.Writer.TryWrite(new ScrollEvent(Stopwatch.GetTimestamp(), delta)))
+                if (wasSuppressed)
+                {
+                    Interlocked.Increment(ref _suppressedEvents);
+                }
+                else if (IsScrollSuppressionEnabled)
+                {
+                    Interlocked.Increment(ref _blockedByFocusEvents);
+                }
+
+                if (events.Writer.TryWrite(new ScrollEvent(Stopwatch.GetTimestamp(), delta, wasSuppressed)))
                 {
                     Interlocked.Increment(ref _enqueuedEvents);
                     Interlocked.Increment(ref _queueDepth);
@@ -82,6 +127,23 @@ namespace Porta.Agent.Runtime
                 while (reader.TryRead(out var evt))
                 {
                     _processor.Process(evt);
+
+                    if (evt.WasSuppressed && IsActuationEnabled)
+                    {
+                        int boundedDelta = SafetyLimits.ClampInjectionDelta(evt.Delta);
+                        if (SafetyLimits.IsInjectableDelta(boundedDelta) && TryConsumeInjectionBudget())
+                        {
+                            long targetTimestamp = _delayController.ComputeTargetTimestamp(evt.Timestamp);
+                            await _delayController.WaitUntilAsync(targetTimestamp, token).ConfigureAwait(false);
+                            _scrollInjector.InjectVerticalWheel(boundedDelta);
+                            Interlocked.Increment(ref _injectedEvents);
+                        }
+                        else
+                        {
+                            Interlocked.Increment(ref _blockedBySafetyEvents);
+                        }
+                    }
+
                     Interlocked.Increment(ref _processedEvents);
                     Interlocked.Decrement(ref _queueDepth);
                 }
@@ -108,6 +170,10 @@ namespace Porta.Agent.Runtime
                 long enqueued = Interlocked.Read(ref _enqueuedEvents);
                 long processed = Interlocked.Read(ref _processedEvents);
                 long dropped = Interlocked.Read(ref _droppedEvents);
+                long suppressed = Interlocked.Read(ref _suppressedEvents);
+                long injected = Interlocked.Read(ref _injectedEvents);
+                long blockedBySafety = Interlocked.Read(ref _blockedBySafetyEvents);
+                long blockedByFocus = Interlocked.Read(ref _blockedByFocusEvents);
                 int queueDepth = Interlocked.CompareExchange(ref _queueDepth, 0, 0);
                 double elapsedSeconds = Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001);
                 double eventsPerSecond = (processed - previousProcessed) / elapsedSeconds;
@@ -115,7 +181,7 @@ namespace Porta.Agent.Runtime
                 stopwatch.Restart();
 
                 Console.WriteLine(
-                    $"[METRIC] ts={DateTimeOffset.UtcNow:O} enqueued={enqueued} processed={processed} dropped={dropped} queue_depth={queueDepth} eps={eventsPerSecond:F2}");
+                    $"[METRIC] ts={DateTimeOffset.UtcNow:O} enqueued={enqueued} processed={processed} dropped={dropped} suppressed={suppressed} injected={injected} blocked_by_safety={blockedBySafety} blocked_by_focus={blockedByFocus} queue_depth={queueDepth} eps={eventsPerSecond:F2}");
             }
         }
 
@@ -132,7 +198,13 @@ namespace Porta.Agent.Runtime
                 Interlocked.Exchange(ref _enqueuedEvents, 0);
                 Interlocked.Exchange(ref _processedEvents, 0);
                 Interlocked.Exchange(ref _droppedEvents, 0);
+                Interlocked.Exchange(ref _suppressedEvents, 0);
+                Interlocked.Exchange(ref _injectedEvents, 0);
+                Interlocked.Exchange(ref _blockedBySafetyEvents, 0);
+                Interlocked.Exchange(ref _blockedByFocusEvents, 0);
                 Interlocked.Exchange(ref _queueDepth, 0);
+                _injectedThisWindow = 0;
+                _injectionWindowStartedTimestamp = Stopwatch.GetTimestamp();
                 _events = Channel.CreateUnbounded<ScrollEvent>(
                     new UnboundedChannelOptions
                     {
@@ -231,6 +303,29 @@ namespace Porta.Agent.Runtime
             Logger.Warn("Kill switch triggered.");
             _lifecycleCts?.Cancel();
             KillSwitchTriggered?.Invoke();
+        }
+
+        private bool ShouldSuppressScroll(int _)
+        {
+            return IsScrollSuppressionEnabled && _focusTracker.IsTargetInForeground();
+        }
+
+        private bool TryConsumeInjectionBudget()
+        {
+            long now = Stopwatch.GetTimestamp();
+            if (now - _injectionWindowStartedTimestamp >= Stopwatch.Frequency)
+            {
+                _injectionWindowStartedTimestamp = now;
+                _injectedThisWindow = 0;
+            }
+
+            if (_injectedThisWindow >= SafetyLimits.MaxInjectedEventsPerSecond)
+            {
+                return false;
+            }
+
+            _injectedThisWindow++;
+            return true;
         }
 
         public void Start() => StartAsync(CancellationToken.None).GetAwaiter().GetResult();
