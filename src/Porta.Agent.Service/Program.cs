@@ -1,36 +1,13 @@
-using System;
-using System.Threading;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Porta.Agent.Service;
-#if WINDOWS
-using System.ServiceProcess;
-#endif
 
-var service = new AgentService();
-
-if (Environment.UserInteractive)
+var builder = Host.CreateApplicationBuilder(args);
+builder.Services.AddHostedService<AgentService>();
+builder.Services.AddWindowsService(options =>
 {
-    Console.WriteLine("Starting PortaAgentService in console mode. Press Ctrl+C to stop.");
-    using var stopSignal = new ManualResetEventSlim(false);
+    options.ServiceName = "PortaAgentService";
+});
 
-    Console.CancelKeyPress += (_, e) =>
-    {
-        e.Cancel = true;
-        stopSignal.Set();
-    };
-
-    service.StartForConsole();
-    stopSignal.Wait();
-    service.StopForConsole();
-}
-else
-{
-#if WINDOWS
-    ServiceBase.Run(new ServiceBase[]
-    {
-        service
-    });
-#else
-    service.StartForConsole();
-    Thread.Sleep(Timeout.Infinite);
-#endif
-}
+using IHost host = builder.Build();
+await host.RunAsync().ConfigureAwait(false);
