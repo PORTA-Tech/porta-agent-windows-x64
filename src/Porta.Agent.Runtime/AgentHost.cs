@@ -47,7 +47,8 @@ namespace Porta.Agent.Runtime
         private readonly MouseHook _mouseHook;
         private readonly ScrollProcessor _processor = new();
         private readonly ConcurrentQueue<ScrollEvent> _queue = new();
-        private readonly Thread _worker;
+        private readonly Thread _workerThread;
+        private readonly Thread _messageLoopThread;
         private bool _running;
 
         public AgentHost()
@@ -55,9 +56,16 @@ namespace Porta.Agent.Runtime
             _mouseHook = new MouseHook();
             _mouseHook.ScrollDeltaChanged += OnScrollDelta;
 
-            _worker = new Thread(ProcessQueue)
+            _messageLoopThread = new Thread(RunMessageLoop)
             {
-                IsBackground = true
+                IsBackground = false,  // Keep app alive while this runs
+                Name = "MessageLoop"
+            };
+
+            _workerThread = new Thread(ProcessQueue)
+            {
+                IsBackground = true,
+                Name = "ScrollProcessor"
             };
         }
 
@@ -78,19 +86,35 @@ namespace Porta.Agent.Runtime
             }
         }
 
+        // Message loop thread - keeps windows messages pumping
+        private void RunMessageLoop()
+        {
+            while (_running)
+            {
+                // Sleep briefly to avoid 100% CPU
+                Thread.Sleep(10);
+            }
+        }
+
         public void Start()
         {
             Console.WriteLine("AgentHost starting...");
             _running = true;
+            
+            // Start message loop thread first
+            _messageLoopThread.Start();
+            System.Threading.Thread.Sleep(100);  // Give it time to start
+            
             _mouseHook.Install();
-            _worker.Start();
+            _workerThread.Start();
         }
 
         public void Stop()
         {
             Console.WriteLine("AgentHost stopping...");
             _running = false;
-            _worker.Join();
+            _workerThread.Join(2000);
+            _messageLoopThread.Join(2000);
             _mouseHook.Uninstall();
             Console.WriteLine("AgentHost stopped.");
         }

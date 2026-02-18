@@ -1,44 +1,40 @@
 using System;
-using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using Porta.Agent.Runtime;
 
 class Program
 {
-    [DllImport("user32.dll")]
-    private static extern bool GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MSG
-    {
-        public IntPtr hwnd;
-        public uint message;
-        public IntPtr wParam;
-        public IntPtr lParam;
-        public uint time;
-        public POINT pt;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct POINT { public int x; public int y; }
-
     static void Main()
     {
         using var host = new AgentHost();
-        host.Start();
-        Console.WriteLine("Scroll using mouse or trackpad. Press ESC to exit.");
+        using var stopSignal = new ManualResetEventSlim(false);
 
-        MSG msg;
-        while (true)
+        host.Start();
+
+        Console.WriteLine("AgentHost started. Press ESC to stop.");
+        if (Environment.UserInteractive && !Console.IsInputRedirected)
         {
-            while (GetMessage(out msg, IntPtr.Zero, 0, 0))
+            _ = Task.Run(() =>
             {
-                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
-                    goto exit;
-            }
+                while (!stopSignal.IsSet)
+                {
+                    try
+                    {
+                        if (Console.ReadKey(intercept: true).Key == ConsoleKey.Escape)
+                        {
+                            stopSignal.Set();
+                            break;
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        break;
+                    }
+                }
+            });
         }
 
-    exit:
-        host.Stop();
-        Console.WriteLine("AgentHost stopped.");
+        stopSignal.Wait();
     }
 }

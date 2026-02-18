@@ -4,11 +4,22 @@ using Porta.Agent.Runtime;
 
 class Program
 {
+    // Win32 imports
     [DllImport("user32.dll")]
-    private static extern bool GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+    private static extern sbyte GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [DllImport("user32.dll")]
+    private static extern bool TranslateMessage(ref MSG lpMsg);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr DispatchMessage(ref MSG lpMsg);
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct POINT { public int x; public int y; }
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct MSG
@@ -25,20 +36,23 @@ class Program
     {
         using var host = new AgentHost();
         host.Start();
-        Console.WriteLine("Scroll using mouse or trackpad. Press ESC to exit.");
+
+        Console.WriteLine("Scroll anywhere. Press ESC to exit.");
+        var canReadConsole = Environment.UserInteractive && !Console.IsInputRedirected;
 
         MSG msg;
-        while (true)
+
+        // Proper Windows message loop
+        while (GetMessage(out msg, IntPtr.Zero, 0, 0) != 0)
         {
-            while (GetMessage(out msg, IntPtr.Zero, 0, 0))
-            {
-                // exit on ESC key
-                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
-                    goto exit;
-            }
+            TranslateMessage(ref msg);
+            DispatchMessage(ref msg);
+
+            // Exit when ESC is pressed
+            if (canReadConsole && Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                break;
         }
 
-    exit:
         host.Stop();
         Console.WriteLine("AgentHost stopped.");
     }
