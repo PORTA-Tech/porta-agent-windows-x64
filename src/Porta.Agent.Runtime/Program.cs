@@ -23,8 +23,12 @@ class Program
 
         try
         {
-            host.SetScrollSuppression(enabled: false);
-            host.SetActuationEnabled(enabled: false);
+            bool suppressionEnabled = ReadBoolEnvironment("PORTA_SUPPRESSION_ENABLED", defaultValue: false);
+            bool actuationEnabled = ReadBoolEnvironment("PORTA_ACTUATION_ENABLED", defaultValue: false);
+            bool keyboardCaptureEnabled = ReadBoolEnvironment("PORTA_KEYBOARD_CAPTURE_ENABLED", defaultValue: true);
+            host.SetScrollSuppression(suppressionEnabled);
+            host.SetActuationEnabled(actuationEnabled);
+            host.SetKeyboardCapture(keyboardCaptureEnabled);
 
             if (cycleCount > 0)
             {
@@ -73,5 +77,19 @@ class Program
     {
         string? raw = Environment.GetEnvironmentVariable(key);
         return int.TryParse(raw, out int value) ? Math.Max(0, value) : 0;
+    }
+
+    private static bool ReadBoolEnvironment(string key, bool defaultValue)
+    {
+        string? raw = Environment.GetEnvironmentVariable(key);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return defaultValue;
+        }
+
+        return raw.Equals("1", StringComparison.OrdinalIgnoreCase)
+            || raw.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || raw.Equals("yes", StringComparison.OrdinalIgnoreCase)
+            || raw.Equals("on", StringComparison.OrdinalIgnoreCase);
     }
 }

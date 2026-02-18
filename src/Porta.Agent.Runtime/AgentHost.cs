@@ -48,6 +48,8 @@ namespace Porta.Agent.Runtime
     public sealed class AgentHost : IDisposable
     {
         private readonly MouseHook _mouseHook;
+        private readonly KeyboardHook _keyboardHook;
+        private readonly ForegroundHook _foregroundHook;
         private readonly FocusTracker _focusTracker;
         private readonly ScrollProcessor _processor = new();
         private readonly DelayController _delayController = new();
@@ -57,7 +59,7 @@ namespace Porta.Agent.Runtime
         private readonly Heartbeat _heartbeat;
         private readonly object _gate = new();
 
-        private Channel<ScrollEvent>? _events;
+        private Channel<RuntimeInputEvent>? _events;
         private Channel<AgentTelemetry>? _telemetry;
         private CancellationTokenSource? _lifecycleCts;
         private Task? _processingTask;
@@ -80,22 +82,34 @@ namespace Porta.Agent.Runtime
         private int _stopRequested;
         private long _injectionWindowStartedTimestamp;
         private long _processingErrors;
+        private long _keyboardEnqueuedEvents;
+        private long _keyboardProcessedEvents;
+        private long _keyboardDroppedEvents;
+        private long _keyboardInjectedEvents;
+        private long _focusEnqueuedEvents;
+        private long _focusProcessedEvents;
+        private long _focusDroppedEvents;
         private long _telemetryEnqueued;
         private long _telemetrySent;
         private long _telemetryDropped;
         private long _telemetrySendFailures;
         private int _telemetryQueueDepth;
+        private int _keyboardCaptureEnabled = 1;
 
         public event Action? KillSwitchTriggered;
 
         public AgentHost()
         {
             _mouseHook = new MouseHook();
+            _keyboardHook = new KeyboardHook();
+            _foregroundHook = new ForegroundHook();
             _focusTracker = new FocusTracker(Environment.GetEnvironmentVariable("PORTA_TARGET_PROCESS"));
             _portaClient = new PortaClient();
             _heartbeat = new Heartbeat(_portaClient, BuildControlSnapshot, BuildAgentStatusSnapshot);
             _mouseHook.ScrollDeltaChanged += OnScrollDelta;
             _mouseHook.ShouldSuppressScroll = ShouldSuppressScroll;
+            _keyboardHook.KeyChanged += OnKeyChanged;
+            _foregroundHook.ForegroundChanged += OnForegroundChanged;
             _injectionWindowStartedTimestamp = Stopwatch.GetTimestamp();
             Logger.Info(
                 _focusTracker.IsEnabled
@@ -117,6 +131,14 @@ namespace Porta.Agent.Runtime
         {
             Volatile.Write(ref _actuationEnabled, enabled ? 1 : 0);
             Logger.Info($"Scroll actuation {(enabled ? "enabled" : "disabled")}.");
+        }
+
+        public bool IsKeyboardCaptureEnabled => Volatile.Read(ref _keyboardCaptureEnabled) == 1;
+
+        public void SetKeyboardCapture(bool enabled)
+        {
+            Volatile.Write(ref _keyboardCaptureEnabled, enabled ? 1 : 0);
+            Logger.Info($"Keyboard capture {(enabled ? "enabled" : "disabled")}.");
         }
 
         private void OnScrollDelta(int delta, bool wasSuppressed)
@@ -142,7 +164,7 @@ namespace Porta.Agent.Runtime
                     WasSuppressed = wasSuppressed
                 });
 
-                if (events.Writer.TryWrite(new ScrollEvent(Stopwatch.GetTimestamp(), delta, wasSuppressed)))
+                if (events.Writer.TryWrite(RuntimeInputEvent.FromScroll(new ScrollEvent(Stopwatch.GetTimestamp(), delta, wasSuppressed))))
                 {
                     Interlocked.Increment(ref _enqueuedEvents);
                     Interlocked.Increment(ref _queueDepth);
@@ -154,7 +176,68 @@ namespace Porta.Agent.Runtime
             }
         }
 
-        private async Task ProcessQueueAsync(ChannelReader<ScrollEvent> reader, CancellationToken token)
+        private void OnKeyChanged(int virtualKey, bool isKeyDown, bool isInjected)
+        {
+            var events = _events;
+            if (!IsRunning || events == null)
+            {
+                return;
+            }
+
+            if (isInjected)
+            {
+                Interlocked.Increment(ref _keyboardInjectedEvents);
+            }
+
+            EnqueueTelemetry(new AgentTelemetry
+            {
+                AgentId = _portaClient.AgentId,
+                TimestampUtc = DateTimeOffset.UtcNow,
+                Kind = "keyboard",
+                Note = $"vk={virtualKey} down={isKeyDown} injected={isInjected}"
+            });
+
+            if (events.Writer.TryWrite(RuntimeInputEvent.FromKeyboard(new KeyboardEvent(Stopwatch.GetTimestamp(), virtualKey, isKeyDown, isInjected))))
+            {
+                Interlocked.Increment(ref _keyboardEnqueuedEvents);
+                Interlocked.Increment(ref _queueDepth);
+            }
+            else
+            {
+                Interlocked.Increment(ref _keyboardDroppedEvents);
+                Interlocked.Increment(ref _droppedEvents);
+            }
+        }
+
+        private void OnForegroundChanged(uint processId, IntPtr hwnd)
+        {
+            var events = _events;
+            if (!IsRunning || events == null)
+            {
+                return;
+            }
+
+            EnqueueTelemetry(new AgentTelemetry
+            {
+                AgentId = _portaClient.AgentId,
+                TimestampUtc = DateTimeOffset.UtcNow,
+                Kind = "focus",
+                Note = $"pid={processId} hwnd=0x{hwnd.ToInt64():X}"
+            });
+
+            if (events.Writer.TryWrite(RuntimeInputEvent.FromFocus(new FocusEvent(Stopwatch.GetTimestamp(), processId, hwnd))))
+            {
+                Interlocked.Increment(ref _focusEnqueuedEvents);
+                Interlocked.Increment(ref _queueDepth);
+            }
+            else
+            {
+                Interlocked.Increment(ref _focusDroppedEvents);
+                Interlocked.Increment(ref _droppedEvents);
+            }
+        }
+
+        private async Task ProcessQueueAsync(ChannelReader<RuntimeInputEvent> reader, CancellationToken token)
         {
             try
             {
@@ -164,22 +247,37 @@ namespace Porta.Agent.Runtime
                     {
                         try
                         {
-                            _processor.Process(evt);
-
-                            if (evt.WasSuppressed && IsActuationEnabled)
+                            if (evt.Kind == InputEventKind.Scroll)
                             {
-                                int boundedDelta = SafetyLimits.ClampInjectionDelta(evt.Delta);
-                                if (SafetyLimits.IsInjectableDelta(boundedDelta) && TryConsumeInjectionBudget())
+                                var scroll = evt.Scroll;
+                                _processor.Process(scroll);
+
+                                if (scroll.WasSuppressed && IsActuationEnabled)
                                 {
-                                    long targetTimestamp = _delayController.ComputeTargetTimestamp(evt.Timestamp);
-                                    await _delayController.WaitUntilAsync(targetTimestamp, token).ConfigureAwait(false);
-                                    _scrollInjector.InjectVerticalWheel(boundedDelta);
-                                    Interlocked.Increment(ref _injectedEvents);
+                                    int boundedDelta = SafetyLimits.ClampInjectionDelta(scroll.Delta);
+                                    if (SafetyLimits.IsInjectableDelta(boundedDelta) && TryConsumeInjectionBudget())
+                                    {
+                                        long targetTimestamp = _delayController.ComputeTargetTimestamp(scroll.Timestamp);
+                                        await _delayController.WaitUntilAsync(targetTimestamp, token).ConfigureAwait(false);
+                                        _scrollInjector.InjectVerticalWheel(boundedDelta);
+                                        Interlocked.Increment(ref _injectedEvents);
+                                    }
+                                    else
+                                    {
+                                        Interlocked.Increment(ref _blockedBySafetyEvents);
+                                    }
                                 }
-                                else
-                                {
-                                    Interlocked.Increment(ref _blockedBySafetyEvents);
-                                }
+
+                                Interlocked.Increment(ref _processedEvents);
+                            }
+                            else
+                            if (evt.Kind == InputEventKind.Keyboard)
+                            {
+                                Interlocked.Increment(ref _keyboardProcessedEvents);
+                            }
+                            else
+                            {
+                                Interlocked.Increment(ref _focusProcessedEvents);
                             }
                         }
                         catch (Exception ex)
@@ -189,7 +287,6 @@ namespace Porta.Agent.Runtime
                         }
                         finally
                         {
-                            Interlocked.Increment(ref _processedEvents);
                             Interlocked.Decrement(ref _queueDepth);
                         }
                     }
@@ -230,6 +327,13 @@ namespace Porta.Agent.Runtime
                 long blockedBySafety = Interlocked.Read(ref _blockedBySafetyEvents);
                 long blockedByFocus = Interlocked.Read(ref _blockedByFocusEvents);
                 long processingErrors = Interlocked.Read(ref _processingErrors);
+                long keyboardEnqueued = Interlocked.Read(ref _keyboardEnqueuedEvents);
+                long keyboardProcessed = Interlocked.Read(ref _keyboardProcessedEvents);
+                long keyboardDropped = Interlocked.Read(ref _keyboardDroppedEvents);
+                long keyboardInjected = Interlocked.Read(ref _keyboardInjectedEvents);
+                long focusEnqueued = Interlocked.Read(ref _focusEnqueuedEvents);
+                long focusProcessed = Interlocked.Read(ref _focusProcessedEvents);
+                long focusDropped = Interlocked.Read(ref _focusDroppedEvents);
                 long telemetryEnqueued = Interlocked.Read(ref _telemetryEnqueued);
                 long telemetrySent = Interlocked.Read(ref _telemetrySent);
                 long telemetryDropped = Interlocked.Read(ref _telemetryDropped);
@@ -251,6 +355,13 @@ namespace Porta.Agent.Runtime
                     ("blocked_by_safety", blockedBySafety),
                     ("blocked_by_focus", blockedByFocus),
                     ("processing_errors", processingErrors),
+                    ("keyboard_enqueued", keyboardEnqueued),
+                    ("keyboard_processed", keyboardProcessed),
+                    ("keyboard_dropped", keyboardDropped),
+                    ("keyboard_injected_seen", keyboardInjected),
+                    ("focus_enqueued", focusEnqueued),
+                    ("focus_processed", focusProcessed),
+                    ("focus_dropped", focusDropped),
                     ("queue_depth", queueDepth),
                     ("telemetry_enqueued", telemetryEnqueued),
                     ("telemetry_sent", telemetrySent),
@@ -304,7 +415,7 @@ namespace Porta.Agent.Runtime
         public async Task StartAsync(CancellationToken token)
         {
             CancellationTokenSource? lifecycleCts = null;
-            Channel<ScrollEvent>? events = null;
+            Channel<RuntimeInputEvent>? events = null;
             Channel<AgentTelemetry>? telemetry = null;
 
             lock (_gate)
@@ -331,6 +442,13 @@ namespace Porta.Agent.Runtime
                 Interlocked.Exchange(ref _blockedBySafetyEvents, 0);
                 Interlocked.Exchange(ref _blockedByFocusEvents, 0);
                 Interlocked.Exchange(ref _processingErrors, 0);
+                Interlocked.Exchange(ref _keyboardEnqueuedEvents, 0);
+                Interlocked.Exchange(ref _keyboardProcessedEvents, 0);
+                Interlocked.Exchange(ref _keyboardDroppedEvents, 0);
+                Interlocked.Exchange(ref _keyboardInjectedEvents, 0);
+                Interlocked.Exchange(ref _focusEnqueuedEvents, 0);
+                Interlocked.Exchange(ref _focusProcessedEvents, 0);
+                Interlocked.Exchange(ref _focusDroppedEvents, 0);
                 Interlocked.Exchange(ref _queueDepth, 0);
                 Interlocked.Exchange(ref _stopRequested, 0);
                 Interlocked.Exchange(ref _telemetryEnqueued, 0);
@@ -340,11 +458,11 @@ namespace Porta.Agent.Runtime
                 Interlocked.Exchange(ref _telemetryQueueDepth, 0);
                 _injectedThisWindow = 0;
                 _injectionWindowStartedTimestamp = Stopwatch.GetTimestamp();
-                events = Channel.CreateUnbounded<ScrollEvent>(
+                events = Channel.CreateUnbounded<RuntimeInputEvent>(
                     new UnboundedChannelOptions
                     {
                         SingleReader = true,
-                        SingleWriter = true
+                        SingleWriter = false
                     });
                 telemetry = Channel.CreateBounded<AgentTelemetry>(
                     new BoundedChannelOptions(1024)
@@ -364,6 +482,14 @@ namespace Porta.Agent.Runtime
                 if (!_mouseHook.Install())
                 {
                     throw new InvalidOperationException("Mouse hook install failed after retries.");
+                }
+                if (IsKeyboardCaptureEnabled && !_keyboardHook.Install())
+                {
+                    throw new InvalidOperationException("Keyboard hook install failed after retries.");
+                }
+                if (!_foregroundHook.Install())
+                {
+                    throw new InvalidOperationException("Foreground hook install failed after retries.");
                 }
 
                 await _portaClient.StartAsync(lifecycleCts.Token).ConfigureAwait(false);
@@ -391,6 +517,8 @@ namespace Porta.Agent.Runtime
             catch (Exception ex)
             {
                 Logger.Error(ex, "AgentHost start failed.");
+                _foregroundHook.Uninstall();
+                _keyboardHook.Uninstall();
                 _mouseHook.Uninstall();
                 try
                 {
@@ -429,7 +557,7 @@ namespace Porta.Agent.Runtime
             Task? telemetryTask;
             Task? heartbeatTask;
             CancellationTokenSource? lifecycleCts;
-            Channel<ScrollEvent>? events;
+            Channel<RuntimeInputEvent>? events;
             Channel<AgentTelemetry>? telemetry;
             HostLifecycleState stateAtStop;
 
@@ -471,11 +599,13 @@ namespace Porta.Agent.Runtime
 
             try
             {
+                _keyboardHook.Uninstall();
                 _mouseHook.Uninstall();
+                _foregroundHook.Uninstall();
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Mouse hook uninstall failed.");
+                Logger.Error(ex, "Input hook uninstall failed.");
             }
 
             events?.Writer.TryComplete();

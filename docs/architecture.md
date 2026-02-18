@@ -81,3 +81,66 @@ Defaults are explicitly locked in code paths:
 
 ## Build verification
 1. `dotnet build PORTA.Windows.sln -c Release -m:1` succeeded at `2026-02-18T12:45:13.5173553Z` (UTC).
+
+## Phase-7.1 Keyboard Capture (Capture-Only) Validation
+Date (UTC): 2026-02-18
+
+Configuration:
+- `PORTA_KEYBOARD_CAPTURE_ENABLED=1`
+- `PORTA_SUPPRESSION_ENABLED=0`
+- `PORTA_ACTUATION_ENABLED=0`
+
+Results:
+1. Run A
+- `utc_start`: `2026-02-18T13:08:54.5511464+00:00`
+- `utc_end`: `2026-02-18T13:10:20.0405545+00:00`
+- `duration_seconds`: `85.5`
+- `avg_cpu_pct`: `0.248`
+- `max_working_set_mb`: `84.55`
+- `max_queue_depth`: `1`
+- `max_dropped`: `0`
+- `metrics_samples`: `16`
+- `log_file`: `docs/soak-logs/keyboard_capture-20260218T130854Z.log`
+
+2. Run B
+- `utc_start`: `2026-02-18T15:02:05.3080475+00:00`
+- `utc_end`: `2026-02-18T15:10:20.0516462+00:00`
+- `duration_seconds`: `494.7`
+- `max_queue_depth`: `0`
+- `max_dropped`: `0`
+- `metrics_samples`: `87`
+- `log_file`: `docs/soak-logs/keyboard_capture-20260218T150202Z.log`
+
+Assessment:
+- Capture-only keyboard hook remained stable.
+- No dropped events observed.
+- Queue depth remained bounded.
+- Full 2-hour soak remains pending for strict closure.
+
+## Phase-7.2 Foreground / Focus Tracking Validation
+Date (UTC): 2026-02-18
+
+Configuration:
+- `PORTA_KEYBOARD_CAPTURE_ENABLED=1`
+- `PORTA_SUPPRESSION_ENABLED=0`
+- `PORTA_ACTUATION_ENABLED=0`
+- Foreground tracking via `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)`
+
+Short validation run:
+- `utc_start`: `2026-02-18T15:15:45.4083763+00:00`
+- `utc_end`: `2026-02-18T15:16:15.4897443+00:00`
+- `duration_seconds`: `30.1`
+- `focus_enqueued`: `1`
+- `focus_processed`: `1`
+- `focus_dropped`: `0`
+- `max_queue_depth`: `0`
+- `max_dropped`: `0`
+- `log_file`: `docs/soak-logs/focus_validation.log`
+
+Assessment:
+- Foreground/process change capture is integrated into the deterministic queue.
+- No suppression or injection behavior changes were introduced.
+- Focus event counters are emitted in `runtime_metrics` as:
+  - `focus_enqueued`
+  - `focus_processed`
+  - `focus_dropped`

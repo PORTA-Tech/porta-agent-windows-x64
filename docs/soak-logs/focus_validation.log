@@ -1,0 +1,25 @@
+[INFO] ts=2026-02-18T15:15:45.3488851+00:00 Focus tracking disabled (set PORTA_TARGET_PROCESS to enable).
+[INFO] ts=2026-02-18T15:15:45.3968567+00:00 Scroll suppression disabled.
+[INFO] ts=2026-02-18T15:15:45.3990200+00:00 Scroll actuation disabled.
+[INFO] ts=2026-02-18T15:15:45.4014203+00:00 Keyboard capture enabled.
+[INFO] ts=2026-02-18T15:15:45.4083763+00:00 AgentHost starting.
+[EVENT] ts=2026-02-18T15:15:45.4229480+00:00 name=mouse_hook_install_succeeded attempt=1
+[EVENT] ts=2026-02-18T15:15:45.4282136+00:00 name=keyboard_hook_install_succeeded attempt=1
+[EVENT] ts=2026-02-18T15:15:45.4331077+00:00 name=foreground_hook_install_succeeded attempt=1
+[EVENT] ts=2026-02-18T15:15:45.4608227+00:00 name=lifecycle_transition to=Running
+[INFO] ts=2026-02-18T15:15:45.4634334+00:00 Create file 'C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Runtime\bin\Release\net8.0-windows\porta-agent.kill' to request graceful shutdown.
+[INFO] ts=2026-02-18T15:15:45.4639397+00:00 Scroll anywhere. Press Ctrl+C to exit.
+[EVENT] ts=2026-02-18T15:15:50.4604729+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=0 keyboard_processed=0 keyboard_dropped=0 keyboard_injected_seen=0 focus_enqueued=1 focus_processed=1 focus_dropped=0 queue_depth=0 telemetry_enqueued=1 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=1 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T15:15:50.4618720+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T15:15:55.4667039+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=0 keyboard_processed=0 keyboard_dropped=0 keyboard_injected_seen=0 focus_enqueued=1 focus_processed=1 focus_dropped=0 queue_depth=0 telemetry_enqueued=1 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=1 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T15:15:55.4677487+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T15:16:00.4683667+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=0 keyboard_processed=0 keyboard_dropped=0 keyboard_injected_seen=0 focus_enqueued=1 focus_processed=1 focus_dropped=0 queue_depth=0 telemetry_enqueued=1 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=1 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T15:16:00.4797881+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T15:16:05.4856889+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=0 keyboard_processed=0 keyboard_dropped=0 keyboard_injected_seen=0 focus_enqueued=1 focus_processed=1 focus_dropped=0 queue_depth=0 telemetry_enqueued=1 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=1 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T15:16:05.4865536+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T15:16:10.4892957+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=0 keyboard_processed=0 keyboard_dropped=0 keyboard_injected_seen=0 focus_enqueued=1 focus_processed=1 focus_dropped=0 queue_depth=0 telemetry_enqueued=1 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=1 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T15:16:10.4905848+00:00 name=queue_depth value=0 state=Running
+[INFO] ts=2026-02-18T15:16:15.4806521+00:00 AgentHost stopping.
+[EVENT] ts=2026-02-18T15:16:15.4892613+00:00 name=lifecycle_transition to=Stopped
+[INFO] ts=2026-02-18T15:16:15.4897443+00:00 AgentHost stopped.
+[EVENT] ts=2026-02-18T15:16:15.4904563+00:00 name=lifecycle_transition_ignored operation=stop state=Stopped

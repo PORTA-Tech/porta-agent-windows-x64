@@ -1,0 +1,3 @@
+"scenario","utc_start","utc_end","duration_seconds","suppression_enabled","actuation_enabled","keyboard_capture_enabled","avg_cpu_pct","max_working_set_mb","max_queue_depth","max_dropped","metrics_samples","log_file","err_file"
+"phase7_keyboard_capture","2026-02-18T13:08:54.5511464+00:00","2026-02-18T13:10:20.0405545+00:00","85.5","False","False","True","0.248","84.55","1","0","16","docs\soak-logs\keyboard_capture-20260218T130854Z.log","docs\soak-logs\keyboard_capture-20260218T130854Z.err.log"
+"phase7_keyboard_capture","2026-02-18T15:02:05.3080475+00:00","2026-02-18T15:10:20.0516462+00:00","494.7","False","False","True","","","0","0","87","docs\soak-logs\keyboard_capture-20260218T150202Z.log","docs\soak-logs\keyboard_capture-20260218T150202Z.err.log"

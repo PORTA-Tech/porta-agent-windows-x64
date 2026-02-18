@@ -1,0 +1,138 @@
+[INFO] ts=2026-02-18T13:08:55.8704361+00:00 Focus tracking disabled (set PORTA_TARGET_PROCESS to enable).
+[INFO] ts=2026-02-18T13:08:55.8937982+00:00 Scroll suppression disabled.
+[INFO] ts=2026-02-18T13:08:55.8965087+00:00 Scroll actuation disabled.
+[INFO] ts=2026-02-18T13:08:55.8993291+00:00 Keyboard capture enabled.
+[INFO] ts=2026-02-18T13:08:55.9042522+00:00 AgentHost starting.
+[EVENT] ts=2026-02-18T13:08:55.9135224+00:00 name=mouse_hook_install_succeeded attempt=1
+[EVENT] ts=2026-02-18T13:08:55.9171789+00:00 name=keyboard_hook_install_succeeded attempt=1
+[EVENT] ts=2026-02-18T13:08:55.9322225+00:00 name=lifecycle_transition to=Running
+[INFO] ts=2026-02-18T13:08:55.9324901+00:00 Create file 'C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Runtime\bin\Release\net8.0-windows\porta-agent.kill' to request graceful shutdown.
+[INFO] ts=2026-02-18T13:08:55.9326587+00:00 Scroll anywhere. Press Ctrl+C to exit.
+[EVENT] ts=2026-02-18T13:09:00.9413341+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=21 keyboard_processed=21 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=21 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=21 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:09:00.9440915+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:09:05.9553078+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=52 keyboard_processed=52 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=52 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=52 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:09:05.9584788+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:09:10.9706479+00:00 name=runtime_metrics enqueued=0 processed=0 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=52 keyboard_processed=52 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=52 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=52 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:09:10.9715076+00:00 name=queue_depth value=0 state=Running
+Scroll delta: 123, velocity: 123.00, timestamp: 2589671157894
+Scroll delta: 50, velocity: 12559.34, timestamp: 2589671197705
+Scroll delta: 32, velocity: 4078.10, timestamp: 2589671276173
+Scroll delta: 37, velocity: 5549.72, timestamp: 2589671342843
+Scroll delta: 38, velocity: 4695.30, timestamp: 2589671423775
+Scroll delta: 44, velocity: 6678.20, timestamp: 2589671489661
+Scroll delta: 31, velocity: 4411.81, timestamp: 2589671559927
+Scroll delta: 35, velocity: 4855.04, timestamp: 2589671632017
+Scroll delta: 37, velocity: 5175.84, timestamp: 2589671703503
+Scroll delta: 28, velocity: 3756.17, timestamp: 2589671778047
+Scroll delta: 30, velocity: 4749.54, timestamp: 2589671841211
+Scroll delta: 23, velocity: 3001.20, timestamp: 2589671917847
+Scroll delta: 25, velocity: 3976.52, timestamp: 2589671980716
+Scroll delta: 6, velocity: 748.24, timestamp: 2589672060904
+Scroll delta: 3, velocity: 486.34, timestamp: 2589672122589
+Scroll delta: 60, velocity: 2174.22, timestamp: 2589672398550
+Scroll delta: 35, velocity: 2092.89, timestamp: 2589672565783
+Scroll delta: 28, velocity: 1637.06, timestamp: 2589672736821
+Scroll delta: 24, velocity: 1383.59, timestamp: 2589672910283
+Scroll delta: 16, velocity: 1046.67, timestamp: 2589673063149
+Scroll delta: 15, velocity: 706.59, timestamp: 2589673275435
+Scroll delta: 9, velocity: 495.47, timestamp: 2589673457082
+Scroll delta: 3, velocity: 248.67, timestamp: 2589673577723
+Scroll delta: 2, velocity: 119.35, timestamp: 2589673745295
+Scroll delta: -102, velocity: -620.07, timestamp: 2589675390262
+Scroll delta: -39, velocity: -5433.19, timestamp: 2589675462043
+Scroll delta: -41, velocity: -5686.63, timestamp: 2589675534142
+Scroll delta: -42, velocity: -6162.88, timestamp: 2589675602292
+Scroll delta: -39, velocity: -5903.99, timestamp: 2589675668349
+Scroll delta: -47, velocity: -6649.31, timestamp: 2589675739033
+Scroll delta: -41, velocity: -4970.18, timestamp: 2589675821525
+Scroll delta: -35, velocity: -4932.22, timestamp: 2589675892487
+Scroll delta: -35, velocity: -5349.56, timestamp: 2589675957913
+Scroll delta: -39, velocity: -5343.42, timestamp: 2589676030900
+Scroll delta: -25, velocity: -3622.19, timestamp: 2589676099919
+Scroll delta: -29, velocity: -4098.19, timestamp: 2589676170682
+Scroll delta: -23, velocity: -2864.33, timestamp: 2589676250980
+Scroll delta: -17, velocity: -2520.68, timestamp: 2589676318422
+Scroll delta: -4, velocity: -630.16, timestamp: 2589676381898
+Scroll delta: -71, velocity: -1964.28, timestamp: 2589676743353
+Scroll delta: -32, velocity: -1806.09, timestamp: 2589676920531
+Scroll delta: -23, velocity: -1391.34, timestamp: 2589677085839
+Scroll delta: -20, velocity: -1117.44, timestamp: 2589677264819
+Scroll delta: -13, velocity: -753.38, timestamp: 2589677437374
+Scroll delta: -9, velocity: -575.61, timestamp: 2589677593731
+Scroll delta: -6, velocity: -382.97, timestamp: 2589677750403
+Scroll delta: -2, velocity: -125.38, timestamp: 2589677909920
+Scroll delta: 73, velocity: 455.99, timestamp: 2589679510825
+Scroll delta: 12, velocity: 1746.65, timestamp: 2589679579528
+Scroll delta: 22, velocity: 3355.65, timestamp: 2589679645089
+Scroll delta: 15, velocity: 2094.21, timestamp: 2589679716715
+Scroll delta: 29, velocity: 3953.05, timestamp: 2589679790076
+Scroll delta: 28, velocity: 3565.79, timestamp: 2589679868600
+Scroll delta: 26, velocity: 4116.59, timestamp: 2589679931759
+Scroll delta: 36, velocity: 4945.60, timestamp: 2589680004551
+Scroll delta: 36, velocity: 5360.81, timestamp: 2589680071705
+Scroll delta: 31, velocity: 3869.82, timestamp: 2589680151812
+Scroll delta: 25, velocity: 3540.73, timestamp: 2589680222419
+Scroll delta: 34, velocity: 6143.39, timestamp: 2589680277763
+Scroll delta: 31, velocity: 3816.89, timestamp: 2589680358981
+Scroll delta: 25, velocity: 3365.69, timestamp: 2589680433260
+Scroll delta: 20, velocity: 2674.40, timestamp: 2589680508043
+Scroll delta: 22, velocity: 3564.77, timestamp: 2589680569758
+Scroll delta: 11, velocity: 1425.54, timestamp: 2589680646922
+Scroll delta: 4, velocity: 583.23, timestamp: 2589680715505
+Scroll delta: 75, velocity: 2036.43, timestamp: 2589681083797
+Scroll delta: 28, velocity: 1820.66, timestamp: 2589681237587
+Scroll delta: 24, velocity: 1551.33, timestamp: 2589681392293
+Scroll delta: 20, velocity: 993.93, timestamp: 2589681593514
+Scroll delta: 13, velocity: 921.44, timestamp: 2589681734598
+Scroll delta: 9, velocity: 529.07, timestamp: 2589681904707
+Scroll delta: 6, velocity: 353.37, timestamp: 2589682074500
+Scroll delta: 3, velocity: 187.86, timestamp: 2589682234194
+Scroll delta: 1, velocity: 51.51, timestamp: 2589682428325
+Scroll delta: 86, velocity: 53.62, timestamp: 2589698468329
+Scroll delta: 30, velocity: 4001.87, timestamp: 2589698543294
+Scroll delta: 28, velocity: 4245.00, timestamp: 2589698609254
+Scroll delta: 36, velocity: 4535.09, timestamp: 2589698688635
+Scroll delta: 25, velocity: 2768.70, timestamp: 2589698778930
+Scroll delta: 31, velocity: 11172.38, timestamp: 2589698806677
+Scroll delta: 35, velocity: 4517.53, timestamp: 2589698884153
+Scroll delta: 37, velocity: 4857.11, timestamp: 2589698960330
+Scroll delta: 31, velocity: 4408.17, timestamp: 2589699030654
+Scroll delta: 32, velocity: 5005.55, timestamp: 2589699094583
+Scroll delta: 24, velocity: 3155.82, timestamp: 2589699170633
+Scroll delta: 20, velocity: 2728.33, timestamp: 2589699243938
+Scroll delta: 8, velocity: 1330.74, timestamp: 2589699304055
+Scroll delta: 69, velocity: 1612.20, timestamp: 2589699732042
+Scroll delta: 34, velocity: 1942.46, timestamp: 2589699907078
+Scroll delta: 26, velocity: 1518.81, timestamp: 2589700078265
+[EVENT] ts=2026-02-18T13:09:15.9720406+00:00 name=runtime_metrics enqueued=90 processed=89 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=52 keyboard_processed=52 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=1 telemetry_enqueued=142 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=142 telemetry_queue_depth=0 eps=17.80
+[COUNTER] ts=2026-02-18T13:09:15.9746105+00:00 name=queue_depth value=1 state=Running
+Scroll delta: 19, velocity: 985.66, timestamp: 2589700271030
+Scroll delta: 12, velocity: 786.01, timestamp: 2589700423699
+Scroll delta: 10, velocity: 651.90, timestamp: 2589700577096
+Scroll delta: 5, velocity: 322.75, timestamp: 2589700732014
+Scroll delta: 3, velocity: 171.98, timestamp: 2589700906450
+Scroll delta: 1, velocity: 58.69, timestamp: 2589701076833
+[EVENT] ts=2026-02-18T13:09:20.9882375+00:00 name=runtime_metrics enqueued=96 processed=96 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=52 keyboard_processed=52 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=148 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=148 telemetry_queue_depth=0 eps=1.40
+[COUNTER] ts=2026-02-18T13:09:21.0010144+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:09:26.0037447+00:00 name=runtime_metrics enqueued=96 processed=96 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=84 keyboard_processed=84 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=180 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=180 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:09:26.0158068+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:09:31.0198305+00:00 name=runtime_metrics enqueued=96 processed=96 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=154 keyboard_processed=154 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=250 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=250 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:09:31.0699958+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:09:36.0770219+00:00 name=runtime_metrics enqueued=96 processed=96 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=154 keyboard_processed=154 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=250 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=250 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:09:36.0785382+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:09:41.0846587+00:00 name=runtime_metrics enqueued=96 processed=96 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=154 keyboard_processed=154 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=250 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=250 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:09:41.0956938+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:09:46.0984714+00:00 name=runtime_metrics enqueued=96 processed=96 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=154 keyboard_processed=154 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=250 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=250 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:09:46.0990887+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:09:51.0993057+00:00 name=runtime_metrics enqueued=96 processed=96 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=164 keyboard_processed=164 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=260 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=260 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:09:51.1003214+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:09:56.1225750+00:00 name=runtime_metrics enqueued=96 processed=96 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=198 keyboard_processed=198 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=294 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=294 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:09:56.1233519+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:10:01.1306949+00:00 name=runtime_metrics enqueued=96 processed=96 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=225 keyboard_processed=225 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=321 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=321 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:10:01.1314016+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:10:06.1444649+00:00 name=runtime_metrics enqueued=96 processed=96 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=225 keyboard_processed=225 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=321 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=321 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:10:06.1451471+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:10:11.1591893+00:00 name=runtime_metrics enqueued=96 processed=96 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=225 keyboard_processed=225 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=321 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=321 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:10:11.1610116+00:00 name=queue_depth value=0 state=Running
+[EVENT] ts=2026-02-18T13:10:16.1644472+00:00 name=runtime_metrics enqueued=96 processed=96 dropped=0 suppressed=0 injected=0 blocked_by_safety=0 blocked_by_focus=0 processing_errors=0 keyboard_enqueued=239 keyboard_processed=239 keyboard_dropped=0 keyboard_injected_seen=0 queue_depth=0 telemetry_enqueued=335 telemetry_sent=0 telemetry_dropped=0 telemetry_send_failures=335 telemetry_queue_depth=0 eps=0.00
+[COUNTER] ts=2026-02-18T13:10:16.1667687+00:00 name=queue_depth value=0 state=Running
