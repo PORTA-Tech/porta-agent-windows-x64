@@ -1,70 +1,35 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Porta.Agent.Runtime;
+namespace Porta.Agent.Runtime.Win32;
 
 internal static class NativeMethods
 {
-    // Mouse hook constants
-    public const int WH_MOUSE_LL = 14;
-    public const int WM_MOUSEWHEEL = 0x020A;
+    internal delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
 
-    // Delegate for low-level mouse hook
-    public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct MSLLHOOKSTRUCT
-    {
-        public POINT pt;
-        public int mouseData;
-        public int flags;
-        public int time;
-        public IntPtr dwExtraInfo;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct POINT
-    {
-        public int X;
-        public int Y;
-    }
-
-    // Hook functions
     [DllImport("user32.dll", SetLastError = true)]
-    public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+    internal static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool UnhookWindowsHookEx(IntPtr hhk);
+    internal static extern bool UnhookWindowsHookEx(IntPtr hhk);
 
     [DllImport("user32.dll")]
-    public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-
-    // Message loop structures
-    [StructLayout(LayoutKind.Sequential)]
-    public struct MSG
-    {
-        public IntPtr hwnd;
-        public uint message;
-        public UIntPtr wParam;
-        public IntPtr lParam;
-        public uint time;
-        public POINT pt;
-        public uint lPrivate;
-    }
+    internal static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+    internal static extern bool GetMessage(out Message lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
 
     [DllImport("user32.dll")]
-    public static extern bool TranslateMessage([In] ref MSG lpMsg);
+    internal static extern bool TranslateMessage([In] ref Message lpMsg);
 
     [DllImport("user32.dll")]
-    public static extern IntPtr DispatchMessage([In] ref MSG lpMsg);
+    internal static extern IntPtr DispatchMessage([In] ref Message lpMsg);
 
     [DllImport("user32.dll")]
-    public static extern bool PostThreadMessage(uint idThread, uint Msg, UIntPtr wParam, IntPtr lParam);
+    internal static extern bool PostThreadMessage(uint idThread, uint msg, UIntPtr wParam, IntPtr lParam);
 
-    public const uint WM_QUIT = 0x0012;
+    [DllImport("kernel32.dll")]
+    internal static extern uint GetCurrentThreadId();
 }

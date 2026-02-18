@@ -1,24 +1,14 @@
 using System;
-using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Threading.Channels;
 using System.Threading;
+using System.Threading.Tasks;
+using Porta.Agent.Runtime.Diagnostics;
 using Porta.Agent.Runtime.Input;
 
 namespace Porta.Agent.Runtime
 {
-    public class ScrollEvent
-    {
-        public int Delta { get; }
-        public long Timestamp { get; }
-
-        public ScrollEvent(int delta, long timestamp)
-        {
-            Delta = delta;
-            Timestamp = timestamp;
-        }
-    }
-
-    public class ScrollProcessor
+    internal sealed class ScrollProcessor
     {
         private ScrollEvent? _lastEvent;
 
@@ -28,7 +18,7 @@ namespace Porta.Agent.Runtime
 
             if (_lastEvent != null)
             {
-                double deltaTime = (evt.Timestamp - _lastEvent.Timestamp) / (double)Stopwatch.Frequency;
+                double deltaTime = (evt.Timestamp - _lastEvent.Value.Timestamp) / (double)Stopwatch.Frequency;
                 if (deltaTime > 0)
                     velocity = evt.Delta / deltaTime;
             }
@@ -42,83 +32,209 @@ namespace Porta.Agent.Runtime
         }
     }
 
-    public class AgentHost : IDisposable
+    public sealed class AgentHost : IDisposable
     {
         private readonly MouseHook _mouseHook;
         private readonly ScrollProcessor _processor = new();
-        private readonly ConcurrentQueue<ScrollEvent> _queue = new();
-        private readonly Thread _workerThread;
-        private readonly Thread _messageLoopThread;
+        private readonly KillSwitch _killSwitch = new();
+        private readonly object _gate = new();
+
+        private Channel<ScrollEvent>? _events;
+        private CancellationTokenSource? _lifecycleCts;
+        private Task? _processingTask;
+        private Task? _metricsTask;
+        private Task? _killSwitchTask;
         private bool _running;
+        private long _enqueuedEvents;
+        private long _processedEvents;
+        private long _droppedEvents;
+        private int _queueDepth;
+
+        public event Action? KillSwitchTriggered;
 
         public AgentHost()
         {
             _mouseHook = new MouseHook();
             _mouseHook.ScrollDeltaChanged += OnScrollDelta;
-
-            _messageLoopThread = new Thread(RunMessageLoop)
-            {
-                IsBackground = false,  // Keep app alive while this runs
-                Name = "MessageLoop"
-            };
-
-            _workerThread = new Thread(ProcessQueue)
-            {
-                IsBackground = true,
-                Name = "ScrollProcessor"
-            };
         }
 
         private void OnScrollDelta(int delta)
         {
-            _queue.Enqueue(new ScrollEvent(delta, Stopwatch.GetTimestamp()));
+            var events = _events;
+            if (_running && events != null)
+            {
+                if (events.Writer.TryWrite(new ScrollEvent(Stopwatch.GetTimestamp(), delta)))
+                {
+                    Interlocked.Increment(ref _enqueuedEvents);
+                    Interlocked.Increment(ref _queueDepth);
+                }
+                else
+                {
+                    Interlocked.Increment(ref _droppedEvents);
+                }
+            }
         }
 
-        private void ProcessQueue()
+        private async Task ProcessQueueAsync(ChannelReader<ScrollEvent> reader, CancellationToken token)
         {
-            while (_running)
+            while (await reader.WaitToReadAsync(token).ConfigureAwait(false))
             {
-                while (_queue.TryDequeue(out var evt))
+                while (reader.TryRead(out var evt))
                 {
                     _processor.Process(evt);
+                    Interlocked.Increment(ref _processedEvents);
+                    Interlocked.Decrement(ref _queueDepth);
                 }
-                Thread.Sleep(1); // prevent CPU spinning
             }
         }
 
-        // Message loop thread - keeps windows messages pumping
-        private void RunMessageLoop()
+        private async Task ReportMetricsAsync(CancellationToken token)
         {
-            while (_running)
+            const int reportIntervalMs = 5000;
+            long previousProcessed = 0;
+            var stopwatch = Stopwatch.StartNew();
+
+            while (!token.IsCancellationRequested)
             {
-                // Sleep briefly to avoid 100% CPU
-                Thread.Sleep(10);
+                try
+                {
+                    await Task.Delay(reportIntervalMs, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                long enqueued = Interlocked.Read(ref _enqueuedEvents);
+                long processed = Interlocked.Read(ref _processedEvents);
+                long dropped = Interlocked.Read(ref _droppedEvents);
+                int queueDepth = Interlocked.CompareExchange(ref _queueDepth, 0, 0);
+                double elapsedSeconds = Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001);
+                double eventsPerSecond = (processed - previousProcessed) / elapsedSeconds;
+                previousProcessed = processed;
+                stopwatch.Restart();
+
+                Console.WriteLine(
+                    $"[METRIC] ts={DateTimeOffset.UtcNow:O} enqueued={enqueued} processed={processed} dropped={dropped} queue_depth={queueDepth} eps={eventsPerSecond:F2}");
             }
         }
 
-        public void Start()
+        public async Task StartAsync(CancellationToken token)
         {
-            Console.WriteLine("AgentHost starting...");
-            _running = true;
-            
-            // Start message loop thread first
-            _messageLoopThread.Start();
-            System.Threading.Thread.Sleep(100);  // Give it time to start
-            
-            _mouseHook.Install();
-            _workerThread.Start();
+            lock (_gate)
+            {
+                if (_running)
+                {
+                    return;
+                }
+
+                Logger.Info("AgentHost starting.");
+                Interlocked.Exchange(ref _enqueuedEvents, 0);
+                Interlocked.Exchange(ref _processedEvents, 0);
+                Interlocked.Exchange(ref _droppedEvents, 0);
+                Interlocked.Exchange(ref _queueDepth, 0);
+                _events = Channel.CreateUnbounded<ScrollEvent>(
+                    new UnboundedChannelOptions
+                    {
+                        SingleReader = true,
+                        SingleWriter = true
+                    });
+                _lifecycleCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                _mouseHook.Install();
+                _processingTask = ProcessQueueAsync(_events.Reader, _lifecycleCts.Token);
+                _metricsTask = ReportMetricsAsync(_lifecycleCts.Token);
+                _killSwitchTask = _killSwitch.MonitorAsync(_lifecycleCts.Token, OnKillSwitchTriggered);
+                _running = true;
+                Logger.Info(_killSwitch.DescribeTrigger());
+            }
+
+            await Task.CompletedTask.ConfigureAwait(false);
         }
 
-        public void Stop()
+        public async Task StopAsync()
         {
-            Console.WriteLine("AgentHost stopping...");
-            _running = false;
-            _workerThread.Join(2000);
-            _messageLoopThread.Join(2000);
-            _mouseHook.Uninstall();
-            Console.WriteLine("AgentHost stopped.");
+            Task? processingTask;
+            Task? metricsTask;
+            Task? killSwitchTask;
+            CancellationTokenSource? lifecycleCts;
+            Channel<ScrollEvent>? events;
+
+            lock (_gate)
+            {
+                if (!_running)
+                {
+                    return;
+                }
+
+                Logger.Info("AgentHost stopping.");
+                _running = false;
+                _mouseHook.Uninstall();
+
+                events = _events;
+                processingTask = _processingTask;
+                metricsTask = _metricsTask;
+                killSwitchTask = _killSwitchTask;
+                lifecycleCts = _lifecycleCts;
+                _events = null;
+                _processingTask = null;
+                _metricsTask = null;
+                _killSwitchTask = null;
+                _lifecycleCts = null;
+            }
+
+            events?.Writer.TryComplete();
+
+            if (processingTask != null)
+            {
+                try
+                {
+                    await processingTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+
+            if (lifecycleCts != null)
+            {
+                lifecycleCts.Cancel();
+            }
+
+            if (metricsTask != null)
+            {
+                try
+                {
+                    await metricsTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+
+            if (killSwitchTask != null)
+            {
+                try
+                {
+                    await killSwitchTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+
+            lifecycleCts?.Dispose();
+            Logger.Info("AgentHost stopped.");
         }
 
+        private void OnKillSwitchTriggered()
+        {
+            Logger.Warn("Kill switch triggered.");
+            _lifecycleCts?.Cancel();
+            KillSwitchTriggered?.Invoke();
+        }
+
+        public void Start() => StartAsync(CancellationToken.None).GetAwaiter().GetResult();
+        public void Stop() => StopAsync().GetAwaiter().GetResult();
         public void Dispose() => Stop();
     }
 }
