@@ -5,3 +5,10 @@ obj/
 *.pdb
 *.exe
 *.cache
+
+# IDE / local files
+.vs/
+*.user
+
+# Local soak logs
+soak-*.csv
