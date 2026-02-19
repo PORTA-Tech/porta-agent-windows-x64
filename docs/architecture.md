@@ -144,3 +144,30 @@ Assessment:
   - `focus_enqueued`
   - `focus_processed`
   - `focus_dropped`
+
+## Phase-7.2 Combined Stability Soak (Scroll + Keyboard + Focus)
+Date (UTC): 2026-02-19
+
+Run:
+- `utc_start`: `2026-02-19T05:43:47.2262723+00:00`
+- `utc_end`: `2026-02-19T06:43:49.9626472+00:00`
+- `duration_seconds`: `3602.7`
+- `suppression_enabled`: `False`
+- `actuation_enabled`: `False`
+- `keyboard_capture_enabled`: `True`
+- `avg_cpu_pct`: `0.01`
+- `max_working_set_mb`: `83.24`
+- `max_queue_depth`: `0`
+- `max_dropped`: `0`
+- `max_keyboard_dropped`: `0`
+- `max_focus_dropped`: `0`
+- `max_focus_enqueued`: `68`
+- `max_focus_processed`: `68`
+- `metrics_samples`: `718`
+- `log_file`: `docs/soak-logs/phase72-combined-20260219T054347Z.log`
+
+Assessment:
+- Combined input path remained stable with no queue growth and no dropped events.
+- Focus and keyboard channels remained bounded under mixed interactive/passive use.
+- Verdict: PASS (1-hour combined soak).
+- Strict 2-hour gate can be run later if required by release policy.
