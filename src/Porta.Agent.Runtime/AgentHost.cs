@@ -5,9 +5,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Porta.Agent.Common.Contracts;
 using Porta.Agent.Common.Control;
+using PortaCommonEnvironment = Porta.Agent.Common.Environment;
 using Porta.Agent.Runtime.Actuation;
 using Porta.Agent.Runtime.Diagnostics;
 using Porta.Agent.Runtime.Input;
+using Porta.Agent.Runtime.Render;
 using Porta.Agent.Runtime.Transport;
 
 namespace Porta.Agent.Runtime
@@ -48,6 +50,7 @@ namespace Porta.Agent.Runtime
     public sealed class AgentHost : IDisposable
     {
         private const int ControlClockHz = 20;
+        private const int RenderLoopHz = 60;
         private readonly MouseHook _mouseHook;
         private readonly KeyboardHook _keyboardHook;
         private readonly ForegroundHook _foregroundHook;
@@ -62,6 +65,9 @@ namespace Porta.Agent.Runtime
         private readonly ControlSessionStore _sessionStore;
         private readonly bool _controlDiagnosticsTelemetryEnabled;
         private readonly ControlSnapshotExporter? _controlSnapshotExporter;
+        private readonly PortaCommonEnvironment.ActuationStateCache _actuationStateCache;
+        private readonly PortaCommonEnvironment.VisualInterpolator _visualInterpolator;
+        private readonly IRenderSurfaceSink _renderSurfaceSink;
         private readonly object _gate = new();
 
         private Channel<RuntimeInputEvent>? _events;
@@ -72,6 +78,7 @@ namespace Porta.Agent.Runtime
         private Task? _killSwitchTask;
         private Task? _telemetryTask;
         private Task? _heartbeatTask;
+        private Task? _renderTask;
         private int _lifecycleState = (int)HostLifecycleState.Stopped;
         private long _enqueuedEvents;
         private long _processedEvents;
@@ -115,6 +122,9 @@ namespace Porta.Agent.Runtime
             _focusTracker = new FocusTracker(Environment.GetEnvironmentVariable("PORTA_TARGET_PROCESS"));
             _controlEngine = new DeterministicControlEngine(Stopwatch.Frequency, controlHz: ControlClockHz);
             _sessionStore = new ControlSessionStore(Environment.GetEnvironmentVariable("PORTA_CONTROL_SESSION_PATH"));
+            _actuationStateCache = new PortaCommonEnvironment.ActuationStateCache();
+            _visualInterpolator = new PortaCommonEnvironment.VisualInterpolator();
+            _renderSurfaceSink = NullRenderSurfaceSink.Instance;
             _controlDiagnosticsTelemetryEnabled = ReadBoolEnvironment("PORTA_CONTROL_DIAGNOSTICS_TELEMETRY", defaultValue: false);
             if (_controlDiagnosticsTelemetryEnabled)
             {
@@ -346,6 +356,9 @@ namespace Porta.Agent.Runtime
                             DeterministicControlEngine.ControlEvaluationSnapshot snapshot =
                                 _controlEngine.EvaluateAtTimestampWithSnapshot(nextTickTimestamp, control);
                             ActuationCommand command = snapshot.SafeCommand;
+                            _actuationStateCache.UpdateFromCommand(command, nextTickTimestamp, out _, out _);
+                            PortaCommonEnvironment.RenderParameters renderTarget = PortaCommonEnvironment.DeterministicRenderMapper.Map(command);
+                            _visualInterpolator.SetTarget(renderTarget);
                             Interlocked.Exchange(ref _lastProcessedControlTickTimestamp, nextTickTimestamp);
                             Interlocked.Increment(ref _controlTicks);
                             if (_controlDiagnosticsTelemetryEnabled)
@@ -611,6 +624,7 @@ namespace Porta.Agent.Runtime
                     _killSwitchTask = _killSwitch.MonitorAsync(_lifecycleCts.Token, OnKillSwitchTriggered);
                     _telemetryTask = ProcessTelemetryAsync(_telemetry.Reader, _lifecycleCts.Token);
                     _heartbeatTask = _heartbeat.RunAsync(_lifecycleCts.Token);
+                    _renderTask = RunRenderLoopAsync(_lifecycleCts.Token);
                     TransitionState(HostLifecycleState.Running);
                     Logger.Event("lifecycle_transition", ("to", HostLifecycleState.Running.ToString()));
                     Logger.Info(_killSwitch.DescribeTrigger());
@@ -644,6 +658,7 @@ namespace Porta.Agent.Runtime
                     _killSwitchTask = null;
                     _telemetryTask = null;
                     _heartbeatTask = null;
+                    _renderTask = null;
                     TransitionState(HostLifecycleState.Faulted);
                 }
 
@@ -660,6 +675,7 @@ namespace Porta.Agent.Runtime
             Task? killSwitchTask;
             Task? telemetryTask;
             Task? heartbeatTask;
+            Task? renderTask;
             CancellationTokenSource? lifecycleCts;
             Channel<RuntimeInputEvent>? events;
             Channel<AgentTelemetry>? telemetry;
@@ -689,6 +705,7 @@ namespace Porta.Agent.Runtime
                 killSwitchTask = _killSwitchTask;
                 telemetryTask = _telemetryTask;
                 heartbeatTask = _heartbeatTask;
+                renderTask = _renderTask;
                 lifecycleCts = _lifecycleCts;
                 telemetry = _telemetry;
                 _events = null;
@@ -698,6 +715,7 @@ namespace Porta.Agent.Runtime
                 _killSwitchTask = null;
                 _telemetryTask = null;
                 _heartbeatTask = null;
+                _renderTask = null;
                 _lifecycleCts = null;
             }
 
@@ -724,6 +742,7 @@ namespace Porta.Agent.Runtime
             SendHeartbeatTransitionNoWait("stopping");
             await SafeAwaitTask(telemetryTask, "telemetry task").ConfigureAwait(false);
             await SafeAwaitTask(heartbeatTask, "heartbeat task").ConfigureAwait(false);
+            await SafeAwaitTask(renderTask, "render task").ConfigureAwait(false);
             await _portaClient.StopAsync(CancellationToken.None).ConfigureAwait(false);
 
             _sessionStore.TrySave(_controlEngine.SaveSession());
@@ -812,6 +831,46 @@ namespace Porta.Agent.Runtime
 
             _injectedThisWindow++;
             return true;
+        }
+
+        private async Task RunRenderLoopAsync(CancellationToken token)
+        {
+            long frameInterval = Math.Max(1L, Stopwatch.Frequency / RenderLoopHz);
+            long nextFrameTimestamp = Stopwatch.GetTimestamp();
+
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    long now = Stopwatch.GetTimestamp();
+                    if (now < nextFrameTimestamp)
+                    {
+                        int delayMs = (int)Math.Max(1, ((nextFrameTimestamp - now) * 1000) / Stopwatch.Frequency);
+                        await Task.Delay(delayMs, token).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    PortaCommonEnvironment.RenderParameters current =
+                        _visualInterpolator.AdvanceToTimestamp(now, Stopwatch.Frequency);
+                    PortaCommonEnvironment.RenderSurfaceFrame frame =
+                        PortaCommonEnvironment.RenderSurfaceComposer.Compose(current, now);
+                    _renderSurfaceSink.Draw(frame);
+
+                    nextFrameTimestamp += frameInterval;
+                    if (nextFrameTimestamp < now - frameInterval)
+                    {
+                        nextFrameTimestamp = now + frameInterval;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Increment(ref _processingErrors);
+                Logger.Error(ex, "Render loop terminated unexpectedly.");
+            }
         }
 
         private void RequestStop(string reason)
