@@ -68,6 +68,10 @@ namespace Porta.Agent.Runtime
         private readonly PortaCommonEnvironment.ActuationStateCache _actuationStateCache;
         private readonly PortaCommonEnvironment.VisualInterpolator _visualInterpolator;
         private readonly IRenderSurfaceSink _renderSurfaceSink;
+        private readonly bool _visualSmokeTestEnabled;
+        private readonly VisualSmokeSnapshotExporter? _visualSmokeSnapshotExporter;
+        private readonly bool _renderFrameStreamEnabled;
+        private readonly RenderFrameStreamExporter? _renderFrameStreamExporter;
         private readonly object _gate = new();
 
         private Channel<RuntimeInputEvent>? _events;
@@ -111,6 +115,10 @@ namespace Porta.Agent.Runtime
         private long _telemetrySendFailures;
         private int _telemetryQueueDepth;
         private int _keyboardCaptureEnabled = 1;
+        private long _visualSmokeStartTimestamp;
+        private long _renderFrameCounter;
+        private readonly string _runtimeProfile;
+        private int _renderFrameStreamWriteFailedLogged;
 
         public event Action? KillSwitchTriggered;
 
@@ -124,7 +132,29 @@ namespace Porta.Agent.Runtime
             _sessionStore = new ControlSessionStore(Environment.GetEnvironmentVariable("PORTA_CONTROL_SESSION_PATH"));
             _actuationStateCache = new PortaCommonEnvironment.ActuationStateCache();
             _visualInterpolator = new PortaCommonEnvironment.VisualInterpolator();
-            _renderSurfaceSink = NullRenderSurfaceSink.Instance;
+            _runtimeProfile = (Environment.GetEnvironmentVariable("PORTA_RUNTIME_PROFILE") ?? "headless_prod").Trim().ToLowerInvariant();
+            bool renderSurfaceRequested = ReadBoolEnvironment("PORTA_RENDER_SURFACE_ENABLED", defaultValue: false);
+            bool allowDebugVisual = _runtimeProfile is "debug_visual" or "smoke_test";
+            bool renderSurfaceEnabled = renderSurfaceRequested && allowDebugVisual;
+            _visualSmokeTestEnabled = ReadBoolEnvironment("PORTA_VISUAL_SMOKE_TEST", defaultValue: false) && _runtimeProfile == "smoke_test";
+            if (renderSurfaceRequested && !allowDebugVisual)
+            {
+                Logger.Warn($"Render surface request ignored in profile '{_runtimeProfile}'.");
+            }
+            if (ReadBoolEnvironment("PORTA_VISUAL_SMOKE_TEST", defaultValue: false) && _runtimeProfile != "smoke_test")
+            {
+                Logger.Warn($"Visual smoke request ignored in profile '{_runtimeProfile}'.");
+            }
+            if (_visualSmokeTestEnabled)
+            {
+                _visualSmokeSnapshotExporter = new VisualSmokeSnapshotExporter(Environment.GetEnvironmentVariable("PORTA_VISUAL_SMOKE_SNAPSHOT_PATH"));
+            }
+            _renderSurfaceSink = CreateRenderSurfaceSink(renderSurfaceEnabled);
+            _renderFrameStreamEnabled = ReadBoolEnvironment("PORTA_RENDER_FRAME_STREAM_ENABLED", defaultValue: true);
+            if (_renderFrameStreamEnabled)
+            {
+                _renderFrameStreamExporter = new RenderFrameStreamExporter(Environment.GetEnvironmentVariable("PORTA_RENDER_FRAME_STREAM_PATH"));
+            }
             _controlDiagnosticsTelemetryEnabled = ReadBoolEnvironment("PORTA_CONTROL_DIAGNOSTICS_TELEMETRY", defaultValue: false);
             if (_controlDiagnosticsTelemetryEnabled)
             {
@@ -141,6 +171,12 @@ namespace Porta.Agent.Runtime
                 _focusTracker.IsEnabled
                     ? $"Focus tracking enabled for process '{_focusTracker.TargetProcessName}'."
                     : "Focus tracking disabled (set PORTA_TARGET_PROCESS to enable).");
+            Logger.Info($"Render surface {(renderSurfaceEnabled ? "enabled" : "disabled")}.");
+            if (_visualSmokeTestEnabled)
+            {
+                Logger.Info("Visual smoke test mode enabled.");
+            }
+            Logger.Info($"Render frame stream {(_renderFrameStreamEnabled ? "enabled" : "disabled")}.");
         }
 
         public bool IsScrollSuppressionEnabled => Volatile.Read(ref _suppressScrollInput) == 1;
@@ -356,8 +392,11 @@ namespace Porta.Agent.Runtime
                             DeterministicControlEngine.ControlEvaluationSnapshot snapshot =
                                 _controlEngine.EvaluateAtTimestampWithSnapshot(nextTickTimestamp, control);
                             ActuationCommand command = snapshot.SafeCommand;
-                            _actuationStateCache.UpdateFromCommand(command, nextTickTimestamp, out _, out _);
-                            PortaCommonEnvironment.RenderParameters renderTarget = PortaCommonEnvironment.DeterministicRenderMapper.Map(command);
+                            ActuationCommand renderCommand = _visualSmokeTestEnabled
+                                ? BuildVisualSmokeRenderCommand(nextTickTimestamp)
+                                : command;
+                            _actuationStateCache.UpdateFromCommand(renderCommand, nextTickTimestamp, out _, out _);
+                            PortaCommonEnvironment.RenderParameters renderTarget = PortaCommonEnvironment.DeterministicRenderMapper.Map(renderCommand);
                             _visualInterpolator.SetTarget(renderTarget);
                             Interlocked.Exchange(ref _lastProcessedControlTickTimestamp, nextTickTimestamp);
                             Interlocked.Increment(ref _controlTicks);
@@ -565,8 +604,11 @@ namespace Porta.Agent.Runtime
                 Interlocked.Exchange(ref _telemetryDropped, 0);
                 Interlocked.Exchange(ref _telemetrySendFailures, 0);
                 Interlocked.Exchange(ref _telemetryQueueDepth, 0);
+                Interlocked.Exchange(ref _renderFrameCounter, 0);
+                Interlocked.Exchange(ref _renderFrameStreamWriteFailedLogged, 0);
                 _injectedThisWindow = 0;
                 _injectionWindowStartedTimestamp = Stopwatch.GetTimestamp();
+                _visualSmokeStartTimestamp = 0;
                 _controlEngine = new DeterministicControlEngine(Stopwatch.Frequency, controlHz: ControlClockHz);
                 Interlocked.Exchange(ref _lastProcessedControlTickTimestamp, 0);
                 events = Channel.CreateUnbounded<RuntimeInputEvent>(
@@ -746,6 +788,10 @@ namespace Porta.Agent.Runtime
             await _portaClient.StopAsync(CancellationToken.None).ConfigureAwait(false);
 
             _sessionStore.TrySave(_controlEngine.SaveSession());
+            if (_visualSmokeTestEnabled && _visualSmokeSnapshotExporter != null)
+            {
+                Logger.Info(_visualSmokeSnapshotExporter.BuildSummary());
+            }
             lifecycleCts?.Dispose();
 
             lock (_gate)
@@ -855,6 +901,27 @@ namespace Porta.Agent.Runtime
                     PortaCommonEnvironment.RenderSurfaceFrame frame =
                         PortaCommonEnvironment.RenderSurfaceComposer.Compose(current, now);
                     _renderSurfaceSink.Draw(frame);
+                    if (_visualSmokeTestEnabled &&
+                        _visualSmokeSnapshotExporter != null &&
+                        Interlocked.Increment(ref _renderFrameCounter) % 30 == 0)
+                    {
+                        _visualSmokeSnapshotExporter.TryAppend(frame);
+                    }
+                    else
+                    {
+                        Interlocked.Increment(ref _renderFrameCounter);
+                    }
+
+                    if (_renderFrameStreamEnabled &&
+                        _renderFrameStreamExporter != null &&
+                        _renderFrameCounter % 3 == 0)
+                    {
+                        bool ok = _renderFrameStreamExporter.TryAppend(frame);
+                        if (!ok && Interlocked.Exchange(ref _renderFrameStreamWriteFailedLogged, 1) == 0)
+                        {
+                            Logger.Warn("Render frame stream export failed. Set PORTA_RENDER_FRAME_STREAM_PATH to a writable location.");
+                        }
+                    }
 
                     nextFrameTimestamp += frameInterval;
                     if (nextFrameTimestamp < now - frameInterval)
@@ -870,6 +937,47 @@ namespace Porta.Agent.Runtime
             {
                 Interlocked.Increment(ref _processingErrors);
                 Logger.Error(ex, "Render loop terminated unexpectedly.");
+            }
+        }
+
+        private ActuationCommand BuildVisualSmokeRenderCommand(long tickTimestamp)
+        {
+            if (_visualSmokeStartTimestamp == 0)
+            {
+                _visualSmokeStartTimestamp = tickTimestamp;
+            }
+
+            double elapsedSeconds = Math.Max(0.0, (tickTimestamp - _visualSmokeStartTimestamp) / (double)Stopwatch.Frequency);
+            if (elapsedSeconds < 15.0)
+            {
+                double control = 0.65 + (0.20 * Math.Sin(elapsedSeconds * 0.7));
+                return ActuationCommand.FromControlSignal(control, AuthorityLevel.Normal, "visual_smoke_normal");
+            }
+
+            if (elapsedSeconds < 30.0)
+            {
+                double control = 0.30 + (0.10 * Math.Sin(elapsedSeconds * 0.5));
+                return ActuationCommand.FromControlSignal(control, AuthorityLevel.Reduced, "visual_smoke_reduced");
+            }
+
+            return ActuationCommand.Safe("visual_smoke_safe");
+        }
+
+        private static IRenderSurfaceSink CreateRenderSurfaceSink(bool enabled)
+        {
+            if (!enabled)
+            {
+                return NullRenderSurfaceSink.Instance;
+            }
+
+            try
+            {
+                return new WinFormsRenderSurfaceSink();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Failed to create WinForms render sink. Falling back to null sink.");
+                return NullRenderSurfaceSink.Instance;
             }
         }
 
@@ -999,6 +1107,16 @@ namespace Porta.Agent.Runtime
 
         public void Start() => StartAsync(CancellationToken.None).GetAwaiter().GetResult();
         public void Stop() => StopAsync().GetAwaiter().GetResult();
-        public void Dispose() => Stop();
+        public void Dispose()
+        {
+            try
+            {
+                Stop();
+            }
+            finally
+            {
+                _renderSurfaceSink.Dispose();
+            }
+        }
     }
 }

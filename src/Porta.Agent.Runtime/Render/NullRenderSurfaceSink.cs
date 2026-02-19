@@ -14,4 +14,8 @@ internal sealed class NullRenderSurfaceSink : IRenderSurfaceSink
     {
         _ = frame;
     }
+
+    public void Dispose()
+    {
+    }
 }

@@ -8,6 +8,10 @@ class Program
 {
     static async Task Main()
     {
+        RuntimeProfile profile = ResolveRuntimeProfile();
+        ApplyProfileDefaults(profile);
+        Logger.Info($"Runtime profile: {profile}");
+
         using var host = new AgentHost();
         using var stopCts = new CancellationTokenSource();
         int cycleCount = ReadIntEnvironment("PORTA_START_STOP_CYCLES");
@@ -77,6 +81,61 @@ class Program
     {
         string? raw = Environment.GetEnvironmentVariable(key);
         return int.TryParse(raw, out int value) ? Math.Max(0, value) : 0;
+    }
+
+    private enum RuntimeProfile
+    {
+        HeadlessProd,
+        DebugVisual,
+        SmokeTest
+    }
+
+    private static RuntimeProfile ResolveRuntimeProfile()
+    {
+        string raw = Environment.GetEnvironmentVariable("PORTA_RUNTIME_PROFILE") ?? "headless_prod";
+        return raw.Trim().ToLowerInvariant() switch
+        {
+            "debug_visual" => RuntimeProfile.DebugVisual,
+            "smoke_test" => RuntimeProfile.SmokeTest,
+            _ => RuntimeProfile.HeadlessProd
+        };
+    }
+
+    private static void ApplyProfileDefaults(RuntimeProfile profile)
+    {
+        Environment.SetEnvironmentVariable("PORTA_RUNTIME_PROFILE", profile switch
+        {
+            RuntimeProfile.DebugVisual => "debug_visual",
+            RuntimeProfile.SmokeTest => "smoke_test",
+            _ => "headless_prod"
+        });
+
+        switch (profile)
+        {
+            case RuntimeProfile.DebugVisual:
+                SetIfMissing("PORTA_RENDER_SURFACE_ENABLED", "1");
+                SetIfMissing("PORTA_VISUAL_SMOKE_TEST", "0");
+                SetIfMissing("PORTA_RENDER_FRAME_STREAM_ENABLED", "1");
+                break;
+            case RuntimeProfile.SmokeTest:
+                SetIfMissing("PORTA_RENDER_SURFACE_ENABLED", "1");
+                SetIfMissing("PORTA_VISUAL_SMOKE_TEST", "1");
+                SetIfMissing("PORTA_RENDER_FRAME_STREAM_ENABLED", "1");
+                break;
+            default:
+                SetIfMissing("PORTA_RENDER_SURFACE_ENABLED", "0");
+                SetIfMissing("PORTA_VISUAL_SMOKE_TEST", "0");
+                SetIfMissing("PORTA_RENDER_FRAME_STREAM_ENABLED", "1");
+                break;
+        }
+    }
+
+    private static void SetIfMissing(string key, string value)
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(key)))
+        {
+            Environment.SetEnvironmentVariable(key, value);
+        }
     }
 
     private static bool ReadBoolEnvironment(string key, bool defaultValue)
