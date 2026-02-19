@@ -17,11 +17,9 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Restore
-        run: dotnet restore PORTA.Windows.sln
-
-      - name: Build
-        run: dotnet build PORTA.Windows.sln -c Release -m:1
+      - name: Build Solution (Single Node)
+        shell: pwsh
+        run: ./scripts/build.ps1 -Configuration Release
 
       - name: Run Validation Runner (Gate)
         run: dotnet run --project src/Porta.Agent.ValidationRunner/Porta.Agent.ValidationRunner.csproj -c Release --no-build

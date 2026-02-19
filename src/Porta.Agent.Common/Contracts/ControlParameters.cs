@@ -4,6 +4,9 @@ namespace Porta.Agent.Common.Contracts
     {
         public bool SuppressionEnabled { get; init; }
         public bool ActuationEnabled { get; init; }
+        public string RuntimeMode { get; init; } = "normal";
+        public double HeartbeatFrequencyHz { get; init; }
+        public bool TelemetryOutboundSuspended { get; init; }
         public int FixedDelayMs { get; init; }
         public string? TargetProcess { get; init; }
         public double TargetArousalMin { get; init; } = 0.45;

@@ -23,6 +23,13 @@ namespace Porta.Agent.Runtime
         Faulted = 4
     }
 
+    internal enum RuntimeMode
+    {
+        Normal = 0,
+        Degraded = 1,
+        Safe = 2
+    }
+
     internal sealed class ScrollProcessor
     {
         private ScrollEvent? _lastEvent;
@@ -110,15 +117,32 @@ namespace Porta.Agent.Runtime
         private long _controlReducedAuthority;
         private long _lastProcessedControlTickTimestamp;
         private long _telemetryEnqueued;
+        private long _telemetryObserved;
         private long _telemetrySent;
         private long _telemetryDropped;
         private long _telemetrySendFailures;
+        private long _telemetryOutboundSuppressed;
         private int _telemetryQueueDepth;
         private int _keyboardCaptureEnabled = 1;
         private long _visualSmokeStartTimestamp;
         private long _renderFrameCounter;
         private readonly string _runtimeProfile;
         private int _renderFrameStreamWriteFailedLogged;
+        private int _runtimeMode = (int)RuntimeMode.Normal;
+        private int _telemetryHealthyWindows;
+        private int _telemetryOutboundSuspended;
+
+        private const int TelemetryModeQueueDepthDegraded = 512;
+        private const int TelemetryModeQueueDepthSafe = 900;
+        private const int TelemetryModeFailureDeltaDegraded = 8;
+        private const int TelemetryModeFailureDeltaSafe = 32;
+        private const int TelemetryHealthyWindowsToNormal = 6;
+        private const int TelemetryHealthyWindowsSafeToDegraded = 3;
+        private const double DegradedMaxStimulationIntensity = 0.35;
+        private const double DegradedMaxSceneDynamics = 0.30;
+        private const double DegradedMaxVisualShift = 0.40;
+        private const double DegradedMaxPacingModifier = 0.25;
+        private const int DegradedMaxAbsWheelDelta = 24;
 
         public event Action? KillSwitchTriggered;
 
@@ -161,7 +185,7 @@ namespace Porta.Agent.Runtime
                 _controlSnapshotExporter = new ControlSnapshotExporter(Environment.GetEnvironmentVariable("PORTA_CONTROL_SNAPSHOT_EXPORT_PATH"));
             }
             _portaClient = new PortaClient();
-            _heartbeat = new Heartbeat(_portaClient, BuildControlSnapshot, BuildAgentStatusSnapshot);
+            _heartbeat = new Heartbeat(_portaClient, hz => BuildControlSnapshot(hz), BuildAgentStatusSnapshot);
             _mouseHook.ScrollDeltaChanged += OnScrollDelta;
             _mouseHook.ShouldSuppressScroll = ShouldSuppressScroll;
             _keyboardHook.KeyChanged += OnKeyChanged;
@@ -229,7 +253,7 @@ namespace Porta.Agent.Runtime
                 if (events.Writer.TryWrite(RuntimeInputEvent.FromScroll(new ScrollEvent(Stopwatch.GetTimestamp(), delta, wasSuppressed))))
                 {
                     Interlocked.Increment(ref _enqueuedEvents);
-                    Interlocked.Increment(ref _queueDepth);
+                    IncrementDepth(ref _queueDepth);
                 }
                 else
                 {
@@ -262,7 +286,7 @@ namespace Porta.Agent.Runtime
             if (events.Writer.TryWrite(RuntimeInputEvent.FromKeyboard(new KeyboardEvent(Stopwatch.GetTimestamp(), virtualKey, isKeyDown, isInjected))))
             {
                 Interlocked.Increment(ref _keyboardEnqueuedEvents);
-                Interlocked.Increment(ref _queueDepth);
+                IncrementDepth(ref _queueDepth);
             }
             else
             {
@@ -290,7 +314,7 @@ namespace Porta.Agent.Runtime
             if (events.Writer.TryWrite(RuntimeInputEvent.FromFocus(new FocusEvent(Stopwatch.GetTimestamp(), processId, hwnd))))
             {
                 Interlocked.Increment(ref _focusEnqueuedEvents);
-                Interlocked.Increment(ref _queueDepth);
+                IncrementDepth(ref _queueDepth);
             }
             else
             {
@@ -368,7 +392,7 @@ namespace Porta.Agent.Runtime
                         {
                             if (trackQueueDepth)
                             {
-                                Interlocked.Decrement(ref _queueDepth);
+                                DecrementDepth(ref _queueDepth);
                             }
                         }
                     }
@@ -391,7 +415,7 @@ namespace Porta.Agent.Runtime
                             ControlParameters control = BuildControlSnapshot();
                             DeterministicControlEngine.ControlEvaluationSnapshot snapshot =
                                 _controlEngine.EvaluateAtTimestampWithSnapshot(nextTickTimestamp, control);
-                            ActuationCommand command = snapshot.SafeCommand;
+                            ActuationCommand command = ApplyRuntimeModeToCommand(snapshot.SafeCommand);
                             ActuationCommand renderCommand = _visualSmokeTestEnabled
                                 ? BuildVisualSmokeRenderCommand(nextTickTimestamp)
                                 : command;
@@ -407,14 +431,21 @@ namespace Porta.Agent.Runtime
                                     nextTickTimestamp,
                                     capturedUtc,
                                     snapshot);
-                                _controlSnapshotExporter?.TryAppend(controlSnapshot);
-                                EnqueueTelemetry(new AgentTelemetry
+                                if (!IsTelemetryOutboundSuspended())
                                 {
-                                    AgentId = _portaClient.AgentId,
-                                    TimestampUtc = capturedUtc,
-                                    Kind = "control_snapshot",
-                                    Note = controlSnapshot.ToCanonicalJson()
-                                });
+                                    _controlSnapshotExporter?.TryAppend(controlSnapshot);
+                                    EnqueueTelemetry(new AgentTelemetry
+                                    {
+                                        AgentId = _portaClient.AgentId,
+                                        TimestampUtc = capturedUtc,
+                                        Kind = "control_snapshot",
+                                        Note = controlSnapshot.ToCanonicalJson()
+                                    });
+                                }
+                                else
+                                {
+                                    Interlocked.Increment(ref _telemetryOutboundSuppressed);
+                                }
                             }
 
                             await ApplyActuationCommandAsync(command, nextTickTimestamp, token).ConfigureAwait(false);
@@ -445,6 +476,8 @@ namespace Porta.Agent.Runtime
         {
             const int reportIntervalMs = 5000;
             long previousProcessed = 0;
+            long previousTelemetryDropped = 0;
+            long previousTelemetrySendFailures = 0;
             var stopwatch = Stopwatch.StartNew();
 
             while (!token.IsCancellationRequested)
@@ -477,11 +510,20 @@ namespace Porta.Agent.Runtime
                 long controlActuationApplied = Interlocked.Read(ref _controlActuationApplied);
                 long controlReducedAuthority = Interlocked.Read(ref _controlReducedAuthority);
                 long telemetryEnqueued = Interlocked.Read(ref _telemetryEnqueued);
+                long telemetryObserved = Interlocked.Read(ref _telemetryObserved);
                 long telemetrySent = Interlocked.Read(ref _telemetrySent);
                 long telemetryDropped = Interlocked.Read(ref _telemetryDropped);
                 long telemetrySendFailures = Interlocked.Read(ref _telemetrySendFailures);
-                int queueDepth = Interlocked.CompareExchange(ref _queueDepth, 0, 0);
-                int telemetryQueueDepth = Interlocked.CompareExchange(ref _telemetryQueueDepth, 0, 0);
+                long telemetryOutboundSuppressed = Interlocked.Read(ref _telemetryOutboundSuppressed);
+                int queueDepth = ReadDepth(ref _queueDepth);
+                int telemetryQueueDepth = ReadDepth(ref _telemetryQueueDepth);
+                long telemetryDroppedDelta = Math.Max(0, telemetryDropped - previousTelemetryDropped);
+                long telemetrySendFailuresDelta = Math.Max(0, telemetrySendFailures - previousTelemetrySendFailures);
+                previousTelemetryDropped = telemetryDropped;
+                previousTelemetrySendFailures = telemetrySendFailures;
+                EvaluateTelemetryRuntimeModePolicy(telemetryQueueDepth, telemetryDroppedDelta, telemetrySendFailuresDelta);
+                RuntimeMode runtimeMode = GetRuntimeMode();
+                bool telemetrySuspended = IsTelemetryOutboundSuspended();
                 double elapsedSeconds = Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001);
                 double eventsPerSecond = (processed - previousProcessed) / elapsedSeconds;
                 previousProcessed = processed;
@@ -508,11 +550,15 @@ namespace Porta.Agent.Runtime
                     ("control_actuation_applied", controlActuationApplied),
                     ("control_reduced_authority", controlReducedAuthority),
                     ("queue_depth", queueDepth),
+                    ("telemetry_observed", telemetryObserved),
                     ("telemetry_enqueued", telemetryEnqueued),
                     ("telemetry_sent", telemetrySent),
                     ("telemetry_dropped", telemetryDropped),
                     ("telemetry_send_failures", telemetrySendFailures),
+                    ("telemetry_outbound_suppressed", telemetryOutboundSuppressed),
                     ("telemetry_queue_depth", telemetryQueueDepth),
+                    ("runtime_mode", runtimeMode.ToString()),
+                    ("telemetry_outbound_suspended", telemetrySuspended),
                     ("eps", eventsPerSecond.ToString("F2")));
                 Logger.Counter("queue_depth", queueDepth, ("state", LifecycleState.ToString()));
             }
@@ -520,33 +566,15 @@ namespace Porta.Agent.Runtime
 
         private async Task ProcessTelemetryAsync(ChannelReader<AgentTelemetry> reader, CancellationToken token)
         {
-            var batch = new List<AgentTelemetry>(64);
             try
             {
-                while (await reader.WaitToReadAsync(token).ConfigureAwait(false))
-                {
-                    batch.Clear();
-                    while (batch.Count < 64 && reader.TryRead(out var item))
-                    {
-                        batch.Add(item);
-                        Interlocked.Decrement(ref _telemetryQueueDepth);
-                    }
-
-                    if (batch.Count == 0)
-                    {
-                        continue;
-                    }
-
-                    bool sent = await _portaClient.SendTelemetryBatchAsync(batch, token).ConfigureAwait(false);
-                    if (sent)
-                    {
-                        Interlocked.Add(ref _telemetrySent, batch.Count);
-                    }
-                    else
-                    {
-                        Interlocked.Add(ref _telemetrySendFailures, batch.Count);
-                    }
-                }
+                using var emitter = new TelemetryWindowEmitter(
+                    reader,
+                    EmitTelemetryWindowAsync,
+                    onDequeued: dequeued => DecrementDepth(ref _telemetryQueueDepth, dequeued),
+                    interval: TimeSpan.FromSeconds(1),
+                    maxBatchSize: 64);
+                await emitter.RunAsync(token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -554,6 +582,30 @@ namespace Porta.Agent.Runtime
             catch (Exception ex)
             {
                 Logger.Error(ex, "Telemetry loop terminated unexpectedly.");
+            }
+        }
+
+        private async Task EmitTelemetryWindowAsync(IReadOnlyList<AgentTelemetry> batch, CancellationToken token)
+        {
+            if (batch.Count == 0)
+            {
+                return;
+            }
+
+            if (IsTelemetryOutboundSuspended())
+            {
+                Interlocked.Add(ref _telemetryOutboundSuppressed, batch.Count);
+                return;
+            }
+
+            bool sent = await _portaClient.SendTelemetryBatchAsync(batch, token).ConfigureAwait(false);
+            if (sent)
+            {
+                Interlocked.Add(ref _telemetrySent, batch.Count);
+            }
+            else
+            {
+                Interlocked.Add(ref _telemetrySendFailures, batch.Count);
             }
         }
 
@@ -600,12 +652,17 @@ namespace Porta.Agent.Runtime
                 Interlocked.Exchange(ref _queueDepth, 0);
                 Interlocked.Exchange(ref _stopRequested, 0);
                 Interlocked.Exchange(ref _telemetryEnqueued, 0);
+                Interlocked.Exchange(ref _telemetryObserved, 0);
                 Interlocked.Exchange(ref _telemetrySent, 0);
                 Interlocked.Exchange(ref _telemetryDropped, 0);
                 Interlocked.Exchange(ref _telemetrySendFailures, 0);
+                Interlocked.Exchange(ref _telemetryOutboundSuppressed, 0);
                 Interlocked.Exchange(ref _telemetryQueueDepth, 0);
                 Interlocked.Exchange(ref _renderFrameCounter, 0);
                 Interlocked.Exchange(ref _renderFrameStreamWriteFailedLogged, 0);
+                Interlocked.Exchange(ref _runtimeMode, (int)RuntimeMode.Normal);
+                Interlocked.Exchange(ref _telemetryHealthyWindows, 0);
+                Interlocked.Exchange(ref _telemetryOutboundSuspended, 0);
                 _injectedThisWindow = 0;
                 _injectionWindowStartedTimestamp = Stopwatch.GetTimestamp();
                 _visualSmokeStartTimestamp = 0;
@@ -824,6 +881,144 @@ namespace Porta.Agent.Runtime
             return IsScrollSuppressionEnabled && _focusTracker.IsTargetInForeground();
         }
 
+        private void EvaluateTelemetryRuntimeModePolicy(int telemetryQueueDepth, long telemetryDroppedDelta, long telemetrySendFailuresDelta)
+        {
+            bool severePressure =
+                telemetryQueueDepth >= TelemetryModeQueueDepthSafe
+                || telemetryDroppedDelta >= TelemetryModeFailureDeltaSafe
+                || telemetrySendFailuresDelta >= TelemetryModeFailureDeltaSafe;
+
+            if (severePressure)
+            {
+                Interlocked.Exchange(ref _telemetryHealthyWindows, 0);
+                SetTelemetryOutboundSuspended(true, "slo_breach_severe");
+                TransitionRuntimeMode(RuntimeMode.Safe, "telemetry_pressure_severe");
+                return;
+            }
+
+            bool elevatedPressure =
+                telemetryQueueDepth >= TelemetryModeQueueDepthDegraded
+                || telemetryDroppedDelta >= TelemetryModeFailureDeltaDegraded
+                || telemetrySendFailuresDelta >= TelemetryModeFailureDeltaDegraded;
+
+            if (elevatedPressure)
+            {
+                Interlocked.Exchange(ref _telemetryHealthyWindows, 0);
+                SetTelemetryOutboundSuspended(true, "slo_breach_elevated");
+                ForceDegradeMode("telemetry_pressure");
+                return;
+            }
+
+            int healthyWindows = Interlocked.Increment(ref _telemetryHealthyWindows);
+            RuntimeMode mode = GetRuntimeMode();
+            if (mode == RuntimeMode.Safe && healthyWindows >= TelemetryHealthyWindowsSafeToDegraded)
+            {
+                TransitionRuntimeMode(RuntimeMode.Degraded, "telemetry_recovery_to_degraded");
+                Interlocked.Exchange(ref _telemetryHealthyWindows, 0);
+                return;
+            }
+
+            if (mode == RuntimeMode.Degraded && healthyWindows >= TelemetryHealthyWindowsToNormal)
+            {
+                TransitionRuntimeMode(RuntimeMode.Normal, "telemetry_recovery_to_normal");
+                SetTelemetryOutboundSuspended(false, "slo_recovered");
+                Interlocked.Exchange(ref _telemetryHealthyWindows, 0);
+            }
+        }
+
+        private void ForceDegradeMode(string reason)
+        {
+            TransitionRuntimeMode(RuntimeMode.Degraded, reason);
+        }
+
+        private RuntimeMode GetRuntimeMode()
+        {
+            return (RuntimeMode)Volatile.Read(ref _runtimeMode);
+        }
+
+        private bool IsTelemetryOutboundSuspended()
+        {
+            return Volatile.Read(ref _telemetryOutboundSuspended) == 1;
+        }
+
+        private void SetTelemetryOutboundSuspended(bool suspended, string reason)
+        {
+            int next = suspended ? 1 : 0;
+            int previous = Interlocked.Exchange(ref _telemetryOutboundSuspended, next);
+            if (previous == next)
+            {
+                return;
+            }
+
+            string state = suspended ? "suspended" : "active";
+            Logger.Event("telemetry_outbound_state", ("state", state), ("reason", reason));
+            SendHeartbeatTransitionNoWait($"telemetry_outbound:{state} reason:{reason}");
+        }
+
+        private void TransitionRuntimeMode(RuntimeMode nextMode, string reason)
+        {
+            while (true)
+            {
+                int currentRaw = Volatile.Read(ref _runtimeMode);
+                if (currentRaw == (int)nextMode)
+                {
+                    return;
+                }
+
+                RuntimeMode currentMode = (RuntimeMode)currentRaw;
+                bool allowed = (currentMode, nextMode) switch
+                {
+                    (RuntimeMode.Normal, RuntimeMode.Degraded) => true,
+                    (RuntimeMode.Normal, RuntimeMode.Safe) => true,
+                    (RuntimeMode.Degraded, RuntimeMode.Safe) => true,
+                    (RuntimeMode.Safe, RuntimeMode.Degraded) => true,
+                    (RuntimeMode.Degraded, RuntimeMode.Normal) => true,
+                    _ => false
+                };
+
+                if (!allowed)
+                {
+                    return;
+                }
+
+                if (Interlocked.CompareExchange(ref _runtimeMode, (int)nextMode, currentRaw) == currentRaw)
+                {
+                    Logger.Event(
+                        "runtime_mode_transition",
+                        ("from", currentMode.ToString()),
+                        ("to", nextMode.ToString()),
+                        ("reason", reason));
+                    SendHeartbeatTransitionNoWait($"runtime_mode:{nextMode.ToString().ToLowerInvariant()} reason:{reason}");
+                    return;
+                }
+            }
+        }
+
+        private static ActuationCommand ApplyDegradedCommandPolicy(ActuationCommand command)
+        {
+            return new ActuationCommand
+            {
+                ContractVersion = command.ContractVersion,
+                StimulationIntensity = Math.Clamp(command.StimulationIntensity, 0.0, DegradedMaxStimulationIntensity),
+                SceneDynamics = Math.Clamp(command.SceneDynamics, 0.0, DegradedMaxSceneDynamics),
+                VisualTemperatureShift = Math.Clamp(command.VisualTemperatureShift, -DegradedMaxVisualShift, DegradedMaxVisualShift),
+                PacingModifier = Math.Clamp(command.PacingModifier, -DegradedMaxPacingModifier, DegradedMaxPacingModifier),
+                AuthorityLevel = AuthorityLevel.Safe,
+                Note = string.IsNullOrWhiteSpace(command.Note) ? "runtime_mode_degraded" : $"{command.Note}|runtime_mode_degraded"
+            };
+        }
+
+        private ActuationCommand ApplyRuntimeModeToCommand(ActuationCommand command)
+        {
+            RuntimeMode mode = GetRuntimeMode();
+            return mode switch
+            {
+                RuntimeMode.Safe => ActuationCommand.Safe("runtime_mode_safe"),
+                RuntimeMode.Degraded => ApplyDegradedCommandPolicy(command),
+                _ => command
+            };
+        }
+
         private async ValueTask ApplyActuationCommandAsync(ActuationCommand command, long sourceTimestamp, CancellationToken token)
         {
             if (!IsActuationEnabled)
@@ -839,6 +1034,12 @@ namespace Porta.Agent.Runtime
             if (!ActuationMapper.TryMapToWheelDelta(command, out int boundedDelta, out string mapNote))
             {
                 Logger.Warn($"Actuation mapping rejected: {mapNote}");
+                Interlocked.Increment(ref _blockedBySafetyEvents);
+                return;
+            }
+
+            if (GetRuntimeMode() != RuntimeMode.Normal && Math.Abs(boundedDelta) > DegradedMaxAbsWheelDelta)
+            {
                 Interlocked.Increment(ref _blockedBySafetyEvents);
                 return;
             }
@@ -1048,10 +1249,19 @@ namespace Porta.Agent.Runtime
 
         private ControlParameters BuildControlSnapshot()
         {
+            return BuildControlSnapshot(0.0);
+        }
+
+        private ControlParameters BuildControlSnapshot(double heartbeatFrequencyHz)
+        {
+            RuntimeMode mode = GetRuntimeMode();
             return new ControlParameters
             {
                 SuppressionEnabled = IsScrollSuppressionEnabled,
                 ActuationEnabled = IsActuationEnabled,
+                RuntimeMode = mode.ToString().ToLowerInvariant(),
+                HeartbeatFrequencyHz = heartbeatFrequencyHz,
+                TelemetryOutboundSuspended = IsTelemetryOutboundSuspended(),
                 FixedDelayMs = _delayController.FixedDelayMs,
                 TargetProcess = _focusTracker.TargetProcessName
             };
@@ -1059,6 +1269,14 @@ namespace Porta.Agent.Runtime
 
         private void EnqueueTelemetry(AgentTelemetry telemetry)
         {
+            Interlocked.Increment(ref _telemetryObserved);
+
+            if (IsTelemetryOutboundSuspended())
+            {
+                Interlocked.Increment(ref _telemetryOutboundSuppressed);
+                return;
+            }
+
             var channel = _telemetry;
             if (channel == null)
             {
@@ -1068,7 +1286,7 @@ namespace Porta.Agent.Runtime
             if (channel.Writer.TryWrite(telemetry))
             {
                 Interlocked.Increment(ref _telemetryEnqueued);
-                Interlocked.Increment(ref _telemetryQueueDepth);
+                IncrementDepth(ref _telemetryQueueDepth);
             }
             else
             {
@@ -1103,6 +1321,39 @@ namespace Porta.Agent.Runtime
                 || raw.Equals("true", StringComparison.OrdinalIgnoreCase)
                 || raw.Equals("yes", StringComparison.OrdinalIgnoreCase)
                 || raw.Equals("on", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static int ReadDepth(ref int depth)
+        {
+            return Volatile.Read(ref depth);
+        }
+
+        private static void IncrementDepth(ref int depth)
+        {
+            Interlocked.Increment(ref depth);
+        }
+
+        private static void DecrementDepth(ref int depth, int amount = 1)
+        {
+            if (amount <= 0)
+            {
+                return;
+            }
+
+            while (true)
+            {
+                int current = Volatile.Read(ref depth);
+                int next = current - amount;
+                if (next < 0)
+                {
+                    next = 0;
+                }
+
+                if (Interlocked.CompareExchange(ref depth, next, current) == current)
+                {
+                    return;
+                }
+            }
         }
 
         public void Start() => StartAsync(CancellationToken.None).GetAwaiter().GetResult();

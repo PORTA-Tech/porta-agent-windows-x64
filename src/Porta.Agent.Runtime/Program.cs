@@ -16,6 +16,9 @@ class Program
         using var stopCts = new CancellationTokenSource();
         int cycleCount = ReadIntEnvironment("PORTA_START_STOP_CYCLES");
         int autoStopMs = ReadIntEnvironment("PORTA_AUTO_STOP_MS");
+        bool suppressionEnabled = false;
+        bool actuationEnabled = false;
+        bool keyboardCaptureEnabled = true;
 
         host.KillSwitchTriggered += () => stopCts.Cancel();
 
@@ -27,9 +30,9 @@ class Program
 
         try
         {
-            bool suppressionEnabled = ReadBoolEnvironment("PORTA_SUPPRESSION_ENABLED", defaultValue: false);
-            bool actuationEnabled = ReadBoolEnvironment("PORTA_ACTUATION_ENABLED", defaultValue: false);
-            bool keyboardCaptureEnabled = ReadBoolEnvironment("PORTA_KEYBOARD_CAPTURE_ENABLED", defaultValue: true);
+            suppressionEnabled = ReadBoolEnvironment("PORTA_SUPPRESSION_ENABLED", defaultValue: false);
+            actuationEnabled = ReadBoolEnvironment("PORTA_ACTUATION_ENABLED", defaultValue: false);
+            keyboardCaptureEnabled = ReadBoolEnvironment("PORTA_KEYBOARD_CAPTURE_ENABLED", defaultValue: true);
             host.SetScrollSuppression(suppressionEnabled);
             host.SetActuationEnabled(actuationEnabled);
             host.SetKeyboardCapture(keyboardCaptureEnabled);
@@ -72,7 +75,27 @@ class Program
         catch (Exception ex)
         {
             Logger.Error(ex, "Runtime terminated with fatal error.");
-            await host.StopAsync();
+            CrashDumpWriter.TryWriteFatal(
+                ex,
+                new CrashDumpContext
+                {
+                    RuntimeProfile = profile.ToString().ToLowerInvariant(),
+                    SuppressionEnabled = suppressionEnabled,
+                    ActuationEnabled = actuationEnabled,
+                    KeyboardCaptureEnabled = keyboardCaptureEnabled,
+                    StartStopCycles = cycleCount,
+                    AutoStopMs = autoStopMs
+                });
+
+            try
+            {
+                await host.StopAsync();
+            }
+            catch (Exception stopEx)
+            {
+                Logger.Error(stopEx, "Runtime stop failed after fatal error.");
+            }
+
             Environment.ExitCode = 1;
         }
     }
