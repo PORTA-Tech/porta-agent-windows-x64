@@ -8,8 +8,8 @@ if (args.Length > 0 && long.TryParse(args[0], out long parsed) && parsed > 0)
     frequency = parsed;
 }
 
-IReadOnlyList<ControlValidation.ValidationResult> results = ControlValidation.RunBasicSuite(frequency);
-IReadOnlyList<EnvironmentValidation.ValidationResult> environmentResults = EnvironmentValidation.RunSuite(frequency);
+IReadOnlyList<ControlValidation.ValidationResult> results = ControlValidation.RunProductionSuite(frequency);
+IReadOnlyList<EnvironmentValidation.ValidationResult> environmentResults = EnvironmentValidation.RunProductionSuite(frequency);
 int failed = 0;
 
 Console.WriteLine($"Control validation frequency={frequency}");

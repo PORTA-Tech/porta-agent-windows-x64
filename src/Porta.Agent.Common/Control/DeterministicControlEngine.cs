@@ -135,6 +135,9 @@ public sealed class DeterministicControlEngine
             var evaluated = _policy.Evaluate(features, parameters, _state);
             ActuationCommand safeCommand = _safety.Arbitrate(features, evaluated.Command, _state, parameters);
             _state.LastActuationIntensity = safeCommand.StimulationIntensity;
+            _state.LastSafeSceneDynamics = safeCommand.SceneDynamics;
+            _state.LastSafeVisualShift = safeCommand.VisualTemperatureShift;
+            _state.LastSafePacingModifier = safeCommand.PacingModifier;
             _state.BaselineArousalMean = MathEx.Quantize(MathEx.Ema(_state.BaselineArousalMean, aggregated.CompositeArousalEstimate, 0.02));
             _state.BaselineVariance = MathEx.Quantize(MathEx.Ema(_state.BaselineVariance, aggregated.InteractionVariance, 0.02));
             _state.DriftOffset = MathEx.Quantize(_state.BaselineArousalMean - 0.5);

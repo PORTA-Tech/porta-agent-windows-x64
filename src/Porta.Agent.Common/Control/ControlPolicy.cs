@@ -32,6 +32,9 @@ public sealed class ControlPolicy
             state.LastCommand = 0;
             state.LastSmoothedCommand = 0;
             state.LastActuationIntensity = 0;
+            state.LastSafeSceneDynamics = 0;
+            state.LastSafeVisualShift = 0;
+            state.LastSafePacingModifier = 0;
             return (ControlOutput.None("warmup"), ActuationCommand.Safe("warmup"));
         }
 
@@ -89,7 +92,6 @@ public sealed class ControlPolicy
             features.SignalConfidence >= parameters.ConfidenceThreshold ? AuthorityLevel.Normal : AuthorityLevel.Reduced,
             "policy_evaluate");
 
-        state.LastActuationIntensity = command.StimulationIntensity;
         return (output, command);
     }
 
@@ -141,6 +143,9 @@ public sealed class ControlPolicy
             LastCommand = 0,
             LastSmoothedCommand = 0,
             LastActuationIntensity = 0,
+            LastSafeSceneDynamics = 0,
+            LastSafeVisualShift = 0,
+            LastSafePacingModifier = 0,
             BaselineArousalMean = session.BaselineArousalMean,
             BaselineVariance = session.BaselineVariance,
             DriftOffset = session.DriftOffset,

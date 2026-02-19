@@ -10,6 +10,9 @@ public sealed class ControlState
     public double LastCommand { get; set; }
     public double LastSmoothedCommand { get; set; }
     public double LastActuationIntensity { get; set; }
+    public double LastSafeSceneDynamics { get; set; }
+    public double LastSafeVisualShift { get; set; }
+    public double LastSafePacingModifier { get; set; }
     public double BaselineArousalMean { get; set; }
     public double BaselineVariance { get; set; }
     public double DriftOffset { get; set; }

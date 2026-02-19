@@ -2,11 +2,19 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Porta.Agent.Common.Contracts;
+using Porta.Agent.Common.State;
 
 namespace Porta.Agent.Common.Control;
 
 public static class ControlValidation
 {
+    private sealed class ScenarioSpec
+    {
+        public required string Name { get; init; }
+        public required int Count { get; init; }
+        public required Func<int, long, DeterministicReplay.ReplaySample> Factory { get; init; }
+    }
+
     public sealed class ValidationResult
     {
         public bool IsPass { get; init; }
@@ -23,6 +31,19 @@ public static class ControlValidation
             ValidateStepChangeCriticallyDamped(frequency),
             ValidateSignalLossSafeFallback(frequency),
             ValidateReplayLogsDeterminism(frequency)
+        };
+        return results;
+    }
+
+    public static IReadOnlyList<ValidationResult> RunProductionSuite(long frequency)
+    {
+        var results = new List<ValidationResult>(RunBasicSuite(frequency))
+        {
+            ValidateOutputBoundsAcrossScenarioMatrix(frequency),
+            ValidateMissingSignalFallbackMatrix(frequency),
+            ValidateAuthorityArbitrationMatrix(),
+            ValidateFixedTimestepGuard(frequency),
+            ValidateLongReplayDeterminism(frequency)
         };
         return results;
     }
@@ -262,6 +283,297 @@ public static class ControlValidation
             Name = "replay_logs_determinism",
             Detail = $"outputs={run1.Count};identical={same}"
         };
+    }
+
+    private static ValidationResult ValidateOutputBoundsAcrossScenarioMatrix(long frequency)
+    {
+        var scenarios = BuildScenarioMatrix();
+        int outOfBounds = 0;
+        int total = 0;
+
+        foreach (ScenarioSpec scenario in scenarios)
+        {
+            var samples = BuildScenarioSamples(frequency, scenario.Count, scenario.Factory);
+            IReadOnlyList<ActuationCommand> outputs = DeterministicReplay.Run(
+                new DeterministicControlEngine(frequency),
+                new ControlParameters { ActuationEnabled = true },
+                samples);
+
+            for (int i = 0; i < outputs.Count; i++)
+            {
+                ActuationCommand output = outputs[i];
+                total++;
+                if (output.StimulationIntensity is < 0 or > 1 ||
+                    output.SceneDynamics is < 0 or > 1 ||
+                    output.VisualTemperatureShift is < -1 or > 1 ||
+                    output.PacingModifier is < -1 or > 1)
+                {
+                    outOfBounds++;
+                }
+            }
+        }
+
+        bool pass = outOfBounds == 0;
+        return new ValidationResult
+        {
+            IsPass = pass,
+            Name = "matrix_output_bounds",
+            Detail = $"scenarios={scenarios.Count};samples={total};out_of_bounds={outOfBounds}"
+        };
+    }
+
+    private static ValidationResult ValidateMissingSignalFallbackMatrix(long frequency)
+    {
+        var matrix = new List<(string Name, Func<int, bool> HasScroll, Func<int, bool> HasKeyboard, Func<int, bool> HasFocus)>
+        {
+            ("missing_scroll", i => false, i => i % 5 == 0, i => i % 97 == 0),
+            ("missing_keyboard", i => i % 2 == 0, i => false, i => i % 97 == 0),
+            ("missing_focus", i => i % 2 == 0, i => i % 5 == 0, i => false),
+            ("scroll_only", i => true, i => false, i => false),
+            ("keyboard_only", i => false, i => true, i => false),
+            ("focus_only", i => false, i => false, i => true)
+        };
+
+        int failures = 0;
+        foreach ((string name, Func<int, bool> hasScroll, Func<int, bool> hasKeyboard, Func<int, bool> hasFocus) in matrix)
+        {
+            int count = 2600;
+            int lossAt = count / 2;
+            var samples = BuildScenarioSamples(frequency, count, (i, t) =>
+            {
+                bool inLoss = i >= lossAt;
+                return new DeterministicReplay.ReplaySample
+                {
+                    Timestamp = t,
+                    ScrollDelta = (!inLoss && hasScroll(i) ? 240 : 0),
+                    KeyDown = (!inLoss && hasKeyboard(i)),
+                    FocusChanged = (!inLoss && hasFocus(i))
+                };
+            });
+
+            IReadOnlyList<ActuationCommand> outputs = DeterministicReplay.Run(
+                new DeterministicControlEngine(frequency),
+                new ControlParameters { ActuationEnabled = true },
+                samples);
+
+            int tailStart = Math.Max(0, outputs.Count - 80);
+            bool safeTail = true;
+            for (int i = tailStart; i < outputs.Count; i++)
+            {
+                if (outputs[i].AuthorityLevel != AuthorityLevel.Safe)
+                {
+                    safeTail = false;
+                    break;
+                }
+            }
+
+            if (!safeTail)
+            {
+                failures++;
+            }
+        }
+
+        bool pass = failures == 0;
+        return new ValidationResult
+        {
+            IsPass = pass,
+            Name = "missing_signal_fallback_matrix",
+            Detail = $"variants={matrix.Count};failures={failures}"
+        };
+    }
+
+    private static ValidationResult ValidateAuthorityArbitrationMatrix()
+    {
+        var safety = new SafetyArbitrator();
+        var state = new ControlState();
+        var parameters = new ControlParameters
+        {
+            ActuationEnabled = true,
+            ConfidenceThreshold = 0.35,
+            MaxDeltaPerTick = 0.08
+        };
+
+        int failures = 0;
+        var features = new[]
+        {
+            new ControlFeatures { SignalConfidence = 0.90, EngagementIndex = 0.8, InstabilityIndex = 0.2 },
+            new ControlFeatures { SignalConfidence = 0.60, EngagementIndex = 0.7, InstabilityIndex = 0.4 },
+            new ControlFeatures { SignalConfidence = 0.10, EngagementIndex = 0.2, InstabilityIndex = 0.9 }
+        };
+        var commands = new[]
+        {
+            new ActuationCommand { StimulationIntensity = 1.0, SceneDynamics = 1.0, VisualTemperatureShift = 1.0, PacingModifier = 1.0, AuthorityLevel = AuthorityLevel.Normal, Note = "n" },
+            new ActuationCommand { StimulationIntensity = 0.8, SceneDynamics = 0.9, VisualTemperatureShift = -1.0, PacingModifier = -1.0, AuthorityLevel = AuthorityLevel.Reduced, Note = "r" },
+            new ActuationCommand { StimulationIntensity = 0.6, SceneDynamics = 0.6, VisualTemperatureShift = 0.2, PacingModifier = -0.2, AuthorityLevel = AuthorityLevel.Safe, Note = "s" }
+        };
+
+        foreach (var f in features)
+        {
+            foreach (var c in commands)
+            {
+                ActuationCommand result = safety.Arbitrate(f, c, state, parameters);
+                if (result.StimulationIntensity is < 0 or > 1 ||
+                    result.SceneDynamics is < 0 or > 1 ||
+                    result.VisualTemperatureShift is < -1 or > 1 ||
+                    result.PacingModifier is < -1 or > 1)
+                {
+                    failures++;
+                }
+
+                if (f.SignalConfidence < parameters.ConfidenceThreshold && result.AuthorityLevel != AuthorityLevel.Safe)
+                {
+                    failures++;
+                }
+            }
+        }
+
+        bool pass = failures == 0;
+        return new ValidationResult
+        {
+            IsPass = pass,
+            Name = "authority_arbitration_matrix",
+            Detail = $"feature_variants={features.Length};command_variants={commands.Length};failures={failures}"
+        };
+    }
+
+    private static ValidationResult ValidateFixedTimestepGuard(long frequency)
+    {
+        var engine = new DeterministicControlEngine(frequency);
+        var parameters = new ControlParameters { ActuationEnabled = true };
+        long tick = engine.TickIntervalTicks;
+        bool threw = false;
+
+        try
+        {
+            engine.AddScrollSample(10 * tick, 240);
+            engine.EvaluateAtTimestamp(10 * tick, parameters);
+            engine.AddScrollSample(11 * tick, 240);
+            engine.EvaluateAtTimestamp(11 * tick, parameters);
+            engine.AddScrollSample(13 * tick, 240);
+            engine.EvaluateAtTimestamp(13 * tick, parameters);
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+
+        return new ValidationResult
+        {
+            IsPass = threw,
+            Name = "fixed_timestep_guard",
+            Detail = $"guard_triggered={threw}"
+        };
+    }
+
+    private static ValidationResult ValidateLongReplayDeterminism(long frequency)
+    {
+        var parameters = new ControlParameters { ActuationEnabled = true };
+        var samples = new List<DeterministicReplay.ReplaySample>(6000);
+        long t = 0;
+        for (int i = 0; i < 6000; i++)
+        {
+            t += (i % 17 == 0) ? (frequency / 95) : (frequency / 123);
+            samples.Add(new DeterministicReplay.ReplaySample
+            {
+                Timestamp = t,
+                ScrollDelta = (i % 6 == 0) ? 240 : ((i % 11 == 0) ? -120 : 0),
+                KeyDown = (i % 9 == 0),
+                FocusChanged = (i % 127 == 0)
+            });
+        }
+
+        var run1 = DeterministicReplay.Run(new DeterministicControlEngine(frequency), parameters, samples);
+        var run2 = DeterministicReplay.Run(new DeterministicControlEngine(frequency), parameters, samples);
+        bool same = run1.Count == run2.Count;
+        if (same)
+        {
+            for (int i = 0; i < run1.Count; i++)
+            {
+                if (run1[i].StimulationIntensity != run2[i].StimulationIntensity ||
+                    run1[i].SceneDynamics != run2[i].SceneDynamics ||
+                    run1[i].VisualTemperatureShift != run2[i].VisualTemperatureShift ||
+                    run1[i].PacingModifier != run2[i].PacingModifier ||
+                    run1[i].AuthorityLevel != run2[i].AuthorityLevel)
+                {
+                    same = false;
+                    break;
+                }
+            }
+        }
+
+        return new ValidationResult
+        {
+            IsPass = same,
+            Name = "long_replay_determinism",
+            Detail = $"samples={samples.Count};outputs={run1.Count};identical={same}"
+        };
+    }
+
+    private static List<ScenarioSpec> BuildScenarioMatrix()
+    {
+        return
+        [
+            new ScenarioSpec
+            {
+                Name = "high_constant",
+                Count = 1200,
+                Factory = (i, t) => new DeterministicReplay.ReplaySample
+                {
+                    Timestamp = t,
+                    ScrollDelta = 240,
+                    KeyDown = (i % 6 == 0),
+                    FocusChanged = false
+                }
+            },
+            new ScenarioSpec
+            {
+                Name = "low_constant",
+                Count = 1200,
+                Factory = (i, t) => new DeterministicReplay.ReplaySample
+                {
+                    Timestamp = t,
+                    ScrollDelta = 40,
+                    KeyDown = (i % 20 == 0),
+                    FocusChanged = (i % 400 == 0)
+                }
+            },
+            new ScenarioSpec
+            {
+                Name = "alternating_noise",
+                Count = 1200,
+                Factory = (i, t) => new DeterministicReplay.ReplaySample
+                {
+                    Timestamp = t,
+                    ScrollDelta = (i % 2 == 0) ? 240 : -240,
+                    KeyDown = (i % 3 == 0),
+                    FocusChanged = (i % 97 == 0)
+                }
+            },
+            new ScenarioSpec
+            {
+                Name = "step_up",
+                Count = 1200,
+                Factory = (i, t) => new DeterministicReplay.ReplaySample
+                {
+                    Timestamp = t,
+                    ScrollDelta = i < 400 ? 0 : 240,
+                    KeyDown = i > 400 && (i % 5 == 0),
+                    FocusChanged = false
+                }
+            },
+            new ScenarioSpec
+            {
+                Name = "step_down",
+                Count = 1200,
+                Factory = (i, t) => new DeterministicReplay.ReplaySample
+                {
+                    Timestamp = t,
+                    ScrollDelta = i < 400 ? 240 : 0,
+                    KeyDown = i < 400 && (i % 5 == 0),
+                    FocusChanged = false
+                }
+            }
+        ];
     }
 
     private static List<DeterministicReplay.ReplaySample> BuildScenarioSamples(
