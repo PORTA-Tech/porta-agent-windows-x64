@@ -47,16 +47,21 @@ namespace Porta.Agent.Runtime
 
     public sealed class AgentHost : IDisposable
     {
+        private const int ControlClockHz = 20;
         private readonly MouseHook _mouseHook;
         private readonly KeyboardHook _keyboardHook;
         private readonly ForegroundHook _foregroundHook;
         private readonly FocusTracker _focusTracker;
+        private DeterministicControlEngine _controlEngine;
         private readonly ScrollProcessor _processor = new();
         private readonly DelayController _delayController = new();
         private readonly ScrollInjector _scrollInjector = new();
         private readonly KillSwitch _killSwitch = new();
         private readonly PortaClient _portaClient;
         private readonly Heartbeat _heartbeat;
+        private readonly ControlSessionStore _sessionStore;
+        private readonly bool _controlDiagnosticsTelemetryEnabled;
+        private readonly ControlSnapshotExporter? _controlSnapshotExporter;
         private readonly object _gate = new();
 
         private Channel<RuntimeInputEvent>? _events;
@@ -89,6 +94,10 @@ namespace Porta.Agent.Runtime
         private long _focusEnqueuedEvents;
         private long _focusProcessedEvents;
         private long _focusDroppedEvents;
+        private long _controlTicks;
+        private long _controlActuationApplied;
+        private long _controlReducedAuthority;
+        private long _lastProcessedControlTickTimestamp;
         private long _telemetryEnqueued;
         private long _telemetrySent;
         private long _telemetryDropped;
@@ -104,6 +113,13 @@ namespace Porta.Agent.Runtime
             _keyboardHook = new KeyboardHook();
             _foregroundHook = new ForegroundHook();
             _focusTracker = new FocusTracker(Environment.GetEnvironmentVariable("PORTA_TARGET_PROCESS"));
+            _controlEngine = new DeterministicControlEngine(Stopwatch.Frequency, controlHz: ControlClockHz);
+            _sessionStore = new ControlSessionStore(Environment.GetEnvironmentVariable("PORTA_CONTROL_SESSION_PATH"));
+            _controlDiagnosticsTelemetryEnabled = ReadBoolEnvironment("PORTA_CONTROL_DIAGNOSTICS_TELEMETRY", defaultValue: false);
+            if (_controlDiagnosticsTelemetryEnabled)
+            {
+                _controlSnapshotExporter = new ControlSnapshotExporter(Environment.GetEnvironmentVariable("PORTA_CONTROL_SNAPSHOT_EXPORT_PATH"));
+            }
             _portaClient = new PortaClient();
             _heartbeat = new Heartbeat(_portaClient, BuildControlSnapshot, BuildAgentStatusSnapshot);
             _mouseHook.ScrollDeltaChanged += OnScrollDelta;
@@ -239,45 +255,62 @@ namespace Porta.Agent.Runtime
 
         private async Task ProcessQueueAsync(ChannelReader<RuntimeInputEvent> reader, CancellationToken token)
         {
+            long tickInterval = _controlEngine.TickIntervalTicks;
+            long nextTickTimestamp = Stopwatch.GetTimestamp();
+            long authorityTimestamp = nextTickTimestamp;
+
             try
             {
-                while (await reader.WaitToReadAsync(token).ConfigureAwait(false))
+                while (!token.IsCancellationRequested)
                 {
-                    while (reader.TryRead(out var evt))
+                    long now = Stopwatch.GetTimestamp();
+                    long remainingTicks = nextTickTimestamp - now;
+                    if (remainingTicks > 0)
                     {
+                        int delayMs = (int)Math.Max(1, Math.Min(remainingTicks * 1000 / Stopwatch.Frequency, 50));
+                        Task<bool> waitReadTask = reader.WaitToReadAsync(token).AsTask();
+                        Task delayTask = Task.Delay(delayMs, token);
+                        Task completed = await Task.WhenAny(waitReadTask, delayTask).ConfigureAwait(false);
+                        if (completed == waitReadTask && !await waitReadTask.ConfigureAwait(false))
+                        {
+                            break;
+                        }
+                    }
+
+                    bool processedAnyInput = false;
+                    long latestInputTimestamp = authorityTimestamp;
+                    while (reader.TryRead(out RuntimeInputEvent evt))
+                    {
+                        bool trackQueueDepth = true;
                         try
                         {
                             if (evt.Kind == InputEventKind.Scroll)
                             {
                                 var scroll = evt.Scroll;
                                 _processor.Process(scroll);
-
-                                if (scroll.WasSuppressed && IsActuationEnabled)
-                                {
-                                    int boundedDelta = SafetyLimits.ClampInjectionDelta(scroll.Delta);
-                                    if (SafetyLimits.IsInjectableDelta(boundedDelta) && TryConsumeInjectionBudget())
-                                    {
-                                        long targetTimestamp = _delayController.ComputeTargetTimestamp(scroll.Timestamp);
-                                        await _delayController.WaitUntilAsync(targetTimestamp, token).ConfigureAwait(false);
-                                        _scrollInjector.InjectVerticalWheel(boundedDelta);
-                                        Interlocked.Increment(ref _injectedEvents);
-                                    }
-                                    else
-                                    {
-                                        Interlocked.Increment(ref _blockedBySafetyEvents);
-                                    }
-                                }
-
+                                _controlEngine.AddScrollSample(scroll.Timestamp, scroll.Delta);
                                 Interlocked.Increment(ref _processedEvents);
+                                processedAnyInput = true;
+                                latestInputTimestamp = Math.Max(latestInputTimestamp, scroll.Timestamp);
                             }
                             else
                             if (evt.Kind == InputEventKind.Keyboard)
                             {
+                                _controlEngine.AddKeyboardSample(evt.Keyboard.Timestamp, evt.Keyboard.IsKeyDown);
                                 Interlocked.Increment(ref _keyboardProcessedEvents);
+                                processedAnyInput = true;
+                                latestInputTimestamp = Math.Max(latestInputTimestamp, evt.Keyboard.Timestamp);
+                            }
+                            else if (evt.Kind == InputEventKind.Focus)
+                            {
+                                _controlEngine.AddFocusSample(evt.Focus.Timestamp);
+                                Interlocked.Increment(ref _focusProcessedEvents);
+                                processedAnyInput = true;
+                                latestInputTimestamp = Math.Max(latestInputTimestamp, evt.Focus.Timestamp);
                             }
                             else
                             {
-                                Interlocked.Increment(ref _focusProcessedEvents);
+                                Logger.Warn($"Unexpected runtime input event kind: {evt.Kind}");
                             }
                         }
                         catch (Exception ex)
@@ -287,7 +320,61 @@ namespace Porta.Agent.Runtime
                         }
                         finally
                         {
-                            Interlocked.Decrement(ref _queueDepth);
+                            if (trackQueueDepth)
+                            {
+                                Interlocked.Decrement(ref _queueDepth);
+                            }
+                        }
+                    }
+
+                    authorityTimestamp = processedAnyInput
+                        ? Math.Max(authorityTimestamp, latestInputTimestamp)
+                        : Math.Max(authorityTimestamp, Stopwatch.GetTimestamp());
+
+                    while (nextTickTimestamp <= authorityTimestamp)
+                    {
+                        try
+                        {
+                            if (nextTickTimestamp <= Interlocked.Read(ref _lastProcessedControlTickTimestamp))
+                            {
+                                Logger.Warn($"Non-monotonic control tick ignored. tick={nextTickTimestamp}");
+                                nextTickTimestamp += tickInterval;
+                                continue;
+                            }
+
+                            ControlParameters control = BuildControlSnapshot();
+                            DeterministicControlEngine.ControlEvaluationSnapshot snapshot =
+                                _controlEngine.EvaluateAtTimestampWithSnapshot(nextTickTimestamp, control);
+                            ActuationCommand command = snapshot.SafeCommand;
+                            Interlocked.Exchange(ref _lastProcessedControlTickTimestamp, nextTickTimestamp);
+                            Interlocked.Increment(ref _controlTicks);
+                            if (_controlDiagnosticsTelemetryEnabled)
+                            {
+                                DateTimeOffset capturedUtc = DateTimeOffset.UtcNow;
+                                ControlSnapshotTelemetry controlSnapshot = ControlSnapshotTelemetry.FromSnapshot(
+                                    nextTickTimestamp,
+                                    capturedUtc,
+                                    snapshot);
+                                _controlSnapshotExporter?.TryAppend(controlSnapshot);
+                                EnqueueTelemetry(new AgentTelemetry
+                                {
+                                    AgentId = _portaClient.AgentId,
+                                    TimestampUtc = capturedUtc,
+                                    Kind = "control_snapshot",
+                                    Note = controlSnapshot.ToCanonicalJson()
+                                });
+                            }
+
+                            await ApplyActuationCommandAsync(command, nextTickTimestamp, token).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            Interlocked.Increment(ref _processingErrors);
+                            Logger.Error(ex, $"Control tick evaluation failed. tick={nextTickTimestamp}");
+                        }
+                        finally
+                        {
+                            nextTickTimestamp += tickInterval;
                         }
                     }
                 }
@@ -334,6 +421,9 @@ namespace Porta.Agent.Runtime
                 long focusEnqueued = Interlocked.Read(ref _focusEnqueuedEvents);
                 long focusProcessed = Interlocked.Read(ref _focusProcessedEvents);
                 long focusDropped = Interlocked.Read(ref _focusDroppedEvents);
+                long controlTicks = Interlocked.Read(ref _controlTicks);
+                long controlActuationApplied = Interlocked.Read(ref _controlActuationApplied);
+                long controlReducedAuthority = Interlocked.Read(ref _controlReducedAuthority);
                 long telemetryEnqueued = Interlocked.Read(ref _telemetryEnqueued);
                 long telemetrySent = Interlocked.Read(ref _telemetrySent);
                 long telemetryDropped = Interlocked.Read(ref _telemetryDropped);
@@ -362,6 +452,9 @@ namespace Porta.Agent.Runtime
                     ("focus_enqueued", focusEnqueued),
                     ("focus_processed", focusProcessed),
                     ("focus_dropped", focusDropped),
+                    ("control_ticks", controlTicks),
+                    ("control_actuation_applied", controlActuationApplied),
+                    ("control_reduced_authority", controlReducedAuthority),
                     ("queue_depth", queueDepth),
                     ("telemetry_enqueued", telemetryEnqueued),
                     ("telemetry_sent", telemetrySent),
@@ -449,6 +542,9 @@ namespace Porta.Agent.Runtime
                 Interlocked.Exchange(ref _focusEnqueuedEvents, 0);
                 Interlocked.Exchange(ref _focusProcessedEvents, 0);
                 Interlocked.Exchange(ref _focusDroppedEvents, 0);
+                Interlocked.Exchange(ref _controlTicks, 0);
+                Interlocked.Exchange(ref _controlActuationApplied, 0);
+                Interlocked.Exchange(ref _controlReducedAuthority, 0);
                 Interlocked.Exchange(ref _queueDepth, 0);
                 Interlocked.Exchange(ref _stopRequested, 0);
                 Interlocked.Exchange(ref _telemetryEnqueued, 0);
@@ -458,6 +554,8 @@ namespace Porta.Agent.Runtime
                 Interlocked.Exchange(ref _telemetryQueueDepth, 0);
                 _injectedThisWindow = 0;
                 _injectionWindowStartedTimestamp = Stopwatch.GetTimestamp();
+                _controlEngine = new DeterministicControlEngine(Stopwatch.Frequency, controlHz: ControlClockHz);
+                Interlocked.Exchange(ref _lastProcessedControlTickTimestamp, 0);
                 events = Channel.CreateUnbounded<RuntimeInputEvent>(
                     new UnboundedChannelOptions
                     {
@@ -479,6 +577,12 @@ namespace Porta.Agent.Runtime
 
             try
             {
+                if (_sessionStore.TryLoad(out var restoredSession) && restoredSession != null)
+                {
+                    _controlEngine.RestoreSession(restoredSession);
+                    Logger.Info("Control session restored (warm-start baseline).");
+                }
+
                 if (!_mouseHook.Install())
                 {
                     throw new InvalidOperationException("Mouse hook install failed after retries.");
@@ -622,6 +726,7 @@ namespace Porta.Agent.Runtime
             await SafeAwaitTask(heartbeatTask, "heartbeat task").ConfigureAwait(false);
             await _portaClient.StopAsync(CancellationToken.None).ConfigureAwait(false);
 
+            _sessionStore.TrySave(_controlEngine.SaveSession());
             lifecycleCts?.Dispose();
 
             lock (_gate)
@@ -652,6 +757,43 @@ namespace Porta.Agent.Runtime
         private bool ShouldSuppressScroll(int _)
         {
             return IsScrollSuppressionEnabled && _focusTracker.IsTargetInForeground();
+        }
+
+        private async ValueTask ApplyActuationCommandAsync(ActuationCommand command, long sourceTimestamp, CancellationToken token)
+        {
+            if (!IsActuationEnabled)
+            {
+                return;
+            }
+
+            if (command.AuthorityLevel != AuthorityLevel.Normal)
+            {
+                Interlocked.Increment(ref _controlReducedAuthority);
+            }
+
+            if (!ActuationMapper.TryMapToWheelDelta(command, out int boundedDelta, out string mapNote))
+            {
+                Logger.Warn($"Actuation mapping rejected: {mapNote}");
+                Interlocked.Increment(ref _blockedBySafetyEvents);
+                return;
+            }
+
+            if (!SafetyLimits.IsInjectableDelta(boundedDelta))
+            {
+                return;
+            }
+
+            if (!TryConsumeInjectionBudget())
+            {
+                Interlocked.Increment(ref _blockedBySafetyEvents);
+                return;
+            }
+
+            long targetTimestamp = _delayController.ComputeTargetTimestamp(sourceTimestamp);
+            await _delayController.WaitUntilAsync(targetTimestamp, token).ConfigureAwait(false);
+            _scrollInjector.InjectVerticalWheel(boundedDelta);
+            Interlocked.Increment(ref _injectedEvents);
+            Interlocked.Increment(ref _controlActuationApplied);
         }
 
         private bool TryConsumeInjectionBudget()
@@ -780,6 +922,20 @@ namespace Porta.Agent.Runtime
                     Logger.Error(ex, $"Heartbeat transition '{note}' failed.");
                 }
             });
+        }
+
+        private static bool ReadBoolEnvironment(string key, bool defaultValue)
+        {
+            string? raw = Environment.GetEnvironmentVariable(key);
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return defaultValue;
+            }
+
+            return raw.Equals("1", StringComparison.OrdinalIgnoreCase)
+                || raw.Equals("true", StringComparison.OrdinalIgnoreCase)
+                || raw.Equals("yes", StringComparison.OrdinalIgnoreCase)
+                || raw.Equals("on", StringComparison.OrdinalIgnoreCase);
         }
 
         public void Start() => StartAsync(CancellationToken.None).GetAwaiter().GetResult();

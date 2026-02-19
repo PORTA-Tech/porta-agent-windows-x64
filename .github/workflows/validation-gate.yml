@@ -1,0 +1,27 @@
+name: Validation Gate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validation-gate:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore PORTA.Windows.sln
+
+      - name: Build
+        run: dotnet build PORTA.Windows.sln -c Release -m:1
+
+      - name: Run Validation Runner (Gate)
+        run: dotnet run --project src/Porta.Agent.ValidationRunner/Porta.Agent.ValidationRunner.csproj -c Release --no-build
