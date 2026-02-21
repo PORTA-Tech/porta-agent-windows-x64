@@ -1,6 +1,6 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$ServiceName = "PortaAgentService"
+    [string]$ServiceName = "AriAgent"
 )
 
 Set-StrictMode -Version Latest

@@ -1,0 +1,52 @@
+[CmdletBinding()]
+param(
+    [string]$Version = "1.0.0",
+    [string]$BackendUrl = "https://porta-control-plane.onrender.com",
+    [string]$Configuration = "Release",
+    [string]$Runtime = "win-x64"
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$serviceProject = Join-Path $repoRoot "src/Porta.Agent.Service/Porta.Agent.Service.csproj"
+$publishDir = Join-Path $repoRoot "src/Porta.Agent.Service/bin/$Configuration/net8.0-windows/$Runtime/publish"
+$ariExe = Join-Path $publishDir "ari.exe"
+$installerProject = Join-Path $repoRoot "installer/AriAgent.Installer.wixproj"
+$payloadDir = Join-Path $repoRoot "installer/payload"
+$payloadExe = Join-Path $payloadDir "ari.exe"
+
+Write-Host "Publishing ari.exe ($Configuration, $Runtime)..."
+dotnet publish $serviceProject -c $Configuration -r $Runtime --self-contained true /p:PublishSingleFile=true
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet publish failed with exit code $LASTEXITCODE."
+}
+
+if (-not (Test-Path $ariExe)) {
+    throw "Published binary not found at '$ariExe'."
+}
+
+if (-not (Test-Path $payloadDir)) {
+    New-Item -ItemType Directory -Path $payloadDir -Force | Out-Null
+}
+
+Copy-Item $ariExe $payloadExe -Force
+Write-Host "Payload prepared: $payloadExe"
+
+Write-Host "Building MSI..."
+dotnet build $installerProject -c $Configuration `
+    /p:ProductVersion=$Version `
+    /p:AriBackendUrlDefault=$BackendUrl `
+    /p:AriExeSource=$payloadExe
+if ($LASTEXITCODE -ne 0) {
+    throw "MSI build failed with exit code $LASTEXITCODE."
+}
+
+Write-Host "MSI build complete. Output:"
+$msi = Get-ChildItem (Join-Path $repoRoot "installer/bin") -Filter "*.msi" -Recurse |
+    Sort-Object LastWriteTime -Descending
+if (-not $msi) {
+    throw "No MSI was produced under installer/bin."
+}
+$msi | Select-Object -First 1 FullName, Length, LastWriteTime

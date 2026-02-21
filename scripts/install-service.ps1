@@ -1,8 +1,8 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$ServiceName = "PortaAgentService",
-    [string]$DisplayName = "PORTA Agent Service",
-    [string]$Description = "PORTA runtime Windows service host.",
+    [string]$ServiceName = "AriAgent",
+    [string]$DisplayName = "Ari Agent",
+    [string]$Description = "PORTA Ari Agent Windows service host.",
     [string]$ProjectPath = "src/Porta.Agent.Service/Porta.Agent.Service.csproj",
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
@@ -47,7 +47,7 @@ elseif (Get-ServiceOrNull $ServiceName) {
 Write-Host "Publishing service host..."
 dotnet publish $resolvedProject -c $Configuration -r $Runtime --self-contained false -o $resolvedPublishDir
 
-$exePath = Join-Path $resolvedPublishDir "Porta.Agent.Service.exe"
+$exePath = Join-Path $resolvedPublishDir "ari.exe"
 if (-not (Test-Path $exePath)) {
     throw "Published executable not found at '$exePath'."
 }

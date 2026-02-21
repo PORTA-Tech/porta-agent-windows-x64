@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="Ari Agent"
+           Manufacturer="PORTA"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="$(var.UpgradeCode)"
+           Scope="perMachine"
+           Language="1033">
+    <SummaryInformation Description="Ari Agent Windows Service Installer" />
+
+    <MajorUpgrade
+      DowngradeErrorMessage="A newer Ari Agent version is already installed." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="PORTA_BACKEND_URL" Value="$(var.AriBackendUrlDefault)" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Ari">
+        <Component Id="AriExeComponent" Guid="0364a772-0f3d-4440-a3df-89fcfd474226">
+          <File Id="AriExeFile"
+                Name="ari.exe"
+                Source="$(var.AriExeSource)"
+                KeyPath="yes"
+                Checksum="yes" />
+
+          <ServiceInstall Id="AriAgentServiceInstall"
+                          Name="AriAgent"
+                          DisplayName="Ari Agent"
+                          Description="PORTA Ari Agent Windows Service"
+                          Start="auto"
+                          Type="ownProcess"
+                          ErrorControl="normal"
+                          Vital="yes" />
+
+          <ServiceControl Id="AriAgentServiceControl"
+                          Name="AriAgent"
+                          Start="install"
+                          Stop="both"
+                          Remove="uninstall"
+                          Wait="yes" />
+
+          <Environment Id="AriBackendUrlEnvironment"
+                       Name="PORTA_BACKEND_URL"
+                       Value="[PORTA_BACKEND_URL]"
+                       Action="set"
+                       Part="all"
+                       System="yes" />
+
+          <util:ServiceConfig ServiceName="AriAgent"
+                              FirstFailureActionType="restart"
+                              SecondFailureActionType="restart"
+                              ThirdFailureActionType="restart"
+                              RestartServiceDelayInSeconds="15"
+                              ResetPeriodInDays="1" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="Ari Agent" Level="1">
+      <ComponentRef Id="AriExeComponent" />
+    </Feature>
+  </Package>
+</Wix>

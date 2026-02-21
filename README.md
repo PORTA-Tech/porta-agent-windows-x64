@@ -13,7 +13,7 @@ Dependency direction is enforced: `Service -> Runtime -> Common`.
 - `PORTA_SUPPRESSION_ENABLED`: `false`
 - `PORTA_ACTUATION_ENABLED`: `false`
 - `PORTA_AUTO_STOP_MS`: disabled unless explicitly set
-- Service name: `PortaAgentService`
+- Service name: `AriAgent`
 
 ## Local Build
 ```powershell
@@ -48,8 +48,8 @@ dotnet run --project src/Porta.Agent.Service/Porta.Agent.Service.csproj
    - `processing_errors`
 3. Service status checks:
 ```powershell
-Get-Service PortaAgentService
-sc.exe query PortaAgentService
+Get-Service AriAgent
+sc.exe query AriAgent
 ```
 
 ## Rollback
@@ -81,3 +81,12 @@ dotnet build src/Porta.Agent.Service/Porta.Agent.Service.csproj
 - [x] `docs/architecture.md` updated with UTC-stamped measured results
 - [x] Install/run/diagnostics/rollback instructions verified
 - [ ] Stable git tag created and pushed
+
+## MSI Build
+Use the WiX-based installer project to produce `AriAgentInstaller.msi`:
+
+```powershell
+.\scripts\build-msi.ps1 -Version 1.0.0 -BackendUrl "https://porta-control-plane.onrender.com"
+```
+
+This publishes `ari.exe`, stages installer payload under `installer/payload`, and builds MSI output under `installer/bin/Release`.
