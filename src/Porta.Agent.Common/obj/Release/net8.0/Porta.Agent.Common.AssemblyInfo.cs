@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Porta.Agent.Common")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2b90b91014de8a0bea5671ac694ab72900e95576")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+07b6c3d3224246e2c9826ddb81b35023dc2a5299")]
 [assembly: System.Reflection.AssemblyProductAttribute("Porta.Agent.Common")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Porta.Agent.Common")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

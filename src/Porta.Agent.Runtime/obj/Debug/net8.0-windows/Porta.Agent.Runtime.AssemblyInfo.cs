@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Porta.Agent.Runtime")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+353e7366d532399f9dea4c7b15aefce02181406b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+fc47264139aeacf97d4a884779ba9d61b16550e2")]
 [assembly: System.Reflection.AssemblyProductAttribute("Porta.Agent.Runtime")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Porta.Agent.Runtime")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
