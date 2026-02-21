@@ -11,6 +11,13 @@ namespace Porta.Agent.Runtime.Transport;
 
 internal sealed class PortaClient : IDisposable
 {
+    private sealed class HeartbeatAck
+    {
+        public int? config_seq { get; init; }
+        public string? config_version { get; init; }
+        public bool? signature_validity { get; init; }
+    }
+
     private readonly string _agentId = Environment.MachineName;
     private readonly Uri? _baseUri;
     private readonly int _maxRetries;
@@ -18,6 +25,9 @@ internal sealed class PortaClient : IDisposable
     private readonly object _gate = new();
     private HttpClient? _httpClient;
     private int _started;
+    private int? _lastConfigSeq;
+    private string? _lastConfigVersion;
+    private bool? _lastSignatureValidity;
 
     public PortaClient(string? baseUrl = null, int maxRetries = 3, int timeoutMs = 2000)
     {
@@ -109,7 +119,37 @@ internal sealed class PortaClient : IDisposable
             async (client, ct) =>
             {
                 using HttpResponseMessage response = await client.PostAsJsonAsync("api/agent/heartbeat", payload, ct).ConfigureAwait(false);
-                return response.IsSuccessStatusCode;
+                if (!response.IsSuccessStatusCode)
+                {
+                    return false;
+                }
+
+                HeartbeatAck? ack = await response.Content.ReadFromJsonAsync<HeartbeatAck>(cancellationToken: ct).ConfigureAwait(false);
+                if (ack?.config_seq is int configSeq)
+                {
+                    bool changed;
+                    lock (_gate)
+                    {
+                        changed =
+                            _lastConfigSeq != configSeq
+                            || _lastConfigVersion != ack.config_version
+                            || _lastSignatureValidity != ack.signature_validity;
+                        _lastConfigSeq = configSeq;
+                        _lastConfigVersion = ack.config_version;
+                        _lastSignatureValidity = ack.signature_validity;
+                    }
+
+                    if (changed)
+                    {
+                        Logger.Event(
+                            "control_plane_config_ack",
+                            ("config_seq", configSeq),
+                            ("config_version", ack.config_version ?? string.Empty),
+                            ("signature_validity", ack.signature_validity?.ToString() ?? "null"));
+                    }
+                }
+
+                return true;
             },
             "heartbeat",
             token).ConfigureAwait(false);

@@ -5,6 +5,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <Platforms>x64</Platforms>
     <OutputType>Exe</OutputType>
+    <AssemblyName>ari</AssemblyName>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 

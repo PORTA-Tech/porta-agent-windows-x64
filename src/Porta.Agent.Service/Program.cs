@@ -6,7 +6,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddHostedService<AgentService>();
 builder.Services.AddWindowsService(options =>
 {
-    options.ServiceName = "PortaAgentService";
+    options.ServiceName = "AriAgent";
 });
 
 using IHost host = builder.Build();
