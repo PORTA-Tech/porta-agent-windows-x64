@@ -48,6 +48,12 @@
                        Part="all"
                        System="yes" />
 
+          <RegistryValue Root="HKLM"
+                         Key="SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+                         Name="PORTA_BACKEND_URL"
+                         Type="string"
+                         Value="[PORTA_BACKEND_URL]" />
+
           <util:ServiceConfig ServiceName="AriAgent"
                               FirstFailureActionType="restart"
                               SecondFailureActionType="restart"
