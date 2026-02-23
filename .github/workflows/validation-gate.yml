@@ -5,7 +5,8 @@ on:
   pull_request:
 
 jobs:
-  validation-gate:
+  contracts-validation:
+    name: contracts-validation
     runs-on: windows-latest
 
     steps:
@@ -28,10 +29,163 @@ jobs:
         run: npm ci
         working-directory: porta-contracts
 
-      - name: Run Contract Gate
+      - name: Run Contracts Validation
         shell: pwsh
-        run: npm run contracts:check
+        run: npm run contracts:validate
         working-directory: porta-contracts
+
+  compatibility-check:
+    name: compatibility-check
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch Remote Refs
+        shell: pwsh
+        run: git fetch --no-tags --prune --depth=1 origin +refs/heads/*:refs/remotes/origin/*
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Contract Tooling
+        shell: pwsh
+        run: npm ci
+        working-directory: porta-contracts
+
+      - name: Run Compatibility Check
+        shell: pwsh
+        run: npm run contracts:compat
+        working-directory: porta-contracts
+
+  schema-drift-check:
+    name: schema-drift-check
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch Remote Refs
+        shell: pwsh
+        run: git fetch --no-tags --prune --depth=1 origin +refs/heads/*:refs/remotes/origin/*
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Contract Tooling
+        shell: pwsh
+        run: npm ci
+        working-directory: porta-contracts
+
+      - name: Run Schema Drift Check
+        shell: pwsh
+        run: npm run contracts:drift
+        working-directory: porta-contracts
+
+  client-generation-check:
+    name: client-generation-check
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Contract Tooling
+        shell: pwsh
+        run: npm ci
+        working-directory: porta-contracts
+
+      - name: Run Client Generation Check
+        shell: pwsh
+        run: npm run contracts:client-check
+        working-directory: porta-contracts
+
+  types:
+    name: types
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Contract Tooling
+        shell: pwsh
+        run: npm ci
+        working-directory: porta-contracts
+
+      - name: Generate Types
+        shell: pwsh
+        run: npm run contracts:generate
+        working-directory: porta-contracts
+
+      - name: Compile Generated Types
+        shell: pwsh
+        run: npm run contracts:typecheck
+        working-directory: porta-contracts
+
+  tests:
+    name: tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Contract Tooling
+        shell: pwsh
+        run: npm ci
+        working-directory: porta-contracts
+
+      - name: Run Contract Tests
+        shell: pwsh
+        run: npm run contracts:tests
+        working-directory: porta-contracts
+
+  build:
+    name: build
+    runs-on: windows-latest
+    needs:
+      - contracts-validation
+      - compatibility-check
+      - schema-drift-check
+      - client-generation-check
+      - types
+      - tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -41,6 +195,3 @@ jobs:
       - name: Build Solution (Single Node)
         shell: pwsh
         run: ./scripts/build.ps1 -Configuration Release
-
-      - name: Run Validation Runner (Gate)
-        run: dotnet run --project src/Porta.Agent.ValidationRunner/Porta.Agent.ValidationRunner.csproj -c Release --no-build
