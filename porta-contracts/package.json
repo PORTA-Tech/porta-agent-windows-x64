@@ -1,0 +1,22 @@
+{
+  "name": "porta-contracts",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Canonical contract schemas and enforcement gates for PORTA",
+  "type": "module",
+  "scripts": {
+    "contracts:validate": "node ./scripts/validate-schemas.mjs",
+    "contracts:compat": "node ./scripts/check-compatibility.mjs",
+    "contracts:generate": "node ./scripts/generate-ts-clients.mjs",
+    "contracts:typecheck": "tsc -p ./clients/ts/tsconfig.json --noEmit",
+    "contracts:check": "npm run contracts:validate && npm run contracts:compat && npm run contracts:generate && npm run contracts:typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.11",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "json-schema-to-typescript": "^15.0.4",
+    "semver": "^7.6.3",
+    "typescript": "^5.8.2"
+  }
+}

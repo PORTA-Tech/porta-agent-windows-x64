@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://porta.dev/contracts/policies/policy.schema.json",
+  "title": "RegulationPolicy",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "contract_name": { "const": "RegulationPolicy" },
+    "schema_version": { "const": "1.0.0" },
+    "policy_id": { "$ref": "../shared/common-defs.schema.json#/$defs/uuid" },
+    "policy_name": { "$ref": "../shared/common-defs.schema.json#/$defs/nonEmptyString" },
+    "version": { "$ref": "../shared/common-defs.schema.json#/$defs/semver" },
+    "target_state": { "enum": ["stable", "elevated_risk", "degrading", "critical", "recovering"] },
+    "conditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operator": { "enum": ["AND", "OR"] },
+        "conditions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "field": { "enum": ["probability", "confidence", "baseline_deviation_factor"] },
+              "op": { "enum": [">", ">=", "<", "<=", "=="] },
+              "value": { "type": "number" }
+            },
+            "required": ["field", "op", "value"]
+          },
+          "minItems": 1,
+          "maxItems": 16
+        }
+      },
+      "required": ["operator", "conditions"]
+    },
+    "interventions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": { "enum": ["notify", "reduce_load", "restart_service", "isolate_component", "escalate_to_human", "pause_agent"] },
+          "level": { "type": "integer", "minimum": 1, "maximum": 4 },
+          "max_duration_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+          "parameters": {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                { "type": "string" },
+                { "type": "number" },
+                { "type": "boolean" }
+              ]
+            }
+          }
+        },
+        "required": ["type", "level", "max_duration_seconds", "parameters"]
+      },
+      "minItems": 1,
+      "maxItems": 8
+    },
+    "hysteresis_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "activate_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "deactivate_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "flap_window_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+        "max_flaps_per_window": { "type": "integer", "minimum": 1, "maximum": 100 }
+      },
+      "required": ["activate_threshold", "deactivate_threshold", "flap_window_seconds", "max_flaps_per_window"]
+    },
+    "cooldown_seconds": { "type": "integer", "minimum": 0, "maximum": 86400 },
+    "dwell_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+    "override_permissions": {
+      "type": "array",
+      "items": { "enum": ["owner", "admin", "operator", "analyst", "viewer"] },
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true
+    },
+    "fleet_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "all": { "type": "boolean" },
+        "machine_ids": {
+          "type": "array",
+          "items": { "$ref": "../shared/common-defs.schema.json#/$defs/uuid" },
+          "uniqueItems": true,
+          "maxItems": 5000
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+          "uniqueItems": true,
+          "maxItems": 100
+        }
+      },
+      "required": ["all", "machine_ids", "tags"]
+    },
+    "created_by": { "$ref": "../shared/common-defs.schema.json#/$defs/nonEmptyString" },
+    "created_at": { "$ref": "../shared/common-defs.schema.json#/$defs/isoTimestamp" },
+    "signature": { "type": "string", "pattern": "^[A-Za-z0-9+/=._-]{32,4096}$" }
+  },
+  "required": [
+    "contract_name",
+    "schema_version",
+    "policy_id",
+    "policy_name",
+    "version",
+    "target_state",
+    "conditions",
+    "interventions",
+    "hysteresis_config",
+    "cooldown_seconds",
+    "dwell_seconds",
+    "override_permissions",
+    "fleet_scope",
+    "created_by",
+    "created_at",
+    "signature"
+  ]
+}

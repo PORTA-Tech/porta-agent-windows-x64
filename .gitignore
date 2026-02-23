@@ -9,6 +9,7 @@ obj/
 # IDE / local files
 .vs/
 *.user
+node_modules/
 
 # Local soak logs
 soak-*.csv

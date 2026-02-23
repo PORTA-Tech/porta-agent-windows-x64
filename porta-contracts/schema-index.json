@@ -1,0 +1,17 @@
+{
+  "entries": [
+    { "schema": "events/signal-sample.schema.json", "example": "examples/events/signal-sample.example.json" },
+    { "schema": "events/agent-primitive.schema.json", "example": "examples/events/agent-primitive.example.json" },
+    { "schema": "events/agent-state.schema.json", "example": "examples/events/agent-state.example.json" },
+    { "schema": "events/policy-evaluated.schema.json", "example": "examples/events/policy-evaluated.example.json" },
+    { "schema": "events/intervention-issued.schema.json", "example": "examples/events/intervention-issued.example.json" },
+    { "schema": "events/intervention-applied.schema.json", "example": "examples/events/intervention-applied.example.json" },
+    { "schema": "events/intervention-failed.schema.json", "example": "examples/events/intervention-failed.example.json" },
+    { "schema": "events/agent-error.schema.json", "example": "examples/events/agent-error.example.json" },
+    { "schema": "primitives/primitive.schema.json", "example": "examples/primitives/primitive.example.json" },
+    { "schema": "states/state-snapshot.schema.json", "example": "examples/states/state-snapshot.example.json" },
+    { "schema": "policies/policy.schema.json", "example": "examples/policies/policy.example.json" },
+    { "schema": "interventions/intervention-command.schema.json", "example": "examples/interventions/intervention-command.example.json" },
+    { "schema": "audit/audit-record.schema.json", "example": "examples/audit/audit-record.example.json" }
+  ]
+}
