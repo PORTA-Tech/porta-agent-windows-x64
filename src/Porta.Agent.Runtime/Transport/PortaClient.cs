@@ -52,6 +52,18 @@ internal sealed class PortaClient : IDisposable
             return Task.CompletedTask;
         }
 
+        if (!string.Equals(_baseUri!.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            Interlocked.Exchange(ref _started, 0);
+            throw new InvalidOperationException($"TLS required for backend transport. Refusing scheme '{_baseUri.Scheme}'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_agentId))
+        {
+            Interlocked.Exchange(ref _started, 0);
+            throw new InvalidOperationException("Anonymous emission is not allowed: agent identifier missing.");
+        }
+
         lock (_gate)
         {
             _httpClient = new HttpClient

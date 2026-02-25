@@ -2,13 +2,13 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Porta.Agent.Runtime;
+using Porta.Agent.Runtime.Layer1;
 
 namespace Porta.Agent.Service;
 
 internal sealed class AgentService : IHostedService, IDisposable
 {
-    private readonly AgentHost _agentHost = new();
+    private readonly Layer1AgentHost _agentHost = new();
     private int _started;
 
     public async Task StartAsync(CancellationToken cancellationToken)

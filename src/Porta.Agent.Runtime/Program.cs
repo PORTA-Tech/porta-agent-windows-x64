@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Porta.Agent.Runtime;
+using Porta.Agent.Runtime.Layer1;
 using Porta.Agent.Runtime.Diagnostics;
 
 class Program
@@ -12,15 +12,13 @@ class Program
         ApplyProfileDefaults(profile);
         Logger.Info($"Runtime profile: {profile}");
 
-        using var host = new AgentHost();
+        using var host = new Layer1AgentHost();
         using var stopCts = new CancellationTokenSource();
         int cycleCount = ReadIntEnvironment("PORTA_START_STOP_CYCLES");
         int autoStopMs = ReadIntEnvironment("PORTA_AUTO_STOP_MS");
         bool suppressionEnabled = false;
         bool actuationEnabled = false;
         bool keyboardCaptureEnabled = true;
-
-        host.KillSwitchTriggered += () => stopCts.Cancel();
 
         Console.CancelKeyPress += (_, e) =>
         {
@@ -33,10 +31,6 @@ class Program
             suppressionEnabled = ReadBoolEnvironment("PORTA_SUPPRESSION_ENABLED", defaultValue: false);
             actuationEnabled = ReadBoolEnvironment("PORTA_ACTUATION_ENABLED", defaultValue: false);
             keyboardCaptureEnabled = ReadBoolEnvironment("PORTA_KEYBOARD_CAPTURE_ENABLED", defaultValue: true);
-            host.SetScrollSuppression(suppressionEnabled);
-            host.SetActuationEnabled(actuationEnabled);
-            host.SetKeyboardCapture(keyboardCaptureEnabled);
-
             if (cycleCount > 0)
             {
                 Logger.Info($"Running start/stop cycle test for {cycleCount} cycles.");

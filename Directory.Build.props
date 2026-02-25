@@ -5,4 +5,9 @@
     <!-- Keep local/offline builds deterministic when nuget.org audit feed is unavailable. -->
     <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
+
+  <Target Name="PrivacyGuard" BeforeTargets="BeforeBuild"
+          Condition="'$(MSBuildProjectName)' == 'Porta.Agent.Runtime' Or '$(MSBuildProjectName)' == 'Porta.Agent.Service'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)scripts\privacy-guard.ps1&quot; -RepoRoot &quot;$(MSBuildThisFileDirectory).&quot;" />
+  </Target>
 </Project>

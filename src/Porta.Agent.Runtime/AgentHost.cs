@@ -280,7 +280,7 @@ namespace Porta.Agent.Runtime
                 AgentId = _portaClient.AgentId,
                 TimestampUtc = DateTimeOffset.UtcNow,
                 Kind = "keyboard",
-                Note = $"vk={virtualKey} down={isKeyDown} injected={isInjected}"
+                Note = $"down={isKeyDown} injected={isInjected}"
             });
 
             if (events.Writer.TryWrite(RuntimeInputEvent.FromKeyboard(new KeyboardEvent(Stopwatch.GetTimestamp(), virtualKey, isKeyDown, isInjected))))
@@ -308,7 +308,7 @@ namespace Porta.Agent.Runtime
                 AgentId = _portaClient.AgentId,
                 TimestampUtc = DateTimeOffset.UtcNow,
                 Kind = "focus",
-                Note = $"pid={processId} hwnd=0x{hwnd.ToInt64():X}"
+                Note = "foreground_changed"
             });
 
             if (events.Writer.TryWrite(RuntimeInputEvent.FromFocus(new FocusEvent(Stopwatch.GetTimestamp(), processId, hwnd))))
