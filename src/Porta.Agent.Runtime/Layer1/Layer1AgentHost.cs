@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using System.Windows.Forms;
@@ -27,6 +28,7 @@ public sealed class Layer1AgentHost : IDisposable
     private readonly PortaClient _client = new();
     private readonly Layer1ConsentStore _consentStore = new(Environment.GetEnvironmentVariable("PORTA_CONSENT_STATE_PATH"));
     private readonly Layer1TrayController _tray = new();
+    private readonly Layer1ControlPlaneStream _controlPlaneStream = new();
     private readonly SystemCpuSampler _systemCpu = new();
     private readonly NetworkSampler _networkSampler = new();
     private readonly DiskIoSampler _diskIoSampler = new();
@@ -44,6 +46,7 @@ public sealed class Layer1AgentHost : IDisposable
     private Task? _normalizationTask;
     private Task? _inferenceTask;
     private Task? _telemetryTask;
+    private Task? _controlPlaneTask;
     private int _running;
     private int _errorCount;
     private int _paused;
@@ -56,6 +59,19 @@ public sealed class Layer1AgentHost : IDisposable
     private DateTimeOffset? _lastSignalAtUtc;
     private string _lastSummary = "No signals emitted yet.";
     private readonly bool _consentStateCorrupted;
+    private readonly Queue<Layer1TrayPrimitiveView> _recentPrimitives = new();
+    private readonly Queue<Layer1TrayInterventionView> _recentInterventions = new();
+    private readonly Dictionary<string, double> _riskProbabilities = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["stress"] = 0,
+        ["overload"] = 0,
+        ["focus"] = 0,
+        ["fatigue"] = 0
+    };
+    private double _riskSigma;
+    private DateTimeOffset? _pauseUntilUtc;
+    private string _lastCommittedState = "stable";
+    private readonly Layer1LocalLogStore _localLogStore;
 
     public Layer1AgentHost()
     {
@@ -72,6 +88,7 @@ public sealed class Layer1AgentHost : IDisposable
 
         _signatureKey = SHA256.HashData(Encoding.UTF8.GetBytes($"{_machineId}|{Environment.UserDomainName}|PORTA_LAYER1"));
         _signatureKeyId = Convert.ToHexString(SHA256.HashData(_signatureKey)).Substring(0, 16);
+        _localLogStore = new Layer1LocalLogStore(_machineId);
         _normalizationEngine = new Layer2NormalizationEngine(
             Layer2NormalizationConfig.FromEnvironment(),
             samplePeriodSeconds: WindowSeconds);
@@ -89,6 +106,8 @@ public sealed class Layer1AgentHost : IDisposable
         _tray.ResumeRequested += ResumeByUser;
         _tray.RevokeRequested += RevokeConsent;
         _tray.ExitRequested += () => _cts?.Cancel();
+        _tray.ExportJsonRequested += () => _localLogStore.ExportJson();
+        _tray.ExportCsvRequested += () => _localLogStore.ExportCsv();
     }
 
     public async Task StartAsync(CancellationToken token)
@@ -144,6 +163,7 @@ public sealed class Layer1AgentHost : IDisposable
             _normalizationTask = NormalizeLoopAsync(_cts.Token);
             _inferenceTask = InferenceLoopAsync(_cts.Token);
             _telemetryTask = TelemetryLoopAsync(_cts.Token);
+            _controlPlaneTask = ControlPlaneLoopAsync(_cts.Token);
             UpdateTray(IsCollectionDisabled() ? "Paused" : "Active");
         }
         catch (Exception ex)
@@ -170,14 +190,17 @@ public sealed class Layer1AgentHost : IDisposable
         await SafeAwait(_normalizationTask).ConfigureAwait(false);
         await SafeAwait(_inferenceTask).ConfigureAwait(false);
         await SafeAwait(_telemetryTask).ConfigureAwait(false);
+        await SafeAwait(_controlPlaneTask).ConfigureAwait(false);
         await _client.StopAsync(CancellationToken.None).ConfigureAwait(false);
         _tray.Dispose();
+        _localLogStore.Dispose();
         _cts?.Dispose();
         _cts = null;
         _collectorTask = null;
         _normalizationTask = null;
         _inferenceTask = null;
         _telemetryTask = null;
+        _controlPlaneTask = null;
         _telemetry = null;
         _signalSamples = null;
     }
@@ -209,6 +232,12 @@ public sealed class Layer1AgentHost : IDisposable
         {
             _consentState = Layer1ConsentState.ConsentedActive;
             _consentStore.Save(_consentState);
+            _localLogStore.Log("agent.consent_granted", new
+            {
+                consent_state = _consentState.ToString().ToLowerInvariant(),
+                disclosure = Layer1Disclosure.Text,
+                accepted_at = DateTimeOffset.UtcNow
+            });
             EmitEvent("agent.consent_granted", "consent", 1, "count", "explicit_accept", "public");
             return;
         }
@@ -263,6 +292,7 @@ public sealed class Layer1AgentHost : IDisposable
                 break;
             }
 
+            TryAutoResumePaused();
             if (IsCollectionDisabled())
             {
                 continue;
@@ -442,6 +472,34 @@ public sealed class Layer1AgentHost : IDisposable
         }
     }
 
+    private async Task ControlPlaneLoopAsync(CancellationToken token)
+    {
+        string? wsUrl = Environment.GetEnvironmentVariable("PORTA_CONTROL_PLANE_WS_URL");
+        if (string.IsNullOrWhiteSpace(wsUrl))
+        {
+            return;
+        }
+
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await _controlPlaneStream.RunAsync(wsUrl, OnInterventionReceived, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Increment(ref _errorCount);
+                Logger.Error(ex, "Control-plane stream failed.");
+                EmitEvent("agent.error", "error", 1, "count", "control_plane_stream_failed", "restricted");
+                await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+            }
+        }
+    }
+
     private void OnKeyChanged(int _, bool isKeyDown, bool isInjected)
     {
         if (!isKeyDown || isInjected || IsCollectionDisabled())
@@ -452,14 +510,16 @@ public sealed class Layer1AgentHost : IDisposable
         Interlocked.Increment(ref _keystrokesInWindow);
     }
 
-    private void PauseByUser()
+    private void PauseByUser(int minutes)
     {
+        int clampedMinutes = Math.Clamp(minutes, 1, 60);
         Interlocked.Exchange(ref _paused, 1);
         _consentState = Layer1ConsentState.PausedByUser;
+        _pauseUntilUtc = DateTimeOffset.UtcNow.AddMinutes(clampedMinutes);
         _consentStore.Save(_consentState);
         UninstallHooks();
         FlushAggregationBuffers();
-        EmitEvent("agent.paused", "lifecycle", 1, "count", "user_pause", "public");
+        EmitEvent("agent.paused", "lifecycle", clampedMinutes, "minutes", "user_pause", "public");
         UpdateTray("Paused");
     }
 
@@ -475,6 +535,7 @@ public sealed class Layer1AgentHost : IDisposable
             EnsureHooksInstalled();
             Interlocked.Exchange(ref _paused, 0);
             _consentState = Layer1ConsentState.ConsentedActive;
+            _pauseUntilUtc = null;
             _consentStore.Save(_consentState);
             EmitEvent("agent.resumed", "lifecycle", 1, "count", "user_resume", "public");
             UpdateTray("Active");
@@ -578,6 +639,18 @@ public sealed class Layer1AgentHost : IDisposable
 
         _lastSignalAtUtc = entry.TimestampUtc;
         _telemetry?.Writer.TryWrite(entry);
+        AppendPrimitiveForTray(result);
+        _localLogStore.Log("agent.primitive", new
+        {
+            primitive_id = result.PrimitiveId,
+            name = result.Name,
+            value = result.Value,
+            unit = result.Unit,
+            z_score = result.ZScore,
+            ewma = result.Ewma,
+            confidence = result.Confidence,
+            computed_at = result.ComputedAtUtc
+        });
     }
 
     private void EmitState(Layer4StateResult stabilized, Layer3StateResult layer3)
@@ -624,6 +697,15 @@ public sealed class Layer1AgentHost : IDisposable
         };
 
         _telemetry?.Writer.TryWrite(entry);
+        UpdateRiskForTray(stabilized, layer3);
+        _localLogStore.Log("agent.state", new
+        {
+            state_id = layer3.StateId,
+            state_name = stabilized.CommittedState,
+            probability = stabilized.Probability,
+            confidence = stabilized.Confidence,
+            evaluated_at = stabilized.EvaluatedAtUtc
+        });
     }
 
     private void EmitEvent(
@@ -673,6 +755,15 @@ public sealed class Layer1AgentHost : IDisposable
         }
 
         channel.Writer.TryWrite(entry);
+        _localLogStore.Log(eventType, new
+        {
+            metric_name = metricName,
+            value,
+            unit,
+            collection_method = collectionMethod,
+            privacy_class = privacyClass,
+            timestamp = now
+        });
     }
 
     private string BuildSignaturePayload(
@@ -720,7 +811,29 @@ public sealed class Layer1AgentHost : IDisposable
     private void UpdateTray(string status)
     {
         bool canPause = _consentState == Layer1ConsentState.ConsentedActive && Volatile.Read(ref _paused) == 0;
-        _tray.Update(status, _consentState, _lastSignalAtUtc, _lastSummary, canPause);
+        int? pauseRemainingSeconds = null;
+        if (_pauseUntilUtc.HasValue)
+        {
+            pauseRemainingSeconds = (int)Math.Max(0, (_pauseUntilUtc.Value - DateTimeOffset.UtcNow).TotalSeconds);
+        }
+
+        Layer1TraySnapshot snapshot;
+        lock (_gate)
+        {
+            snapshot = new Layer1TraySnapshot(
+                Status: status,
+                ConsentState: _consentState,
+                LastSignalAtUtc: _lastSignalAtUtc,
+                Summary: _lastSummary,
+                CanPause: canPause,
+                PauseRemainingSeconds: pauseRemainingSeconds,
+                RiskProbabilities: new Dictionary<string, double>(_riskProbabilities, StringComparer.OrdinalIgnoreCase),
+                RiskSigma: _riskSigma,
+                RecentPrimitives: _recentPrimitives.ToArray(),
+                RecentInterventions: _recentInterventions.ToArray());
+        }
+
+        _tray.Update(snapshot);
     }
 
     private static double ReadMemoryPercent()
@@ -779,6 +892,7 @@ public sealed class Layer1AgentHost : IDisposable
     {
         Interlocked.Exchange(ref _paused, 1);
         _consentState = revoked ? Layer1ConsentState.Revoked : Layer1ConsentState.InstalledNotConsented;
+        _pauseUntilUtc = null;
         _consentStore.Save(_consentState);
         UninstallHooks();
         FlushAggregationBuffers();
@@ -920,5 +1034,132 @@ public sealed class Layer1AgentHost : IDisposable
             _lastDeltaAccumulator = freeBytes;
             return delta / Math.Max(1.0, windowSeconds);
         }
+    }
+
+    private void AppendPrimitiveForTray(Layer2PrimitiveResult result)
+    {
+        lock (_gate)
+        {
+            _recentPrimitives.Enqueue(new Layer1TrayPrimitiveView(
+                Name: result.Name,
+                Value: result.Value,
+                Unit: result.Unit,
+                Confidence: result.Confidence,
+                TimestampUtc: result.ComputedAtUtc));
+            while (_recentPrimitives.Count > 5)
+            {
+                _recentPrimitives.Dequeue();
+            }
+        }
+    }
+
+    private void UpdateRiskForTray(Layer4StateResult stabilized, Layer3StateResult layer3)
+    {
+        try
+        {
+            Dictionary<string, double>? distribution = JsonSerializer.Deserialize<Dictionary<string, double>>(stabilized.DistributionJson);
+            if (distribution == null)
+            {
+                return;
+            }
+
+            lock (_gate)
+            {
+                _riskProbabilities["stress"] = ReadDistribution(distribution, "critical");
+                _riskProbabilities["overload"] = ReadDistribution(distribution, "degrading");
+                _riskProbabilities["focus"] = ReadDistribution(distribution, "stable");
+                _riskProbabilities["fatigue"] = ReadDistribution(distribution, "elevated_risk");
+                _riskSigma = Math.Clamp(1.0 - stabilized.Confidence, 0, 1);
+            }
+
+            AppendInterventionForTray(stabilized, layer3);
+            UpdateTray(IsCollectionDisabled() ? "Paused" : "Active");
+        }
+        catch
+        {
+        }
+    }
+
+    private void AppendInterventionForTray(Layer4StateResult stabilized, Layer3StateResult layer3)
+    {
+        string actionType = stabilized.CommittedState switch
+        {
+            "critical" => "break_suggestion",
+            "degrading" => "focus_mode",
+            "elevated_risk" => "notifications_suppressed",
+            _ => string.Empty
+        };
+        if (string.IsNullOrEmpty(actionType))
+        {
+            _lastCommittedState = stabilized.CommittedState;
+            return;
+        }
+
+        if (string.Equals(_lastCommittedState, stabilized.CommittedState, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastCommittedState = stabilized.CommittedState;
+        string reason = $"State={stabilized.CommittedState}, probability={stabilized.Probability:F2}, risk={layer3.GlobalRiskScore:F2}";
+        Layer1TrayInterventionView view = new(
+            ActionType: actionType,
+            StartTimeUtc: stabilized.EvaluatedAtUtc,
+            EndTimeUtc: stabilized.EvaluatedAtUtc.AddMinutes(5),
+            Confidence: stabilized.Confidence,
+            PolicyId: "local-state-policy-v1",
+            Reason: reason);
+        lock (_gate)
+        {
+            _recentInterventions.Enqueue(view);
+            while (_recentInterventions.Count > 5)
+            {
+                _recentInterventions.Dequeue();
+            }
+        }
+    }
+
+    private void TryAutoResumePaused()
+    {
+        if (_consentState != Layer1ConsentState.PausedByUser || !_pauseUntilUtc.HasValue)
+        {
+            return;
+        }
+
+        if (DateTimeOffset.UtcNow < _pauseUntilUtc.Value)
+        {
+            UpdateTray("Paused");
+            return;
+        }
+
+        ResumeByUser();
+    }
+
+    private static double ReadDistribution(IReadOnlyDictionary<string, double> distribution, string key)
+    {
+        return distribution.TryGetValue(key, out double value) ? Math.Clamp(value, 0, 1) : 0;
+    }
+
+    private void OnInterventionReceived(Layer1TrayInterventionView intervention)
+    {
+        lock (_gate)
+        {
+            _recentInterventions.Enqueue(intervention);
+            while (_recentInterventions.Count > 5)
+            {
+                _recentInterventions.Dequeue();
+            }
+        }
+
+        _localLogStore.Log("intervention.received", new
+        {
+            action_type = intervention.ActionType,
+            start_time = intervention.StartTimeUtc,
+            end_time = intervention.EndTimeUtc,
+            confidence = intervention.Confidence,
+            policy_id = intervention.PolicyId,
+            reason = intervention.Reason
+        });
+        UpdateTray(IsCollectionDisabled() ? "Paused" : "Active");
     }
 }

@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace Porta.Agent.Runtime.Layer1;
@@ -9,16 +11,25 @@ internal sealed class Layer1TrayController : IDisposable
     private readonly object _stateGate = new();
     private Thread? _thread;
     private TrayContext? _context;
-    private string _status = "Starting";
-    private string _consent = Layer1ConsentState.InstalledNotConsented.ToString();
-    private DateTimeOffset? _lastSignalAtUtc;
-    private string _summary = "No signals emitted yet.";
+    private Layer1TraySnapshot _snapshot = new(
+        Status: "Starting",
+        ConsentState: Layer1ConsentState.InstalledNotConsented,
+        LastSignalAtUtc: null,
+        Summary: "No signals emitted yet.",
+        CanPause: false,
+        PauseRemainingSeconds: null,
+        RiskProbabilities: new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
+        RiskSigma: 0,
+        RecentPrimitives: Array.Empty<Layer1TrayPrimitiveView>(),
+        RecentInterventions: Array.Empty<Layer1TrayInterventionView>());
     private int _disposed;
 
-    public event Action? PauseRequested;
+    public event Action<int>? PauseRequested;
     public event Action? ResumeRequested;
     public event Action? RevokeRequested;
     public event Action? ExitRequested;
+    public event Func<string>? ExportJsonRequested;
+    public event Func<string>? ExportCsvRequested;
 
     public bool Start()
     {
@@ -37,17 +48,14 @@ internal sealed class Layer1TrayController : IDisposable
         return _started.Wait(TimeSpan.FromSeconds(5));
     }
 
-    public void Update(string status, Layer1ConsentState consentState, DateTimeOffset? lastSignalAtUtc, string summary, bool canPause)
+    public void Update(Layer1TraySnapshot snapshot)
     {
         lock (_stateGate)
         {
-            _status = status;
-            _consent = consentState.ToString();
-            _lastSignalAtUtc = lastSignalAtUtc;
-            _summary = summary;
+            _snapshot = snapshot;
         }
 
-        _context?.UpdateFromController(canPause);
+        _context?.UpdateFromController();
     }
 
     private void TrayThreadMain()
@@ -77,12 +85,23 @@ internal sealed class Layer1TrayController : IDisposable
 
     private sealed class TrayContext : ApplicationContext
     {
+        private static readonly int[] PausePresetsMinutes = [1, 5, 10, 15, 30, 60];
+        private static readonly string[] RiskOrder = ["stress", "overload", "focus", "fatigue"];
         private readonly Layer1TrayController _owner;
         private readonly NotifyIcon _icon;
         private readonly ToolStripMenuItem _statusItem;
         private readonly ToolStripMenuItem _lastSignalItem;
         private readonly ToolStripMenuItem _consentItem;
+        private readonly ToolStripMenuItem _riskItem;
+        private readonly ToolStripMenuItem _pauseCountdownItem;
         private readonly ToolStripMenuItem _pauseResumeItem;
+        private readonly ToolStripMenuItem _recentInterventionsItem;
+        private readonly ToolStripMenuItem _recentPrimitivesItem;
+        private readonly System.Windows.Forms.Timer _menuRefreshTimer;
+        private readonly System.Windows.Forms.Timer _tooltipTimer;
+        private DateTimeOffset _lastStressAlertUtc;
+        private DateTimeOffset _lastOverloadAlertUtc;
+        private DateTimeOffset _lastFatigueAlertUtc;
 
         public TrayContext(Layer1TrayController owner)
         {
@@ -90,14 +109,40 @@ internal sealed class Layer1TrayController : IDisposable
             _statusItem = new ToolStripMenuItem("Status: Starting") { Enabled = false };
             _lastSignalItem = new ToolStripMenuItem("Last signal: n/a") { Enabled = false };
             _consentItem = new ToolStripMenuItem("Consent: installed_not_consented") { Enabled = false };
-            _pauseResumeItem = new ToolStripMenuItem("Pause");
+            _riskItem = new ToolStripMenuItem("Risk: n/a") { Enabled = false };
+            _pauseCountdownItem = new ToolStripMenuItem("Pause remaining: n/a") { Enabled = false };
+            _pauseResumeItem = new ToolStripMenuItem("Pause / Resume");
+            _recentInterventionsItem = new ToolStripMenuItem("Recent Interventions");
+            _recentPrimitivesItem = new ToolStripMenuItem("Last Event Snapshot");
             var viewSummaryItem = new ToolStripMenuItem("View Data Collected", null, (_, _) =>
             {
                 MessageBox.Show(_owner.ReadSummary(), "Layer 1 Data Summary", MessageBoxButtons.OK, MessageBoxIcon.Information);
             });
+            var exportJsonItem = new ToolStripMenuItem("Export Logs (JSON)", null, (_, _) =>
+            {
+                string path = _owner.ExportJsonRequested?.Invoke() ?? "Export failed";
+                MessageBox.Show(path, "PORTA Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            });
+            var exportCsvItem = new ToolStripMenuItem("Export Logs (CSV)", null, (_, _) =>
+            {
+                string path = _owner.ExportCsvRequested?.Invoke() ?? "Export failed";
+                MessageBox.Show(path, "PORTA Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            });
+            var dashboardItem = new ToolStripMenuItem("Open Dashboard", null, (_, _) => OpenDashboard());
             var disclosureItem = new ToolStripMenuItem("Open Disclosure", null, (_, _) =>
             {
                 MessageBox.Show(Layer1Disclosure.Text, "Layer 1 Disclosure", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            });
+            var settingsItem = new ToolStripMenuItem("Settings / Help", null, (_, _) =>
+            {
+                MessageBox.Show(
+                    "PORTA Tray Settings\r\n\r\n"
+                    + "Pause duration: 1-60 minutes.\r\n"
+                    + "Alerts: stress > 0.85, overload > 0.80, fatigue > 0.75.\r\n"
+                    + "Data retention: local summary only.",
+                    "PORTA Settings",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
             });
             var revokeItem = new ToolStripMenuItem("Revoke Consent", null, (_, _) => _owner.RevokeRequested?.Invoke());
             var exitItem = new ToolStripMenuItem("Exit", null, (_, _) => _owner.ExitRequested?.Invoke());
@@ -105,10 +150,18 @@ internal sealed class Layer1TrayController : IDisposable
             menu.Items.Add(_statusItem);
             menu.Items.Add(_lastSignalItem);
             menu.Items.Add(_consentItem);
+            menu.Items.Add(_riskItem);
+            menu.Items.Add(_pauseCountdownItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(_pauseResumeItem);
+            menu.Items.Add(_recentInterventionsItem);
+            menu.Items.Add(_recentPrimitivesItem);
             menu.Items.Add(viewSummaryItem);
+            menu.Items.Add(exportJsonItem);
+            menu.Items.Add(exportCsvItem);
+            menu.Items.Add(dashboardItem);
             menu.Items.Add(disclosureItem);
+            menu.Items.Add(settingsItem);
             menu.Items.Add(revokeItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(exitItem);
@@ -121,31 +174,25 @@ internal sealed class Layer1TrayController : IDisposable
                 ContextMenuStrip = menu
             };
 
-            UpdateFromController(canPause: false);
+            _menuRefreshTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _menuRefreshTimer.Tick += (_, _) => RefreshUi();
+            _menuRefreshTimer.Start();
+            _tooltipTimer = new System.Windows.Forms.Timer { Interval = 2000 };
+            _tooltipTimer.Tick += (_, _) => UpdateTooltip();
+            _tooltipTimer.Start();
+            UpdateFromController();
         }
 
-        public void UpdateFromController(bool canPause)
+        public void UpdateFromController()
         {
             if (_icon.ContextMenuStrip?.InvokeRequired == true)
             {
-                _icon.ContextMenuStrip.BeginInvoke(new Action(() => UpdateFromController(canPause)));
+                _icon.ContextMenuStrip.BeginInvoke(new Action(UpdateFromController));
                 return;
             }
 
-            _statusItem.Text = $"Status: {_owner.ReadStatus()}";
-            _lastSignalItem.Text = $"Last signal: {_owner.ReadLastSignalText()}";
-            _consentItem.Text = $"Consent: {_owner.ReadConsent()}";
-            _pauseResumeItem.Text = canPause ? "Pause" : "Resume";
-            _pauseResumeItem.Click -= PauseClick;
-            _pauseResumeItem.Click -= ResumeClick;
-            if (canPause)
-            {
-                _pauseResumeItem.Click += PauseClick;
-            }
-            else
-            {
-                _pauseResumeItem.Click += ResumeClick;
-            }
+            RefreshUi();
+            UpdateTooltip();
         }
 
         public void RequestExit()
@@ -156,38 +203,192 @@ internal sealed class Layer1TrayController : IDisposable
                 return;
             }
 
+            _menuRefreshTimer.Stop();
+            _tooltipTimer.Stop();
+            _menuRefreshTimer.Dispose();
+            _tooltipTimer.Dispose();
             _icon.Visible = false;
             _icon.Dispose();
             ExitThread();
         }
 
-        private void PauseClick(object? sender, EventArgs e) => _owner.PauseRequested?.Invoke();
-        private void ResumeClick(object? sender, EventArgs e) => _owner.ResumeRequested?.Invoke();
-    }
-
-    private string ReadStatus()
-    {
-        lock (_stateGate)
+        private void RefreshUi()
         {
-            return _status;
+            Layer1TraySnapshot snapshot = _owner.ReadSnapshot();
+            _statusItem.Text = $"Status: {snapshot.Status}";
+            _lastSignalItem.Text = $"Last signal: {FormatTime(snapshot.LastSignalAtUtc)}";
+            _consentItem.Text = $"Consent: {snapshot.ConsentState.ToString().ToLowerInvariant()}";
+            _riskItem.Text = $"Risk: {FormatRisk(snapshot)}";
+            _pauseCountdownItem.Text = $"Pause remaining: {FormatPauseRemaining(snapshot.PauseRemainingSeconds)}";
+            _pauseResumeItem.DropDownItems.Clear();
+            if (snapshot.CanPause)
+            {
+                foreach (int minutes in PausePresetsMinutes)
+                {
+                    var item = new ToolStripMenuItem($"Pause {minutes} min");
+                    item.Click += (_, _) => _owner.PauseRequested?.Invoke(minutes);
+                    _pauseResumeItem.DropDownItems.Add(item);
+                }
+            }
+            else
+            {
+                var resume = new ToolStripMenuItem("Resume");
+                resume.Click += (_, _) => _owner.ResumeRequested?.Invoke();
+                _pauseResumeItem.DropDownItems.Add(resume);
+            }
+
+            UpdateRecentInterventions(snapshot.RecentInterventions);
+            UpdateRecentPrimitives(snapshot.RecentPrimitives);
+            _icon.Icon = SelectIcon(snapshot);
+            MaybeShowAlerts(snapshot);
+        }
+
+        private void UpdateRecentInterventions(IReadOnlyList<Layer1TrayInterventionView> interventions)
+        {
+            _recentInterventionsItem.DropDownItems.Clear();
+            if (interventions.Count == 0)
+            {
+                _recentInterventionsItem.DropDownItems.Add(new ToolStripMenuItem("No interventions yet") { Enabled = false });
+                return;
+            }
+
+            foreach (Layer1TrayInterventionView intervention in interventions.Take(5))
+            {
+                string line = $"{intervention.ActionType} ({intervention.Confidence:F2})";
+                var item = new ToolStripMenuItem(line);
+                item.ToolTipText =
+                    $"{intervention.StartTimeUtc:O} -> {intervention.EndTimeUtc:O}\r\n"
+                    + $"Policy: {intervention.PolicyId}\r\n"
+                    + intervention.Reason;
+                _recentInterventionsItem.DropDownItems.Add(item);
+            }
+        }
+
+        private void UpdateRecentPrimitives(IReadOnlyList<Layer1TrayPrimitiveView> primitives)
+        {
+            _recentPrimitivesItem.DropDownItems.Clear();
+            if (primitives.Count == 0)
+            {
+                _recentPrimitivesItem.DropDownItems.Add(new ToolStripMenuItem("No primitives yet") { Enabled = false });
+                return;
+            }
+
+            foreach (Layer1TrayPrimitiveView primitive in primitives.Take(5))
+            {
+                string label = $"{primitive.Name}: {primitive.Value:F2} {primitive.Unit}";
+                var item = new ToolStripMenuItem(label);
+                item.ToolTipText = $"{primitive.TimestampUtc:O} | confidence {primitive.Confidence:F2}";
+                _recentPrimitivesItem.DropDownItems.Add(item);
+            }
+        }
+
+        private void MaybeShowAlerts(Layer1TraySnapshot snapshot)
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            if (now - _lastStressAlertUtc > TimeSpan.FromSeconds(30) && ReadRisk(snapshot, "stress") > 0.85)
+            {
+                _icon.ShowBalloonTip(3000, "PORTA Alert", "Stress likelihood exceeded 0.85.", ToolTipIcon.Warning);
+                _lastStressAlertUtc = now;
+            }
+            if (now - _lastOverloadAlertUtc > TimeSpan.FromSeconds(30) && ReadRisk(snapshot, "overload") > 0.80)
+            {
+                _icon.ShowBalloonTip(3000, "PORTA Alert", "Overload likelihood exceeded 0.80.", ToolTipIcon.Warning);
+                _lastOverloadAlertUtc = now;
+            }
+            if (now - _lastFatigueAlertUtc > TimeSpan.FromSeconds(30) && ReadRisk(snapshot, "fatigue") > 0.75)
+            {
+                _icon.ShowBalloonTip(3000, "PORTA Alert", "Fatigue probability exceeded 0.75.", ToolTipIcon.Info);
+                _lastFatigueAlertUtc = now;
+            }
+        }
+
+        private void UpdateTooltip()
+        {
+            Layer1TraySnapshot snapshot = _owner.ReadSnapshot();
+            string status = snapshot.Status;
+            string lastSignal = FormatTime(snapshot.LastSignalAtUtc);
+            string tooltip =
+                $"PORTA {status} | "
+                + $"Consent:{snapshot.ConsentState.ToString().ToLowerInvariant()} | "
+                + $"Last:{lastSignal} | "
+                + $"Risk: {FormatRisk(snapshot)}";
+            _icon.Text = tooltip.Length > 63 ? tooltip[..63] : tooltip;
+        }
+
+        private static Icon SelectIcon(Layer1TraySnapshot snapshot)
+        {
+            if (snapshot.Status.Equals("Error", StringComparison.OrdinalIgnoreCase))
+            {
+                return SystemIcons.Error;
+            }
+            if (snapshot.Status.Equals("Paused", StringComparison.OrdinalIgnoreCase))
+            {
+                return SystemIcons.Warning;
+            }
+            if (snapshot.RecentInterventions.Count > 0)
+            {
+                return SystemIcons.Shield;
+            }
+
+            return SystemIcons.Information;
+        }
+
+        private static string FormatTime(DateTimeOffset? time) => time.HasValue ? time.Value.ToString("O") : "n/a";
+
+        private static string FormatPauseRemaining(int? remainingSeconds)
+        {
+            if (!remainingSeconds.HasValue || remainingSeconds.Value <= 0)
+            {
+                return "n/a";
+            }
+
+            int minutes = (int)Math.Ceiling(remainingSeconds.Value / 60.0);
+            return $"{minutes} min";
+        }
+
+        private static double ReadRisk(Layer1TraySnapshot snapshot, string key)
+        {
+            return snapshot.RiskProbabilities.TryGetValue(key, out double value) ? value : 0;
+        }
+
+        private static string FormatRisk(Layer1TraySnapshot snapshot)
+        {
+            if (snapshot.RiskProbabilities.Count == 0)
+            {
+                return "n/a";
+            }
+
+            return string.Join(", ", RiskOrder.Select(risk => $"{risk}:{ReadRisk(snapshot, risk):F2}")) + $" ±{snapshot.RiskSigma:F2}";
+        }
+
+        private static void OpenDashboard()
+        {
+            string url = Environment.GetEnvironmentVariable("PORTA_CONSOLE_URL") ?? "http://localhost:3000";
+            try
+            {
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch
+            {
+            }
         }
     }
 
-    private string ReadConsent()
+    private Layer1TraySnapshot ReadSnapshot()
     {
         lock (_stateGate)
         {
-            return _consent;
-        }
-    }
-
-    private string ReadLastSignalText()
-    {
-        lock (_stateGate)
-        {
-            return _lastSignalAtUtc.HasValue
-                ? _lastSignalAtUtc.Value.ToString("O")
-                : "n/a";
+            return new Layer1TraySnapshot(
+                Status: _snapshot.Status,
+                ConsentState: _snapshot.ConsentState,
+                LastSignalAtUtc: _snapshot.LastSignalAtUtc,
+                Summary: _snapshot.Summary,
+                CanPause: _snapshot.CanPause,
+                PauseRemainingSeconds: _snapshot.PauseRemainingSeconds,
+                RiskProbabilities: new Dictionary<string, double>(_snapshot.RiskProbabilities, StringComparer.OrdinalIgnoreCase),
+                RiskSigma: _snapshot.RiskSigma,
+                RecentPrimitives: _snapshot.RecentPrimitives.ToArray(),
+                RecentInterventions: _snapshot.RecentInterventions.ToArray());
         }
     }
 
@@ -195,7 +396,7 @@ internal sealed class Layer1TrayController : IDisposable
     {
         lock (_stateGate)
         {
-            return _summary;
+            return _snapshot.Summary;
         }
     }
 }

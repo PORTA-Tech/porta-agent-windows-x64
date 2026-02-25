@@ -12,4 +12,8 @@
     <ProjectReference Include="..\Porta.Agent.Common\Porta.Agent.Common.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+  </ItemGroup>
+
 </Project>
