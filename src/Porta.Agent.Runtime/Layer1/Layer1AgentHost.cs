@@ -7,6 +7,7 @@ using System.Windows.Forms;
 using Porta.Agent.Common.Contracts;
 using Porta.Agent.Runtime.Layer2;
 using Porta.Agent.Runtime.Layer3;
+using Porta.Agent.Runtime.Layer4;
 using Porta.Agent.Runtime.Diagnostics;
 using Porta.Agent.Runtime.Input;
 using Porta.Agent.Runtime.Transport;
@@ -31,6 +32,7 @@ public sealed class Layer1AgentHost : IDisposable
     private readonly DiskIoSampler _diskIoSampler = new();
     private readonly Layer2NormalizationEngine _normalizationEngine;
     private readonly Layer3InferenceEngine _inferenceEngine;
+    private readonly Layer4StabilityEngine _stabilityEngine;
     private readonly string _machineId = BuildMachineId();
     private readonly string _agentId = Environment.MachineName;
     private readonly string _signatureKeyId;
@@ -74,6 +76,7 @@ public sealed class Layer1AgentHost : IDisposable
             Layer2NormalizationConfig.FromEnvironment(),
             samplePeriodSeconds: WindowSeconds);
         _inferenceEngine = new Layer3InferenceEngine(new Layer3InferenceConfig());
+        _stabilityEngine = new Layer4StabilityEngine(new Layer4StabilityConfig());
         _keyboardHook.KeyChanged += OnKeyChanged;
         _foregroundHook.ForegroundChanged += (_, _) =>
         {
@@ -434,7 +437,8 @@ public sealed class Layer1AgentHost : IDisposable
                 continue;
             }
 
-            EmitState(result);
+            Layer4StateResult stabilized = _stabilityEngine.Stabilize(result);
+            EmitState(stabilized, result);
         }
     }
 
@@ -576,15 +580,15 @@ public sealed class Layer1AgentHost : IDisposable
         _telemetry?.Writer.TryWrite(entry);
     }
 
-    private void EmitState(Layer3StateResult result)
+    private void EmitState(Layer4StateResult stabilized, Layer3StateResult layer3)
     {
-        DateTimeOffset now = result.EvaluatedAtUtc;
+        DateTimeOffset now = stabilized.EvaluatedAtUtc;
         string signaturePayload = BuildSignaturePayload(
             "agent.state",
-            result.StateName,
-            result.Probability,
+            stabilized.CommittedState,
+            stabilized.Probability,
             "probability",
-            "deterministic_layer3",
+            "deterministic_layer4",
             "restricted",
             windowDurationSeconds: 10,
             now);
@@ -597,20 +601,20 @@ public sealed class Layer1AgentHost : IDisposable
             TimestampUtc = now,
             EventType = "agent.state",
             SchemaVersion = RequiredSchemaVersion,
-            Kind = "layer3",
-            StateId = result.StateId,
-            StateName = result.StateName,
-            Probability = result.Probability,
-            Confidence = result.Confidence,
-            GlobalRiskScore = result.GlobalRiskScore,
-            RiskDelta = result.RiskDelta,
-            TrendDirection = result.TrendDirection,
-            ModelVersion = result.ModelVersion,
-            DistributionJson = result.DistributionJson,
-            ContributingPrimitivesJson = result.ContributingPrimitivesJson,
-            ExplanationJson = result.ExplanationJson,
-            ComputedAtUtc = result.EvaluatedAtUtc,
-            CollectionMethod = "deterministic_rule_engine",
+            Kind = "layer4",
+            StateId = layer3.StateId,
+            StateName = stabilized.CommittedState,
+            Probability = stabilized.Probability,
+            Confidence = stabilized.Confidence,
+            GlobalRiskScore = layer3.GlobalRiskScore,
+            RiskDelta = layer3.RiskDelta,
+            TrendDirection = layer3.TrendDirection,
+            ModelVersion = "deterministic-v1.0.0|stability-v1.0.0",
+            DistributionJson = stabilized.DistributionJson,
+            ContributingPrimitivesJson = stabilized.ContributingPrimitivesJson,
+            ExplanationJson = stabilized.ExplanationJson,
+            ComputedAtUtc = stabilized.EvaluatedAtUtc,
+            CollectionMethod = "deterministic_stability_state_machine",
             PrivacyClass = "restricted",
             ConsentState = _consentState.ToString().ToLowerInvariant(),
             SignatureAlgorithm = "hmac-sha256",
