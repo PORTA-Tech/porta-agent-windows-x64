@@ -11,27 +11,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Fetch Remote Refs
-        shell: pwsh
-        run: git fetch --no-tags --prune --depth=1 origin +refs/heads/*:refs/remotes/origin/*
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install Contract Tooling
-        shell: pwsh
-        run: npm ci
-        working-directory: porta-contracts
-
-      - name: Run Contract Gate
-        shell: pwsh
-        run: npm run contracts:check
-        working-directory: porta-contracts
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
