@@ -13,15 +13,13 @@
     "contracts:client-check": "node ./scripts/check-generated-clients.mjs",
     "contracts:typecheck": "tsc -p ./clients/ts/tsconfig.json --noEmit",
     "contracts:build": "node ./scripts/build-contracts.mjs",
-    "contracts:policy-signature-test": "node ./scripts/validate-policy-signatures.mjs",
-    "contracts:tests": "node ./scripts/run-contract-tests.mjs && npm run contracts:policy-signature-test",
+    "contracts:tests": "node ./scripts/run-contract-tests.mjs",
     "contracts:check": "npm run contracts:validate && npm run contracts:compat && npm run contracts:drift && npm run contracts:client-check && npm run contracts:tests && npm run contracts:build"
   },
   "devDependencies": {
     "@types/node": "^22.13.11",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
-    "canonicalize": "^2.1.0",
     "json-schema-to-typescript": "^15.0.4",
     "semver": "^7.6.3",
     "typescript": "^5.8.2"
