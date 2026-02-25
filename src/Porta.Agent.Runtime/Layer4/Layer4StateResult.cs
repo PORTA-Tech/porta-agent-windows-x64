@@ -2,6 +2,7 @@ namespace Porta.Agent.Runtime.Layer4;
 
 internal readonly record struct Layer4StateResult(
     string CommittedState,
+    string CorrelationId,
     double Probability,
     double Confidence,
     string DistributionJson,

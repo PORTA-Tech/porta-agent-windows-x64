@@ -30,7 +30,7 @@ internal sealed class Layer3InferenceEngine
     {
         try
         {
-            List<(string name, double weight, double z, double confidence, double metricRisk, double contribution)> contributors = new();
+            List<(string name, string correlationId, DateTimeOffset computedAtUtc, double weight, double z, double confidence, double metricRisk, double contribution)> contributors = new();
             double presentWeight = 0;
             double weightedRisk = 0;
             double confidenceAccumulator = 0;
@@ -53,7 +53,7 @@ internal sealed class Layer3InferenceEngine
                     double anomalyScore = Math.Abs(primitive.ZScore);
                     double metricRisk = Math.Clamp(anomalyScore / _config.ZMax, 0, 1);
                     double contribution = metricRisk * weight;
-                    contributors.Add((metric, weight, primitive.ZScore, primitive.Confidence, metricRisk, contribution));
+                    contributors.Add((metric, primitive.CorrelationId, primitive.ComputedAtUtc, weight, primitive.ZScore, primitive.Confidence, metricRisk, contribution));
                     presentWeight += weight;
                     weightedRisk += contribution;
                     confidenceAccumulator += primitive.Confidence;
@@ -82,6 +82,10 @@ internal sealed class Layer3InferenceEngine
 
             NormalizeDistribution(distribution);
             (string dominantState, double dominantProbability) = distribution.OrderByDescending(kv => kv.Value).First();
+            string dominantCorrelationId = contributors
+                .OrderByDescending(c => c.computedAtUtc)
+                .Select(c => c.correlationId)
+                .FirstOrDefault() ?? string.Empty;
 
             double avgPrimitiveConfidence = confidenceCount == 0 ? 0 : confidenceAccumulator / confidenceCount;
             double coverageFactor = Math.Clamp(presentWeight, 0, 1);
@@ -96,7 +100,8 @@ internal sealed class Layer3InferenceEngine
                         primitive_name = c.name,
                         z_score = Round(c.z),
                         weight = Round(c.weight),
-                        contribution_to_global_risk = Round(c.contribution)
+                        contribution_to_global_risk = Round(c.contribution),
+                        correlation_id = c.correlationId
                     }));
 
             var topDrivers = contributors
@@ -132,6 +137,7 @@ internal sealed class Layer3InferenceEngine
             return new Layer3StateResult(
                 Success: true,
                 StateId: stateId,
+                CorrelationId: dominantCorrelationId,
                 StateName: dominantState,
                 Probability: Round(dominantProbability),
                 Confidence: Round(stateConfidence),

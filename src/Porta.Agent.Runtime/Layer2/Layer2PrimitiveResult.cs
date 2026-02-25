@@ -3,6 +3,7 @@ namespace Porta.Agent.Runtime.Layer2;
 internal readonly record struct Layer2PrimitiveResult(
     bool Success,
     string PrimitiveId,
+    string CorrelationId,
     string Name,
     double Value,
     string Unit,
@@ -16,5 +17,5 @@ internal readonly record struct Layer2PrimitiveResult(
     string ErrorReason)
 {
     public static Layer2PrimitiveResult Error(string reason, DateTimeOffset atUtc) =>
-        new(false, string.Empty, string.Empty, 0, string.Empty, 0, null, 0, 0, 0, 0, atUtc, reason);
+        new(false, string.Empty, string.Empty, string.Empty, 0, string.Empty, 0, null, 0, 0, 0, 0, atUtc, reason);
 }

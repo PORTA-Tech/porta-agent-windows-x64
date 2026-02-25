@@ -72,6 +72,21 @@ public sealed class Layer1AgentHost : IDisposable
     private DateTimeOffset? _pauseUntilUtc;
     private string _lastCommittedState = "stable";
     private readonly Layer1LocalLogStore _localLogStore;
+    private readonly string _expectedPolicyVersion = Environment.GetEnvironmentVariable("PORTA_EXPECTED_POLICY_VERSION") ?? "1.0.0";
+    private long _agentEventsTotal;
+    private long _interventionsAppliedTotal;
+    private long _interventionsFailedTotal;
+    private long _correlationTraceCompleteTotal;
+    private long _correlationTraceIncompleteTotal;
+    private long _agentEventsSnapshot;
+    private long _interventionsAppliedSnapshot;
+    private long _interventionsFailedSnapshot;
+    private double _captureToPrimitiveLatencyMs;
+    private double _primitiveToInferenceLatencyMs;
+    private double _policyEvaluationLatencyMs;
+    private double _auditLogWriteLatencyMs;
+    private DateTimeOffset _latestPrimitiveAtUtc;
+    private DateTimeOffset _lastMetricsEmitUtc = DateTimeOffset.UtcNow;
 
     public Layer1AgentHost()
     {
@@ -232,7 +247,7 @@ public sealed class Layer1AgentHost : IDisposable
         {
             _consentState = Layer1ConsentState.ConsentedActive;
             _consentStore.Save(_consentState);
-            _localLogStore.Log("agent.consent_granted", new
+            _auditLogWriteLatencyMs = _localLogStore.Log("agent.consent_granted", new
             {
                 consent_state = _consentState.ToString().ToLowerInvariant(),
                 disclosure = Layer1Disclosure.Text,
@@ -322,6 +337,7 @@ public sealed class Layer1AgentHost : IDisposable
 
                 double elapsedWindowSeconds = Math.Max(1.0, (DateTimeOffset.UtcNow - windowStart).TotalSeconds);
                 windowStart = DateTimeOffset.UtcNow;
+                string correlationId = CreateCorrelationId();
 
                 long keyCount = Interlocked.Exchange(ref _keystrokesInWindow, 0);
                 long appSwitches = Interlocked.Exchange(ref _appSwitchesInWindow, 0);
@@ -332,16 +348,16 @@ public sealed class Layer1AgentHost : IDisposable
                     _mouseDistanceInWindow = 0;
                 }
 
-                PublishSignal("interaction.keystroke_rate", keyCount / elapsedWindowSeconds, elapsedWindowSeconds, "count_per_second", "keyboard_hook_aggregate");
-                PublishSignal("interaction.mouse_movement_distance", mouseDistance, elapsedWindowSeconds, "pixels", "cursor_position_delta_aggregate");
-                PublishSignal("interaction.app_switch_frequency", appSwitches / elapsedWindowSeconds, elapsedWindowSeconds, "count_per_second", "foreground_event_count");
-                PublishSignal("interaction.idle_duration", GetIdleDurationSeconds(), elapsedWindowSeconds, "seconds", "last_input_info");
-                PublishSignal("system.cpu_utilization", _systemCpu.ReadPercent(), elapsedWindowSeconds, "percent", "get_system_times");
-                PublishSignal("system.memory_utilization", ReadMemoryPercent(), elapsedWindowSeconds, "percent", "global_memory_status");
-                PublishSignal("system.disk_io_rate", _diskIoSampler.ReadBytesPerSecond(elapsedWindowSeconds), elapsedWindowSeconds, "bytes_per_second", "drive_free_space_delta");
-                PublishSignal("system.network_throughput", _networkSampler.ReadBytesPerSecond(elapsedWindowSeconds), elapsedWindowSeconds, "bytes_per_second", "network_interface_stats");
-                PublishSignal("system.process_count", Process.GetProcesses().Length, elapsedWindowSeconds, "count", "process_snapshot");
-                PublishSignal("system.service_health_status", 1, elapsedWindowSeconds, "up_down", "host_lifecycle");
+                PublishSignal(correlationId, "interaction.keystroke_rate", keyCount / elapsedWindowSeconds, elapsedWindowSeconds, "count_per_second", "keyboard_hook_aggregate");
+                PublishSignal(correlationId, "interaction.mouse_movement_distance", mouseDistance, elapsedWindowSeconds, "pixels", "cursor_position_delta_aggregate");
+                PublishSignal(correlationId, "interaction.app_switch_frequency", appSwitches / elapsedWindowSeconds, elapsedWindowSeconds, "count_per_second", "foreground_event_count");
+                PublishSignal(correlationId, "interaction.idle_duration", GetIdleDurationSeconds(), elapsedWindowSeconds, "seconds", "last_input_info");
+                PublishSignal(correlationId, "system.cpu_utilization", _systemCpu.ReadPercent(), elapsedWindowSeconds, "percent", "get_system_times");
+                PublishSignal(correlationId, "system.memory_utilization", ReadMemoryPercent(), elapsedWindowSeconds, "percent", "global_memory_status");
+                PublishSignal(correlationId, "system.disk_io_rate", _diskIoSampler.ReadBytesPerSecond(elapsedWindowSeconds), elapsedWindowSeconds, "bytes_per_second", "drive_free_space_delta");
+                PublishSignal(correlationId, "system.network_throughput", _networkSampler.ReadBytesPerSecond(elapsedWindowSeconds), elapsedWindowSeconds, "bytes_per_second", "network_interface_stats");
+                PublishSignal(correlationId, "system.process_count", Process.GetProcesses().Length, elapsedWindowSeconds, "count", "process_snapshot");
+                PublishSignal(correlationId, "system.service_health_status", 1, elapsedWindowSeconds, "up_down", "host_lifecycle");
 
                 TimeSpan processCpuEnd = Process.GetCurrentProcess().TotalProcessorTime;
                 DateTimeOffset cpuWindowEnd = DateTimeOffset.UtcNow;
@@ -351,10 +367,10 @@ public sealed class Layer1AgentHost : IDisposable
                 cpuWindowStart = cpuWindowEnd;
 
                 Process proc = Process.GetCurrentProcess();
-                PublishSignal("agent.cpu_usage", Math.Clamp(agentCpuPercent, 0, 100), elapsedWindowSeconds, "percent", "process_cpu_delta");
-                PublishSignal("agent.memory_usage", proc.WorkingSet64 / (1024.0 * 1024.0), elapsedWindowSeconds, "megabytes", "working_set");
-                PublishSignal("agent.event_queue_depth", ReadQueueDepth(), elapsedWindowSeconds, "count", "telemetry_queue_depth");
-                PublishSignal("agent.error_count", Volatile.Read(ref _errorCount), elapsedWindowSeconds, "count", "runtime_counter");
+                PublishSignal(correlationId, "agent.cpu_usage", Math.Clamp(agentCpuPercent, 0, 100), elapsedWindowSeconds, "percent", "process_cpu_delta");
+                PublishSignal(correlationId, "agent.memory_usage", proc.WorkingSet64 / (1024.0 * 1024.0), elapsedWindowSeconds, "megabytes", "working_set");
+                PublishSignal(correlationId, "agent.event_queue_depth", ReadQueueDepth(), elapsedWindowSeconds, "count", "telemetry_queue_depth");
+                PublishSignal(correlationId, "agent.error_count", Volatile.Read(ref _errorCount), elapsedWindowSeconds, "count", "runtime_counter");
 
                 _lastSummary =
                     $"Window: {WindowSeconds}s\r\n"
@@ -362,6 +378,7 @@ public sealed class Layer1AgentHost : IDisposable
                     + $"Mouse distance: {mouseDistance:F0} px\r\n"
                     + $"App switches: {(appSwitches / elapsedWindowSeconds):F2}/s\r\n"
                     + $"Idle duration: {GetIdleDurationSeconds():F1}s";
+                EmitObservabilityMetricsIfDue(DateTimeOffset.UtcNow);
                 UpdateTray("Active");
             }
             catch (Exception ex)
@@ -420,6 +437,7 @@ public sealed class Layer1AgentHost : IDisposable
                 EmitPrimitive(sample, result);
                 _inferenceEngine.RecordPrimitive(new Layer3PrimitiveInput(
                     PrimitiveId: result.PrimitiveId,
+                    CorrelationId: result.CorrelationId,
                     MachineId: sample.MachineId,
                     Name: result.Name,
                     Value: result.Value,
@@ -460,14 +478,20 @@ public sealed class Layer1AgentHost : IDisposable
                 continue;
             }
 
-            Layer3StateResult result = _inferenceEngine.Evaluate(DateTimeOffset.UtcNow);
+            DateTimeOffset evalAtUtc = DateTimeOffset.UtcNow;
+            Layer3StateResult result = _inferenceEngine.Evaluate(evalAtUtc);
             if (!result.Success)
             {
-                EmitEvent("agent.error", "error", 1, "count", result.ErrorReason, "restricted");
+                EmitEvent("agent.error", "error", 1, "count", result.ErrorReason, "restricted", correlationId: result.CorrelationId);
                 continue;
             }
 
+            _primitiveToInferenceLatencyMs = _latestPrimitiveAtUtc == DateTimeOffset.MinValue
+                ? 0
+                : Math.Max(0, (evalAtUtc - _latestPrimitiveAtUtc).TotalMilliseconds);
+            DateTimeOffset policyStartUtc = DateTimeOffset.UtcNow;
             Layer4StateResult stabilized = _stabilityEngine.Stabilize(result);
+            _policyEvaluationLatencyMs = Math.Max(0, (DateTimeOffset.UtcNow - policyStartUtc).TotalMilliseconds);
             EmitState(stabilized, result);
         }
     }
@@ -573,16 +597,18 @@ public sealed class Layer1AgentHost : IDisposable
         }
     }
 
-    private void PublishSignal(string metricName, double value, double windowDurationSeconds, string unit, string collectionMethod)
+    private void PublishSignal(string correlationId, string metricName, double value, double windowDurationSeconds, string unit, string collectionMethod)
     {
         if (double.IsNaN(value) || double.IsInfinity(value))
         {
-            EmitEvent("agent.error", "error", 1, "count", "numeric_instability_input_nan_or_inf", "restricted");
+            EmitEvent("agent.error", "error", 1, "count", "numeric_instability_input_nan_or_inf", "restricted", correlationId: correlationId);
             return;
         }
 
+        Interlocked.Increment(ref _agentEventsTotal);
         var sample = new Layer2SignalSample(
             MachineId: _machineId,
+            CorrelationId: correlationId,
             MetricName: metricName,
             Value: value,
             Unit: unit,
@@ -611,6 +637,7 @@ public sealed class Layer1AgentHost : IDisposable
         {
             AgentId = _agentId,
             MachineId = _machineId,
+            CorrelationId = result.CorrelationId,
             TimestampUtc = now,
             EventType = "agent.primitive",
             SchemaVersion = RequiredSchemaVersion,
@@ -634,14 +661,19 @@ public sealed class Layer1AgentHost : IDisposable
             SignatureAlgorithm = "hmac-sha256",
             SignatureKeyId = _signatureKeyId,
             Signature = signature,
+            CaptureToPrimitiveLatencyMs = Math.Max(0, (result.ComputedAtUtc - source.TimestampUtc).TotalMilliseconds),
+            CorrelationTraceComplete = !string.IsNullOrWhiteSpace(result.CorrelationId),
             Note = "signed"
         };
 
         _lastSignalAtUtc = entry.TimestampUtc;
         _telemetry?.Writer.TryWrite(entry);
+        _captureToPrimitiveLatencyMs = entry.CaptureToPrimitiveLatencyMs ?? 0;
+        _latestPrimitiveAtUtc = result.ComputedAtUtc;
         AppendPrimitiveForTray(result);
-        _localLogStore.Log("agent.primitive", new
+        _auditLogWriteLatencyMs = _localLogStore.Log("agent.primitive", new
         {
+            correlation_id = result.CorrelationId,
             primitive_id = result.PrimitiveId,
             name = result.Name,
             value = result.Value,
@@ -651,6 +683,14 @@ public sealed class Layer1AgentHost : IDisposable
             confidence = result.Confidence,
             computed_at = result.ComputedAtUtc
         });
+        if (string.IsNullOrWhiteSpace(result.CorrelationId))
+        {
+            Interlocked.Increment(ref _correlationTraceIncompleteTotal);
+        }
+        else
+        {
+            Interlocked.Increment(ref _correlationTraceCompleteTotal);
+        }
     }
 
     private void EmitState(Layer4StateResult stabilized, Layer3StateResult layer3)
@@ -671,6 +711,7 @@ public sealed class Layer1AgentHost : IDisposable
         {
             AgentId = _agentId,
             MachineId = _machineId,
+            CorrelationId = stabilized.CorrelationId,
             TimestampUtc = now,
             EventType = "agent.state",
             SchemaVersion = RequiredSchemaVersion,
@@ -683,6 +724,10 @@ public sealed class Layer1AgentHost : IDisposable
             RiskDelta = layer3.RiskDelta,
             TrendDirection = layer3.TrendDirection,
             ModelVersion = "deterministic-v1.0.0|stability-v1.0.0",
+            PolicyId = "local-state-policy-v1",
+            PolicyVersion = _expectedPolicyVersion,
+            SignatureVerified = true,
+            InterventionStatus = stabilized.TransitionReason,
             DistributionJson = stabilized.DistributionJson,
             ContributingPrimitivesJson = stabilized.ContributingPrimitivesJson,
             ExplanationJson = stabilized.ExplanationJson,
@@ -693,13 +738,18 @@ public sealed class Layer1AgentHost : IDisposable
             SignatureAlgorithm = "hmac-sha256",
             SignatureKeyId = _signatureKeyId,
             Signature = signature,
+            PrimitiveToInferenceLatencyMs = _primitiveToInferenceLatencyMs,
+            PolicyEvaluationLatencyMs = _policyEvaluationLatencyMs,
+            AuditLogWriteLatencyMs = _auditLogWriteLatencyMs,
+            CorrelationTraceComplete = !string.IsNullOrWhiteSpace(stabilized.CorrelationId),
             Note = "signed"
         };
 
         _telemetry?.Writer.TryWrite(entry);
         UpdateRiskForTray(stabilized, layer3);
-        _localLogStore.Log("agent.state", new
+        _auditLogWriteLatencyMs = _localLogStore.Log("agent.state", new
         {
+            correlation_id = stabilized.CorrelationId,
             state_id = layer3.StateId,
             state_name = stabilized.CommittedState,
             probability = stabilized.Probability,
@@ -715,7 +765,8 @@ public sealed class Layer1AgentHost : IDisposable
         string unit,
         string collectionMethod,
         string privacyClass,
-        double windowDurationSeconds = WindowSeconds)
+        double windowDurationSeconds = WindowSeconds,
+        string? correlationId = null)
     {
         if (IsCollectionDisabled() && eventType == "signal.sample")
         {
@@ -730,6 +781,7 @@ public sealed class Layer1AgentHost : IDisposable
         {
             AgentId = _agentId,
             MachineId = _machineId,
+            CorrelationId = correlationId,
             TimestampUtc = now,
             EventType = eventType,
             SchemaVersion = RequiredSchemaVersion,
@@ -755,8 +807,9 @@ public sealed class Layer1AgentHost : IDisposable
         }
 
         channel.Writer.TryWrite(entry);
-        _localLogStore.Log(eventType, new
+        _auditLogWriteLatencyMs = _localLogStore.Log(eventType, new
         {
+            correlation_id = correlationId,
             metric_name = metricName,
             value,
             unit,
@@ -1041,6 +1094,7 @@ public sealed class Layer1AgentHost : IDisposable
         lock (_gate)
         {
             _recentPrimitives.Enqueue(new Layer1TrayPrimitiveView(
+                CorrelationId: result.CorrelationId,
                 Name: result.Name,
                 Value: result.Value,
                 Unit: result.Unit,
@@ -1103,11 +1157,14 @@ public sealed class Layer1AgentHost : IDisposable
         _lastCommittedState = stabilized.CommittedState;
         string reason = $"State={stabilized.CommittedState}, probability={stabilized.Probability:F2}, risk={layer3.GlobalRiskScore:F2}";
         Layer1TrayInterventionView view = new(
+            CorrelationId: string.IsNullOrWhiteSpace(stabilized.CorrelationId) ? CreateCorrelationId() : stabilized.CorrelationId,
             ActionType: actionType,
             StartTimeUtc: stabilized.EvaluatedAtUtc,
             EndTimeUtc: stabilized.EvaluatedAtUtc.AddMinutes(5),
             Confidence: stabilized.Confidence,
             PolicyId: "local-state-policy-v1",
+            PolicyVersion: _expectedPolicyVersion,
+            SignatureVerified: true,
             Reason: reason);
         lock (_gate)
         {
@@ -1117,6 +1174,7 @@ public sealed class Layer1AgentHost : IDisposable
                 _recentInterventions.Dequeue();
             }
         }
+        Interlocked.Increment(ref _interventionsAppliedTotal);
     }
 
     private void TryAutoResumePaused()
@@ -1135,13 +1193,79 @@ public sealed class Layer1AgentHost : IDisposable
         ResumeByUser();
     }
 
+    private void EmitObservabilityMetricsIfDue(DateTimeOffset nowUtc)
+    {
+        if ((nowUtc - _lastMetricsEmitUtc) < TimeSpan.FromMinutes(1))
+        {
+            return;
+        }
+
+        string correlationId = CreateCorrelationId();
+        long eventsTotal = Interlocked.Read(ref _agentEventsTotal);
+        long interventionsApplied = Interlocked.Read(ref _interventionsAppliedTotal);
+        long interventionsFailed = Interlocked.Read(ref _interventionsFailedTotal);
+        long complete = Interlocked.Read(ref _correlationTraceCompleteTotal);
+        long incomplete = Interlocked.Read(ref _correlationTraceIncompleteTotal);
+        long eventsPerMinute = Math.Max(0, eventsTotal - _agentEventsSnapshot);
+        long appliedPerMinute = Math.Max(0, interventionsApplied - _interventionsAppliedSnapshot);
+        long failedPerMinute = Math.Max(0, interventionsFailed - _interventionsFailedSnapshot);
+        _agentEventsSnapshot = eventsTotal;
+        _interventionsAppliedSnapshot = interventionsApplied;
+        _interventionsFailedSnapshot = interventionsFailed;
+        bool traceComplete = incomplete == 0 && complete > 0;
+
+        EmitEvent("agent.metric", "agent_events_total", eventsPerMinute, "count_per_min", "counter_delta", "restricted", 60, correlationId);
+        EmitEvent("agent.metric", "interventions_applied_total", appliedPerMinute, "count_per_min", "counter_delta", "restricted", 60, correlationId);
+        EmitEvent("agent.metric", "interventions_failed_total", failedPerMinute, "count_per_min", "counter_delta", "restricted", 60, correlationId);
+        EmitEvent("agent.metric", "state_inference_latency_ms", _primitiveToInferenceLatencyMs, "milliseconds", "latency_probe", "restricted", 60, correlationId);
+        EmitEvent("agent.metric", "policy_evaluation_latency_ms", _policyEvaluationLatencyMs, "milliseconds", "latency_probe", "restricted", 60, correlationId);
+        EmitEvent("agent.metric", "audit_log_write_latency_ms", _auditLogWriteLatencyMs, "milliseconds", "latency_probe", "restricted", 60, correlationId);
+        EmitEvent("agent.metric", "correlation_trace_complete", traceComplete ? 1 : 0, "bool_1_0", "trace_health", "restricted", 60, correlationId);
+        _lastMetricsEmitUtc = nowUtc;
+    }
+
     private static double ReadDistribution(IReadOnlyDictionary<string, double> distribution, string key)
     {
         return distribution.TryGetValue(key, out double value) ? Math.Clamp(value, 0, 1) : 0;
     }
 
+    private static string CreateCorrelationId()
+    {
+        Span<byte> bytes = stackalloc byte[16];
+        ulong unixMs = (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        bytes[0] = (byte)(unixMs >> 40);
+        bytes[1] = (byte)(unixMs >> 32);
+        bytes[2] = (byte)(unixMs >> 24);
+        bytes[3] = (byte)(unixMs >> 16);
+        bytes[4] = (byte)(unixMs >> 8);
+        bytes[5] = (byte)unixMs;
+        RandomNumberGenerator.Fill(bytes[6..]);
+        bytes[6] = (byte)((bytes[6] & 0x0F) | 0x70); // version 7
+        bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80); // RFC 4122 variant
+        return new Guid(bytes).ToString();
+    }
+
     private void OnInterventionReceived(Layer1TrayInterventionView intervention)
     {
+        if (string.IsNullOrWhiteSpace(intervention.CorrelationId))
+        {
+            intervention = intervention with { CorrelationId = CreateCorrelationId() };
+        }
+
+        if (!intervention.SignatureVerified)
+        {
+            Interlocked.Increment(ref _interventionsFailedTotal);
+            EmitEvent("agent.error", "intervention", 1, "count", "signature_verification_failed", "restricted", correlationId: intervention.CorrelationId);
+            return;
+        }
+
+        if (!string.Equals(intervention.PolicyVersion, _expectedPolicyVersion, StringComparison.Ordinal))
+        {
+            Interlocked.Increment(ref _interventionsFailedTotal);
+            EmitEvent("agent.error", "intervention", 1, "count", "policy_version_mismatch", "restricted", correlationId: intervention.CorrelationId);
+            return;
+        }
+
         lock (_gate)
         {
             _recentInterventions.Enqueue(intervention);
@@ -1150,14 +1274,18 @@ public sealed class Layer1AgentHost : IDisposable
                 _recentInterventions.Dequeue();
             }
         }
+        Interlocked.Increment(ref _interventionsAppliedTotal);
 
-        _localLogStore.Log("intervention.received", new
+        _auditLogWriteLatencyMs = _localLogStore.Log("intervention.received", new
         {
+            correlation_id = intervention.CorrelationId,
             action_type = intervention.ActionType,
             start_time = intervention.StartTimeUtc,
             end_time = intervention.EndTimeUtc,
             confidence = intervention.Confidence,
             policy_id = intervention.PolicyId,
+            policy_version = intervention.PolicyVersion,
+            signature_verified = intervention.SignatureVerified,
             reason = intervention.Reason
         });
         UpdateTray(IsCollectionDisabled() ? "Paused" : "Active");

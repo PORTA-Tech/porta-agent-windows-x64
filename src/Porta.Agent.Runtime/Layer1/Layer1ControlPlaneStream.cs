@@ -38,9 +38,15 @@ internal sealed class Layer1ControlPlaneStream
             {
                 yield break;
             }
+            string rootCorrelationId = doc.RootElement.TryGetProperty("correlation_id", out JsonElement rootCid)
+                ? (rootCid.GetString() ?? string.Empty)
+                : string.Empty;
 
             foreach (JsonElement item in interventions.EnumerateArray())
             {
+                string correlationId = item.TryGetProperty("correlation_id", out JsonElement cid)
+                    ? (cid.GetString() ?? string.Empty)
+                    : rootCorrelationId;
                 string actionType = item.TryGetProperty("action_type", out JsonElement at) ? at.GetString() ?? "unknown" : "unknown";
                 DateTimeOffset start = item.TryGetProperty("start_time", out JsonElement st) && DateTimeOffset.TryParse(st.GetString(), out DateTimeOffset startUtc)
                     ? startUtc
@@ -52,8 +58,10 @@ internal sealed class Layer1ControlPlaneStream
                     ? Math.Clamp(c, 0, 1)
                     : 0;
                 string policyId = item.TryGetProperty("policy_id", out JsonElement pid) ? pid.GetString() ?? "unknown-policy" : "unknown-policy";
+                string policyVersion = item.TryGetProperty("policy_version", out JsonElement pv) ? pv.GetString() ?? "unknown" : "unknown";
+                bool signatureVerified = item.TryGetProperty("signature_verified", out JsonElement sv) ? sv.ValueKind == JsonValueKind.True : true;
                 string reason = item.TryGetProperty("reason", out JsonElement rs) ? rs.GetString() ?? string.Empty : string.Empty;
-                yield return new Layer1TrayInterventionView(actionType, start, end, confidence, policyId, reason);
+                yield return new Layer1TrayInterventionView(correlationId, actionType, start, end, confidence, policyId, policyVersion, signatureVerified, reason);
             }
         }
         finally

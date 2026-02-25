@@ -146,6 +146,7 @@ internal sealed class Layer4StabilityEngine
 
         return new Layer4StateResult(
             CommittedState: _committedState,
+            CorrelationId: layer3.CorrelationId,
             Probability: layer3.Probability,
             Confidence: Math.Clamp(layer3.Confidence * confidenceScale, 0, 1),
             DistributionJson: layer3.DistributionJson,

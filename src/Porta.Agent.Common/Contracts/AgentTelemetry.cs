@@ -4,6 +4,7 @@ namespace Porta.Agent.Common.Contracts
     {
         public string AgentId { get; init; } = string.Empty;
         public string MachineId { get; init; } = string.Empty;
+        public string? CorrelationId { get; init; }
         public DateTimeOffset TimestampUtc { get; init; }
         public string EventType { get; init; } = string.Empty;
         public string SchemaVersion { get; init; } = "1.0.0";
@@ -38,6 +39,15 @@ namespace Porta.Agent.Common.Contracts
         public double? RiskDelta { get; init; }
         public string? TrendDirection { get; init; }
         public string? ModelVersion { get; init; }
+        public string? PolicyId { get; init; }
+        public string? PolicyVersion { get; init; }
+        public bool? SignatureVerified { get; init; }
+        public string? InterventionStatus { get; init; }
+        public double? CaptureToPrimitiveLatencyMs { get; init; }
+        public double? PrimitiveToInferenceLatencyMs { get; init; }
+        public double? PolicyEvaluationLatencyMs { get; init; }
+        public double? AuditLogWriteLatencyMs { get; init; }
+        public bool? CorrelationTraceComplete { get; init; }
         public string? DistributionJson { get; init; }
         public string? ContributingPrimitivesJson { get; init; }
         public string? ExplanationJson { get; init; }

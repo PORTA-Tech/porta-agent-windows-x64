@@ -99,6 +99,9 @@ internal sealed class Layer1TrayController : IDisposable
         private readonly ToolStripMenuItem _recentPrimitivesItem;
         private readonly System.Windows.Forms.Timer _menuRefreshTimer;
         private readonly System.Windows.Forms.Timer _tooltipTimer;
+        private DateTimeOffset? _stressBreachSinceUtc;
+        private DateTimeOffset? _overloadBreachSinceUtc;
+        private DateTimeOffset? _fatigueBreachSinceUtc;
         private DateTimeOffset _lastStressAlertUtc;
         private DateTimeOffset _lastOverloadAlertUtc;
         private DateTimeOffset _lastFatigueAlertUtc;
@@ -138,7 +141,7 @@ internal sealed class Layer1TrayController : IDisposable
                 MessageBox.Show(
                     "PORTA Tray Settings\r\n\r\n"
                     + "Pause duration: 1-60 minutes.\r\n"
-                    + "Alerts: stress > 0.85, overload > 0.80, fatigue > 0.75.\r\n"
+                    + "Alerts: stress > 0.90 for 30s, overload > 0.85 for 60s, fatigue > 0.75 for 30s.\r\n"
                     + "Data retention: local summary only.",
                     "PORTA Settings",
                     MessageBoxButtons.OK,
@@ -256,9 +259,12 @@ internal sealed class Layer1TrayController : IDisposable
             {
                 string line = $"{intervention.ActionType} ({intervention.Confidence:F2})";
                 var item = new ToolStripMenuItem(line);
+                item.Click += (_, _) => ShowInterventionDrilldown(intervention);
                 item.ToolTipText =
                     $"{intervention.StartTimeUtc:O} -> {intervention.EndTimeUtc:O}\r\n"
-                    + $"Policy: {intervention.PolicyId}\r\n"
+                    + $"Policy: {intervention.PolicyId} v{intervention.PolicyVersion}\r\n"
+                    + $"Signature verified: {intervention.SignatureVerified}\r\n"
+                    + $"Correlation: {intervention.CorrelationId}\r\n"
                     + intervention.Reason;
                 _recentInterventionsItem.DropDownItems.Add(item);
             }
@@ -285,19 +291,32 @@ internal sealed class Layer1TrayController : IDisposable
         private void MaybeShowAlerts(Layer1TraySnapshot snapshot)
         {
             DateTimeOffset now = DateTimeOffset.UtcNow;
-            if (now - _lastStressAlertUtc > TimeSpan.FromSeconds(30) && ReadRisk(snapshot, "stress") > 0.85)
+            double stress = ReadRisk(snapshot, "stress");
+            double overload = ReadRisk(snapshot, "overload");
+            double fatigue = ReadRisk(snapshot, "fatigue");
+            TrackBreach(stress > 0.90, ref _stressBreachSinceUtc, now);
+            TrackBreach(overload > 0.85, ref _overloadBreachSinceUtc, now);
+            TrackBreach(fatigue > 0.75, ref _fatigueBreachSinceUtc, now);
+
+            if (_stressBreachSinceUtc.HasValue
+                && (now - _stressBreachSinceUtc.Value) >= TimeSpan.FromSeconds(30)
+                && now - _lastStressAlertUtc > TimeSpan.FromSeconds(30))
             {
-                _icon.ShowBalloonTip(3000, "PORTA Alert", "Stress likelihood exceeded 0.85.", ToolTipIcon.Warning);
+                _icon.ShowBalloonTip(3000, "PORTA Alert", "Stress likelihood exceeded 0.90 for over 30s.", ToolTipIcon.Warning);
                 _lastStressAlertUtc = now;
             }
-            if (now - _lastOverloadAlertUtc > TimeSpan.FromSeconds(30) && ReadRisk(snapshot, "overload") > 0.80)
+            if (_overloadBreachSinceUtc.HasValue
+                && (now - _overloadBreachSinceUtc.Value) >= TimeSpan.FromMinutes(1)
+                && now - _lastOverloadAlertUtc > TimeSpan.FromSeconds(30))
             {
-                _icon.ShowBalloonTip(3000, "PORTA Alert", "Overload likelihood exceeded 0.80.", ToolTipIcon.Warning);
+                _icon.ShowBalloonTip(3000, "PORTA Alert", "Overload likelihood exceeded 0.85 for over 60s.", ToolTipIcon.Warning);
                 _lastOverloadAlertUtc = now;
             }
-            if (now - _lastFatigueAlertUtc > TimeSpan.FromSeconds(30) && ReadRisk(snapshot, "fatigue") > 0.75)
+            if (_fatigueBreachSinceUtc.HasValue
+                && (now - _fatigueBreachSinceUtc.Value) >= TimeSpan.FromSeconds(30)
+                && now - _lastFatigueAlertUtc > TimeSpan.FromSeconds(30))
             {
-                _icon.ShowBalloonTip(3000, "PORTA Alert", "Fatigue probability exceeded 0.75.", ToolTipIcon.Info);
+                _icon.ShowBalloonTip(3000, "PORTA Alert", "Fatigue probability exceeded 0.75 for over 30s.", ToolTipIcon.Info);
                 _lastFatigueAlertUtc = now;
             }
         }
@@ -358,7 +377,32 @@ internal sealed class Layer1TrayController : IDisposable
                 return "n/a";
             }
 
-            return string.Join(", ", RiskOrder.Select(risk => $"{risk}:{ReadRisk(snapshot, risk):F2}")) + $" ±{snapshot.RiskSigma:F2}";
+            return string.Join(", ", RiskOrder.Select(risk => $"{risk}:{ReadRisk(snapshot, risk):F2}")) + $" +/-{snapshot.RiskSigma:F2}";
+        }
+
+        private static void TrackBreach(bool breached, ref DateTimeOffset? breachedSinceUtc, DateTimeOffset now)
+        {
+            if (breached)
+            {
+                breachedSinceUtc ??= now;
+                return;
+            }
+
+            breachedSinceUtc = null;
+        }
+
+        private static void ShowInterventionDrilldown(Layer1TrayInterventionView intervention)
+        {
+            string text =
+                $"Correlation ID: {intervention.CorrelationId}\r\n"
+                + $"Policy: {intervention.PolicyId} v{intervention.PolicyVersion}\r\n"
+                + $"Signature verified: {intervention.SignatureVerified}\r\n"
+                + $"Action: {intervention.ActionType}\r\n"
+                + $"Window: {intervention.StartTimeUtc:O} -> {intervention.EndTimeUtc:O}\r\n"
+                + $"Reason: {intervention.Reason}\r\n\r\n"
+                + "Trace path:\r\n"
+                + "signal.capture -> normalization -> inference -> policy.intervention -> tray.display";
+            MessageBox.Show(text, "Intervention Trace", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private static void OpenDashboard()

@@ -24,8 +24,9 @@ internal sealed class Layer1LocalLogStore : IDisposable
         EnsureSchema();
     }
 
-    public void Log(string eventType, object payload)
+    public double Log(string eventType, object payload)
     {
+        DateTimeOffset started = DateTimeOffset.UtcNow;
         string json = JsonSerializer.Serialize(payload);
         Encrypt(json, out string cipher, out string nonce, out string tag);
         string signature = Sign(eventType, cipher, nonce, tag);
@@ -48,6 +49,8 @@ internal sealed class Layer1LocalLogStore : IDisposable
             cmd.ExecuteNonQuery();
             PruneIfNeeded(connection);
         }
+
+        return Math.Max(0, (DateTimeOffset.UtcNow - started).TotalMilliseconds);
     }
 
     public string ExportJson()
@@ -109,6 +112,17 @@ internal sealed class Layer1LocalLogStore : IDisposable
 
     private void PruneIfNeeded(SqliteConnection connection)
     {
+        using (var retention = connection.CreateCommand())
+        {
+            retention.CommandText =
+                """
+                DELETE FROM local_logs
+                WHERE timestamp_utc < $cutoff;
+                """;
+            retention.Parameters.AddWithValue("$cutoff", DateTimeOffset.UtcNow.AddDays(-90).ToString("O"));
+            retention.ExecuteNonQuery();
+        }
+
         FileInfo fi = new(_dbPath);
         if (!fi.Exists || fi.Length <= MaxBytes)
         {

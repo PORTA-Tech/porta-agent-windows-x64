@@ -102,6 +102,7 @@ internal sealed class Layer2NormalizationEngine
         return new Layer2PrimitiveResult(
             Success: true,
             PrimitiveId: primitiveId,
+            CorrelationId: sample.CorrelationId,
             Name: sample.MetricName,
             Value: clampedValue,
             Unit: sample.Unit,
