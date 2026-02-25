@@ -14,7 +14,8 @@
     "contracts:typecheck": "tsc -p ./clients/ts/tsconfig.json --noEmit",
     "contracts:build": "node ./scripts/build-contracts.mjs",
     "contracts:policy-signature-test": "node ./scripts/validate-policy-signatures.mjs",
-    "contracts:tests": "node ./scripts/run-contract-tests.mjs && npm run contracts:policy-signature-test",
+    "contracts:ingestion-validation-test": "node ./scripts/validate-control-plane-ingestion.mjs",
+    "contracts:tests": "node ./scripts/run-contract-tests.mjs && npm run contracts:policy-signature-test && npm run contracts:ingestion-validation-test",
     "contracts:check": "npm run contracts:validate && npm run contracts:compat && npm run contracts:drift && npm run contracts:client-check && npm run contracts:tests && npm run contracts:build"
   },
   "devDependencies": {

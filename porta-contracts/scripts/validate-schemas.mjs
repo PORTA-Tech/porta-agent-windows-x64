@@ -16,7 +16,7 @@ async function readJson(relPath) {
   return JSON.parse(raw);
 }
 
-const SCHEMA_DIRS = ["audit", "events", "interventions", "policies", "primitives", "shared", "states"];
+const SCHEMA_DIRS = ["audit", "control", "events", "interventions", "policies", "primitives", "shared", "states"];
 
 async function collectSchemaFiles() {
   const out = [];

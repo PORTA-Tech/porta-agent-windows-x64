@@ -1,5 +1,10 @@
 {
   "entries": [
+    { "schema": "control/typed-ingestion-envelope.schema.json", "example": "examples/control/typed-ingestion-envelope.example.json" },
+    { "schema": "control/schema-registry-entry.schema.json", "example": "examples/control/schema-registry-entry.example.json" },
+    { "schema": "control/ingestion-validation-result.schema.json", "example": "examples/control/ingestion-validation-result.example.json" },
+    { "schema": "control/timeseries-record.schema.json", "example": "examples/control/timeseries-record.example.json" },
+    { "schema": "control/ingestion-health-metric.schema.json", "example": "examples/control/ingestion-health-metric.example.json" },
     { "schema": "events/signal-sample.schema.json", "example": "examples/events/signal-sample.example.json" },
     { "schema": "events/agent-primitive.schema.json", "example": "examples/events/agent-primitive.example.json" },
     { "schema": "events/agent-state.schema.json", "example": "examples/events/agent-state.example.json" },

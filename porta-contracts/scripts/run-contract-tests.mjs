@@ -15,8 +15,8 @@ async function readJson(relPath) {
   return JSON.parse(raw);
 }
 
-const SCHEMA_DIRS = ["audit", "events", "interventions", "policies", "primitives", "shared", "states"];
-const EXAMPLE_DIRS = ["audit", "events", "interventions", "policies", "primitives", "states"];
+const SCHEMA_DIRS = ["audit", "control", "events", "interventions", "policies", "primitives", "shared", "states"];
+const EXAMPLE_DIRS = ["audit", "control", "events", "interventions", "policies", "primitives", "states"];
 
 async function collectSchemaFiles() {
   const out = [];
@@ -109,6 +109,15 @@ function validateSigningVector(vector, relPath) {
 
 function validatePolicySemantics(payload, relPath) {
   if (payload?.contract_name !== "RegulationPolicy") {
+    if (payload?.contract_name === "ControlPlaneSchemaRegistryEntry") {
+      if (
+        typeof payload.minimum_supported_minor === "number"
+        && typeof payload.maximum_supported_minor === "number"
+        && payload.maximum_supported_minor < payload.minimum_supported_minor
+      ) {
+        throw new Error(`${relPath}: maximum_supported_minor must be >= minimum_supported_minor`);
+      }
+    }
     return;
   }
 
