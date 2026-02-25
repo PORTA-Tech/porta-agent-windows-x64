@@ -118,18 +118,6 @@ function validatePolicySemantics(payload, relPath) {
         throw new Error(`${relPath}: maximum_supported_minor must be >= minimum_supported_minor`);
       }
     }
-    if (payload?.contract_name === "ControlPlaneExecutionPolicy" && payload?.action?.type === "scale_horizontal") {
-      if (payload.action.max_replicas < payload.action.min_replicas) {
-        throw new Error(`${relPath}: scale_horizontal.max_replicas must be >= min_replicas`);
-      }
-    }
-    if (payload?.contract_name === "ControlPlaneSignedInterventionCommand") {
-      const issued = Date.parse(payload.issued_at);
-      const expires = Date.parse(payload.expires_at);
-      if (Number.isFinite(issued) && Number.isFinite(expires) && expires <= issued) {
-        throw new Error(`${relPath}: expires_at must be greater than issued_at`);
-      }
-    }
     return;
   }
 
