@@ -1,10 +1,5 @@
 {
   "entries": [
-    { "schema": "audit/decision-trace.schema.json", "example": "examples/audit/decision-trace.example.json" },
-    { "schema": "audit/rbac-access-decision.schema.json", "example": "examples/audit/rbac-access-decision.example.json" },
-    { "schema": "audit/retention-policy.schema.json", "example": "examples/audit/retention-policy.example.json" },
-    { "schema": "audit/replay-verification-result.schema.json", "example": "examples/audit/replay-verification-result.example.json" },
-    { "schema": "audit/audit-observability-metric.schema.json", "example": "examples/audit/audit-observability-metric.example.json" },
     { "schema": "control/typed-ingestion-envelope.schema.json", "example": "examples/control/typed-ingestion-envelope.example.json" },
     { "schema": "control/schema-registry-entry.schema.json", "example": "examples/control/schema-registry-entry.example.json" },
     { "schema": "control/ingestion-validation-result.schema.json", "example": "examples/control/ingestion-validation-result.example.json" },
