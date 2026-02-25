@@ -1,92 +1,117 @@
-# PORTA Agent Windows x64
+﻿# PORTA Agent (Windows x64)
 
-Production-ready scroll processing agent for Windows service and console execution.
+Windows runtime for PORTA's closed loop on a single machine.
 
-## Build Targets
-- `Porta.Agent.Common`: `net8.0`, `x64`
-- `Porta.Agent.Runtime`: `net8.0-windows`, `x64`
-- `Porta.Agent.Service`: `net8.0-windows`, `x64`
+It captures privacy-safe signals, transforms them into normalized primitives, computes local probabilistic state, stabilizes transitions, renders tray UX, and exchanges signed/typed events with the control-plane.
 
-Dependency direction is enforced: `Service -> Runtime -> Common`.
+## What This Repository Owns
 
-## Runtime Defaults (Locked)
-- `PORTA_SUPPRESSION_ENABLED`: `false`
-- `PORTA_ACTUATION_ENABLED`: `false`
-- `PORTA_AUTO_STOP_MS`: disabled unless explicitly set
-- Service name: `AriAgent`
+- Windows signal capture (strict whitelist only)
+- Consent gating and privacy-safe local aggregation
+- Layer 2 normalization (rolling mean/std, z-score, EWMA)
+- Layer 3 deterministic inference (`agent.primitive -> agent.state`)
+- Layer 4 stabilization (hysteresis, dwell, cooldown, flap suppression)
+- Tray UX (status, interventions, pause/resume, explainability)
+- Local telemetry, correlation IDs, observability/alerts
+- Local hardening and rollout smoke harnesses
 
-## Local Build
+## Implemented Scope (Steps)
+
+- Step 3 integration: contracts/build/types/tests compatibility with CI naming alignment
+- Step 4: Layer 1 signal acquisition + consent + tray visibility baseline
+- Step 5: Layer 2 deterministic normalization
+- Step 6: Layer 3 deterministic inference and explainability fields
+- Step 7: Layer 4 state stabilization logic
+- Step 14: Tray full UX baseline
+- Step 15: Observability + alert wiring (correlation and end-to-end tracing)
+- Step 16: hardening/performance/chaos smoke harnesses
+
+## Solution Layout
+
+- `src/Porta.Agent.Common`: shared models/helpers
+- `src/Porta.Agent.Runtime`: interactive runtime + tray host
+- `src/Porta.Agent.Service`: Windows service host
+- `scripts/`: install/build/smoke scripts
+- `docs/`: architecture and step specifications
+
+Dependency direction: `Service -> Runtime -> Common`.
+
+## Quick Start
+
+### Prerequisites
+
+- Windows x64
+- .NET SDK 8.0+
+
+### Build
+
 ```powershell
-dotnet build PORTA.Windows.sln -c Release -m:1
-dotnet build src/Porta.Agent.Common/Porta.Agent.Common.csproj
-dotnet build src/Porta.Agent.Runtime/Porta.Agent.Runtime.csproj
-dotnet build src/Porta.Agent.Service/Porta.Agent.Service.csproj
+dotnet build PORTA.Windows.sln
 ```
 
-## Run
-### Runtime console mode
+### Run interactive runtime (tray)
+
 ```powershell
 dotnet run --project src/Porta.Agent.Runtime/Porta.Agent.Runtime.csproj
 ```
 
-### Service host (interactive process)
+### Run service host
+
 ```powershell
 dotnet run --project src/Porta.Agent.Service/Porta.Agent.Service.csproj
 ```
 
-### Install as Windows service (admin)
+### Install service (admin)
+
 ```powershell
 .\scripts\install-service.ps1 -StartAfterInstall
 ```
 
-## Diagnostics
-1. Runtime logs are emitted to stdout with UTC timestamps (`[INFO]`, `[EVENT]`, `[COUNTER]`, `[ERROR]`).
-2. Key production counters:
-   - `name=runtime_metrics`
-   - `queue_depth`
-   - `dropped`
-   - `processing_errors`
-3. Service status checks:
-```powershell
-Get-Service AriAgent
-sc.exe query AriAgent
-```
+### Uninstall service
 
-## Rollback
-1. Stop and remove service:
 ```powershell
 .\scripts\uninstall-service.ps1
 ```
-2. Checkout previous stable tag/commit:
-```powershell
-git fetch --tags
-git checkout <stable-tag-or-commit>
-```
-3. Rebuild and reinstall:
-```powershell
-dotnet build src/Porta.Agent.Service/Porta.Agent.Service.csproj
-.\scripts\install-service.ps1 -StartAfterInstall
-```
 
-## Phase-6 Release Checklist
-- [x] All phase acceptance criteria complete
-- [x] `dotnet build` passes for Common, Runtime, Service
-- [x] Soak matrix completed (suppression OFF/ON, service mode)
-- [x] Baseline thresholds verified:
-  - [x] avg CPU <= 2.0%
-  - [x] max working set <= 200 MB
-  - [x] max queue depth <= 32
-  - [x] dropped events == 0
-- [ ] No P0/P1 defects open
-- [x] `docs/architecture.md` updated with UTC-stamped measured results
-- [x] Install/run/diagnostics/rollback instructions verified
-- [ ] Stable git tag created and pushed
+## Key Environment Variables
 
-## MSI Build
-Use the WiX-based installer project to produce `AriAgentInstaller.msi`:
+- `PORTA_BACKEND_URL`: control-plane base URL (`https` only)
+- `PORTA_CONTROL_PLANE_WS_URL`: realtime stream endpoint
+- `PORTA_TLS_CERT_SHA256_PIN`: optional certificate pin
+- `PORTA_CONSOLE_URL`: dashboard URL opened from tray
+- `PORTA_CONSENT_STATE_PATH`: consent storage path override
+- `PORTA_EXPECTED_POLICY_VERSION`: incoming policy version guard
+- `PORTA_LAYER1_SIGNAL_POLICY`: expected whitelist policy (`whitelist_v1`)
+- `PORTA_SIGNAL_SCHEMA_VERSION`: expected signal schema (`1.0.0`)
 
-```powershell
-.\scripts\build-msi.ps1 -Version 1.0.0 -BackendUrl "https://porta-control-plane.onrender.com"
-```
+## Security And Privacy Guarantees
 
-This publishes `ari.exe`, stages installer payload under `installer/payload`, and builds MSI output under `installer/bin/Release`.
+- Never captures raw text, clipboard content, screen pixels, file contents, or packet payloads
+- No signal emission before consent is active
+- Fail-closed behavior on consent/config/state errors
+- TLS transport with optional cert pinning
+- Encrypted local logs (`AES-256-GCM`) with integrity (`HMAC-SHA256`)
+- Intervention version/signature checks before apply
+
+## Validation Scripts
+
+- `scripts/privacy-guard.ps1`
+- `scripts/phase6-soak.ps1`
+- `scripts/phase72-combined-soak.ps1`
+- `scripts/step16-performance-smoke.ps1`
+- `scripts/step16-chaos-smoke.ps1`
+
+## Docs
+
+- `docs/architecture.md`
+- `docs/step14-tray-app-full-ux.md`
+- `docs/step15-observability-alerts.md`
+- `docs/step16-hardening-rollout.md`
+
+## Boundaries
+
+This repo does not own:
+
+- Central policy governance, fleet decisioning, signed command issuance: `porta-control-plane`
+- Operator web UX and fleet dashboards: `porta-operations-console`
+- Shared DTO/OpenAPI contracts: `porta-api-contracts`
