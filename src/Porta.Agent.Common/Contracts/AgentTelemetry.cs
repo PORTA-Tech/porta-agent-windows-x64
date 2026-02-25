@@ -22,6 +22,25 @@ namespace Porta.Agent.Common.Contracts
         public string? SignatureAlgorithm { get; init; }
         public string? SignatureKeyId { get; init; }
         public string? Signature { get; init; }
+        public string? PrimitiveId { get; init; }
+        public string? Name { get; init; }
+        public double? BaselineMean { get; init; }
+        public double? BaselineStd { get; init; }
+        public double? ZScore { get; init; }
+        public double? Ewma { get; init; }
+        public int? WindowSizeSeconds { get; init; }
+        public double? Confidence { get; init; }
+        public DateTimeOffset? ComputedAtUtc { get; init; }
+        public string? StateId { get; init; }
+        public string? StateName { get; init; }
+        public double? Probability { get; init; }
+        public double? GlobalRiskScore { get; init; }
+        public double? RiskDelta { get; init; }
+        public string? TrendDirection { get; init; }
+        public string? ModelVersion { get; init; }
+        public string? DistributionJson { get; init; }
+        public string? ContributingPrimitivesJson { get; init; }
+        public string? ExplanationJson { get; init; }
         public string? Note { get; init; }
     }
 }

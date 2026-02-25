@@ -5,6 +5,8 @@ using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using System.Windows.Forms;
 using Porta.Agent.Common.Contracts;
+using Porta.Agent.Runtime.Layer2;
+using Porta.Agent.Runtime.Layer3;
 using Porta.Agent.Runtime.Diagnostics;
 using Porta.Agent.Runtime.Input;
 using Porta.Agent.Runtime.Transport;
@@ -27,13 +29,18 @@ public sealed class Layer1AgentHost : IDisposable
     private readonly SystemCpuSampler _systemCpu = new();
     private readonly NetworkSampler _networkSampler = new();
     private readonly DiskIoSampler _diskIoSampler = new();
+    private readonly Layer2NormalizationEngine _normalizationEngine;
+    private readonly Layer3InferenceEngine _inferenceEngine;
     private readonly string _machineId = BuildMachineId();
     private readonly string _agentId = Environment.MachineName;
     private readonly string _signatureKeyId;
     private readonly byte[] _signatureKey;
     private Channel<AgentTelemetry>? _telemetry;
+    private Channel<Layer2SignalSample>? _signalSamples;
     private CancellationTokenSource? _cts;
     private Task? _collectorTask;
+    private Task? _normalizationTask;
+    private Task? _inferenceTask;
     private Task? _telemetryTask;
     private int _running;
     private int _errorCount;
@@ -63,6 +70,10 @@ public sealed class Layer1AgentHost : IDisposable
 
         _signatureKey = SHA256.HashData(Encoding.UTF8.GetBytes($"{_machineId}|{Environment.UserDomainName}|PORTA_LAYER1"));
         _signatureKeyId = Convert.ToHexString(SHA256.HashData(_signatureKey)).Substring(0, 16);
+        _normalizationEngine = new Layer2NormalizationEngine(
+            Layer2NormalizationConfig.FromEnvironment(),
+            samplePeriodSeconds: WindowSeconds);
+        _inferenceEngine = new Layer3InferenceEngine(new Layer3InferenceConfig());
         _keyboardHook.KeyChanged += OnKeyChanged;
         _foregroundHook.ForegroundChanged += (_, _) =>
         {
@@ -102,6 +113,12 @@ public sealed class Layer1AgentHost : IDisposable
                 SingleWriter = false,
                 FullMode = BoundedChannelFullMode.DropOldest
             });
+            _signalSamples = Channel.CreateBounded<Layer2SignalSample>(new BoundedChannelOptions(1024)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.DropOldest
+            });
 
             if (_consentStateCorrupted)
             {
@@ -121,6 +138,8 @@ public sealed class Layer1AgentHost : IDisposable
             }
 
             _collectorTask = CollectLoopAsync(_cts.Token);
+            _normalizationTask = NormalizeLoopAsync(_cts.Token);
+            _inferenceTask = InferenceLoopAsync(_cts.Token);
             _telemetryTask = TelemetryLoopAsync(_cts.Token);
             UpdateTray(IsCollectionDisabled() ? "Paused" : "Active");
         }
@@ -143,15 +162,21 @@ public sealed class Layer1AgentHost : IDisposable
         _cts?.Cancel();
         UninstallHooks();
         _telemetry?.Writer.TryComplete();
+        _signalSamples?.Writer.TryComplete();
         await SafeAwait(_collectorTask).ConfigureAwait(false);
+        await SafeAwait(_normalizationTask).ConfigureAwait(false);
+        await SafeAwait(_inferenceTask).ConfigureAwait(false);
         await SafeAwait(_telemetryTask).ConfigureAwait(false);
         await _client.StopAsync(CancellationToken.None).ConfigureAwait(false);
         _tray.Dispose();
         _cts?.Dispose();
         _cts = null;
         _collectorTask = null;
+        _normalizationTask = null;
+        _inferenceTask = null;
         _telemetryTask = null;
         _telemetry = null;
+        _signalSamples = null;
     }
 
     private void ResolveConsentOnStart()
@@ -274,16 +299,16 @@ public sealed class Layer1AgentHost : IDisposable
                     _mouseDistanceInWindow = 0;
                 }
 
-                EmitSignal("interaction.keystroke_rate", keyCount / elapsedWindowSeconds, elapsedWindowSeconds, "count_per_second", "keyboard_hook_aggregate");
-                EmitSignal("interaction.mouse_movement_distance", mouseDistance, elapsedWindowSeconds, "pixels", "cursor_position_delta_aggregate");
-                EmitSignal("interaction.app_switch_frequency", appSwitches / elapsedWindowSeconds, elapsedWindowSeconds, "count_per_second", "foreground_event_count");
-                EmitSignal("interaction.idle_duration", GetIdleDurationSeconds(), elapsedWindowSeconds, "seconds", "last_input_info");
-                EmitSignal("system.cpu_utilization", _systemCpu.ReadPercent(), elapsedWindowSeconds, "percent", "get_system_times");
-                EmitSignal("system.memory_utilization", ReadMemoryPercent(), elapsedWindowSeconds, "percent", "global_memory_status");
-                EmitSignal("system.disk_io_rate", _diskIoSampler.ReadBytesPerSecond(elapsedWindowSeconds), elapsedWindowSeconds, "bytes_per_second", "drive_free_space_delta");
-                EmitSignal("system.network_throughput", _networkSampler.ReadBytesPerSecond(elapsedWindowSeconds), elapsedWindowSeconds, "bytes_per_second", "network_interface_stats");
-                EmitSignal("system.process_count", Process.GetProcesses().Length, elapsedWindowSeconds, "count", "process_snapshot");
-                EmitSignal("system.service_health_status", 1, elapsedWindowSeconds, "up_down", "host_lifecycle");
+                PublishSignal("interaction.keystroke_rate", keyCount / elapsedWindowSeconds, elapsedWindowSeconds, "count_per_second", "keyboard_hook_aggregate");
+                PublishSignal("interaction.mouse_movement_distance", mouseDistance, elapsedWindowSeconds, "pixels", "cursor_position_delta_aggregate");
+                PublishSignal("interaction.app_switch_frequency", appSwitches / elapsedWindowSeconds, elapsedWindowSeconds, "count_per_second", "foreground_event_count");
+                PublishSignal("interaction.idle_duration", GetIdleDurationSeconds(), elapsedWindowSeconds, "seconds", "last_input_info");
+                PublishSignal("system.cpu_utilization", _systemCpu.ReadPercent(), elapsedWindowSeconds, "percent", "get_system_times");
+                PublishSignal("system.memory_utilization", ReadMemoryPercent(), elapsedWindowSeconds, "percent", "global_memory_status");
+                PublishSignal("system.disk_io_rate", _diskIoSampler.ReadBytesPerSecond(elapsedWindowSeconds), elapsedWindowSeconds, "bytes_per_second", "drive_free_space_delta");
+                PublishSignal("system.network_throughput", _networkSampler.ReadBytesPerSecond(elapsedWindowSeconds), elapsedWindowSeconds, "bytes_per_second", "network_interface_stats");
+                PublishSignal("system.process_count", Process.GetProcesses().Length, elapsedWindowSeconds, "count", "process_snapshot");
+                PublishSignal("system.service_health_status", 1, elapsedWindowSeconds, "up_down", "host_lifecycle");
 
                 TimeSpan processCpuEnd = Process.GetCurrentProcess().TotalProcessorTime;
                 DateTimeOffset cpuWindowEnd = DateTimeOffset.UtcNow;
@@ -293,10 +318,10 @@ public sealed class Layer1AgentHost : IDisposable
                 cpuWindowStart = cpuWindowEnd;
 
                 Process proc = Process.GetCurrentProcess();
-                EmitSignal("agent.cpu_usage", Math.Clamp(agentCpuPercent, 0, 100), elapsedWindowSeconds, "percent", "process_cpu_delta");
-                EmitSignal("agent.memory_usage", proc.WorkingSet64 / (1024.0 * 1024.0), elapsedWindowSeconds, "megabytes", "working_set");
-                EmitSignal("agent.event_queue_depth", ReadQueueDepth(), elapsedWindowSeconds, "count", "telemetry_queue_depth");
-                EmitSignal("agent.error_count", Volatile.Read(ref _errorCount), elapsedWindowSeconds, "count", "runtime_counter");
+                PublishSignal("agent.cpu_usage", Math.Clamp(agentCpuPercent, 0, 100), elapsedWindowSeconds, "percent", "process_cpu_delta");
+                PublishSignal("agent.memory_usage", proc.WorkingSet64 / (1024.0 * 1024.0), elapsedWindowSeconds, "megabytes", "working_set");
+                PublishSignal("agent.event_queue_depth", ReadQueueDepth(), elapsedWindowSeconds, "count", "telemetry_queue_depth");
+                PublishSignal("agent.error_count", Volatile.Read(ref _errorCount), elapsedWindowSeconds, "count", "runtime_counter");
 
                 _lastSummary =
                     $"Window: {WindowSeconds}s\r\n"
@@ -338,6 +363,79 @@ public sealed class Layer1AgentHost : IDisposable
             interval: TimeSpan.FromSeconds(1),
             maxBatchSize: 64);
         await emitter.RunAsync(token).ConfigureAwait(false);
+    }
+
+    private async Task NormalizeLoopAsync(CancellationToken token)
+    {
+        Channel<Layer2SignalSample>? signalChannel = _signalSamples;
+        if (signalChannel == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await foreach (Layer2SignalSample sample in signalChannel.Reader.ReadAllAsync(token).ConfigureAwait(false))
+            {
+                Layer2PrimitiveResult result = _normalizationEngine.Transform(sample);
+                if (!result.Success)
+                {
+                    EmitEvent("agent.error", "error", 1, "count", result.ErrorReason, "restricted");
+                    continue;
+                }
+
+                EmitPrimitive(sample, result);
+                _inferenceEngine.RecordPrimitive(new Layer3PrimitiveInput(
+                    PrimitiveId: result.PrimitiveId,
+                    MachineId: sample.MachineId,
+                    Name: result.Name,
+                    Value: result.Value,
+                    Unit: result.Unit,
+                    ZScore: result.ZScore,
+                    Ewma: result.Ewma,
+                    Confidence: result.Confidence,
+                    ComputedAtUtc: result.ComputedAtUtc));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Increment(ref _errorCount);
+            Logger.Error(ex, "Layer2 normalization loop failed.");
+            EmitEvent("agent.error", "error", 1, "count", "normalization_loop_failed", "restricted");
+        }
+    }
+
+    private async Task InferenceLoopAsync(CancellationToken token)
+    {
+        TimeSpan cadence = TimeSpan.FromSeconds(10);
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(cadence, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            if (IsCollectionDisabled())
+            {
+                continue;
+            }
+
+            Layer3StateResult result = _inferenceEngine.Evaluate(DateTimeOffset.UtcNow);
+            if (!result.Success)
+            {
+                EmitEvent("agent.error", "error", 1, "count", result.ErrorReason, "restricted");
+                continue;
+            }
+
+            EmitState(result);
+        }
     }
 
     private void OnKeyChanged(int _, bool isKeyDown, bool isInjected)
@@ -410,9 +508,118 @@ public sealed class Layer1AgentHost : IDisposable
         }
     }
 
-    private void EmitSignal(string metricName, double value, double windowDurationSeconds, string unit, string collectionMethod)
+    private void PublishSignal(string metricName, double value, double windowDurationSeconds, string unit, string collectionMethod)
     {
-        EmitEvent("signal.sample", metricName, value, unit, collectionMethod, "restricted", windowDurationSeconds);
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            EmitEvent("agent.error", "error", 1, "count", "numeric_instability_input_nan_or_inf", "restricted");
+            return;
+        }
+
+        var sample = new Layer2SignalSample(
+            MachineId: _machineId,
+            MetricName: metricName,
+            Value: value,
+            Unit: unit,
+            WindowDurationSeconds: windowDurationSeconds,
+            CollectionMethod: collectionMethod,
+            PrivacyClass: "restricted",
+            TimestampUtc: DateTimeOffset.UtcNow);
+        _signalSamples?.Writer.TryWrite(sample);
+    }
+
+    private void EmitPrimitive(Layer2SignalSample source, Layer2PrimitiveResult result)
+    {
+        DateTimeOffset now = result.ComputedAtUtc;
+        string signaturePayload = BuildSignaturePayload(
+            "agent.primitive",
+            result.Name,
+            result.Value,
+            result.Unit,
+            source.CollectionMethod,
+            source.PrivacyClass,
+            source.WindowDurationSeconds,
+            now);
+        string signature = Sign(signaturePayload);
+
+        AgentTelemetry entry = new()
+        {
+            AgentId = _agentId,
+            MachineId = _machineId,
+            TimestampUtc = now,
+            EventType = "agent.primitive",
+            SchemaVersion = RequiredSchemaVersion,
+            Kind = "layer2",
+            MetricName = result.Name,
+            Name = result.Name,
+            PrimitiveId = result.PrimitiveId,
+            Value = result.Value,
+            Unit = result.Unit,
+            BaselineMean = result.BaselineMean,
+            BaselineStd = result.BaselineStd,
+            ZScore = result.ZScore,
+            Ewma = result.Ewma,
+            WindowDurationSeconds = source.WindowDurationSeconds,
+            WindowSizeSeconds = result.WindowSizeSeconds,
+            Confidence = result.Confidence,
+            ComputedAtUtc = result.ComputedAtUtc,
+            CollectionMethod = source.CollectionMethod,
+            PrivacyClass = source.PrivacyClass,
+            ConsentState = _consentState.ToString().ToLowerInvariant(),
+            SignatureAlgorithm = "hmac-sha256",
+            SignatureKeyId = _signatureKeyId,
+            Signature = signature,
+            Note = "signed"
+        };
+
+        _lastSignalAtUtc = entry.TimestampUtc;
+        _telemetry?.Writer.TryWrite(entry);
+    }
+
+    private void EmitState(Layer3StateResult result)
+    {
+        DateTimeOffset now = result.EvaluatedAtUtc;
+        string signaturePayload = BuildSignaturePayload(
+            "agent.state",
+            result.StateName,
+            result.Probability,
+            "probability",
+            "deterministic_layer3",
+            "restricted",
+            windowDurationSeconds: 10,
+            now);
+        string signature = Sign(signaturePayload);
+
+        AgentTelemetry entry = new()
+        {
+            AgentId = _agentId,
+            MachineId = _machineId,
+            TimestampUtc = now,
+            EventType = "agent.state",
+            SchemaVersion = RequiredSchemaVersion,
+            Kind = "layer3",
+            StateId = result.StateId,
+            StateName = result.StateName,
+            Probability = result.Probability,
+            Confidence = result.Confidence,
+            GlobalRiskScore = result.GlobalRiskScore,
+            RiskDelta = result.RiskDelta,
+            TrendDirection = result.TrendDirection,
+            ModelVersion = result.ModelVersion,
+            DistributionJson = result.DistributionJson,
+            ContributingPrimitivesJson = result.ContributingPrimitivesJson,
+            ExplanationJson = result.ExplanationJson,
+            ComputedAtUtc = result.EvaluatedAtUtc,
+            CollectionMethod = "deterministic_rule_engine",
+            PrivacyClass = "restricted",
+            ConsentState = _consentState.ToString().ToLowerInvariant(),
+            SignatureAlgorithm = "hmac-sha256",
+            SignatureKeyId = _signatureKeyId,
+            Signature = signature,
+            Note = "signed"
+        };
+
+        _telemetry?.Writer.TryWrite(entry);
     }
 
     private void EmitEvent(
