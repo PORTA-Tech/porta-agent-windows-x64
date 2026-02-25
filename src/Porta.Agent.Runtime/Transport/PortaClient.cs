@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Porta.Agent.Common.Contracts;
@@ -22,6 +23,7 @@ internal sealed class PortaClient : IDisposable
     private readonly Uri? _baseUri;
     private readonly int _maxRetries;
     private readonly TimeSpan _requestTimeout;
+    private readonly string? _pinnedServerCertificateSha256;
     private readonly object _gate = new();
     private HttpClient? _httpClient;
     private int _started;
@@ -39,6 +41,7 @@ internal sealed class PortaClient : IDisposable
 
         _maxRetries = Math.Max(1, maxRetries);
         _requestTimeout = TimeSpan.FromMilliseconds(Math.Clamp(timeoutMs, 250, 10000));
+        _pinnedServerCertificateSha256 = NormalizeHex(Environment.GetEnvironmentVariable("PORTA_TLS_CERT_SHA256_PIN"));
     }
 
     public bool IsEnabled => _baseUri != null;
@@ -66,7 +69,22 @@ internal sealed class PortaClient : IDisposable
 
         lock (_gate)
         {
-            _httpClient = new HttpClient
+            var handler = new HttpClientHandler();
+            if (!string.IsNullOrWhiteSpace(_pinnedServerCertificateSha256))
+            {
+                handler.ServerCertificateCustomValidationCallback = (_, cert, _, policyErrors) =>
+                {
+                    if (policyErrors != System.Net.Security.SslPolicyErrors.None || cert == null)
+                    {
+                        return false;
+                    }
+
+                    string presented = NormalizeHex(Convert.ToHexString(SHA256.HashData(cert.GetRawCertData()))) ?? string.Empty;
+                    return string.Equals(presented, _pinnedServerCertificateSha256, StringComparison.Ordinal);
+                };
+            }
+
+            _httpClient = new HttpClient(handler)
             {
                 BaseAddress = _baseUri,
                 Timeout = _requestTimeout
@@ -217,5 +235,15 @@ internal sealed class PortaClient : IDisposable
     public void Dispose()
     {
         _httpClient?.Dispose();
+    }
+
+    private static string? NormalizeHex(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Replace(":", string.Empty, StringComparison.Ordinal).Trim().ToUpperInvariant();
     }
 }
