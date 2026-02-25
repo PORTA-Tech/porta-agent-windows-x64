@@ -130,6 +130,19 @@ function validatePolicySemantics(payload, relPath) {
         throw new Error(`${relPath}: expires_at must be greater than issued_at`);
       }
     }
+    if (payload?.contract_name === "AuditRbacAccessDecision") {
+      if (payload.decision === "allow" && payload.error !== null) {
+        throw new Error(`${relPath}: allow decision must not include error object`);
+      }
+      if (payload.decision === "deny" && payload.error === null) {
+        throw new Error(`${relPath}: deny decision must include error object`);
+      }
+    }
+    if (payload?.contract_name === "AuditReplayVerificationResult") {
+      if (payload.result === "mismatch" && Array.isArray(payload.differences) && payload.differences.length === 0) {
+        throw new Error(`${relPath}: mismatch replay result must include at least one difference`);
+      }
+    }
     return;
   }
 

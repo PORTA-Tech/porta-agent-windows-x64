@@ -37,4 +37,17 @@
   - max traffic shift `50% / hour / service`
   - global intervention cap `30 / hour / cluster`
 
+## Step-11 audit/governance update
+- New governance contracts added at `schema_version=1.0.0`:
+  - `AuditDecisionTrace`
+  - `AuditRbacAccessDecision`
+  - `AuditRetentionPolicy`
+  - `AuditReplayVerificationResult`
+  - `AuditObservabilityMetric`
+- CI now enforces governance vectors via `contracts:audit-governance-test`.
+- Hard retention policy values enforced by schema:
+  - decision traces `1095` days
+  - intervention commands `365` days
+  - metric snapshots hot/cold `90/730` days
+
 Compatibility is enforced in CI by schema compatibility checks against base branch.
