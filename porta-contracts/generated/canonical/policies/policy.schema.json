@@ -1,50 +1,72 @@
 {
-  "$id": "https://porta.dev/contracts/policies/policy.schema.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
-  "properties": {
-    "conditions": {
+  "$defs": {
+    "conditionLeaf": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "enum": [
+            "state_name",
+            "probability",
+            "confidence",
+            "global_risk_score",
+            "risk_delta",
+            "trend_direction"
+          ]
+        },
+        "op": {
+          "enum": [
+            "==",
+            "!=",
+            "<",
+            "<=",
+            ">",
+            ">="
+          ]
+        },
+        "value": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "required": [
+        "field",
+        "op",
+        "value"
+      ],
+      "type": "object"
+    },
+    "conditionNode": {
       "additionalProperties": false,
       "properties": {
         "conditions": {
           "items": {
-            "additionalProperties": false,
-            "properties": {
-              "field": {
-                "enum": [
-                  "probability",
-                  "confidence",
-                  "baseline_deviation_factor"
-                ]
+            "oneOf": [
+              {
+                "$ref": "#/$defs/conditionLeaf"
               },
-              "op": {
-                "enum": [
-                  ">",
-                  ">=",
-                  "<",
-                  "<=",
-                  "=="
-                ]
-              },
-              "value": {
-                "type": "number"
+              {
+                "$ref": "#/$defs/conditionNode"
               }
-            },
-            "required": [
-              "field",
-              "op",
-              "value"
-            ],
-            "type": "object"
+            ]
           },
-          "maxItems": 16,
+          "maxItems": 32,
           "minItems": 1,
           "type": "array"
         },
         "operator": {
           "enum": [
             "AND",
-            "OR"
+            "OR",
+            "NOT"
           ]
         }
       },
@@ -54,13 +76,25 @@
       ],
       "type": "object"
     },
+    "stateEnum": {
+      "enum": [
+        "stable",
+        "elevated_risk",
+        "degrading",
+        "critical",
+        "recovering"
+      ]
+    }
+  },
+  "$id": "https://porta.dev/contracts/policies/policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "conditions": {
+      "$ref": "#/$defs/conditionNode"
+    },
     "contract_name": {
       "const": "RegulationPolicy"
-    },
-    "cooldown_seconds": {
-      "maximum": 86400,
-      "minimum": 0,
-      "type": "integer"
     },
     "created_at": {
       "$ref": "../shared/common-defs.schema.json#/$defs/isoTimestamp"
@@ -68,87 +102,27 @@
     "created_by": {
       "$ref": "../shared/common-defs.schema.json#/$defs/nonEmptyString"
     },
-    "dwell_seconds": {
-      "maximum": 86400,
-      "minimum": 1,
-      "type": "integer"
-    },
-    "fleet_scope": {
-      "additionalProperties": false,
-      "properties": {
-        "all": {
-          "type": "boolean"
-        },
-        "machine_ids": {
-          "items": {
-            "$ref": "../shared/common-defs.schema.json#/$defs/uuid"
-          },
-          "maxItems": 5000,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "tags": {
-          "items": {
-            "pattern": "^[a-z0-9_.-]{1,64}$",
-            "type": "string"
-          },
-          "maxItems": 100,
-          "type": "array",
-          "uniqueItems": true
-        }
-      },
-      "required": [
-        "all",
-        "machine_ids",
-        "tags"
-      ],
-      "type": "object"
-    },
-    "hysteresis_config": {
-      "additionalProperties": false,
-      "properties": {
-        "activate_threshold": {
-          "maximum": 1,
-          "minimum": 0,
-          "type": "number"
-        },
-        "deactivate_threshold": {
-          "maximum": 1,
-          "minimum": 0,
-          "type": "number"
-        },
-        "flap_window_seconds": {
-          "maximum": 3600,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "max_flaps_per_window": {
-          "maximum": 100,
-          "minimum": 1,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "activate_threshold",
-        "deactivate_threshold",
-        "flap_window_seconds",
-        "max_flaps_per_window"
-      ],
-      "type": "object"
-    },
     "interventions": {
       "items": {
         "additionalProperties": false,
         "properties": {
-          "level": {
-            "maximum": 4,
-            "minimum": 1,
-            "type": "integer"
+          "intervention_type": {
+            "enum": [
+              "notify",
+              "throttle",
+              "pause_capture",
+              "require_ack"
+            ]
           },
-          "max_duration_seconds": {
-            "maximum": 86400,
-            "minimum": 1,
-            "type": "integer"
+          "max_frequency": {
+            "enum": [
+              "PT10S",
+              "PT30S",
+              "PT1M",
+              "PT5M",
+              "PT15M",
+              "PT1H"
+            ]
           },
           "parameters": {
             "additionalProperties": {
@@ -166,65 +140,164 @@
             },
             "type": "object"
           },
-          "type": {
-            "enum": [
-              "notify",
-              "reduce_load",
-              "restart_service",
-              "isolate_component",
-              "escalate_to_human",
-              "pause_agent"
-            ]
+          "priority": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "requires_human_confirmation": {
+            "type": "boolean"
           }
         },
         "required": [
-          "type",
-          "level",
-          "max_duration_seconds",
-          "parameters"
+          "intervention_type",
+          "parameters",
+          "priority",
+          "max_frequency",
+          "requires_human_confirmation"
         ],
         "type": "object"
       },
-      "maxItems": 8,
+      "maxItems": 16,
       "minItems": 1,
       "type": "array"
     },
-    "override_permissions": {
-      "items": {
-        "enum": [
-          "owner",
-          "admin",
-          "operator",
-          "analyst",
-          "viewer"
-        ]
-      },
-      "maxItems": 5,
-      "minItems": 1,
-      "type": "array",
-      "uniqueItems": true
+    "machine_selector": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "all"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "machine_ids": {
+              "items": {
+                "$ref": "../shared/common-defs.schema.json#/$defs/uuid"
+              },
+              "maxItems": 10000,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "type": {
+              "const": "machine_ids"
+            }
+          },
+          "required": [
+            "type",
+            "machine_ids"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "tags": {
+              "items": {
+                "pattern": "^[a-z0-9_.-]{1,64}$",
+                "type": "string"
+              },
+              "maxItems": 256,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "type": {
+              "const": "tags"
+            }
+          },
+          "required": [
+            "type",
+            "tags"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "policy_id": {
       "$ref": "../shared/common-defs.schema.json#/$defs/uuid"
+    },
+    "policy_model_version": {
+      "const": "deterministic-policy-v1.0.0"
     },
     "policy_name": {
       "$ref": "../shared/common-defs.schema.json#/$defs/nonEmptyString"
     },
     "schema_version": {
-      "const": "1.0.0"
+      "const": "2.0.0"
+    },
+    "severity_max": {
+      "maximum": 4,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "severity_min": {
+      "maximum": 4,
+      "minimum": 0,
+      "type": "integer"
     },
     "signature": {
-      "pattern": "^[A-Za-z0-9+/=._-]{32,4096}$",
-      "type": "string"
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "const": "Ed25519"
+        },
+        "created_at": {
+          "$ref": "../shared/common-defs.schema.json#/$defs/isoTimestamp"
+        },
+        "signature": {
+          "pattern": "^[A-Za-z0-9_-]{80,90}$",
+          "type": "string"
+        },
+        "signing_key_id": {
+          "pattern": "^kid-[a-f0-9]{8}-v[0-9]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "algorithm",
+        "signing_key_id",
+        "signature",
+        "created_at"
+      ],
+      "type": "object"
     },
-    "target_state": {
-      "enum": [
-        "stable",
-        "elevated_risk",
-        "degrading",
-        "critical",
-        "recovering"
-      ]
+    "stability_overrides": {
+      "additionalProperties": false,
+      "properties": {
+        "min_cooldown_seconds": {
+          "maximum": 600,
+          "minimum": 10,
+          "type": "integer"
+        },
+        "min_dwell_seconds": {
+          "maximum": 300,
+          "minimum": 10,
+          "type": "integer"
+        },
+        "min_sustained_probability": {
+          "maximum": 0.99,
+          "minimum": 0.5,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "target_states": {
+      "items": {
+        "$ref": "#/$defs/stateEnum"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
     },
     "version": {
       "$ref": "../shared/common-defs.schema.json#/$defs/semver"
@@ -233,19 +306,17 @@
   "required": [
     "contract_name",
     "schema_version",
+    "policy_model_version",
     "policy_id",
     "policy_name",
     "version",
-    "target_state",
-    "conditions",
-    "interventions",
-    "hysteresis_config",
-    "cooldown_seconds",
-    "dwell_seconds",
-    "override_permissions",
-    "fleet_scope",
     "created_by",
     "created_at",
+    "target_states",
+    "severity_min",
+    "severity_max",
+    "conditions",
+    "interventions",
     "signature"
   ],
   "title": "RegulationPolicy",

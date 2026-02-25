@@ -107,6 +107,20 @@ function validateSigningVector(vector, relPath) {
   }
 }
 
+function validatePolicySemantics(payload, relPath) {
+  if (payload?.contract_name !== "RegulationPolicy") {
+    return;
+  }
+
+  if (
+    typeof payload.severity_min === "number"
+    && typeof payload.severity_max === "number"
+    && payload.severity_max < payload.severity_min
+  ) {
+    throw new Error(`${relPath}: severity_max must be >= severity_min`);
+  }
+}
+
 const schemaRelPaths = await collectSchemaFiles();
 const index = await readJson("schema-index.json");
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -145,6 +159,7 @@ if (invalidExampleFiles.length === 0) {
 
 for (const rel of validExampleFiles) {
   const payload = await readJson(rel);
+  validatePolicySemantics(payload, rel);
   const contractName = payload?.contract_name;
   const schemaId = contractSchemaIdByName.get(contractName);
   if (!schemaId) {

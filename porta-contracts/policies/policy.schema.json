@@ -4,35 +4,115 @@
   "title": "RegulationPolicy",
   "type": "object",
   "additionalProperties": false,
-  "properties": {
-    "contract_name": { "const": "RegulationPolicy" },
-    "schema_version": { "const": "1.0.0" },
-    "policy_id": { "$ref": "../shared/common-defs.schema.json#/$defs/uuid" },
-    "policy_name": { "$ref": "../shared/common-defs.schema.json#/$defs/nonEmptyString" },
-    "version": { "$ref": "../shared/common-defs.schema.json#/$defs/semver" },
-    "target_state": { "enum": ["stable", "elevated_risk", "degrading", "critical", "recovering"] },
-    "conditions": {
+  "$defs": {
+    "stateEnum": {
+      "enum": ["stable", "elevated_risk", "degrading", "critical", "recovering"]
+    },
+    "conditionLeaf": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "operator": { "enum": ["AND", "OR"] },
+        "field": {
+          "enum": ["state_name", "probability", "confidence", "global_risk_score", "risk_delta", "trend_direction"]
+        },
+        "op": { "enum": ["==", "!=", "<", "<=", ">", ">="] },
+        "value": {
+          "oneOf": [
+            { "type": "number" },
+            { "type": "string" },
+            { "type": "boolean" }
+          ]
+        }
+      },
+      "required": ["field", "op", "value"]
+    },
+    "conditionNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operator": { "enum": ["AND", "OR", "NOT"] },
         "conditions": {
           "type": "array",
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "field": { "enum": ["probability", "confidence", "baseline_deviation_factor"] },
-              "op": { "enum": [">", ">=", "<", "<=", "=="] },
-              "value": { "type": "number" }
-            },
-            "required": ["field", "op", "value"]
+            "oneOf": [
+              { "$ref": "#/$defs/conditionLeaf" },
+              { "$ref": "#/$defs/conditionNode" }
+            ]
           },
           "minItems": 1,
-          "maxItems": 16
+          "maxItems": 32
         }
       },
       "required": ["operator", "conditions"]
+    }
+  },
+  "properties": {
+    "contract_name": { "const": "RegulationPolicy" },
+    "schema_version": { "const": "2.0.0" },
+    "policy_model_version": { "const": "deterministic-policy-v1.0.0" },
+    "policy_id": { "$ref": "../shared/common-defs.schema.json#/$defs/uuid" },
+    "policy_name": { "$ref": "../shared/common-defs.schema.json#/$defs/nonEmptyString" },
+    "version": { "$ref": "../shared/common-defs.schema.json#/$defs/semver" },
+    "created_by": { "$ref": "../shared/common-defs.schema.json#/$defs/nonEmptyString" },
+    "created_at": { "$ref": "../shared/common-defs.schema.json#/$defs/isoTimestamp" },
+    "target_states": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/stateEnum" },
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true
+    },
+    "severity_min": { "type": "integer", "minimum": 0, "maximum": 4 },
+    "severity_max": { "type": "integer", "minimum": 0, "maximum": 4 },
+    "machine_selector": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "all" }
+          },
+          "required": ["type"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "machine_ids" },
+            "machine_ids": {
+              "type": "array",
+              "items": { "$ref": "../shared/common-defs.schema.json#/$defs/uuid" },
+              "maxItems": 10000,
+              "uniqueItems": true
+            }
+          },
+          "required": ["type", "machine_ids"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "tags" },
+            "tags": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
+              "maxItems": 256,
+              "uniqueItems": true
+            }
+          },
+          "required": ["type", "tags"]
+        }
+      ]
+    },
+    "conditions": { "$ref": "#/$defs/conditionNode" },
+    "stability_overrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min_dwell_seconds": { "type": "integer", "minimum": 10, "maximum": 300 },
+        "min_cooldown_seconds": { "type": "integer", "minimum": 10, "maximum": 600 },
+        "min_sustained_probability": { "type": "number", "minimum": 0.5, "maximum": 0.99 }
+      }
     },
     "interventions": {
       "type": "array",
@@ -40,85 +120,54 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "type": { "enum": ["notify", "reduce_load", "restart_service", "isolate_component", "escalate_to_human", "pause_agent"] },
-          "level": { "type": "integer", "minimum": 1, "maximum": 4 },
-          "max_duration_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+          "intervention_type": { "enum": ["notify", "throttle", "pause_capture", "require_ack"] },
           "parameters": {
             "type": "object",
             "additionalProperties": {
-              "anyOf": [
-                { "type": "string" },
-                { "type": "number" },
-                { "type": "boolean" }
-              ]
+              "anyOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }]
             }
-          }
+          },
+          "priority": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "max_frequency": { "enum": ["PT10S", "PT30S", "PT1M", "PT5M", "PT15M", "PT1H"] },
+          "requires_human_confirmation": { "type": "boolean" }
         },
-        "required": ["type", "level", "max_duration_seconds", "parameters"]
+        "required": [
+          "intervention_type",
+          "parameters",
+          "priority",
+          "max_frequency",
+          "requires_human_confirmation"
+        ]
       },
       "minItems": 1,
-      "maxItems": 8
+      "maxItems": 16
     },
-    "hysteresis_config": {
+    "signature": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "activate_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
-        "deactivate_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
-        "flap_window_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
-        "max_flaps_per_window": { "type": "integer", "minimum": 1, "maximum": 100 }
+        "algorithm": { "const": "Ed25519" },
+        "signing_key_id": { "type": "string", "pattern": "^kid-[a-f0-9]{8}-v[0-9]+$" },
+        "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]{80,90}$" },
+        "created_at": { "$ref": "../shared/common-defs.schema.json#/$defs/isoTimestamp" }
       },
-      "required": ["activate_threshold", "deactivate_threshold", "flap_window_seconds", "max_flaps_per_window"]
-    },
-    "cooldown_seconds": { "type": "integer", "minimum": 0, "maximum": 86400 },
-    "dwell_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
-    "override_permissions": {
-      "type": "array",
-      "items": { "enum": ["owner", "admin", "operator", "analyst", "viewer"] },
-      "minItems": 1,
-      "maxItems": 5,
-      "uniqueItems": true
-    },
-    "fleet_scope": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "all": { "type": "boolean" },
-        "machine_ids": {
-          "type": "array",
-          "items": { "$ref": "../shared/common-defs.schema.json#/$defs/uuid" },
-          "uniqueItems": true,
-          "maxItems": 5000
-        },
-        "tags": {
-          "type": "array",
-          "items": { "type": "string", "pattern": "^[a-z0-9_.-]{1,64}$" },
-          "uniqueItems": true,
-          "maxItems": 100
-        }
-      },
-      "required": ["all", "machine_ids", "tags"]
-    },
-    "created_by": { "$ref": "../shared/common-defs.schema.json#/$defs/nonEmptyString" },
-    "created_at": { "$ref": "../shared/common-defs.schema.json#/$defs/isoTimestamp" },
-    "signature": { "type": "string", "pattern": "^[A-Za-z0-9+/=._-]{32,4096}$" }
+      "required": ["algorithm", "signing_key_id", "signature", "created_at"]
+    }
   },
   "required": [
     "contract_name",
     "schema_version",
+    "policy_model_version",
     "policy_id",
     "policy_name",
     "version",
-    "target_state",
-    "conditions",
-    "interventions",
-    "hysteresis_config",
-    "cooldown_seconds",
-    "dwell_seconds",
-    "override_permissions",
-    "fleet_scope",
     "created_by",
     "created_at",
+    "target_states",
+    "severity_min",
+    "severity_max",
+    "conditions",
+    "interventions",
     "signature"
   ]
 }
