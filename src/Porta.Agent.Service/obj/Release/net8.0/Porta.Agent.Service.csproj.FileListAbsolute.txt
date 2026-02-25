@@ -1,5 +1,0 @@
-C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Service\obj\Release\net8.0\Porta.Agent.Service.csproj.AssemblyReference.cache
-C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Service\obj\Release\net8.0\Porta.Agent.Service.GeneratedMSBuildEditorConfig.editorconfig
-C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Service\obj\Release\net8.0\Porta.Agent.Service.AssemblyInfoInputs.cache
-C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Service\obj\Release\net8.0\Porta.Agent.Service.AssemblyInfo.cs
-C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Service\obj\Release\net8.0\Porta.Agent.Service.csproj.CoreCompileInputs.cache
