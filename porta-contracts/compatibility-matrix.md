@@ -24,4 +24,17 @@
   - major mismatch rejected with `SCHEMA_VERSION_INCOMPATIBLE`
   - producer allow-list, payload-size, and clock-skew limits are hard-fail checks
 
+## Step-10 control-plane execution update
+- New deterministic execution contracts added at `schema_version=1.0.0`:
+  - `ControlPlaneExecutionPolicy`
+  - `ControlPlanePolicyEngineState`
+  - `ControlPlaneSignedInterventionCommand`
+  - `ControlPlanePolicyDecisionLog`
+  - `ControlPlanePolicyEngineObservabilityMetric`
+- CI now enforces deterministic execution vectors via `contracts:policy-execution-test`.
+- Safety caps enforced in vector tests:
+  - max scale `+6 / 10m / service`
+  - max traffic shift `50% / hour / service`
+  - global intervention cap `30 / hour / cluster`
+
 Compatibility is enforced in CI by schema compatibility checks against base branch.
