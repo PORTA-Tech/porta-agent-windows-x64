@@ -1,3 +1,7 @@
 bin/
 obj/
 payload/ari.exe
+payload/AriTray.exe
+payload/Porta.ControlCenter.exe
+payload/appsettings.json
+payload/*.json

@@ -49,6 +49,23 @@ Dependency direction: `Service -> Runtime -> Common`.
 dotnet build PORTA.Windows.sln
 ```
 
+### Build MSI (optionally signed)
+
+```powershell
+.\scripts\build-msi.ps1 -Version 1.0.0 -Configuration Release -Runtime win-x64
+```
+
+To sign binaries and MSI, set one of:
+
+- `PORTA_CODESIGN_PFX_PATH` + `PORTA_CODESIGN_PFX_PASSWORD`
+- `PORTA_CODESIGN_PFX_BASE64` + `PORTA_CODESIGN_PFX_PASSWORD`
+
+Then run:
+
+```powershell
+.\scripts\build-msi.ps1 -Version 1.0.0 -Configuration Release -Runtime win-x64 -SignArtifacts
+```
+
 ### Run interactive runtime (tray)
 
 ```powershell

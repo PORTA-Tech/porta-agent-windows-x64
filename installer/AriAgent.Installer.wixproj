@@ -8,10 +8,13 @@
     <AriBackendUrlDefault Condition="'$(AriBackendUrlDefault)' == ''">https://porta-control-plane.onrender.com</AriBackendUrlDefault>
     <AriExeSource Condition="'$(AriExeSource)' == ''">$(MSBuildProjectDirectory)\payload\ari.exe</AriExeSource>
     <AriTrayExeSource Condition="'$(AriTrayExeSource)' == ''">$(MSBuildProjectDirectory)\payload\AriTray.exe</AriTrayExeSource>
-    <DefineConstants>ProductVersion=$(ProductVersion);UpgradeCode=$(UpgradeCode);AriBackendUrlDefault=$(AriBackendUrlDefault);AriExeSource=$(AriExeSource);AriTrayExeSource=$(AriTrayExeSource)</DefineConstants>
+    <AriControlCenterExeSource Condition="'$(AriControlCenterExeSource)' == ''">$(MSBuildProjectDirectory)\payload\Porta.ControlCenter.exe</AriControlCenterExeSource>
+    <AriServiceConfigSource Condition="'$(AriServiceConfigSource)' == ''">$(MSBuildProjectDirectory)\payload\appsettings.json</AriServiceConfigSource>
+    <DefineConstants>ProductVersion=$(ProductVersion);UpgradeCode=$(UpgradeCode);AriBackendUrlDefault=$(AriBackendUrlDefault);AriExeSource=$(AriExeSource);AriTrayExeSource=$(AriTrayExeSource);AriControlCenterExeSource=$(AriControlCenterExeSource);AriServiceConfigSource=$(AriServiceConfigSource)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="4.0.5" />
     <PackageReference Include="WixToolset.Util.wixext" Version="4.0.5" />
   </ItemGroup>
 </Project>

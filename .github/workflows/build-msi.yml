@@ -1,0 +1,61 @@
+name: Build MSI
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Product version for MSI metadata
+        required: true
+        default: "1.0.0"
+        type: string
+      backend_url:
+        description: Default PORTA backend URL baked into installer
+        required: true
+        default: "https://porta-control-plane.onrender.com"
+        type: string
+      sign_artifacts:
+        description: Sign EXEs + MSI with certificate secrets
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  build-msi:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build MSI
+        shell: pwsh
+        env:
+          PORTA_CODESIGN_PFX_BASE64: ${{ secrets.PORTA_CODESIGN_PFX_BASE64 }}
+          PORTA_CODESIGN_PFX_PASSWORD: ${{ secrets.PORTA_CODESIGN_PFX_PASSWORD }}
+        run: |
+          if ("${{ inputs.sign_artifacts }}" -eq "true") {
+            ./scripts/build-msi.ps1 `
+              -Version "${{ inputs.version }}" `
+              -BackendUrl "${{ inputs.backend_url }}" `
+              -Configuration Release `
+              -Runtime win-x64 `
+              -SignArtifacts
+          }
+          else {
+            ./scripts/build-msi.ps1 `
+              -Version "${{ inputs.version }}" `
+              -BackendUrl "${{ inputs.backend_url }}" `
+              -Configuration Release `
+              -Runtime win-x64
+          }
+
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: AriAgentInstaller-${{ inputs.version }}
+          path: installer/bin/**/AriAgentInstaller.msi
