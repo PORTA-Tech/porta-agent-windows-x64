@@ -6,7 +6,12 @@ on:
 
 jobs:
   validation-gate:
-    runs-on: windows-latest
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      NUGET_XMLDOC_MODE: skip
 
     steps:
       - name: Checkout
@@ -16,10 +21,15 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            **/packages.lock.json
 
       - name: Build Solution (Single Node)
         shell: pwsh
         run: ./scripts/build.ps1 -Configuration Release
 
       - name: Run Validation Runner (Gate)
-        run: dotnet run --project src/Porta.Agent.ValidationRunner/Porta.Agent.ValidationRunner.csproj -c Release --no-build
+        shell: pwsh
+        run: dotnet run --project src/Porta.Agent.ValidationRunner/Porta.Agent.ValidationRunner.csproj -c Release --no-build --nologo
