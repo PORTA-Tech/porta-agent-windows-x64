@@ -3,11 +3,27 @@ using System.Threading;
 using System.Threading.Tasks;
 using Porta.Agent.Runtime.Layer1;
 using Porta.Agent.Runtime.Diagnostics;
+using Porta.Agent.Runtime.Ui;
 
 class Program
 {
+    private const string TraySingleInstanceMutexName = @"Global\PORTA_AriTray_SingleInstance";
+    private const string ControlCenterSingleInstanceMutexName = @"Global\PORTA_AriControlCenter_SingleInstance";
+
     static async Task Main()
     {
+        using var singleInstanceMutex = new Mutex(initiallyOwned: true, name: TraySingleInstanceMutexName, createdNew: out bool createdNew);
+        if (!createdNew)
+        {
+            using var controlCenterMutex = new Mutex(initiallyOwned: true, name: ControlCenterSingleInstanceMutexName, createdNew: out bool controlCenterCreatedNew);
+            if (controlCenterCreatedNew)
+            {
+                ControlCenterWindowHost.ShowBlocking(alreadyRunning: true);
+            }
+
+            return;
+        }
+
         RuntimeProfile profile = ResolveRuntimeProfile();
         ApplyProfileDefaults(profile);
         Logger.Info($"Runtime profile: {profile}");
@@ -46,6 +62,7 @@ class Program
 
             await host.StartAsync(stopCts.Token);
             Logger.Info("Scroll anywhere. Press Ctrl+C to exit.");
+            ControlCenterWindowHost.ShowNonBlocking(alreadyRunning: false);
 
             if (autoStopMs > 0)
             {
