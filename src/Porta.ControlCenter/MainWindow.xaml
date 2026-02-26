@@ -1,0 +1,154 @@
+﻿<Window x:Class="Porta.ControlCenter.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PORTA Control Center"
+        Height="750"
+        Width="1100"
+        MinHeight="700"
+        MinWidth="1000"
+        WindowStartupLocation="CenterScreen"
+        Background="#0F172A"
+        Foreground="#E2E8F0">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="240" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="#111827" BorderBrush="#1F2937" BorderThickness="0,0,1,0">
+            <StackPanel Margin="16">
+                <TextBlock Text="PORTA"
+                           FontSize="24"
+                           FontWeight="Bold"
+                           Margin="0,0,0,20" />
+                <Button Content="Overview" Margin="0,0,0,8" Padding="10,8" />
+                <Button Content="Timeline" Margin="0,0,0,8" Padding="10,8" />
+                <Button Content="Interventions" Margin="0,0,0,8" Padding="10,8" />
+                <Button Content="Inputs" Margin="0,0,0,8" Padding="10,8" />
+                <Button Content="States" Margin="0,0,0,8" Padding="10,8" />
+                <Button Content="Settings" Margin="0,0,0,8" Padding="10,8" />
+                <Button Content="Diagnostics" Margin="0,16,0,0" Padding="10,8" FontWeight="Bold" />
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Column="1" Margin="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="64" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Background="#0B1220" BorderBrush="#1F2937" BorderThickness="0,0,0,1">
+                <DockPanel LastChildFill="False" Margin="16,10">
+                    <TextBlock Text="Diagnostics"
+                               DockPanel.Dock="Left"
+                               FontSize="20"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center"
+                               Margin="0,0,20,0" />
+
+                    <Border CornerRadius="12" Background="#1D4ED8" Padding="10,4" Margin="0,0,10,0">
+                        <TextBlock x:Name="StatusPillText" Text="Unknown" FontWeight="Bold" />
+                    </Border>
+                    <Border CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0">
+                        <TextBlock x:Name="ConsentBadgeText" Text="Consent: Unknown" />
+                    </Border>
+                    <Border CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0">
+                        <TextBlock x:Name="BackendBadgeText" Text="Backend: Unknown" />
+                    </Border>
+                    <TextBlock x:Name="VersionText"
+                               Text="Version: n/a"
+                               VerticalAlignment="Center"
+                               Margin="0,0,20,0" />
+                    <Button x:Name="QuickPauseResumeButton"
+                            Content="Pause"
+                            Padding="12,6"
+                            Margin="0,0,10,0"
+                            Click="QuickPauseResumeButton_Click" />
+                    <Button Content="Refresh" Padding="12,6" Click="RefreshButton_Click" />
+                </DockPanel>
+            </Border>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="20" Orientation="Vertical">
+                    <TextBlock Text="Diagnostics Truth Panel"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,12" />
+
+                    <Border Background="#111827" CornerRadius="10" Padding="16" BorderBrush="#1F2937" BorderThickness="1">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="260" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Service running" Margin="0,0,0,8" />
+                            <TextBlock x:Name="ServiceRunningValue" Grid.Row="0" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Tray running" Margin="0,0,0,8" />
+                            <TextBlock x:Name="TrayRunningValue" Grid.Row="1" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Consent active" Margin="0,0,0,8" />
+                            <TextBlock x:Name="ConsentActiveValue" Grid.Row="2" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Backend connected" Margin="0,0,0,8" />
+                            <TextBlock x:Name="BackendConnectedValue" Grid.Row="3" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Focus strength" Margin="0,0,0,8" />
+                            <TextBlock x:Name="FocusStrengthValue" Grid.Row="4" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Overload likelihood" Margin="0,0,0,8" />
+                            <TextBlock x:Name="OverloadValue" Grid.Row="5" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="Last action" Margin="0,0,0,8" />
+                            <TextBlock x:Name="LastActionValue" Grid.Row="6" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="7" Grid.Column="0" Text="Last event timestamp" Margin="0,0,0,8" />
+                            <TextBlock x:Name="LastEventValue" Grid.Row="7" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="8" Grid.Column="0" Text="Current policy version" Margin="0,0,0,8" />
+                            <TextBlock x:Name="PolicyVersionValue" Grid.Row="8" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="9" Grid.Column="0" Text="Schema version" Margin="0,0,0,8" />
+                            <TextBlock x:Name="SchemaVersionValue" Grid.Row="9" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="10" Grid.Column="0" Text="Agent version" Margin="0,0,0,8" />
+                            <TextBlock x:Name="AgentVersionValue" Grid.Row="10" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="11" Grid.Column="0" Text="Local API port" Margin="0,0,0,8" />
+                            <TextBlock x:Name="ApiPortValue" Grid.Row="11" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="12" Grid.Column="0" Text="Last error" Margin="0,0,0,8" />
+                            <TextBlock x:Name="LastErrorValue" Grid.Row="12" Grid.Column="1" Text="None" TextWrapping="Wrap" Margin="0,0,0,8" />
+                        </Grid>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                        <Button Content="Grant Consent" Padding="12,6" Margin="0,0,10,0" Click="GrantConsentButton_Click" />
+                        <Button Content="Revoke Consent" Padding="12,6" Margin="0,0,10,0" Click="RevokeConsentButton_Click" />
+                        <Button Content="Pause" Padding="12,6" Margin="0,0,10,0" Click="PauseButton_Click" />
+                        <Button Content="Resume" Padding="12,6" Margin="0,0,10,0" Click="ResumeButton_Click" />
+                        <Button Content="Open Logs Folder" Padding="12,6" Click="OpenLogsFolderButton_Click" />
+                    </StackPanel>
+
+                    <TextBlock x:Name="UpdatedValue" Margin="0,10,0,0" Foreground="#94A3B8" Text="Last refresh: n/a" />
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>
