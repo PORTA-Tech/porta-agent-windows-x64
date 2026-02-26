@@ -1,4 +1,7 @@
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Porta.Agent.Common.Contracts;
 
 namespace Porta.Agent.Core;
@@ -6,13 +9,23 @@ namespace Porta.Agent.Core;
 public sealed class AgentCoreController : IAgentCoreController
 {
     private const string ConsentFileName = "consent-state-v2.json";
+    private const string SettingsFileName = "effective-settings-v1.json";
+    private const string ConsentVersion = "1.0.0";
+    private static readonly TimeSpan BaselineRecalibrationDuration = TimeSpan.FromMinutes(15);
+    private const string ConsentDisclosureText =
+        "PORTA collects only aggregated interaction metrics: keystroke timing intervals, mouse acceleration, scroll velocity, focus switch frequency, idle fragmentation, and notification reaction latency. "
+        + "PORTA never collects typed text, clipboard, screenshots, files, messages, or network content. "
+        + "Local retention window is 90 days by default. "
+        + "User controls include pause, revoke consent, export data, and delete local data.";
     private const string ServiceLogFileName = "service-core.log";
     private const string DefaultSchemaVersion = "1.0.0";
     private const string DefaultPolicyVersion = "1.0.0";
+    private static readonly string ConsentDisclosureHash = ComputeSha256Hex(ConsentDisclosureText);
 
     private readonly object _gate = new();
     private readonly IBrainStateStore _stateStore;
     private readonly string _consentPath = BuildConsentPath();
+    private readonly string _settingsPath = BuildSettingsPath();
     private readonly string _logPath = BuildLogPath();
     private bool _paused;
     private bool _consentActive;
@@ -34,6 +47,8 @@ public sealed class AgentCoreController : IAgentCoreController
         LastAction: "starting",
         Contributors: ["startup"]);
     private readonly string _agentVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "1.0.0";
+    private ConsentStateRecord _consentState = CreateDefaultConsentState();
+    private SettingsStateRecord _settingsState = CreateDefaultSettingsState();
 
     public AgentCoreController()
         : this(new SqliteBrainStateStore())
@@ -43,7 +58,9 @@ public sealed class AgentCoreController : IAgentCoreController
     public AgentCoreController(IBrainStateStore stateStore)
     {
         _stateStore = stateStore;
-        _consentActive = LoadConsentState();
+        _consentState = LoadConsentState();
+        _consentActive = _consentState.Active;
+        _settingsState = LoadSettingsState();
         _latestSnapshot = _stateStore.ReadLatestSnapshot() ?? _latestSnapshot;
     }
 
@@ -52,6 +69,7 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             TryAutoResumeLocked();
+            UpdateRecalibrationStateLocked();
             AgentStatus status = _lastError is null
                 ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
                 : AgentStatus.Degraded;
@@ -61,6 +79,9 @@ public sealed class AgentCoreController : IAgentCoreController
                 ServiceRunning: true,
                 Paused: _paused,
                 ConsentActive: _consentActive,
+                ConsentVersion: _consentState.Version,
+                ConsentTimestampUtc: _consentState.TimestampUtc,
+                ConsentDisclosureHash: _consentState.DisclosureHash,
                 BackendConnected: _backendConnected,
                 FocusStrength: _latestSnapshot.FocusStrength,
                 OverloadLikelihood: _latestSnapshot.OverloadLikelihood,
@@ -80,6 +101,104 @@ public sealed class AgentCoreController : IAgentCoreController
         {
             TryAutoResumeLocked();
             return new AgentControlState(_paused, _consentActive, _pauseUntilUtc);
+        }
+    }
+
+    public AgentBrainSnapshot GetCurrentSnapshot()
+    {
+        lock (_gate)
+        {
+            return _latestSnapshot;
+        }
+    }
+
+    public AgentInputSummary GetInputsSummary(int windowSeconds = 60)
+    {
+        int window = Math.Clamp(windowSeconds, 5, 3600);
+        DateTimeOffset toUtc = DateTimeOffset.UtcNow;
+        DateTimeOffset fromUtc = toUtc.AddSeconds(-window);
+        IReadOnlyList<AgentBrainSnapshot> rows = _stateStore.ReadTimeline(fromUtc, toUtc, bucketSeconds: 1);
+        int sampleCount = rows.Count;
+        if (sampleCount == 0)
+        {
+            return new AgentInputSummary(
+                FromUtc: fromUtc,
+                ToUtc: toUtc,
+                WindowSeconds: window,
+                SampleCount: 0,
+                TypingBurstIntensity: 0,
+                ScrollVelocityIndex: 0,
+                FocusSwitchRate: 0,
+                IdleFragmentationIndex: 0,
+                NotificationLatencyIndex: 0);
+        }
+
+        double typing = rows.Average(row => row.TypingBurstIntensity);
+        double scroll = rows.Average(row => row.ScrollVelocityIndex);
+        double focusSwitch = rows.Average(row => row.FocusSwitchRate);
+
+        return new AgentInputSummary(
+            FromUtc: fromUtc,
+            ToUtc: toUtc,
+            WindowSeconds: window,
+            SampleCount: sampleCount,
+            TypingBurstIntensity: typing,
+            ScrollVelocityIndex: scroll,
+            FocusSwitchRate: focusSwitch,
+            IdleFragmentationIndex: focusSwitch,
+            NotificationLatencyIndex: 0);
+    }
+
+    public IReadOnlyList<AgentControlEvent> GetRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null)
+    {
+        int boundedLimit = Math.Clamp(limit, 1, 500);
+        return _stateStore.ReadRecentEvents(boundedLimit, sinceUtc);
+    }
+
+    public AgentTimelineData GetTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, int bucketSeconds = 5)
+    {
+        int bucket = Math.Clamp(bucketSeconds, 1, 60);
+        DateTimeOffset from = fromUtc;
+        DateTimeOffset to = toUtc;
+        if (to < from)
+        {
+            (from, to) = (to, from);
+        }
+
+        IReadOnlyList<AgentBrainSnapshot> snapshots = _stateStore.ReadTimeline(from, to, bucket);
+        IReadOnlyList<AgentControlEvent> interventions = _stateStore.ReadEvents(from, to);
+        return new AgentTimelineData(
+            FromUtc: from,
+            ToUtc: to,
+            BucketSeconds: bucket,
+            Snapshots: snapshots,
+            Interventions: interventions);
+    }
+
+    public AgentSettingsState GetEffectiveSettings()
+    {
+        lock (_gate)
+        {
+            UpdateRecalibrationStateLocked();
+            return ToPublicSettingsState(_settingsState);
+        }
+    }
+
+    public AgentDataRetentionInfo GetDataRetention()
+    {
+        lock (_gate)
+        {
+            AgentStorageInfo storeInfo = _stateStore.ReadStorageInfo();
+            long logBytes = TryGetFileSize(_logPath);
+            long consentBytes = TryGetFileSize(_consentPath);
+            long totalBytes = storeInfo.DatabaseBytes + logBytes + consentBytes;
+            return new AgentDataRetentionInfo(
+                RetentionDays: storeInfo.RetentionDays,
+                DatabaseBytes: storeInfo.DatabaseBytes,
+                LogBytes: logBytes,
+                ConsentBytes: consentBytes,
+                TotalBytes: totalBytes,
+                UpdatedAtUtc: DateTimeOffset.UtcNow);
         }
     }
 
@@ -130,12 +249,14 @@ public sealed class AgentCoreController : IAgentCoreController
     {
         lock (_gate)
         {
+            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
             _consentActive = true;
+            _consentState = CreateConsentState(active: true, timestampUtc: nowUtc);
             _paused = false;
             _pauseUntilUtc = null;
             _lastError = null;
-            SaveConsentState(_consentActive);
-            _lastEventTimestampUtc = DateTimeOffset.UtcNow;
+            SaveConsentState(_consentState);
+            _lastEventTimestampUtc = nowUtc;
             _latestSnapshot = _latestSnapshot with { LastAction = "consent_granted" };
             WriteLogLocked("consent_granted");
             WriteControlEventLocked(
@@ -154,11 +275,13 @@ public sealed class AgentCoreController : IAgentCoreController
     {
         lock (_gate)
         {
+            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
             _consentActive = false;
+            _consentState = CreateConsentState(active: false, timestampUtc: nowUtc);
             _paused = true;
             _pauseUntilUtc = null;
-            SaveConsentState(_consentActive);
-            _lastEventTimestampUtc = DateTimeOffset.UtcNow;
+            SaveConsentState(_consentState);
+            _lastEventTimestampUtc = nowUtc;
             _latestSnapshot = _latestSnapshot with { LastAction = "consent_revoked" };
             WriteLogLocked("consent_revoked");
             WriteControlEventLocked(
@@ -169,6 +292,97 @@ public sealed class AgentCoreController : IAgentCoreController
                 confidence: 1,
                 escalationLevel: "Inform",
                 reversible: true);
+            WriteDiagnosticsLocked(force: true);
+        }
+    }
+
+    public AgentSettingsState UpdateSettings(AgentSettingsUpdate update)
+    {
+        lock (_gate)
+        {
+            UpdateRecalibrationStateLocked();
+
+            string intensity = NormalizeIntensity(update.RegulationIntensity, _settingsState.RegulationIntensity);
+            string privacy = NormalizePrivacy(update.PrivacyLevel, _settingsState.PrivacyLevel);
+
+            _settingsState = _settingsState with
+            {
+                RegulationIntensity = intensity,
+                PrivacyLevel = privacy,
+                NotificationReductionEnabled = update.NotificationReductionEnabled ?? _settingsState.NotificationReductionEnabled,
+                FocusModeEnabled = update.FocusModeEnabled ?? _settingsState.FocusModeEnabled,
+                AnimationReductionEnabled = update.AnimationReductionEnabled ?? _settingsState.AnimationReductionEnabled,
+                TemporaryAppRestrictionEnabled = update.TemporaryAppRestrictionEnabled ?? _settingsState.TemporaryAppRestrictionEnabled,
+                UpdatedAtUtc = DateTimeOffset.UtcNow
+            };
+
+            SaveSettingsState(_settingsState);
+            _lastEventTimestampUtc = DateTimeOffset.UtcNow;
+            _latestSnapshot = _latestSnapshot with { LastAction = "settings_updated" };
+            WriteLogLocked("settings_updated");
+            WriteControlEventLocked(
+                action: "settings_updated",
+                reason: "user_settings_update",
+                triggerState: "control",
+                triggerValue: 1,
+                confidence: 1,
+                escalationLevel: "Inform",
+                reversible: true);
+            WriteDiagnosticsLocked(force: true);
+            return ToPublicSettingsState(_settingsState);
+        }
+    }
+
+    public AgentRecalibrationResult RecalibrateBaseline()
+    {
+        lock (_gate)
+        {
+            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+            DateTimeOffset untilUtc = nowUtc.Add(BaselineRecalibrationDuration);
+            _settingsState = _settingsState with
+            {
+                BaselineRecalibrationStartedUtc = nowUtc,
+                BaselineRecalibrationUntilUtc = untilUtc,
+                UpdatedAtUtc = nowUtc
+            };
+            SaveSettingsState(_settingsState);
+            _lastEventTimestampUtc = nowUtc;
+            _latestSnapshot = _latestSnapshot with { LastAction = "baseline_recalibration_started" };
+            WriteLogLocked("baseline_recalibration_started");
+            WriteControlEventLocked(
+                action: "baseline_recalibration_started",
+                reason: "user_recalibrate_baseline",
+                triggerState: "control",
+                triggerValue: 1,
+                confidence: 1,
+                escalationLevel: "Inform",
+                reversible: true);
+            WriteDiagnosticsLocked(force: true);
+            return new AgentRecalibrationResult(
+                Active: true,
+                StartedUtc: nowUtc,
+                UntilUtc: untilUtc);
+        }
+    }
+
+    public void DeleteLocalData()
+    {
+        lock (_gate)
+        {
+            _stateStore.DeleteLocalData();
+            TryDeleteFile(_logPath);
+            TryDeleteFile(_consentPath);
+            TryDeleteFile(_settingsPath);
+
+            _consentState = CreateDefaultConsentState();
+            _consentActive = false;
+            _settingsState = CreateDefaultSettingsState();
+            _paused = true;
+            _pauseUntilUtc = null;
+            _lastError = null;
+            _lastEventTimestampUtc = DateTimeOffset.UtcNow;
+            _latestSnapshot = _latestSnapshot with { LastAction = "local_data_deleted" };
+            WriteLogLocked("local_data_deleted");
             WriteDiagnosticsLocked(force: true);
         }
     }
@@ -282,25 +496,64 @@ public sealed class AgentCoreController : IAgentCoreController
         _lastDiagnosticsWriteUtc = nowUtc;
     }
 
-    private bool LoadConsentState()
+    private ConsentStateRecord LoadConsentState()
     {
         try
         {
             if (!File.Exists(_consentPath))
             {
-                return false;
+                return CreateDefaultConsentState();
             }
 
             string raw = File.ReadAllText(_consentPath).Trim();
-            return bool.TryParse(raw, out bool active) && active;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return CreateDefaultConsentState();
+            }
+
+            if (bool.TryParse(raw, out bool legacyActive))
+            {
+                return CreateLegacyConsentState(legacyActive);
+            }
+
+            using JsonDocument doc = JsonDocument.Parse(raw);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return CreateDefaultConsentState();
+            }
+
+            if (TryGetBoolean(root, "active", out bool active))
+            {
+                return CreateLoadedConsentState(
+                    active,
+                    TryGetString(root, "version"),
+                    TryGetDateTimeOffset(root, "timestampUtc"),
+                    TryGetString(root, "disclosureHash"),
+                    TryGetDateTimeOffset(root, "updatedAtUtc"));
+            }
+
+            string? legacyState = TryGetString(root, "state") ?? TryGetString(root, "State");
+            if (!string.IsNullOrWhiteSpace(legacyState))
+            {
+                bool activeFromState = string.Equals(legacyState, "ConsentedActive", StringComparison.OrdinalIgnoreCase);
+                return CreateLoadedConsentState(
+                    activeFromState,
+                    version: ConsentVersion,
+                    timestampUtc: TryGetDateTimeOffset(root, "timestampUtc"),
+                    disclosureHash: ConsentDisclosureHash,
+                    updatedAtUtc: TryGetDateTimeOffset(root, "updatedAtUtc"));
+            }
+
+            return CreateDefaultConsentState();
         }
         catch
         {
-            return false;
+            return CreateDefaultConsentState();
         }
     }
 
-    private void SaveConsentState(bool active)
+    private void SaveConsentState(ConsentStateRecord state)
     {
         string? directory = Path.GetDirectoryName(_consentPath);
         if (!string.IsNullOrWhiteSpace(directory))
@@ -308,7 +561,140 @@ public sealed class AgentCoreController : IAgentCoreController
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(_consentPath, active ? "true" : "false");
+        string json = JsonSerializer.Serialize(new
+        {
+            active = state.Active,
+            version = state.Version,
+            timestampUtc = state.TimestampUtc,
+            disclosureHash = state.DisclosureHash,
+            updatedAtUtc = state.UpdatedAtUtc
+        }, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+
+        File.WriteAllText(_consentPath, json);
+    }
+
+    private SettingsStateRecord LoadSettingsState()
+    {
+        try
+        {
+            if (!File.Exists(_settingsPath))
+            {
+                return CreateDefaultSettingsState();
+            }
+
+            string raw = File.ReadAllText(_settingsPath).Trim();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return CreateDefaultSettingsState();
+            }
+
+            SettingsStateRecord? loaded = JsonSerializer.Deserialize<SettingsStateRecord>(raw);
+            if (loaded == null)
+            {
+                return CreateDefaultSettingsState();
+            }
+
+            string intensity = NormalizeIntensity(loaded.RegulationIntensity, fallback: "Balanced");
+            string privacy = NormalizePrivacy(loaded.PrivacyLevel, fallback: "Standard");
+            return loaded with
+            {
+                RegulationIntensity = intensity,
+                PrivacyLevel = privacy
+            };
+        }
+        catch
+        {
+            return CreateDefaultSettingsState();
+        }
+    }
+
+    private void SaveSettingsState(SettingsStateRecord state)
+    {
+        string? directory = Path.GetDirectoryName(_settingsPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        string json = JsonSerializer.Serialize(state, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+        File.WriteAllText(_settingsPath, json);
+    }
+
+    private void UpdateRecalibrationStateLocked()
+    {
+        if (!_settingsState.BaselineRecalibrationUntilUtc.HasValue)
+        {
+            return;
+        }
+
+        if (DateTimeOffset.UtcNow < _settingsState.BaselineRecalibrationUntilUtc.Value)
+        {
+            return;
+        }
+
+        _settingsState = _settingsState with
+        {
+            BaselineRecalibrationStartedUtc = null,
+            BaselineRecalibrationUntilUtc = null,
+            UpdatedAtUtc = DateTimeOffset.UtcNow
+        };
+        SaveSettingsState(_settingsState);
+    }
+
+    private static string NormalizeIntensity(string? raw, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return fallback;
+        }
+
+        return raw.Trim().ToLowerInvariant() switch
+        {
+            "gentle" => "Gentle",
+            "balanced" => "Balanced",
+            "strong" => "Strong",
+            _ => fallback
+        };
+    }
+
+    private static string NormalizePrivacy(string? raw, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return fallback;
+        }
+
+        return raw.Trim().ToLowerInvariant() switch
+        {
+            "minimal" => "Minimal",
+            "standard" => "Standard",
+            "detailed" => "Detailed",
+            _ => fallback
+        };
+    }
+
+    private static AgentSettingsState ToPublicSettingsState(SettingsStateRecord state)
+    {
+        bool recalibrationActive = state.BaselineRecalibrationUntilUtc.HasValue
+            && DateTimeOffset.UtcNow < state.BaselineRecalibrationUntilUtc.Value;
+
+        return new AgentSettingsState(
+            RegulationIntensity: state.RegulationIntensity,
+            PrivacyLevel: state.PrivacyLevel,
+            NotificationReductionEnabled: state.NotificationReductionEnabled,
+            FocusModeEnabled: state.FocusModeEnabled,
+            AnimationReductionEnabled: state.AnimationReductionEnabled,
+            TemporaryAppRestrictionEnabled: state.TemporaryAppRestrictionEnabled,
+            BaselineRecalibrationActive: recalibrationActive,
+            BaselineRecalibrationStartedUtc: recalibrationActive ? state.BaselineRecalibrationStartedUtc : null,
+            BaselineRecalibrationUntilUtc: recalibrationActive ? state.BaselineRecalibrationUntilUtc : null,
+            UpdatedAtUtc: state.UpdatedAtUtc);
     }
 
     private void WriteLogLocked(string message)
@@ -323,10 +709,165 @@ public sealed class AgentCoreController : IAgentCoreController
         File.AppendAllText(_logPath, line);
     }
 
+    private static ConsentStateRecord CreateDefaultConsentState()
+    {
+        return new ConsentStateRecord(
+            Active: false,
+            Version: ConsentVersion,
+            TimestampUtc: null,
+            DisclosureHash: ConsentDisclosureHash,
+            UpdatedAtUtc: DateTimeOffset.UtcNow);
+    }
+
+    private ConsentStateRecord CreateLegacyConsentState(bool active)
+    {
+        DateTimeOffset timestampUtc = DateTimeOffset.UtcNow;
+        try
+        {
+            timestampUtc = File.GetLastWriteTimeUtc(_consentPath);
+        }
+        catch
+        {
+        }
+
+        return new ConsentStateRecord(
+            Active: active,
+            Version: ConsentVersion,
+            TimestampUtc: timestampUtc,
+            DisclosureHash: ConsentDisclosureHash,
+            UpdatedAtUtc: DateTimeOffset.UtcNow);
+    }
+
+    private static ConsentStateRecord CreateConsentState(bool active, DateTimeOffset timestampUtc)
+    {
+        return new ConsentStateRecord(
+            Active: active,
+            Version: ConsentVersion,
+            TimestampUtc: timestampUtc,
+            DisclosureHash: ConsentDisclosureHash,
+            UpdatedAtUtc: DateTimeOffset.UtcNow);
+    }
+
+    private static ConsentStateRecord CreateLoadedConsentState(
+        bool active,
+        string? version,
+        DateTimeOffset? timestampUtc,
+        string? disclosureHash,
+        DateTimeOffset? updatedAtUtc)
+    {
+        string normalizedVersion = string.IsNullOrWhiteSpace(version) ? ConsentVersion : version.Trim();
+        string normalizedHash = string.IsNullOrWhiteSpace(disclosureHash) ? ConsentDisclosureHash : disclosureHash.Trim();
+        DateTimeOffset? normalizedTimestamp = timestampUtc;
+        DateTimeOffset normalizedUpdated = updatedAtUtc ?? normalizedTimestamp ?? DateTimeOffset.UtcNow;
+
+        return new ConsentStateRecord(
+            Active: active,
+            Version: normalizedVersion,
+            TimestampUtc: normalizedTimestamp,
+            DisclosureHash: normalizedHash,
+            UpdatedAtUtc: normalizedUpdated);
+    }
+
+    private static bool TryGetBoolean(JsonElement root, string propertyName, out bool value)
+    {
+        value = false;
+        if (!root.TryGetProperty(propertyName, out JsonElement element))
+        {
+            return false;
+        }
+
+        if (element.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            value = element.GetBoolean();
+            return true;
+        }
+
+        if (element.ValueKind == JsonValueKind.String && bool.TryParse(element.GetString(), out bool parsed))
+        {
+            value = parsed;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string? TryGetString(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out JsonElement element))
+        {
+            return null;
+        }
+
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            return element.GetString();
+        }
+
+        return null;
+    }
+
+    private static DateTimeOffset? TryGetDateTimeOffset(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out JsonElement element))
+        {
+            return null;
+        }
+
+        if (element.ValueKind == JsonValueKind.String
+            && DateTimeOffset.TryParse(element.GetString(), out DateTimeOffset parsed))
+        {
+            return parsed;
+        }
+
+        return null;
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static long TryGetFileSize(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                return new FileInfo(path).Length;
+            }
+        }
+        catch
+        {
+        }
+
+        return 0;
+    }
+
+    private static string ComputeSha256Hex(string value)
+    {
+        byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(bytes);
+    }
+
     private static string BuildConsentPath()
     {
         string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         return Path.Combine(root, "PortaAgent", ConsentFileName);
+    }
+
+    private static string BuildSettingsPath()
+    {
+        string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        return Path.Combine(root, "PortaAgent", SettingsFileName);
     }
 
     private static string BuildLogPath()
@@ -334,4 +875,36 @@ public sealed class AgentCoreController : IAgentCoreController
         string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         return Path.Combine(root, "PortaAgent", ServiceLogFileName);
     }
+
+    private static SettingsStateRecord CreateDefaultSettingsState()
+    {
+        return new SettingsStateRecord(
+            RegulationIntensity: "Balanced",
+            PrivacyLevel: "Standard",
+            NotificationReductionEnabled: true,
+            FocusModeEnabled: true,
+            AnimationReductionEnabled: false,
+            TemporaryAppRestrictionEnabled: false,
+            BaselineRecalibrationStartedUtc: null,
+            BaselineRecalibrationUntilUtc: null,
+            UpdatedAtUtc: DateTimeOffset.UtcNow);
+    }
+
+    private sealed record ConsentStateRecord(
+        bool Active,
+        string Version,
+        DateTimeOffset? TimestampUtc,
+        string DisclosureHash,
+        DateTimeOffset UpdatedAtUtc);
+
+    private sealed record SettingsStateRecord(
+        string RegulationIntensity,
+        string PrivacyLevel,
+        bool NotificationReductionEnabled,
+        bool FocusModeEnabled,
+        bool AnimationReductionEnabled,
+        bool TemporaryAppRestrictionEnabled,
+        DateTimeOffset? BaselineRecalibrationStartedUtc,
+        DateTimeOffset? BaselineRecalibrationUntilUtc,
+        DateTimeOffset UpdatedAtUtc);
 }

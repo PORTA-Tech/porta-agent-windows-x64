@@ -34,6 +34,8 @@ public partial class MainWindow : Window
     {
         LocalApiEndpointSettings? endpoint = LocalApiRuntimeSettingsStore.LoadEndpoint();
         _latestStatus = await _apiClient.GetStatusAsync().ConfigureAwait(true);
+        LocalApiCurrentSnapshotResponse? snapshot = await _apiClient.GetCurrentSnapshotAsync().ConfigureAwait(true);
+        LocalApiInputsSummaryResponse? inputSummary = await _apiClient.GetInputsSummaryAsync(60).ConfigureAwait(true);
 
         bool serviceOnline = _latestStatus != null;
         bool trayRunning = Process.GetProcessesByName("Porta.Tray").Length > 0;
@@ -57,29 +59,46 @@ public partial class MainWindow : Window
             SchemaVersionValue.Text = "Unknown";
             AgentVersionValue.Text = "Unknown";
             ApiPortValue.Text = endpoint?.Port.ToString(CultureInfo.InvariantCulture) ?? "Unavailable";
+            ConsentVersionValue.Text = "Unknown";
+            ConsentTimestampValue.Text = "Unknown";
+            ConsentHashValue.Text = "Unknown";
             LastErrorValue.Text = "local_api_unreachable";
             QuickPauseResumeButton.Content = "Pause";
+            ConsentOverlay.Visibility = Visibility.Collapsed;
             UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
             return;
         }
 
-        StatusPillText.Text = _latestStatus.Paused ? "Paused" : "Running";
+        bool consentMissing = !_latestStatus.ConsentActive;
+        StatusPillText.Text = consentMissing
+            ? "Needs Consent"
+            : (_latestStatus.Paused ? "Paused" : "Running");
         ConsentBadgeText.Text = $"Consent: {(_latestStatus.ConsentActive ? "Active" : "Missing")}";
         BackendBadgeText.Text = $"Backend: {(_latestStatus.BackendConnected ? "Connected" : "Offline")}";
         VersionText.Text = $"Version: {_latestStatus.AgentVersion}";
 
         ConsentActiveValue.Text = _latestStatus.ConsentActive ? "Yes" : "No";
         BackendConnectedValue.Text = _latestStatus.BackendConnected ? "Yes" : "No";
-        FocusStrengthValue.Text = _latestStatus.FocusStrength.ToString("F2", CultureInfo.InvariantCulture);
-        OverloadValue.Text = _latestStatus.OverloadLikelihood.ToString("F2", CultureInfo.InvariantCulture);
-        LastActionValue.Text = _latestStatus.LastAction;
+        double focusStrength = snapshot?.FocusStrength ?? _latestStatus.FocusStrength;
+        double overloadLikelihood = snapshot?.OverloadLikelihood ?? _latestStatus.OverloadLikelihood;
+        string lastAction = snapshot?.LastAction ?? _latestStatus.LastAction;
+
+        FocusStrengthValue.Text = focusStrength.ToString("F2", CultureInfo.InvariantCulture);
+        OverloadValue.Text = overloadLikelihood.ToString("F2", CultureInfo.InvariantCulture);
+        LastActionValue.Text = inputSummary != null
+            ? $"{lastAction} | inputSamples={inputSummary.SampleCount}"
+            : lastAction;
         LastEventValue.Text = _latestStatus.LastEventTimestampUtc?.ToString("O") ?? "n/a";
         PolicyVersionValue.Text = _latestStatus.PolicyVersion;
         SchemaVersionValue.Text = _latestStatus.SchemaVersion;
         AgentVersionValue.Text = _latestStatus.AgentVersion;
         ApiPortValue.Text = endpoint?.Port.ToString(CultureInfo.InvariantCulture) ?? "Unavailable";
+        ConsentVersionValue.Text = _latestStatus.ConsentVersion;
+        ConsentTimestampValue.Text = _latestStatus.ConsentTimestampUtc?.ToString("O") ?? "n/a";
+        ConsentHashValue.Text = _latestStatus.ConsentDisclosureHash;
         LastErrorValue.Text = string.IsNullOrWhiteSpace(_latestStatus.LastError) ? "None" : _latestStatus.LastError;
         QuickPauseResumeButton.Content = _latestStatus.Paused ? "Resume" : "Pause";
+        ConsentOverlay.Visibility = consentMissing ? Visibility.Visible : Visibility.Collapsed;
         UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
     }
 
@@ -108,6 +127,12 @@ public partial class MainWindow : Window
         await RefreshDiagnosticsAsync().ConfigureAwait(true);
     }
 
+    private async void AgreeConsentButton_Click(object sender, RoutedEventArgs e)
+    {
+        await _apiClient.GrantConsentAsync().ConfigureAwait(true);
+        await RefreshDiagnosticsAsync().ConfigureAwait(true);
+    }
+
     private async void RevokeConsentButton_Click(object sender, RoutedEventArgs e)
     {
         await _apiClient.RevokeConsentAsync().ConfigureAwait(true);
@@ -123,6 +148,58 @@ public partial class MainWindow : Window
     private async void ResumeButton_Click(object sender, RoutedEventArgs e)
     {
         await _apiClient.ResumeAsync().ConfigureAwait(true);
+        await RefreshDiagnosticsAsync().ConfigureAwait(true);
+    }
+
+    private async void ExportDataButton_Click(object sender, RoutedEventArgs e)
+    {
+        LocalApiExportResponse? response = await _apiClient.ExportDataAsync().ConfigureAwait(true);
+        if (response?.Success != true || string.IsNullOrWhiteSpace(response.BundlePath))
+        {
+            MessageBox.Show(
+                "Export failed. Ensure the service is running and try again.",
+                "PORTA Control Center",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return;
+        }
+
+        string? folder = Path.GetDirectoryName(response.BundlePath);
+        if (!string.IsNullOrWhiteSpace(folder))
+        {
+            Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true });
+        }
+
+        MessageBox.Show(
+            $"Export created:\n{response.BundlePath}",
+            "PORTA Control Center",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
+    private async void DeleteLocalDataButton_Click(object sender, RoutedEventArgs e)
+    {
+        MessageBoxResult confirmation = MessageBox.Show(
+            "Delete all local PORTA data now? This removes SQLite state, logs, and stored consent.",
+            "Delete Local Data",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        bool success = await _apiClient.DeleteLocalDataAsync().ConfigureAwait(true);
+        if (!success)
+        {
+            MessageBox.Show(
+                "Delete local data failed. Ensure the service is running and try again.",
+                "PORTA Control Center",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return;
+        }
+
         await RefreshDiagnosticsAsync().ConfigureAwait(true);
     }
 

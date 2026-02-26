@@ -95,6 +95,9 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Service running" Margin="0,0,0,8" />
@@ -133,8 +136,17 @@
                             <TextBlock Grid.Row="11" Grid.Column="0" Text="Local API port" Margin="0,0,0,8" />
                             <TextBlock x:Name="ApiPortValue" Grid.Row="11" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
 
-                            <TextBlock Grid.Row="12" Grid.Column="0" Text="Last error" Margin="0,0,0,8" />
-                            <TextBlock x:Name="LastErrorValue" Grid.Row="12" Grid.Column="1" Text="None" TextWrapping="Wrap" Margin="0,0,0,8" />
+                            <TextBlock Grid.Row="12" Grid.Column="0" Text="Consent version" Margin="0,0,0,8" />
+                            <TextBlock x:Name="ConsentVersionValue" Grid.Row="12" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="13" Grid.Column="0" Text="Consent timestamp" Margin="0,0,0,8" />
+                            <TextBlock x:Name="ConsentTimestampValue" Grid.Row="13" Grid.Column="1" Text="Unknown" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="14" Grid.Column="0" Text="Disclosure hash" Margin="0,0,0,8" />
+                            <TextBlock x:Name="ConsentHashValue" Grid.Row="14" Grid.Column="1" Text="Unknown" TextTrimming="CharacterEllipsis" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="15" Grid.Column="0" Text="Last error" Margin="0,0,0,8" />
+                            <TextBlock x:Name="LastErrorValue" Grid.Row="15" Grid.Column="1" Text="None" TextWrapping="Wrap" Margin="0,0,0,8" />
                         </Grid>
                     </Border>
 
@@ -150,5 +162,73 @@
                 </StackPanel>
             </ScrollViewer>
         </Grid>
+
+        <Border x:Name="ConsentOverlay"
+                Grid.ColumnSpan="2"
+                Background="#CC020617"
+                Visibility="Collapsed">
+            <Grid>
+                <Border Width="820"
+                        Padding="24"
+                        CornerRadius="12"
+                        Background="#111827"
+                        BorderBrush="#334155"
+                        BorderThickness="1"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                    <StackPanel>
+                        <TextBlock Text="PORTA Needs Consent"
+                                   FontSize="26"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,10" />
+                        <TextBlock Text="Collection, inference, and regulation are OFF until you click I Agree."
+                                   Foreground="#FCA5A5"
+                                   Margin="0,0,0,16" />
+
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0" Background="#0B1220" CornerRadius="8" Padding="12" Margin="0,0,8,0">
+                                <StackPanel>
+                                    <TextBlock Text="Collected (aggregated only)" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <TextBlock Text="- Keystroke timing intervals (events/min)" />
+                                    <TextBlock Text="- Mouse acceleration index" />
+                                    <TextBlock Text="- Scroll velocity index" />
+                                    <TextBlock Text="- Focus switch frequency" />
+                                    <TextBlock Text="- Idle fragmentation" />
+                                    <TextBlock Text="- Notification reaction latency" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="1" Background="#0B1220" CornerRadius="8" Padding="12" Margin="8,0,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Never Collected" FontWeight="Bold" Margin="0,0,0,8" />
+                                    <TextBlock Text="- Typed text" />
+                                    <TextBlock Text="- Clipboard content" />
+                                    <TextBlock Text="- Screenshots" />
+                                    <TextBlock Text="- Files and file contents" />
+                                    <TextBlock Text="- Messages" />
+                                    <TextBlock Text="- Network content" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <TextBlock Text="Retention window: 90 days local SQLite (configurable in later settings)."
+                                   Margin="0,0,0,14" />
+
+                        <WrapPanel>
+                            <Button Content="I Agree" Padding="14,8" Margin="0,0,10,0" Click="AgreeConsentButton_Click" />
+                            <Button Content="Pause" Padding="12,8" Margin="0,0,10,0" Click="PauseButton_Click" />
+                            <Button Content="Revoke" Padding="12,8" Margin="0,0,10,0" Click="RevokeConsentButton_Click" />
+                            <Button Content="Export Data" Padding="12,8" Margin="0,0,10,0" Click="ExportDataButton_Click" />
+                            <Button Content="Delete Local Data" Padding="12,8" Click="DeleteLocalDataButton_Click" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

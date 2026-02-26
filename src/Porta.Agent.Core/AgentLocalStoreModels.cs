@@ -30,3 +30,58 @@ public sealed record AgentTodaySummary(
     double PeakOverloadLikelihood,
     double IdleFragmentationIndex,
     int? MostVolatileHourUtc);
+
+public sealed record AgentStorageInfo(
+    int RetentionDays,
+    long DatabaseBytes);
+
+public sealed record AgentInputSummary(
+    DateTimeOffset FromUtc,
+    DateTimeOffset ToUtc,
+    int WindowSeconds,
+    int SampleCount,
+    double TypingBurstIntensity,
+    double ScrollVelocityIndex,
+    double FocusSwitchRate,
+    double IdleFragmentationIndex,
+    double NotificationLatencyIndex);
+
+public sealed record AgentSettingsState(
+    string RegulationIntensity,
+    string PrivacyLevel,
+    bool NotificationReductionEnabled,
+    bool FocusModeEnabled,
+    bool AnimationReductionEnabled,
+    bool TemporaryAppRestrictionEnabled,
+    bool BaselineRecalibrationActive,
+    DateTimeOffset? BaselineRecalibrationStartedUtc,
+    DateTimeOffset? BaselineRecalibrationUntilUtc,
+    DateTimeOffset UpdatedAtUtc);
+
+public sealed record AgentSettingsUpdate(
+    string? RegulationIntensity,
+    string? PrivacyLevel,
+    bool? NotificationReductionEnabled,
+    bool? FocusModeEnabled,
+    bool? AnimationReductionEnabled,
+    bool? TemporaryAppRestrictionEnabled);
+
+public sealed record AgentDataRetentionInfo(
+    int RetentionDays,
+    long DatabaseBytes,
+    long LogBytes,
+    long ConsentBytes,
+    long TotalBytes,
+    DateTimeOffset UpdatedAtUtc);
+
+public sealed record AgentTimelineData(
+    DateTimeOffset FromUtc,
+    DateTimeOffset ToUtc,
+    int BucketSeconds,
+    IReadOnlyList<AgentBrainSnapshot> Snapshots,
+    IReadOnlyList<AgentControlEvent> Interventions);
+
+public sealed record AgentRecalibrationResult(
+    bool Active,
+    DateTimeOffset StartedUtc,
+    DateTimeOffset UntilUtc);

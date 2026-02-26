@@ -32,6 +32,7 @@ internal sealed class PortaTrayContext : ApplicationContext
     private string _lastActionText = "n/a";
     private double _focusStrength;
     private double _overloadLikelihood;
+    private bool _consentPromptedThisSession;
 
     public PortaTrayContext()
     {
@@ -87,6 +88,7 @@ internal sealed class PortaTrayContext : ApplicationContext
         _statusText = status switch
         {
             null => "PORTA: offline",
+            { ConsentActive: false } => "PORTA: needs consent",
             { Paused: true } => "PORTA: paused",
             _ => "PORTA: running"
         };
@@ -95,6 +97,16 @@ internal sealed class PortaTrayContext : ApplicationContext
             _focusStrength = status.FocusStrength;
             _overloadLikelihood = status.OverloadLikelihood;
             _lastActionText = status.LastAction;
+            if (!status.ConsentActive && !_consentPromptedThisSession)
+            {
+                _consentPromptedThisSession = true;
+                OpenControlCenter();
+                _notifyIcon.ShowBalloonTip(
+                    3500,
+                    "PORTA Needs Consent",
+                    "Open Control Center and click I Agree to enable collection and inference.",
+                    ToolTipIcon.Info);
+            }
         }
         else
         {

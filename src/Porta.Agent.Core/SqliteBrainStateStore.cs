@@ -100,6 +100,29 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         }
     }
 
+    public void DeleteLocalData()
+    {
+        lock (_gate)
+        {
+            try
+            {
+                if (File.Exists(_dbPath))
+                {
+                    File.Delete(_dbPath);
+                }
+            }
+            catch
+            {
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(_dbPath)!);
+            EnsureSchema();
+            _lastAutoEventAction = null;
+            _lastAutoEventAtUtc = DateTimeOffset.MinValue;
+            _lastPruneUtc = DateTimeOffset.MinValue;
+        }
+    }
+
     public AgentBrainSnapshot? ReadLatestSnapshot()
     {
         lock (_gate)
@@ -219,7 +242,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         }
     }
 
-    public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50)
+    public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null)
     {
         lock (_gate)
         {
@@ -243,9 +266,68 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     reason,
                     contributors_json
                 FROM interventions
+                WHERE ($since = '' OR timestamp_utc >= $since)
                 ORDER BY timestamp_utc DESC
                 LIMIT $limit;
                 """;
+            cmd.Parameters.AddWithValue("$limit", boundedLimit);
+            cmd.Parameters.AddWithValue("$since", sinceUtc?.ToString("O") ?? string.Empty);
+
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(new AgentControlEvent(
+                    TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
+                    Action: reader.GetString(1),
+                    TriggerState: reader.GetString(2),
+                    TriggerValue: reader.GetDouble(3),
+                    Confidence: reader.GetDouble(4),
+                    DurationSeconds: reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                    EscalationLevel: reader.GetString(6),
+                    Reversible: reader.GetInt32(7) == 1,
+                    Reason: reader.GetString(8),
+                    Contributors: DeserializeContributors(reader.GetString(9))));
+            }
+
+            return rows;
+        }
+    }
+
+    public IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000)
+    {
+        lock (_gate)
+        {
+            if (toUtc < fromUtc)
+            {
+                return [];
+            }
+
+            int boundedLimit = Math.Clamp(limit, 1, 10000);
+            var rows = new List<AgentControlEvent>();
+
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT
+                    timestamp_utc,
+                    action,
+                    trigger_state,
+                    trigger_value,
+                    confidence,
+                    duration_seconds,
+                    escalation_level,
+                    reversible,
+                    reason,
+                    contributors_json
+                FROM interventions
+                WHERE timestamp_utc >= $from AND timestamp_utc <= $to
+                ORDER BY timestamp_utc ASC
+                LIMIT $limit;
+                """;
+            cmd.Parameters.AddWithValue("$from", fromUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$to", toUtc.ToString("O"));
             cmd.Parameters.AddWithValue("$limit", boundedLimit);
 
             using SqliteDataReader reader = cmd.ExecuteReader();
@@ -265,6 +347,28 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             }
 
             return rows;
+        }
+    }
+
+    public AgentStorageInfo ReadStorageInfo()
+    {
+        lock (_gate)
+        {
+            long dbBytes = 0;
+            try
+            {
+                if (File.Exists(_dbPath))
+                {
+                    dbBytes = new FileInfo(_dbPath).Length;
+                }
+            }
+            catch
+            {
+            }
+
+            return new AgentStorageInfo(
+                RetentionDays: DefaultRetentionDays,
+                DatabaseBytes: dbBytes);
         }
     }
 

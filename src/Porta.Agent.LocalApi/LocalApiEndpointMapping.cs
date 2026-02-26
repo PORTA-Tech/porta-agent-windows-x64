@@ -91,6 +91,9 @@ public static class LocalApiEndpointMapping
                 status.ServiceRunning,
                 status.Paused,
                 status.ConsentActive,
+                status.ConsentVersion,
+                status.ConsentTimestampUtc,
+                status.ConsentDisclosureHash,
                 status.BackendConnected,
                 status.FocusStrength,
                 status.OverloadLikelihood,
@@ -101,6 +104,62 @@ public static class LocalApiEndpointMapping
                 status.LastEventTimestampUtc,
                 status.LastError,
                 status.LastUpdatedUtc);
+        });
+
+        api.MapGet("/snapshot/current", (IAgentCoreController controller) =>
+        {
+            AgentBrainSnapshot snapshot = controller.GetCurrentSnapshot();
+            return ToSnapshotResponse(snapshot);
+        });
+
+        api.MapGet("/inputs/summary", (IAgentCoreController controller, int? window) =>
+        {
+            AgentInputSummary summary = controller.GetInputsSummary(window ?? 60);
+            return new LocalApiInputsSummaryResponse(
+                summary.FromUtc,
+                summary.ToUtc,
+                summary.WindowSeconds,
+                summary.SampleCount,
+                summary.TypingBurstIntensity,
+                summary.ScrollVelocityIndex,
+                summary.FocusSwitchRate,
+                summary.IdleFragmentationIndex,
+                summary.NotificationLatencyIndex);
+        });
+
+        api.MapGet("/events/recent", (IAgentCoreController controller, int? limit, DateTimeOffset? since) =>
+        {
+            IReadOnlyList<AgentControlEvent> events = controller.GetRecentEvents(limit ?? 50, since);
+            return events.Select(ToEventResponse).ToList();
+        });
+
+        api.MapGet("/timeline", (IAgentCoreController controller, DateTimeOffset from, DateTimeOffset to, int? bucketSeconds) =>
+        {
+            AgentTimelineData timeline = controller.GetTimeline(from, to, bucketSeconds ?? 5);
+            return new LocalApiTimelineResponse(
+                timeline.FromUtc,
+                timeline.ToUtc,
+                timeline.BucketSeconds,
+                timeline.Snapshots.Select(ToSnapshotResponse).ToList(),
+                timeline.Interventions.Select(ToEventResponse).ToList());
+        });
+
+        api.MapGet("/settings/effective", (IAgentCoreController controller) =>
+        {
+            AgentSettingsState state = controller.GetEffectiveSettings();
+            return ToSettingsResponse(state);
+        });
+
+        api.MapGet("/data/retention", (IAgentCoreController controller) =>
+        {
+            AgentDataRetentionInfo info = controller.GetDataRetention();
+            return new LocalApiRetentionResponse(
+                info.RetentionDays,
+                info.DatabaseBytes,
+                info.LogBytes,
+                info.ConsentBytes,
+                info.TotalBytes,
+                info.UpdatedAtUtc);
         });
 
         api.MapPost("/control/pause", (IAgentCoreController controller, LocalApiPauseRequest? request) =>
@@ -127,12 +186,93 @@ public static class LocalApiEndpointMapping
             return Results.Ok(new LocalApiAckResponse(true, "consent_revoked", DateTimeOffset.UtcNow));
         });
 
+        api.MapPost("/settings/update", (IAgentCoreController controller, LocalApiUpdateSettingsRequest? request) =>
+        {
+            AgentSettingsState updated = controller.UpdateSettings(new AgentSettingsUpdate(
+                request?.RegulationIntensity,
+                request?.PrivacyLevel,
+                request?.NotificationReductionEnabled,
+                request?.FocusModeEnabled,
+                request?.AnimationReductionEnabled,
+                request?.TemporaryAppRestrictionEnabled));
+            return Results.Ok(ToSettingsResponse(updated));
+        });
+
+        api.MapPost("/baseline/recalibrate", (IAgentCoreController controller) =>
+        {
+            AgentRecalibrationResult result = controller.RecalibrateBaseline();
+            return Results.Ok(new LocalApiRecalibrationResponse(
+                result.Active,
+                result.StartedUtc,
+                result.UntilUtc));
+        });
+
         api.MapPost("/data/export", (IAgentCoreController controller) =>
         {
             string bundle = controller.ExportBundle();
             return Results.Ok(new LocalApiExportResponse(true, bundle, DateTimeOffset.UtcNow));
         });
 
+        api.MapPost("/data/delete_local", (IAgentCoreController controller) =>
+        {
+            controller.DeleteLocalData();
+            return Results.Ok(new LocalApiAckResponse(true, "local_data_deleted", DateTimeOffset.UtcNow));
+        });
+
+        api.MapPost("/service/restart", () =>
+        {
+            return Results.Ok(new LocalApiAckResponse(
+                Success: false,
+                Message: "service_restart_not_supported_use_scm",
+                TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
         return app;
+    }
+
+    private static LocalApiCurrentSnapshotResponse ToSnapshotResponse(AgentBrainSnapshot snapshot)
+    {
+        return new LocalApiCurrentSnapshotResponse(
+            snapshot.TimestampUtc,
+            snapshot.TypingBurstIntensity,
+            snapshot.ScrollVelocityIndex,
+            snapshot.FocusSwitchRate,
+            snapshot.FocusStrength,
+            snapshot.OverloadLikelihood,
+            snapshot.FatigueProbability,
+            snapshot.CognitiveStability,
+            snapshot.Confidence,
+            snapshot.LastAction,
+            snapshot.Contributors);
+    }
+
+    private static LocalApiEventResponse ToEventResponse(AgentControlEvent ev)
+    {
+        return new LocalApiEventResponse(
+            ev.TimestampUtc,
+            ev.Action,
+            ev.TriggerState,
+            ev.TriggerValue,
+            ev.Confidence,
+            ev.DurationSeconds,
+            ev.EscalationLevel,
+            ev.Reversible,
+            ev.Reason,
+            ev.Contributors);
+    }
+
+    private static LocalApiSettingsResponse ToSettingsResponse(AgentSettingsState state)
+    {
+        return new LocalApiSettingsResponse(
+            state.RegulationIntensity,
+            state.PrivacyLevel,
+            state.NotificationReductionEnabled,
+            state.FocusModeEnabled,
+            state.AnimationReductionEnabled,
+            state.TemporaryAppRestrictionEnabled,
+            state.BaselineRecalibrationActive,
+            state.BaselineRecalibrationStartedUtc,
+            state.BaselineRecalibrationUntilUtc,
+            state.UpdatedAtUtc);
     }
 }
