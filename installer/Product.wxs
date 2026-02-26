@@ -16,9 +16,6 @@
     <MediaTemplate EmbedCab="yes" />
 
     <Property Id="PORTA_BACKEND_URL" Value="$(var.AriBackendUrlDefault)" />
-    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
-    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Open PORTA Control Center" />
-
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Ari">
         <Component Id="AriExeComponent" Guid="0364a772-0f3d-4440-a3df-89fcfd474226">
@@ -138,31 +135,22 @@
                   Return="asyncNoWait"
                   Impersonate="yes" />
     <CustomAction Id="LaunchPortaControlCenterAfterInstall"
-                  BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
-                  DllEntry="WixShellExec"
+                  FileRef="AriControlCenterExeFile"
+                  ExeCommand=""
                   Execute="immediate"
-                  Return="ignore"
+                  Return="asyncNoWait"
                   Impersonate="yes" />
 
     <InstallExecuteSequence>
       <Custom Action="LaunchAriTrayAfterInstall"
               After="InstallFinalize"
               Condition="NOT Installed AND NOT REMOVE AND UILevel >= 5" />
+      <Custom Action="LaunchPortaControlCenterAfterInstall"
+              After="InstallFinalize"
+              Condition="NOT Installed AND NOT REMOVE AND UILevel >= 5" />
     </InstallExecuteSequence>
 
     <ui:WixUI Id="WixUI_Minimal" />
-    <UI Id="ExitUiBehavior">
-      <Publish Dialog="ExitDialog"
-               Control="Finish"
-               Event="SetProperty"
-               Value="WixShellExecTarget=[#AriControlCenterExeFile]"
-               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
-      <Publish Dialog="ExitDialog"
-               Control="Finish"
-               Event="DoAction"
-               Value="LaunchPortaControlCenterAfterInstall"
-               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
-    </UI>
 
     <Feature Id="MainFeature" Title="Ari Agent" Level="1">
       <ComponentRef Id="AriExeComponent" />
