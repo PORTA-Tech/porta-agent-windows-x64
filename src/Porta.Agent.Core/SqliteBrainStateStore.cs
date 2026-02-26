@@ -58,6 +58,42 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         }
     }
 
+    public void WriteSystemChange(AgentSystemChange change)
+    {
+        lock (_gate)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using SqliteTransaction tx = connection.BeginTransaction();
+
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText =
+                """
+                INSERT INTO system_changes (
+                    timestamp_utc,
+                    change_type,
+                    previous_value_json,
+                    new_value_json,
+                    undo_info,
+                    reason
+                ) VALUES (
+                    $ts, $change_type, $previous, $new, $undo, $reason
+                );
+                """;
+            cmd.Parameters.AddWithValue("$ts", change.TimestampUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$change_type", change.ChangeType);
+            cmd.Parameters.AddWithValue("$previous", change.PreviousValueJson);
+            cmd.Parameters.AddWithValue("$new", change.NewValueJson);
+            cmd.Parameters.AddWithValue("$undo", change.UndoInfo);
+            cmd.Parameters.AddWithValue("$reason", change.Reason);
+            cmd.ExecuteNonQuery();
+
+            PruneIfNeeded(connection, tx, change.TimestampUtc);
+            tx.Commit();
+        }
+    }
+
     public void WriteDiagnostics(AgentDiagnosticsSnapshot diagnostics)
     {
         lock (_gate)
@@ -70,6 +106,21 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             cmd.Transaction = tx;
             cmd.CommandText =
                 """
+                INSERT INTO diagnostics (
+                    timestamp_utc,
+                    last_error,
+                    last_backend_ok_utc,
+                    last_event_ts_utc,
+                    backend_connected,
+                    consent_active,
+                    paused,
+                    policy_version,
+                    schema_version,
+                    agent_version
+                ) VALUES (
+                    $ts, $last_error, $last_backend_ok, $last_event, $backend, $consent, $paused, $policy, $schema, $agent
+                );
+
                 INSERT INTO diagnostics_snapshots (
                     timestamp_utc,
                     backend_connected,
@@ -89,6 +140,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             cmd.Parameters.AddWithValue("$consent", diagnostics.ConsentActive ? 1 : 0);
             cmd.Parameters.AddWithValue("$paused", diagnostics.Paused ? 1 : 0);
             cmd.Parameters.AddWithValue("$last_error", diagnostics.LastError ?? string.Empty);
+            cmd.Parameters.AddWithValue("$last_backend_ok", diagnostics.LastBackendOkUtc?.ToString("O") ?? string.Empty);
             cmd.Parameters.AddWithValue("$policy", diagnostics.PolicyVersion);
             cmd.Parameters.AddWithValue("$schema", diagnostics.SchemaVersion);
             cmd.Parameters.AddWithValue("$agent", diagnostics.AgentVersion);
@@ -97,6 +149,160 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
 
             PruneIfNeeded(connection, tx, diagnostics.TimestampUtc);
             tx.Commit();
+        }
+    }
+
+    public void WriteConsent(AgentConsentRecord consent)
+    {
+        lock (_gate)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using SqliteTransaction tx = connection.BeginTransaction();
+
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText =
+                """
+                INSERT INTO consent (
+                    timestamp_utc,
+                    active,
+                    version,
+                    disclosure_hash
+                ) VALUES (
+                    $ts, $active, $version, $hash
+                );
+                """;
+            cmd.Parameters.AddWithValue("$ts", consent.TimestampUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$active", consent.Active ? 1 : 0);
+            cmd.Parameters.AddWithValue("$version", consent.Version);
+            cmd.Parameters.AddWithValue("$hash", consent.DisclosureHash);
+            cmd.ExecuteNonQuery();
+
+            PruneIfNeeded(connection, tx, consent.TimestampUtc);
+            tx.Commit();
+        }
+    }
+
+    public AgentConsentRecord? ReadLatestConsent()
+    {
+        lock (_gate)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT
+                    timestamp_utc,
+                    active,
+                    version,
+                    disclosure_hash
+                FROM consent
+                ORDER BY id DESC
+                LIMIT 1;
+                """;
+
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            return new AgentConsentRecord(
+                TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
+                Active: reader.GetInt32(1) == 1,
+                Version: reader.GetString(2),
+                DisclosureHash: reader.GetString(3));
+        }
+    }
+
+    public void WriteSettings(AgentSettingsRecord settings)
+    {
+        lock (_gate)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using SqliteTransaction tx = connection.BeginTransaction();
+
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText =
+                """
+                INSERT INTO settings (
+                    timestamp_utc,
+                    privacy_level,
+                    regulation_intensity,
+                    disabled_categories_json,
+                    notification_reduction_enabled,
+                    focus_mode_enabled,
+                    animation_reduction_enabled,
+                    temporary_app_restriction_enabled,
+                    baseline_recalibration_started_utc,
+                    baseline_recalibration_until_utc
+                ) VALUES (
+                    $ts, $privacy, $intensity, $disabled, $notif, $focus, $anim, $restrict, $recal_start, $recal_until
+                );
+                """;
+            cmd.Parameters.AddWithValue("$ts", settings.TimestampUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$privacy", settings.PrivacyLevel);
+            cmd.Parameters.AddWithValue("$intensity", settings.RegulationIntensity);
+            cmd.Parameters.AddWithValue("$disabled", JsonSerializer.Serialize(settings.DisabledCategories));
+            cmd.Parameters.AddWithValue("$notif", settings.NotificationReductionEnabled ? 1 : 0);
+            cmd.Parameters.AddWithValue("$focus", settings.FocusModeEnabled ? 1 : 0);
+            cmd.Parameters.AddWithValue("$anim", settings.AnimationReductionEnabled ? 1 : 0);
+            cmd.Parameters.AddWithValue("$restrict", settings.TemporaryAppRestrictionEnabled ? 1 : 0);
+            cmd.Parameters.AddWithValue("$recal_start", settings.BaselineRecalibrationStartedUtc?.ToString("O") ?? string.Empty);
+            cmd.Parameters.AddWithValue("$recal_until", settings.BaselineRecalibrationUntilUtc?.ToString("O") ?? string.Empty);
+            cmd.ExecuteNonQuery();
+
+            PruneIfNeeded(connection, tx, settings.TimestampUtc);
+            tx.Commit();
+        }
+    }
+
+    public AgentSettingsRecord? ReadLatestSettings()
+    {
+        lock (_gate)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT
+                    timestamp_utc,
+                    privacy_level,
+                    regulation_intensity,
+                    disabled_categories_json,
+                    notification_reduction_enabled,
+                    focus_mode_enabled,
+                    animation_reduction_enabled,
+                    temporary_app_restriction_enabled,
+                    baseline_recalibration_started_utc,
+                    baseline_recalibration_until_utc
+                FROM settings
+                ORDER BY id DESC
+                LIMIT 1;
+                """;
+
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            return new AgentSettingsRecord(
+                TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
+                PrivacyLevel: reader.GetString(1),
+                RegulationIntensity: reader.GetString(2),
+                DisabledCategories: DeserializeStringList(reader.GetString(3)),
+                NotificationReductionEnabled: reader.GetInt32(4) == 1,
+                FocusModeEnabled: reader.GetInt32(5) == 1,
+                AnimationReductionEnabled: reader.GetInt32(6) == 1,
+                TemporaryAppRestrictionEnabled: reader.GetInt32(7) == 1,
+                BaselineRecalibrationStartedUtc: ParseOptionalDateTimeOffset(reader.GetString(8)),
+                BaselineRecalibrationUntilUtc: ParseOptionalDateTimeOffset(reader.GetString(9)));
         }
     }
 
@@ -265,7 +471,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     reversible,
                     reason,
                     contributors_json
-                FROM interventions
+                FROM events
                 WHERE ($since = '' OR timestamp_utc >= $since)
                 ORDER BY timestamp_utc DESC
                 LIMIT $limit;
@@ -321,7 +527,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     reversible,
                     reason,
                     contributors_json
-                FROM interventions
+                FROM events
                 WHERE timestamp_utc >= $from AND timestamp_utc <= $to
                 ORDER BY timestamp_utc ASC
                 LIMIT $limit;
@@ -385,7 +591,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
 
             int totalInterventions = ReadSingleInt(connection,
                 """
-                SELECT COUNT(1) FROM interventions
+                SELECT COUNT(1) FROM events
                 WHERE timestamp_utc >= $start AND timestamp_utc < $end;
                 """,
                 startUtc, endUtc);
@@ -642,6 +848,21 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         cmd.Transaction = tx;
         cmd.CommandText =
             """
+            INSERT INTO events (
+                timestamp_utc,
+                action,
+                duration_seconds,
+                why,
+                escalation,
+                reversible,
+                trigger_state,
+                trigger_value,
+                confidence,
+                contributors_json
+            ) VALUES (
+                $ts, $action, $duration, $reason, $escalation, $reversible, $trigger_state, $trigger_value, $confidence, $contributors
+            );
+
             INSERT INTO interventions (
                 timestamp_utc,
                 action,
@@ -737,6 +958,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             """
             DELETE FROM input_buckets WHERE timestamp_utc < $cutoff;
             DELETE FROM state_buckets WHERE timestamp_utc < $cutoff;
+            DELETE FROM events WHERE timestamp_utc < $cutoff;
+            DELETE FROM system_changes WHERE timestamp_utc < $cutoff;
+            DELETE FROM diagnostics WHERE timestamp_utc < $cutoff;
+            DELETE FROM consent WHERE timestamp_utc < $cutoff;
+            DELETE FROM settings WHERE timestamp_utc < $cutoff;
             DELETE FROM interventions WHERE timestamp_utc < $cutoff;
             DELETE FROM diagnostics_snapshots WHERE timestamp_utc < $cutoff;
             DELETE FROM brain_snapshots WHERE timestamp_utc < $cutoff;
@@ -772,6 +998,66 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 cognitive_stability REAL NOT NULL,
                 confidence REAL NOT NULL,
                 contributors_json TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp_utc TEXT NOT NULL,
+                action TEXT NOT NULL,
+                duration_seconds INTEGER NULL,
+                why TEXT NOT NULL,
+                escalation TEXT NOT NULL,
+                reversible INTEGER NOT NULL,
+                trigger_state TEXT NOT NULL,
+                trigger_value REAL NOT NULL,
+                confidence REAL NOT NULL,
+                contributors_json TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS system_changes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp_utc TEXT NOT NULL,
+                change_type TEXT NOT NULL,
+                previous_value_json TEXT NOT NULL,
+                new_value_json TEXT NOT NULL,
+                undo_info TEXT NOT NULL,
+                reason TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS diagnostics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp_utc TEXT NOT NULL,
+                last_error TEXT NOT NULL,
+                last_backend_ok_utc TEXT NOT NULL,
+                last_event_ts_utc TEXT NOT NULL,
+                backend_connected INTEGER NOT NULL,
+                consent_active INTEGER NOT NULL,
+                paused INTEGER NOT NULL,
+                policy_version TEXT NOT NULL,
+                schema_version TEXT NOT NULL,
+                agent_version TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS consent (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp_utc TEXT NOT NULL,
+                active INTEGER NOT NULL,
+                version TEXT NOT NULL,
+                disclosure_hash TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp_utc TEXT NOT NULL,
+                privacy_level TEXT NOT NULL,
+                regulation_intensity TEXT NOT NULL,
+                disabled_categories_json TEXT NOT NULL,
+                notification_reduction_enabled INTEGER NOT NULL,
+                focus_mode_enabled INTEGER NOT NULL,
+                animation_reduction_enabled INTEGER NOT NULL,
+                temporary_app_restriction_enabled INTEGER NOT NULL,
+                baseline_recalibration_started_utc TEXT NOT NULL,
+                baseline_recalibration_until_utc TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS interventions (
@@ -818,6 +1104,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
 
             CREATE INDEX IF NOT EXISTS ix_input_buckets_ts ON input_buckets(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_state_buckets_ts ON state_buckets(timestamp_utc);
+            CREATE INDEX IF NOT EXISTS ix_events_ts ON events(timestamp_utc);
+            CREATE INDEX IF NOT EXISTS ix_system_changes_ts ON system_changes(timestamp_utc);
+            CREATE INDEX IF NOT EXISTS ix_diagnostics_new_ts ON diagnostics(timestamp_utc);
+            CREATE INDEX IF NOT EXISTS ix_consent_ts ON consent(timestamp_utc);
+            CREATE INDEX IF NOT EXISTS ix_settings_ts ON settings(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_interventions_ts ON interventions(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_diagnostics_ts ON diagnostics_snapshots(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_brain_snapshots_ts ON brain_snapshots(timestamp_utc);
@@ -840,6 +1131,38 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         {
             return [];
         }
+    }
+
+    private static List<string> DeserializeStringList(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(raw) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static DateTimeOffset? ParseOptionalDateTimeOffset(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        if (DateTimeOffset.TryParse(raw, out DateTimeOffset parsed))
+        {
+            return parsed;
+        }
+
+        return null;
     }
 
     private static string BuildDbPath()

@@ -21,7 +21,8 @@ public sealed record AgentDiagnosticsSnapshot(
     string PolicyVersion,
     string SchemaVersion,
     string AgentVersion,
-    DateTimeOffset? LastEventTimestampUtc);
+    DateTimeOffset? LastEventTimestampUtc,
+    DateTimeOffset? LastBackendOkUtc);
 
 public sealed record AgentTodaySummary(
     DateOnly DateUtc,
@@ -85,3 +86,29 @@ public sealed record AgentRecalibrationResult(
     bool Active,
     DateTimeOffset StartedUtc,
     DateTimeOffset UntilUtc);
+
+public sealed record AgentSystemChange(
+    DateTimeOffset TimestampUtc,
+    string ChangeType,
+    string PreviousValueJson,
+    string NewValueJson,
+    string UndoInfo,
+    string Reason);
+
+public sealed record AgentConsentRecord(
+    DateTimeOffset TimestampUtc,
+    bool Active,
+    string Version,
+    string DisclosureHash);
+
+public sealed record AgentSettingsRecord(
+    DateTimeOffset TimestampUtc,
+    string PrivacyLevel,
+    string RegulationIntensity,
+    IReadOnlyList<string> DisabledCategories,
+    bool NotificationReductionEnabled,
+    bool FocusModeEnabled,
+    bool AnimationReductionEnabled,
+    bool TemporaryAppRestrictionEnabled,
+    DateTimeOffset? BaselineRecalibrationStartedUtc,
+    DateTimeOffset? BaselineRecalibrationUntilUtc);

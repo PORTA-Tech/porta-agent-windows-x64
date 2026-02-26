@@ -33,6 +33,7 @@ public sealed class AgentCoreController : IAgentCoreController
     private DateTimeOffset? _lastEventTimestampUtc;
     private string? _lastError;
     private bool _backendConnected;
+    private DateTimeOffset? _lastBackendOkUtc;
     private DateTimeOffset _lastDiagnosticsWriteUtc = DateTimeOffset.MinValue;
     private AgentBrainSnapshot _latestSnapshot = new(
         TimestampUtc: DateTimeOffset.UtcNow,
@@ -58,9 +59,40 @@ public sealed class AgentCoreController : IAgentCoreController
     public AgentCoreController(IBrainStateStore stateStore)
     {
         _stateStore = stateStore;
-        _consentState = LoadConsentState();
+        AgentConsentRecord? consentFromStore = _stateStore.ReadLatestConsent();
+        _consentState = consentFromStore != null
+            ? new ConsentStateRecord(
+                Active: consentFromStore.Active,
+                Version: consentFromStore.Version,
+                TimestampUtc: consentFromStore.TimestampUtc,
+                DisclosureHash: consentFromStore.DisclosureHash,
+                UpdatedAtUtc: consentFromStore.TimestampUtc)
+            : LoadConsentState();
         _consentActive = _consentState.Active;
-        _settingsState = LoadSettingsState();
+        AgentSettingsRecord? settingsFromStore = _stateStore.ReadLatestSettings();
+        _settingsState = settingsFromStore != null
+            ? new SettingsStateRecord(
+                RegulationIntensity: NormalizeIntensity(settingsFromStore.RegulationIntensity, "Balanced"),
+                PrivacyLevel: NormalizePrivacy(settingsFromStore.PrivacyLevel, "Standard"),
+                NotificationReductionEnabled: settingsFromStore.NotificationReductionEnabled,
+                FocusModeEnabled: settingsFromStore.FocusModeEnabled,
+                AnimationReductionEnabled: settingsFromStore.AnimationReductionEnabled,
+                TemporaryAppRestrictionEnabled: settingsFromStore.TemporaryAppRestrictionEnabled,
+                BaselineRecalibrationStartedUtc: settingsFromStore.BaselineRecalibrationStartedUtc,
+                BaselineRecalibrationUntilUtc: settingsFromStore.BaselineRecalibrationUntilUtc,
+                UpdatedAtUtc: settingsFromStore.TimestampUtc)
+            : LoadSettingsState();
+
+        if (consentFromStore == null)
+        {
+            WriteConsentStateToStoreLocked(_consentState, DateTimeOffset.UtcNow);
+        }
+
+        if (settingsFromStore == null)
+        {
+            WriteSettingsStateToStoreLocked(_settingsState, DateTimeOffset.UtcNow);
+        }
+
         _latestSnapshot = _stateStore.ReadLatestSnapshot() ?? _latestSnapshot;
     }
 
@@ -206,6 +238,8 @@ public sealed class AgentCoreController : IAgentCoreController
     {
         lock (_gate)
         {
+            bool previousPaused = _paused;
+            DateTimeOffset? previousUntil = _pauseUntilUtc;
             _paused = true;
             _pauseUntilUtc = untilUtc;
             _lastEventTimestampUtc = DateTimeOffset.UtcNow;
@@ -220,6 +254,12 @@ public sealed class AgentCoreController : IAgentCoreController
                 confidence: 1,
                 escalationLevel: "Inform",
                 reversible: true);
+            WriteSystemChangeLocked(
+                changeType: "pause_state",
+                previousValue: new { paused = previousPaused, pauseUntilUtc = previousUntil },
+                newValue: new { paused = _paused, pauseUntilUtc = _pauseUntilUtc },
+                undoInfo: "call /v1/control/resume",
+                reason: reason ?? "unspecified");
             WriteDiagnosticsLocked(force: true);
         }
     }
@@ -228,6 +268,8 @@ public sealed class AgentCoreController : IAgentCoreController
     {
         lock (_gate)
         {
+            bool previousPaused = _paused;
+            DateTimeOffset? previousUntil = _pauseUntilUtc;
             _paused = false;
             _pauseUntilUtc = null;
             _lastEventTimestampUtc = DateTimeOffset.UtcNow;
@@ -241,6 +283,12 @@ public sealed class AgentCoreController : IAgentCoreController
                 confidence: 1,
                 escalationLevel: "Inform",
                 reversible: true);
+            WriteSystemChangeLocked(
+                changeType: "pause_state",
+                previousValue: new { paused = previousPaused, pauseUntilUtc = previousUntil },
+                newValue: new { paused = _paused, pauseUntilUtc = _pauseUntilUtc },
+                undoInfo: "call /v1/control/pause",
+                reason: "manual_resume");
             WriteDiagnosticsLocked(force: true);
         }
     }
@@ -250,12 +298,14 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+            bool previousConsent = _consentActive;
             _consentActive = true;
             _consentState = CreateConsentState(active: true, timestampUtc: nowUtc);
             _paused = false;
             _pauseUntilUtc = null;
             _lastError = null;
             SaveConsentState(_consentState);
+            WriteConsentStateToStoreLocked(_consentState, nowUtc);
             _lastEventTimestampUtc = nowUtc;
             _latestSnapshot = _latestSnapshot with { LastAction = "consent_granted" };
             WriteLogLocked("consent_granted");
@@ -267,6 +317,12 @@ public sealed class AgentCoreController : IAgentCoreController
                 confidence: 1,
                 escalationLevel: "Inform",
                 reversible: true);
+            WriteSystemChangeLocked(
+                changeType: "consent",
+                previousValue: new { active = previousConsent },
+                newValue: new { active = _consentActive, version = _consentState.Version, timestampUtc = _consentState.TimestampUtc },
+                undoInfo: "call /v1/consent/revoke",
+                reason: "user_consent_granted");
             WriteDiagnosticsLocked(force: true);
         }
     }
@@ -276,11 +332,13 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+            bool previousConsent = _consentActive;
             _consentActive = false;
             _consentState = CreateConsentState(active: false, timestampUtc: nowUtc);
             _paused = true;
             _pauseUntilUtc = null;
             SaveConsentState(_consentState);
+            WriteConsentStateToStoreLocked(_consentState, nowUtc);
             _lastEventTimestampUtc = nowUtc;
             _latestSnapshot = _latestSnapshot with { LastAction = "consent_revoked" };
             WriteLogLocked("consent_revoked");
@@ -292,6 +350,12 @@ public sealed class AgentCoreController : IAgentCoreController
                 confidence: 1,
                 escalationLevel: "Inform",
                 reversible: true);
+            WriteSystemChangeLocked(
+                changeType: "consent",
+                previousValue: new { active = previousConsent },
+                newValue: new { active = _consentActive, version = _consentState.Version, timestampUtc = _consentState.TimestampUtc },
+                undoInfo: "call /v1/consent/grant",
+                reason: "user_consent_revoked");
             WriteDiagnosticsLocked(force: true);
         }
     }
@@ -301,6 +365,7 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             UpdateRecalibrationStateLocked();
+            SettingsStateRecord previous = _settingsState;
 
             string intensity = NormalizeIntensity(update.RegulationIntensity, _settingsState.RegulationIntensity);
             string privacy = NormalizePrivacy(update.PrivacyLevel, _settingsState.PrivacyLevel);
@@ -317,6 +382,7 @@ public sealed class AgentCoreController : IAgentCoreController
             };
 
             SaveSettingsState(_settingsState);
+            WriteSettingsStateToStoreLocked(_settingsState, _settingsState.UpdatedAtUtc);
             _lastEventTimestampUtc = DateTimeOffset.UtcNow;
             _latestSnapshot = _latestSnapshot with { LastAction = "settings_updated" };
             WriteLogLocked("settings_updated");
@@ -328,6 +394,28 @@ public sealed class AgentCoreController : IAgentCoreController
                 confidence: 1,
                 escalationLevel: "Inform",
                 reversible: true);
+            WriteSystemChangeLocked(
+                changeType: "settings",
+                previousValue: new
+                {
+                    previous.RegulationIntensity,
+                    previous.PrivacyLevel,
+                    previous.NotificationReductionEnabled,
+                    previous.FocusModeEnabled,
+                    previous.AnimationReductionEnabled,
+                    previous.TemporaryAppRestrictionEnabled
+                },
+                newValue: new
+                {
+                    _settingsState.RegulationIntensity,
+                    _settingsState.PrivacyLevel,
+                    _settingsState.NotificationReductionEnabled,
+                    _settingsState.FocusModeEnabled,
+                    _settingsState.AnimationReductionEnabled,
+                    _settingsState.TemporaryAppRestrictionEnabled
+                },
+                undoInfo: "call /v1/settings/update with previous values",
+                reason: "user_settings_update");
             WriteDiagnosticsLocked(force: true);
             return ToPublicSettingsState(_settingsState);
         }
@@ -339,6 +427,8 @@ public sealed class AgentCoreController : IAgentCoreController
         {
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
             DateTimeOffset untilUtc = nowUtc.Add(BaselineRecalibrationDuration);
+            DateTimeOffset? previousStart = _settingsState.BaselineRecalibrationStartedUtc;
+            DateTimeOffset? previousUntil = _settingsState.BaselineRecalibrationUntilUtc;
             _settingsState = _settingsState with
             {
                 BaselineRecalibrationStartedUtc = nowUtc,
@@ -346,6 +436,7 @@ public sealed class AgentCoreController : IAgentCoreController
                 UpdatedAtUtc = nowUtc
             };
             SaveSettingsState(_settingsState);
+            WriteSettingsStateToStoreLocked(_settingsState, nowUtc);
             _lastEventTimestampUtc = nowUtc;
             _latestSnapshot = _latestSnapshot with { LastAction = "baseline_recalibration_started" };
             WriteLogLocked("baseline_recalibration_started");
@@ -357,6 +448,12 @@ public sealed class AgentCoreController : IAgentCoreController
                 confidence: 1,
                 escalationLevel: "Inform",
                 reversible: true);
+            WriteSystemChangeLocked(
+                changeType: "baseline_recalibration",
+                previousValue: new { startedUtc = previousStart, untilUtc = previousUntil },
+                newValue: new { startedUtc = nowUtc, untilUtc },
+                undoInfo: "wait for timer or update settings",
+                reason: "user_recalibrate_baseline");
             WriteDiagnosticsLocked(force: true);
             return new AgentRecalibrationResult(
                 Active: true,
@@ -369,6 +466,7 @@ public sealed class AgentCoreController : IAgentCoreController
     {
         lock (_gate)
         {
+            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
             _stateStore.DeleteLocalData();
             TryDeleteFile(_logPath);
             TryDeleteFile(_consentPath);
@@ -380,8 +478,16 @@ public sealed class AgentCoreController : IAgentCoreController
             _paused = true;
             _pauseUntilUtc = null;
             _lastError = null;
-            _lastEventTimestampUtc = DateTimeOffset.UtcNow;
+            _lastEventTimestampUtc = nowUtc;
             _latestSnapshot = _latestSnapshot with { LastAction = "local_data_deleted" };
+            WriteConsentStateToStoreLocked(_consentState, nowUtc);
+            WriteSettingsStateToStoreLocked(_settingsState, nowUtc);
+            WriteSystemChangeLocked(
+                changeType: "local_data",
+                previousValue: new { state = "present" },
+                newValue: new { state = "deleted_and_reset" },
+                undoInfo: "none",
+                reason: "user_delete_local_data");
             WriteLogLocked("local_data_deleted");
             WriteDiagnosticsLocked(force: true);
         }
@@ -419,6 +525,10 @@ public sealed class AgentCoreController : IAgentCoreController
         {
             _latestSnapshot = snapshot;
             _backendConnected = backendConnected;
+            if (backendConnected)
+            {
+                _lastBackendOkUtc = snapshot.TimestampUtc;
+            }
             _lastEventTimestampUtc = snapshot.TimestampUtc;
             WriteDiagnosticsLocked(force: false);
         }
@@ -491,7 +601,8 @@ public sealed class AgentCoreController : IAgentCoreController
             PolicyVersion: DefaultPolicyVersion,
             SchemaVersion: DefaultSchemaVersion,
             AgentVersion: _agentVersion,
-            LastEventTimestampUtc: _lastEventTimestampUtc));
+            LastEventTimestampUtc: _lastEventTimestampUtc,
+            LastBackendOkUtc: _lastBackendOkUtc));
 
         _lastDiagnosticsWriteUtc = nowUtc;
     }
@@ -626,6 +737,41 @@ public sealed class AgentCoreController : IAgentCoreController
         File.WriteAllText(_settingsPath, json);
     }
 
+    private void WriteConsentStateToStoreLocked(ConsentStateRecord state, DateTimeOffset nowUtc)
+    {
+        _stateStore.WriteConsent(new AgentConsentRecord(
+            TimestampUtc: state.TimestampUtc ?? nowUtc,
+            Active: state.Active,
+            Version: state.Version,
+            DisclosureHash: state.DisclosureHash));
+    }
+
+    private void WriteSettingsStateToStoreLocked(SettingsStateRecord state, DateTimeOffset nowUtc)
+    {
+        _stateStore.WriteSettings(new AgentSettingsRecord(
+            TimestampUtc: state.UpdatedAtUtc == DateTimeOffset.MinValue ? nowUtc : state.UpdatedAtUtc,
+            PrivacyLevel: state.PrivacyLevel,
+            RegulationIntensity: state.RegulationIntensity,
+            DisabledCategories: BuildDisabledCategories(state),
+            NotificationReductionEnabled: state.NotificationReductionEnabled,
+            FocusModeEnabled: state.FocusModeEnabled,
+            AnimationReductionEnabled: state.AnimationReductionEnabled,
+            TemporaryAppRestrictionEnabled: state.TemporaryAppRestrictionEnabled,
+            BaselineRecalibrationStartedUtc: state.BaselineRecalibrationStartedUtc,
+            BaselineRecalibrationUntilUtc: state.BaselineRecalibrationUntilUtc));
+    }
+
+    private void WriteSystemChangeLocked(string changeType, object previousValue, object newValue, string undoInfo, string reason)
+    {
+        _stateStore.WriteSystemChange(new AgentSystemChange(
+            TimestampUtc: DateTimeOffset.UtcNow,
+            ChangeType: changeType,
+            PreviousValueJson: JsonSerializer.Serialize(previousValue),
+            NewValueJson: JsonSerializer.Serialize(newValue),
+            UndoInfo: undoInfo,
+            Reason: reason));
+    }
+
     private void UpdateRecalibrationStateLocked()
     {
         if (!_settingsState.BaselineRecalibrationUntilUtc.HasValue)
@@ -645,6 +791,7 @@ public sealed class AgentCoreController : IAgentCoreController
             UpdatedAtUtc = DateTimeOffset.UtcNow
         };
         SaveSettingsState(_settingsState);
+        WriteSettingsStateToStoreLocked(_settingsState, _settingsState.UpdatedAtUtc);
     }
 
     private static string NormalizeIntensity(string? raw, string fallback)
@@ -677,6 +824,32 @@ public sealed class AgentCoreController : IAgentCoreController
             "detailed" => "Detailed",
             _ => fallback
         };
+    }
+
+    private static IReadOnlyList<string> BuildDisabledCategories(SettingsStateRecord state)
+    {
+        var disabled = new List<string>(capacity: 4);
+        if (!state.NotificationReductionEnabled)
+        {
+            disabled.Add("notification_reduction");
+        }
+
+        if (!state.FocusModeEnabled)
+        {
+            disabled.Add("focus_mode");
+        }
+
+        if (!state.AnimationReductionEnabled)
+        {
+            disabled.Add("animation_reduction");
+        }
+
+        if (!state.TemporaryAppRestrictionEnabled)
+        {
+            disabled.Add("temporary_app_restriction");
+        }
+
+        return disabled;
     }
 
     private static AgentSettingsState ToPublicSettingsState(SettingsStateRecord state)

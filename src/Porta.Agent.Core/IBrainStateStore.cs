@@ -4,7 +4,12 @@ public interface IBrainStateStore
 {
     void WriteSnapshot(AgentBrainSnapshot snapshot);
     void WriteControlEvent(AgentControlEvent controlEvent);
+    void WriteSystemChange(AgentSystemChange change);
     void WriteDiagnostics(AgentDiagnosticsSnapshot diagnostics);
+    void WriteConsent(AgentConsentRecord consent);
+    AgentConsentRecord? ReadLatestConsent();
+    void WriteSettings(AgentSettingsRecord settings);
+    AgentSettingsRecord? ReadLatestSettings();
     void DeleteLocalData();
     AgentBrainSnapshot? ReadLatestSnapshot();
     IReadOnlyList<AgentBrainSnapshot> ReadTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, int bucketSeconds = 5);
