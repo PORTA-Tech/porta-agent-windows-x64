@@ -16,6 +16,7 @@ public sealed class AgentBrainWorker(
     {
         bool backendConnected = false;
         DateTimeOffset lastBackendProbeUtc = DateTimeOffset.MinValue;
+        PrimitiveSignalSnapshot? previousSmoothedPrimitive = null;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -37,12 +38,20 @@ public sealed class AgentBrainWorker(
                         TypingBurstIntensity: 0,
                         ScrollVelocityIndex: 0,
                         FocusSwitchRate: 0,
+                        SmoothedTypingBurstIntensity: 0,
+                        SmoothedScrollVelocityIndex: 0,
+                        SmoothedFocusSwitchRate: 0,
                         FocusStrength: 0,
                         OverloadLikelihood: 0,
                         FatigueProbability: 0,
                         CognitiveStability: 1,
+                        DominantStateValue: 1,
+                        DominantStateName: "stability",
                         Confidence: 1,
                         LastAction: action,
+                        ActivationWindowTriggered: false,
+                        CooldownTriggered: false,
+                        ActivationWindowOpen: false,
                         Contributors: ["control_state"]);
                     store.WriteSnapshot(passiveSnapshot);
                     controller.ApplyBrainSnapshot(passiveSnapshot, backendConnected);
@@ -53,20 +62,33 @@ public sealed class AgentBrainWorker(
 
                 RawSignalSample raw = acquisition.Capture(nowUtc);
                 PrimitiveSignalSnapshot primitive = normalization.Normalize(raw);
-                InferredStateSnapshot inferred = inference.Infer(primitive);
+                PrimitiveSignalSnapshot smoothedPrimitive = SmoothPrimitive(primitive, previousSmoothedPrimitive, alpha: 0.35);
+                previousSmoothedPrimitive = smoothedPrimitive;
+
+                InferredStateSnapshot inferred = inference.Infer(smoothedPrimitive);
                 InferredStateSnapshot stabilized = stabilization.Stabilize(inferred);
-                string actionName = regulation.Evaluate(stabilized, control);
+                RegulationDecisionSnapshot decision = regulation.Evaluate(stabilized, control);
+                (string dominantStateName, double dominantStateValue) = ResolveDominantState(stabilized);
+
                 AgentBrainSnapshot snapshot = new(
                     TimestampUtc: stabilized.TimestampUtc,
                     TypingBurstIntensity: primitive.TypingBurstIntensity,
                     ScrollVelocityIndex: primitive.ScrollVelocityIndex,
                     FocusSwitchRate: primitive.FocusSwitchRate,
+                    SmoothedTypingBurstIntensity: smoothedPrimitive.TypingBurstIntensity,
+                    SmoothedScrollVelocityIndex: smoothedPrimitive.ScrollVelocityIndex,
+                    SmoothedFocusSwitchRate: smoothedPrimitive.FocusSwitchRate,
                     FocusStrength: stabilized.FocusStrength,
                     OverloadLikelihood: stabilized.OverloadLikelihood,
                     FatigueProbability: stabilized.FatigueProbability,
                     CognitiveStability: stabilized.CognitiveStability,
+                    DominantStateValue: dominantStateValue,
+                    DominantStateName: dominantStateName,
                     Confidence: stabilized.Confidence,
-                    LastAction: actionName,
+                    LastAction: decision.Action,
+                    ActivationWindowTriggered: decision.ActivationWindowTriggered,
+                    CooldownTriggered: decision.CooldownTriggered,
+                    ActivationWindowOpen: decision.ActivationWindowOpen,
                     Contributors: stabilized.Contributors);
                 store.WriteSnapshot(snapshot);
                 controller.ApplyBrainSnapshot(snapshot, backendConnected);
@@ -83,5 +105,44 @@ public sealed class AgentBrainWorker(
 
             await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken).ConfigureAwait(false);
         }
+    }
+
+    private static PrimitiveSignalSnapshot SmoothPrimitive(
+        PrimitiveSignalSnapshot current,
+        PrimitiveSignalSnapshot? previous,
+        double alpha)
+    {
+        if (previous == null)
+        {
+            return current;
+        }
+
+        return current with
+        {
+            TypingBurstIntensity = Blend(previous.TypingBurstIntensity, current.TypingBurstIntensity, alpha),
+            ScrollVelocityIndex = Blend(previous.ScrollVelocityIndex, current.ScrollVelocityIndex, alpha),
+            FocusSwitchRate = Blend(previous.FocusSwitchRate, current.FocusSwitchRate, alpha)
+        };
+    }
+
+    private static (string StateName, double StateValue) ResolveDominantState(InferredStateSnapshot state)
+    {
+        double dominant = Math.Max(state.FocusStrength, Math.Max(state.OverloadLikelihood, state.FatigueProbability));
+        if (dominant == state.FocusStrength)
+        {
+            return ("focus", dominant);
+        }
+
+        if (dominant == state.OverloadLikelihood)
+        {
+            return ("overload", dominant);
+        }
+
+        return ("fatigue", dominant);
+    }
+
+    private static double Blend(double previous, double current, double alpha)
+    {
+        return Math.Clamp((alpha * current) + ((1 - alpha) * previous), 0, 1);
     }
 }

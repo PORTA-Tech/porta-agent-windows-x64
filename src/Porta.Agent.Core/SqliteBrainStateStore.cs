@@ -343,12 +343,20 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     typing_burst_intensity,
                     scroll_velocity_index,
                     focus_switch_rate,
+                    smoothed_typing_burst_intensity,
+                    smoothed_scroll_velocity_index,
+                    smoothed_focus_switch_rate,
                     focus_strength,
                     overload_likelihood,
                     fatigue_probability,
                     cognitive_stability,
+                    dominant_state_name,
+                    dominant_state_value,
                     confidence,
                     last_action,
+                    activation_window_triggered,
+                    cooldown_triggered,
+                    activation_window_open,
                     contributors_json
                 FROM brain_snapshots
                 ORDER BY id DESC
@@ -366,13 +374,21 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 TypingBurstIntensity: reader.GetDouble(1),
                 ScrollVelocityIndex: reader.GetDouble(2),
                 FocusSwitchRate: reader.GetDouble(3),
-                FocusStrength: reader.GetDouble(4),
-                OverloadLikelihood: reader.GetDouble(5),
-                FatigueProbability: reader.GetDouble(6),
-                CognitiveStability: reader.GetDouble(7),
-                Confidence: reader.GetDouble(8),
-                LastAction: reader.GetString(9),
-                Contributors: DeserializeContributors(reader.GetString(10)));
+                SmoothedTypingBurstIntensity: ReadDoubleOrFallback(reader, 4, fallback: reader.GetDouble(1)),
+                SmoothedScrollVelocityIndex: ReadDoubleOrFallback(reader, 5, fallback: reader.GetDouble(2)),
+                SmoothedFocusSwitchRate: ReadDoubleOrFallback(reader, 6, fallback: reader.GetDouble(3)),
+                FocusStrength: reader.GetDouble(7),
+                OverloadLikelihood: reader.GetDouble(8),
+                FatigueProbability: reader.GetDouble(9),
+                CognitiveStability: reader.GetDouble(10),
+                DominantStateName: ReadStringOrFallback(reader, 11, ResolveDominantStateName(reader.GetDouble(7), reader.GetDouble(8), reader.GetDouble(9))),
+                DominantStateValue: ReadDoubleOrFallback(reader, 12, Math.Max(reader.GetDouble(7), Math.Max(reader.GetDouble(8), reader.GetDouble(9)))),
+                Confidence: reader.GetDouble(13),
+                LastAction: reader.GetString(14),
+                ActivationWindowTriggered: ReadBoolOrFallback(reader, 15, false),
+                CooldownTriggered: ReadBoolOrFallback(reader, 16, false),
+                ActivationWindowOpen: ReadBoolOrFallback(reader, 17, false),
+                Contributors: DeserializeContributors(reader.GetString(18)));
         }
     }
 
@@ -398,12 +414,20 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     typing_burst_intensity,
                     scroll_velocity_index,
                     focus_switch_rate,
+                    smoothed_typing_burst_intensity,
+                    smoothed_scroll_velocity_index,
+                    smoothed_focus_switch_rate,
                     focus_strength,
                     overload_likelihood,
                     fatigue_probability,
                     cognitive_stability,
+                    dominant_state_name,
+                    dominant_state_value,
                     confidence,
                     last_action,
+                    activation_window_triggered,
+                    cooldown_triggered,
+                    activation_window_open,
                     contributors_json
                 FROM brain_snapshots
                 WHERE timestamp_utc >= $from AND timestamp_utc <= $to
@@ -420,13 +444,21 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     TypingBurstIntensity: reader.GetDouble(1),
                     ScrollVelocityIndex: reader.GetDouble(2),
                     FocusSwitchRate: reader.GetDouble(3),
-                    FocusStrength: reader.GetDouble(4),
-                    OverloadLikelihood: reader.GetDouble(5),
-                    FatigueProbability: reader.GetDouble(6),
-                    CognitiveStability: reader.GetDouble(7),
-                    Confidence: reader.GetDouble(8),
-                    LastAction: reader.GetString(9),
-                    Contributors: DeserializeContributors(reader.GetString(10))));
+                    SmoothedTypingBurstIntensity: ReadDoubleOrFallback(reader, 4, fallback: reader.GetDouble(1)),
+                    SmoothedScrollVelocityIndex: ReadDoubleOrFallback(reader, 5, fallback: reader.GetDouble(2)),
+                    SmoothedFocusSwitchRate: ReadDoubleOrFallback(reader, 6, fallback: reader.GetDouble(3)),
+                    FocusStrength: reader.GetDouble(7),
+                    OverloadLikelihood: reader.GetDouble(8),
+                    FatigueProbability: reader.GetDouble(9),
+                    CognitiveStability: reader.GetDouble(10),
+                    DominantStateName: ReadStringOrFallback(reader, 11, ResolveDominantStateName(reader.GetDouble(7), reader.GetDouble(8), reader.GetDouble(9))),
+                    DominantStateValue: ReadDoubleOrFallback(reader, 12, Math.Max(reader.GetDouble(7), Math.Max(reader.GetDouble(8), reader.GetDouble(9)))),
+                    Confidence: reader.GetDouble(13),
+                    LastAction: reader.GetString(14),
+                    ActivationWindowTriggered: ReadBoolOrFallback(reader, 15, false),
+                    CooldownTriggered: ReadBoolOrFallback(reader, 16, false),
+                    ActivationWindowOpen: ReadBoolOrFallback(reader, 17, false),
+                    Contributors: DeserializeContributors(reader.GetString(18))));
             }
 
             if (bucket == 1 || rawRows.Count <= 1)
@@ -467,9 +499,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     trigger_value,
                     confidence,
                     duration_seconds,
-                    escalation_level,
+                    escalation,
                     reversible,
-                    reason,
+                    why,
                     contributors_json
                 FROM events
                 WHERE ($since = '' OR timestamp_utc >= $since)
@@ -523,9 +555,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     trigger_value,
                     confidence,
                     duration_seconds,
-                    escalation_level,
+                    escalation,
                     reversible,
-                    reason,
+                    why,
                     contributors_json
                 FROM events
                 WHERE timestamp_utc >= $from AND timestamp_utc <= $to
@@ -632,7 +664,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         }
     }
 
-    public string ExportBundle(string logFilePath, string consentPath)
+    public string ExportBundle(
+        string logFilePath,
+        string consentPath,
+        string settingsPath,
+        IReadOnlyDictionary<string, string> versions,
+        IReadOnlyList<string> configPaths)
     {
         lock (_gate)
         {
@@ -657,12 +694,42 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 File.Copy(consentPath, Path.Combine(exportDir, "consent-state-v2.json"), overwrite: true);
             }
 
+            if (File.Exists(settingsPath))
+            {
+                File.Copy(settingsPath, Path.Combine(exportDir, "effective-settings-v1.json"), overwrite: true);
+            }
+
+            string configExportDir = Path.Combine(exportDir, "config");
+            Directory.CreateDirectory(configExportDir);
+            var exportedConfigNames = new List<string>();
+            foreach (string configPath in configPaths)
+            {
+                if (!File.Exists(configPath))
+                {
+                    continue;
+                }
+
+                string safeName = Path.GetFileName(configPath);
+                if (string.IsNullOrWhiteSpace(safeName))
+                {
+                    continue;
+                }
+
+                string destination = Path.Combine(configExportDir, safeName);
+                File.Copy(configPath, destination, overwrite: true);
+                exportedConfigNames.Add(safeName);
+            }
+
+            string versionsJson = JsonSerializer.Serialize(versions, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(Path.Combine(exportDir, "versions.json"), versionsJson);
+
             string metadata = JsonSerializer.Serialize(new
             {
                 generated_at_utc = DateTimeOffset.UtcNow,
                 schema = "v2",
                 db_path = _dbPath,
-                retention_days = DefaultRetentionDays
+                retention_days = DefaultRetentionDays,
+                config_files = exportedConfigNames
             }, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(exportDir, "metadata.json"), metadata);
 
@@ -705,20 +772,42 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             """
             INSERT INTO state_buckets (
                 timestamp_utc,
+                typing_burst_intensity_raw,
+                scroll_velocity_index_raw,
+                focus_switch_rate_raw,
+                typing_burst_intensity_smoothed,
+                scroll_velocity_index_smoothed,
+                focus_switch_rate_smoothed,
                 focus_strength,
                 overload_likelihood,
                 fatigue_probability,
                 cognitive_stability,
+                dominant_state_name,
+                dominant_state_value,
                 confidence,
+                activation_window_triggered,
+                cooldown_triggered,
+                activation_window_open,
                 contributors_json
-            ) VALUES ($ts, $focus, $overload, $fatigue, $stability, $confidence, $contributors);
+            ) VALUES ($ts, $typing_raw, $scroll_raw, $focus_switch_raw, $typing_smooth, $scroll_smooth, $focus_switch_smooth, $focus, $overload, $fatigue, $stability, $dominant_name, $dominant_value, $confidence, $activation_triggered, $cooldown_triggered, $activation_open, $contributors);
             """;
         cmd.Parameters.AddWithValue("$ts", snapshot.TimestampUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$typing_raw", snapshot.TypingBurstIntensity);
+        cmd.Parameters.AddWithValue("$scroll_raw", snapshot.ScrollVelocityIndex);
+        cmd.Parameters.AddWithValue("$focus_switch_raw", snapshot.FocusSwitchRate);
+        cmd.Parameters.AddWithValue("$typing_smooth", snapshot.SmoothedTypingBurstIntensity);
+        cmd.Parameters.AddWithValue("$scroll_smooth", snapshot.SmoothedScrollVelocityIndex);
+        cmd.Parameters.AddWithValue("$focus_switch_smooth", snapshot.SmoothedFocusSwitchRate);
         cmd.Parameters.AddWithValue("$focus", snapshot.FocusStrength);
         cmd.Parameters.AddWithValue("$overload", snapshot.OverloadLikelihood);
         cmd.Parameters.AddWithValue("$fatigue", snapshot.FatigueProbability);
         cmd.Parameters.AddWithValue("$stability", snapshot.CognitiveStability);
+        cmd.Parameters.AddWithValue("$dominant_name", snapshot.DominantStateName);
+        cmd.Parameters.AddWithValue("$dominant_value", snapshot.DominantStateValue);
         cmd.Parameters.AddWithValue("$confidence", snapshot.Confidence);
+        cmd.Parameters.AddWithValue("$activation_triggered", snapshot.ActivationWindowTriggered ? 1 : 0);
+        cmd.Parameters.AddWithValue("$cooldown_triggered", snapshot.CooldownTriggered ? 1 : 0);
+        cmd.Parameters.AddWithValue("$activation_open", snapshot.ActivationWindowOpen ? 1 : 0);
         cmd.Parameters.AddWithValue("$contributors", JsonSerializer.Serialize(snapshot.Contributors));
         cmd.ExecuteNonQuery();
     }
@@ -734,28 +823,45 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 typing_burst_intensity,
                 scroll_velocity_index,
                 focus_switch_rate,
+                smoothed_typing_burst_intensity,
+                smoothed_scroll_velocity_index,
+                smoothed_focus_switch_rate,
                 focus_strength,
                 overload_likelihood,
                 fatigue_probability,
                 cognitive_stability,
+                dominant_state_name,
+                dominant_state_value,
                 confidence,
                 last_action,
+                activation_window_triggered,
+                cooldown_triggered,
+                activation_window_open,
                 contributors_json
             ) VALUES (
-                $ts, $typing, $scroll, $focus_switch, $focus_strength, $overload,
-                $fatigue, $stability, $confidence, $last_action, $contributors
+                $ts, $typing, $scroll, $focus_switch, $typing_smooth, $scroll_smooth, $focus_switch_smooth,
+                $focus_strength, $overload, $fatigue, $stability, $dominant_name, $dominant_value,
+                $confidence, $last_action, $activation_triggered, $cooldown_triggered, $activation_open, $contributors
             );
             """;
         cmd.Parameters.AddWithValue("$ts", snapshot.TimestampUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$typing", snapshot.TypingBurstIntensity);
         cmd.Parameters.AddWithValue("$scroll", snapshot.ScrollVelocityIndex);
         cmd.Parameters.AddWithValue("$focus_switch", snapshot.FocusSwitchRate);
+        cmd.Parameters.AddWithValue("$typing_smooth", snapshot.SmoothedTypingBurstIntensity);
+        cmd.Parameters.AddWithValue("$scroll_smooth", snapshot.SmoothedScrollVelocityIndex);
+        cmd.Parameters.AddWithValue("$focus_switch_smooth", snapshot.SmoothedFocusSwitchRate);
         cmd.Parameters.AddWithValue("$focus_strength", snapshot.FocusStrength);
         cmd.Parameters.AddWithValue("$overload", snapshot.OverloadLikelihood);
         cmd.Parameters.AddWithValue("$fatigue", snapshot.FatigueProbability);
         cmd.Parameters.AddWithValue("$stability", snapshot.CognitiveStability);
+        cmd.Parameters.AddWithValue("$dominant_name", snapshot.DominantStateName);
+        cmd.Parameters.AddWithValue("$dominant_value", snapshot.DominantStateValue);
         cmd.Parameters.AddWithValue("$confidence", snapshot.Confidence);
         cmd.Parameters.AddWithValue("$last_action", snapshot.LastAction);
+        cmd.Parameters.AddWithValue("$activation_triggered", snapshot.ActivationWindowTriggered ? 1 : 0);
+        cmd.Parameters.AddWithValue("$cooldown_triggered", snapshot.CooldownTriggered ? 1 : 0);
+        cmd.Parameters.AddWithValue("$activation_open", snapshot.ActivationWindowOpen ? 1 : 0);
         cmd.Parameters.AddWithValue("$contributors", JsonSerializer.Serialize(snapshot.Contributors));
         cmd.ExecuteNonQuery();
     }
@@ -992,11 +1098,22 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             CREATE TABLE IF NOT EXISTS state_buckets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp_utc TEXT NOT NULL,
+                typing_burst_intensity_raw REAL NOT NULL DEFAULT 0,
+                scroll_velocity_index_raw REAL NOT NULL DEFAULT 0,
+                focus_switch_rate_raw REAL NOT NULL DEFAULT 0,
+                typing_burst_intensity_smoothed REAL NOT NULL DEFAULT 0,
+                scroll_velocity_index_smoothed REAL NOT NULL DEFAULT 0,
+                focus_switch_rate_smoothed REAL NOT NULL DEFAULT 0,
                 focus_strength REAL NOT NULL,
                 overload_likelihood REAL NOT NULL,
                 fatigue_probability REAL NOT NULL,
                 cognitive_stability REAL NOT NULL,
+                dominant_state_name TEXT NOT NULL DEFAULT 'focus',
+                dominant_state_value REAL NOT NULL DEFAULT 0,
                 confidence REAL NOT NULL,
+                activation_window_triggered INTEGER NOT NULL DEFAULT 0,
+                cooldown_triggered INTEGER NOT NULL DEFAULT 0,
+                activation_window_open INTEGER NOT NULL DEFAULT 0,
                 contributors_json TEXT NOT NULL
             );
 
@@ -1093,12 +1210,20 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 typing_burst_intensity REAL NOT NULL,
                 scroll_velocity_index REAL NOT NULL,
                 focus_switch_rate REAL NOT NULL,
+                smoothed_typing_burst_intensity REAL NOT NULL DEFAULT 0,
+                smoothed_scroll_velocity_index REAL NOT NULL DEFAULT 0,
+                smoothed_focus_switch_rate REAL NOT NULL DEFAULT 0,
                 focus_strength REAL NOT NULL,
                 overload_likelihood REAL NOT NULL,
                 fatigue_probability REAL NOT NULL,
                 cognitive_stability REAL NOT NULL,
+                dominant_state_name TEXT NOT NULL DEFAULT 'focus',
+                dominant_state_value REAL NOT NULL DEFAULT 0,
                 confidence REAL NOT NULL,
                 last_action TEXT NOT NULL,
+                activation_window_triggered INTEGER NOT NULL DEFAULT 0,
+                cooldown_triggered INTEGER NOT NULL DEFAULT 0,
+                activation_window_open INTEGER NOT NULL DEFAULT 0,
                 contributors_json TEXT NOT NULL
             );
 
@@ -1114,6 +1239,45 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             CREATE INDEX IF NOT EXISTS ix_brain_snapshots_ts ON brain_snapshots(timestamp_utc);
             """;
         cmd.ExecuteNonQuery();
+
+        EnsureColumnExists(connection, "state_buckets", "typing_burst_intensity_raw", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "state_buckets", "scroll_velocity_index_raw", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "state_buckets", "focus_switch_rate_raw", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "state_buckets", "typing_burst_intensity_smoothed", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "state_buckets", "scroll_velocity_index_smoothed", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "state_buckets", "focus_switch_rate_smoothed", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "state_buckets", "dominant_state_name", "TEXT NOT NULL DEFAULT 'focus'");
+        EnsureColumnExists(connection, "state_buckets", "dominant_state_value", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "state_buckets", "activation_window_triggered", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "state_buckets", "cooldown_triggered", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "state_buckets", "activation_window_open", "INTEGER NOT NULL DEFAULT 0");
+
+        EnsureColumnExists(connection, "brain_snapshots", "smoothed_typing_burst_intensity", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "brain_snapshots", "smoothed_scroll_velocity_index", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "brain_snapshots", "smoothed_focus_switch_rate", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "brain_snapshots", "dominant_state_name", "TEXT NOT NULL DEFAULT 'focus'");
+        EnsureColumnExists(connection, "brain_snapshots", "dominant_state_value", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "brain_snapshots", "activation_window_triggered", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "brain_snapshots", "cooldown_triggered", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "brain_snapshots", "activation_window_open", "INTEGER NOT NULL DEFAULT 0");
+    }
+
+    private static void EnsureColumnExists(SqliteConnection connection, string table, string column, string definition)
+    {
+        using var existsCmd = connection.CreateCommand();
+        existsCmd.CommandText = $"PRAGMA table_info({table});";
+        using SqliteDataReader reader = existsCmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        using var alterCmd = connection.CreateCommand();
+        alterCmd.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
+        alterCmd.ExecuteNonQuery();
     }
 
     private static List<string> DeserializeContributors(string? raw)
@@ -1148,6 +1312,70 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         {
             return [];
         }
+    }
+
+    private static double ReadDoubleOrFallback(SqliteDataReader reader, int ordinal, double fallback)
+    {
+        try
+        {
+            if (!reader.IsDBNull(ordinal))
+            {
+                return reader.GetDouble(ordinal);
+            }
+        }
+        catch
+        {
+        }
+
+        return fallback;
+    }
+
+    private static string ReadStringOrFallback(SqliteDataReader reader, int ordinal, string fallback)
+    {
+        try
+        {
+            if (!reader.IsDBNull(ordinal))
+            {
+                return reader.GetString(ordinal);
+            }
+        }
+        catch
+        {
+        }
+
+        return fallback;
+    }
+
+    private static bool ReadBoolOrFallback(SqliteDataReader reader, int ordinal, bool fallback)
+    {
+        try
+        {
+            if (!reader.IsDBNull(ordinal))
+            {
+                return reader.GetInt32(ordinal) == 1;
+            }
+        }
+        catch
+        {
+        }
+
+        return fallback;
+    }
+
+    private static string ResolveDominantStateName(double focusStrength, double overloadLikelihood, double fatigueProbability)
+    {
+        double dominant = Math.Max(focusStrength, Math.Max(overloadLikelihood, fatigueProbability));
+        if (dominant == focusStrength)
+        {
+            return "focus";
+        }
+
+        if (dominant == overloadLikelihood)
+        {
+            return "overload";
+        }
+
+        return "fatigue";
     }
 
     private static DateTimeOffset? ParseOptionalDateTimeOffset(string? raw)

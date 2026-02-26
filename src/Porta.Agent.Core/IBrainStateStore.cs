@@ -17,5 +17,10 @@ public interface IBrainStateStore
     IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000);
     AgentStorageInfo ReadStorageInfo();
     AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);
-    string ExportBundle(string logFilePath, string consentPath);
+    string ExportBundle(
+        string logFilePath,
+        string consentPath,
+        string settingsPath,
+        IReadOnlyDictionary<string, string> versions,
+        IReadOnlyList<string> configPaths);
 }

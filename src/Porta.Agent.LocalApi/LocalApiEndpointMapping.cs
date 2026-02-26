@@ -237,12 +237,20 @@ public static class LocalApiEndpointMapping
             snapshot.TypingBurstIntensity,
             snapshot.ScrollVelocityIndex,
             snapshot.FocusSwitchRate,
+            snapshot.SmoothedTypingBurstIntensity,
+            snapshot.SmoothedScrollVelocityIndex,
+            snapshot.SmoothedFocusSwitchRate,
             snapshot.FocusStrength,
             snapshot.OverloadLikelihood,
             snapshot.FatigueProbability,
             snapshot.CognitiveStability,
+            snapshot.DominantStateValue,
+            snapshot.DominantStateName,
             snapshot.Confidence,
             snapshot.LastAction,
+            snapshot.ActivationWindowTriggered,
+            snapshot.CooldownTriggered,
+            snapshot.ActivationWindowOpen,
             snapshot.Contributors);
     }
 

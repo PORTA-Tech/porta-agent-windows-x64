@@ -40,12 +40,20 @@ public sealed class AgentCoreController : IAgentCoreController
         TypingBurstIntensity: 0,
         ScrollVelocityIndex: 0,
         FocusSwitchRate: 0,
+        SmoothedTypingBurstIntensity: 0,
+        SmoothedScrollVelocityIndex: 0,
+        SmoothedFocusSwitchRate: 0,
         FocusStrength: 0,
         OverloadLikelihood: 0,
         FatigueProbability: 0,
         CognitiveStability: 0,
+        DominantStateValue: 0,
+        DominantStateName: "focus",
         Confidence: 0,
         LastAction: "starting",
+        ActivationWindowTriggered: false,
+        CooldownTriggered: false,
+        ActivationWindowOpen: false,
         Contributors: ["startup"]);
     private readonly string _agentVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "1.0.0";
     private ConsentStateRecord _consentState = CreateDefaultConsentState();
@@ -539,7 +547,27 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             WriteLogLocked("export_bundle");
-            return _stateStore.ExportBundle(_logPath, _consentPath);
+            var versions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["agent"] = _agentVersion,
+                ["schema"] = DefaultSchemaVersion,
+                ["policy"] = DefaultPolicyVersion
+            };
+
+            IReadOnlyList<string> configPaths =
+            [
+                Path.Combine(AppContext.BaseDirectory, "appsettings.json"),
+                BuildSettingsPath(),
+                BuildLocalApiSecureSettingsPath(),
+                BuildLocalApiEndpointPath()
+            ];
+
+            return _stateStore.ExportBundle(
+                logFilePath: _logPath,
+                consentPath: _consentPath,
+                settingsPath: _settingsPath,
+                versions: versions,
+                configPaths: configPaths);
         }
     }
 
@@ -1047,6 +1075,18 @@ public sealed class AgentCoreController : IAgentCoreController
     {
         string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         return Path.Combine(root, "PortaAgent", ServiceLogFileName);
+    }
+
+    private static string BuildLocalApiSecureSettingsPath()
+    {
+        string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        return Path.Combine(root, "PortaAgent", "security", "local-api.secure.json");
+    }
+
+    private static string BuildLocalApiEndpointPath()
+    {
+        string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        return Path.Combine(root, "PortaAgent", "local-api.endpoint.json");
     }
 
     private static SettingsStateRecord CreateDefaultSettingsState()

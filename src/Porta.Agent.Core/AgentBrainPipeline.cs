@@ -25,6 +25,12 @@ public sealed record InferredStateSnapshot(
     double Confidence,
     IReadOnlyList<string> Contributors);
 
+public sealed record RegulationDecisionSnapshot(
+    string Action,
+    bool ActivationWindowTriggered,
+    bool CooldownTriggered,
+    bool ActivationWindowOpen);
+
 public interface ISignalAcquisitionStage
 {
     RawSignalSample Capture(DateTimeOffset nowUtc);
@@ -47,7 +53,7 @@ public interface IStabilizationStage
 
 public interface IRegulationStage
 {
-    string Evaluate(InferredStateSnapshot stabilized, AgentControlState control);
+    RegulationDecisionSnapshot Evaluate(InferredStateSnapshot stabilized, AgentControlState control);
 }
 
 public interface IBackendConnectivityProbe
@@ -166,18 +172,82 @@ public sealed class EwmaStabilizationStage : IStabilizationStage
 
 public sealed class DefaultRegulationStage : IRegulationStage
 {
-    public string Evaluate(InferredStateSnapshot stabilized, AgentControlState control)
+    private static readonly TimeSpan InterventionCooldown = TimeSpan.FromSeconds(20);
+    private const int ActivationWindowSamples = 3;
+    private readonly object _gate = new();
+    private DateTimeOffset? _lastInterventionAtUtc;
+    private string _lastDeliveredAction = "starting";
+    private int _overloadWindowCount;
+    private int _fatigueWindowCount;
+
+    public RegulationDecisionSnapshot Evaluate(InferredStateSnapshot stabilized, AgentControlState control)
     {
-        if (!control.ConsentActive)
+        lock (_gate)
         {
-            return "consent_required";
-        }
+            if (!control.ConsentActive)
+            {
+                _lastDeliveredAction = "consent_required";
+                _overloadWindowCount = 0;
+                _fatigueWindowCount = 0;
+                return new RegulationDecisionSnapshot(
+                    Action: "consent_required",
+                    ActivationWindowTriggered: false,
+                    CooldownTriggered: false,
+                    ActivationWindowOpen: false);
+            }
 
-        if (control.Paused)
-        {
-            return "paused_by_user";
-        }
+            if (control.Paused)
+            {
+                _lastDeliveredAction = "paused_by_user";
+                return new RegulationDecisionSnapshot(
+                    Action: "paused_by_user",
+                    ActivationWindowTriggered: false,
+                    CooldownTriggered: false,
+                    ActivationWindowOpen: false);
+            }
 
+            _overloadWindowCount = stabilized.OverloadLikelihood > 0.80
+                ? _overloadWindowCount + 1
+                : 0;
+            _fatigueWindowCount = stabilized.FatigueProbability > 0.75
+                ? _fatigueWindowCount + 1
+                : 0;
+
+            bool activationWindowOpen =
+                _overloadWindowCount >= ActivationWindowSamples
+                || _fatigueWindowCount >= ActivationWindowSamples;
+
+            string candidate = ResolveCandidateAction(stabilized);
+            bool isIntervention = IsInterventionAction(candidate);
+            bool cooldownTriggered = false;
+
+            if (isIntervention
+                && _lastInterventionAtUtc.HasValue
+                && (stabilized.TimestampUtc - _lastInterventionAtUtc.Value) < InterventionCooldown)
+            {
+                cooldownTriggered = true;
+                candidate = "monitor_only";
+            }
+
+            bool activationTriggered = IsInterventionAction(candidate)
+                && !string.Equals(candidate, _lastDeliveredAction, StringComparison.Ordinal);
+
+            if (IsInterventionAction(candidate))
+            {
+                _lastInterventionAtUtc = stabilized.TimestampUtc;
+            }
+
+            _lastDeliveredAction = candidate;
+            return new RegulationDecisionSnapshot(
+                Action: candidate,
+                ActivationWindowTriggered: activationTriggered,
+                CooldownTriggered: cooldownTriggered,
+                ActivationWindowOpen: activationWindowOpen);
+        }
+    }
+
+    private static string ResolveCandidateAction(InferredStateSnapshot stabilized)
+    {
         if (stabilized.OverloadLikelihood > 0.80)
         {
             return "focus_mode_enabled";
@@ -194,6 +264,12 @@ public sealed class DefaultRegulationStage : IRegulationStage
         }
 
         return "monitor_only";
+    }
+
+    private static bool IsInterventionAction(string action)
+    {
+        return string.Equals(action, "focus_mode_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "break_suggestion", StringComparison.Ordinal);
     }
 }
 
