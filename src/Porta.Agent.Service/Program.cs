@@ -28,6 +28,7 @@ builder.Services.AddSingleton<ISignalAcquisitionStage, SystemSignalAcquisitionSt
 builder.Services.AddSingleton<IPrimitiveNormalizationStage, DefaultPrimitiveNormalizationStage>();
 builder.Services.AddSingleton<IInferenceStage, DefaultInferenceStage>();
 builder.Services.AddSingleton<IStabilizationStage, EwmaStabilizationStage>();
+builder.Services.AddSingleton<IPolicyEnvelopeProvider, FilePolicyEnvelopeProvider>();
 builder.Services.AddSingleton<IRegulationStage, DefaultRegulationStage>();
 builder.Services.AddSingleton<IBackendConnectivityProbe, HttpBackendConnectivityProbe>();
 builder.Services.AddHostedService<AgentBrainWorker>();

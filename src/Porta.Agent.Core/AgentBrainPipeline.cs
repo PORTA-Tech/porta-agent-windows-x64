@@ -29,7 +29,12 @@ public sealed record RegulationDecisionSnapshot(
     string Action,
     bool ActivationWindowTriggered,
     bool CooldownTriggered,
-    bool ActivationWindowOpen);
+    bool ActivationWindowOpen,
+    string PolicyId = "n/a",
+    string Domain = "control",
+    string EscalationLevel = "Inform",
+    DateTimeOffset? PlannedEndTimestampUtc = null,
+    DateTimeOffset? CooldownEndTimestampUtc = null);
 
 public interface ISignalAcquisitionStage
 {
@@ -172,13 +177,21 @@ public sealed class EwmaStabilizationStage : IStabilizationStage
 
 public sealed class DefaultRegulationStage : IRegulationStage
 {
-    private static readonly TimeSpan InterventionCooldown = TimeSpan.FromSeconds(20);
-    private const int ActivationWindowSamples = 3;
     private readonly object _gate = new();
-    private DateTimeOffset? _lastInterventionAtUtc;
+    private readonly HybridPolicyEngine _policyEngine = new();
+    private readonly IPolicyEnvelopeProvider _envelopeProvider;
+    private readonly Dictionary<RegulationDomain, DomainRuntimeState> _domainStates = new()
+    {
+        [RegulationDomain.Overload] = new DomainRuntimeState(),
+        [RegulationDomain.Focus] = new DomainRuntimeState(),
+        [RegulationDomain.Fatigue] = new DomainRuntimeState()
+    };
     private string _lastDeliveredAction = "starting";
-    private int _overloadWindowCount;
-    private int _fatigueWindowCount;
+
+    public DefaultRegulationStage(IPolicyEnvelopeProvider envelopeProvider)
+    {
+        _envelopeProvider = envelopeProvider;
+    }
 
     public RegulationDecisionSnapshot Evaluate(InferredStateSnapshot stabilized, AgentControlState control)
     {
@@ -187,13 +200,15 @@ public sealed class DefaultRegulationStage : IRegulationStage
             if (!control.ConsentActive)
             {
                 _lastDeliveredAction = "consent_required";
-                _overloadWindowCount = 0;
-                _fatigueWindowCount = 0;
+                ResetStateMemory();
                 return new RegulationDecisionSnapshot(
                     Action: "consent_required",
                     ActivationWindowTriggered: false,
                     CooldownTriggered: false,
-                    ActivationWindowOpen: false);
+                    ActivationWindowOpen: false,
+                    PolicyId: "consent-gate",
+                    Domain: "control",
+                    EscalationLevel: "Inform");
             }
 
             if (control.Paused)
@@ -203,74 +218,405 @@ public sealed class DefaultRegulationStage : IRegulationStage
                     Action: "paused_by_user",
                     ActivationWindowTriggered: false,
                     CooldownTriggered: false,
-                    ActivationWindowOpen: false);
+                    ActivationWindowOpen: false,
+                    PolicyId: "pause-gate",
+                    Domain: "control",
+                    EscalationLevel: "Inform");
             }
 
-            _overloadWindowCount = stabilized.OverloadLikelihood > 0.80
-                ? _overloadWindowCount + 1
-                : 0;
-            _fatigueWindowCount = stabilized.FatigueProbability > 0.75
-                ? _fatigueWindowCount + 1
-                : 0;
+            RegulationPolicyEnvelope envelope = _envelopeProvider.GetEnvelope();
+            IReadOnlyDictionary<RegulationDomain, EffectiveRegulationPolicy> policies =
+                _policyEngine.ResolvePolicies(control.RegulationIntensity, envelope);
 
-            bool activationWindowOpen =
-                _overloadWindowCount >= ActivationWindowSamples
-                || _fatigueWindowCount >= ActivationWindowSamples;
+            DomainDecision overloadDecision = EvaluateDomain(
+                policies[RegulationDomain.Overload],
+                _domainStates[RegulationDomain.Overload],
+                stabilized,
+                new DomainSignal(stabilized.OverloadLikelihood, Eligible: true, RecoveryTarget: 0.55));
+            DomainDecision focusDecision = EvaluateDomain(
+                policies[RegulationDomain.Focus],
+                _domainStates[RegulationDomain.Focus],
+                stabilized,
+                new DomainSignal(
+                    stabilized.FocusStrength,
+                    Eligible: stabilized.OverloadLikelihood < 0.50,
+                    RecoveryTarget: 0.60));
+            DomainDecision fatigueDecision = EvaluateDomain(
+                policies[RegulationDomain.Fatigue],
+                _domainStates[RegulationDomain.Fatigue],
+                stabilized,
+                new DomainSignal(stabilized.FatigueProbability, Eligible: true, RecoveryTarget: 0.55));
 
-            string candidate = ResolveCandidateAction(stabilized);
-            bool isIntervention = IsInterventionAction(candidate);
-            bool cooldownTriggered = false;
-
-            if (isIntervention
-                && _lastInterventionAtUtc.HasValue
-                && (stabilized.TimestampUtc - _lastInterventionAtUtc.Value) < InterventionCooldown)
-            {
-                cooldownTriggered = true;
-                candidate = "monitor_only";
-            }
-
+            DomainDecision selected = SelectDecision(overloadDecision, focusDecision, fatigueDecision);
+            string candidate = ApplyUserCategoryGates(selected.Domain, selected.Action, selected.Level, control);
             bool activationTriggered = IsInterventionAction(candidate)
-                && !string.Equals(candidate, _lastDeliveredAction, StringComparison.Ordinal);
-
-            if (IsInterventionAction(candidate))
-            {
-                _lastInterventionAtUtc = stabilized.TimestampUtc;
-            }
+                && (!string.Equals(candidate, _lastDeliveredAction, StringComparison.Ordinal) || selected.ActivationTriggered);
+            bool cooldownTriggered = selected.CooldownBlocked;
+            bool activationWindowOpen = overloadDecision.ActivationWindowOpen
+                || focusDecision.ActivationWindowOpen
+                || fatigueDecision.ActivationWindowOpen;
 
             _lastDeliveredAction = candidate;
             return new RegulationDecisionSnapshot(
                 Action: candidate,
                 ActivationWindowTriggered: activationTriggered,
                 CooldownTriggered: cooldownTriggered,
-                ActivationWindowOpen: activationWindowOpen);
+                ActivationWindowOpen: activationWindowOpen,
+                PolicyId: selected.PolicyId,
+                Domain: selected.Domain.ToString().ToLowerInvariant(),
+                EscalationLevel: selected.Level.ToString(),
+                PlannedEndTimestampUtc: ResolvePlannedEndTimestamp(candidate, stabilized.TimestampUtc),
+                CooldownEndTimestampUtc: selected.CooldownEndTimestampUtc);
         }
     }
 
-    private static string ResolveCandidateAction(InferredStateSnapshot stabilized)
+    private DomainDecision EvaluateDomain(
+        EffectiveRegulationPolicy policy,
+        DomainRuntimeState runtime,
+        InferredStateSnapshot snapshot,
+        DomainSignal signal)
     {
-        if (stabilized.OverloadLikelihood > 0.80)
+        long nowTicks = Stopwatch.GetTimestamp();
+        double elapsedSeconds = ResolveElapsedSeconds(nowTicks, runtime.LastObservedMonotonicTicks);
+        runtime.LastObservedMonotonicTicks = nowTicks;
+        bool softConfidenceOk = snapshot.Confidence >= policy.ConfidenceGate;
+        bool hardConfidenceOk = snapshot.Confidence >= policy.HardConfidenceGate;
+        bool cooldownActive = runtime.CooldownUntilUtc.HasValue && snapshot.TimestampUtc < runtime.CooldownUntilUtc.Value;
+
+        if (runtime.CurrentLevel > RegulationEscalationLevel.Inform && runtime.LastEscalationAtUtc.HasValue)
         {
-            return "focus_mode_enabled";
+            int interventionWindowSeconds = ResolveInterventionWindowSeconds(policy.Domain, runtime.CurrentLevel);
+            if ((snapshot.TimestampUtc - runtime.LastEscalationAtUtc.Value).TotalSeconds >= interventionWindowSeconds)
+            {
+                RegulationEscalationLevel previousLevel = runtime.CurrentLevel;
+                runtime.CurrentLevel = RegulationEscalationLevel.Inform;
+                runtime.LastEscalationAtUtc = null;
+                int cooldownSeconds = ResolveRecoveryCooldownSeconds(policy, previousLevel);
+                runtime.CooldownUntilUtc = cooldownSeconds > 0
+                    ? snapshot.TimestampUtc.AddSeconds(cooldownSeconds)
+                    : null;
+                runtime.RecoverySeconds = 0;
+                runtime.ActivationSeconds = 0;
+                runtime.HardActivationSeconds = 0;
+                return new DomainDecision(
+                    PolicyId: policy.PolicyId,
+                    Domain: policy.Domain,
+                    Level: RegulationEscalationLevel.Inform,
+                    Action: "monitor_only",
+                    SignalValue: signal.Value,
+                    CooldownBlocked: false,
+                    ActivationWindowOpen: false,
+                    ActivationTriggered: false,
+                    CooldownEndTimestampUtc: runtime.CooldownUntilUtc);
+            }
         }
 
-        if (stabilized.FatigueProbability > 0.75)
+        bool softHit = signal.Eligible
+            && softConfidenceOk
+            && signal.Value >= policy.Thresholds.Soft;
+        bool hardHit = signal.Eligible
+            && hardConfidenceOk
+            && signal.Value >= policy.Thresholds.Hard;
+
+        runtime.ActivationSeconds = softHit && !cooldownActive
+            ? runtime.ActivationSeconds + elapsedSeconds
+            : 0d;
+        runtime.HardActivationSeconds = hardHit && !cooldownActive
+            ? runtime.HardActivationSeconds + elapsedSeconds
+            : 0d;
+        bool softActivationWindowOpen = runtime.ActivationSeconds >= policy.ActivationWindowSeconds;
+        bool hardActivationWindowOpen = runtime.HardActivationSeconds >= policy.HardActivationWindowSeconds;
+        bool activationWindowOpen = softActivationWindowOpen || hardActivationWindowOpen;
+
+        bool recoveryCondition = signal.RecoveryValue <= signal.RecoveryTarget || !signal.Eligible;
+        runtime.RecoverySeconds = runtime.CurrentLevel > RegulationEscalationLevel.Inform && recoveryCondition
+            ? runtime.RecoverySeconds + elapsedSeconds
+            : 0d;
+
+        if (runtime.CurrentLevel > RegulationEscalationLevel.Inform
+            && runtime.RecoverySeconds >= policy.RecoveryWindowSeconds)
         {
-            return "break_suggestion";
+            RegulationEscalationLevel previousLevel = runtime.CurrentLevel;
+            runtime.CurrentLevel = RegulationEscalationLevel.Inform;
+            runtime.LastEscalationAtUtc = null;
+            int cooldownSeconds = ResolveRecoveryCooldownSeconds(policy, previousLevel);
+            runtime.CooldownUntilUtc = cooldownSeconds > 0
+                ? snapshot.TimestampUtc.AddSeconds(cooldownSeconds)
+                : null;
+            runtime.RecoverySeconds = 0;
+            runtime.ActivationSeconds = 0;
+            runtime.HardActivationSeconds = 0;
+            return new DomainDecision(
+                PolicyId: policy.PolicyId,
+                Domain: policy.Domain,
+                Level: RegulationEscalationLevel.Inform,
+                Action: "monitor_only",
+                SignalValue: signal.Value,
+                CooldownBlocked: false,
+                ActivationWindowOpen: false,
+                ActivationTriggered: false,
+                CooldownEndTimestampUtc: runtime.CooldownUntilUtc);
         }
 
-        if (stabilized.FocusStrength > 0.70)
+        bool activationTriggered = false;
+        if (activationWindowOpen && !cooldownActive)
         {
-            return "maintain_focus";
+            RegulationEscalationLevel target = runtime.CurrentLevel;
+            if (hardHit && hardActivationWindowOpen)
+            {
+                target = policy.MaxEscalationLevel;
+            }
+            else if (softHit && softActivationWindowOpen)
+            {
+                if (runtime.CurrentLevel < RegulationEscalationLevel.Suggest)
+                {
+                    target = RegulationEscalationLevel.Suggest;
+                }
+                else if (runtime.CurrentLevel < policy.MaxEscalationLevel
+                    && (!runtime.LastEscalationAtUtc.HasValue
+                        || (snapshot.TimestampUtc - runtime.LastEscalationAtUtc.Value).TotalSeconds >= policy.ActivationWindowSeconds))
+                {
+                    target = (RegulationEscalationLevel)((int)runtime.CurrentLevel + 1);
+                }
+            }
+
+            if (target > runtime.CurrentLevel)
+            {
+                runtime.CurrentLevel = target;
+                runtime.LastEscalationAtUtc = snapshot.TimestampUtc;
+                activationTriggered = true;
+            }
         }
 
-        return "monitor_only";
+        if (runtime.CurrentLevel == RegulationEscalationLevel.Inform)
+        {
+            return new DomainDecision(
+                PolicyId: policy.PolicyId,
+                Domain: policy.Domain,
+                Level: runtime.CurrentLevel,
+                Action: "monitor_only",
+                SignalValue: signal.Value,
+                CooldownBlocked: (softHit || hardHit) && cooldownActive,
+                ActivationWindowOpen: activationWindowOpen,
+                ActivationTriggered: activationTriggered,
+                CooldownEndTimestampUtc: runtime.CooldownUntilUtc);
+        }
+
+        string action = _policyEngine.ResolveAction(policy, runtime.CurrentLevel);
+        if (!IsInterventionAction(action))
+        {
+            return new DomainDecision(
+                PolicyId: policy.PolicyId,
+                Domain: policy.Domain,
+                Level: RegulationEscalationLevel.Inform,
+                Action: "monitor_only",
+                SignalValue: signal.Value,
+                CooldownBlocked: (softHit || hardHit) && cooldownActive,
+                ActivationWindowOpen: activationWindowOpen,
+                ActivationTriggered: false,
+                CooldownEndTimestampUtc: runtime.CooldownUntilUtc);
+        }
+
+        return new DomainDecision(
+            PolicyId: policy.PolicyId,
+            Domain: policy.Domain,
+            Level: runtime.CurrentLevel,
+            Action: action,
+            SignalValue: signal.Value,
+            CooldownBlocked: (softHit || hardHit) && cooldownActive,
+            ActivationWindowOpen: activationWindowOpen,
+            ActivationTriggered: activationTriggered,
+            CooldownEndTimestampUtc: runtime.CooldownUntilUtc);
+    }
+
+    private static DomainDecision SelectDecision(params DomainDecision[] decisions)
+    {
+        DomainDecision selected = decisions[0];
+        for (int i = 1; i < decisions.Length; i++)
+        {
+            DomainDecision current = decisions[i];
+            if ((int)current.Level > (int)selected.Level)
+            {
+                selected = current;
+                continue;
+            }
+
+            if ((int)current.Level == (int)selected.Level && current.SignalValue > selected.SignalValue)
+            {
+                selected = current;
+            }
+        }
+
+        return selected;
+    }
+
+    private void ResetStateMemory()
+    {
+        foreach (DomainRuntimeState state in _domainStates.Values)
+        {
+            state.ActivationSeconds = 0;
+            state.HardActivationSeconds = 0;
+            state.RecoverySeconds = 0;
+            state.CooldownUntilUtc = null;
+            state.CurrentLevel = RegulationEscalationLevel.Inform;
+            state.LastEscalationAtUtc = null;
+            state.LastObservedMonotonicTicks = null;
+        }
     }
 
     private static bool IsInterventionAction(string action)
     {
         return string.Equals(action, "focus_mode_enabled", StringComparison.Ordinal)
-            || string.Equals(action, "break_suggestion", StringComparison.Ordinal);
+            || string.Equals(action, "focus_assist_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "fatigue_relief_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "break_suggestion", StringComparison.Ordinal)
+            || string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal)
+            || string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal)
+            || string.Equals(action, "temporary_app_restriction_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "inform_overload_risk", StringComparison.Ordinal)
+            || string.Equals(action, "inform_focus_protection", StringComparison.Ordinal)
+            || string.Equals(action, "inform_fatigue_prevention", StringComparison.Ordinal);
     }
+
+    private static string ApplyUserCategoryGates(RegulationDomain domain, string action, RegulationEscalationLevel level, AgentControlState control)
+    {
+        bool overloadNudgeAllowed = control.FocusModeEnabled
+            || control.NotificationReductionEnabled
+            || control.AnimationReductionEnabled;
+        bool focusNudgeAllowed = control.FocusModeEnabled;
+        bool fatigueNudgeAllowed = control.AnimationReductionEnabled;
+
+        if (string.Equals(action, "temporary_app_restriction_enabled", StringComparison.Ordinal)
+            && !control.TemporaryAppRestrictionEnabled)
+        {
+            if (domain == RegulationDomain.Focus)
+            {
+                return focusNudgeAllowed ? "focus_assist_enabled" : "focus_lock_in_suggestion";
+            }
+
+            if (domain == RegulationDomain.Fatigue)
+            {
+                return fatigueNudgeAllowed ? "fatigue_relief_enabled" : "stretch_break_suggestion";
+            }
+
+            return overloadNudgeAllowed ? "focus_mode_enabled" : "break_suggestion";
+        }
+
+        if (string.Equals(action, "focus_mode_enabled", StringComparison.Ordinal) && !overloadNudgeAllowed)
+        {
+            return "break_suggestion";
+        }
+
+        if (string.Equals(action, "focus_assist_enabled", StringComparison.Ordinal) && !focusNudgeAllowed)
+        {
+            return "focus_lock_in_suggestion";
+        }
+
+        if (string.Equals(action, "fatigue_relief_enabled", StringComparison.Ordinal) && !fatigueNudgeAllowed)
+        {
+            return "stretch_break_suggestion";
+        }
+
+        // Restrict escalation with all categories disabled falls back to suggest.
+        if (level == RegulationEscalationLevel.Restrict
+            && !control.TemporaryAppRestrictionEnabled
+            && !overloadNudgeAllowed
+            && !focusNudgeAllowed
+            && !fatigueNudgeAllowed)
+        {
+            return domain switch
+            {
+                RegulationDomain.Focus => "focus_lock_in_suggestion",
+                RegulationDomain.Fatigue => "stretch_break_suggestion",
+                _ => "break_suggestion"
+            };
+        }
+
+        return action;
+    }
+
+    private static int ResolveRecoveryCooldownSeconds(EffectiveRegulationPolicy policy, RegulationEscalationLevel previousLevel)
+    {
+        if (policy.Domain != RegulationDomain.Focus)
+        {
+            return policy.CooldownSeconds;
+        }
+
+        // Focus policy: no cooldown for level 1-2; cooldown only after restrict.
+        return previousLevel >= RegulationEscalationLevel.Restrict ? policy.CooldownSeconds : 0;
+    }
+
+    private static int ResolveInterventionWindowSeconds(RegulationDomain domain, RegulationEscalationLevel level)
+    {
+        return level switch
+        {
+            RegulationEscalationLevel.Restrict => 180,
+            RegulationEscalationLevel.Nudge => 600,
+            RegulationEscalationLevel.Suggest => 300,
+            RegulationEscalationLevel.Inform => 60,
+            _ => 60
+        };
+    }
+
+    private static double ResolveElapsedSeconds(long nowTicks, long? previousTicks)
+    {
+        if (!previousTicks.HasValue || nowTicks <= previousTicks.Value)
+        {
+            return 1d;
+        }
+
+        double elapsed = (double)(nowTicks - previousTicks.Value) / Stopwatch.Frequency;
+        return Math.Clamp(elapsed, 0.05d, 5d);
+    }
+
+    private static DateTimeOffset? ResolvePlannedEndTimestamp(string action, DateTimeOffset nowUtc)
+    {
+        int seconds = action switch
+        {
+            "temporary_app_restriction_enabled" => 180,
+            "focus_mode_enabled" => 600,
+            "focus_assist_enabled" => 600,
+            "fatigue_relief_enabled" => 600,
+            "break_suggestion" => 300,
+            "focus_lock_in_suggestion" => 300,
+            "stretch_break_suggestion" => 300,
+            "inform_overload_risk" => 60,
+            "inform_focus_protection" => 60,
+            "inform_fatigue_prevention" => 60,
+            _ => 0
+        };
+        return seconds <= 0 ? null : nowUtc.AddSeconds(seconds);
+    }
+
+    private sealed class DomainRuntimeState
+    {
+        public double ActivationSeconds { get; set; }
+        public double HardActivationSeconds { get; set; }
+        public double RecoverySeconds { get; set; }
+        public RegulationEscalationLevel CurrentLevel { get; set; } = RegulationEscalationLevel.Inform;
+        public DateTimeOffset? CooldownUntilUtc { get; set; }
+        public DateTimeOffset? LastEscalationAtUtc { get; set; }
+        public long? LastObservedMonotonicTicks { get; set; }
+    }
+
+    private sealed record DomainSignal(
+        double Value,
+        bool Eligible,
+        double RecoveryTarget)
+    {
+        public double RecoveryValue => Value;
+    }
+
+    private sealed record DomainDecision(
+        string PolicyId,
+        RegulationDomain Domain,
+        RegulationEscalationLevel Level,
+        string Action,
+        double SignalValue,
+        bool CooldownBlocked,
+        bool ActivationWindowOpen,
+        bool ActivationTriggered,
+        DateTimeOffset? CooldownEndTimestampUtc);
 }
 
 public sealed class HttpBackendConnectivityProbe : IBackendConnectivityProbe

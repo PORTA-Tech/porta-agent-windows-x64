@@ -32,29 +32,8 @@ public sealed class AgentBrainWorker(
                 AgentControlState control = controller.GetControlState();
                 if (!control.ConsentActive || control.Paused)
                 {
-                    string action = !control.ConsentActive ? "consent_required" : "paused_by_user";
-                    AgentBrainSnapshot passiveSnapshot = new(
-                        TimestampUtc: nowUtc,
-                        TypingBurstIntensity: 0,
-                        ScrollVelocityIndex: 0,
-                        FocusSwitchRate: 0,
-                        SmoothedTypingBurstIntensity: 0,
-                        SmoothedScrollVelocityIndex: 0,
-                        SmoothedFocusSwitchRate: 0,
-                        FocusStrength: 0,
-                        OverloadLikelihood: 0,
-                        FatigueProbability: 0,
-                        CognitiveStability: 1,
-                        DominantStateValue: 1,
-                        DominantStateName: "stability",
-                        Confidence: 1,
-                        LastAction: action,
-                        ActivationWindowTriggered: false,
-                        CooldownTriggered: false,
-                        ActivationWindowOpen: false,
-                        Contributors: ["control_state"]);
-                    store.WriteSnapshot(passiveSnapshot);
-                    controller.ApplyBrainSnapshot(passiveSnapshot, backendConnected);
+                    // Hard gate: while paused/no-consent, do not collect or persist new samples.
+                    previousSmoothedPrimitive = null;
                     controller.MarkHealthyHeartbeat();
                     await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken).ConfigureAwait(false);
                     continue;
@@ -89,7 +68,12 @@ public sealed class AgentBrainWorker(
                     ActivationWindowTriggered: decision.ActivationWindowTriggered,
                     CooldownTriggered: decision.CooldownTriggered,
                     ActivationWindowOpen: decision.ActivationWindowOpen,
-                    Contributors: stabilized.Contributors);
+                    Contributors: stabilized.Contributors,
+                    PolicyId: decision.PolicyId,
+                    Domain: decision.Domain,
+                    EscalationLevel: decision.EscalationLevel,
+                    PlannedEndTimestampUtc: decision.PlannedEndTimestampUtc,
+                    CooldownEndTimestampUtc: decision.CooldownEndTimestampUtc);
                 store.WriteSnapshot(snapshot);
                 controller.ApplyBrainSnapshot(snapshot, backendConnected);
                 controller.MarkHealthyHeartbeat();

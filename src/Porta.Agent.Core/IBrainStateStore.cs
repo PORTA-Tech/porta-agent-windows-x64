@@ -18,9 +18,10 @@ public interface IBrainStateStore
     AgentStorageInfo ReadStorageInfo();
     AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);
     string ExportBundle(
-        string logFilePath,
+        IReadOnlyList<string> logFilePaths,
         string consentPath,
         string settingsPath,
         IReadOnlyDictionary<string, string> versions,
-        IReadOnlyList<string> configPaths);
+        IReadOnlyList<string> configPaths,
+        IReadOnlyDictionary<string, string> supplementalJsonFiles);
 }

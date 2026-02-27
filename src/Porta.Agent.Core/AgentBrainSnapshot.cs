@@ -19,4 +19,10 @@ public sealed record AgentBrainSnapshot(
     bool ActivationWindowTriggered,
     bool CooldownTriggered,
     bool ActivationWindowOpen,
-    IReadOnlyList<string> Contributors);
+    IReadOnlyList<string> Contributors,
+    string PolicyId = "n/a",
+    string Domain = "control",
+    string EscalationLevel = "Inform",
+    DateTimeOffset? PlannedEndTimestampUtc = null,
+    DateTimeOffset? ActualEndTimestampUtc = null,
+    DateTimeOffset? CooldownEndTimestampUtc = null);

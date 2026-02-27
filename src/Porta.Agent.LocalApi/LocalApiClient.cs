@@ -285,6 +285,38 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    public async Task<LocalApiAckResponse?> TriggerTestInterventionAsync(string action, CancellationToken token = default)
+    {
+        if (_settings == null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(action))
+        {
+            return new LocalApiAckResponse(
+                Success: false,
+                Message: "missing_action",
+                TimestampUtc: DateTimeOffset.UtcNow);
+        }
+
+        try
+        {
+            var request = new LocalApiTestInterventionRequest(action.Trim());
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/testing/intervention", content, token).ConfigureAwait(false);
+            LocalApiAckResponse? payload = await response.Content.ReadFromJsonAsync<LocalApiAckResponse>(cancellationToken: token).ConfigureAwait(false);
+            return payload ?? new LocalApiAckResponse(
+                Success: false,
+                Message: response.IsSuccessStatusCode ? "empty_response" : $"http_{(int)response.StatusCode}",
+                TimestampUtc: DateTimeOffset.UtcNow);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private async Task<bool> PostAsync(string path, object? payload, CancellationToken token)
     {
         if (_settings == null)

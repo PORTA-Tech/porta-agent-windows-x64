@@ -16,6 +16,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
     private DateTimeOffset _lastPruneUtc = DateTimeOffset.MinValue;
     private string? _lastAutoEventAction;
     private DateTimeOffset _lastAutoEventAtUtc = DateTimeOffset.MinValue;
+    private ActiveInterventionState? _activeIntervention;
+
+    private sealed record ActiveInterventionState(
+        string InterventionId,
+        string Action,
+        string EscalationLevel,
+        string PolicyId,
+        string Domain,
+        DateTimeOffset StartTimestampUtc,
+        DateTimeOffset? PlannedEndTimestampUtc,
+        DateTimeOffset? CooldownEndTimestampUtc);
 
     public SqliteBrainStateStore()
     {
@@ -312,19 +323,48 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         {
             try
             {
-                if (File.Exists(_dbPath))
-                {
-                    File.Delete(_dbPath);
-                }
+                using var connection = new SqliteConnection(_connectionString);
+                connection.Open();
+                using SqliteTransaction tx = connection.BeginTransaction();
+
+                using var cmd = connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText =
+                    """
+                    DELETE FROM input_buckets;
+                    DELETE FROM state_buckets;
+                    DELETE FROM events;
+                    DELETE FROM interventions;
+                    DELETE FROM system_changes;
+                    DELETE FROM diagnostics;
+                    DELETE FROM diagnostics_snapshots;
+                    DELETE FROM consent;
+                    DELETE FROM settings;
+                    DELETE FROM brain_snapshots;
+                    DELETE FROM sqlite_sequence;
+                    """;
+                cmd.ExecuteNonQuery();
+                tx.Commit();
+
+                using var checkpointCmd = connection.CreateCommand();
+                checkpointCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                checkpointCmd.ExecuteNonQuery();
+
+                using var vacuumCmd = connection.CreateCommand();
+                vacuumCmd.CommandText = "VACUUM;";
+                vacuumCmd.ExecuteNonQuery();
             }
             catch
             {
+                // Fallback: if SQL-level purge fails, attempt file reset.
+                TryDeleteDbFiles();
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(_dbPath)!);
             EnsureSchema();
             _lastAutoEventAction = null;
             _lastAutoEventAtUtc = DateTimeOffset.MinValue;
+            _activeIntervention = null;
             _lastPruneUtc = DateTimeOffset.MinValue;
         }
     }
@@ -357,7 +397,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     activation_window_triggered,
                     cooldown_triggered,
                     activation_window_open,
-                    contributors_json
+                    contributors_json,
+                    policy_id,
+                    domain,
+                    escalation_level,
+                    planned_end_timestamp_utc,
+                    actual_end_timestamp_utc,
+                    cooldown_end_timestamp_utc
                 FROM brain_snapshots
                 ORDER BY id DESC
                 LIMIT 1;
@@ -388,7 +434,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 ActivationWindowTriggered: ReadBoolOrFallback(reader, 15, false),
                 CooldownTriggered: ReadBoolOrFallback(reader, 16, false),
                 ActivationWindowOpen: ReadBoolOrFallback(reader, 17, false),
-                Contributors: DeserializeContributors(reader.GetString(18)));
+                Contributors: DeserializeContributors(reader.GetString(18)),
+                PolicyId: ReadStringOrFallback(reader, 19, "n/a"),
+                Domain: ReadStringOrFallback(reader, 20, "control"),
+                EscalationLevel: ReadStringOrFallback(reader, 21, "Inform"),
+                PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 22, string.Empty)),
+                ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 23, string.Empty)),
+                CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 24, string.Empty)));
         }
     }
 
@@ -428,7 +480,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     activation_window_triggered,
                     cooldown_triggered,
                     activation_window_open,
-                    contributors_json
+                    contributors_json,
+                    policy_id,
+                    domain,
+                    escalation_level,
+                    planned_end_timestamp_utc,
+                    actual_end_timestamp_utc,
+                    cooldown_end_timestamp_utc
                 FROM brain_snapshots
                 WHERE timestamp_utc >= $from AND timestamp_utc <= $to
                 ORDER BY timestamp_utc ASC;
@@ -458,7 +516,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     ActivationWindowTriggered: ReadBoolOrFallback(reader, 15, false),
                     CooldownTriggered: ReadBoolOrFallback(reader, 16, false),
                     ActivationWindowOpen: ReadBoolOrFallback(reader, 17, false),
-                    Contributors: DeserializeContributors(reader.GetString(18))));
+                    Contributors: DeserializeContributors(reader.GetString(18)),
+                    PolicyId: ReadStringOrFallback(reader, 19, "n/a"),
+                    Domain: ReadStringOrFallback(reader, 20, "control"),
+                    EscalationLevel: ReadStringOrFallback(reader, 21, "Inform"),
+                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 22, string.Empty)),
+                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 23, string.Empty)),
+                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 24, string.Empty))));
             }
 
             if (bucket == 1 || rawRows.Count <= 1)
@@ -502,7 +566,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     escalation,
                     reversible,
                     why,
-                    contributors_json
+                    contributors_json,
+                    intervention_id,
+                    policy_id,
+                    domain,
+                    planned_end_timestamp_utc,
+                    actual_end_timestamp_utc,
+                    previous_system_state_json,
+                    what_changed,
+                    how_to_undo,
+                    reversal_applied,
+                    cooldown_end_timestamp_utc,
+                    lifecycle_state
                 FROM events
                 WHERE ($since = '' OR timestamp_utc >= $since)
                 ORDER BY timestamp_utc DESC
@@ -524,7 +599,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     EscalationLevel: reader.GetString(6),
                     Reversible: reader.GetInt32(7) == 1,
                     Reason: reader.GetString(8),
-                    Contributors: DeserializeContributors(reader.GetString(9))));
+                    Contributors: DeserializeContributors(reader.GetString(9)),
+                    InterventionId: ReadStringOrFallback(reader, 10, string.Empty),
+                    PolicyId: ReadStringOrFallback(reader, 11, "n/a"),
+                    Domain: ReadStringOrFallback(reader, 12, "control"),
+                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 13, string.Empty)),
+                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 14, string.Empty)),
+                    PreviousSystemStateJson: ReadStringOrFallback(reader, 15, "{}"),
+                    WhatChanged: ReadStringOrFallback(reader, 16, string.Empty),
+                    HowToUndo: ReadStringOrFallback(reader, 17, string.Empty),
+                    ReversalApplied: ReadBoolOrFallback(reader, 18, false),
+                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 19, string.Empty)),
+                    LifecycleState: ReadStringOrFallback(reader, 20, "activated")));
             }
 
             return rows;
@@ -558,7 +644,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     escalation,
                     reversible,
                     why,
-                    contributors_json
+                    contributors_json,
+                    intervention_id,
+                    policy_id,
+                    domain,
+                    planned_end_timestamp_utc,
+                    actual_end_timestamp_utc,
+                    previous_system_state_json,
+                    what_changed,
+                    how_to_undo,
+                    reversal_applied,
+                    cooldown_end_timestamp_utc,
+                    lifecycle_state
                 FROM events
                 WHERE timestamp_utc >= $from AND timestamp_utc <= $to
                 ORDER BY timestamp_utc ASC
@@ -581,7 +678,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                     EscalationLevel: reader.GetString(6),
                     Reversible: reader.GetInt32(7) == 1,
                     Reason: reader.GetString(8),
-                    Contributors: DeserializeContributors(reader.GetString(9))));
+                    Contributors: DeserializeContributors(reader.GetString(9)),
+                    InterventionId: ReadStringOrFallback(reader, 10, string.Empty),
+                    PolicyId: ReadStringOrFallback(reader, 11, "n/a"),
+                    Domain: ReadStringOrFallback(reader, 12, "control"),
+                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 13, string.Empty)),
+                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 14, string.Empty)),
+                    PreviousSystemStateJson: ReadStringOrFallback(reader, 15, "{}"),
+                    WhatChanged: ReadStringOrFallback(reader, 16, string.Empty),
+                    HowToUndo: ReadStringOrFallback(reader, 17, string.Empty),
+                    ReversalApplied: ReadBoolOrFallback(reader, 18, false),
+                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 19, string.Empty)),
+                    LifecycleState: ReadStringOrFallback(reader, 20, "activated")));
             }
 
             return rows;
@@ -665,11 +773,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
     }
 
     public string ExportBundle(
-        string logFilePath,
+        IReadOnlyList<string> logFilePaths,
         string consentPath,
         string settingsPath,
         IReadOnlyDictionary<string, string> versions,
-        IReadOnlyList<string> configPaths)
+        IReadOnlyList<string> configPaths,
+        IReadOnlyDictionary<string, string> supplementalJsonFiles)
     {
         lock (_gate)
         {
@@ -684,9 +793,24 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 File.Copy(_dbPath, dbTarget, overwrite: true);
             }
 
-            if (File.Exists(logFilePath))
+            string logsDir = Path.Combine(exportDir, "logs");
+            Directory.CreateDirectory(logsDir);
+            foreach (string logFilePath in logFilePaths)
             {
-                File.Copy(logFilePath, Path.Combine(exportDir, "service.log"), overwrite: true);
+                string safeName = Path.GetFileName(logFilePath);
+                if (string.IsNullOrWhiteSpace(safeName))
+                {
+                    continue;
+                }
+
+                string destination = Path.Combine(logsDir, safeName);
+                if (!File.Exists(logFilePath))
+                {
+                    File.WriteAllText(destination, string.Empty);
+                    continue;
+                }
+
+                File.Copy(logFilePath, destination, overwrite: true);
             }
 
             if (File.Exists(consentPath))
@@ -723,13 +847,38 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             string versionsJson = JsonSerializer.Serialize(versions, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(exportDir, "versions.json"), versionsJson);
 
+            foreach ((string fileName, string json) in supplementalJsonFiles)
+            {
+                if (string.IsNullOrWhiteSpace(fileName))
+                {
+                    continue;
+                }
+
+                string safeName = Path.GetFileName(fileName);
+                if (string.IsNullOrWhiteSpace(safeName))
+                {
+                    continue;
+                }
+
+                File.WriteAllText(Path.Combine(exportDir, safeName), json ?? "{}");
+            }
+
             string metadata = JsonSerializer.Serialize(new
             {
                 generated_at_utc = DateTimeOffset.UtcNow,
                 schema = "v2",
                 db_path = _dbPath,
                 retention_days = DefaultRetentionDays,
-                config_files = exportedConfigNames
+                config_files = exportedConfigNames,
+                included_log_files = logFilePaths
+                    .Where(File.Exists)
+                    .Select(Path.GetFileName)
+                    .Where(static name => !string.IsNullOrWhiteSpace(name))
+                    .ToArray(),
+                supplemental_json_files = supplementalJsonFiles.Keys
+                    .Select(Path.GetFileName)
+                    .Where(static name => !string.IsNullOrWhiteSpace(name))
+                    .ToArray()
             }, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Path.Combine(exportDir, "metadata.json"), metadata);
 
@@ -837,11 +986,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 activation_window_triggered,
                 cooldown_triggered,
                 activation_window_open,
-                contributors_json
+                contributors_json,
+                policy_id,
+                domain,
+                escalation_level,
+                planned_end_timestamp_utc,
+                actual_end_timestamp_utc,
+                cooldown_end_timestamp_utc
             ) VALUES (
                 $ts, $typing, $scroll, $focus_switch, $typing_smooth, $scroll_smooth, $focus_switch_smooth,
                 $focus_strength, $overload, $fatigue, $stability, $dominant_name, $dominant_value,
-                $confidence, $last_action, $activation_triggered, $cooldown_triggered, $activation_open, $contributors
+                $confidence, $last_action, $activation_triggered, $cooldown_triggered, $activation_open, $contributors,
+                $policy_id, $domain, $escalation, $planned_end, $actual_end, $cooldown_end
             );
             """;
         cmd.Parameters.AddWithValue("$ts", snapshot.TimestampUtc.ToString("O"));
@@ -863,39 +1019,154 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         cmd.Parameters.AddWithValue("$cooldown_triggered", snapshot.CooldownTriggered ? 1 : 0);
         cmd.Parameters.AddWithValue("$activation_open", snapshot.ActivationWindowOpen ? 1 : 0);
         cmd.Parameters.AddWithValue("$contributors", JsonSerializer.Serialize(snapshot.Contributors));
+        cmd.Parameters.AddWithValue("$policy_id", snapshot.PolicyId);
+        cmd.Parameters.AddWithValue("$domain", snapshot.Domain);
+        cmd.Parameters.AddWithValue("$escalation", snapshot.EscalationLevel);
+        cmd.Parameters.AddWithValue("$planned_end", snapshot.PlannedEndTimestampUtc?.ToString("O") ?? string.Empty);
+        cmd.Parameters.AddWithValue("$actual_end", snapshot.ActualEndTimestampUtc?.ToString("O") ?? string.Empty);
+        cmd.Parameters.AddWithValue("$cooldown_end", snapshot.CooldownEndTimestampUtc?.ToString("O") ?? string.Empty);
         cmd.ExecuteNonQuery();
     }
 
     private void TryInsertAutomaticInterventionEvent(SqliteConnection connection, SqliteTransaction tx, AgentBrainSnapshot snapshot)
     {
-        if (string.IsNullOrWhiteSpace(snapshot.LastAction) || IsNonInterventionAction(snapshot.LastAction))
+        string currentAction = snapshot.LastAction?.Trim() ?? string.Empty;
+        bool currentIsIntervention = !string.IsNullOrWhiteSpace(currentAction) && !IsNonInterventionAction(currentAction);
+
+        if (_activeIntervention != null)
+        {
+            bool actionChanged = !string.Equals(_activeIntervention.Action, currentAction, StringComparison.Ordinal);
+            bool plannedExpired = _activeIntervention.PlannedEndTimestampUtc.HasValue
+                && snapshot.TimestampUtc >= _activeIntervention.PlannedEndTimestampUtc.Value;
+            if (!currentIsIntervention || actionChanged || plannedExpired)
+            {
+                string reason = !currentIsIntervention
+                    ? $"deactivated_due_to:{currentAction}"
+                    : actionChanged
+                        ? $"deactivated_due_to_action_change:{currentAction}"
+                        : "deactivated_due_to_planned_end";
+                InsertAutomaticDeactivationEvent(connection, tx, snapshot, reason);
+            }
+        }
+
+        if (!currentIsIntervention)
         {
             return;
         }
 
-        if (string.Equals(_lastAutoEventAction, snapshot.LastAction, StringComparison.Ordinal)
+        if (string.Equals(_lastAutoEventAction, currentAction, StringComparison.Ordinal)
             && (snapshot.TimestampUtc - _lastAutoEventAtUtc) < TimeSpan.FromSeconds(DefaultEventCooldownSeconds))
         {
             return;
         }
 
         (string triggerState, double triggerValue) = ResolveTrigger(snapshot);
+        string escalationLevel = string.IsNullOrWhiteSpace(snapshot.EscalationLevel)
+            ? ResolveEscalationLevel(currentAction)
+            : snapshot.EscalationLevel;
+        bool reversible = IsReversibleAction(currentAction);
+        int? durationSeconds = ResolveDurationSeconds(currentAction);
+        DateTimeOffset? plannedEndTimestampUtc = snapshot.PlannedEndTimestampUtc
+            ?? (durationSeconds.HasValue ? snapshot.TimestampUtc.AddSeconds(Math.Max(durationSeconds.Value, 0)) : null);
+        string interventionId = Guid.NewGuid().ToString("N");
+        string whatChanged = ResolveWhatChanged(currentAction, lifecycleState: "activated");
+        string howToUndo = ResolveHowToUndo(currentAction, reversible, lifecycleState: "activated");
 
         var ev = new AgentControlEvent(
             TimestampUtc: snapshot.TimestampUtc,
-            Action: snapshot.LastAction,
+            Action: currentAction,
             TriggerState: triggerState,
             TriggerValue: triggerValue,
             Confidence: snapshot.Confidence,
-            DurationSeconds: null,
-            EscalationLevel: ResolveEscalationLevel(snapshot.LastAction),
-            Reversible: string.Equals(snapshot.LastAction, "focus_mode_enabled", StringComparison.Ordinal),
-            Reason: $"{snapshot.LastAction} from {triggerState}={triggerValue:F2}, confidence={snapshot.Confidence:F2}",
-            Contributors: snapshot.Contributors);
+            DurationSeconds: durationSeconds,
+            EscalationLevel: escalationLevel,
+            Reversible: reversible,
+            Reason: ResolveAutomaticReason(currentAction, triggerState, triggerValue, snapshot.Confidence, reversible),
+            Contributors: snapshot.Contributors,
+            InterventionId: interventionId,
+            PolicyId: string.IsNullOrWhiteSpace(snapshot.PolicyId) ? "n/a" : snapshot.PolicyId,
+            Domain: string.IsNullOrWhiteSpace(snapshot.Domain) ? "control" : snapshot.Domain,
+            PlannedEndTimestampUtc: plannedEndTimestampUtc,
+            ActualEndTimestampUtc: null,
+            PreviousSystemStateJson: JsonSerializer.Serialize(new
+            {
+                previous_action = _activeIntervention?.Action ?? "none",
+                previous_escalation = _activeIntervention?.EscalationLevel ?? "Inform"
+            }),
+            WhatChanged: whatChanged,
+            HowToUndo: howToUndo,
+            ReversalApplied: false,
+            CooldownEndTimestampUtc: snapshot.CooldownEndTimestampUtc,
+            LifecycleState: "activated");
 
         InsertInterventionEvent(connection, tx, ev);
-        _lastAutoEventAction = snapshot.LastAction;
+        InsertAutomaticSystemChange(connection, tx, ev);
+        _activeIntervention = new ActiveInterventionState(
+            InterventionId: interventionId,
+            Action: currentAction,
+            EscalationLevel: escalationLevel,
+            PolicyId: ev.PolicyId,
+            Domain: ev.Domain,
+            StartTimestampUtc: snapshot.TimestampUtc,
+            PlannedEndTimestampUtc: plannedEndTimestampUtc,
+            CooldownEndTimestampUtc: snapshot.CooldownEndTimestampUtc);
+        _lastAutoEventAction = currentAction;
         _lastAutoEventAtUtc = snapshot.TimestampUtc;
+    }
+
+    private void InsertAutomaticDeactivationEvent(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        AgentBrainSnapshot snapshot,
+        string reason)
+    {
+        if (_activeIntervention == null)
+        {
+            return;
+        }
+
+        ActiveInterventionState active = _activeIntervention;
+        _activeIntervention = null;
+
+        (string triggerState, double triggerValue) = ResolveTrigger(snapshot);
+        int? durationSeconds = null;
+        if (snapshot.TimestampUtc >= active.StartTimestampUtc)
+        {
+            durationSeconds = (int)Math.Max(0, (snapshot.TimestampUtc - active.StartTimestampUtc).TotalSeconds);
+        }
+        string whatChanged = ResolveWhatChanged(active.Action, lifecycleState: "deactivated");
+        string howToUndo = ResolveHowToUndo(active.Action, reversible: true, lifecycleState: "deactivated");
+        string deactivationReason = $"{reason}; trigger={triggerState}={triggerValue:F2}; confidence={snapshot.Confidence:F2}";
+
+        var ev = new AgentControlEvent(
+            TimestampUtc: snapshot.TimestampUtc,
+            Action: active.Action,
+            TriggerState: triggerState,
+            TriggerValue: triggerValue,
+            Confidence: snapshot.Confidence,
+            DurationSeconds: durationSeconds,
+            EscalationLevel: "Inform",
+            Reversible: true,
+            Reason: deactivationReason,
+            Contributors: ["recovery", "auto_reversal"],
+            InterventionId: active.InterventionId,
+            PolicyId: active.PolicyId,
+            Domain: active.Domain,
+            PlannedEndTimestampUtc: active.PlannedEndTimestampUtc,
+            ActualEndTimestampUtc: snapshot.TimestampUtc,
+            PreviousSystemStateJson: JsonSerializer.Serialize(new
+            {
+                active_action = active.Action,
+                active_escalation = active.EscalationLevel
+            }),
+            WhatChanged: whatChanged,
+            HowToUndo: howToUndo,
+            ReversalApplied: true,
+            CooldownEndTimestampUtc: snapshot.CooldownEndTimestampUtc ?? active.CooldownEndTimestampUtc,
+            LifecycleState: "deactivated");
+
+        InsertInterventionEvent(connection, tx, ev);
+        InsertAutomaticSystemChange(connection, tx, ev);
     }
 
     private static bool IsNonInterventionAction(string action)
@@ -903,6 +1174,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         return string.Equals(action, "monitor_only", StringComparison.Ordinal)
             || string.Equals(action, "paused_by_user", StringComparison.Ordinal)
             || string.Equals(action, "consent_required", StringComparison.Ordinal)
+            || string.Equals(action, "maintain_focus", StringComparison.Ordinal)
             || string.Equals(action, "starting", StringComparison.Ordinal);
     }
 
@@ -913,7 +1185,57 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             return ("overload", snapshot.OverloadLikelihood);
         }
 
+        if (string.Equals(snapshot.LastAction, "focus_assist_enabled", StringComparison.Ordinal))
+        {
+            return ("focus", snapshot.FocusStrength);
+        }
+
+        if (string.Equals(snapshot.LastAction, "fatigue_relief_enabled", StringComparison.Ordinal))
+        {
+            return ("fatigue", snapshot.FatigueProbability);
+        }
+
         if (string.Equals(snapshot.LastAction, "break_suggestion", StringComparison.Ordinal))
+        {
+            return ("fatigue", snapshot.FatigueProbability);
+        }
+
+        if (string.Equals(snapshot.LastAction, "focus_lock_in_suggestion", StringComparison.Ordinal))
+        {
+            return ("focus", snapshot.FocusStrength);
+        }
+
+        if (string.Equals(snapshot.LastAction, "temporary_app_restriction_enabled", StringComparison.Ordinal))
+        {
+            if (string.Equals(snapshot.Domain, "focus", StringComparison.OrdinalIgnoreCase))
+            {
+                return ("focus", snapshot.FocusStrength);
+            }
+
+            if (string.Equals(snapshot.Domain, "fatigue", StringComparison.OrdinalIgnoreCase))
+            {
+                return ("fatigue", snapshot.FatigueProbability);
+            }
+
+            return ("overload", snapshot.OverloadLikelihood);
+        }
+
+        if (string.Equals(snapshot.LastAction, "inform_overload_risk", StringComparison.Ordinal))
+        {
+            return ("overload", snapshot.OverloadLikelihood);
+        }
+
+        if (string.Equals(snapshot.LastAction, "inform_focus_protection", StringComparison.Ordinal))
+        {
+            return ("focus", snapshot.FocusStrength);
+        }
+
+        if (string.Equals(snapshot.LastAction, "stretch_break_suggestion", StringComparison.Ordinal))
+        {
+            return ("fatigue", snapshot.FatigueProbability);
+        }
+
+        if (string.Equals(snapshot.LastAction, "inform_fatigue_prevention", StringComparison.Ordinal))
         {
             return ("fatigue", snapshot.FatigueProbability);
         }
@@ -935,7 +1257,22 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
 
     private static string ResolveEscalationLevel(string action)
     {
+        if (string.Equals(action, "temporary_app_restriction_enabled", StringComparison.Ordinal))
+        {
+            return "Restrict";
+        }
+
         if (string.Equals(action, "focus_mode_enabled", StringComparison.Ordinal))
+        {
+            return "Nudge";
+        }
+
+        if (string.Equals(action, "focus_assist_enabled", StringComparison.Ordinal))
+        {
+            return "Nudge";
+        }
+
+        if (string.Equals(action, "fatigue_relief_enabled", StringComparison.Ordinal))
         {
             return "Nudge";
         }
@@ -945,7 +1282,189 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             return "Suggest";
         }
 
+        if (string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal))
+        {
+            return "Suggest";
+        }
+
+        if (string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal))
+        {
+            return "Suggest";
+        }
+
         return "Inform";
+    }
+
+    private static bool IsReversibleAction(string action)
+    {
+        return string.Equals(action, "focus_mode_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "focus_assist_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "fatigue_relief_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "temporary_app_restriction_enabled", StringComparison.Ordinal);
+    }
+
+    private static int? ResolveDurationSeconds(string action)
+    {
+        if (string.Equals(action, "temporary_app_restriction_enabled", StringComparison.Ordinal))
+        {
+            return 180;
+        }
+
+        if (string.Equals(action, "focus_mode_enabled", StringComparison.Ordinal))
+        {
+            return 600;
+        }
+
+        if (string.Equals(action, "focus_assist_enabled", StringComparison.Ordinal))
+        {
+            return 600;
+        }
+
+        if (string.Equals(action, "fatigue_relief_enabled", StringComparison.Ordinal))
+        {
+            return 600;
+        }
+
+        if (string.Equals(action, "break_suggestion", StringComparison.Ordinal))
+        {
+            return 300;
+        }
+
+        if (string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal))
+        {
+            return 300;
+        }
+
+        if (string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal))
+        {
+            return 300;
+        }
+
+        if (string.Equals(action, "inform_overload_risk", StringComparison.Ordinal))
+        {
+            return 60;
+        }
+
+        if (string.Equals(action, "inform_focus_protection", StringComparison.Ordinal))
+        {
+            return 60;
+        }
+
+        if (string.Equals(action, "inform_fatigue_prevention", StringComparison.Ordinal))
+        {
+            return 60;
+        }
+
+        return null;
+    }
+
+    private static string ResolveAutomaticReason(
+        string action,
+        string triggerState,
+        double triggerValue,
+        double confidence,
+        bool reversible)
+    {
+        string reversibility = reversible ? "reversible" : "not_reversible";
+        return $"{action} triggered by {triggerState}={triggerValue:F2}, confidence={confidence:F2}, {reversibility}.";
+    }
+
+    private static string ResolveWhatChanged(string action, string lifecycleState)
+    {
+        if (string.Equals(lifecycleState, "deactivated", StringComparison.OrdinalIgnoreCase))
+        {
+            return action switch
+            {
+                "temporary_app_restriction_enabled" => "Temporary app restriction ended and prior state restoration was applied.",
+                "focus_mode_enabled" => "Focus mode intervention ended and prior notification/animation state was restored.",
+                "focus_assist_enabled" => "Focus Assist intervention ended and previous Focus Assist state was restored.",
+                "fatigue_relief_enabled" => "Fatigue relief intervention ended and prior brightness/animation state was restored.",
+                _ => "Intervention ended; prior system state restoration attempted."
+            };
+        }
+
+        return action switch
+        {
+            "temporary_app_restriction_enabled" => "Temporary app restriction activated; notification/animation/dimming controls applied per allowed categories.",
+            "focus_mode_enabled" => "Focus mode activated; Focus Assist and reduction controls applied per allowed categories.",
+            "focus_assist_enabled" => "Focus Assist enabled to protect focus and reduce interruption pressure.",
+            "fatigue_relief_enabled" => "Fatigue relief enabled; display dimmed and visual stimulation reduced.",
+            "break_suggestion" => "Break suggestion displayed to user (no forced system restriction).",
+            "focus_lock_in_suggestion" => "Focus lock-in suggestion displayed to user.",
+            "stretch_break_suggestion" => "Stretch break suggestion displayed to user.",
+            "inform_overload_risk" => "Overload risk logged for transparency; no direct system setting changed.",
+            "inform_focus_protection" => "Focus protection signal logged for transparency; no direct system setting changed.",
+            "inform_fatigue_prevention" => "Fatigue prevention signal logged for transparency; no direct system setting changed.",
+            _ => $"Action {action} applied."
+        };
+    }
+
+    private static string ResolveHowToUndo(string action, bool reversible, string lifecycleState)
+    {
+        if (string.Equals(lifecycleState, "deactivated", StringComparison.OrdinalIgnoreCase))
+        {
+            return "No action required. PORTA already attempted automatic reversal.";
+        }
+
+        return action switch
+        {
+            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion"
+                => "Dismiss the suggestion overlay or wait for auto-expiry.",
+            "inform_overload_risk" or "inform_focus_protection" or "inform_fatigue_prevention"
+                => "No undo required; this action is informational only.",
+            _ when reversible
+                => "Use Undo Action in Interventions, or disable the category in Settings > Interventions.",
+            _ => "No direct undo path is available for this action."
+        };
+    }
+
+    private static void InsertAutomaticSystemChange(SqliteConnection connection, SqliteTransaction tx, AgentControlEvent controlEvent)
+    {
+        if (!IsReversibleAction(controlEvent.Action)
+            && !string.Equals(controlEvent.Action, "break_suggestion", StringComparison.Ordinal)
+            && !string.Equals(controlEvent.Action, "focus_lock_in_suggestion", StringComparison.Ordinal)
+            && !string.Equals(controlEvent.Action, "stretch_break_suggestion", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            INSERT INTO system_changes (
+                timestamp_utc,
+                change_type,
+                previous_value_json,
+                new_value_json,
+                undo_info,
+                reason
+            ) VALUES (
+                $ts, $type, $previous, $new, $undo, $reason
+            );
+            """;
+        cmd.Parameters.AddWithValue("$ts", controlEvent.TimestampUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$type", "regulation");
+        cmd.Parameters.AddWithValue("$previous", JsonSerializer.Serialize(new
+        {
+            action = "none"
+        }));
+        cmd.Parameters.AddWithValue("$new", JsonSerializer.Serialize(new
+        {
+            intervention_id = controlEvent.InterventionId,
+            action = controlEvent.Action,
+            policy_id = controlEvent.PolicyId,
+            domain = controlEvent.Domain,
+            escalation = controlEvent.EscalationLevel,
+            reversible = controlEvent.Reversible,
+            lifecycle_state = controlEvent.LifecycleState,
+            what_changed = controlEvent.WhatChanged
+        }));
+        cmd.Parameters.AddWithValue("$undo", string.IsNullOrWhiteSpace(controlEvent.HowToUndo)
+            ? (controlEvent.Reversible ? "Disable category in settings/interventions." : "No-op")
+            : controlEvent.HowToUndo);
+        cmd.Parameters.AddWithValue("$reason", controlEvent.Reason);
+        cmd.ExecuteNonQuery();
     }
 
     private static void InsertInterventionEvent(SqliteConnection connection, SqliteTransaction tx, AgentControlEvent controlEvent)
@@ -964,9 +1483,21 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 trigger_state,
                 trigger_value,
                 confidence,
-                contributors_json
+                contributors_json,
+                intervention_id,
+                policy_id,
+                domain,
+                planned_end_timestamp_utc,
+                actual_end_timestamp_utc,
+                previous_system_state_json,
+                what_changed,
+                how_to_undo,
+                reversal_applied,
+                cooldown_end_timestamp_utc,
+                lifecycle_state
             ) VALUES (
-                $ts, $action, $duration, $reason, $escalation, $reversible, $trigger_state, $trigger_value, $confidence, $contributors
+                $ts, $action, $duration, $reason, $escalation, $reversible, $trigger_state, $trigger_value, $confidence, $contributors,
+                $intervention_id, $policy_id, $domain, $planned_end, $actual_end, $previous_state, $what_changed, $how_to_undo, $reversal_applied, $cooldown_end, $lifecycle_state
             );
 
             INSERT INTO interventions (
@@ -979,10 +1510,22 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 escalation_level,
                 reversible,
                 reason,
-                contributors_json
+                contributors_json,
+                intervention_id,
+                policy_id,
+                domain,
+                planned_end_timestamp_utc,
+                actual_end_timestamp_utc,
+                previous_system_state_json,
+                what_changed,
+                how_to_undo,
+                reversal_applied,
+                cooldown_end_timestamp_utc,
+                lifecycle_state
             ) VALUES (
                 $ts, $action, $trigger_state, $trigger_value, $confidence, $duration,
-                $escalation, $reversible, $reason, $contributors
+                $escalation, $reversible, $reason, $contributors,
+                $intervention_id, $policy_id, $domain, $planned_end, $actual_end, $previous_state, $what_changed, $how_to_undo, $reversal_applied, $cooldown_end, $lifecycle_state
             );
             """;
         cmd.Parameters.AddWithValue("$ts", controlEvent.TimestampUtc.ToString("O"));
@@ -1002,6 +1545,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         cmd.Parameters.AddWithValue("$reversible", controlEvent.Reversible ? 1 : 0);
         cmd.Parameters.AddWithValue("$reason", controlEvent.Reason);
         cmd.Parameters.AddWithValue("$contributors", JsonSerializer.Serialize(controlEvent.Contributors));
+        cmd.Parameters.AddWithValue("$intervention_id", controlEvent.InterventionId);
+        cmd.Parameters.AddWithValue("$policy_id", controlEvent.PolicyId);
+        cmd.Parameters.AddWithValue("$domain", controlEvent.Domain);
+        cmd.Parameters.AddWithValue("$planned_end", controlEvent.PlannedEndTimestampUtc?.ToString("O") ?? string.Empty);
+        cmd.Parameters.AddWithValue("$actual_end", controlEvent.ActualEndTimestampUtc?.ToString("O") ?? string.Empty);
+        cmd.Parameters.AddWithValue("$previous_state", controlEvent.PreviousSystemStateJson);
+        cmd.Parameters.AddWithValue("$what_changed", controlEvent.WhatChanged ?? string.Empty);
+        cmd.Parameters.AddWithValue("$how_to_undo", controlEvent.HowToUndo ?? string.Empty);
+        cmd.Parameters.AddWithValue("$reversal_applied", controlEvent.ReversalApplied ? 1 : 0);
+        cmd.Parameters.AddWithValue("$cooldown_end", controlEvent.CooldownEndTimestampUtc?.ToString("O") ?? string.Empty);
+        cmd.Parameters.AddWithValue("$lifecycle_state", controlEvent.LifecycleState);
         cmd.ExecuteNonQuery();
     }
 
@@ -1128,7 +1682,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 trigger_state TEXT NOT NULL,
                 trigger_value REAL NOT NULL,
                 confidence REAL NOT NULL,
-                contributors_json TEXT NOT NULL
+                contributors_json TEXT NOT NULL,
+                intervention_id TEXT NOT NULL DEFAULT '',
+                policy_id TEXT NOT NULL DEFAULT 'n/a',
+                domain TEXT NOT NULL DEFAULT 'control',
+                planned_end_timestamp_utc TEXT NOT NULL DEFAULT '',
+                actual_end_timestamp_utc TEXT NOT NULL DEFAULT '',
+                previous_system_state_json TEXT NOT NULL DEFAULT '{}',
+                what_changed TEXT NOT NULL DEFAULT '',
+                how_to_undo TEXT NOT NULL DEFAULT '',
+                reversal_applied INTEGER NOT NULL DEFAULT 0,
+                cooldown_end_timestamp_utc TEXT NOT NULL DEFAULT '',
+                lifecycle_state TEXT NOT NULL DEFAULT 'activated'
             );
 
             CREATE TABLE IF NOT EXISTS system_changes (
@@ -1188,7 +1753,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 escalation_level TEXT NOT NULL,
                 reversible INTEGER NOT NULL,
                 reason TEXT NOT NULL,
-                contributors_json TEXT NOT NULL
+                contributors_json TEXT NOT NULL,
+                intervention_id TEXT NOT NULL DEFAULT '',
+                policy_id TEXT NOT NULL DEFAULT 'n/a',
+                domain TEXT NOT NULL DEFAULT 'control',
+                planned_end_timestamp_utc TEXT NOT NULL DEFAULT '',
+                actual_end_timestamp_utc TEXT NOT NULL DEFAULT '',
+                previous_system_state_json TEXT NOT NULL DEFAULT '{}',
+                what_changed TEXT NOT NULL DEFAULT '',
+                how_to_undo TEXT NOT NULL DEFAULT '',
+                reversal_applied INTEGER NOT NULL DEFAULT 0,
+                cooldown_end_timestamp_utc TEXT NOT NULL DEFAULT '',
+                lifecycle_state TEXT NOT NULL DEFAULT 'activated'
             );
 
             CREATE TABLE IF NOT EXISTS diagnostics_snapshots (
@@ -1224,7 +1800,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 activation_window_triggered INTEGER NOT NULL DEFAULT 0,
                 cooldown_triggered INTEGER NOT NULL DEFAULT 0,
                 activation_window_open INTEGER NOT NULL DEFAULT 0,
-                contributors_json TEXT NOT NULL
+                contributors_json TEXT NOT NULL,
+                policy_id TEXT NOT NULL DEFAULT 'n/a',
+                domain TEXT NOT NULL DEFAULT 'control',
+                escalation_level TEXT NOT NULL DEFAULT 'Inform',
+                planned_end_timestamp_utc TEXT NOT NULL DEFAULT '',
+                actual_end_timestamp_utc TEXT NOT NULL DEFAULT '',
+                cooldown_end_timestamp_utc TEXT NOT NULL DEFAULT ''
             );
 
             CREATE INDEX IF NOT EXISTS ix_input_buckets_ts ON input_buckets(timestamp_utc);
@@ -1260,6 +1842,34 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         EnsureColumnExists(connection, "brain_snapshots", "activation_window_triggered", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(connection, "brain_snapshots", "cooldown_triggered", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(connection, "brain_snapshots", "activation_window_open", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "brain_snapshots", "policy_id", "TEXT NOT NULL DEFAULT 'n/a'");
+        EnsureColumnExists(connection, "brain_snapshots", "domain", "TEXT NOT NULL DEFAULT 'control'");
+        EnsureColumnExists(connection, "brain_snapshots", "escalation_level", "TEXT NOT NULL DEFAULT 'Inform'");
+        EnsureColumnExists(connection, "brain_snapshots", "planned_end_timestamp_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "brain_snapshots", "actual_end_timestamp_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "brain_snapshots", "cooldown_end_timestamp_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "events", "intervention_id", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "events", "policy_id", "TEXT NOT NULL DEFAULT 'n/a'");
+        EnsureColumnExists(connection, "events", "domain", "TEXT NOT NULL DEFAULT 'control'");
+        EnsureColumnExists(connection, "events", "planned_end_timestamp_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "events", "actual_end_timestamp_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "events", "previous_system_state_json", "TEXT NOT NULL DEFAULT '{}'");
+        EnsureColumnExists(connection, "events", "what_changed", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "events", "how_to_undo", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "events", "reversal_applied", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "events", "cooldown_end_timestamp_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "events", "lifecycle_state", "TEXT NOT NULL DEFAULT 'activated'");
+        EnsureColumnExists(connection, "interventions", "intervention_id", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "interventions", "policy_id", "TEXT NOT NULL DEFAULT 'n/a'");
+        EnsureColumnExists(connection, "interventions", "domain", "TEXT NOT NULL DEFAULT 'control'");
+        EnsureColumnExists(connection, "interventions", "planned_end_timestamp_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "interventions", "actual_end_timestamp_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "interventions", "previous_system_state_json", "TEXT NOT NULL DEFAULT '{}'");
+        EnsureColumnExists(connection, "interventions", "what_changed", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "interventions", "how_to_undo", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "interventions", "reversal_applied", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "interventions", "cooldown_end_timestamp_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "interventions", "lifecycle_state", "TEXT NOT NULL DEFAULT 'activated'");
     }
 
     private static void EnsureColumnExists(SqliteConnection connection, string table, string column, string definition)
@@ -1403,5 +2013,44 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
     {
         string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         return Path.Combine(root, "PortaAgent", "exports");
+    }
+
+    private void TryDeleteDbFiles()
+    {
+        try
+        {
+            if (File.Exists(_dbPath))
+            {
+                File.Delete(_dbPath);
+            }
+        }
+        catch
+        {
+        }
+
+        string walPath = $"{_dbPath}-wal";
+        string shmPath = $"{_dbPath}-shm";
+
+        try
+        {
+            if (File.Exists(walPath))
+            {
+                File.Delete(walPath);
+            }
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            if (File.Exists(shmPath))
+            {
+                File.Delete(shmPath);
+            }
+        }
+        catch
+        {
+        }
     }
 }

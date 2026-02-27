@@ -10,7 +10,18 @@ public sealed record AgentControlEvent(
     string EscalationLevel,
     bool Reversible,
     string Reason,
-    IReadOnlyList<string> Contributors);
+    IReadOnlyList<string> Contributors,
+    string InterventionId = "",
+    string PolicyId = "n/a",
+    string Domain = "control",
+    DateTimeOffset? PlannedEndTimestampUtc = null,
+    DateTimeOffset? ActualEndTimestampUtc = null,
+    string PreviousSystemStateJson = "{}",
+    string WhatChanged = "",
+    string HowToUndo = "",
+    bool ReversalApplied = false,
+    DateTimeOffset? CooldownEndTimestampUtc = null,
+    string LifecycleState = "activated");
 
 public sealed record AgentDiagnosticsSnapshot(
     DateTimeOffset TimestampUtc,

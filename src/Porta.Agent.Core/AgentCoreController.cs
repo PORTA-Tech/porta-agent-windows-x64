@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -18,6 +19,8 @@ public sealed class AgentCoreController : IAgentCoreController
         + "Local retention window is 90 days by default. "
         + "User controls include pause, revoke consent, export data, and delete local data.";
     private const string ServiceLogFileName = "service-core.log";
+    private const string TrayLogFileName = "tray.log";
+    private const string UiLogFileName = "control-center.log";
     private const string DefaultSchemaVersion = "1.0.0";
     private const string DefaultPolicyVersion = "1.0.0";
     private static readonly string ConsentDisclosureHash = ComputeSha256Hex(ConsentDisclosureText);
@@ -27,6 +30,8 @@ public sealed class AgentCoreController : IAgentCoreController
     private readonly string _consentPath = BuildConsentPath();
     private readonly string _settingsPath = BuildSettingsPath();
     private readonly string _logPath = BuildLogPath();
+    private readonly string _trayLogPath = BuildTrayLogPath();
+    private readonly string _uiLogPath = BuildUiLogPath();
     private bool _paused;
     private bool _consentActive;
     private DateTimeOffset? _pauseUntilUtc;
@@ -140,7 +145,16 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             TryAutoResumeLocked();
-            return new AgentControlState(_paused, _consentActive, _pauseUntilUtc);
+            UpdateRecalibrationStateLocked();
+            return new AgentControlState(
+                Paused: _paused,
+                ConsentActive: _consentActive,
+                PauseUntilUtc: _pauseUntilUtc,
+                RegulationIntensity: _settingsState.RegulationIntensity,
+                NotificationReductionEnabled: _settingsState.NotificationReductionEnabled,
+                FocusModeEnabled: _settingsState.FocusModeEnabled,
+                AnimationReductionEnabled: _settingsState.AnimationReductionEnabled,
+                TemporaryAppRestrictionEnabled: _settingsState.TemporaryAppRestrictionEnabled);
         }
     }
 
@@ -157,6 +171,23 @@ public sealed class AgentCoreController : IAgentCoreController
         int window = Math.Clamp(windowSeconds, 5, 3600);
         DateTimeOffset toUtc = DateTimeOffset.UtcNow;
         DateTimeOffset fromUtc = toUtc.AddSeconds(-window);
+
+        // Hard-gate reporting while paused/no-consent so UI and release checks
+        // reflect "collection stopped" immediately.
+        if (_paused || !_consentActive)
+        {
+            return new AgentInputSummary(
+                FromUtc: fromUtc,
+                ToUtc: toUtc,
+                WindowSeconds: window,
+                SampleCount: 0,
+                TypingBurstIntensity: 0,
+                ScrollVelocityIndex: 0,
+                FocusSwitchRate: 0,
+                IdleFragmentationIndex: 0,
+                NotificationLatencyIndex: 0);
+        }
+
         IReadOnlyList<AgentBrainSnapshot> rows = _stateStore.ReadTimeline(fromUtc, toUtc, bucketSeconds: 1);
         int sampleCount = rows.Count;
         if (sampleCount == 0)
@@ -229,7 +260,7 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             AgentStorageInfo storeInfo = _stateStore.ReadStorageInfo();
-            long logBytes = TryGetFileSize(_logPath);
+            long logBytes = TryGetFileSize(_logPath) + TryGetFileSize(_trayLogPath) + TryGetFileSize(_uiLogPath);
             long consentBytes = TryGetFileSize(_consentPath);
             long totalBytes = storeInfo.DatabaseBytes + logBytes + consentBytes;
             return new AgentDataRetentionInfo(
@@ -477,8 +508,11 @@ public sealed class AgentCoreController : IAgentCoreController
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
             _stateStore.DeleteLocalData();
             TryDeleteFile(_logPath);
+            TryDeleteFile(_trayLogPath);
+            TryDeleteFile(_uiLogPath);
             TryDeleteFile(_consentPath);
             TryDeleteFile(_settingsPath);
+            TryDeleteDirectory(BuildExportRootPath());
 
             _consentState = CreateDefaultConsentState();
             _consentActive = false;
@@ -542,6 +576,84 @@ public sealed class AgentCoreController : IAgentCoreController
         }
     }
 
+    public void TriggerTestIntervention(string action)
+    {
+        lock (_gate)
+        {
+            TryAutoResumeLocked();
+            UpdateRecalibrationStateLocked();
+
+            if (!_consentActive)
+            {
+                throw new InvalidOperationException("consent_required");
+            }
+
+            if (_paused)
+            {
+                throw new InvalidOperationException("paused");
+            }
+
+            string normalizedAction = NormalizeTestAction(action);
+            if (!IsTestActionAllowedBySettings(normalizedAction, _settingsState))
+            {
+                throw new InvalidOperationException("category_disabled");
+            }
+
+            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+            _latestSnapshot = BuildTestSnapshot(_latestSnapshot, normalizedAction, nowUtc);
+            _stateStore.WriteSnapshot(_latestSnapshot);
+
+            (string triggerState, double triggerValue, string escalation, bool reversible, int? durationSeconds) =
+                ResolveTestInterventionMetadata(normalizedAction);
+            string reason = $"diagnostics_test_trigger action={normalizedAction}, trigger={triggerState}={triggerValue:F2}, confidence=0.99";
+            string whatChanged = ResolveEventWhatChanged(normalizedAction, lifecycleState: "activated");
+            string howToUndo = ResolveEventHowToUndo(normalizedAction, reversible, lifecycleState: "activated");
+
+            _stateStore.WriteControlEvent(new AgentControlEvent(
+                TimestampUtc: nowUtc,
+                Action: normalizedAction,
+                TriggerState: triggerState,
+                TriggerValue: triggerValue,
+                Confidence: 0.99,
+                DurationSeconds: durationSeconds,
+                EscalationLevel: escalation,
+                Reversible: reversible,
+                Reason: reason,
+                Contributors: ["diagnostics", "manual_test"],
+                InterventionId: Guid.NewGuid().ToString("N"),
+                PolicyId: ResolveTestPolicyId(normalizedAction),
+                Domain: ResolveTestDomain(normalizedAction),
+                PlannedEndTimestampUtc: durationSeconds.HasValue ? nowUtc.AddSeconds(Math.Max(durationSeconds.Value, 0)) : null,
+                ActualEndTimestampUtc: null,
+                PreviousSystemStateJson: "{\"action\":\"none\"}",
+                WhatChanged: whatChanged,
+                HowToUndo: howToUndo,
+                ReversalApplied: false,
+                CooldownEndTimestampUtc: null,
+                LifecycleState: "activated"));
+
+            WriteSystemChangeLocked(
+                changeType: "regulation_test",
+                previousValue: new { action = "none" },
+                newValue: new
+                {
+                    action = normalizedAction,
+                    escalation,
+                    reversible,
+                    source = "diagnostics"
+                },
+                undoInfo: reversible
+                    ? "disable category in settings/interventions"
+                    : "none",
+                reason: reason);
+
+            _lastEventTimestampUtc = nowUtc;
+            _lastError = null;
+            WriteLogLocked(reason);
+            WriteDiagnosticsLocked(force: true);
+        }
+    }
+
     public string ExportBundle()
     {
         lock (_gate)
@@ -550,9 +662,18 @@ public sealed class AgentCoreController : IAgentCoreController
             var versions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["agent"] = _agentVersion,
+                ["ui"] = ResolveUiVersion(),
+                ["tray"] = ResolveTrayVersion(),
                 ["schema"] = DefaultSchemaVersion,
                 ["policy"] = DefaultPolicyVersion
             };
+
+            IReadOnlyList<string> logPaths =
+            [
+                _logPath,
+                _trayLogPath,
+                _uiLogPath
+            ];
 
             IReadOnlyList<string> configPaths =
             [
@@ -562,12 +683,20 @@ public sealed class AgentCoreController : IAgentCoreController
                 BuildLocalApiEndpointPath()
             ];
 
+            IReadOnlyDictionary<string, string> supplementalJsonFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["diagnostics-summary.json"] = BuildDiagnosticsSummaryJson(),
+                ["consent-record.json"] = BuildConsentRecordJson(),
+                ["settings-effective.json"] = BuildSettingsRecordJson()
+            };
+
             return _stateStore.ExportBundle(
-                logFilePath: _logPath,
+                logFilePaths: logPaths,
                 consentPath: _consentPath,
                 settingsPath: _settingsPath,
                 versions: versions,
-                configPaths: configPaths);
+                configPaths: configPaths,
+                supplementalJsonFiles: supplementalJsonFiles);
         }
     }
 
@@ -609,7 +738,72 @@ public sealed class AgentCoreController : IAgentCoreController
             EscalationLevel: escalationLevel,
             Reversible: reversible,
             Reason: reason,
-            Contributors: ["controller"]));
+            Contributors: ["controller"],
+            InterventionId: Guid.NewGuid().ToString("N"),
+            PolicyId: "control-event",
+            Domain: "control",
+            PlannedEndTimestampUtc: null,
+            ActualEndTimestampUtc: null,
+            PreviousSystemStateJson: "{\"action\":\"none\"}",
+            WhatChanged: ResolveEventWhatChanged(action, lifecycleState: "activated"),
+            HowToUndo: ResolveEventHowToUndo(action, reversible, lifecycleState: "activated"),
+            ReversalApplied: false,
+            CooldownEndTimestampUtc: null,
+            LifecycleState: "activated"));
+    }
+
+    private static string ResolveEventWhatChanged(string action, string lifecycleState)
+    {
+        if (string.Equals(lifecycleState, "deactivated", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Intervention ended and automatic restoration was attempted.";
+        }
+
+        return action switch
+        {
+            "focus_mode_enabled" => "Focus mode controls were enabled for overload relief.",
+            "focus_assist_enabled" => "Focus Assist was enabled to protect deep focus.",
+            "fatigue_relief_enabled" => "Fatigue relief controls were enabled (dimming + animation reduction).",
+            "temporary_app_restriction_enabled" => "Temporary app restriction was activated for restrict-level control.",
+            "break_suggestion" => "Break suggestion was presented in the user interface.",
+            "focus_lock_in_suggestion" => "Focus lock-in suggestion was presented in the user interface.",
+            "stretch_break_suggestion" => "Stretch break suggestion was presented in the user interface.",
+            "inform_overload_risk" => "Overload risk was logged (inform-only).",
+            "inform_focus_protection" => "Focus protection was logged (inform-only).",
+            "inform_fatigue_prevention" => "Fatigue prevention was logged (inform-only).",
+            _ => $"Action {action} was applied."
+        };
+    }
+
+    private static string ResolveEventHowToUndo(string action, bool reversible, string lifecycleState)
+    {
+        if (string.Equals(lifecycleState, "deactivated", StringComparison.OrdinalIgnoreCase))
+        {
+            return "No action required. PORTA already attempted automatic reversal.";
+        }
+
+        return action switch
+        {
+            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion"
+                => "Dismiss the suggestion overlay or let it auto-expire.",
+            "inform_overload_risk" or "inform_focus_protection" or "inform_fatigue_prevention"
+                => "No undo needed. Inform-only event.",
+            _ when reversible
+                => "Use Undo Action in Interventions or disable the category in Settings.",
+            _ => "No direct undo path is available."
+        };
+    }
+
+    private static bool IsTestActionAllowedBySettings(string action, SettingsStateRecord settings)
+    {
+        return action switch
+        {
+            "focus_mode_enabled" => settings.FocusModeEnabled,
+            "focus_assist_enabled" => settings.FocusModeEnabled,
+            "fatigue_relief_enabled" => settings.AnimationReductionEnabled,
+            "temporary_app_restriction_enabled" => settings.TemporaryAppRestrictionEnabled,
+            _ => true
+        };
     }
 
     private void WriteDiagnosticsLocked(bool force)
@@ -633,6 +827,165 @@ public sealed class AgentCoreController : IAgentCoreController
             LastBackendOkUtc: _lastBackendOkUtc));
 
         _lastDiagnosticsWriteUtc = nowUtc;
+    }
+
+    private static string NormalizeTestAction(string action)
+    {
+        string normalized = action.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "inform_overload_risk" => normalized,
+            "inform_focus_protection" => normalized,
+            "inform_fatigue_prevention" => normalized,
+            "break_suggestion" => normalized,
+            "focus_lock_in_suggestion" => normalized,
+            "stretch_break_suggestion" => normalized,
+            "focus_mode_enabled" => normalized,
+            "focus_assist_enabled" => normalized,
+            "fatigue_relief_enabled" => normalized,
+            "temporary_app_restriction_enabled" => normalized,
+            _ => throw new InvalidOperationException("unsupported_test_action")
+        };
+    }
+
+    private static (string TriggerState, double TriggerValue, string Escalation, bool Reversible, int? DurationSeconds)
+        ResolveTestInterventionMetadata(string action)
+    {
+        return action switch
+        {
+            "temporary_app_restriction_enabled" => ("overload", 0.95, "Restrict", true, 180),
+            "focus_mode_enabled" => ("overload", 0.86, "Nudge", true, 600),
+            "focus_assist_enabled" => ("focus", 0.86, "Nudge", true, 600),
+            "fatigue_relief_enabled" => ("fatigue", 0.86, "Nudge", true, 600),
+            "break_suggestion" => ("fatigue", 0.82, "Suggest", false, 300),
+            "focus_lock_in_suggestion" => ("focus", 0.83, "Suggest", false, 300),
+            "stretch_break_suggestion" => ("fatigue", 0.84, "Suggest", false, 300),
+            "inform_overload_risk" => ("overload", 0.72, "Inform", false, 60),
+            "inform_focus_protection" => ("focus", 0.72, "Inform", false, 60),
+            "inform_fatigue_prevention" => ("fatigue", 0.72, "Inform", false, 60),
+            _ => ("control", 1.0, "Inform", false, null)
+        };
+    }
+
+    private static string ResolveTestPolicyId(string action)
+    {
+        return action switch
+        {
+            "break_suggestion" => "fatigue-prevention-v1",
+            "focus_lock_in_suggestion" => "focus-protection-v1",
+            "focus_assist_enabled" => "focus-protection-v1",
+            "inform_focus_protection" => "focus-protection-v1",
+            "stretch_break_suggestion" => "fatigue-prevention-v1",
+            "fatigue_relief_enabled" => "fatigue-prevention-v1",
+            "inform_fatigue_prevention" => "fatigue-prevention-v1",
+            "focus_mode_enabled" => "overload-relief-v1",
+            "temporary_app_restriction_enabled" => "overload-relief-v1",
+            "inform_overload_risk" => "overload-relief-v1",
+            _ => "diagnostics-test"
+        };
+    }
+
+    private static string ResolveTestDomain(string action)
+    {
+        return action switch
+        {
+            "break_suggestion" => "fatigue",
+            "focus_lock_in_suggestion" => "focus",
+            "focus_assist_enabled" => "focus",
+            "inform_focus_protection" => "focus",
+            "stretch_break_suggestion" => "fatigue",
+            "fatigue_relief_enabled" => "fatigue",
+            "inform_fatigue_prevention" => "fatigue",
+            "focus_mode_enabled" => "overload",
+            "temporary_app_restriction_enabled" => "overload",
+            "inform_overload_risk" => "overload",
+            _ => "control"
+        };
+    }
+
+    private static AgentBrainSnapshot BuildTestSnapshot(AgentBrainSnapshot baseline, string action, DateTimeOffset nowUtc)
+    {
+        (string _, double _, string escalation, bool _, int? durationSeconds) = ResolveTestInterventionMetadata(action);
+
+        double overload = action switch
+        {
+            "temporary_app_restriction_enabled" => 0.95,
+            "focus_mode_enabled" => 0.86,
+            "inform_overload_risk" => 0.72,
+            "focus_assist_enabled" => 0.38,
+            "focus_lock_in_suggestion" => 0.33,
+            "inform_focus_protection" => 0.30,
+            "fatigue_relief_enabled" => 0.34,
+            "stretch_break_suggestion" => 0.36,
+            "inform_fatigue_prevention" => 0.40,
+            _ => Math.Max(baseline.OverloadLikelihood, 0.45)
+        };
+
+        double fatigue = action switch
+        {
+            "break_suggestion" => 0.82,
+            "fatigue_relief_enabled" => 0.88,
+            "stretch_break_suggestion" => 0.86,
+            "inform_fatigue_prevention" => 0.78,
+            _ => Math.Max(baseline.FatigueProbability, 0.33)
+        };
+        double focus = action switch
+        {
+            "focus_mode_enabled" => 0.64,
+            "focus_assist_enabled" => 0.88,
+            "focus_lock_in_suggestion" => 0.84,
+            "inform_focus_protection" => 0.78,
+            "fatigue_relief_enabled" => 0.36,
+            "stretch_break_suggestion" => 0.34,
+            "inform_fatigue_prevention" => 0.40,
+            "break_suggestion" => 0.41,
+            "temporary_app_restriction_enabled" => 0.38,
+            _ => Math.Max(baseline.FocusStrength, 0.48)
+        };
+        double stability = Math.Clamp(1d - overload, 0.05, 0.95);
+
+        string dominantStateName;
+        double dominantStateValue;
+        if (focus >= overload && focus >= fatigue)
+        {
+            dominantStateName = "focus";
+            dominantStateValue = focus;
+        }
+        else if (overload >= fatigue)
+        {
+            dominantStateName = "overload";
+            dominantStateValue = overload;
+        }
+        else
+        {
+            dominantStateName = "fatigue";
+            dominantStateValue = fatigue;
+        }
+
+        return baseline with
+        {
+            TimestampUtc = nowUtc,
+            FocusStrength = focus,
+            OverloadLikelihood = overload,
+            FatigueProbability = fatigue,
+            CognitiveStability = stability,
+            DominantStateName = dominantStateName,
+            DominantStateValue = dominantStateValue,
+            Confidence = 0.99,
+            LastAction = action,
+            ActivationWindowTriggered = true,
+            CooldownTriggered = false,
+            ActivationWindowOpen = true,
+            Contributors = ["diagnostics_override", "manual_test"],
+            PolicyId = ResolveTestPolicyId(action),
+            Domain = ResolveTestDomain(action),
+            EscalationLevel = escalation,
+            PlannedEndTimestampUtc = durationSeconds.HasValue
+                ? nowUtc.AddSeconds(Math.Max(durationSeconds.Value, 0))
+                : null,
+            ActualEndTimestampUtc = null,
+            CooldownEndTimestampUtc = null
+        };
     }
 
     private ConsentStateRecord LoadConsentState()
@@ -1037,6 +1390,20 @@ public sealed class AgentCoreController : IAgentCoreController
         }
     }
 
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch
+        {
+        }
+    }
+
     private static long TryGetFileSize(string path)
     {
         try
@@ -1075,6 +1442,24 @@ public sealed class AgentCoreController : IAgentCoreController
     {
         string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         return Path.Combine(root, "PortaAgent", ServiceLogFileName);
+    }
+
+    private static string BuildTrayLogPath()
+    {
+        string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        return Path.Combine(root, "PortaAgent", TrayLogFileName);
+    }
+
+    private static string BuildUiLogPath()
+    {
+        string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        return Path.Combine(root, "PortaAgent", UiLogFileName);
+    }
+
+    private static string BuildExportRootPath()
+    {
+        string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        return Path.Combine(root, "PortaAgent", "exports");
     }
 
     private static string BuildLocalApiSecureSettingsPath()
@@ -1120,4 +1505,107 @@ public sealed class AgentCoreController : IAgentCoreController
         DateTimeOffset? BaselineRecalibrationStartedUtc,
         DateTimeOffset? BaselineRecalibrationUntilUtc,
         DateTimeOffset UpdatedAtUtc);
+
+    private string BuildDiagnosticsSummaryJson()
+    {
+        AgentStatus status = _lastError is null
+            ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
+            : AgentStatus.Degraded;
+
+        var payload = new
+        {
+            generated_at_utc = DateTimeOffset.UtcNow,
+            service_running = true,
+            status = status.ToString(),
+            paused = _paused,
+            consent_active = _consentActive,
+            backend_connected = _backendConnected,
+            last_event_timestamp_utc = _lastEventTimestampUtc,
+            last_backend_ok_utc = _lastBackendOkUtc,
+            last_error = _lastError,
+            last_action = _latestSnapshot.LastAction,
+            focus_strength = _latestSnapshot.FocusStrength,
+            overload_likelihood = _latestSnapshot.OverloadLikelihood,
+            fatigue_probability = _latestSnapshot.FatigueProbability,
+            confidence = _latestSnapshot.Confidence,
+            versions = new
+            {
+                agent = _agentVersion,
+                ui = ResolveUiVersion(),
+                tray = ResolveTrayVersion(),
+                schema = DefaultSchemaVersion,
+                policy = DefaultPolicyVersion
+            }
+        };
+
+        return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private string BuildConsentRecordJson()
+    {
+        var payload = new
+        {
+            active = _consentState.Active,
+            version = _consentState.Version,
+            timestamp_utc = _consentState.TimestampUtc,
+            disclosure_hash = _consentState.DisclosureHash,
+            updated_at_utc = _consentState.UpdatedAtUtc
+        };
+        return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private string BuildSettingsRecordJson()
+    {
+        var payload = new
+        {
+            regulation_intensity = _settingsState.RegulationIntensity,
+            privacy_level = _settingsState.PrivacyLevel,
+            notification_reduction_enabled = _settingsState.NotificationReductionEnabled,
+            focus_mode_enabled = _settingsState.FocusModeEnabled,
+            animation_reduction_enabled = _settingsState.AnimationReductionEnabled,
+            temporary_app_restriction_enabled = _settingsState.TemporaryAppRestrictionEnabled,
+            baseline_recalibration_started_utc = _settingsState.BaselineRecalibrationStartedUtc,
+            baseline_recalibration_until_utc = _settingsState.BaselineRecalibrationUntilUtc,
+            updated_at_utc = _settingsState.UpdatedAtUtc
+        };
+        return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static string ResolveUiVersion()
+    {
+        try
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "Porta.ControlCenter.exe");
+            if (!File.Exists(path))
+            {
+                return "unknown";
+            }
+
+            FileVersionInfo info = FileVersionInfo.GetVersionInfo(path);
+            return string.IsNullOrWhiteSpace(info.FileVersion) ? "unknown" : info.FileVersion;
+        }
+        catch
+        {
+            return "unknown";
+        }
+    }
+
+    private static string ResolveTrayVersion()
+    {
+        try
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "AriTray.exe");
+            if (!File.Exists(path))
+            {
+                return "unknown";
+            }
+
+            FileVersionInfo info = FileVersionInfo.GetVersionInfo(path);
+            return string.IsNullOrWhiteSpace(info.FileVersion) ? "unknown" : info.FileVersion;
+        }
+        catch
+        {
+            return "unknown";
+        }
+    }
 }

@@ -227,6 +227,33 @@ public static class LocalApiEndpointMapping
                 TimestampUtc: DateTimeOffset.UtcNow));
         });
 
+        api.MapPost("/testing/intervention", (IAgentCoreController controller, LocalApiTestInterventionRequest? request) =>
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.Action))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "missing_action",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            try
+            {
+                controller.TriggerTestIntervention(request.Action);
+                return Results.Ok(new LocalApiAckResponse(
+                    Success: true,
+                    Message: "test_intervention_triggered",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: ex.Message,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+        });
+
         return app;
     }
 
@@ -266,7 +293,18 @@ public static class LocalApiEndpointMapping
             ev.EscalationLevel,
             ev.Reversible,
             ev.Reason,
-            ev.Contributors);
+            ev.Contributors,
+            ev.InterventionId,
+            ev.PolicyId,
+            ev.Domain,
+            ev.PlannedEndTimestampUtc,
+            ev.ActualEndTimestampUtc,
+            ev.PreviousSystemStateJson,
+            ev.WhatChanged,
+            ev.HowToUndo,
+            ev.ReversalApplied,
+            ev.CooldownEndTimestampUtc,
+            ev.LifecycleState);
     }
 
     private static LocalApiSettingsResponse ToSettingsResponse(AgentSettingsState state)

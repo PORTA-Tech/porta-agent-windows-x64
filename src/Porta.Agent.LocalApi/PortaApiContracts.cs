@@ -63,7 +63,18 @@ public sealed record LocalApiEventResponse(
     string EscalationLevel,
     bool Reversible,
     string Reason,
-    IReadOnlyList<string> Contributors);
+    IReadOnlyList<string> Contributors,
+    string InterventionId,
+    string PolicyId,
+    string Domain,
+    DateTimeOffset? PlannedEndTimestampUtc,
+    DateTimeOffset? ActualEndTimestampUtc,
+    string PreviousSystemStateJson,
+    string WhatChanged,
+    string HowToUndo,
+    bool ReversalApplied,
+    DateTimeOffset? CooldownEndTimestampUtc,
+    string LifecycleState);
 
 public sealed record LocalApiTimelineResponse(
     DateTimeOffset FromUtc,
@@ -108,6 +119,9 @@ public sealed record LocalApiRecalibrationResponse(
 public sealed record LocalApiPauseRequest(
     string? Reason,
     DateTimeOffset? UntilUtc);
+
+public sealed record LocalApiTestInterventionRequest(
+    string Action);
 
 public sealed record LocalApiAckResponse(
     bool Success,

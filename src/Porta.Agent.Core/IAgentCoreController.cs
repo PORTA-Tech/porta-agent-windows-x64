@@ -20,5 +20,6 @@ public interface IAgentCoreController
     void MarkError(string message);
     void MarkHealthyHeartbeat();
     void ApplyBrainSnapshot(AgentBrainSnapshot snapshot, bool backendConnected);
+    void TriggerTestIntervention(string action);
     string ExportBundle();
 }
