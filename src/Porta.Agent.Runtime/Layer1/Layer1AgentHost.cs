@@ -36,6 +36,7 @@ public sealed class Layer1AgentHost : IDisposable
     private readonly Layer2NormalizationEngine _normalizationEngine;
     private readonly Layer3InferenceEngine _inferenceEngine;
     private readonly Layer4StabilityEngine _stabilityEngine;
+    private readonly bool _isInteractiveSession = Environment.UserInteractive;
     private readonly string _machineId = BuildMachineId();
     private readonly string _agentId = Environment.MachineName;
     private readonly string _signatureKeyId;
@@ -137,14 +138,13 @@ public sealed class Layer1AgentHost : IDisposable
 
         try
         {
-            if (!Environment.UserInteractive)
+            if (_isInteractiveSession && !_tray.Start())
             {
-                throw new InvalidOperationException("Tray visibility is required; non-interactive session is blocked.");
+                Logger.Warn("Tray startup failed; continuing in headless mode.");
             }
-
-            if (!_tray.Start())
+            else if (!_isInteractiveSession)
             {
-                throw new InvalidOperationException("Tray startup failed.");
+                Logger.Warn("Non-interactive session detected; tray disabled.");
             }
 
             _telemetry = Channel.CreateBounded<AgentTelemetry>(new BoundedChannelOptions(1024)
@@ -240,6 +240,13 @@ public sealed class Layer1AgentHost : IDisposable
             {
                 Interlocked.Exchange(ref _paused, 1);
             }
+            return;
+        }
+
+        if (!_isInteractiveSession)
+        {
+            HandleFailClosed("consent_prompt_unavailable_noninteractive");
+            Logger.Warn("Consent prompt unavailable in non-interactive session; running fail-closed.");
             return;
         }
 
