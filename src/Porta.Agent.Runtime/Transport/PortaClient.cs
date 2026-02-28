@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -20,6 +21,11 @@ internal sealed class PortaClient : IDisposable
     }
 
     private readonly string _agentId = Environment.MachineName;
+    private readonly string _agentVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "unknown";
+    private readonly string _schemaVersion = "1.0.0";
+    private readonly string _cohort = string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PORTA_COHORT"))
+        ? "stable"
+        : Environment.GetEnvironmentVariable("PORTA_COHORT")!.Trim();
     private readonly Uri? _baseUri;
     private readonly int _maxRetries;
     private readonly TimeSpan _requestTimeout;
@@ -139,6 +145,15 @@ internal sealed class PortaClient : IDisposable
         var payload = new
         {
             agentId = _agentId,
+            machine_id = _agentId,
+            cohort = _cohort,
+            agent_version = _agentVersion,
+            schema_version = _schemaVersion,
+            config_seq = _lastConfigSeq ?? 0,
+            trust = new
+            {
+                signature_valid = _lastSignatureValidity ?? false
+            },
             timestampUtc = DateTimeOffset.UtcNow,
             status,
             control,
