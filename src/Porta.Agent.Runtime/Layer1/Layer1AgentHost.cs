@@ -26,6 +26,7 @@ public sealed class Layer1AgentHost : IDisposable
     private readonly KeyboardHook _keyboardHook = new();
     private readonly ForegroundHook _foregroundHook = new();
     private readonly PortaClient _client = new();
+    private readonly Heartbeat _heartbeat;
     private readonly Layer1ConsentStore _consentStore = new(Environment.GetEnvironmentVariable("PORTA_CONSENT_STATE_PATH"));
     private readonly Layer1TrayController _tray = new();
     private readonly Layer1ControlPlaneStream _controlPlaneStream = new();
@@ -46,6 +47,7 @@ public sealed class Layer1AgentHost : IDisposable
     private Task? _normalizationTask;
     private Task? _inferenceTask;
     private Task? _telemetryTask;
+    private Task? _heartbeatTask;
     private Task? _controlPlaneTask;
     private int _running;
     private int _errorCount;
@@ -90,6 +92,7 @@ public sealed class Layer1AgentHost : IDisposable
 
     public Layer1AgentHost()
     {
+        _heartbeat = new Heartbeat(_client, hz => BuildControlSnapshot(hz), BuildAgentStatusSnapshot);
         _consentState = _consentStore.Load(out bool stateFileMissing, out bool stateCorrupted);
         _consentStateCorrupted = stateCorrupted;
         if (stateFileMissing)
@@ -178,6 +181,7 @@ public sealed class Layer1AgentHost : IDisposable
             _normalizationTask = NormalizeLoopAsync(_cts.Token);
             _inferenceTask = InferenceLoopAsync(_cts.Token);
             _telemetryTask = TelemetryLoopAsync(_cts.Token);
+            _heartbeatTask = _heartbeat.RunAsync(_cts.Token);
             _controlPlaneTask = ControlPlaneLoopAsync(_cts.Token);
             UpdateTray(IsCollectionDisabled() ? "Paused" : "Active");
         }
@@ -205,6 +209,7 @@ public sealed class Layer1AgentHost : IDisposable
         await SafeAwait(_normalizationTask).ConfigureAwait(false);
         await SafeAwait(_inferenceTask).ConfigureAwait(false);
         await SafeAwait(_telemetryTask).ConfigureAwait(false);
+        await SafeAwait(_heartbeatTask).ConfigureAwait(false);
         await SafeAwait(_controlPlaneTask).ConfigureAwait(false);
         await _client.StopAsync(CancellationToken.None).ConfigureAwait(false);
         _tray.Dispose();
@@ -215,6 +220,7 @@ public sealed class Layer1AgentHost : IDisposable
         _normalizationTask = null;
         _inferenceTask = null;
         _telemetryTask = null;
+        _heartbeatTask = null;
         _controlPlaneTask = null;
         _telemetry = null;
         _signalSamples = null;
@@ -585,6 +591,30 @@ public sealed class Layer1AgentHost : IDisposable
         }
 
         return Volatile.Read(ref _paused) == 1;
+    }
+
+    private AgentStatus BuildAgentStatusSnapshot()
+    {
+        if (Volatile.Read(ref _running) == 0)
+        {
+            return AgentStatus.Stopped;
+        }
+
+        return IsCollectionDisabled() ? AgentStatus.Degraded : AgentStatus.Running;
+    }
+
+    private ControlParameters BuildControlSnapshot(double heartbeatFrequencyHz)
+    {
+        return new ControlParameters
+        {
+            SuppressionEnabled = false,
+            ActuationEnabled = false,
+            RuntimeMode = IsCollectionDisabled() ? "degraded" : "normal",
+            HeartbeatFrequencyHz = heartbeatFrequencyHz,
+            TelemetryOutboundSuspended = false,
+            FixedDelayMs = 0,
+            TargetProcess = null
+        };
     }
 
     private void FlushAggregationBuffers()
