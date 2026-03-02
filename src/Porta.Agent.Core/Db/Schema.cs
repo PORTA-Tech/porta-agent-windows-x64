@@ -296,6 +296,7 @@ internal static class Schema
             """;
         cmd.ExecuteNonQuery();
 
+        // idempotency_key is required now so a later migration can enforce uniqueness for exactly-once-ish ingestion.
         EnsureColumnExists(connection, "events", "idempotency_key", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(connection, "events", "contributors_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1,\"contributors\":[]}'");
         EnsureColumnExists(connection, "events", "why_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1}'");

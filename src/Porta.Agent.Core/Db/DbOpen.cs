@@ -4,6 +4,7 @@ namespace Porta.Agent.Core.Db;
 
 internal static class DbOpen
 {
+    // Pinned durability contract for bucket/state commits: WAL + FULL synchronous.
     private const string PinnedJournalMode = "wal";
     private const int PinnedSynchronousMode = 2; // FULL
     private const int PinnedForeignKeys = 1; // ON
