@@ -7,7 +7,9 @@
     <UpgradeCode>3f3d99ec-79c5-4721-b45e-7fb15be6dd62</UpgradeCode>
     <AriBackendUrlDefault Condition="'$(AriBackendUrlDefault)' == ''">https://porta-control-plane.onrender.com</AriBackendUrlDefault>
     <AriExeSource Condition="'$(AriExeSource)' == ''">$(MSBuildProjectDirectory)\payload\ari.exe</AriExeSource>
-    <DefineConstants>ProductVersion=$(ProductVersion);UpgradeCode=$(UpgradeCode);AriBackendUrlDefault=$(AriBackendUrlDefault);AriExeSource=$(AriExeSource)</DefineConstants>
+    <AriTrayExeSource Condition="'$(AriTrayExeSource)' == ''">$(MSBuildProjectDirectory)\payload\AriTray.exe</AriTrayExeSource>
+    <ControlCenterExeSource Condition="'$(ControlCenterExeSource)' == ''">$(MSBuildProjectDirectory)\payload\Porta.ControlCenter.exe</ControlCenterExeSource>
+    <DefineConstants>ProductVersion=$(ProductVersion);UpgradeCode=$(UpgradeCode);AriBackendUrlDefault=$(AriBackendUrlDefault);AriExeSource=$(AriExeSource);AriTrayExeSource=$(AriTrayExeSource);ControlCenterExeSource=$(ControlCenterExeSource)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

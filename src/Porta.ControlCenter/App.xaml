@@ -1,0 +1,7 @@
+﻿<Application x:Class="Porta.ControlCenter.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Porta.ControlCenter">
+    <Application.Resources>
+    </Application.Resources>
+</Application>

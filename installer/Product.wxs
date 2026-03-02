@@ -61,11 +61,54 @@
                               RestartServiceDelayInSeconds="15"
                               ResetPeriodInDays="1" />
         </Component>
+
+        <Component Id="AriTrayExeComponent" Guid="39fe7047-c950-42cb-9816-4d24d698fa34">
+          <File Id="AriTrayExeFile"
+                Name="AriTray.exe"
+                Source="$(var.AriTrayExeSource)"
+                KeyPath="yes"
+                Checksum="yes" />
+        </Component>
+
+        <Component Id="ControlCenterExeComponent" Guid="6e130eaf-0f3a-4ca3-89f3-a4ea63f2b383">
+          <File Id="ControlCenterExeFile"
+                Name="Porta.ControlCenter.exe"
+                Source="$(var.ControlCenterExeSource)"
+                KeyPath="yes"
+                Checksum="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AriProgramMenuFolder" Name="PORTA">
+        <Component Id="ControlCenterShortcutComponent" Guid="793eb375-d584-408c-a9c9-fea663f1ac94">
+          <Shortcut Id="ControlCenterShortcut"
+                    Name="PORTA Control Center"
+                    Description="Open PORTA Control Center"
+                    Target="[INSTALLFOLDER]Porta.ControlCenter.exe"
+                    WorkingDirectory="INSTALLFOLDER" />
+          <Shortcut Id="TrayShortcut"
+                    Name="PORTA Tray"
+                    Description="Open PORTA Tray"
+                    Target="[INSTALLFOLDER]AriTray.exe"
+                    WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder Id="RemoveAriProgramMenuFolder" On="uninstall" />
+          <RegistryValue Root="HKLM"
+                         Key="Software\PORTA\AriAgent"
+                         Name="MenuShortcutsInstalled"
+                         Type="integer"
+                         Value="1"
+                         KeyPath="yes" />
+        </Component>
       </Directory>
     </StandardDirectory>
 
     <Feature Id="MainFeature" Title="Ari Agent" Level="1">
       <ComponentRef Id="AriExeComponent" />
+      <ComponentRef Id="AriTrayExeComponent" />
+      <ComponentRef Id="ControlCenterExeComponent" />
+      <ComponentRef Id="ControlCenterShortcutComponent" />
     </Feature>
   </Package>
 </Wix>
