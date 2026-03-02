@@ -338,6 +338,29 @@ internal static class Schema
         AssertDiagnosticsContract(connection);
     }
 
+    internal static void ApplyIndexContractV5(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "events", "ts_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "input_buckets", "start_utc", "TEXT NOT NULL DEFAULT ''");
+
+        BackfillColumnFromColumn(connection, "events", "ts_utc", "timestamp_utc");
+        BackfillColumnFromColumn(connection, "input_buckets", "start_utc", "timestamp_utc");
+
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText =
+                """
+                DROP INDEX IF EXISTS idx_events_recent;
+                CREATE INDEX IF NOT EXISTS idx_events_recent ON events(ts_utc DESC, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_input_start_utc ON input_buckets(start_utc);
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        EnsureBucketSeqIndexIfNeeded(connection, "primitive_buckets", "idx_primitive_buckets_bucket_seq");
+        EnsureBucketSeqIndexIfNeeded(connection, "state_buckets", "idx_state_buckets_bucket_seq");
+    }
+
     internal static void AssertEventsContract(SqliteConnection connection)
     {
         HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
@@ -406,6 +429,55 @@ internal static class Schema
         }
 
         return columns;
+    }
+
+    private static void BackfillColumnFromColumn(
+        SqliteConnection connection,
+        string tableName,
+        string targetColumn,
+        string sourceColumn)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            $"""
+            UPDATE {tableName}
+            SET {targetColumn} = {sourceColumn}
+            WHERE ({targetColumn} IS NULL OR {targetColumn} = '')
+              AND ({sourceColumn} IS NOT NULL AND {sourceColumn} <> '');
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void EnsureBucketSeqIndexIfNeeded(SqliteConnection connection, string tableName, string indexName)
+    {
+        bool hasBucketSeq = false;
+        bool bucketSeqIsPrimaryKey = false;
+
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = $"PRAGMA table_info({tableName});";
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                if (!string.Equals(reader.GetString(1), "bucket_seq", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                hasBucketSeq = true;
+                bucketSeqIsPrimaryKey = reader.GetInt32(5) > 0;
+                break;
+            }
+        }
+
+        if (!hasBucketSeq || bucketSeqIsPrimaryKey)
+        {
+            return;
+        }
+
+        using var createIndex = connection.CreateCommand();
+        createIndex.CommandText = $"CREATE INDEX IF NOT EXISTS {indexName} ON {tableName}(bucket_seq);";
+        createIndex.ExecuteNonQuery();
     }
 
     private static void EnsureColumnExists(SqliteConnection connection, string table, string column, string definition)

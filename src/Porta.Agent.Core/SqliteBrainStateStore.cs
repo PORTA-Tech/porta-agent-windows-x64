@@ -875,10 +875,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             """
             INSERT INTO input_buckets (
                 timestamp_utc,
+                start_utc,
                 typing_burst_intensity,
                 scroll_velocity_index,
                 focus_switch_rate
-            ) VALUES ($ts, $typing, $scroll, $focus_switch);
+            ) VALUES ($ts, $ts, $typing, $scroll, $focus_switch);
             """;
         cmd.Parameters.AddWithValue("$ts", snapshot.TimestampUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$typing", snapshot.TypingBurstIntensity);
@@ -1449,6 +1450,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             """
             INSERT INTO events (
                 timestamp_utc,
+                ts_utc,
                 action,
                 duration_seconds,
                 why,
@@ -1473,7 +1475,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 cooldown_end_timestamp_utc,
                 lifecycle_state
             ) VALUES (
-                $ts, $action, $duration, $reason, $why_json, $escalation, $reversible, $trigger_state, $trigger_value, $confidence, $contributors, $state_flags_json, $idempotency_key,
+                $ts, $ts, $action, $duration, $reason, $why_json, $escalation, $reversible, $trigger_state, $trigger_value, $confidence, $contributors, $state_flags_json, $idempotency_key,
                 $intervention_id, $policy_id, $domain, $planned_end, $actual_end, $previous_state, $what_changed, $how_to_undo, $reversal_applied, $cooldown_end, $lifecycle_state
             );
 
