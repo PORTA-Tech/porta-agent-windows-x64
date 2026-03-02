@@ -37,6 +37,8 @@ public sealed class AgentCoreController : IAgentCoreController
     private DateTimeOffset? _pauseUntilUtc;
     private DateTimeOffset? _lastEventTimestampUtc;
     private string? _lastError;
+    private bool _localApiAuthReady = true;
+    private string? _localApiAuthError;
     private bool _backendConnected;
     private DateTimeOffset? _lastBackendOkUtc;
     private DateTimeOffset _lastDiagnosticsWriteUtc = DateTimeOffset.MinValue;
@@ -136,7 +138,18 @@ public sealed class AgentCoreController : IAgentCoreController
                 PolicyVersion: DefaultPolicyVersion,
                 LastEventTimestampUtc: _lastEventTimestampUtc,
                 LastError: _lastError,
+                LocalApiAuthReady: _localApiAuthReady,
+                LocalApiAuthError: _localApiAuthError,
                 LastUpdatedUtc: DateTimeOffset.UtcNow);
+        }
+    }
+
+    public void SetLocalApiAuthState(bool ready, string? errorCode)
+    {
+        lock (_gate)
+        {
+            _localApiAuthReady = ready;
+            _localApiAuthError = ready ? null : string.IsNullOrWhiteSpace(errorCode) ? "TOKEN_READ_FAILED" : errorCode;
         }
     }
 
@@ -683,7 +696,7 @@ public sealed class AgentCoreController : IAgentCoreController
             [
                 Path.Combine(AppContext.BaseDirectory, "appsettings.json"),
                 BuildSettingsPath(),
-                BuildLocalApiSecureSettingsPath(),
+                BuildLocalApiRuntimeSettingsPath(),
                 BuildLocalApiEndpointPath()
             ];
 
@@ -1466,10 +1479,10 @@ public sealed class AgentCoreController : IAgentCoreController
         return Path.Combine(root, "PortaAgent", "exports");
     }
 
-    private static string BuildLocalApiSecureSettingsPath()
+    private static string BuildLocalApiRuntimeSettingsPath()
     {
         string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-        return Path.Combine(root, "PortaAgent", "security", "local-api.secure.json");
+        return Path.Combine(root, "PortaAgent", "security", "local-api.runtime.json");
     }
 
     private static string BuildLocalApiEndpointPath()
@@ -1527,6 +1540,8 @@ public sealed class AgentCoreController : IAgentCoreController
             last_event_timestamp_utc = _lastEventTimestampUtc,
             last_backend_ok_utc = _lastBackendOkUtc,
             last_error = _lastError,
+            local_api_auth_ready = _localApiAuthReady,
+            local_api_auth_error = _localApiAuthError,
             last_action = _latestSnapshot.LastAction,
             focus_strength = _latestSnapshot.FocusStrength,
             overload_likelihood = _latestSnapshot.OverloadLikelihood,

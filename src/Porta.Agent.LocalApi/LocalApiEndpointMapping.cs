@@ -1,13 +1,16 @@
 using System.Threading.RateLimiting;
+using System.Runtime.Versioning;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Porta.Agent.Core;
+using Porta.Agent.Core.Security;
 
 namespace Porta.Agent.LocalApi;
 
+[SupportedOSPlatform("windows")]
 public static class LocalApiEndpointMapping
 {
     private const string TokenHeader = "X-PORTA-TOKEN";
@@ -67,8 +70,35 @@ public static class LocalApiEndpointMapping
                 return;
             }
 
+            Secrets.ApiTokenReadResult authResult = Secrets.GetApiToken();
+            bool localApiAuthReady = authResult.Success && authResult.TokenBytes is { Length: 32 };
+            string? localApiAuthError = localApiAuthReady ? null : "TOKEN_READ_FAILED";
+            string? currentAuthToken = localApiAuthReady ? Convert.ToHexString(authResult.TokenBytes!) : null;
+
+            context.Items["local_api_auth_ready"] = localApiAuthReady;
+            context.Items["local_api_auth_error"] = localApiAuthError;
+
+            if (!localApiAuthReady)
+            {
+                bool isStatusEndpoint = HttpMethods.IsGet(context.Request.Method)
+                    && context.Request.Path.Equals("/v1/status", StringComparison.OrdinalIgnoreCase);
+                if (isStatusEndpoint)
+                {
+                    await next().ConfigureAwait(false);
+                    return;
+                }
+
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await context.Response.WriteAsJsonAsync(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "local_api_auth_not_ready",
+                    TimestampUtc: DateTimeOffset.UtcNow)).ConfigureAwait(false);
+                return;
+            }
+
             if (!context.Request.Headers.TryGetValue(TokenHeader, out var token)
-                || !string.Equals(token.ToString(), settings.AuthToken, StringComparison.Ordinal))
+                || string.IsNullOrWhiteSpace(currentAuthToken)
+                || !string.Equals(token.ToString(), currentAuthToken, StringComparison.Ordinal))
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 await context.Response.WriteAsJsonAsync(new LocalApiAckResponse(
@@ -83,8 +113,17 @@ public static class LocalApiEndpointMapping
 
         RouteGroupBuilder api = app.MapGroup("/v1").RequireRateLimiting(ApiLimiterPolicy);
 
-        api.MapGet("/status", (IAgentCoreController controller) =>
+        api.MapGet("/status", (IAgentCoreController controller, HttpContext httpContext) =>
         {
+            Secrets.ApiTokenReadResult tokenResult = Secrets.GetApiToken();
+            bool localApiAuthReady = tokenResult.Success && tokenResult.TokenBytes is { Length: 32 };
+            string? localApiAuthError = localApiAuthReady ? null : "TOKEN_READ_FAILED";
+
+            if (controller is AgentCoreController concreteController)
+            {
+                concreteController.SetLocalApiAuthState(localApiAuthReady, localApiAuthError);
+            }
+
             AgentServiceStatusSnapshot status = controller.GetStatus();
             return new LocalApiStatusResponse(
                 status.Status,
@@ -103,6 +142,8 @@ public static class LocalApiEndpointMapping
                 status.PolicyVersion,
                 status.LastEventTimestampUtc,
                 status.LastError,
+                localApiAuthReady,
+                localApiAuthError,
                 status.LastUpdatedUtc);
         });
 

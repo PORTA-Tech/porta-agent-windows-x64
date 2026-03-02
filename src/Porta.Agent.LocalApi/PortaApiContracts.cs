@@ -19,6 +19,8 @@ public sealed record LocalApiStatusResponse(
     string PolicyVersion,
     DateTimeOffset? LastEventTimestampUtc,
     string? LastError,
+    bool LocalApiAuthReady,
+    string? LocalApiAuthError,
     DateTimeOffset LastUpdatedUtc);
 
 public sealed record LocalApiCurrentSnapshotResponse(

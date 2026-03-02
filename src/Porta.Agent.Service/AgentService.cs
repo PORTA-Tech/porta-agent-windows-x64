@@ -37,7 +37,11 @@ internal sealed class AgentService : IHostedService, IDisposable
         builder.Services.AddPortaLocalApi();
         builder.Services.AddSingleton<IBrainStateStore, SqliteBrainStateStore>();
         builder.Services.AddSingleton<IAgentCoreController>(sp =>
-            new AgentCoreController(sp.GetRequiredService<IBrainStateStore>()));
+        {
+            var controller = new AgentCoreController(sp.GetRequiredService<IBrainStateStore>());
+            controller.SetLocalApiAuthState(settings.LocalApiAuthReady, settings.LocalApiAuthError);
+            return controller;
+        });
         builder.Services.AddSingleton<ISignalAcquisitionStage, SystemSignalAcquisitionStage>();
         builder.Services.AddSingleton<IPrimitiveNormalizationStage, DefaultPrimitiveNormalizationStage>();
         builder.Services.AddSingleton<IInferenceStage, DefaultInferenceStage>();

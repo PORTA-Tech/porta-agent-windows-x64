@@ -1,10 +1,12 @@
 using System.Net.Http.Json;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using Porta.Agent.Core;
 
 namespace Porta.Agent.LocalApi;
 
+[SupportedOSPlatform("windows")]
 public sealed class LocalApiClient : IDisposable
 {
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(3);
@@ -30,7 +32,10 @@ public sealed class LocalApiClient : IDisposable
             BaseAddress = new Uri($"http://{_host}:{_port}"),
             Timeout = RequestTimeout
         };
-        _httpClient.DefaultRequestHeaders.Add("X-PORTA-TOKEN", _settings.AuthToken);
+        if (_settings.LocalApiAuthReady && !string.IsNullOrWhiteSpace(_settings.AuthToken))
+        {
+            _httpClient.DefaultRequestHeaders.Add("X-PORTA-TOKEN", _settings.AuthToken);
+        }
     }
 
     public bool IsConfigured => _settings != null;

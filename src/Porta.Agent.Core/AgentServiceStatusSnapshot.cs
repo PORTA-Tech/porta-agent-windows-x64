@@ -19,4 +19,6 @@ public sealed record AgentServiceStatusSnapshot(
     string PolicyVersion,
     DateTimeOffset? LastEventTimestampUtc,
     string? LastError,
+    bool LocalApiAuthReady,
+    string? LocalApiAuthError,
     DateTimeOffset LastUpdatedUtc);
