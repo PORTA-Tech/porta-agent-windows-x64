@@ -1,21 +1,53 @@
 using Microsoft.Data.Sqlite;
+using System.Globalization;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Porta.Agent.Core.Db;
 
 internal static class Migrations
 {
-    internal const string SchemaVersion = "2.0.0";
+    private const int LatestSchemaVersion = 2;
+
+    private static readonly MigrationStep[] OrderedSteps =
+    [
+        new(
+            Version: 1,
+            Name: "base_schema",
+            Apply: Schema.ApplyBaseSchema),
+        new(
+            Version: 2,
+            Name: "schema_patches",
+            Apply: Schema.ApplySchemaPatches)
+    ];
 
     internal static void Migrate(SqliteConnection connection)
     {
         DbHealth.EnsureTable(connection);
-        EnsureMigrationLedger(connection);
+        EnsureMigrationsTable(connection);
 
         try
         {
-            ApplyStep(connection, "001_base_schema", Schema.ApplyBaseSchema);
-            ApplyStep(connection, "002_schema_patches", Schema.ApplySchemaPatches);
-            DbHealth.SetSchemaVersion(connection, SchemaVersion);
+            int currentVersion = GetCurrentVersion(connection);
+            if (currentVersion > LatestSchemaVersion)
+            {
+                throw new InvalidOperationException(
+                    $"Database schema version {currentVersion} is newer than supported version {LatestSchemaVersion}.");
+            }
+
+            foreach (MigrationStep step in OrderedSteps)
+            {
+                if (step.Version <= currentVersion)
+                {
+                    continue;
+                }
+
+                ApplyStep(connection, step);
+                currentVersion = step.Version;
+            }
+
+            DbHealth.SetSchemaVersion(connection, currentVersion.ToString(CultureInfo.InvariantCulture));
             DbHealth.SetMigrationFailed(connection, failed: false);
         }
         catch
@@ -25,31 +57,55 @@ internal static class Migrations
         }
     }
 
-    private static void EnsureMigrationLedger(SqliteConnection connection)
+    private static void EnsureMigrationsTable(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
             """
-            CREATE TABLE IF NOT EXISTS migration_ledger (
-                migration_id TEXT PRIMARY KEY,
-                applied_utc TEXT NOT NULL
+            CREATE TABLE IF NOT EXISTS migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_utc TEXT NOT NULL,
+                checksum TEXT,
+                app_build TEXT
             );
             """;
         cmd.ExecuteNonQuery();
     }
 
-    private static void ApplyStep(SqliteConnection connection, string migrationId, Action<SqliteConnection> migrationAction)
+    private static int GetCurrentVersion(SqliteConnection connection)
     {
-        if (IsApplied(connection, migrationId))
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT version FROM migrations ORDER BY version ASC;";
+        using SqliteDataReader reader = cmd.ExecuteReader();
+
+        int expected = 1;
+        int lastSeen = 0;
+        while (reader.Read())
         {
-            return;
+            int version = reader.GetInt32(0);
+            if (version != expected)
+            {
+                throw new InvalidOperationException(
+                    $"Migration ledger is not contiguous. Expected version {expected}, found {version}.");
+            }
+
+            lastSeen = version;
+            expected++;
         }
 
+        return lastSeen;
+    }
+
+    private static void ApplyStep(SqliteConnection connection, MigrationStep step)
+    {
         ExecuteNonQuery(connection, "BEGIN IMMEDIATE;");
         try
         {
-            migrationAction(connection);
-            RecordApplied(connection, migrationId);
+            step.Apply(connection);
+            RecordApplied(connection, step);
+            DbHealth.SetSchemaVersion(connection, step.Version.ToString(CultureInfo.InvariantCulture));
+            DbHealth.SetMigrationFailed(connection, failed: false);
             ExecuteNonQuery(connection, "COMMIT;");
         }
         catch
@@ -59,25 +115,19 @@ internal static class Migrations
         }
     }
 
-    private static bool IsApplied(SqliteConnection connection, string migrationId)
-    {
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT 1 FROM migration_ledger WHERE migration_id = $id LIMIT 1;";
-        cmd.Parameters.AddWithValue("$id", migrationId);
-        object? row = cmd.ExecuteScalar();
-        return row != null;
-    }
-
-    private static void RecordApplied(SqliteConnection connection, string migrationId)
+    private static void RecordApplied(SqliteConnection connection, MigrationStep step)
     {
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
             """
-            INSERT INTO migration_ledger (migration_id, applied_utc)
-            VALUES ($id, $applied_utc);
+            INSERT INTO migrations (version, name, applied_utc, checksum, app_build)
+            VALUES ($version, $name, $applied_utc, $checksum, $app_build);
             """;
-        cmd.Parameters.AddWithValue("$id", migrationId);
-        cmd.Parameters.AddWithValue("$applied_utc", DateTimeOffset.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("$version", step.Version);
+        cmd.Parameters.AddWithValue("$name", step.Name);
+        cmd.Parameters.AddWithValue("$applied_utc", Time.toIsoUtcMsString(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        cmd.Parameters.AddWithValue("$checksum", ComputeChecksum(step));
+        cmd.Parameters.AddWithValue("$app_build", ResolveAppBuild());
         cmd.ExecuteNonQuery();
     }
 
@@ -98,4 +148,28 @@ internal static class Migrations
         {
         }
     }
+
+    private static string ComputeChecksum(MigrationStep step)
+    {
+        string seed = $"{step.Version}|{step.Name}";
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(seed));
+        return Convert.ToHexString(hash);
+    }
+
+    private static string ResolveAppBuild()
+    {
+        string? version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString();
+        if (!string.IsNullOrWhiteSpace(version))
+        {
+            return version;
+        }
+
+        version = Assembly.GetExecutingAssembly().GetName().Version?.ToString();
+        return string.IsNullOrWhiteSpace(version) ? "unknown" : version;
+    }
+
+    private readonly record struct MigrationStep(
+        int Version,
+        string Name,
+        Action<SqliteConnection> Apply);
 }
