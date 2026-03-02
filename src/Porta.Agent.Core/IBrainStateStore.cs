@@ -1,0 +1,30 @@
+namespace Porta.Agent.Core;
+
+public interface IBrainStateStore
+{
+    void WriteSnapshot(AgentBrainSnapshot snapshot);
+    void WriteControlEvent(AgentControlEvent controlEvent);
+    void WriteSystemChange(AgentSystemChange change);
+    void WriteDiagnostics(AgentDiagnosticsSnapshot diagnostics);
+    void WriteConsent(AgentConsentRecord consent);
+    AgentConsentRecord? ReadLatestConsent();
+    void WriteSettings(AgentSettingsRecord settings);
+    AgentSettingsRecord? ReadLatestSettings();
+    void DeleteLocalData();
+    AgentBrainSnapshot? ReadLatestSnapshot();
+    IReadOnlyList<AgentBrainSnapshot> ReadTimeline(
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        int bucketSeconds = PortaExecutionConstants.BucketSeconds);
+    IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null);
+    IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000);
+    AgentStorageInfo ReadStorageInfo();
+    AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);
+    string ExportBundle(
+        IReadOnlyList<string> logFilePaths,
+        string consentPath,
+        string settingsPath,
+        IReadOnlyDictionary<string, string> versions,
+        IReadOnlyList<string> configPaths,
+        IReadOnlyDictionary<string, string> supplementalJsonFiles);
+}

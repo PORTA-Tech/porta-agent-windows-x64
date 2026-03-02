@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Porta.Agent.Core;
 
 namespace Porta.Agent.LocalApi;
 
@@ -116,7 +117,11 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
-    public async Task<LocalApiTimelineResponse?> GetTimelineAsync(DateTimeOffset fromUtc, DateTimeOffset toUtc, int bucketSeconds = 5, CancellationToken token = default)
+    public async Task<LocalApiTimelineResponse?> GetTimelineAsync(
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        int bucketSeconds = PortaExecutionConstants.BucketSeconds,
+        CancellationToken token = default)
     {
         if (_settings == null)
         {
@@ -126,7 +131,8 @@ public sealed class LocalApiClient : IDisposable
         try
         {
             RefreshEndpointBinding();
-            int bucket = Math.Clamp(bucketSeconds, 1, 60);
+            _ = bucketSeconds;
+            int bucket = PortaExecutionConstants.BucketSeconds;
             string from = Uri.EscapeDataString(fromUtc.ToString("O"));
             string to = Uri.EscapeDataString(toUtc.ToString("O"));
             string path = $"/v1/timeline?from={from}&to={to}&bucketSeconds={bucket}";
