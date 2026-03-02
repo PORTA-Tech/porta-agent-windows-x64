@@ -113,21 +113,6 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             cmd.Transaction = tx;
             cmd.CommandText =
                 """
-                INSERT INTO diagnostics (
-                    timestamp_utc,
-                    last_error,
-                    last_backend_ok_utc,
-                    last_event_ts_utc,
-                    backend_connected,
-                    consent_active,
-                    paused,
-                    policy_version,
-                    schema_version,
-                    agent_version
-                ) VALUES (
-                    $ts, $last_error, $last_backend_ok, $last_event, $backend, $consent, $paused, $policy, $schema, $agent
-                );
-
                 INSERT INTO diagnostics_snapshots (
                     timestamp_utc,
                     backend_connected,
@@ -147,7 +132,6 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             cmd.Parameters.AddWithValue("$consent", diagnostics.ConsentActive ? 1 : 0);
             cmd.Parameters.AddWithValue("$paused", diagnostics.Paused ? 1 : 0);
             cmd.Parameters.AddWithValue("$last_error", diagnostics.LastError ?? string.Empty);
-            cmd.Parameters.AddWithValue("$last_backend_ok", diagnostics.LastBackendOkUtc?.ToString("O") ?? string.Empty);
             cmd.Parameters.AddWithValue("$policy", diagnostics.PolicyVersion);
             cmd.Parameters.AddWithValue("$schema", diagnostics.SchemaVersion);
             cmd.Parameters.AddWithValue("$agent", diagnostics.AgentVersion);
@@ -1630,7 +1614,6 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             DELETE FROM state_buckets WHERE timestamp_utc < $cutoff;
             DELETE FROM events WHERE timestamp_utc < $cutoff;
             DELETE FROM system_changes WHERE timestamp_utc < $cutoff;
-            DELETE FROM diagnostics WHERE timestamp_utc < $cutoff;
             DELETE FROM consent WHERE timestamp_utc < $cutoff;
             DELETE FROM settings WHERE timestamp_utc < $cutoff;
             DELETE FROM interventions WHERE timestamp_utc < $cutoff;

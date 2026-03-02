@@ -9,16 +9,7 @@ internal static class DbHealth
 
     internal static void EnsureTable(SqliteConnection connection)
     {
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText =
-            """
-            CREATE TABLE IF NOT EXISTS db_health (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_utc TEXT NOT NULL
-            );
-            """;
-        cmd.ExecuteNonQuery();
+        Schema.ApplyDiagnosticsKeyValueContract(connection);
     }
 
     internal static void SetSchemaVersion(SqliteConnection connection, string schemaVersion)
@@ -36,7 +27,7 @@ internal static class DbHealth
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
             """
-            INSERT INTO db_health (key, value, updated_utc)
+            INSERT INTO diagnostics (key, value, updated_utc)
             VALUES ($key, $value, $updated_utc)
             ON CONFLICT(key) DO UPDATE SET
                 value = excluded.value,

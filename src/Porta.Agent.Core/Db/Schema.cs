@@ -93,17 +93,9 @@ internal static class Schema
             );
 
             CREATE TABLE IF NOT EXISTS diagnostics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp_utc TEXT NOT NULL,
-                last_error TEXT NOT NULL,
-                last_backend_ok_utc TEXT NOT NULL,
-                last_event_ts_utc TEXT NOT NULL,
-                backend_connected INTEGER NOT NULL,
-                consent_active INTEGER NOT NULL,
-                paused INTEGER NOT NULL,
-                policy_version TEXT NOT NULL,
-                schema_version TEXT NOT NULL,
-                agent_version TEXT NOT NULL
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_utc TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS runtime_state (
@@ -208,7 +200,7 @@ internal static class Schema
             CREATE INDEX IF NOT EXISTS ix_events_ts ON events(timestamp_utc);
             CREATE INDEX IF NOT EXISTS idx_events_recent ON events(timestamp_utc DESC, id DESC);
             CREATE INDEX IF NOT EXISTS ix_system_changes_ts ON system_changes(timestamp_utc);
-            CREATE INDEX IF NOT EXISTS ix_diagnostics_new_ts ON diagnostics(timestamp_utc);
+            CREATE INDEX IF NOT EXISTS ix_diagnostics_updated_utc ON diagnostics(updated_utc);
             CREATE INDEX IF NOT EXISTS ix_runtime_state_updated_utc ON runtime_state(updated_utc);
             CREATE INDEX IF NOT EXISTS ix_consent_ts ON consent(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_settings_ts ON settings(timestamp_utc);
@@ -312,6 +304,40 @@ internal static class Schema
         AssertEventsContract(connection);
     }
 
+    internal static void ApplyDiagnosticsKeyValueContract(SqliteConnection connection)
+    {
+        HashSet<string> columns = GetTableColumns(connection, "diagnostics");
+        bool hasKeyValueShape = columns.Contains("key")
+            && columns.Contains("value")
+            && columns.Contains("updated_utc");
+
+        if (!hasKeyValueShape && columns.Count > 0)
+        {
+            bool hasLegacy = TableExists(connection, "diagnostics_legacy");
+            using var renameOrDrop = connection.CreateCommand();
+            renameOrDrop.CommandText = hasLegacy
+                ? "DROP TABLE diagnostics;"
+                : "ALTER TABLE diagnostics RENAME TO diagnostics_legacy;";
+            renameOrDrop.ExecuteNonQuery();
+        }
+
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText =
+                """
+                CREATE TABLE IF NOT EXISTS diagnostics (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_diagnostics_updated_utc ON diagnostics(updated_utc);
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        AssertDiagnosticsContract(connection);
+    }
+
     internal static void AssertEventsContract(SqliteConnection connection)
     {
         HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
@@ -339,6 +365,47 @@ internal static class Schema
             throw new InvalidOperationException(
                 $"Events schema assertion failed. Missing required columns: {string.Join(", ", missing)}.");
         }
+    }
+
+    internal static void AssertDiagnosticsContract(SqliteConnection connection)
+    {
+        HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "key",
+            "value",
+            "updated_utc"
+        };
+
+        HashSet<string> actualColumns = GetTableColumns(connection, "diagnostics");
+        List<string> missing = requiredColumns.Where(column => !actualColumns.Contains(column)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Diagnostics schema assertion failed. Missing required columns: {string.Join(", ", missing)}.");
+        }
+    }
+
+    private static bool TableExists(SqliteConnection connection, string tableName)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name = $name LIMIT 1;";
+        cmd.Parameters.AddWithValue("$name", tableName);
+        object? row = cmd.ExecuteScalar();
+        return row != null;
+    }
+
+    private static HashSet<string> GetTableColumns(SqliteConnection connection, string tableName)
+    {
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({tableName});";
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            columns.Add(reader.GetString(1));
+        }
+
+        return columns;
     }
 
     private static void EnsureColumnExists(SqliteConnection connection, string table, string column, string definition)
