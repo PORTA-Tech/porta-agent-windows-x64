@@ -1630,8 +1630,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
 
     private void EnsureSchema()
     {
-        using var connection = DbOpen.OpenConnection(_connectionString, logPragmasAtBoot: true);
-        Migrations.Migrate(connection);
+        CoreStateDbStartup.InitializeAndMigrate(logPragmasAtBoot: true);
     }
 
     private static List<string> DeserializeContributors(string? raw)

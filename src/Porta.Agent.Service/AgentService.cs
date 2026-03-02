@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Porta.Agent.Core;
+using Porta.Agent.Core.Db;
 using Porta.Agent.LocalApi;
 using Porta.Agent.Runtime.Layer1;
 
@@ -55,6 +56,19 @@ internal sealed class AgentService : IHostedService, IDisposable
         if (Interlocked.Exchange(ref _started, 1) == 1)
         {
             return;
+        }
+
+        try
+        {
+            string dbPath = CoreStateDbStartup.InitializeAndMigrate(logPragmasAtBoot: true);
+            Console.WriteLine($"Core state DB initialized at {dbPath}.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Core state DB startup failed: {ex.GetType().Name} {ex.Message}");
+            CoreStateDbStartup.TrySetMigrationFailed();
+            Interlocked.Exchange(ref _started, 0);
+            throw;
         }
 
         await _agentHost.StartAsync(cancellationToken).ConfigureAwait(false);
