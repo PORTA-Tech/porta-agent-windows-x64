@@ -1625,7 +1625,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
 
     private void EnsureSchema()
     {
-        using var connection = DbOpen.OpenConnection(_connectionString);
+        using var connection = DbOpen.OpenConnection(_connectionString, logPragmasAtBoot: true);
         Migrations.Migrate(connection);
     }
 
