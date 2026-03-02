@@ -4,6 +4,7 @@ internal static class Constants
 {
     public const int WhMouseLl = 14;
     public const int WhKeyboardLl = 13;
+    public const uint WmMouseMove = 0x0200;
     public const int MouseDataOffset = 8;
     public const uint WmMouseWheel = 0x020A;
     public const uint WmKeyDown = 0x0100;
@@ -18,6 +19,7 @@ internal static class Constants
     public const int KbdVkCodeOffset = 0;
     public const int KbdFlagsOffset = 8;
     public const int LlkhfInjected = 0x10;
+    public const int VkBack = 0x08;
     public const int DwExtraInfoOffsetX86 = 20;
     public const int DwExtraInfoOffsetX64 = 24;
     public const uint InjectedScrollSignature = 0x50545241; // "PTRA"

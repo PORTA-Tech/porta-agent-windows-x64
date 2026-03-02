@@ -16,7 +16,8 @@ namespace Porta.Agent.Runtime.Input
         private volatile bool _installSucceeded;
         private int _lastInstallError;
 
-        public event Action<int, bool, bool> KeyChanged = delegate { };
+        // Privacy contract: no key content is emitted; only keydown timing + backspace flag.
+        public event Action<bool, bool, bool> KeyChanged = delegate { };
 
         public bool Install(int maxAttempts = 3, int retryDelayMs = 200)
         {
@@ -162,10 +163,11 @@ namespace Porta.Agent.Runtime.Input
                     int vkCode = System.Runtime.InteropServices.Marshal.ReadInt32(lParam, Constants.KbdVkCodeOffset);
                     int flags = System.Runtime.InteropServices.Marshal.ReadInt32(lParam, Constants.KbdFlagsOffset);
                     bool isInjected = (flags & Constants.LlkhfInjected) != 0;
+                    bool isBackspace = vkCode == Constants.VkBack;
 
                     try
                     {
-                        KeyChanged(vkCode, isKeyDown, isInjected);
+                        KeyChanged(isKeyDown, isBackspace, isInjected);
                     }
                     catch (Exception ex)
                     {

@@ -1,3 +1,5 @@
+using Porta.Agent.Core.Buckets;
+
 namespace Porta.Agent.Core;
 
 /// <summary>
@@ -6,5 +8,5 @@ namespace Porta.Agent.Core;
 /// </summary>
 public interface IBucketFinalizerDbWriter
 {
-    void WriteFinalizedBucketSnapshot(AgentBrainSnapshot snapshot);
+    void WriteFinalizedBucketSnapshot(AgentBrainSnapshot snapshot, InputBucketRow inputBucketRow);
 }

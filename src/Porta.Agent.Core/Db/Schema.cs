@@ -362,6 +362,17 @@ internal static class Schema
         EnsureBucketSeqIndexIfNeeded(connection, "state_buckets", "idx_state_buckets_bucket_seq");
     }
 
+    internal static void ApplyInputBucketsContractV6(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "input_buckets", "quality_score", "REAL NOT NULL DEFAULT 1");
+        EnsureColumnExists(connection, "input_buckets", "partial", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(
+            connection,
+            "input_buckets",
+            "contributors_json",
+            "TEXT NOT NULL DEFAULT '{\"schema_ver\":1,\"keyboard\":{\"keys\":0,\"backspace\":0},\"mouse\":{\"moves\":0,\"scroll\":0},\"focus\":{\"switches\":0},\"idle\":{\"idle_s\":0}}'");
+    }
+
     internal static void AssertEventsContract(SqliteConnection connection)
     {
         HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
@@ -406,6 +417,29 @@ internal static class Schema
         {
             throw new InvalidOperationException(
                 $"Diagnostics schema assertion failed. Missing required columns: {string.Join(", ", missing)}.");
+        }
+    }
+
+    internal static void AssertInputBucketsContract(SqliteConnection connection)
+    {
+        HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "timestamp_utc",
+            "start_utc",
+            "typing_burst_intensity",
+            "scroll_velocity_index",
+            "focus_switch_rate",
+            "quality_score",
+            "partial",
+            "contributors_json"
+        };
+
+        HashSet<string> actualColumns = GetTableColumns(connection, "input_buckets");
+        List<string> missing = requiredColumns.Where(column => !actualColumns.Contains(column)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Input buckets schema assertion failed. Missing required columns: {string.Join(", ", missing)}.");
         }
     }
 

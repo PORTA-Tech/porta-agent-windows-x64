@@ -2,14 +2,14 @@ namespace Porta.Agent.Runtime.Input;
 
 internal readonly struct FocusEvent
 {
-    public long Timestamp { get; }
-    public uint ProcessId { get; }
-    public nint WindowHandle { get; }
+    public long MonotonicTimestamp { get; }
+    public long TimestampUtcMs { get; }
+    public string AppHash { get; }
 
-    public FocusEvent(long timestamp, uint processId, nint windowHandle)
+    public FocusEvent(long monotonicTimestamp, long timestampUtcMs, string appHash)
     {
-        Timestamp = timestamp;
-        ProcessId = processId;
-        WindowHandle = windowHandle;
+        MonotonicTimestamp = monotonicTimestamp;
+        TimestampUtcMs = timestampUtcMs;
+        AppHash = string.IsNullOrWhiteSpace(appHash) ? "unknown" : appHash;
     }
 }

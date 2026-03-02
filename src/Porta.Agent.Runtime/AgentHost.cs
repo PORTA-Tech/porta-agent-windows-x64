@@ -11,6 +11,7 @@ using Porta.Agent.Runtime.Diagnostics;
 using Porta.Agent.Runtime.Input;
 using Porta.Agent.Runtime.Render;
 using Porta.Agent.Runtime.Transport;
+using Porta.Agent.Runtime.Win32;
 
 namespace Porta.Agent.Runtime
 {
@@ -40,12 +41,12 @@ namespace Porta.Agent.Runtime
 
             if (_lastEvent != null)
             {
-                double deltaTime = (evt.Timestamp - _lastEvent.Value.Timestamp) / (double)Stopwatch.Frequency;
+                double deltaTime = (evt.MonotonicTimestamp - _lastEvent.Value.MonotonicTimestamp) / (double)Stopwatch.Frequency;
                 if (deltaTime > 0)
                     velocity = evt.Delta / deltaTime;
             }
 
-            Console.WriteLine($"Scroll delta: {evt.Delta}, velocity: {velocity:F2}, timestamp: {evt.Timestamp}");
+            Console.WriteLine($"Scroll delta: {evt.Delta}, velocity: {velocity:F2}, timestamp_utc_ms: {evt.TimestampUtcMs}");
 
             _lastEvent = evt;
 
@@ -86,6 +87,7 @@ namespace Porta.Agent.Runtime
         private CancellationTokenSource? _lifecycleCts;
         private Task? _processingTask;
         private Task? _metricsTask;
+        private Task? _idleCaptureTask;
         private Task? _killSwitchTask;
         private Task? _telemetryTask;
         private Task? _heartbeatTask;
@@ -187,6 +189,7 @@ namespace Porta.Agent.Runtime
             _portaClient = new PortaClient();
             _heartbeat = new Heartbeat(_portaClient, hz => BuildControlSnapshot(hz), BuildAgentStatusSnapshot);
             _mouseHook.ScrollDeltaChanged += OnScrollDelta;
+            _mouseHook.MouseMoved += OnMouseMoved;
             _mouseHook.ShouldSuppressScroll = ShouldSuppressScroll;
             _keyboardHook.KeyChanged += OnKeyChanged;
             _foregroundHook.ForegroundChanged += OnForegroundChanged;
@@ -232,6 +235,8 @@ namespace Porta.Agent.Runtime
             var events = _events;
             if (IsRunning && events != null)
             {
+                long tsUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
                 if (wasSuppressed)
                 {
                     Interlocked.Increment(ref _suppressedEvents);
@@ -250,7 +255,9 @@ namespace Porta.Agent.Runtime
                     WasSuppressed = wasSuppressed
                 });
 
-                if (events.Writer.TryWrite(RuntimeInputEvent.FromScroll(new ScrollEvent(Stopwatch.GetTimestamp(), delta, wasSuppressed))))
+                if (events.Writer.TryWrite(
+                        RuntimeInputEvent.FromMouseWheel(
+                            new ScrollEvent(Stopwatch.GetTimestamp(), tsUtcMs, delta, wasSuppressed))))
                 {
                     Interlocked.Increment(ref _enqueuedEvents);
                     IncrementDepth(ref _queueDepth);
@@ -262,13 +269,15 @@ namespace Porta.Agent.Runtime
             }
         }
 
-        private void OnKeyChanged(int virtualKey, bool isKeyDown, bool isInjected)
+        private void OnKeyChanged(bool isKeyDown, bool isBackspace, bool isInjected)
         {
             var events = _events;
             if (!IsRunning || events == null)
             {
                 return;
             }
+
+            long tsUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
             if (isInjected)
             {
@@ -280,10 +289,12 @@ namespace Porta.Agent.Runtime
                 AgentId = _portaClient.AgentId,
                 TimestampUtc = DateTimeOffset.UtcNow,
                 Kind = "keyboard",
-                Note = $"down={isKeyDown} injected={isInjected}"
+                Note = $"down={isKeyDown} backspace={isBackspace} injected={isInjected}"
             });
 
-            if (events.Writer.TryWrite(RuntimeInputEvent.FromKeyboard(new KeyboardEvent(Stopwatch.GetTimestamp(), virtualKey, isKeyDown, isInjected))))
+            if (events.Writer.TryWrite(
+                    RuntimeInputEvent.FromKeyboard(
+                        new KeyboardEvent(Stopwatch.GetTimestamp(), tsUtcMs, isKeyDown, isBackspace, isInjected))))
             {
                 Interlocked.Increment(ref _keyboardEnqueuedEvents);
                 IncrementDepth(ref _queueDepth);
@@ -295,7 +306,7 @@ namespace Porta.Agent.Runtime
             }
         }
 
-        private void OnForegroundChanged(uint processId, IntPtr hwnd)
+        private void OnForegroundChanged(uint processId, IntPtr __)
         {
             var events = _events;
             if (!IsRunning || events == null)
@@ -303,15 +314,20 @@ namespace Porta.Agent.Runtime
                 return;
             }
 
+            long tsUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            string appHash = FocusIdentityNormalizer.ComputeAppHash(processId);
+
             EnqueueTelemetry(new AgentTelemetry
             {
                 AgentId = _portaClient.AgentId,
                 TimestampUtc = DateTimeOffset.UtcNow,
                 Kind = "focus",
-                Note = "foreground_changed"
+                Note = $"foreground_changed app_hash={appHash}"
             });
 
-            if (events.Writer.TryWrite(RuntimeInputEvent.FromFocus(new FocusEvent(Stopwatch.GetTimestamp(), processId, hwnd))))
+            if (events.Writer.TryWrite(
+                    RuntimeInputEvent.FromFocus(
+                        new FocusEvent(Stopwatch.GetTimestamp(), tsUtcMs, appHash))))
             {
                 Interlocked.Increment(ref _focusEnqueuedEvents);
                 IncrementDepth(ref _queueDepth);
@@ -319,6 +335,28 @@ namespace Porta.Agent.Runtime
             else
             {
                 Interlocked.Increment(ref _focusDroppedEvents);
+                Interlocked.Increment(ref _droppedEvents);
+            }
+        }
+
+        private void OnMouseMoved(int dx, int dy)
+        {
+            var events = _events;
+            if (!IsRunning || events == null)
+            {
+                return;
+            }
+
+            long tsUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (events.Writer.TryWrite(
+                    RuntimeInputEvent.FromMouseMove(
+                        new MouseMoveEvent(Stopwatch.GetTimestamp(), tsUtcMs, dx, dy))))
+            {
+                Interlocked.Increment(ref _enqueuedEvents);
+                IncrementDepth(ref _queueDepth);
+            }
+            else
+            {
                 Interlocked.Increment(ref _droppedEvents);
             }
         }
@@ -354,29 +392,43 @@ namespace Porta.Agent.Runtime
                         bool trackQueueDepth = true;
                         try
                         {
-                            if (evt.Kind == InputEventKind.Scroll)
+                            if (evt.Kind == InputEventKind.MouseWheel)
                             {
-                                var scroll = evt.Scroll;
+                                var scroll = evt.MouseWheel;
                                 _processor.Process(scroll);
-                                _controlEngine.AddScrollSample(scroll.Timestamp, scroll.Delta);
+                                _controlEngine.AddScrollSample(scroll.MonotonicTimestamp, scroll.Delta);
                                 Interlocked.Increment(ref _processedEvents);
                                 processedAnyInput = true;
-                                latestInputTimestamp = Math.Max(latestInputTimestamp, scroll.Timestamp);
+                                latestInputTimestamp = Math.Max(latestInputTimestamp, scroll.MonotonicTimestamp);
                             }
                             else
                             if (evt.Kind == InputEventKind.Keyboard)
                             {
-                                _controlEngine.AddKeyboardSample(evt.Keyboard.Timestamp, evt.Keyboard.IsKeyDown);
+                                _controlEngine.AddKeyboardSample(evt.Keyboard.MonotonicTimestamp, evt.Keyboard.IsKeyDown);
                                 Interlocked.Increment(ref _keyboardProcessedEvents);
                                 processedAnyInput = true;
-                                latestInputTimestamp = Math.Max(latestInputTimestamp, evt.Keyboard.Timestamp);
+                                latestInputTimestamp = Math.Max(latestInputTimestamp, evt.Keyboard.MonotonicTimestamp);
                             }
                             else if (evt.Kind == InputEventKind.Focus)
                             {
-                                _controlEngine.AddFocusSample(evt.Focus.Timestamp);
+                                _controlEngine.AddFocusSample(evt.Focus.MonotonicTimestamp);
                                 Interlocked.Increment(ref _focusProcessedEvents);
                                 processedAnyInput = true;
-                                latestInputTimestamp = Math.Max(latestInputTimestamp, evt.Focus.Timestamp);
+                                latestInputTimestamp = Math.Max(latestInputTimestamp, evt.Focus.MonotonicTimestamp);
+                            }
+                            else if (evt.Kind == InputEventKind.MouseMove)
+                            {
+                                // Mouse move samples are captured for bucket-layer aggregation.
+                                // Captor and queueing only; no direct control computation here.
+                                Interlocked.Increment(ref _processedEvents);
+                                processedAnyInput = true;
+                                latestInputTimestamp = Math.Max(latestInputTimestamp, evt.MouseMove.MonotonicTimestamp);
+                            }
+                            else if (evt.Kind == InputEventKind.IdleSample)
+                            {
+                                // Idle samples are queue events for downstream bucket aggregates.
+                                // They do not count as active input timestamps.
+                                Interlocked.Increment(ref _processedEvents);
                             }
                             else
                             {
@@ -470,6 +522,53 @@ namespace Porta.Agent.Runtime
                 Interlocked.Increment(ref _processingErrors);
                 Logger.Error(ex, "Processing loop terminated unexpectedly.");
             }
+        }
+
+        private async Task CaptureIdleSamplesAsync(ChannelWriter<RuntimeInputEvent> writer, CancellationToken token)
+        {
+            TimeSpan cadence = TimeSpan.FromSeconds(1);
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(cadence, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                long tsUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                double idleSeconds = ReadIdleDurationSeconds();
+                RuntimeInputEvent idleEvent = RuntimeInputEvent.FromIdleSample(
+                    new IdleSampleEvent(tsUtcMs, idleSeconds));
+                if (writer.TryWrite(idleEvent))
+                {
+                    Interlocked.Increment(ref _enqueuedEvents);
+                    IncrementDepth(ref _queueDepth);
+                }
+                else
+                {
+                    Interlocked.Increment(ref _droppedEvents);
+                }
+            }
+        }
+
+        private static double ReadIdleDurationSeconds()
+        {
+            NativeMethods.LastInputInfo info = new()
+            {
+                CbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.LastInputInfo>()
+            };
+
+            if (!NativeMethods.GetLastInputInfo(ref info))
+            {
+                return 0d;
+            }
+
+            uint tickCount = unchecked((uint)Environment.TickCount64);
+            uint elapsedMs = unchecked(tickCount - info.DwTime);
+            return Math.Max(0d, elapsedMs / 1000d);
         }
 
         private async Task ReportMetricsAsync(CancellationToken token)
@@ -720,6 +819,7 @@ namespace Porta.Agent.Runtime
 
                     _processingTask = ProcessQueueAsync(_events.Reader, _lifecycleCts.Token);
                     _metricsTask = ReportMetricsAsync(_lifecycleCts.Token);
+                    _idleCaptureTask = CaptureIdleSamplesAsync(_events.Writer, _lifecycleCts.Token);
                     _killSwitchTask = _killSwitch.MonitorAsync(_lifecycleCts.Token, OnKillSwitchTriggered);
                     _telemetryTask = ProcessTelemetryAsync(_telemetry.Reader, _lifecycleCts.Token);
                     _heartbeatTask = _heartbeat.RunAsync(_lifecycleCts.Token);
@@ -754,6 +854,7 @@ namespace Porta.Agent.Runtime
                     _lifecycleCts = null;
                     _processingTask = null;
                     _metricsTask = null;
+                    _idleCaptureTask = null;
                     _killSwitchTask = null;
                     _telemetryTask = null;
                     _heartbeatTask = null;
@@ -771,6 +872,7 @@ namespace Porta.Agent.Runtime
         {
             Task? processingTask;
             Task? metricsTask;
+            Task? idleCaptureTask;
             Task? killSwitchTask;
             Task? telemetryTask;
             Task? heartbeatTask;
@@ -801,6 +903,7 @@ namespace Porta.Agent.Runtime
                 events = _events;
                 processingTask = _processingTask;
                 metricsTask = _metricsTask;
+                idleCaptureTask = _idleCaptureTask;
                 killSwitchTask = _killSwitchTask;
                 telemetryTask = _telemetryTask;
                 heartbeatTask = _heartbeatTask;
@@ -811,6 +914,7 @@ namespace Porta.Agent.Runtime
                 _telemetry = null;
                 _processingTask = null;
                 _metricsTask = null;
+                _idleCaptureTask = null;
                 _killSwitchTask = null;
                 _telemetryTask = null;
                 _heartbeatTask = null;
@@ -837,6 +941,7 @@ namespace Porta.Agent.Runtime
             lifecycleCts?.Cancel();
 
             await SafeAwaitTask(metricsTask, "metrics task").ConfigureAwait(false);
+            await SafeAwaitTask(idleCaptureTask, "idle capture task").ConfigureAwait(false);
             await SafeAwaitTask(killSwitchTask, "kill switch task").ConfigureAwait(false);
             SendHeartbeatTransitionNoWait("stopping");
             await SafeAwaitTask(telemetryTask, "telemetry task").ConfigureAwait(false);

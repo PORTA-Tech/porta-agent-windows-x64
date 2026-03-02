@@ -15,9 +15,13 @@ namespace Porta.Agent.Runtime.Input
         private readonly object _gate = new();
         private volatile bool _installSucceeded;
         private int _lastInstallError;
+        private bool _hasLastMovePoint;
+        private int _lastMoveX;
+        private int _lastMoveY;
 
         public Func<int, bool>? ShouldSuppressScroll { get; set; }
         public event Action<int, bool> ScrollDeltaChanged = delegate { };
+        public event Action<int, int> MouseMoved = delegate { };
 
         public bool Install(int maxAttempts = 3, int retryDelayMs = 200)
         {
@@ -199,6 +203,38 @@ namespace Porta.Agent.Runtime.Input
                     return (IntPtr)1;
                 }
             }
+            else if (nCode >= 0 && (uint)wParam == Constants.WmMouseMove)
+            {
+                int x = System.Runtime.InteropServices.Marshal.ReadInt32(lParam, 0);
+                int y = System.Runtime.InteropServices.Marshal.ReadInt32(lParam, 4);
+                int dx = 0;
+                int dy = 0;
+
+                lock (_gate)
+                {
+                    if (_hasLastMovePoint)
+                    {
+                        dx = x - _lastMoveX;
+                        dy = y - _lastMoveY;
+                    }
+
+                    _lastMoveX = x;
+                    _lastMoveY = y;
+                    _hasLastMovePoint = true;
+                }
+
+                if (dx != 0 || dy != 0)
+                {
+                    try
+                    {
+                        MouseMoved(dx, dy);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error(ex, "Mouse move listener failed.");
+                    }
+                }
+            }
 
             return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
         }
@@ -226,6 +262,9 @@ namespace Porta.Agent.Runtime.Input
                 _hookThreadId = 0;
                 _hookProc = null;
                 _hookId = IntPtr.Zero;
+                _hasLastMovePoint = false;
+                _lastMoveX = 0;
+                _lastMoveY = 0;
             }
         }
 

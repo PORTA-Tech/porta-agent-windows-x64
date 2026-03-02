@@ -55,6 +55,7 @@ public sealed class Layer1AgentHost : IDisposable
     private int _paused;
     private Layer1ConsentState _consentState;
     private long _keystrokesInWindow;
+    private long _backspacesInWindow;
     private long _appSwitchesInWindow;
     private double _mouseDistanceInWindow;
     private NativeMethods.Point _lastCursorPos;
@@ -353,6 +354,7 @@ public sealed class Layer1AgentHost : IDisposable
                 string correlationId = CreateCorrelationId();
 
                 long keyCount = Interlocked.Exchange(ref _keystrokesInWindow, 0);
+                long backspaceCount = Interlocked.Exchange(ref _backspacesInWindow, 0);
                 long appSwitches = Interlocked.Exchange(ref _appSwitchesInWindow, 0);
                 double mouseDistance;
                 lock (_gate)
@@ -362,6 +364,7 @@ public sealed class Layer1AgentHost : IDisposable
                 }
 
                 PublishSignal(correlationId, "interaction.keystroke_rate", keyCount / elapsedWindowSeconds, elapsedWindowSeconds, "count_per_second", "keyboard_hook_aggregate");
+                PublishSignal(correlationId, "interaction.backspace_rate", backspaceCount / elapsedWindowSeconds, elapsedWindowSeconds, "count_per_second", "keyboard_hook_aggregate");
                 PublishSignal(correlationId, "interaction.mouse_movement_distance", mouseDistance, elapsedWindowSeconds, "pixels", "cursor_position_delta_aggregate");
                 PublishSignal(correlationId, "interaction.app_switch_frequency", appSwitches / elapsedWindowSeconds, elapsedWindowSeconds, "count_per_second", "foreground_event_count");
                 PublishSignal(correlationId, "interaction.idle_duration", GetIdleDurationSeconds(), elapsedWindowSeconds, "seconds", "last_input_info");
@@ -388,6 +391,7 @@ public sealed class Layer1AgentHost : IDisposable
                 _lastSummary =
                     $"Window: {WindowSeconds}s\r\n"
                     + $"Keystroke rate: {(keyCount / elapsedWindowSeconds):F2}/s\r\n"
+                    + $"Backspace rate: {(backspaceCount / elapsedWindowSeconds):F2}/s\r\n"
                     + $"Mouse distance: {mouseDistance:F0} px\r\n"
                     + $"App switches: {(appSwitches / elapsedWindowSeconds):F2}/s\r\n"
                     + $"Idle duration: {GetIdleDurationSeconds():F1}s";
@@ -537,7 +541,7 @@ public sealed class Layer1AgentHost : IDisposable
         }
     }
 
-    private void OnKeyChanged(int _, bool isKeyDown, bool isInjected)
+    private void OnKeyChanged(bool isKeyDown, bool isBackspace, bool isInjected)
     {
         if (!isKeyDown || isInjected || IsCollectionDisabled())
         {
@@ -545,6 +549,10 @@ public sealed class Layer1AgentHost : IDisposable
         }
 
         Interlocked.Increment(ref _keystrokesInWindow);
+        if (isBackspace)
+        {
+            Interlocked.Increment(ref _backspacesInWindow);
+        }
     }
 
     private void PauseByUser(int minutes)
@@ -627,6 +635,7 @@ public sealed class Layer1AgentHost : IDisposable
     private void FlushAggregationBuffers()
     {
         Interlocked.Exchange(ref _keystrokesInWindow, 0);
+        Interlocked.Exchange(ref _backspacesInWindow, 0);
         Interlocked.Exchange(ref _appSwitchesInWindow, 0);
         lock (_gate)
         {

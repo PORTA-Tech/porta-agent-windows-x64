@@ -2,13 +2,15 @@ namespace Porta.Agent.Runtime.Input;
 
 internal readonly struct ScrollEvent
 {
-    public long Timestamp { get; }
+    public long MonotonicTimestamp { get; }
+    public long TimestampUtcMs { get; }
     public int Delta { get; }
     public bool WasSuppressed { get; }
 
-    public ScrollEvent(long timestamp, int delta, bool wasSuppressed)
+    public ScrollEvent(long monotonicTimestamp, long timestampUtcMs, int delta, bool wasSuppressed)
     {
-        Timestamp = timestamp;
+        MonotonicTimestamp = monotonicTimestamp;
+        TimestampUtcMs = timestampUtcMs;
         Delta = delta;
         WasSuppressed = wasSuppressed;
     }

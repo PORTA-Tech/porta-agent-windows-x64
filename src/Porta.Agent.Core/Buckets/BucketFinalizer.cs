@@ -12,6 +12,7 @@ internal sealed class BucketFinalizer
     private static readonly object BucketFinalizeLock = new();
     private static int _instanceCount;
 
+    private static readonly long RetentionWindowMs = checked((long)TimeSpan.FromDays(90).TotalMilliseconds);
     private const int FinalMarkerMemoryCap = 4096;
     private static readonly TimeSpan FinalMarkerRetention = TimeSpan.FromHours(1);
 
@@ -21,6 +22,9 @@ internal sealed class BucketFinalizer
     private readonly ConcurrentDictionary<long, long> _finalizedBucketMarkers = new();
     private long _highestFinalBucketSeq = long.MinValue;
     private long _lateDropCount;
+    private long _futureSkewDropCount;
+    private long _tooOldDropCount;
+    private BucketDropCountersSnapshot _qualityDropSnapshot = new(0, 0, 0);
 
     public BucketFinalizer(IBrainStateStore writer, IBucketFinalizerDbWriter bucketDbWriter)
     {
@@ -43,10 +47,15 @@ internal sealed class BucketFinalizer
         // - per-bucket lock only during aggregate mutation
         long tsUtcMs = snapshot.TimestampUtc.ToUnixTimeMilliseconds();
         long bucketSeq = Time.bucketSeqFromEventTs(tsUtcMs);
-        if (IsFinalBucket(bucketSeq))
+        long nowUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        EventTimestampValidation timestampValidation = Time.ValidateEventTimestamp(
+            tsUtcMs,
+            nowUtcMs,
+            RetentionWindowMs,
+            bucket_final: IsFinalBucket(bucketSeq));
+        if (timestampValidation.ShouldDrop)
         {
-            long lateDropCount = Interlocked.Increment(ref _lateDropCount);
-            Console.WriteLine($"bucket_final_late_drop bucket_seq={bucketSeq} late_drop_count={lateDropCount}");
+            LogTimestampDrop(timestampValidation.DropReason, bucketSeq, tsUtcMs, nowUtcMs);
             return;
         }
 
@@ -59,7 +68,7 @@ internal sealed class BucketFinalizer
             if (bucket.State == BucketLifecycleState.FINAL || IsFinalBucket(bucketSeq))
             {
                 shouldDropLate = true;
-                lateDropCountAfterDrop = Interlocked.Increment(ref _lateDropCount);
+                lateDropCountAfterDrop = IncrementDropCounter(EventTimestampDropReason.LateFinal);
             }
             else
             {
@@ -147,6 +156,9 @@ internal sealed class BucketFinalizer
             _finalizedBucketMarkers.Clear();
             _highestFinalBucketSeq = long.MinValue;
             _lateDropCount = 0;
+            _futureSkewDropCount = 0;
+            _tooOldDropCount = 0;
+            _qualityDropSnapshot = new BucketDropCountersSnapshot(0, 0, 0);
         }
     }
 
@@ -210,6 +222,18 @@ internal sealed class BucketFinalizer
                     return;
                 }
 
+                BucketDropCountersSnapshot currentDropSnapshot = ReadDropCountersSnapshot();
+                BucketDropCountersDelta dropDelta = ComputeDropDelta(_qualityDropSnapshot, currentDropSnapshot);
+                _qualityDropSnapshot = currentDropSnapshot;
+                BucketDataQualityScore quality = BucketDataQualityScorer.Compute(bucket, dropDelta);
+                bucket.QualityScore = quality.QualityScore;
+                bucket.Partial = quality.Partial;
+                bucket.StateFlagsStage["quality_score"] = quality.QualityScore.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+                bucket.StateFlagsStage["partial"] = quality.Partial ? "1" : "0";
+                bucket.StateFlagsStage["major_channels_missing"] = quality.MissingMajorChannels.Count == 0
+                    ? string.Empty
+                    : string.Join(",", quality.MissingMajorChannels);
+
                 AgentBrainSnapshot? finalizedSnapshot = RecomputeForFinalize(bucket);
 
                 // Finalize block: all write-side actions remain under BucketFinalizeLock.
@@ -217,7 +241,8 @@ internal sealed class BucketFinalizer
                 {
                     if (finalizedSnapshot != null)
                     {
-                        _bucketDbWriter.WriteFinalizedBucketSnapshot(finalizedSnapshot);
+                        InputBucketRow inputBucketRow = InputBucketRowMapper.BuildInputBucketRow(bucket);
+                        _bucketDbWriter.WriteFinalizedBucketSnapshot(finalizedSnapshot, inputBucketRow);
                     }
 
                     UpdateRuntimeStateLocked(bucket, nowUtcMs);
@@ -268,9 +293,10 @@ internal sealed class BucketFinalizer
 
     private static AgentBrainSnapshot? RecomputeForFinalize(BucketBuffer bucket)
     {
-        // For v1, recompute means materializing the latest in-memory aggregate snapshot.
-        // No state rollback is allowed; PENDING buckets are finalized with last deterministic aggregate.
-        return bucket.LatestSnapshot;
+        // Materialize deterministic per-bucket aggregate projection.
+        // No state rollback is allowed; PENDING buckets are finalized with
+        // aggregate values derived from all events seen for the bucket.
+        return BucketAggregators.BuildFinalizedSnapshot(bucket);
     }
 
     private static void UpdateRuntimeStateLocked(BucketBuffer bucket, long nowUtcMs)
@@ -296,6 +322,55 @@ internal sealed class BucketFinalizer
         }
 
         return _finalizedBucketMarkers.ContainsKey(bucketSeq);
+    }
+
+    private void LogTimestampDrop(EventTimestampDropReason reason, long bucketSeq, long eventTsUtcMs, long nowUtcMs)
+    {
+        long counter = IncrementDropCounter(reason);
+        switch (reason)
+        {
+            case EventTimestampDropReason.FutureSkew:
+                Console.WriteLine(
+                    $"bucket_future_skew_drop bucket_seq={bucketSeq} event_ts_utc_ms={eventTsUtcMs} now_utc_ms={nowUtcMs} future_skew_drop_count={counter}");
+                break;
+            case EventTimestampDropReason.TooOld:
+                Console.WriteLine(
+                    $"bucket_too_old_drop bucket_seq={bucketSeq} event_ts_utc_ms={eventTsUtcMs} now_utc_ms={nowUtcMs} too_old_drop_count={counter}");
+                break;
+            case EventTimestampDropReason.LateFinal:
+                Console.WriteLine(
+                    $"bucket_final_late_drop bucket_seq={bucketSeq} late_drop_count={counter}");
+                break;
+        }
+    }
+
+    private long IncrementDropCounter(EventTimestampDropReason reason)
+    {
+        return reason switch
+        {
+            EventTimestampDropReason.FutureSkew => Interlocked.Increment(ref _futureSkewDropCount),
+            EventTimestampDropReason.TooOld => Interlocked.Increment(ref _tooOldDropCount),
+            EventTimestampDropReason.LateFinal => Interlocked.Increment(ref _lateDropCount),
+            _ => 0
+        };
+    }
+
+    private BucketDropCountersSnapshot ReadDropCountersSnapshot()
+    {
+        return new BucketDropCountersSnapshot(
+            FutureSkewDrops: Volatile.Read(ref _futureSkewDropCount),
+            TooOldDrops: Volatile.Read(ref _tooOldDropCount),
+            LateFinalDrops: Volatile.Read(ref _lateDropCount));
+    }
+
+    private static BucketDropCountersDelta ComputeDropDelta(
+        BucketDropCountersSnapshot previous,
+        BucketDropCountersSnapshot current)
+    {
+        long future = Math.Max(0, current.FutureSkewDrops - previous.FutureSkewDrops);
+        long tooOld = Math.Max(0, current.TooOldDrops - previous.TooOldDrops);
+        long late = Math.Max(0, current.LateFinalDrops - previous.LateFinalDrops);
+        return new BucketDropCountersDelta(future, tooOld, late);
     }
 
     private static long ComputeFinalizeEligibleAtMs(long bucketEndUtcMs)

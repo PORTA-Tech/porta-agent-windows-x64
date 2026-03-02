@@ -45,17 +45,19 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 "Direct WriteSnapshot is blocked. Route snapshot writes through BucketFinalizerStateStore/BucketFinalizer.");
         }
 
-        WriteSnapshotCore(snapshot);
+        WriteSnapshotCore(snapshot, inputBucketRow: null);
     }
 
-    void IBucketFinalizerDbWriter.WriteFinalizedBucketSnapshot(AgentBrainSnapshot snapshot)
+    void IBucketFinalizerDbWriter.WriteFinalizedBucketSnapshot(AgentBrainSnapshot snapshot, InputBucketRow inputBucketRow)
     {
         using IDisposable _ = BucketFinalizerWriteGuard.Enter();
-        WriteSnapshotCore(snapshot);
+        WriteSnapshotCore(snapshot, inputBucketRow);
     }
 
-    private void WriteSnapshotCore(AgentBrainSnapshot snapshot)
+    private void WriteSnapshotCore(AgentBrainSnapshot snapshot, InputBucketRow? inputBucketRow)
     {
+        snapshot = BucketPrivacyContract.SanitizeForBucketPersistence(snapshot);
+
         lock (_gate)
         {
             using var connection = DbOpen.OpenConnection(_connectionString);
@@ -63,7 +65,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             using SqliteTransaction tx = BeginImmediateTransaction(connection);
             try
             {
-                InsertInputBucket(connection, tx, snapshot);
+                InsertInputBucket(connection, tx, snapshot, inputBucketRow);
                 InsertStateBucket(connection, tx, snapshot);
                 InsertLegacySnapshot(connection, tx, snapshot);
                 TryInsertAutomaticInterventionEvent(connection, tx, snapshot);
@@ -969,7 +971,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         cmd.ExecuteNonQuery();
     }
 
-    private void InsertInputBucket(SqliteConnection connection, SqliteTransaction tx, AgentBrainSnapshot snapshot)
+    private void InsertInputBucket(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        AgentBrainSnapshot snapshot,
+        InputBucketRow? mappedRow)
     {
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
@@ -981,13 +987,31 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 start_utc,
                 typing_burst_intensity,
                 scroll_velocity_index,
-                focus_switch_rate
-            ) VALUES ($ts, $ts, $typing, $scroll, $focus_switch);
+                focus_switch_rate,
+                quality_score,
+                partial,
+                contributors_json
+            ) VALUES ($ts, $start_utc, $typing, $scroll, $focus_switch, $quality_score, $partial, $contributors_json);
             """;
-        cmd.Parameters.AddWithValue("$ts", snapshot.TimestampUtc.ToString("O"));
-        cmd.Parameters.AddWithValue("$typing", snapshot.TypingBurstIntensity);
-        cmd.Parameters.AddWithValue("$scroll", snapshot.ScrollVelocityIndex);
-        cmd.Parameters.AddWithValue("$focus_switch", snapshot.FocusSwitchRate);
+        string ts = mappedRow?.TimestampUtc ?? snapshot.TimestampUtc.ToString("O");
+        string startUtc = mappedRow?.StartUtc ?? ts;
+        string contributorsJson = mappedRow?.ContributorsJson ?? JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            keyboard = new { keys = 0, backspace = 0 },
+            mouse = new { moves = 0, scroll = 0 },
+            focus = new { switches = 0 },
+            idle = new { idle_s = 0d }
+        });
+
+        cmd.Parameters.AddWithValue("$ts", ts);
+        cmd.Parameters.AddWithValue("$start_utc", startUtc);
+        cmd.Parameters.AddWithValue("$typing", mappedRow?.TypingBurstIntensity ?? snapshot.TypingBurstIntensity);
+        cmd.Parameters.AddWithValue("$scroll", mappedRow?.ScrollVelocityIndex ?? snapshot.ScrollVelocityIndex);
+        cmd.Parameters.AddWithValue("$focus_switch", mappedRow?.FocusSwitchRate ?? snapshot.FocusSwitchRate);
+        cmd.Parameters.AddWithValue("$quality_score", mappedRow?.QualityScore ?? 1d);
+        cmd.Parameters.AddWithValue("$partial", mappedRow?.Partial ?? 0);
+        cmd.Parameters.AddWithValue("$contributors_json", contributorsJson);
         cmd.ExecuteNonQuery();
     }
 
