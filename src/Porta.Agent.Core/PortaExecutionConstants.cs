@@ -2,12 +2,6 @@ namespace Porta.Agent.Core;
 
 public static class PortaExecutionConstants
 {
-    public const int BucketSeconds = 5;
-    public const int BucketMs = 5000;
-    public const int MaxLateMs = 2000;
-    public const int FinalizeDelayMs = 2000;
-    public const int SkewLimitMs = 10000;
-    public const long EpochAnchorMs = 1704067200000L; // 2024-01-01T00:00:00.000Z
     public const int BaselineMinSamples = 120;
 
     public static class OverloadStabilization

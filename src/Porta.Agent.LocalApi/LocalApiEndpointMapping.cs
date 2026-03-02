@@ -136,7 +136,7 @@ public static class LocalApiEndpointMapping
         api.MapGet("/timeline", (IAgentCoreController controller, DateTimeOffset from, DateTimeOffset to, int? bucketSeconds) =>
         {
             _ = bucketSeconds;
-            AgentTimelineData timeline = controller.GetTimeline(from, to, PortaExecutionConstants.BucketSeconds);
+            AgentTimelineData timeline = controller.GetTimeline(from, to, Time.bucketSeconds);
             return new LocalApiTimelineResponse(
                 timeline.FromUtc,
                 timeline.ToUtc,

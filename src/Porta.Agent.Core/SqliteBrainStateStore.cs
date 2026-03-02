@@ -447,7 +447,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
     public IReadOnlyList<AgentBrainSnapshot> ReadTimeline(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,
-        int bucketSeconds = PortaExecutionConstants.BucketSeconds)
+        int bucketSeconds = Time.bucketSeconds)
     {
         lock (_gate)
         {
@@ -457,7 +457,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             }
 
             _ = bucketSeconds; // Bucket size is pinned in v1.
-            int bucket = PortaExecutionConstants.BucketSeconds;
+            int bucket = Time.bucketSeconds;
             var rawRows = new List<AgentBrainSnapshot>();
 
             using var connection = new SqliteConnection(_connectionString);

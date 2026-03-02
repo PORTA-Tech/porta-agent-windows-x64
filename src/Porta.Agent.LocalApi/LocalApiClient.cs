@@ -120,7 +120,7 @@ public sealed class LocalApiClient : IDisposable
     public async Task<LocalApiTimelineResponse?> GetTimelineAsync(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,
-        int bucketSeconds = PortaExecutionConstants.BucketSeconds,
+        int bucketSeconds = Time.bucketSeconds,
         CancellationToken token = default)
     {
         if (_settings == null)
@@ -132,7 +132,7 @@ public sealed class LocalApiClient : IDisposable
         {
             RefreshEndpointBinding();
             _ = bucketSeconds;
-            int bucket = PortaExecutionConstants.BucketSeconds;
+            int bucket = Time.bucketSeconds;
             string from = Uri.EscapeDataString(fromUtc.ToString("O"));
             string to = Uri.EscapeDataString(toUtc.ToString("O"));
             string path = $"/v1/timeline?from={from}&to={to}&bucketSeconds={bucket}";

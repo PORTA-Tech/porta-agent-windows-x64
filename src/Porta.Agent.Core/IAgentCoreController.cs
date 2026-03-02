@@ -10,7 +10,7 @@ public interface IAgentCoreController
     AgentTimelineData GetTimeline(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,
-        int bucketSeconds = PortaExecutionConstants.BucketSeconds);
+        int bucketSeconds = Time.bucketSeconds);
     AgentSettingsState GetEffectiveSettings();
     AgentDataRetentionInfo GetDataRetention();
     void Pause(string? reason = null, DateTimeOffset? untilUtc = null);

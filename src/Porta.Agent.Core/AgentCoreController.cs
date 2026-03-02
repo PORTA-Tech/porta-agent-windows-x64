@@ -229,10 +229,10 @@ public sealed class AgentCoreController : IAgentCoreController
     public AgentTimelineData GetTimeline(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,
-        int bucketSeconds = PortaExecutionConstants.BucketSeconds)
+        int bucketSeconds = Time.bucketSeconds)
     {
         _ = bucketSeconds; // Bucket size is pinned in v1.
-        int bucket = PortaExecutionConstants.BucketSeconds;
+        int bucket = Time.bucketSeconds;
         DateTimeOffset from = fromUtc;
         DateTimeOffset to = toUtc;
         if (to < from)

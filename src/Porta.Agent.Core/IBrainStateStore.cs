@@ -15,7 +15,7 @@ public interface IBrainStateStore
     IReadOnlyList<AgentBrainSnapshot> ReadTimeline(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,
-        int bucketSeconds = PortaExecutionConstants.BucketSeconds);
+        int bucketSeconds = Time.bucketSeconds);
     IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null);
     IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000);
     AgentStorageInfo ReadStorageInfo();
