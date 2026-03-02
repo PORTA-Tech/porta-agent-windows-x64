@@ -1,11 +1,12 @@
 using System.IO.Compression;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Porta.Agent.Core.Buckets;
 using Porta.Agent.Core.Db;
 
 namespace Porta.Agent.Core;
 
-public sealed class SqliteBrainStateStore : IBrainStateStore
+public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDbWriter
 {
     private const int DefaultRetentionDays = 90;
     private const int DefaultEventCooldownSeconds = 20;
@@ -38,18 +39,46 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
 
     public void WriteSnapshot(AgentBrainSnapshot snapshot)
     {
+        if (!BucketFinalizerWriteGuard.IsActive)
+        {
+            throw new InvalidOperationException(
+                "Direct WriteSnapshot is blocked. Route snapshot writes through BucketFinalizerStateStore/BucketFinalizer.");
+        }
+
+        WriteSnapshotCore(snapshot);
+    }
+
+    void IBucketFinalizerDbWriter.WriteFinalizedBucketSnapshot(AgentBrainSnapshot snapshot)
+    {
+        using IDisposable _ = BucketFinalizerWriteGuard.Enter();
+        WriteSnapshotCore(snapshot);
+    }
+
+    private void WriteSnapshotCore(AgentBrainSnapshot snapshot)
+    {
         lock (_gate)
         {
             using var connection = DbOpen.OpenConnection(_connectionString);
-            using SqliteTransaction tx = connection.BeginTransaction();
-
-            InsertInputBucket(connection, tx, snapshot);
-            InsertStateBucket(connection, tx, snapshot);
-            InsertLegacySnapshot(connection, tx, snapshot);
-            TryInsertAutomaticInterventionEvent(connection, tx, snapshot);
-            PruneIfNeeded(connection, tx, snapshot.TimestampUtc);
-
-            tx.Commit();
+            long bucketSeq = Time.bucketSeqFromEventTs(snapshot.TimestampUtc.ToUnixTimeMilliseconds());
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            try
+            {
+                InsertInputBucket(connection, tx, snapshot);
+                InsertStateBucket(connection, tx, snapshot);
+                InsertLegacySnapshot(connection, tx, snapshot);
+                TryInsertAutomaticInterventionEvent(connection, tx, snapshot);
+                UpsertRuntimeStateForSnapshot(connection, tx, snapshot, bucketSeq);
+                PruneIfNeeded(connection, tx, snapshot.TimestampUtc);
+                tx.Commit();
+            }
+            catch (Exception ex)
+            {
+                TryRollback(tx);
+                IncrementDiagnosticsCounter(connection, "bucket_txn_commit_failed_count");
+                Console.WriteLine(
+                    $"bucket_txn_failed bucket_seq={bucketSeq} state=pending_finalization error={ex.GetType().Name}:{ex.Message}");
+                throw;
+            }
         }
     }
 
@@ -867,12 +896,86 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         }
     }
 
+    private static SqliteTransaction BeginImmediateTransaction(SqliteConnection connection)
+    {
+        // deferred: false starts the write transaction immediately (BEGIN IMMEDIATE semantics).
+        return connection.BeginTransaction(deferred: false);
+    }
+
+    private static void TryRollback(SqliteTransaction tx)
+    {
+        try
+        {
+            tx.Rollback();
+        }
+        catch
+        {
+        }
+    }
+
+    private static void IncrementDiagnosticsCounter(SqliteConnection connection, string key)
+    {
+        try
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                INSERT INTO diagnostics (key, value, updated_utc)
+                VALUES ($key, '1', $updated_utc)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = CASE
+                        WHEN diagnostics.value GLOB '-?[0-9]*' THEN CAST(diagnostics.value AS INTEGER) + 1
+                        ELSE 1
+                    END,
+                    updated_utc = excluded.updated_utc;
+                """;
+            cmd.Parameters.AddWithValue("$key", key);
+            cmd.Parameters.AddWithValue("$updated_utc", DateTimeOffset.UtcNow.ToString("O"));
+            cmd.ExecuteNonQuery();
+        }
+        catch
+        {
+        }
+    }
+
+    private static void UpsertRuntimeStateForSnapshot(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        AgentBrainSnapshot snapshot,
+        long bucketSeq)
+    {
+        string valueJson = JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            bucket_seq = bucketSeq,
+            timestamp_utc = snapshot.TimestampUtc.ToString("O"),
+            overload_likelihood = snapshot.OverloadLikelihood,
+            confidence = snapshot.Confidence
+        });
+
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            INSERT INTO runtime_state (key, value_json, updated_utc)
+            VALUES ($key, $value_json, $updated_utc)
+            ON CONFLICT(key) DO UPDATE SET
+                value_json = excluded.value_json,
+                updated_utc = excluded.updated_utc;
+            """;
+        cmd.Parameters.AddWithValue("$key", "bucket_finalizer:last_snapshot");
+        cmd.Parameters.AddWithValue("$value_json", valueJson);
+        cmd.Parameters.AddWithValue("$updated_utc", snapshot.TimestampUtc.ToString("O"));
+        cmd.ExecuteNonQuery();
+    }
+
     private void InsertInputBucket(SqliteConnection connection, SqliteTransaction tx, AgentBrainSnapshot snapshot)
     {
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText =
             """
+            DELETE FROM input_buckets WHERE timestamp_utc = $ts;
             INSERT INTO input_buckets (
                 timestamp_utc,
                 start_utc,
@@ -894,6 +997,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         cmd.Transaction = tx;
         cmd.CommandText =
             """
+            DELETE FROM state_buckets WHERE timestamp_utc = $ts;
             INSERT INTO state_buckets (
                 timestamp_utc,
                 typing_burst_intensity_raw,
@@ -942,6 +1046,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         cmd.Transaction = tx;
         cmd.CommandText =
             """
+            DELETE FROM brain_snapshots WHERE timestamp_utc = $ts;
             INSERT INTO brain_snapshots (
                 timestamp_utc,
                 typing_burst_intensity,
@@ -1540,7 +1645,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
             reversible = controlEvent.Reversible,
             reversal_applied = controlEvent.ReversalApplied
         }));
-        cmd.Parameters.AddWithValue("$idempotency_key", string.Empty);
+        cmd.Parameters.AddWithValue("$idempotency_key", BuildEventIdempotencyKey(controlEvent));
         cmd.Parameters.AddWithValue("$intervention_id", controlEvent.InterventionId);
         cmd.Parameters.AddWithValue("$policy_id", controlEvent.PolicyId);
         cmd.Parameters.AddWithValue("$domain", controlEvent.Domain);
@@ -1553,6 +1658,21 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         cmd.Parameters.AddWithValue("$cooldown_end", controlEvent.CooldownEndTimestampUtc?.ToString("O") ?? string.Empty);
         cmd.Parameters.AddWithValue("$lifecycle_state", controlEvent.LifecycleState);
         cmd.ExecuteNonQuery();
+    }
+
+    private static string BuildEventIdempotencyKey(AgentControlEvent controlEvent)
+    {
+        string interventionId = string.IsNullOrWhiteSpace(controlEvent.InterventionId)
+            ? "none"
+            : controlEvent.InterventionId.Trim();
+        string lifecycle = string.IsNullOrWhiteSpace(controlEvent.LifecycleState)
+            ? "activated"
+            : controlEvent.LifecycleState.Trim();
+        string action = string.IsNullOrWhiteSpace(controlEvent.Action)
+            ? "unknown"
+            : controlEvent.Action.Trim();
+        string ts = controlEvent.TimestampUtc.ToString("O");
+        return $"{action}|{interventionId}|{lifecycle}|{ts}";
     }
 
     private int ReadSingleInt(SqliteConnection connection, string sql, DateTimeOffset startUtc, DateTimeOffset endUtc)

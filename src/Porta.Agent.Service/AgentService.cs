@@ -35,7 +35,10 @@ internal sealed class AgentService : IHostedService, IDisposable
         });
 
         builder.Services.AddPortaLocalApi();
-        builder.Services.AddSingleton<IBrainStateStore, SqliteBrainStateStore>();
+        builder.Services.AddSingleton<BucketFinalizerStateStore>(_ =>
+            new BucketFinalizerStateStore(new SqliteBrainStateStore()));
+        builder.Services.AddSingleton<IBrainStateStore>(sp => sp.GetRequiredService<BucketFinalizerStateStore>());
+        builder.Services.AddSingleton<IBucketFinalizerPump>(sp => sp.GetRequiredService<BucketFinalizerStateStore>());
         builder.Services.AddSingleton<IAgentCoreController>(sp =>
         {
             var controller = new AgentCoreController(sp.GetRequiredService<IBrainStateStore>());
@@ -49,6 +52,7 @@ internal sealed class AgentService : IHostedService, IDisposable
         builder.Services.AddSingleton<IPolicyEnvelopeProvider, FilePolicyEnvelopeProvider>();
         builder.Services.AddSingleton<IRegulationStage, DefaultRegulationStage>();
         builder.Services.AddSingleton<IBackendConnectivityProbe, HttpBackendConnectivityProbe>();
+        builder.Services.AddHostedService<BucketFinalizerWorker>();
         builder.Services.AddHostedService<AgentBrainWorker>();
 
         _localApiApp = builder.Build();

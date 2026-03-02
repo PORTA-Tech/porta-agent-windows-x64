@@ -67,7 +67,7 @@ public sealed class AgentCoreController : IAgentCoreController
     private SettingsStateRecord _settingsState = CreateDefaultSettingsState();
 
     public AgentCoreController()
-        : this(new SqliteBrainStateStore())
+        : this(new BucketFinalizerStateStore(new SqliteBrainStateStore()))
     {
     }
 
