@@ -1468,12 +1468,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 action,
                 duration_seconds,
                 why,
+                why_json,
                 escalation,
                 reversible,
                 trigger_state,
                 trigger_value,
                 confidence,
                 contributors_json,
+                state_flags_json,
+                idempotency_key,
                 intervention_id,
                 policy_id,
                 domain,
@@ -1486,7 +1489,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
                 cooldown_end_timestamp_utc,
                 lifecycle_state
             ) VALUES (
-                $ts, $action, $duration, $reason, $escalation, $reversible, $trigger_state, $trigger_value, $confidence, $contributors,
+                $ts, $action, $duration, $reason, $why_json, $escalation, $reversible, $trigger_state, $trigger_value, $confidence, $contributors, $state_flags_json, $idempotency_key,
                 $intervention_id, $policy_id, $domain, $planned_end, $actual_end, $previous_state, $what_changed, $how_to_undo, $reversal_applied, $cooldown_end, $lifecycle_state
             );
 
@@ -1534,7 +1537,24 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
         cmd.Parameters.AddWithValue("$escalation", controlEvent.EscalationLevel);
         cmd.Parameters.AddWithValue("$reversible", controlEvent.Reversible ? 1 : 0);
         cmd.Parameters.AddWithValue("$reason", controlEvent.Reason);
-        cmd.Parameters.AddWithValue("$contributors", JsonSerializer.Serialize(controlEvent.Contributors));
+        cmd.Parameters.AddWithValue("$contributors", JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            contributors = controlEvent.Contributors
+        }));
+        cmd.Parameters.AddWithValue("$why_json", JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            reason = controlEvent.Reason
+        }));
+        cmd.Parameters.AddWithValue("$state_flags_json", JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            lifecycle_state = controlEvent.LifecycleState,
+            reversible = controlEvent.Reversible,
+            reversal_applied = controlEvent.ReversalApplied
+        }));
+        cmd.Parameters.AddWithValue("$idempotency_key", string.Empty);
         cmd.Parameters.AddWithValue("$intervention_id", controlEvent.InterventionId);
         cmd.Parameters.AddWithValue("$policy_id", controlEvent.PolicyId);
         cmd.Parameters.AddWithValue("$domain", controlEvent.Domain);
@@ -1638,6 +1658,45 @@ public sealed class SqliteBrainStateStore : IBrainStateStore
 
         try
         {
+            using JsonDocument doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                var items = new List<string>();
+                foreach (JsonElement element in doc.RootElement.EnumerateArray())
+                {
+                    if (element.ValueKind == JsonValueKind.String)
+                    {
+                        string? value = element.GetString();
+                        if (!string.IsNullOrWhiteSpace(value))
+                        {
+                            items.Add(value);
+                        }
+                    }
+                }
+
+                return items;
+            }
+
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("contributors", out JsonElement contributorsElement)
+                && contributorsElement.ValueKind == JsonValueKind.Array)
+            {
+                var items = new List<string>();
+                foreach (JsonElement element in contributorsElement.EnumerateArray())
+                {
+                    if (element.ValueKind == JsonValueKind.String)
+                    {
+                        string? value = element.GetString();
+                        if (!string.IsNullOrWhiteSpace(value))
+                        {
+                            items.Add(value);
+                        }
+                    }
+                }
+
+                return items;
+            }
+
             return JsonSerializer.Deserialize<List<string>>(raw) ?? [];
         }
         catch

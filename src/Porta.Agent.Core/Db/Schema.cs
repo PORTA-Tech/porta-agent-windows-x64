@@ -17,6 +17,24 @@ internal static class Schema
                 focus_switch_rate REAL NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS baseline_stats (
+                metric_name TEXT PRIMARY KEY,
+                mean REAL NOT NULL,
+                std REAL NOT NULL,
+                sample_count INTEGER NOT NULL,
+                updated_utc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS primitive_buckets (
+                bucket_seq INTEGER PRIMARY KEY,
+                start_utc TEXT NOT NULL,
+                end_utc TEXT NOT NULL,
+                primitives_json TEXT NOT NULL,
+                contributors_json TEXT NOT NULL,
+                quality REAL NOT NULL,
+                partial INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS state_buckets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp_utc TEXT NOT NULL,
@@ -86,6 +104,12 @@ internal static class Schema
                 policy_version TEXT NOT NULL,
                 schema_version TEXT NOT NULL,
                 agent_version TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS runtime_state (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL,
+                updated_utc TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS consent (
@@ -178,10 +202,14 @@ internal static class Schema
             );
 
             CREATE INDEX IF NOT EXISTS ix_input_buckets_ts ON input_buckets(timestamp_utc);
+            CREATE INDEX IF NOT EXISTS ix_baseline_stats_metric ON baseline_stats(metric_name);
+            CREATE INDEX IF NOT EXISTS ix_primitive_buckets_start_utc ON primitive_buckets(start_utc);
             CREATE INDEX IF NOT EXISTS ix_state_buckets_ts ON state_buckets(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_events_ts ON events(timestamp_utc);
+            CREATE INDEX IF NOT EXISTS idx_events_recent ON events(timestamp_utc DESC, id DESC);
             CREATE INDEX IF NOT EXISTS ix_system_changes_ts ON system_changes(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_diagnostics_new_ts ON diagnostics(timestamp_utc);
+            CREATE INDEX IF NOT EXISTS ix_runtime_state_updated_utc ON runtime_state(updated_utc);
             CREATE INDEX IF NOT EXISTS ix_consent_ts ON consent(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_settings_ts ON settings(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_interventions_ts ON interventions(timestamp_utc);
@@ -243,6 +271,74 @@ internal static class Schema
         EnsureColumnExists(connection, "interventions", "reversal_applied", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(connection, "interventions", "cooldown_end_timestamp_utc", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(connection, "interventions", "lifecycle_state", "TEXT NOT NULL DEFAULT 'activated'");
+    }
+
+    internal static void ApplyContractSchemaV3(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS baseline_stats (
+                metric_name TEXT PRIMARY KEY,
+                mean REAL NOT NULL,
+                std REAL NOT NULL,
+                sample_count INTEGER NOT NULL,
+                updated_utc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS primitive_buckets (
+                bucket_seq INTEGER PRIMARY KEY,
+                start_utc TEXT NOT NULL,
+                end_utc TEXT NOT NULL,
+                primitives_json TEXT NOT NULL,
+                contributors_json TEXT NOT NULL,
+                quality REAL NOT NULL,
+                partial INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS runtime_state (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL,
+                updated_utc TEXT NOT NULL
+            );
+            """;
+        cmd.ExecuteNonQuery();
+
+        EnsureColumnExists(connection, "events", "idempotency_key", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "events", "contributors_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1,\"contributors\":[]}'");
+        EnsureColumnExists(connection, "events", "why_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1}'");
+        EnsureColumnExists(connection, "events", "state_flags_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1}'");
+
+        AssertEventsContract(connection);
+    }
+
+    internal static void AssertEventsContract(SqliteConnection connection)
+    {
+        HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "idempotency_key",
+            "contributors_json",
+            "why_json",
+            "state_flags_json"
+        };
+
+        HashSet<string> actualColumns = new(StringComparer.OrdinalIgnoreCase);
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA table_info(events);";
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                actualColumns.Add(reader.GetString(1));
+            }
+        }
+
+        List<string> missing = requiredColumns.Where(column => !actualColumns.Contains(column)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Events schema assertion failed. Missing required columns: {string.Join(", ", missing)}.");
+        }
     }
 
     private static void EnsureColumnExists(SqliteConnection connection, string table, string column, string definition)
