@@ -1,9 +1,12 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Porta.Agent.Core.Analysis;
 using Porta.Agent.Core.Buckets;
 using Porta.Agent.Core.Db;
+using Porta.Agent.Core.Security;
 
 namespace Porta.Agent.Core;
 
@@ -11,6 +14,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 {
     private const int DefaultRetentionDays = 90;
     private const int DefaultEventCooldownSeconds = 20;
+    private static readonly Lazy<string> BreakInstallIdHash = new(ResolveBreakInstallIdHash, isThreadSafe: true);
 
     private readonly object _gate = new();
     private readonly string _dbPath;
@@ -110,6 +114,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     mapped,
                     overloadInference,
                     previousOverloadStabilization);
+                long finalizeTsMs = Time.bucketStartEnd(mapped.BucketSeq).endUtcMs;
+                BreakSuggestionDecision breakSuggestionDecision = BreakSuggestionPolicy.ShouldTriggerBreak(
+                    gating,
+                    overloadStabilization,
+                    overloadInference,
+                    derivedSession,
+                    resolveCooldown: () => ReadBreakPolicyCooldownSnapshot(connection, tx, finalizeTsMs));
                 AgentBrainSnapshot inferredSnapshot = ApplyOverloadInference(gatedSnapshot, overloadInference);
                 PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, primitive, robust);
                 StateBucketWriteModel stateRow = BuildStateBucketRow(
@@ -124,6 +135,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 UpsertPrimitiveBucket(connection, tx, primitiveRow);
                 UpsertStateBucket(connection, tx, stateRow);
                 InsertLegacySnapshot(connection, tx, inferredSnapshot);
+                bool breakInserted = TryInsertBreakSuggestionPolicyEvent(
+                    connection,
+                    tx,
+                    inferredSnapshot,
+                    mapped,
+                    gating,
+                    derivedSession,
+                    overloadInference,
+                    overloadStabilization,
+                    breakSuggestionDecision);
+                PersistBreakPolicyCooldownState(connection, tx, finalizeTsMs, breakSuggestionDecision, breakInserted);
                 TryInsertAutomaticInterventionEvent(connection, tx, inferredSnapshot);
                 UpsertRuntimeStateForSnapshot(
                     connection,
@@ -634,6 +656,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             cmd.CommandText =
                 """
                 SELECT
+                    id,
+                    ts_utc,
                     timestamp_utc,
                     action,
                     trigger_state,
@@ -654,10 +678,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     how_to_undo,
                     reversal_applied,
                     cooldown_end_timestamp_utc,
-                    lifecycle_state
+                    lifecycle_state,
+                    idempotency_key,
+                    why_json,
+                    state_flags_json
                 FROM events
-                WHERE ($since = '' OR timestamp_utc >= $since)
-                ORDER BY timestamp_utc DESC
+                WHERE ($since = '' OR ts_utc >= $since)
+                ORDER BY ts_utc DESC, id DESC
                 LIMIT $limit;
                 """;
             cmd.Parameters.AddWithValue("$limit", boundedLimit);
@@ -667,27 +694,31 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             while (reader.Read())
             {
                 rows.Add(new AgentControlEvent(
-                    TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
-                    Action: reader.GetString(1),
-                    TriggerState: reader.GetString(2),
-                    TriggerValue: reader.GetDouble(3),
-                    Confidence: reader.GetDouble(4),
-                    DurationSeconds: reader.IsDBNull(5) ? null : reader.GetInt32(5),
-                    EscalationLevel: reader.GetString(6),
-                    Reversible: reader.GetInt32(7) == 1,
-                    Reason: reader.GetString(8),
-                    Contributors: DeserializeContributors(reader.GetString(9)),
-                    InterventionId: ReadStringOrFallback(reader, 10, string.Empty),
-                    PolicyId: ReadStringOrFallback(reader, 11, "n/a"),
-                    Domain: ReadStringOrFallback(reader, 12, "control"),
-                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 13, string.Empty)),
-                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 14, string.Empty)),
-                    PreviousSystemStateJson: ReadStringOrFallback(reader, 15, "{}"),
-                    WhatChanged: ReadStringOrFallback(reader, 16, string.Empty),
-                    HowToUndo: ReadStringOrFallback(reader, 17, string.Empty),
-                    ReversalApplied: ReadBoolOrFallback(reader, 18, false),
-                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 19, string.Empty)),
-                    LifecycleState: ReadStringOrFallback(reader, 20, "activated")));
+                    TimestampUtc: ParseEventTsUtc(reader),
+                    Action: reader.GetString(3),
+                    TriggerState: reader.GetString(4),
+                    TriggerValue: reader.GetDouble(5),
+                    Confidence: reader.GetDouble(6),
+                    DurationSeconds: reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                    EscalationLevel: reader.GetString(8),
+                    Reversible: reader.GetInt32(9) == 1,
+                    Reason: reader.GetString(10),
+                    Contributors: DeserializeContributors(reader.GetString(11)),
+                    InterventionId: ReadStringOrFallback(reader, 12, string.Empty),
+                    PolicyId: ReadStringOrFallback(reader, 13, "n/a"),
+                    Domain: ReadStringOrFallback(reader, 14, "control"),
+                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 15, string.Empty)),
+                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 16, string.Empty)),
+                    PreviousSystemStateJson: ReadStringOrFallback(reader, 17, "{}"),
+                    WhatChanged: ReadStringOrFallback(reader, 18, string.Empty),
+                    HowToUndo: ReadStringOrFallback(reader, 19, string.Empty),
+                    ReversalApplied: ReadBoolOrFallback(reader, 20, false),
+                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 21, string.Empty)),
+                    LifecycleState: ReadStringOrFallback(reader, 22, "activated"),
+                    EventId: reader.GetInt64(0),
+                    IdempotencyKey: ReadStringOrFallback(reader, 23, string.Empty),
+                    WhyJson: ReadStringOrFallback(reader, 24, "{\"schema_ver\":1}"),
+                    StateFlagsJson: ReadStringOrFallback(reader, 25, "{\"schema_ver\":1}")));
             }
 
             return rows;
@@ -711,6 +742,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             cmd.CommandText =
                 """
                 SELECT
+                    id,
+                    ts_utc,
                     timestamp_utc,
                     action,
                     trigger_state,
@@ -731,10 +764,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     how_to_undo,
                     reversal_applied,
                     cooldown_end_timestamp_utc,
-                    lifecycle_state
+                    lifecycle_state,
+                    idempotency_key,
+                    why_json,
+                    state_flags_json
                 FROM events
-                WHERE timestamp_utc >= $from AND timestamp_utc <= $to
-                ORDER BY timestamp_utc ASC
+                WHERE ts_utc >= $from AND ts_utc <= $to
+                ORDER BY ts_utc ASC, id ASC
                 LIMIT $limit;
                 """;
             cmd.Parameters.AddWithValue("$from", fromUtc.ToString("O"));
@@ -745,27 +781,31 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             while (reader.Read())
             {
                 rows.Add(new AgentControlEvent(
-                    TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
-                    Action: reader.GetString(1),
-                    TriggerState: reader.GetString(2),
-                    TriggerValue: reader.GetDouble(3),
-                    Confidence: reader.GetDouble(4),
-                    DurationSeconds: reader.IsDBNull(5) ? null : reader.GetInt32(5),
-                    EscalationLevel: reader.GetString(6),
-                    Reversible: reader.GetInt32(7) == 1,
-                    Reason: reader.GetString(8),
-                    Contributors: DeserializeContributors(reader.GetString(9)),
-                    InterventionId: ReadStringOrFallback(reader, 10, string.Empty),
-                    PolicyId: ReadStringOrFallback(reader, 11, "n/a"),
-                    Domain: ReadStringOrFallback(reader, 12, "control"),
-                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 13, string.Empty)),
-                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 14, string.Empty)),
-                    PreviousSystemStateJson: ReadStringOrFallback(reader, 15, "{}"),
-                    WhatChanged: ReadStringOrFallback(reader, 16, string.Empty),
-                    HowToUndo: ReadStringOrFallback(reader, 17, string.Empty),
-                    ReversalApplied: ReadBoolOrFallback(reader, 18, false),
-                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 19, string.Empty)),
-                    LifecycleState: ReadStringOrFallback(reader, 20, "activated")));
+                    TimestampUtc: ParseEventTsUtc(reader),
+                    Action: reader.GetString(3),
+                    TriggerState: reader.GetString(4),
+                    TriggerValue: reader.GetDouble(5),
+                    Confidence: reader.GetDouble(6),
+                    DurationSeconds: reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                    EscalationLevel: reader.GetString(8),
+                    Reversible: reader.GetInt32(9) == 1,
+                    Reason: reader.GetString(10),
+                    Contributors: DeserializeContributors(reader.GetString(11)),
+                    InterventionId: ReadStringOrFallback(reader, 12, string.Empty),
+                    PolicyId: ReadStringOrFallback(reader, 13, "n/a"),
+                    Domain: ReadStringOrFallback(reader, 14, "control"),
+                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 15, string.Empty)),
+                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 16, string.Empty)),
+                    PreviousSystemStateJson: ReadStringOrFallback(reader, 17, "{}"),
+                    WhatChanged: ReadStringOrFallback(reader, 18, string.Empty),
+                    HowToUndo: ReadStringOrFallback(reader, 19, string.Empty),
+                    ReversalApplied: ReadBoolOrFallback(reader, 20, false),
+                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 21, string.Empty)),
+                    LifecycleState: ReadStringOrFallback(reader, 22, "activated"),
+                    EventId: reader.GetInt64(0),
+                    IdempotencyKey: ReadStringOrFallback(reader, 23, string.Empty),
+                    WhyJson: ReadStringOrFallback(reader, 24, "{\"schema_ver\":1}"),
+                    StateFlagsJson: ReadStringOrFallback(reader, 25, "{\"schema_ver\":1}")));
             }
 
             return rows;
@@ -2101,7 +2141,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             CooldownEndTimestampUtc: snapshot.CooldownEndTimestampUtc,
             LifecycleState: "activated");
 
-        InsertInterventionEvent(connection, tx, ev);
+        try
+        {
+            InsertInterventionEvent(connection, tx, ev);
+        }
+        catch (SqliteException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            return;
+        }
+
         InsertAutomaticSystemChange(connection, tx, ev);
         _activeIntervention = new ActiveInterventionState(
             InterventionId: interventionId,
@@ -2114,6 +2162,214 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             CooldownEndTimestampUtc: snapshot.CooldownEndTimestampUtc);
         _lastAutoEventAction = currentAction;
         _lastAutoEventAtUtc = snapshot.TimestampUtc;
+    }
+
+    internal static bool TryInsertBreakSuggestionPolicyEvent(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        AgentBrainSnapshot snapshot,
+        InputBucketRow inputBucket,
+        BaselineGatingResult gating,
+        DerivedSessionMetricsResult derivedSession,
+        OverloadInferenceResult overloadInference,
+        OverloadStabilizationResult overloadStabilization,
+        BreakSuggestionDecision decision)
+    {
+        if (!decision.ShouldEmit)
+        {
+            return false;
+        }
+
+        string whyJson = BuildBreakSuggestionWhyJson(
+            inputBucket,
+            derivedSession,
+            gating,
+            overloadInference,
+            overloadStabilization,
+            decision);
+        DateTimeOffset finalizeTimestampUtc = DateTimeOffset.FromUnixTimeMilliseconds(
+            Time.bucketStartEnd(inputBucket.BucketSeq).endUtcMs);
+        var ev = new AgentControlEvent(
+            TimestampUtc: finalizeTimestampUtc,
+            Action: "break_suggestion",
+            TriggerState: "overload",
+            TriggerValue: snapshot.OverloadLikelihood,
+            Confidence: snapshot.Confidence,
+            DurationSeconds: 300,
+            EscalationLevel: "Suggest",
+            Reversible: false,
+            Reason: decision.ReasonCode,
+            Contributors: snapshot.Contributors,
+            InterventionId: Guid.NewGuid().ToString("N"),
+            PolicyId: "break-policy-v1",
+            Domain: "fatigue",
+            PlannedEndTimestampUtc: finalizeTimestampUtc.AddMinutes(5),
+            ActualEndTimestampUtc: null,
+            PreviousSystemStateJson: "{\"previous_action\":\"none\"}",
+            WhatChanged: "Break suggestion displayed to user (policy-managed).",
+            HowToUndo: "Dismiss suggestion toast.",
+            ReversalApplied: false,
+            CooldownEndTimestampUtc: finalizeTimestampUtc.AddSeconds(PortaExecutionConstants.BreakPolicy.CooldownSeconds),
+            LifecycleState: "activated",
+            WhyJsonOverride: whyJson);
+
+        try
+        {
+            InsertInterventionEvent(connection, tx, ev);
+            return true;
+        }
+        catch (SqliteException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            // Hard no-duplicate path: if idempotency key already exists, suppress silently.
+            return false;
+        }
+    }
+
+    internal static string BuildBreakSuggestionWhyJson(
+        InputBucketRow inputBucket,
+        DerivedSessionMetricsResult derivedSession,
+        BaselineGatingResult gating,
+        OverloadInferenceResult overloadInference,
+        OverloadStabilizationResult overloadStabilization,
+        BreakSuggestionDecision decision)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            policy = "break_suggestion_v1",
+            reasons = new
+            {
+                baseline_ready = gating.BaselineReady,
+                overload_active = overloadStabilization.OverloadActive,
+                confidence = overloadInference.Confidence,
+                sustained_attention_s = derivedSession.SustainedAttentionDurationSec,
+                cooldown_expired = decision.CooldownChecked && decision.Cooldown.CooldownExpired
+            },
+            thresholds = new
+            {
+                confidence_min = PortaExecutionConstants.BreakPolicy.ConfidenceMin,
+                sustained_attention_min_s = PortaExecutionConstants.BreakPolicy.SustainedAttentionSeconds,
+                cooldown_min_s = PortaExecutionConstants.BreakPolicy.CooldownSeconds
+            },
+            context = new
+            {
+                bucket_seq = inputBucket.BucketSeq,
+                dominant_app_hash = derivedSession.DominantAppHash
+            }
+        });
+    }
+
+    private static void PersistBreakPolicyCooldownState(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long nowUtcMs,
+        BreakSuggestionDecision decision,
+        bool breakInserted)
+    {
+        if (!decision.ShouldEmit || !breakInserted)
+        {
+            return;
+        }
+
+        long cooldownEndTsMs = checked(nowUtcMs + (PortaExecutionConstants.BreakPolicy.CooldownSeconds * 1000L));
+        string valueJson = JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            contract_ver = PortaExecutionConstants.BreakPolicy.ContractVersion,
+            break_cooldown_until_utc_ms = cooldownEndTsMs,
+            break_last_fired_utc_ms = nowUtcMs,
+            // Backward-compat fields for older readers during rollout.
+            cooldown_end_ts_ms = cooldownEndTsMs,
+            last_trigger_ts_ms = nowUtcMs,
+            last_reason_code = decision.ReasonCode
+        });
+
+        UpsertRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.BreakPolicy.RuntimeStateKey,
+            valueJson,
+            Time.toIsoUtcMsString(nowUtcMs));
+    }
+
+    private static BreakPolicyCooldownSnapshot ReadBreakPolicyCooldownSnapshot(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long nowUtcMs)
+    {
+        string? json = ReadRuntimeStateValue(connection, tx, PortaExecutionConstants.BreakPolicy.RuntimeStateKey);
+        return ParseBreakPolicyCooldownSnapshotJson(json, nowUtcMs);
+    }
+
+    internal static BreakPolicyCooldownSnapshot ParseBreakPolicyCooldownSnapshotJson(
+        string? json,
+        long nowUtcMs)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new BreakPolicyCooldownSnapshot(
+                CooldownExpired: true,
+                CooldownEndTsMs: 0,
+                CooldownRemainingMs: 0);
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return new BreakPolicyCooldownSnapshot(true, 0, 0);
+            }
+
+            // Step 13C contract fields (with backward-compatible fallbacks):
+            long cooldownEndTsMs = ReadInt64Property(root, "break_cooldown_until_utc_ms", "cooldown_end_ts_ms");
+            if (cooldownEndTsMs <= 0
+                && root.TryGetProperty("break_cooldown_until_utc", out JsonElement cooldownEndUtc)
+                && cooldownEndUtc.ValueKind == JsonValueKind.String)
+            {
+                string? raw = cooldownEndUtc.GetString();
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    try
+                    {
+                        cooldownEndTsMs = Time.parseIsoUtcMs(raw);
+                    }
+                    catch
+                    {
+                        cooldownEndTsMs = 0;
+                    }
+                }
+            }
+            if (cooldownEndTsMs <= 0
+                && root.TryGetProperty("cooldown_end_utc", out JsonElement legacyCooldownEndUtc)
+                && legacyCooldownEndUtc.ValueKind == JsonValueKind.String)
+            {
+                string? raw = legacyCooldownEndUtc.GetString();
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    try
+                    {
+                        cooldownEndTsMs = Time.parseIsoUtcMs(raw);
+                    }
+                    catch
+                    {
+                        cooldownEndTsMs = 0;
+                    }
+                }
+            }
+
+            bool expired = cooldownEndTsMs <= 0 || nowUtcMs >= cooldownEndTsMs;
+            long remainingMs = expired ? 0 : Math.Max(0, cooldownEndTsMs - nowUtcMs);
+            return new BreakPolicyCooldownSnapshot(
+                CooldownExpired: expired,
+                CooldownEndTsMs: Math.Max(0, cooldownEndTsMs),
+                CooldownRemainingMs: remainingMs);
+        }
+        catch
+        {
+            return new BreakPolicyCooldownSnapshot(true, 0, 0);
+        }
     }
 
     private void InsertAutomaticDeactivationEvent(
@@ -2451,7 +2707,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 $ts, $type, $previous, $new, $undo, $reason
             );
             """;
-        cmd.Parameters.AddWithValue("$ts", controlEvent.TimestampUtc.ToString("O"));
+        string eventTsUtc = Time.toIsoUtcMsString(controlEvent.TimestampUtc.ToUnixTimeMilliseconds());
+        cmd.Parameters.AddWithValue("$ts", eventTsUtc);
         cmd.Parameters.AddWithValue("$type", "regulation");
         cmd.Parameters.AddWithValue("$previous", JsonSerializer.Serialize(new
         {
@@ -2540,7 +2797,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 $intervention_id, $policy_id, $domain, $planned_end, $actual_end, $previous_state, $what_changed, $how_to_undo, $reversal_applied, $cooldown_end, $lifecycle_state
             );
             """;
-        cmd.Parameters.AddWithValue("$ts", controlEvent.TimestampUtc.ToString("O"));
+        string eventTsUtc = Time.toIsoUtcMsString(controlEvent.TimestampUtc.ToUnixTimeMilliseconds());
+        cmd.Parameters.AddWithValue("$ts", eventTsUtc);
         cmd.Parameters.AddWithValue("$action", controlEvent.Action);
         cmd.Parameters.AddWithValue("$trigger_state", controlEvent.TriggerState);
         cmd.Parameters.AddWithValue("$trigger_value", controlEvent.TriggerValue);
@@ -2561,11 +2819,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             schema_ver = 1,
             contributors = controlEvent.Contributors
         }));
-        cmd.Parameters.AddWithValue("$why_json", JsonSerializer.Serialize(new
-        {
-            schema_ver = 1,
-            reason = controlEvent.Reason
-        }));
+        string whyJson = string.IsNullOrWhiteSpace(controlEvent.WhyJsonOverride)
+            ? JsonSerializer.Serialize(new
+            {
+                schema_ver = 1,
+                reason = controlEvent.Reason
+            })
+            : controlEvent.WhyJsonOverride;
+        cmd.Parameters.AddWithValue("$why_json", whyJson);
         cmd.Parameters.AddWithValue("$state_flags_json", JsonSerializer.Serialize(new
         {
             schema_ver = 1,
@@ -2588,6 +2849,48 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         cmd.ExecuteNonQuery();
     }
 
+    private static bool IsUniqueConstraintViolation(SqliteException ex)
+    {
+        // SQLite: 19 = SQLITE_CONSTRAINT, 2067 = SQLITE_CONSTRAINT_UNIQUE.
+        return ex.SqliteErrorCode == 19 || ex.SqliteExtendedErrorCode == 2067;
+    }
+
+    internal static string BuildBreakEventIdempotencyKey(long nowUtcMs, string installIdHash)
+    {
+        string safeHash = string.IsNullOrWhiteSpace(installIdHash)
+            ? "unknown_install"
+            : installIdHash.Trim().ToLowerInvariant();
+        long windowStartMs = ResolveBreakCooldownWindowStartMs(nowUtcMs);
+        return $"break_v1:{windowStartMs}:{safeHash}";
+    }
+
+    private static long ResolveBreakCooldownWindowStartMs(long nowUtcMs)
+    {
+        long windowMs = PortaExecutionConstants.BreakPolicy.CooldownWindowMs;
+        if (windowMs <= 0)
+        {
+            return nowUtcMs;
+        }
+
+        long quotient = Math.DivRem(nowUtcMs, windowMs, out long remainder);
+        if (remainder < 0)
+        {
+            quotient--;
+        }
+
+        return checked(quotient * windowMs);
+    }
+
+    private static string ResolveBreakInstallIdHash()
+    {
+#pragma warning disable CA1416
+        byte[] installSecret = Secrets.GetInstallSecret();
+#pragma warning restore CA1416
+        using var hmac = new HMACSHA256(installSecret);
+        byte[] digest = hmac.ComputeHash(Encoding.UTF8.GetBytes("install"));
+        return Convert.ToHexString(digest.AsSpan(0, 16)).ToLowerInvariant();
+    }
+
     private static string BuildEventIdempotencyKey(AgentControlEvent controlEvent)
     {
         string interventionId = string.IsNullOrWhiteSpace(controlEvent.InterventionId)
@@ -2599,6 +2902,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string action = string.IsNullOrWhiteSpace(controlEvent.Action)
             ? "unknown"
             : controlEvent.Action.Trim();
+        if (string.Equals(action, "break_suggestion", StringComparison.Ordinal)
+            && string.Equals(lifecycle, "activated", StringComparison.Ordinal))
+        {
+            return BuildBreakEventIdempotencyKey(
+                nowUtcMs: controlEvent.TimestampUtc.ToUnixTimeMilliseconds(),
+                installIdHash: BreakInstallIdHash.Value);
+        }
+
         string ts = controlEvent.TimestampUtc.ToString("O");
         return $"{action}|{interventionId}|{lifecycle}|{ts}";
     }
@@ -2800,6 +3111,23 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
 
         return fallback;
+    }
+
+    private static DateTimeOffset ParseEventTsUtc(SqliteDataReader reader)
+    {
+        string tsUtcRaw = ReadStringOrFallback(reader, 1, string.Empty);
+        if (!string.IsNullOrWhiteSpace(tsUtcRaw))
+        {
+            return DateTimeOffset.Parse(tsUtcRaw);
+        }
+
+        string timestampRaw = ReadStringOrFallback(reader, 2, string.Empty);
+        if (!string.IsNullOrWhiteSpace(timestampRaw))
+        {
+            return DateTimeOffset.Parse(timestampRaw);
+        }
+
+        return DateTimeOffset.UnixEpoch;
     }
 
     private static string ResolveDominantStateName(double focusStrength, double overloadLikelihood, double fatigueProbability)

@@ -305,7 +305,7 @@ internal static class Schema
         EnsureColumnExists(connection, "events", "why_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1}'");
         EnsureColumnExists(connection, "events", "state_flags_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1}'");
 
-        AssertEventsContract(connection);
+        AssertEventsContract(connection, requireUniqueIdempotencyIndex: false);
     }
 
     internal static void ApplyDiagnosticsKeyValueContract(SqliteConnection connection)
@@ -626,7 +626,47 @@ internal static class Schema
         EnsureColumnExists(connection, "state_buckets", "state_flags_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1}'");
     }
 
-    internal static void AssertEventsContract(SqliteConnection connection)
+    internal static void ApplyEventsIdempotencyUniqueContractV17(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "events", "idempotency_key", "TEXT NOT NULL DEFAULT ''");
+
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText =
+                """
+                UPDATE events
+                SET idempotency_key = 'legacy_v17:' || CAST(id AS TEXT)
+                WHERE idempotency_key IS NULL OR TRIM(idempotency_key) = '';
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        using (var dedupe = connection.CreateCommand())
+        {
+            dedupe.CommandText =
+                """
+                DELETE FROM events
+                WHERE id NOT IN (
+                    SELECT MIN(id)
+                    FROM events
+                    GROUP BY idempotency_key
+                );
+                """;
+            dedupe.ExecuteNonQuery();
+        }
+
+        using var index = connection.CreateCommand();
+        index.CommandText =
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_events_idempotency_key
+                ON events(idempotency_key);
+            """;
+        index.ExecuteNonQuery();
+    }
+
+    internal static void AssertEventsContract(
+        SqliteConnection connection,
+        bool requireUniqueIdempotencyIndex = true)
     {
         HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -652,6 +692,26 @@ internal static class Schema
         {
             throw new InvalidOperationException(
                 $"Events schema assertion failed. Missing required columns: {string.Join(", ", missing)}.");
+        }
+
+        HashSet<string> actualIndexes = new(StringComparer.OrdinalIgnoreCase);
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'events';";
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                if (!reader.IsDBNull(0))
+                {
+                    actualIndexes.Add(reader.GetString(0));
+                }
+            }
+        }
+
+        if (requireUniqueIdempotencyIndex && !actualIndexes.Contains("ux_events_idempotency_key"))
+        {
+            throw new InvalidOperationException(
+                "Events schema assertion failed. Missing unique index ux_events_idempotency_key.");
         }
     }
 

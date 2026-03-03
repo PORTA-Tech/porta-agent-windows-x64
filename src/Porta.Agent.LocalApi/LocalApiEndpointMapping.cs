@@ -326,6 +326,12 @@ public static class LocalApiEndpointMapping
     private static LocalApiEventResponse ToEventResponse(AgentControlEvent ev)
     {
         return new LocalApiEventResponse(
+            ev.EventId,
+            ToEventType(ev.Action),
+            ev.TimestampUtc,
+            ev.IdempotencyKey,
+            ev.WhyJson,
+            string.IsNullOrWhiteSpace(ev.StateFlagsJson) ? null : ev.StateFlagsJson,
             ev.TimestampUtc,
             ev.Action,
             ev.TriggerState,
@@ -347,6 +353,16 @@ public static class LocalApiEndpointMapping
             ev.ReversalApplied,
             ev.CooldownEndTimestampUtc,
             ev.LifecycleState);
+    }
+
+    private static string ToEventType(string action)
+    {
+        if (string.IsNullOrWhiteSpace(action))
+        {
+            return "UNKNOWN";
+        }
+
+        return action.Trim().ToUpperInvariant();
     }
 
     private static LocalApiSettingsResponse ToSettingsResponse(AgentSettingsState state)

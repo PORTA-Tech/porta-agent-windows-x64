@@ -56,6 +56,12 @@ public sealed record LocalApiInputsSummaryResponse(
     double NotificationLatencyIndex);
 
 public sealed record LocalApiEventResponse(
+    long Id,
+    string Type,
+    DateTimeOffset TsUtc,
+    string IdempotencyKey,
+    string WhyJson,
+    string? StateFlagsJson,
     DateTimeOffset TimestampUtc,
     string Action,
     string TriggerState,

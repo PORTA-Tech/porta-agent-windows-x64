@@ -21,7 +21,12 @@ public sealed record AgentControlEvent(
     string HowToUndo = "",
     bool ReversalApplied = false,
     DateTimeOffset? CooldownEndTimestampUtc = null,
-    string LifecycleState = "activated");
+    string LifecycleState = "activated",
+    string? WhyJsonOverride = null,
+    long EventId = 0,
+    string IdempotencyKey = "",
+    string WhyJson = "{\"schema_ver\":1}",
+    string StateFlagsJson = "{\"schema_ver\":1}");
 
 public sealed record AgentDiagnosticsSnapshot(
     DateTimeOffset TimestampUtc,

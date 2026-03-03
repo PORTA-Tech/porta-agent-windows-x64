@@ -81,6 +81,10 @@ public static class PortaExecutionConstants
     {
         public const int SustainedAttentionSeconds = 3600;
         public const int CooldownSeconds = 1800;
+        public const long CooldownWindowMs = CooldownSeconds * 1000L;
+        public const double ConfidenceMin = 0.60;
+        public const string RuntimeStateKey = "break_policy:cooldown";
+        public const string ContractVersion = "v1";
     }
 
     public static class DeepWorkDetection
