@@ -52,6 +52,7 @@ internal sealed class AgentService : IHostedService, IDisposable
         builder.Services.AddSingleton<IPolicyEnvelopeProvider, FilePolicyEnvelopeProvider>();
         builder.Services.AddSingleton<IRegulationStage, DefaultRegulationStage>();
         builder.Services.AddSingleton<IBackendConnectivityProbe, HttpBackendConnectivityProbe>();
+        builder.Services.AddHostedService<RuntimeSignalIngestionWorker>();
         builder.Services.AddHostedService<BucketFinalizerWorker>();
         builder.Services.AddHostedService<AgentBrainWorker>();
 

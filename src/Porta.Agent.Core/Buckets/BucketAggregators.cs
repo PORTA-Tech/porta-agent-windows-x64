@@ -12,6 +12,25 @@ internal static class BucketAggregators
         // - sanitize numeric fields to avoid NaN/Infinity leaks
         // - hash sensitive contributor identifiers before staging/persistence
         AgentBrainSnapshot safeSnapshot = BucketPrivacyContract.SanitizeForBucketPersistence(snapshot);
+        long tsUtcMs = safeSnapshot.TimestampUtc.ToUnixTimeMilliseconds();
+        bool containsRawInputContributor = false;
+
+        foreach (string contributor in safeSnapshot.Contributors.Where(static x => !string.IsNullOrWhiteSpace(x)))
+        {
+            if (TryApplyRawInputContributor(bucket, tsUtcMs, contributor))
+            {
+                containsRawInputContributor = true;
+                continue;
+            }
+
+            bucket.ContributorsStage.Add(contributor);
+        }
+
+        if (containsRawInputContributor)
+        {
+            // Raw hook events should not skew the inference sample stream.
+            return;
+        }
 
         if (bucket.LatestSnapshot == null || safeSnapshot.TimestampUtc >= bucket.LatestSnapshot.TimestampUtc)
         {
@@ -23,12 +42,6 @@ internal static class BucketAggregators
         bucket.ScrollVelocityIndexSum += safeSnapshot.ScrollVelocityIndex;
         bucket.FocusSwitchRateSum += safeSnapshot.FocusSwitchRate;
 
-        foreach (string contributor in safeSnapshot.Contributors.Where(static x => !string.IsNullOrWhiteSpace(x)))
-        {
-            bucket.ContributorsStage.Add(contributor);
-        }
-
-        long tsUtcMs = safeSnapshot.TimestampUtc.ToUnixTimeMilliseconds();
         string? focusAppHash = TryResolveFocusAppHash(safeSnapshot.Contributors);
         if (!string.IsNullOrWhiteSpace(focusAppHash))
         {
@@ -194,5 +207,78 @@ internal static class BucketAggregators
         }
 
         return null;
+    }
+
+    private static bool TryApplyRawInputContributor(BucketBuffer bucket, long tsUtcMs, string contributor)
+    {
+        if (!contributor.StartsWith(RawInputContributors.Prefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string[] parts = contributor.Split(':', StringSplitOptions.None);
+        if (parts.Length < 3)
+        {
+            return true;
+        }
+
+        string eventType = parts[1];
+        if (string.Equals(eventType, "keyboard", StringComparison.Ordinal))
+        {
+            bool isBackspace = parts.Length >= 3
+                && string.Equals(parts[2], "backspace", StringComparison.OrdinalIgnoreCase);
+            ApplyKeyboardKeydownToBucket(bucket, tsUtcMs, isBackspace);
+            return true;
+        }
+
+        if (string.Equals(eventType, "mouse_move", StringComparison.Ordinal))
+        {
+            if (parts.Length >= 4
+                && int.TryParse(parts[2], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int dx)
+                && int.TryParse(parts[3], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int dy))
+            {
+                ApplyMouseMoveToBucket(bucket, tsUtcMs, dx, dy);
+            }
+
+            return true;
+        }
+
+        if (string.Equals(eventType, "mouse_wheel", StringComparison.Ordinal))
+        {
+            if (parts.Length >= 3
+                && int.TryParse(parts[2], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int delta))
+            {
+                ApplyMouseWheelToBucket(bucket, tsUtcMs, delta);
+            }
+
+            return true;
+        }
+
+        if (string.Equals(eventType, "focus", StringComparison.Ordinal))
+        {
+            if (parts.Length >= 3)
+            {
+                string appHash = parts[2].Trim();
+                if (!string.IsNullOrWhiteSpace(appHash))
+                {
+                    ApplyFocusEventToBucket(bucket, tsUtcMs, appHash);
+                }
+            }
+
+            return true;
+        }
+
+        if (string.Equals(eventType, "idle", StringComparison.Ordinal))
+        {
+            if (parts.Length >= 3
+                && double.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double idleSeconds))
+            {
+                ApplyIdleSampleToBucket(bucket, tsUtcMs, idleSeconds);
+            }
+
+            return true;
+        }
+
+        return true;
     }
 }
