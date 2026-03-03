@@ -12,6 +12,7 @@ internal sealed class IdleRawAggregates
     public IReadOnlyList<IdleSamplePoint> Samples => _samples;
     public double IdleSeconds { get; private set; }
     public int MicroIdleCount { get; private set; }
+    public double MicroIdleSeconds { get; private set; }
     public double BreakSeconds { get; private set; }
 
     public void RecordSample(long tsUtcMs, double idleSeconds)
@@ -31,6 +32,7 @@ internal sealed class IdleRawAggregates
     {
         IdleSeconds = 0d;
         MicroIdleCount = 0;
+        MicroIdleSeconds = 0d;
         BreakSeconds = 0d;
 
         if (_samples.Count < 2 || bucketEndUtcMs <= bucketStartUtcMs)
@@ -69,6 +71,11 @@ internal sealed class IdleRawAggregates
             }
 
             bool isMicro = IsMicro(current.IdleSeconds);
+            if (isMicro)
+            {
+                MicroIdleSeconds += overlapSeconds;
+            }
+
             // Frozen count rule:
             // micro_idle_count counts micro-idle episodes whose first micro sample starts within bucket.
             if (isMicro && !wasMicro && current.TimestampUtcMs >= bucketStartUtcMs && current.TimestampUtcMs < bucketEndUtcMs)
@@ -85,6 +92,7 @@ internal sealed class IdleRawAggregates
         }
 
         IdleSeconds = NormalizeNonNegative(IdleSeconds);
+        MicroIdleSeconds = NormalizeNonNegative(MicroIdleSeconds);
         BreakSeconds = NormalizeNonNegative(BreakSeconds);
     }
 

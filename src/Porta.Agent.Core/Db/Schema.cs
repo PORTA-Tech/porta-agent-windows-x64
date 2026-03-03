@@ -606,6 +606,26 @@ internal static class Schema
         EnsureColumnExists(connection, "primitive_buckets", "state_flags_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1}'");
     }
 
+    internal static void ApplyStateBucketsDerivedSessionContractV14(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "state_buckets", "sustained_attention_duration_sec", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "state_buckets", "idle_fragmentation_index", "REAL NOT NULL DEFAULT 0");
+    }
+
+    internal static void ApplyInputBucketsSessionFieldsContractV15(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "input_buckets", "focus_switch_count", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "dominant_app_hash", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "input_buckets", "idle_micro_idle_seconds", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "true_break_seconds", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "true_break_flag", "INTEGER NOT NULL DEFAULT 0");
+    }
+
+    internal static void ApplyStateBucketsStateFlagsContractV16(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "state_buckets", "state_flags_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1}'");
+    }
+
     internal static void AssertEventsContract(SqliteConnection connection)
     {
         HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
@@ -672,9 +692,14 @@ internal static class Schema
             "mouse_scroll_speed",
             "mouse_micro_correction_rate",
             "focus_app_entropy",
+            "focus_switch_count",
+            "dominant_app_hash",
             "focus_active_app_count",
             "idle_seconds",
             "idle_micro_idle_count",
+            "idle_micro_idle_seconds",
+            "true_break_seconds",
+            "true_break_flag",
             "quality_score",
             "partial",
             "contributors_json"
@@ -819,6 +844,25 @@ internal static class Schema
         {
             throw new InvalidOperationException(
                 "Primitive buckets schema assertion failed. bucket_seq must be the PRIMARY KEY.");
+        }
+    }
+
+    internal static void AssertStateBucketsDerivedSessionContract(SqliteConnection connection)
+    {
+        HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "timestamp_utc",
+            "sustained_attention_duration_sec",
+            "idle_fragmentation_index",
+            "state_flags_json"
+        };
+
+        HashSet<string> actualColumns = GetTableColumns(connection, "state_buckets");
+        List<string> missing = requiredColumns.Where(column => !actualColumns.Contains(column)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"State buckets derived session schema assertion failed. Missing required columns: {string.Join(", ", missing)}.");
         }
     }
 

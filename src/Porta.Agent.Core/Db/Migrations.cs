@@ -8,7 +8,7 @@ namespace Porta.Agent.Core.Db;
 
 internal static class Migrations
 {
-    private const int LatestSchemaVersion = 13;
+    private const int LatestSchemaVersion = 16;
 
     private static readonly MigrationStep[] OrderedSteps =
     [
@@ -63,7 +63,19 @@ internal static class Migrations
         new(
             Version: 13,
             Name: "primitive_buckets_json_contract_v13",
-            Apply: Schema.ApplyPrimitiveBucketsJsonContractV13)
+            Apply: Schema.ApplyPrimitiveBucketsJsonContractV13),
+        new(
+            Version: 14,
+            Name: "state_buckets_derived_session_contract_v14",
+            Apply: Schema.ApplyStateBucketsDerivedSessionContractV14),
+        new(
+            Version: 15,
+            Name: "input_buckets_session_fields_contract_v15",
+            Apply: Schema.ApplyInputBucketsSessionFieldsContractV15),
+        new(
+            Version: 16,
+            Name: "state_buckets_state_flags_contract_v16",
+            Apply: Schema.ApplyStateBucketsStateFlagsContractV16)
     ];
 
     internal static void Migrate(SqliteConnection connection)
@@ -97,6 +109,7 @@ internal static class Migrations
             Schema.AssertBaselineStatsContract(connection);
             Schema.AssertMetricBoundsContract(connection);
             Schema.AssertPrimitiveBucketsContract(connection);
+            Schema.AssertStateBucketsDerivedSessionContract(connection);
             Schema.AssertBucketFinalizeUpsertContract(connection);
             DbHealth.SetSchemaVersion(connection, currentVersion.ToString(CultureInfo.InvariantCulture));
             DbHealth.SetMigrationFailed(connection, failed: false);

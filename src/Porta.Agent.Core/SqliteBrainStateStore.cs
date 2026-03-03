@@ -93,13 +93,25 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     SmoothedFocusSwitchRate = primitive.FocusSmoothed
                 };
                 AgentBrainSnapshot gatedSnapshot = ApplyBaselineGating(primitiveSnapshot, gating);
+                DerivedSessionMetricsResult derivedSession = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+                    connection,
+                    tx,
+                    mapped,
+                    primitive,
+                    gating);
                 PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, primitive, robust);
-                StateBucketWriteModel stateRow = BuildStateBucketRow(mapped, gatedSnapshot, primitive, robust);
+                StateBucketWriteModel stateRow = BuildStateBucketRow(
+                    mapped,
+                    gatedSnapshot,
+                    primitive,
+                    robust,
+                    gating,
+                    derivedSession);
                 UpsertPrimitiveBucket(connection, tx, primitiveRow);
                 UpsertStateBucket(connection, tx, stateRow);
                 InsertLegacySnapshot(connection, tx, gatedSnapshot);
                 TryInsertAutomaticInterventionEvent(connection, tx, gatedSnapshot);
-                UpsertRuntimeStateForSnapshot(connection, tx, gatedSnapshot, mapped, gating, primitive);
+                UpsertRuntimeStateForSnapshot(connection, tx, gatedSnapshot, mapped, gating, primitive, derivedSession);
                 PrimitiveComputer.PersistSPrevForFinalizedBucket(
                     connection,
                     tx,
@@ -794,8 +806,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
             double idleFragmentation = ReadSingleDouble(connection,
                 """
-                SELECT COALESCE(AVG(focus_switch_rate), 0)
-                FROM input_buckets
+                SELECT COALESCE(AVG(idle_fragmentation_index), 0)
+                FROM state_buckets
                 WHERE timestamp_utc >= $start AND timestamp_utc < $end;
                 """,
                 startUtc, endUtc);
@@ -981,7 +993,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         AgentBrainSnapshot snapshot,
         InputBucketRow mapped,
         BaselineGatingResult gating,
-        PrimitiveComputationResult primitive)
+        PrimitiveComputationResult primitive,
+        DerivedSessionMetricsResult derivedSession)
     {
         string valueJson = JsonSerializer.Serialize(new
         {
@@ -998,6 +1011,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             typing_burst_intensity_smoothed = primitive.TypingSmoothed,
             scroll_velocity_index_smoothed = primitive.ScrollSmoothed,
             focus_switch_rate_smoothed = primitive.FocusSmoothed,
+            sustained_attention_duration_sec = derivedSession.SustainedAttentionDurationSec,
+            idle_fragmentation_index = derivedSession.IdleFragmentationIndex,
+            derived_session_partial = derivedSession.Partial,
+            dominant_app_hash = derivedSession.DominantAppHash,
+            sa_seconds = derivedSession.SustainedAttentionDurationSec,
+            sa_context_app_hash = derivedSession.DominantAppHash,
+            sa_last_update_bucket_seq = mapped.BucketSeq,
+            sa_freeze_reason = derivedSession.SaFreezeReason,
+            sa_untrusted = derivedSession.SaUntrusted,
             baseline_ready = gating.BaselineReady,
             cold_start = gating.ColdStart,
             confidence_cap = gating.ConfidenceCap,
@@ -1041,6 +1063,36 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         cmd2.Parameters.AddWithValue("$value_json", finalizedSeqValueJson);
         cmd2.Parameters.AddWithValue("$updated_utc", mapped.TimestampUtc);
         cmd2.ExecuteNonQuery();
+
+        string derivedSessionValueJson = JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            contract_ver = PortaExecutionConstants.DerivedSessionMetrics.ContractVersion,
+            bucket_seq = mapped.BucketSeq,
+            sa_seconds = derivedSession.SustainedAttentionDurationSec,
+            sa_context_app_hash = derivedSession.DominantAppHash,
+            sa_last_update_bucket_seq = mapped.BucketSeq,
+            sa_freeze_reason = derivedSession.SaFreezeReason,
+            sa_untrusted = derivedSession.SaUntrusted,
+            sustained_attention_duration_sec = derivedSession.SustainedAttentionDurationSec,
+            idle_fragmentation_index = derivedSession.IdleFragmentationIndex,
+            partial = derivedSession.Partial,
+            dominant_app_hash = derivedSession.DominantAppHash
+        });
+        using var cmd3 = connection.CreateCommand();
+        cmd3.Transaction = tx;
+        cmd3.CommandText =
+            """
+            INSERT INTO runtime_state (key, value_json, updated_utc)
+            VALUES ($key, $value_json, $updated_utc)
+            ON CONFLICT(key) DO UPDATE SET
+                value_json = excluded.value_json,
+                updated_utc = excluded.updated_utc;
+            """;
+        cmd3.Parameters.AddWithValue("$key", PortaExecutionConstants.DerivedSessionMetrics.RuntimeStateKey);
+        cmd3.Parameters.AddWithValue("$value_json", derivedSessionValueJson);
+        cmd3.Parameters.AddWithValue("$updated_utc", mapped.TimestampUtc);
+        cmd3.ExecuteNonQuery();
     }
 
     private static AgentBrainSnapshot ApplyBaselineGating(AgentBrainSnapshot snapshot, BaselineGatingResult gating)
@@ -1190,7 +1242,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         InputBucketRow mapped,
         AgentBrainSnapshot snapshot,
         PrimitiveComputationResult primitive,
-        RobustNormalizationSnapshot? robust)
+        RobustNormalizationSnapshot? robust,
+        BaselineGatingResult gating,
+        DerivedSessionMetricsResult derivedSession)
     {
         string contributorsJson = JsonSerializer.Serialize(new
         {
@@ -1202,7 +1256,23 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 typing_component = robust?.TypingComponent ?? 0d,
                 scroll_component = robust?.ScrollComponent ?? 0d,
                 focus_component = robust?.FocusComponent ?? 0d
+            },
+            derived_session = new
+            {
+                sustained_attention_duration_sec = derivedSession.SustainedAttentionDurationSec,
+                idle_fragmentation_index = derivedSession.IdleFragmentationIndex,
+                partial = derivedSession.Partial,
+                dominant_app_hash = derivedSession.DominantAppHash,
+                sa_freeze_reason = derivedSession.SaFreezeReason,
+                sa_untrusted = derivedSession.SaUntrusted
             }
+        });
+        string stateFlagsJson = JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            cold_start = gating.ColdStart,
+            partial = mapped.Partial == 1 || derivedSession.Partial,
+            sa_reset_reason = derivedSession.SaFreezeReason
         });
 
         return new StateBucketWriteModel(
@@ -1220,10 +1290,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             DominantStateName: snapshot.DominantStateName,
             DominantStateValue: snapshot.DominantStateValue,
             Confidence: snapshot.Confidence,
+            SustainedAttentionDurationSec: derivedSession.SustainedAttentionDurationSec,
+            IdleFragmentationIndex: derivedSession.IdleFragmentationIndex,
             ActivationWindowTriggered: snapshot.ActivationWindowTriggered ? 1 : 0,
             CooldownTriggered: snapshot.CooldownTriggered ? 1 : 0,
             ActivationWindowOpen: snapshot.ActivationWindowOpen ? 1 : 0,
-            ContributorsJson: contributorsJson);
+            ContributorsJson: contributorsJson,
+            StateFlagsJson: stateFlagsJson);
     }
 
     private void UpsertInputBucket(
@@ -1251,9 +1324,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 mouse_scroll_speed,
                 mouse_micro_correction_rate,
                 focus_app_entropy,
+                focus_switch_count,
+                dominant_app_hash,
                 focus_active_app_count,
                 idle_seconds,
                 idle_micro_idle_count,
+                idle_micro_idle_seconds,
+                true_break_seconds,
+                true_break_flag,
                 quality_score,
                 partial,
                 contributors_json
@@ -1261,8 +1339,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 $ts, $start_utc, $bucket_seq, $typing, $scroll, $focus_switch,
                 $keyboard_iki_mean, $keyboard_iki_cv, $keyboard_burst_rate, $keyboard_backspace_rate,
                 $mouse_speed_mean, $mouse_jerk_p95, $mouse_scroll_speed, $mouse_micro_correction_rate,
-                $focus_app_entropy, $focus_active_app_count,
-                $idle_seconds, $idle_micro_idle_count,
+                $focus_app_entropy, $focus_switch_count, $dominant_app_hash, $focus_active_app_count,
+                $idle_seconds, $idle_micro_idle_count, $idle_micro_idle_seconds, $true_break_seconds, $true_break_flag,
                 $quality_score, $partial, $contributors_json
             )
             ON CONFLICT(start_utc) DO UPDATE SET
@@ -1280,9 +1358,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 mouse_scroll_speed = excluded.mouse_scroll_speed,
                 mouse_micro_correction_rate = excluded.mouse_micro_correction_rate,
                 focus_app_entropy = excluded.focus_app_entropy,
+                focus_switch_count = excluded.focus_switch_count,
+                dominant_app_hash = excluded.dominant_app_hash,
                 focus_active_app_count = excluded.focus_active_app_count,
                 idle_seconds = excluded.idle_seconds,
                 idle_micro_idle_count = excluded.idle_micro_idle_count,
+                idle_micro_idle_seconds = excluded.idle_micro_idle_seconds,
+                true_break_seconds = excluded.true_break_seconds,
+                true_break_flag = excluded.true_break_flag,
                 quality_score = excluded.quality_score,
                 partial = excluded.partial,
                 contributors_json = excluded.contributors_json;
@@ -1302,9 +1385,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         cmd.Parameters.AddWithValue("$mouse_scroll_speed", mappedRow.MouseScrollSpeed);
         cmd.Parameters.AddWithValue("$mouse_micro_correction_rate", mappedRow.MouseMicroCorrectionRate);
         cmd.Parameters.AddWithValue("$focus_app_entropy", mappedRow.FocusAppEntropy);
+        cmd.Parameters.AddWithValue("$focus_switch_count", mappedRow.FocusSwitchCount);
+        cmd.Parameters.AddWithValue("$dominant_app_hash", mappedRow.DominantAppHash);
         cmd.Parameters.AddWithValue("$focus_active_app_count", mappedRow.FocusActiveAppCount);
         cmd.Parameters.AddWithValue("$idle_seconds", mappedRow.IdleSeconds);
         cmd.Parameters.AddWithValue("$idle_micro_idle_count", mappedRow.IdleMicroIdleCount);
+        cmd.Parameters.AddWithValue("$idle_micro_idle_seconds", mappedRow.IdleMicroIdleSeconds);
+        cmd.Parameters.AddWithValue("$true_break_seconds", mappedRow.TrueBreakSeconds);
+        cmd.Parameters.AddWithValue("$true_break_flag", mappedRow.TrueBreakFlag);
         cmd.Parameters.AddWithValue("$quality_score", mappedRow.QualityScore);
         cmd.Parameters.AddWithValue("$partial", mappedRow.Partial);
         cmd.Parameters.AddWithValue("$contributors_json", mappedRow.ContributorsJson);
@@ -1379,11 +1467,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 dominant_state_name,
                 dominant_state_value,
                 confidence,
+                sustained_attention_duration_sec,
+                idle_fragmentation_index,
                 activation_window_triggered,
                 cooldown_triggered,
                 activation_window_open,
-                contributors_json
-            ) VALUES ($ts, $typing_raw, $scroll_raw, $focus_switch_raw, $typing_smooth, $scroll_smooth, $focus_switch_smooth, $focus, $overload, $fatigue, $stability, $dominant_name, $dominant_value, $confidence, $activation_triggered, $cooldown_triggered, $activation_open, $contributors)
+                contributors_json,
+                state_flags_json
+            ) VALUES ($ts, $typing_raw, $scroll_raw, $focus_switch_raw, $typing_smooth, $scroll_smooth, $focus_switch_smooth, $focus, $overload, $fatigue, $stability, $dominant_name, $dominant_value, $confidence, $sustained_attention_duration_sec, $idle_fragmentation_index, $activation_triggered, $cooldown_triggered, $activation_open, $contributors, $state_flags_json)
             ON CONFLICT(timestamp_utc) DO UPDATE SET
                 typing_burst_intensity_raw = excluded.typing_burst_intensity_raw,
                 scroll_velocity_index_raw = excluded.scroll_velocity_index_raw,
@@ -1398,10 +1489,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 dominant_state_name = excluded.dominant_state_name,
                 dominant_state_value = excluded.dominant_state_value,
                 confidence = excluded.confidence,
+                sustained_attention_duration_sec = excluded.sustained_attention_duration_sec,
+                idle_fragmentation_index = excluded.idle_fragmentation_index,
                 activation_window_triggered = excluded.activation_window_triggered,
                 cooldown_triggered = excluded.cooldown_triggered,
                 activation_window_open = excluded.activation_window_open,
-                contributors_json = excluded.contributors_json;
+                contributors_json = excluded.contributors_json,
+                state_flags_json = excluded.state_flags_json;
             """;
         cmd.Parameters.AddWithValue("$ts", row.TimestampUtc);
         cmd.Parameters.AddWithValue("$typing_raw", row.TypingRaw);
@@ -1417,10 +1511,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         cmd.Parameters.AddWithValue("$dominant_name", row.DominantStateName);
         cmd.Parameters.AddWithValue("$dominant_value", row.DominantStateValue);
         cmd.Parameters.AddWithValue("$confidence", row.Confidence);
+        cmd.Parameters.AddWithValue("$sustained_attention_duration_sec", row.SustainedAttentionDurationSec);
+        cmd.Parameters.AddWithValue("$idle_fragmentation_index", row.IdleFragmentationIndex);
         cmd.Parameters.AddWithValue("$activation_triggered", row.ActivationWindowTriggered);
         cmd.Parameters.AddWithValue("$cooldown_triggered", row.CooldownTriggered);
         cmd.Parameters.AddWithValue("$activation_open", row.ActivationWindowOpen);
         cmd.Parameters.AddWithValue("$contributors", row.ContributorsJson);
+        cmd.Parameters.AddWithValue("$state_flags_json", row.StateFlagsJson);
         cmd.ExecuteNonQuery();
     }
 
@@ -1450,10 +1547,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string DominantStateName,
         double DominantStateValue,
         double Confidence,
+        double SustainedAttentionDurationSec,
+        double IdleFragmentationIndex,
         int ActivationWindowTriggered,
         int CooldownTriggered,
         int ActivationWindowOpen,
-        string ContributorsJson);
+        string ContributorsJson,
+        string StateFlagsJson);
 
     private void InsertLegacySnapshot(SqliteConnection connection, SqliteTransaction tx, AgentBrainSnapshot snapshot)
     {

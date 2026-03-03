@@ -15,6 +15,7 @@ internal sealed class FocusRawAggregates
     public int FocusSwitchesCount { get; private set; }
     public int ActiveAppCount { get; private set; }
     public double AppEntropy { get; private set; }
+    public string DominantAppHash { get; private set; } = string.Empty;
 
     public void RecordFocusEvent(long tsUtcMs, string appHash)
     {
@@ -44,6 +45,7 @@ internal sealed class FocusRawAggregates
         FocusSwitchesCount = 0;
         ActiveAppCount = 0;
         AppEntropy = 0d;
+        DominantAppHash = string.Empty;
         _dwellByAppSeconds.Clear();
 
         if (bucketEndUtcMs <= bucketStartUtcMs || _focusEvents.Count == 0)
@@ -64,6 +66,7 @@ internal sealed class FocusRawAggregates
         FocusSwitchesCount = CountBucketSwitches(suppressed, bucketStartUtcMs, bucketEndUtcMs);
         ActiveAppCount = _dwellByAppSeconds.Count;
         AppEntropy = ComputeShannonEntropy(_dwellByAppSeconds.Values);
+        DominantAppHash = ResolveDominantAppHash(_dwellByAppSeconds);
     }
 
     private static List<FocusInterval> BuildRawIntervals(IReadOnlyList<FocusEventSample> ordered, long closeOpenAtUtcMs)
@@ -197,6 +200,21 @@ internal sealed class FocusRawAggregates
         }
 
         return double.IsFinite(entropy) ? entropy : 0d;
+    }
+
+    private static string ResolveDominantAppHash(IReadOnlyDictionary<string, double> dwellByAppSeconds)
+    {
+        if (dwellByAppSeconds.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        // Deterministic tie-break: max dwell, then lexical app hash.
+        return dwellByAppSeconds
+            .OrderByDescending(static pair => pair.Value)
+            .ThenBy(static pair => pair.Key, StringComparer.Ordinal)
+            .Select(static pair => pair.Key)
+            .FirstOrDefault() ?? string.Empty;
     }
 }
 

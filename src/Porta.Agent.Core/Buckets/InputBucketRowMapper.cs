@@ -18,9 +18,14 @@ public readonly record struct InputBucketRow(
     double MouseScrollSpeed,
     double MouseMicroCorrectionRate,
     double FocusAppEntropy,
+    int FocusSwitchCount,
+    string DominantAppHash,
     double FocusActiveAppCount,
     double IdleSeconds,
     double IdleMicroIdleCount,
+    double IdleMicroIdleSeconds,
+    double TrueBreakSeconds,
+    int TrueBreakFlag,
     double QualityScore,
     int Partial,
     string ContributorsJson);
@@ -53,11 +58,15 @@ internal static class InputBucketRowMapper
             },
             focus = new
             {
-                switches = bucket.Focus.FocusSwitchesCount
+                switches = bucket.Focus.FocusSwitchesCount,
+                dominant_app_hash = bucket.Focus.DominantAppHash
             },
             idle = new
             {
-                idle_s = ClampNonNegativeFinite(bucket.Idle.IdleSeconds)
+                idle_s = ClampNonNegativeFinite(bucket.Idle.IdleSeconds),
+                micro_idle_s = ClampNonNegativeFinite(bucket.Idle.MicroIdleSeconds),
+                break_s = ClampNonNegativeFinite(bucket.Idle.BreakSeconds),
+                true_break_flag = bucket.Idle.BreakSeconds >= 120d ? 1 : 0
             },
             missing_major_channels = missingMajorChannels
         });
@@ -78,9 +87,14 @@ internal static class InputBucketRowMapper
             MouseScrollSpeed: ClampNonNegativeFinite(bucket.Mouse.ScrollSpeed),
             MouseMicroCorrectionRate: Clamp01(bucket.Mouse.MicroCorrectionRate),
             FocusAppEntropy: ClampNonNegativeFinite(bucket.Focus.AppEntropy),
+            FocusSwitchCount: Math.Max(0, bucket.Focus.FocusSwitchesCount),
+            DominantAppHash: bucket.Focus.DominantAppHash ?? string.Empty,
             FocusActiveAppCount: ClampNonNegativeFinite(bucket.Focus.ActiveAppCount),
             IdleSeconds: ClampNonNegativeFinite(bucket.Idle.IdleSeconds),
             IdleMicroIdleCount: ClampNonNegativeFinite(bucket.Idle.MicroIdleCount),
+            IdleMicroIdleSeconds: ClampNonNegativeFinite(bucket.Idle.MicroIdleSeconds),
+            TrueBreakSeconds: ClampNonNegativeFinite(bucket.Idle.BreakSeconds),
+            TrueBreakFlag: bucket.Idle.BreakSeconds >= 120d ? 1 : 0,
             QualityScore: Clamp01(bucket.QualityScore),
             Partial: bucket.Partial ? 1 : 0,
             ContributorsJson: contributorsJson);

@@ -47,6 +47,13 @@ public static class PortaExecutionConstants
         public const string ContractVersion = "v1";
     }
 
+    public static class DerivedSessionMetrics
+    {
+        public const string RuntimeStateKey = "derived_session:current";
+        public const string ContractVersion = "v1";
+        public const double IdleSecondsStableMax = 1.0;
+    }
+
     public static class OverloadStabilization
     {
         public const double ThresholdOn = 0.80;

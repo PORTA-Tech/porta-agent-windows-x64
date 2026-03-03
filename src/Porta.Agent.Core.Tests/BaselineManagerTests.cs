@@ -281,9 +281,14 @@ public sealed class BaselineManagerTests
                 mouse_scroll_speed REAL NOT NULL,
                 mouse_micro_correction_rate REAL NOT NULL,
                 focus_app_entropy REAL NOT NULL,
+                focus_switch_count INTEGER NOT NULL,
+                dominant_app_hash TEXT NOT NULL,
                 focus_active_app_count REAL NOT NULL,
                 idle_seconds REAL NOT NULL,
                 idle_micro_idle_count REAL NOT NULL,
+                idle_micro_idle_seconds REAL NOT NULL,
+                true_break_seconds REAL NOT NULL,
+                true_break_flag INTEGER NOT NULL,
                 quality_score REAL NOT NULL,
                 partial INTEGER NOT NULL,
                 contributors_json TEXT NOT NULL
@@ -327,9 +332,14 @@ public sealed class BaselineManagerTests
             MouseScrollSpeed: 80d,
             MouseMicroCorrectionRate: 0.09d,
             FocusAppEntropy: 1.2d,
+            FocusSwitchCount: 1,
+            DominantAppHash: "app_hash_a",
             FocusActiveAppCount: 3d,
             IdleSeconds: 25d,
             IdleMicroIdleCount: 2d,
+            IdleMicroIdleSeconds: 10d,
+            TrueBreakSeconds: 0d,
+            TrueBreakFlag: 0,
             QualityScore: quality,
             Partial: 0,
             ContributorsJson: "{\"schema_ver\":1}");
@@ -360,9 +370,14 @@ public sealed class BaselineManagerTests
                 mouse_scroll_speed,
                 mouse_micro_correction_rate,
                 focus_app_entropy,
+                focus_switch_count,
+                dominant_app_hash,
                 focus_active_app_count,
                 idle_seconds,
                 idle_micro_idle_count,
+                idle_micro_idle_seconds,
+                true_break_seconds,
+                true_break_flag,
                 quality_score,
                 partial,
                 contributors_json
@@ -382,9 +397,14 @@ public sealed class BaselineManagerTests
                 $mouse_scroll_speed,
                 $mouse_micro_correction_rate,
                 $focus_app_entropy,
+                $focus_switch_count,
+                $dominant_app_hash,
                 $focus_active_app_count,
                 $idle_seconds,
                 $idle_micro_idle_count,
+                $idle_micro_idle_seconds,
+                $true_break_seconds,
+                $true_break_flag,
                 $quality,
                 $partial,
                 $contributors
@@ -405,9 +425,14 @@ public sealed class BaselineManagerTests
         cmd.Parameters.AddWithValue("$mouse_scroll_speed", row.MouseScrollSpeed);
         cmd.Parameters.AddWithValue("$mouse_micro_correction_rate", row.MouseMicroCorrectionRate);
         cmd.Parameters.AddWithValue("$focus_app_entropy", row.FocusAppEntropy);
+        cmd.Parameters.AddWithValue("$focus_switch_count", row.FocusSwitchCount);
+        cmd.Parameters.AddWithValue("$dominant_app_hash", row.DominantAppHash);
         cmd.Parameters.AddWithValue("$focus_active_app_count", row.FocusActiveAppCount);
         cmd.Parameters.AddWithValue("$idle_seconds", row.IdleSeconds);
         cmd.Parameters.AddWithValue("$idle_micro_idle_count", row.IdleMicroIdleCount);
+        cmd.Parameters.AddWithValue("$idle_micro_idle_seconds", row.IdleMicroIdleSeconds);
+        cmd.Parameters.AddWithValue("$true_break_seconds", row.TrueBreakSeconds);
+        cmd.Parameters.AddWithValue("$true_break_flag", row.TrueBreakFlag);
         cmd.Parameters.AddWithValue("$quality", row.QualityScore);
         cmd.Parameters.AddWithValue("$partial", row.Partial);
         cmd.Parameters.AddWithValue("$contributors", row.ContributorsJson);
