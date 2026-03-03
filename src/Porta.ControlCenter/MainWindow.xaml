@@ -264,6 +264,7 @@
                                     <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Service running" /><TextBlock x:Name="ServiceRunningValue" Grid.Row="0" Grid.Column="1" Text="Unknown" />
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Tray running" /><TextBlock x:Name="TrayRunningValue" Grid.Row="1" Grid.Column="1" Text="Unknown" />
@@ -282,6 +283,10 @@
                                 <TextBlock Grid.Row="14" Grid.Column="0" Text="Consent timestamp" /><TextBlock x:Name="ConsentTimestampValue" Grid.Row="14" Grid.Column="1" Text="Unknown" />
                                 <TextBlock Grid.Row="15" Grid.Column="0" Text="Disclosure hash" /><TextBlock x:Name="ConsentHashValue" Grid.Row="15" Grid.Column="1" Text="Unknown" />
                                 <TextBlock Grid.Row="16" Grid.Column="0" Text="Last error" /><TextBlock x:Name="LastErrorValue" Grid.Row="16" Grid.Column="1" Text="None" TextWrapping="Wrap" />
+                                <TextBlock Grid.Row="17" Grid.Column="0" Text="Snapshot confidence" /><TextBlock x:Name="SnapshotConfidenceValue" Grid.Row="17" Grid.Column="1" Text="Unknown" />
+                                <TextBlock Grid.Row="18" Grid.Column="0" Text="Overload active" /><TextBlock x:Name="OverloadActiveValue" Grid.Row="18" Grid.Column="1" Text="Unknown" />
+                                <TextBlock Grid.Row="19" Grid.Column="0" Text="Sustained attention (s)" /><TextBlock x:Name="SustainedAttentionValue" Grid.Row="19" Grid.Column="1" Text="Unknown" />
+                                <TextBlock Grid.Row="20" Grid.Column="0" Text="Idle fragmentation index" /><TextBlock x:Name="IdleFragmentationValue" Grid.Row="20" Grid.Column="1" Text="Unknown" />
                             </Grid>
                         </Border>
                         <WrapPanel Margin="0,10,0,0">

@@ -33,6 +33,7 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
     public AgentSettingsRecord? ReadLatestSettings() => _inner.ReadLatestSettings();
     public void DeleteLocalData() => _finalizer.DeleteLocalData();
     public AgentBrainSnapshot? ReadLatestSnapshot() => _inner.ReadLatestSnapshot();
+    public AgentLatestStateDetails? ReadLatestStateDetails() => _inner.ReadLatestStateDetails();
 
     public IReadOnlyList<AgentBrainSnapshot> ReadTimeline(
         DateTimeOffset fromUtc,

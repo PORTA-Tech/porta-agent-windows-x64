@@ -541,6 +541,58 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
     }
 
+    public AgentLatestStateDetails? ReadLatestStateDetails()
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT
+                    timestamp_utc,
+                    overload_likelihood,
+                    confidence,
+                    sustained_attention_duration_sec,
+                    idle_fragmentation_index,
+                    state_flags_json,
+                    contributors_json
+                FROM state_buckets
+                ORDER BY id DESC
+                LIMIT 1;
+                """;
+
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            string stateFlagsJson = ReadStringOrFallback(reader, 5, "{\"schema_ver\":1}");
+            bool overloadActive = false;
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
+                JsonElement root = doc.RootElement;
+                overloadActive = TryReadBoolProperty(root, "overload_active", out bool parsed) && parsed;
+            }
+            catch
+            {
+                overloadActive = false;
+            }
+
+            return new AgentLatestStateDetails(
+                TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
+                OverloadLikelihood: ReadDoubleOrFallback(reader, 1, 0d),
+                Confidence: ReadDoubleOrFallback(reader, 2, 0d),
+                SustainedAttentionDurationSec: ReadDoubleOrFallback(reader, 3, 0d),
+                IdleFragmentationIndex: ReadDoubleOrFallback(reader, 4, 0d),
+                OverloadActive: overloadActive,
+                StateFlagsJson: stateFlagsJson,
+                ContributorsJson: ReadStringOrFallback(reader, 6, "{\"schema_ver\":1}"));
+        }
+    }
+
     public IReadOnlyList<AgentBrainSnapshot> ReadTimeline(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,

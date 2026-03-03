@@ -42,7 +42,11 @@ public sealed record LocalApiCurrentSnapshotResponse(
     bool ActivationWindowTriggered,
     bool CooldownTriggered,
     bool ActivationWindowOpen,
-    IReadOnlyList<string> Contributors);
+    IReadOnlyList<string> Contributors,
+    double SustainedAttentionDurationSec = 0,
+    double IdleFragmentationIndex = 0,
+    bool OverloadActive = false,
+    string? StateFlagsJson = null);
 
 public sealed record LocalApiInputsSummaryResponse(
     DateTimeOffset FromUtc,

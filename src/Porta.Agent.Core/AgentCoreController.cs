@@ -179,6 +179,14 @@ public sealed class AgentCoreController : IAgentCoreController
         }
     }
 
+    public AgentLatestStateDetails? GetLatestStateDetails()
+    {
+        lock (_gate)
+        {
+            return _stateStore.ReadLatestStateDetails();
+        }
+    }
+
     public AgentInputSummary GetInputsSummary(int windowSeconds = 60)
     {
         int window = Math.Clamp(windowSeconds, 5, 3600);

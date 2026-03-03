@@ -12,6 +12,7 @@ public interface IBrainStateStore
     AgentSettingsRecord? ReadLatestSettings();
     void DeleteLocalData();
     AgentBrainSnapshot? ReadLatestSnapshot();
+    AgentLatestStateDetails? ReadLatestStateDetails();
     IReadOnlyList<AgentBrainSnapshot> ReadTimeline(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,

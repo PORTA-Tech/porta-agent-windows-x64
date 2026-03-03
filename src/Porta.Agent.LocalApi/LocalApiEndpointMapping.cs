@@ -150,7 +150,8 @@ public static class LocalApiEndpointMapping
         api.MapGet("/snapshot/current", (IAgentCoreController controller) =>
         {
             AgentBrainSnapshot snapshot = controller.GetCurrentSnapshot();
-            return ToSnapshotResponse(snapshot);
+            AgentLatestStateDetails? latestState = controller.GetLatestStateDetails();
+            return ToSnapshotResponse(snapshot, latestState);
         });
 
         api.MapGet("/inputs/summary", (IAgentCoreController controller, int? window) =>
@@ -197,7 +198,7 @@ public static class LocalApiEndpointMapping
                 timeline.FromUtc,
                 timeline.ToUtc,
                 timeline.BucketSeconds,
-                timeline.Snapshots.Select(ToSnapshotResponse).ToList(),
+                timeline.Snapshots.Select(static snapshot => ToSnapshotResponse(snapshot)).ToList(),
                 timeline.Interventions.Select(ToEventResponse).ToList());
         });
 
@@ -314,7 +315,9 @@ public static class LocalApiEndpointMapping
         return app;
     }
 
-    private static LocalApiCurrentSnapshotResponse ToSnapshotResponse(AgentBrainSnapshot snapshot)
+    private static LocalApiCurrentSnapshotResponse ToSnapshotResponse(
+        AgentBrainSnapshot snapshot,
+        AgentLatestStateDetails? latestState = null)
     {
         return new LocalApiCurrentSnapshotResponse(
             snapshot.TimestampUtc,
@@ -335,7 +338,11 @@ public static class LocalApiEndpointMapping
             snapshot.ActivationWindowTriggered,
             snapshot.CooldownTriggered,
             snapshot.ActivationWindowOpen,
-            snapshot.Contributors);
+            snapshot.Contributors,
+            latestState?.SustainedAttentionDurationSec ?? 0d,
+            latestState?.IdleFragmentationIndex ?? 0d,
+            latestState?.OverloadActive ?? false,
+            latestState?.StateFlagsJson);
     }
 
     private static LocalApiEventResponse ToEventResponse(AgentControlEvent ev)

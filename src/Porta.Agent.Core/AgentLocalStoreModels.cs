@@ -63,6 +63,16 @@ public sealed record AgentInputSummary(
     double IdleFragmentationIndex,
     double NotificationLatencyIndex);
 
+public sealed record AgentLatestStateDetails(
+    DateTimeOffset TimestampUtc,
+    double OverloadLikelihood,
+    double Confidence,
+    double SustainedAttentionDurationSec,
+    double IdleFragmentationIndex,
+    bool OverloadActive,
+    string StateFlagsJson,
+    string ContributorsJson);
+
 public sealed record AgentSettingsState(
     string RegulationIntensity,
     string PrivacyLevel,

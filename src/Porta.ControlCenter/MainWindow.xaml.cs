@@ -196,6 +196,10 @@ public partial class MainWindow : Window
             ConsentTimestampValue.Text = "Unknown";
             ConsentHashValue.Text = "Unknown";
             LastErrorValue.Text = BuildOfflineErrorMessage(serviceProbe, endpoint);
+            SnapshotConfidenceValue.Text = "Unknown";
+            OverloadActiveValue.Text = "Unknown";
+            SustainedAttentionValue.Text = "Unknown";
+            IdleFragmentationValue.Text = "Unknown";
             QuickPauseResumeButton.Content = "Pause";
             QuickPauseResumeButton.IsEnabled = false;
             ConsentOverlay.Visibility = Visibility.Collapsed;
@@ -236,6 +240,18 @@ public partial class MainWindow : Window
         ConsentTimestampValue.Text = _latestStatus.ConsentTimestampUtc?.ToString("O") ?? "n/a";
         ConsentHashValue.Text = _latestStatus.ConsentDisclosureHash;
         LastErrorValue.Text = BuildOnlineErrorMessage(_latestStatus.LastError, serviceProbe);
+        SnapshotConfidenceValue.Text = snapshot != null
+            ? snapshot.Confidence.ToString("F2", CultureInfo.InvariantCulture)
+            : "n/a";
+        OverloadActiveValue.Text = snapshot != null
+            ? (snapshot.OverloadActive ? "Yes" : "No")
+            : "n/a";
+        SustainedAttentionValue.Text = snapshot != null
+            ? snapshot.SustainedAttentionDurationSec.ToString("F0", CultureInfo.InvariantCulture)
+            : "n/a";
+        IdleFragmentationValue.Text = snapshot != null
+            ? snapshot.IdleFragmentationIndex.ToString("F2", CultureInfo.InvariantCulture)
+            : "n/a";
         QuickPauseResumeButton.Content = _latestStatus.Paused ? "Resume" : "Pause";
         QuickPauseResumeButton.IsEnabled = true;
         ConsentOverlay.Visibility = consentMissing ? Visibility.Visible : Visibility.Collapsed;
@@ -1451,6 +1467,10 @@ public partial class MainWindow : Window
         sb.AppendLine($"Last event: {LastEventValue.Text}");
         sb.AppendLine($"Policy version: {PolicyVersionValue.Text}");
         sb.AppendLine($"Schema version: {SchemaVersionValue.Text}");
+        sb.AppendLine($"Snapshot confidence: {SnapshotConfidenceValue.Text}");
+        sb.AppendLine($"Overload active: {OverloadActiveValue.Text}");
+        sb.AppendLine($"Sustained attention (s): {SustainedAttentionValue.Text}");
+        sb.AppendLine($"Idle fragmentation index: {IdleFragmentationValue.Text}");
         sb.AppendLine($"Agent version: {AgentVersionValue.Text}");
         sb.AppendLine($"Local API reachable: {ApiReachableValue.Text}");
         sb.AppendLine($"Local API port: {ApiPortValue.Text}");

@@ -5,6 +5,7 @@ public interface IAgentCoreController
     AgentServiceStatusSnapshot GetStatus();
     AgentControlState GetControlState();
     AgentBrainSnapshot GetCurrentSnapshot();
+    AgentLatestStateDetails? GetLatestStateDetails();
     AgentInputSummary GetInputsSummary(int windowSeconds = 60);
     IReadOnlyList<AgentControlEvent> GetRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null);
     IReadOnlyList<AgentControlEvent> GetEventsSinceId(long sinceIdExclusive, int limit = 200);
