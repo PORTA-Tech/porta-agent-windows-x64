@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Porta.Agent.Core.Analysis;
 using Porta.Agent.Core.Buckets;
 using Porta.Agent.Core.Db;
 
@@ -57,20 +58,39 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private void WriteSnapshotCore(AgentBrainSnapshot snapshot, InputBucketRow? inputBucketRow)
     {
         snapshot = BucketPrivacyContract.SanitizeForBucketPersistence(snapshot);
+        bool isBucketFinalizeWrite = inputBucketRow.HasValue;
+        InputBucketRow mapped = inputBucketRow ?? BuildFallbackInputBucketRow(snapshot);
+        long bucketSeq = mapped.BucketSeq;
 
         lock (_gate)
         {
             using var connection = DbOpen.OpenConnection(_connectionString);
-            long bucketSeq = Time.bucketSeqFromEventTs(snapshot.TimestampUtc.ToUnixTimeMilliseconds());
             using SqliteTransaction tx = BeginImmediateTransaction(connection);
             try
             {
-                InsertInputBucket(connection, tx, snapshot, inputBucketRow);
-                InsertStateBucket(connection, tx, snapshot);
-                InsertLegacySnapshot(connection, tx, snapshot);
-                TryInsertAutomaticInterventionEvent(connection, tx, snapshot);
-                UpsertRuntimeStateForSnapshot(connection, tx, snapshot, bucketSeq);
-                PruneIfNeeded(connection, tx, snapshot.TimestampUtc);
+                // Finalize contract write order:
+                // 1) input_buckets UPSERT
+                // 2) baseline gating/update decision (same transaction as bucket finalize)
+                // 3) primitive_buckets UPSERT
+                // 4) state_buckets UPSERT
+                // 5) runtime_state updates
+                // Any failure in this block rolls back the entire bucket finalize (fail-closed determinism).
+                UpsertInputBucket(connection, tx, mapped);
+                BaselineGatingResult gating = BaselineGatingResult.Warm;
+                if (isBucketFinalizeWrite)
+                {
+                    // Baseline updates are finalize-only to keep deterministic finalized-bucket semantics.
+                    gating = BaselineManager.UpdateForFinalizedBucket(connection, tx, mapped);
+                }
+                AgentBrainSnapshot gatedSnapshot = ApplyBaselineGating(snapshot, gating);
+                PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, gatedSnapshot);
+                StateBucketWriteModel stateRow = BuildStateBucketRow(mapped, gatedSnapshot);
+                UpsertPrimitiveBucket(connection, tx, primitiveRow);
+                UpsertStateBucket(connection, tx, stateRow);
+                InsertLegacySnapshot(connection, tx, gatedSnapshot);
+                TryInsertAutomaticInterventionEvent(connection, tx, gatedSnapshot);
+                UpsertRuntimeStateForSnapshot(connection, tx, gatedSnapshot, mapped, gating);
+                PruneIfNeeded(connection, tx, gatedSnapshot.TimestampUtc);
                 tx.Commit();
             }
             catch (Exception ex)
@@ -944,15 +964,30 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         SqliteConnection connection,
         SqliteTransaction tx,
         AgentBrainSnapshot snapshot,
-        long bucketSeq)
+        InputBucketRow mapped,
+        BaselineGatingResult gating)
     {
         string valueJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
-            bucket_seq = bucketSeq,
-            timestamp_utc = snapshot.TimestampUtc.ToString("O"),
+            bucket_seq = mapped.BucketSeq,
+            start_utc = mapped.StartUtc,
+            end_utc = Time.toIsoUtcMsString(Time.bucketStartEnd(mapped.BucketSeq).endUtcMs),
+            timestamp_utc = mapped.TimestampUtc,
             overload_likelihood = snapshot.OverloadLikelihood,
-            confidence = snapshot.Confidence
+            confidence = snapshot.Confidence,
+            baseline_ready = gating.BaselineReady,
+            cold_start = gating.ColdStart,
+            confidence_cap = gating.ConfidenceCap,
+            policies_enabled = gating.PoliciesEnabled,
+            cooldown_end_timestamp_utc = snapshot.CooldownEndTimestampUtc?.ToString("O") ?? string.Empty
+        });
+
+        string finalizedSeqValueJson = JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            bucket_seq = mapped.BucketSeq,
+            updated_utc = mapped.TimestampUtc
         });
 
         using var cmd = connection.CreateCommand();
@@ -967,35 +1002,76 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             """;
         cmd.Parameters.AddWithValue("$key", "bucket_finalizer:last_snapshot");
         cmd.Parameters.AddWithValue("$value_json", valueJson);
-        cmd.Parameters.AddWithValue("$updated_utc", snapshot.TimestampUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$updated_utc", mapped.TimestampUtc);
         cmd.ExecuteNonQuery();
+
+        using var cmd2 = connection.CreateCommand();
+        cmd2.Transaction = tx;
+        cmd2.CommandText =
+            """
+            INSERT INTO runtime_state (key, value_json, updated_utc)
+            VALUES ($key, $value_json, $updated_utc)
+            ON CONFLICT(key) DO UPDATE SET
+                value_json = excluded.value_json,
+                updated_utc = excluded.updated_utc;
+            """;
+        cmd2.Parameters.AddWithValue("$key", "bucket_finalizer:last_finalized_bucket_seq");
+        cmd2.Parameters.AddWithValue("$value_json", finalizedSeqValueJson);
+        cmd2.Parameters.AddWithValue("$updated_utc", mapped.TimestampUtc);
+        cmd2.ExecuteNonQuery();
     }
 
-    private void InsertInputBucket(
-        SqliteConnection connection,
-        SqliteTransaction tx,
-        AgentBrainSnapshot snapshot,
-        InputBucketRow? mappedRow)
+    private static AgentBrainSnapshot ApplyBaselineGating(AgentBrainSnapshot snapshot, BaselineGatingResult gating)
     {
-        using var cmd = connection.CreateCommand();
-        cmd.Transaction = tx;
-        cmd.CommandText =
-            """
-            DELETE FROM input_buckets WHERE timestamp_utc = $ts;
-            INSERT INTO input_buckets (
-                timestamp_utc,
-                start_utc,
-                typing_burst_intensity,
-                scroll_velocity_index,
-                focus_switch_rate,
-                quality_score,
-                partial,
-                contributors_json
-            ) VALUES ($ts, $start_utc, $typing, $scroll, $focus_switch, $quality_score, $partial, $contributors_json);
-            """;
-        string ts = mappedRow?.TimestampUtc ?? snapshot.TimestampUtc.ToString("O");
-        string startUtc = mappedRow?.StartUtc ?? ts;
-        string contributorsJson = mappedRow?.ContributorsJson ?? JsonSerializer.Serialize(new
+        double cappedConfidence = Math.Clamp(Math.Min(snapshot.Confidence, gating.ConfidenceCap), 0d, 1d);
+        AgentBrainSnapshot gated = snapshot with
+        {
+            Confidence = cappedConfidence
+        };
+
+        if (gating.PoliciesEnabled)
+        {
+            return gated;
+        }
+
+        if (!IsPolicyDrivenAction(gated.LastAction))
+        {
+            return gated with
+            {
+                PolicyId = "cold-start-gate-v1",
+                Domain = "control",
+                EscalationLevel = "Inform",
+                PlannedEndTimestampUtc = null,
+                CooldownEndTimestampUtc = null
+            };
+        }
+
+        IReadOnlyList<string> contributors = gated.Contributors
+            .Concat(["cold_start_policy_suppressed"])
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        return gated with
+        {
+            LastAction = "monitor_only",
+            ActivationWindowTriggered = false,
+            CooldownTriggered = false,
+            ActivationWindowOpen = false,
+            Contributors = contributors,
+            PolicyId = "cold-start-gate-v1",
+            Domain = "control",
+            EscalationLevel = "Inform",
+            PlannedEndTimestampUtc = null,
+            CooldownEndTimestampUtc = null
+        };
+    }
+
+    private static InputBucketRow BuildFallbackInputBucketRow(AgentBrainSnapshot snapshot)
+    {
+        long bucketSeq = Time.bucketSeqFromEventTs(snapshot.TimestampUtc.ToUnixTimeMilliseconds());
+        (long startUtcMs, _) = Time.bucketStartEnd(bucketSeq);
+        string startUtc = Time.toIsoUtcMsString(startUtcMs);
+        string contributorsJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
             keyboard = new { keys = 0, backspace = 0 },
@@ -1004,24 +1080,215 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             idle = new { idle_s = 0d }
         });
 
-        cmd.Parameters.AddWithValue("$ts", ts);
-        cmd.Parameters.AddWithValue("$start_utc", startUtc);
-        cmd.Parameters.AddWithValue("$typing", mappedRow?.TypingBurstIntensity ?? snapshot.TypingBurstIntensity);
-        cmd.Parameters.AddWithValue("$scroll", mappedRow?.ScrollVelocityIndex ?? snapshot.ScrollVelocityIndex);
-        cmd.Parameters.AddWithValue("$focus_switch", mappedRow?.FocusSwitchRate ?? snapshot.FocusSwitchRate);
-        cmd.Parameters.AddWithValue("$quality_score", mappedRow?.QualityScore ?? 1d);
-        cmd.Parameters.AddWithValue("$partial", mappedRow?.Partial ?? 0);
-        cmd.Parameters.AddWithValue("$contributors_json", contributorsJson);
-        cmd.ExecuteNonQuery();
+        return new InputBucketRow(
+            BucketSeq: bucketSeq,
+            TimestampUtc: startUtc,
+            StartUtc: startUtc,
+            TypingBurstIntensity: Math.Clamp(snapshot.TypingBurstIntensity, 0d, 1d),
+            ScrollVelocityIndex: Math.Clamp(snapshot.ScrollVelocityIndex, 0d, 1d),
+            FocusSwitchRate: Math.Clamp(snapshot.FocusSwitchRate, 0d, 1d),
+            KeyboardIkiMean: 0d,
+            KeyboardIkiCv: 0d,
+            KeyboardBurstRate: 0d,
+            KeyboardBackspaceRate: 0d,
+            MouseSpeedMean: 0d,
+            MouseJerkP95: 0d,
+            MouseScrollSpeed: 0d,
+            MouseMicroCorrectionRate: 0d,
+            FocusAppEntropy: 0d,
+            FocusActiveAppCount: 0d,
+            IdleSeconds: 0d,
+            IdleMicroIdleCount: 0d,
+            QualityScore: 1d,
+            Partial: 0,
+            ContributorsJson: contributorsJson);
     }
 
-    private void InsertStateBucket(SqliteConnection connection, SqliteTransaction tx, AgentBrainSnapshot snapshot)
+    private static PrimitiveBucketWriteModel BuildPrimitiveBucketRow(InputBucketRow mapped, AgentBrainSnapshot snapshot)
+    {
+        (long startUtcMs, long endUtcMs) = Time.bucketStartEnd(mapped.BucketSeq);
+        string primitivesJson = JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            typing_burst_intensity_raw = mapped.TypingBurstIntensity,
+            scroll_velocity_index_raw = mapped.ScrollVelocityIndex,
+            focus_switch_rate_raw = mapped.FocusSwitchRate,
+            typing_burst_intensity_smoothed = snapshot.SmoothedTypingBurstIntensity,
+            scroll_velocity_index_smoothed = snapshot.SmoothedScrollVelocityIndex,
+            focus_switch_rate_smoothed = snapshot.SmoothedFocusSwitchRate
+        });
+
+        return new PrimitiveBucketWriteModel(
+            BucketSeq: mapped.BucketSeq,
+            StartUtc: Time.toIsoUtcMsString(startUtcMs),
+            EndUtc: Time.toIsoUtcMsString(endUtcMs),
+            PrimitivesJson: primitivesJson,
+            ContributorsJson: mapped.ContributorsJson,
+            Quality: mapped.QualityScore,
+            Partial: mapped.Partial);
+    }
+
+    private static StateBucketWriteModel BuildStateBucketRow(InputBucketRow mapped, AgentBrainSnapshot snapshot)
+    {
+        string contributorsJson = JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            contributors = snapshot.Contributors
+        });
+
+        return new StateBucketWriteModel(
+            TimestampUtc: mapped.StartUtc,
+            TypingRaw: mapped.TypingBurstIntensity,
+            ScrollRaw: mapped.ScrollVelocityIndex,
+            FocusRaw: mapped.FocusSwitchRate,
+            TypingSmoothed: snapshot.SmoothedTypingBurstIntensity,
+            ScrollSmoothed: snapshot.SmoothedScrollVelocityIndex,
+            FocusSmoothed: snapshot.SmoothedFocusSwitchRate,
+            FocusStrength: snapshot.FocusStrength,
+            OverloadLikelihood: snapshot.OverloadLikelihood,
+            FatigueProbability: snapshot.FatigueProbability,
+            CognitiveStability: snapshot.CognitiveStability,
+            DominantStateName: snapshot.DominantStateName,
+            DominantStateValue: snapshot.DominantStateValue,
+            Confidence: snapshot.Confidence,
+            ActivationWindowTriggered: snapshot.ActivationWindowTriggered ? 1 : 0,
+            CooldownTriggered: snapshot.CooldownTriggered ? 1 : 0,
+            ActivationWindowOpen: snapshot.ActivationWindowOpen ? 1 : 0,
+            ContributorsJson: contributorsJson);
+    }
+
+    private void UpsertInputBucket(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        InputBucketRow mappedRow)
     {
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText =
             """
-            DELETE FROM state_buckets WHERE timestamp_utc = $ts;
+            INSERT INTO input_buckets (
+                timestamp_utc,
+                start_utc,
+                bucket_seq,
+                typing_burst_intensity,
+                scroll_velocity_index,
+                focus_switch_rate,
+                keyboard_iki_mean,
+                keyboard_iki_cv,
+                keyboard_burst_rate,
+                keyboard_backspace_rate,
+                mouse_speed_mean,
+                mouse_jerk_p95,
+                mouse_scroll_speed,
+                mouse_micro_correction_rate,
+                focus_app_entropy,
+                focus_active_app_count,
+                idle_seconds,
+                idle_micro_idle_count,
+                quality_score,
+                partial,
+                contributors_json
+            ) VALUES (
+                $ts, $start_utc, $bucket_seq, $typing, $scroll, $focus_switch,
+                $keyboard_iki_mean, $keyboard_iki_cv, $keyboard_burst_rate, $keyboard_backspace_rate,
+                $mouse_speed_mean, $mouse_jerk_p95, $mouse_scroll_speed, $mouse_micro_correction_rate,
+                $focus_app_entropy, $focus_active_app_count,
+                $idle_seconds, $idle_micro_idle_count,
+                $quality_score, $partial, $contributors_json
+            )
+            ON CONFLICT(start_utc) DO UPDATE SET
+                timestamp_utc = excluded.timestamp_utc,
+                bucket_seq = excluded.bucket_seq,
+                typing_burst_intensity = excluded.typing_burst_intensity,
+                scroll_velocity_index = excluded.scroll_velocity_index,
+                focus_switch_rate = excluded.focus_switch_rate,
+                keyboard_iki_mean = excluded.keyboard_iki_mean,
+                keyboard_iki_cv = excluded.keyboard_iki_cv,
+                keyboard_burst_rate = excluded.keyboard_burst_rate,
+                keyboard_backspace_rate = excluded.keyboard_backspace_rate,
+                mouse_speed_mean = excluded.mouse_speed_mean,
+                mouse_jerk_p95 = excluded.mouse_jerk_p95,
+                mouse_scroll_speed = excluded.mouse_scroll_speed,
+                mouse_micro_correction_rate = excluded.mouse_micro_correction_rate,
+                focus_app_entropy = excluded.focus_app_entropy,
+                focus_active_app_count = excluded.focus_active_app_count,
+                idle_seconds = excluded.idle_seconds,
+                idle_micro_idle_count = excluded.idle_micro_idle_count,
+                quality_score = excluded.quality_score,
+                partial = excluded.partial,
+                contributors_json = excluded.contributors_json;
+            """;
+        cmd.Parameters.AddWithValue("$ts", mappedRow.TimestampUtc);
+        cmd.Parameters.AddWithValue("$start_utc", mappedRow.StartUtc);
+        cmd.Parameters.AddWithValue("$bucket_seq", mappedRow.BucketSeq);
+        cmd.Parameters.AddWithValue("$typing", mappedRow.TypingBurstIntensity);
+        cmd.Parameters.AddWithValue("$scroll", mappedRow.ScrollVelocityIndex);
+        cmd.Parameters.AddWithValue("$focus_switch", mappedRow.FocusSwitchRate);
+        cmd.Parameters.AddWithValue("$keyboard_iki_mean", mappedRow.KeyboardIkiMean);
+        cmd.Parameters.AddWithValue("$keyboard_iki_cv", mappedRow.KeyboardIkiCv);
+        cmd.Parameters.AddWithValue("$keyboard_burst_rate", mappedRow.KeyboardBurstRate);
+        cmd.Parameters.AddWithValue("$keyboard_backspace_rate", mappedRow.KeyboardBackspaceRate);
+        cmd.Parameters.AddWithValue("$mouse_speed_mean", mappedRow.MouseSpeedMean);
+        cmd.Parameters.AddWithValue("$mouse_jerk_p95", mappedRow.MouseJerkP95);
+        cmd.Parameters.AddWithValue("$mouse_scroll_speed", mappedRow.MouseScrollSpeed);
+        cmd.Parameters.AddWithValue("$mouse_micro_correction_rate", mappedRow.MouseMicroCorrectionRate);
+        cmd.Parameters.AddWithValue("$focus_app_entropy", mappedRow.FocusAppEntropy);
+        cmd.Parameters.AddWithValue("$focus_active_app_count", mappedRow.FocusActiveAppCount);
+        cmd.Parameters.AddWithValue("$idle_seconds", mappedRow.IdleSeconds);
+        cmd.Parameters.AddWithValue("$idle_micro_idle_count", mappedRow.IdleMicroIdleCount);
+        cmd.Parameters.AddWithValue("$quality_score", mappedRow.QualityScore);
+        cmd.Parameters.AddWithValue("$partial", mappedRow.Partial);
+        cmd.Parameters.AddWithValue("$contributors_json", mappedRow.ContributorsJson);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void UpsertPrimitiveBucket(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        PrimitiveBucketWriteModel row)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            INSERT INTO primitive_buckets (
+                bucket_seq,
+                start_utc,
+                end_utc,
+                primitives_json,
+                contributors_json,
+                quality,
+                partial
+            ) VALUES (
+                $bucket_seq, $start_utc, $end_utc, $primitives_json, $contributors_json, $quality, $partial
+            )
+            ON CONFLICT(bucket_seq) DO UPDATE SET
+                start_utc = excluded.start_utc,
+                end_utc = excluded.end_utc,
+                primitives_json = excluded.primitives_json,
+                contributors_json = excluded.contributors_json,
+                quality = excluded.quality,
+                partial = excluded.partial;
+            """;
+        cmd.Parameters.AddWithValue("$bucket_seq", row.BucketSeq);
+        cmd.Parameters.AddWithValue("$start_utc", row.StartUtc);
+        cmd.Parameters.AddWithValue("$end_utc", row.EndUtc);
+        cmd.Parameters.AddWithValue("$primitives_json", row.PrimitivesJson);
+        cmd.Parameters.AddWithValue("$contributors_json", row.ContributorsJson);
+        cmd.Parameters.AddWithValue("$quality", row.Quality);
+        cmd.Parameters.AddWithValue("$partial", row.Partial);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void UpsertStateBucket(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        StateBucketWriteModel row)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
             INSERT INTO state_buckets (
                 timestamp_utc,
                 typing_burst_intensity_raw,
@@ -1041,28 +1308,75 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 cooldown_triggered,
                 activation_window_open,
                 contributors_json
-            ) VALUES ($ts, $typing_raw, $scroll_raw, $focus_switch_raw, $typing_smooth, $scroll_smooth, $focus_switch_smooth, $focus, $overload, $fatigue, $stability, $dominant_name, $dominant_value, $confidence, $activation_triggered, $cooldown_triggered, $activation_open, $contributors);
+            ) VALUES ($ts, $typing_raw, $scroll_raw, $focus_switch_raw, $typing_smooth, $scroll_smooth, $focus_switch_smooth, $focus, $overload, $fatigue, $stability, $dominant_name, $dominant_value, $confidence, $activation_triggered, $cooldown_triggered, $activation_open, $contributors)
+            ON CONFLICT(timestamp_utc) DO UPDATE SET
+                typing_burst_intensity_raw = excluded.typing_burst_intensity_raw,
+                scroll_velocity_index_raw = excluded.scroll_velocity_index_raw,
+                focus_switch_rate_raw = excluded.focus_switch_rate_raw,
+                typing_burst_intensity_smoothed = excluded.typing_burst_intensity_smoothed,
+                scroll_velocity_index_smoothed = excluded.scroll_velocity_index_smoothed,
+                focus_switch_rate_smoothed = excluded.focus_switch_rate_smoothed,
+                focus_strength = excluded.focus_strength,
+                overload_likelihood = excluded.overload_likelihood,
+                fatigue_probability = excluded.fatigue_probability,
+                cognitive_stability = excluded.cognitive_stability,
+                dominant_state_name = excluded.dominant_state_name,
+                dominant_state_value = excluded.dominant_state_value,
+                confidence = excluded.confidence,
+                activation_window_triggered = excluded.activation_window_triggered,
+                cooldown_triggered = excluded.cooldown_triggered,
+                activation_window_open = excluded.activation_window_open,
+                contributors_json = excluded.contributors_json;
             """;
-        cmd.Parameters.AddWithValue("$ts", snapshot.TimestampUtc.ToString("O"));
-        cmd.Parameters.AddWithValue("$typing_raw", snapshot.TypingBurstIntensity);
-        cmd.Parameters.AddWithValue("$scroll_raw", snapshot.ScrollVelocityIndex);
-        cmd.Parameters.AddWithValue("$focus_switch_raw", snapshot.FocusSwitchRate);
-        cmd.Parameters.AddWithValue("$typing_smooth", snapshot.SmoothedTypingBurstIntensity);
-        cmd.Parameters.AddWithValue("$scroll_smooth", snapshot.SmoothedScrollVelocityIndex);
-        cmd.Parameters.AddWithValue("$focus_switch_smooth", snapshot.SmoothedFocusSwitchRate);
-        cmd.Parameters.AddWithValue("$focus", snapshot.FocusStrength);
-        cmd.Parameters.AddWithValue("$overload", snapshot.OverloadLikelihood);
-        cmd.Parameters.AddWithValue("$fatigue", snapshot.FatigueProbability);
-        cmd.Parameters.AddWithValue("$stability", snapshot.CognitiveStability);
-        cmd.Parameters.AddWithValue("$dominant_name", snapshot.DominantStateName);
-        cmd.Parameters.AddWithValue("$dominant_value", snapshot.DominantStateValue);
-        cmd.Parameters.AddWithValue("$confidence", snapshot.Confidence);
-        cmd.Parameters.AddWithValue("$activation_triggered", snapshot.ActivationWindowTriggered ? 1 : 0);
-        cmd.Parameters.AddWithValue("$cooldown_triggered", snapshot.CooldownTriggered ? 1 : 0);
-        cmd.Parameters.AddWithValue("$activation_open", snapshot.ActivationWindowOpen ? 1 : 0);
-        cmd.Parameters.AddWithValue("$contributors", JsonSerializer.Serialize(snapshot.Contributors));
+        cmd.Parameters.AddWithValue("$ts", row.TimestampUtc);
+        cmd.Parameters.AddWithValue("$typing_raw", row.TypingRaw);
+        cmd.Parameters.AddWithValue("$scroll_raw", row.ScrollRaw);
+        cmd.Parameters.AddWithValue("$focus_switch_raw", row.FocusRaw);
+        cmd.Parameters.AddWithValue("$typing_smooth", row.TypingSmoothed);
+        cmd.Parameters.AddWithValue("$scroll_smooth", row.ScrollSmoothed);
+        cmd.Parameters.AddWithValue("$focus_switch_smooth", row.FocusSmoothed);
+        cmd.Parameters.AddWithValue("$focus", row.FocusStrength);
+        cmd.Parameters.AddWithValue("$overload", row.OverloadLikelihood);
+        cmd.Parameters.AddWithValue("$fatigue", row.FatigueProbability);
+        cmd.Parameters.AddWithValue("$stability", row.CognitiveStability);
+        cmd.Parameters.AddWithValue("$dominant_name", row.DominantStateName);
+        cmd.Parameters.AddWithValue("$dominant_value", row.DominantStateValue);
+        cmd.Parameters.AddWithValue("$confidence", row.Confidence);
+        cmd.Parameters.AddWithValue("$activation_triggered", row.ActivationWindowTriggered);
+        cmd.Parameters.AddWithValue("$cooldown_triggered", row.CooldownTriggered);
+        cmd.Parameters.AddWithValue("$activation_open", row.ActivationWindowOpen);
+        cmd.Parameters.AddWithValue("$contributors", row.ContributorsJson);
         cmd.ExecuteNonQuery();
     }
+
+    private readonly record struct PrimitiveBucketWriteModel(
+        long BucketSeq,
+        string StartUtc,
+        string EndUtc,
+        string PrimitivesJson,
+        string ContributorsJson,
+        double Quality,
+        int Partial);
+
+    private readonly record struct StateBucketWriteModel(
+        string TimestampUtc,
+        double TypingRaw,
+        double ScrollRaw,
+        double FocusRaw,
+        double TypingSmoothed,
+        double ScrollSmoothed,
+        double FocusSmoothed,
+        double FocusStrength,
+        double OverloadLikelihood,
+        double FatigueProbability,
+        double CognitiveStability,
+        string DominantStateName,
+        double DominantStateValue,
+        double Confidence,
+        int ActivationWindowTriggered,
+        int CooldownTriggered,
+        int ActivationWindowOpen,
+        string ContributorsJson);
 
     private void InsertLegacySnapshot(SqliteConnection connection, SqliteTransaction tx, AgentBrainSnapshot snapshot)
     {
@@ -1280,6 +1594,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             || string.Equals(action, "consent_required", StringComparison.Ordinal)
             || string.Equals(action, "maintain_focus", StringComparison.Ordinal)
             || string.Equals(action, "starting", StringComparison.Ordinal);
+    }
+
+    private static bool IsPolicyDrivenAction(string action)
+    {
+        return !IsNonInterventionAction(action)
+            && !string.IsNullOrWhiteSpace(action);
     }
 
     private static (string triggerState, double triggerValue) ResolveTrigger(AgentBrainSnapshot snapshot)

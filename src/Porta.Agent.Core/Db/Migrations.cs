@@ -8,7 +8,7 @@ namespace Porta.Agent.Core.Db;
 
 internal static class Migrations
 {
-    private const int LatestSchemaVersion = 6;
+    private const int LatestSchemaVersion = 11;
 
     private static readonly MigrationStep[] OrderedSteps =
     [
@@ -35,7 +35,27 @@ internal static class Migrations
         new(
             Version: 6,
             Name: "input_buckets_contract_v6",
-            Apply: Schema.ApplyInputBucketsContractV6)
+            Apply: Schema.ApplyInputBucketsContractV6),
+        new(
+            Version: 7,
+            Name: "bucket_finalize_upsert_contract_v7",
+            Apply: Schema.ApplyBucketFinalizeUpsertContractV7),
+        new(
+            Version: 8,
+            Name: "input_bucket_metrics_contract_v8",
+            Apply: Schema.ApplyInputBucketMetricsContractV8),
+        new(
+            Version: 9,
+            Name: "baseline_stats_contract_v9",
+            Apply: Schema.ApplyBaselineStatsContractV9),
+        new(
+            Version: 10,
+            Name: "baseline_stats_welford_contract_v10",
+            Apply: Schema.ApplyBaselineStatsWelfordContractV10),
+        new(
+            Version: 11,
+            Name: "input_buckets_bucket_seq_contract_v11",
+            Apply: Schema.ApplyInputBucketsBucketSeqContractV11)
     ];
 
     internal static void Migrate(SqliteConnection connection)
@@ -66,6 +86,8 @@ internal static class Migrations
             Schema.AssertEventsContract(connection);
             Schema.AssertDiagnosticsContract(connection);
             Schema.AssertInputBucketsContract(connection);
+            Schema.AssertBaselineStatsContract(connection);
+            Schema.AssertBucketFinalizeUpsertContract(connection);
             DbHealth.SetSchemaVersion(connection, currentVersion.ToString(CultureInfo.InvariantCulture));
             DbHealth.SetMigrationFailed(connection, failed: false);
         }

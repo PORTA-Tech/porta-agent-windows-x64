@@ -64,6 +64,21 @@ public static class Time
         return (start, end);
     }
 
+    public static long bucketLateCutoffFromEnd(long bucket_end_ms)
+    {
+        return checked(bucket_end_ms + maxLateMs);
+    }
+
+    public static bool IsBucketWindowEnded(long now_ms, long bucket_end_ms)
+    {
+        return now_ms >= bucket_end_ms;
+    }
+
+    public static bool IsBucketFinalizeEligible(long now_ms, long bucket_end_ms)
+    {
+        return now_ms >= bucketLateCutoffFromEnd(bucket_end_ms);
+    }
+
     public static EventTimestampValidation ValidateEventTimestamp(
         long event_ts_utc_ms,
         long now_utc_ms,

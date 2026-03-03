@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 
 namespace Porta.Agent.Core.Db;
@@ -12,6 +13,7 @@ internal static class Schema
             CREATE TABLE IF NOT EXISTS input_buckets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp_utc TEXT NOT NULL,
+                bucket_seq INTEGER NOT NULL DEFAULT 0,
                 typing_burst_intensity REAL NOT NULL,
                 scroll_velocity_index REAL NOT NULL,
                 focus_switch_rate REAL NOT NULL
@@ -194,6 +196,7 @@ internal static class Schema
             );
 
             CREATE INDEX IF NOT EXISTS ix_input_buckets_ts ON input_buckets(timestamp_utc);
+            CREATE INDEX IF NOT EXISTS idx_input_bucket_seq ON input_buckets(bucket_seq DESC);
             CREATE INDEX IF NOT EXISTS ix_baseline_stats_metric ON baseline_stats(metric_name);
             CREATE INDEX IF NOT EXISTS ix_primitive_buckets_start_utc ON primitive_buckets(start_utc);
             CREATE INDEX IF NOT EXISTS ix_state_buckets_ts ON state_buckets(timestamp_utc);
@@ -373,6 +376,200 @@ internal static class Schema
             "TEXT NOT NULL DEFAULT '{\"schema_ver\":1,\"keyboard\":{\"keys\":0,\"backspace\":0},\"mouse\":{\"moves\":0,\"scroll\":0},\"focus\":{\"switches\":0},\"idle\":{\"idle_s\":0}}'");
     }
 
+    internal static void ApplyBucketFinalizeUpsertContractV7(SqliteConnection connection)
+    {
+        // Deduplicate before creating UNIQUE indexes used by UPSERT write path.
+        using (var dedupe = connection.CreateCommand())
+        {
+            dedupe.CommandText =
+                """
+                DELETE FROM input_buckets
+                WHERE id NOT IN (
+                    SELECT MAX(id)
+                    FROM input_buckets
+                    GROUP BY start_utc
+                );
+
+                DELETE FROM state_buckets
+                WHERE id NOT IN (
+                    SELECT MAX(id)
+                    FROM state_buckets
+                    GROUP BY timestamp_utc
+                );
+                """;
+            dedupe.ExecuteNonQuery();
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_input_buckets_start_utc
+                ON input_buckets(start_utc);
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_state_buckets_timestamp_utc
+                ON state_buckets(timestamp_utc);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    internal static void ApplyInputBucketMetricsContractV8(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "input_buckets", "keyboard_iki_mean", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "keyboard_iki_cv", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "keyboard_burst_rate", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "keyboard_backspace_rate", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "mouse_speed_mean", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "mouse_jerk_p95", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "mouse_scroll_speed", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "mouse_micro_correction_rate", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "focus_app_entropy", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "focus_active_app_count", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "idle_seconds", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "input_buckets", "idle_micro_idle_count", "REAL NOT NULL DEFAULT 0");
+    }
+
+    internal static void ApplyBaselineStatsContractV9(SqliteConnection connection)
+    {
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText =
+                """
+                CREATE TABLE IF NOT EXISTS baseline_stats (
+                    metric_name TEXT PRIMARY KEY,
+                    mean REAL NOT NULL,
+                    std REAL NOT NULL,
+                    sample_count INTEGER NOT NULL,
+                    updated_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_baseline_stats_updated_utc ON baseline_stats(updated_utc);
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        EnsureColumnExists(connection, "baseline_stats", "metric_name", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "baseline_stats", "mean", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "baseline_stats", "std", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "baseline_stats", "sample_count", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "baseline_stats", "updated_utc", "TEXT NOT NULL DEFAULT ''");
+    }
+
+    internal static void ApplyBaselineStatsWelfordContractV10(SqliteConnection connection)
+    {
+        if (!TableExists(connection, "baseline_stats"))
+        {
+            using var createFresh = connection.CreateCommand();
+            createFresh.CommandText =
+                """
+                CREATE TABLE IF NOT EXISTS baseline_stats (
+                    metric_key TEXT PRIMARY KEY,
+                    mean REAL NOT NULL,
+                    std REAL NOT NULL,
+                    sample_count INTEGER NOT NULL,
+                    m2 REAL NOT NULL,
+                    last_update_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_baseline_stats_last_update_utc ON baseline_stats(last_update_utc);
+                """;
+            createFresh.ExecuteNonQuery();
+            return;
+        }
+
+        HashSet<string> columns = GetTableColumns(connection, "baseline_stats");
+        bool hasContractShape = IsBaselineStatsV10Shape(connection, columns);
+        if (hasContractShape)
+        {
+            using var createIndex = connection.CreateCommand();
+            createIndex.CommandText = "CREATE INDEX IF NOT EXISTS idx_baseline_stats_last_update_utc ON baseline_stats(last_update_utc);";
+            createIndex.ExecuteNonQuery();
+            return;
+        }
+
+        bool hasMetricKey = columns.Contains("metric_key");
+        bool hasMetricName = columns.Contains("metric_name");
+        bool hasMean = columns.Contains("mean");
+        bool hasStd = columns.Contains("std");
+        bool hasSampleCount = columns.Contains("sample_count");
+        bool hasM2 = columns.Contains("m2");
+        bool hasLastUpdateUtc = columns.Contains("last_update_utc");
+        bool hasUpdatedUtc = columns.Contains("updated_utc");
+
+        string metricKeyExpr = hasMetricKey
+            ? "NULLIF(metric_key, '')"
+            : "NULL";
+        if (hasMetricName)
+        {
+            metricKeyExpr = $"COALESCE({metricKeyExpr}, NULLIF(metric_name, ''), 'unknown_metric')";
+        }
+        else
+        {
+            metricKeyExpr = $"COALESCE({metricKeyExpr}, 'unknown_metric')";
+        }
+
+        string meanExpr = hasMean ? "COALESCE(mean, 0)" : "0";
+        string stdExpr = hasStd ? "COALESCE(std, 0)" : "0";
+        string sampleCountExpr = hasSampleCount ? "COALESCE(sample_count, 0)" : "0";
+        string m2Expr = hasM2
+            ? "MAX(0, COALESCE(m2, 0))"
+            : (hasStd && hasSampleCount
+                ? "MAX(0, COALESCE(std, 0) * COALESCE(std, 0) * COALESCE(sample_count, 0))"
+                : "0");
+        string lastUpdateExpr = hasLastUpdateUtc
+            ? "NULLIF(last_update_utc, '')"
+            : "NULL";
+        if (hasUpdatedUtc)
+        {
+            lastUpdateExpr = $"COALESCE({lastUpdateExpr}, NULLIF(updated_utc, ''), '1970-01-01T00:00:00.000Z')";
+        }
+        else
+        {
+            lastUpdateExpr = $"COALESCE({lastUpdateExpr}, '1970-01-01T00:00:00.000Z')";
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            $"""
+            CREATE TABLE IF NOT EXISTS baseline_stats_v10 (
+                metric_key TEXT PRIMARY KEY,
+                mean REAL NOT NULL,
+                std REAL NOT NULL,
+                sample_count INTEGER NOT NULL,
+                m2 REAL NOT NULL,
+                last_update_utc TEXT NOT NULL
+            );
+
+            INSERT INTO baseline_stats_v10 (
+                metric_key,
+                mean,
+                std,
+                sample_count,
+                m2,
+                last_update_utc
+            )
+            SELECT
+                {metricKeyExpr},
+                {meanExpr},
+                {stdExpr},
+                {sampleCountExpr},
+                {m2Expr},
+                {lastUpdateExpr}
+            FROM baseline_stats;
+
+            DROP TABLE baseline_stats;
+            ALTER TABLE baseline_stats_v10 RENAME TO baseline_stats;
+            CREATE INDEX IF NOT EXISTS idx_baseline_stats_last_update_utc ON baseline_stats(last_update_utc);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    internal static void ApplyInputBucketsBucketSeqContractV11(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "input_buckets", "bucket_seq", "INTEGER NOT NULL DEFAULT 0");
+        BackfillInputBucketSeqFromStartUtc(connection);
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "CREATE INDEX IF NOT EXISTS idx_input_bucket_seq ON input_buckets(bucket_seq DESC);";
+        cmd.ExecuteNonQuery();
+    }
+
     internal static void AssertEventsContract(SqliteConnection connection)
     {
         HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
@@ -425,10 +622,23 @@ internal static class Schema
         HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
         {
             "timestamp_utc",
+            "bucket_seq",
             "start_utc",
             "typing_burst_intensity",
             "scroll_velocity_index",
             "focus_switch_rate",
+            "keyboard_iki_mean",
+            "keyboard_iki_cv",
+            "keyboard_burst_rate",
+            "keyboard_backspace_rate",
+            "mouse_speed_mean",
+            "mouse_jerk_p95",
+            "mouse_scroll_speed",
+            "mouse_micro_correction_rate",
+            "focus_app_entropy",
+            "focus_active_app_count",
+            "idle_seconds",
+            "idle_micro_idle_count",
             "quality_score",
             "partial",
             "contributors_json"
@@ -440,6 +650,110 @@ internal static class Schema
         {
             throw new InvalidOperationException(
                 $"Input buckets schema assertion failed. Missing required columns: {string.Join(", ", missing)}.");
+        }
+    }
+
+    internal static void AssertBaselineStatsContract(SqliteConnection connection)
+    {
+        HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "metric_key",
+            "mean",
+            "std",
+            "sample_count",
+            "m2",
+            "last_update_utc"
+        };
+
+        HashSet<string> actualColumns = GetTableColumns(connection, "baseline_stats");
+        List<string> missing = requiredColumns.Where(column => !actualColumns.Contains(column)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Baseline stats schema assertion failed. Missing required columns: {string.Join(", ", missing)}.");
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "PRAGMA table_info(baseline_stats);";
+        using SqliteDataReader reader = cmd.ExecuteReader();
+
+        bool metricKeyPrimaryKey = false;
+        while (reader.Read())
+        {
+            string columnName = reader.GetString(1);
+            int pkOrder = reader.GetInt32(5);
+            if (string.Equals(columnName, "metric_key", StringComparison.OrdinalIgnoreCase))
+            {
+                metricKeyPrimaryKey = pkOrder > 0;
+                break;
+            }
+        }
+
+        if (!metricKeyPrimaryKey)
+        {
+            throw new InvalidOperationException(
+                "Baseline stats schema assertion failed. metric_key must be the PRIMARY KEY.");
+        }
+    }
+
+    private static bool IsBaselineStatsV10Shape(SqliteConnection connection, HashSet<string>? columns = null)
+    {
+        columns ??= GetTableColumns(connection, "baseline_stats");
+        HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "metric_key",
+            "mean",
+            "std",
+            "sample_count",
+            "m2",
+            "last_update_utc"
+        };
+        if (requiredColumns.Any(column => !columns.Contains(column)))
+        {
+            return false;
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "PRAGMA table_info(baseline_stats);";
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            string columnName = reader.GetString(1);
+            int pkOrder = reader.GetInt32(5);
+            if (string.Equals(columnName, "metric_key", StringComparison.OrdinalIgnoreCase))
+            {
+                return pkOrder > 0;
+            }
+        }
+
+        return false;
+    }
+
+    internal static void AssertBucketFinalizeUpsertContract(SqliteConnection connection)
+    {
+        HashSet<string> requiredIndexes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "ux_input_buckets_start_utc",
+            "ux_state_buckets_timestamp_utc"
+        };
+
+        var actualIndexes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type = 'index';";
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (!reader.IsDBNull(0))
+            {
+                actualIndexes.Add(reader.GetString(0));
+            }
+        }
+
+        List<string> missing = requiredIndexes.Where(index => !actualIndexes.Contains(index)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Bucket finalize upsert contract failed. Missing indexes: {string.Join(", ", missing)}.");
         }
     }
 
@@ -481,6 +795,59 @@ internal static class Schema
               AND ({sourceColumn} IS NOT NULL AND {sourceColumn} <> '');
             """;
         cmd.ExecuteNonQuery();
+    }
+
+    private static void BackfillInputBucketSeqFromStartUtc(SqliteConnection connection)
+    {
+        var rows = new List<(long Id, string StartUtc)>();
+        using (var read = connection.CreateCommand())
+        {
+            read.CommandText =
+                """
+                SELECT id, start_utc
+                FROM input_buckets
+                WHERE start_utc IS NOT NULL
+                  AND start_utc <> '';
+                """;
+
+            using SqliteDataReader reader = read.ExecuteReader();
+            while (reader.Read())
+            {
+                if (reader.IsDBNull(0) || reader.IsDBNull(1))
+                {
+                    continue;
+                }
+
+                rows.Add((reader.GetInt64(0), reader.GetString(1)));
+            }
+        }
+
+        using var update = connection.CreateCommand();
+        update.CommandText =
+            """
+            UPDATE input_buckets
+            SET bucket_seq = $bucket_seq
+            WHERE id = $id;
+            """;
+        SqliteParameter seqParam = update.Parameters.Add("$bucket_seq", SqliteType.Integer);
+        SqliteParameter idParam = update.Parameters.Add("$id", SqliteType.Integer);
+
+        foreach ((long id, string startUtc) in rows)
+        {
+            if (!DateTimeOffset.TryParse(
+                    startUtc,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                    out DateTimeOffset parsed))
+            {
+                continue;
+            }
+
+            long bucketSeq = Time.bucketSeqFromEventTs(parsed.ToUnixTimeMilliseconds());
+            seqParam.Value = bucketSeq;
+            idParam.Value = id;
+            update.ExecuteNonQuery();
+        }
     }
 
     private static void EnsureBucketSeqIndexIfNeeded(SqliteConnection connection, string tableName, string indexName)

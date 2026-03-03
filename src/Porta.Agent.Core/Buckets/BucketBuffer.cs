@@ -2,11 +2,14 @@ namespace Porta.Agent.Core.Buckets;
 
 internal sealed class BucketBuffer
 {
+    internal const long PendingSinceUnset = -1;
+
     public BucketBuffer(long bucketSeq)
     {
         BucketSeq = bucketSeq;
         (StartUtcMs, EndUtcMs) = Time.bucketStartEnd(bucketSeq);
         State = BucketLifecycleState.OPEN;
+        PendingSinceUtcMs = PendingSinceUnset;
     }
 
     public long BucketSeq { get; }
@@ -25,7 +28,9 @@ internal sealed class BucketBuffer
     public double QualityScore { get; set; } = 1d;
     public bool Partial { get; set; }
     public AgentBrainSnapshot? LatestSnapshot { get; set; }
-    public bool DirtyWhilePending { get; set; }
+    public bool Dirty { get; set; }
+    public long PendingSinceUtcMs { get; set; }
+    public long FinalizedAtUtcMs { get; set; } = PendingSinceUnset;
     public int PendingMutationCount { get; set; }
 
     // Staging metadata for later DB contracts (contributors/why/state_flags payloads).
