@@ -122,7 +122,7 @@ public sealed class BaselineManagerTests
         using var connection = OpenInMemoryDb();
         long startMs = Time.epoch_anchor_ms;
 
-        const int matureSamples = PortaExecutionConstants.BaselineUpdateGating.ZScoreMinSamples;
+        const int matureSamples = PortaExecutionConstants.BaselineMinSamples;
         for (int i = 0; i < matureSamples; i++)
         {
             using SqliteTransaction tx = connection.BeginTransaction();
@@ -210,6 +210,43 @@ public sealed class BaselineManagerTests
         Assert.True(ReadRuntimeStateBool(connection, "cold_start"));
     }
 
+    [Fact]
+    public void UpdateForFinalizedBucket_UpdatesMetricBounds_WithNearestRankPercentiles()
+    {
+        using var connection = OpenInMemoryDb();
+        long startMs = Time.epoch_anchor_ms;
+        double[] samples = Enumerable.Range(1, 10).Select(static x => (double)x).ToArray();
+
+        for (int i = 0; i < samples.Length; i++)
+        {
+            using SqliteTransaction tx = connection.BeginTransaction();
+            long bucketSeq = i;
+            long bucketStartMs = startMs + (bucketSeq * Time.bucket_ms);
+            string startUtc = Time.toIsoUtcMsString(bucketStartMs);
+            InputBucketRow row = BuildRow(bucketSeq, startUtc, quality: 0.95) with
+            {
+                KeyboardIkiCv = samples[i]
+            };
+
+            InsertInputBucketRow(connection, tx, row);
+            BaselineManager.UpdateForFinalizedBucket(connection, tx, row);
+            tx.Commit();
+        }
+
+        int count = ReadInt(connection, "SELECT bounds_sample_count FROM metric_bounds WHERE metric_key='keyboard_iki_cv';");
+        double p5 = ReadDouble(connection, "SELECT p5 FROM metric_bounds WHERE metric_key='keyboard_iki_cv';");
+        double p95 = ReadDouble(connection, "SELECT p95 FROM metric_bounds WHERE metric_key='keyboard_iki_cv';");
+        int estimatorVer = ReadInt(connection, "SELECT estimator_ver FROM metric_bounds WHERE metric_key='keyboard_iki_cv';");
+        string samplesJson = ReadString(connection, "SELECT samples_json FROM metric_bounds WHERE metric_key='keyboard_iki_cv';");
+        using JsonDocument doc = JsonDocument.Parse(samplesJson);
+
+        Assert.Equal(10, count);
+        Assert.Equal(1d, p5, precision: 6);
+        Assert.Equal(10d, p95, precision: 6);
+        Assert.Equal(PortaExecutionConstants.RobustNormalization.BoundsEstimatorVersion, estimatorVer);
+        Assert.Equal(10, doc.RootElement.GetArrayLength());
+    }
+
     private static SqliteConnection OpenInMemoryDb()
     {
         var connection = new SqliteConnection("Data Source=:memory:");
@@ -256,6 +293,16 @@ public sealed class BaselineManagerTests
                 key TEXT PRIMARY KEY,
                 value_json TEXT NOT NULL,
                 updated_utc TEXT NOT NULL
+            );
+
+            CREATE TABLE metric_bounds (
+                metric_key TEXT PRIMARY KEY,
+                p5 REAL NOT NULL,
+                p95 REAL NOT NULL,
+                bounds_sample_count INTEGER NOT NULL,
+                last_bounds_update_utc TEXT NOT NULL,
+                samples_json TEXT NOT NULL,
+                estimator_ver INTEGER NOT NULL
             );
             """;
         cmd.ExecuteNonQuery();
@@ -442,5 +489,12 @@ public sealed class BaselineManagerTests
         cmd.CommandText = sql;
         object? scalar = cmd.ExecuteScalar();
         return Convert.ToDouble(scalar, CultureInfo.InvariantCulture);
+    }
+
+    private static string ReadString(SqliteConnection connection, string sql)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = sql;
+        return Convert.ToString(cmd.ExecuteScalar(), CultureInfo.InvariantCulture) ?? string.Empty;
     }
 }

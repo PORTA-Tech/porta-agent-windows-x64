@@ -570,6 +570,35 @@ internal static class Schema
         cmd.ExecuteNonQuery();
     }
 
+    internal static void ApplyMetricBoundsContractV12(SqliteConnection connection)
+    {
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText =
+                """
+                CREATE TABLE IF NOT EXISTS metric_bounds (
+                    metric_key TEXT PRIMARY KEY,
+                    p5 REAL NOT NULL,
+                    p95 REAL NOT NULL,
+                    bounds_sample_count INTEGER NOT NULL,
+                    last_bounds_update_utc TEXT NOT NULL,
+                    samples_json TEXT NOT NULL,
+                    estimator_ver INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_metric_bounds_last_update_utc ON metric_bounds(last_bounds_update_utc);
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        EnsureColumnExists(connection, "metric_bounds", "metric_key", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "metric_bounds", "p5", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "metric_bounds", "p95", "REAL NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "metric_bounds", "bounds_sample_count", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "metric_bounds", "last_bounds_update_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "metric_bounds", "samples_json", "TEXT NOT NULL DEFAULT '[]'");
+        EnsureColumnExists(connection, "metric_bounds", "estimator_ver", "INTEGER NOT NULL DEFAULT 1");
+    }
+
     internal static void AssertEventsContract(SqliteConnection connection)
     {
         HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
@@ -693,6 +722,50 @@ internal static class Schema
         {
             throw new InvalidOperationException(
                 "Baseline stats schema assertion failed. metric_key must be the PRIMARY KEY.");
+        }
+    }
+
+    internal static void AssertMetricBoundsContract(SqliteConnection connection)
+    {
+        HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "metric_key",
+            "p5",
+            "p95",
+            "bounds_sample_count",
+            "last_bounds_update_utc",
+            "samples_json",
+            "estimator_ver"
+        };
+
+        HashSet<string> actualColumns = GetTableColumns(connection, "metric_bounds");
+        List<string> missing = requiredColumns.Where(column => !actualColumns.Contains(column)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Metric bounds schema assertion failed. Missing required columns: {string.Join(", ", missing)}.");
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "PRAGMA table_info(metric_bounds);";
+        using SqliteDataReader reader = cmd.ExecuteReader();
+
+        bool metricKeyPrimaryKey = false;
+        while (reader.Read())
+        {
+            string columnName = reader.GetString(1);
+            int pkOrder = reader.GetInt32(5);
+            if (string.Equals(columnName, "metric_key", StringComparison.OrdinalIgnoreCase))
+            {
+                metricKeyPrimaryKey = pkOrder > 0;
+                break;
+            }
+        }
+
+        if (!metricKeyPrimaryKey)
+        {
+            throw new InvalidOperationException(
+                "Metric bounds schema assertion failed. metric_key must be the PRIMARY KEY.");
         }
     }
 

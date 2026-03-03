@@ -21,6 +21,21 @@ public static class PortaExecutionConstants
         public const double ColdStartConfidenceCap = 0.45;
     }
 
+    public static class RobustNormalization
+    {
+        public const double DefaultStdFloor = 1e-6;
+        public const double ZClampMin = -3.0;
+        public const double ZClampMax = 3.0;
+        public const int MetricReadyMinSamples = BaselineMinSamples;
+        public const int RollingBoundsBufferSize = 600; // 50 minutes at 5s buckets.
+        public const double BoundsP5Quantile = 0.05;
+        public const double BoundsP95Quantile = 0.95;
+        public const string BoundsQuantileMethod = "nearest_rank";
+        public const int BoundsEstimatorVersion = 1;
+        public const int StdFloorRegistryVersion = 1;
+        public const string WinsorFallbackStrategy = "identity";
+    }
+
     public static class OverloadStabilization
     {
         public const double ThresholdOn = 0.80;

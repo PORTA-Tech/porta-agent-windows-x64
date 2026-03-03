@@ -71,20 +71,23 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 // Finalize contract write order:
                 // 1) input_buckets UPSERT
                 // 2) baseline gating/update decision (same transaction as bucket finalize)
-                // 3) primitive_buckets UPSERT
-                // 4) state_buckets UPSERT
-                // 5) runtime_state updates
+                // 3) robust bounds+z normalization (finalized bucket only)
+                // 4) primitive_buckets UPSERT
+                // 5) state_buckets UPSERT
+                // 6) runtime_state updates
                 // Any failure in this block rolls back the entire bucket finalize (fail-closed determinism).
                 UpsertInputBucket(connection, tx, mapped);
                 BaselineGatingResult gating = BaselineGatingResult.Warm;
+                RobustNormalizationSnapshot? robust = null;
                 if (isBucketFinalizeWrite)
                 {
                     // Baseline updates are finalize-only to keep deterministic finalized-bucket semantics.
                     gating = BaselineManager.UpdateForFinalizedBucket(connection, tx, mapped);
+                    robust = BaselineManager.ComputeRobustNormalizationForBucket(connection, tx, mapped);
                 }
                 AgentBrainSnapshot gatedSnapshot = ApplyBaselineGating(snapshot, gating);
-                PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, gatedSnapshot);
-                StateBucketWriteModel stateRow = BuildStateBucketRow(mapped, gatedSnapshot);
+                PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, gatedSnapshot, robust);
+                StateBucketWriteModel stateRow = BuildStateBucketRow(mapped, gatedSnapshot, robust);
                 UpsertPrimitiveBucket(connection, tx, primitiveRow);
                 UpsertStateBucket(connection, tx, stateRow);
                 InsertLegacySnapshot(connection, tx, gatedSnapshot);
@@ -1104,18 +1107,51 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             ContributorsJson: contributorsJson);
     }
 
-    private static PrimitiveBucketWriteModel BuildPrimitiveBucketRow(InputBucketRow mapped, AgentBrainSnapshot snapshot)
+    private static PrimitiveBucketWriteModel BuildPrimitiveBucketRow(
+        InputBucketRow mapped,
+        AgentBrainSnapshot snapshot,
+        RobustNormalizationSnapshot? robust)
     {
         (long startUtcMs, long endUtcMs) = Time.bucketStartEnd(mapped.BucketSeq);
+        double typingRaw = robust?.TypingComponent ?? mapped.TypingBurstIntensity;
+        double scrollRaw = robust?.ScrollComponent ?? mapped.ScrollVelocityIndex;
+        double focusRaw = robust?.FocusComponent ?? mapped.FocusSwitchRate;
+        object robustJson = robust == null
+            ? new
+            {
+                schema_ver = 1,
+                available = false
+            }
+            : new
+            {
+                schema_ver = 1,
+                available = true,
+                typing_component = robust.TypingComponent,
+                scroll_component = robust.ScrollComponent,
+                focus_component = robust.FocusComponent,
+                metrics = robust.Metrics.ToDictionary(
+                    static pair => pair.Key,
+                    static pair => new
+                    {
+                        raw_value = pair.Value.RawValue,
+                        winsorized_value = pair.Value.WinsorizedValue,
+                        z = pair.Value.Z,
+                        metric_ready = pair.Value.MetricReady,
+                        was_winsorized = pair.Value.WasWinsorized,
+                        non_finite = pair.Value.NonFinite
+                    },
+                    StringComparer.Ordinal)
+            };
         string primitivesJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
-            typing_burst_intensity_raw = mapped.TypingBurstIntensity,
-            scroll_velocity_index_raw = mapped.ScrollVelocityIndex,
-            focus_switch_rate_raw = mapped.FocusSwitchRate,
+            typing_burst_intensity_raw = typingRaw,
+            scroll_velocity_index_raw = scrollRaw,
+            focus_switch_rate_raw = focusRaw,
             typing_burst_intensity_smoothed = snapshot.SmoothedTypingBurstIntensity,
             scroll_velocity_index_smoothed = snapshot.SmoothedScrollVelocityIndex,
-            focus_switch_rate_smoothed = snapshot.SmoothedFocusSwitchRate
+            focus_switch_rate_smoothed = snapshot.SmoothedFocusSwitchRate,
+            robust_normalization = robustJson
         });
 
         return new PrimitiveBucketWriteModel(
@@ -1128,19 +1164,32 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             Partial: mapped.Partial);
     }
 
-    private static StateBucketWriteModel BuildStateBucketRow(InputBucketRow mapped, AgentBrainSnapshot snapshot)
+    private static StateBucketWriteModel BuildStateBucketRow(
+        InputBucketRow mapped,
+        AgentBrainSnapshot snapshot,
+        RobustNormalizationSnapshot? robust)
     {
+        double typingRaw = robust?.TypingComponent ?? mapped.TypingBurstIntensity;
+        double scrollRaw = robust?.ScrollComponent ?? mapped.ScrollVelocityIndex;
+        double focusRaw = robust?.FocusComponent ?? mapped.FocusSwitchRate;
         string contributorsJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
-            contributors = snapshot.Contributors
+            contributors = snapshot.Contributors,
+            robust_normalization = new
+            {
+                available = robust != null,
+                typing_component = robust?.TypingComponent ?? 0d,
+                scroll_component = robust?.ScrollComponent ?? 0d,
+                focus_component = robust?.FocusComponent ?? 0d
+            }
         });
 
         return new StateBucketWriteModel(
             TimestampUtc: mapped.StartUtc,
-            TypingRaw: mapped.TypingBurstIntensity,
-            ScrollRaw: mapped.ScrollVelocityIndex,
-            FocusRaw: mapped.FocusSwitchRate,
+            TypingRaw: typingRaw,
+            ScrollRaw: scrollRaw,
+            FocusRaw: focusRaw,
             TypingSmoothed: snapshot.SmoothedTypingBurstIntensity,
             ScrollSmoothed: snapshot.SmoothedScrollVelocityIndex,
             FocusSmoothed: snapshot.SmoothedFocusSwitchRate,

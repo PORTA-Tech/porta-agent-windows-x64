@@ -24,6 +24,21 @@ internal readonly record struct BaselineGatingResult(
         PoliciesEnabled: false);
 }
 
+internal readonly record struct MetricNormalizationValue(
+    string MetricKey,
+    double RawValue,
+    double WinsorizedValue,
+    double Z,
+    bool MetricReady,
+    bool WasWinsorized,
+    int NonFinite);
+
+internal sealed record RobustNormalizationSnapshot(
+    IReadOnlyDictionary<string, MetricNormalizationValue> Metrics,
+    double TypingComponent,
+    double ScrollComponent,
+    double FocusComponent);
+
 internal static class BaselineManager
 {
     internal static BaselineGatingResult UpdateForFinalizedBucket(
@@ -45,12 +60,14 @@ internal static class BaselineManager
                 }
 
                 BaselineStatRow? existing = ReadBaselineStat(connection, tx, metric.MetricKey);
-                if (IsExtremeSpike(existing, value))
+                MetricBoundsRow? existingBounds = ReadMetricBounds(connection, tx, metric.MetricKey);
+                if (IsExtremeSpike(metric, existing, existingBounds, value))
                 {
                     continue;
                 }
 
                 UpsertBaselineStat(connection, tx, metric.MetricKey, value, inputBucketRow.StartUtc, existing);
+                UpsertMetricBounds(connection, tx, metric.MetricKey, value, inputBucketRow.StartUtc, existingBounds);
             }
         }
 
@@ -95,11 +112,93 @@ internal static class BaselineManager
                 metric_registry_ver = BaselineMetricRegistry.RegistryVersion,
                 std_convention = PortaExecutionConstants.BaselineUpdateGating.StdConvention,
                 std_epsilon = PortaExecutionConstants.BaselineUpdateGating.StdEpsilon,
-                numeric_type = PortaExecutionConstants.BaselineUpdateGating.NumericType
+                numeric_type = PortaExecutionConstants.BaselineUpdateGating.NumericType,
+                std_floor_registry_ver = PortaExecutionConstants.RobustNormalization.StdFloorRegistryVersion,
+                metric_ready_min_samples = PortaExecutionConstants.RobustNormalization.MetricReadyMinSamples,
+                bounds_estimator_ver = PortaExecutionConstants.RobustNormalization.BoundsEstimatorVersion,
+                bounds_quantile_method = PortaExecutionConstants.RobustNormalization.BoundsQuantileMethod,
+                bounds_buffer_size = PortaExecutionConstants.RobustNormalization.RollingBoundsBufferSize,
+                winsor_fallback_strategy = PortaExecutionConstants.RobustNormalization.WinsorFallbackStrategy
             },
             inputBucketRow.StartUtc);
 
         return gating;
+    }
+
+    internal static RobustNormalizationSnapshot ComputeRobustNormalizationForBucket(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        InputBucketRow inputBucketRow)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(tx);
+
+        var metrics = new Dictionary<string, MetricNormalizationValue>(StringComparer.Ordinal);
+        foreach (BaselineMetricDefinition metric in BaselineMetricRegistry.Metrics)
+        {
+            if (!metric.TryGetTransformedValue(inputBucketRow, out double rawTransformed))
+            {
+                metrics[metric.MetricKey] = new MetricNormalizationValue(
+                    MetricKey: metric.MetricKey,
+                    RawValue: 0d,
+                    WinsorizedValue: 0d,
+                    Z: 0d,
+                    MetricReady: false,
+                    WasWinsorized: false,
+                    NonFinite: 0);
+                continue;
+            }
+
+            BaselineStatRow? baseline = ReadBaselineStat(connection, tx, metric.MetricKey);
+            MetricBoundsRow? bounds = ReadMetricBounds(connection, tx, metric.MetricKey);
+            RobustNormalizeResult normalized = RobustNormalize.Normalize(
+                metricKey: metric.MetricKey,
+                rawValue: rawTransformed,
+                baseline: baseline.HasValue
+                    ? new RobustBaselineStats(baseline.Value.Mean, baseline.Value.Std, baseline.Value.SampleCount)
+                    : new RobustBaselineStats(0d, 0d, 0),
+                rollingBounds: bounds.HasValue
+                    ? new RobustRollingBounds(bounds.Value.P5, bounds.Value.P95)
+                    : null);
+
+            metrics[metric.MetricKey] = new MetricNormalizationValue(
+                MetricKey: metric.MetricKey,
+                RawValue: rawTransformed,
+                WinsorizedValue: normalized.WinsorizedValue,
+                Z: normalized.Z,
+                MetricReady: normalized.BaselineReadyForMetric,
+                WasWinsorized: normalized.WasWinsorized,
+                NonFinite: normalized.NonFinite);
+        }
+
+        double typingComponent = ResolveComponentValue(
+            metrics,
+            [
+                "keyboard_iki_mean",
+                "keyboard_iki_cv",
+                "keyboard_burst_rate",
+                "keyboard_backspace_rate"
+            ],
+            fallback: inputBucketRow.TypingBurstIntensity);
+        double scrollComponent = ResolveComponentValue(
+            metrics,
+            [
+                "mouse_speed_mean",
+                "mouse_jerk_p95",
+                "mouse_scroll_speed",
+                "mouse_micro_correction_rate"
+            ],
+            fallback: inputBucketRow.ScrollVelocityIndex);
+        double focusComponent = ResolveComponentValue(
+            metrics,
+            [
+                "focus_switch_rate",
+                "focus_app_entropy",
+                "focus_active_app_count"
+            ],
+            fallback: inputBucketRow.FocusSwitchRate);
+
+        return new RobustNormalizationSnapshot(metrics, typingComponent, scrollComponent, focusComponent);
     }
 
     private static void UpsertBaselineStat(
@@ -230,7 +329,11 @@ internal static class BaselineManager
         return false;
     }
 
-    private static bool IsExtremeSpike(BaselineStatRow? existing, double value)
+    private static bool IsExtremeSpike(
+        BaselineMetricDefinition metric,
+        BaselineStatRow? existing,
+        MetricBoundsRow? existingBounds,
+        double value)
     {
         if (!existing.HasValue)
         {
@@ -243,9 +346,200 @@ internal static class BaselineManager
             return false;
         }
 
-        double denominator = Math.Max(prev.Std, PortaExecutionConstants.BaselineUpdateGating.StdEpsilon);
-        double z = Math.Abs(value - prev.Mean) / denominator;
-        return z > PortaExecutionConstants.BaselineUpdateGating.ZScoreMax;
+        RobustRollingBounds? rollingBounds = null;
+        bool boundsMature = false;
+        if (existingBounds.HasValue)
+        {
+            MetricBoundsRow bounds = existingBounds.Value;
+            rollingBounds = new RobustRollingBounds(bounds.P5, bounds.P95);
+            boundsMature = bounds.BoundsSampleCount >= PortaExecutionConstants.BaselineUpdateGating.ZScoreMinSamples;
+        }
+
+        RobustNormalizeResult normalized = RobustNormalize.Normalize(
+            metricKey: metric.MetricKey,
+            rawValue: value,
+            baseline: new RobustBaselineStats(prev.Mean, prev.Std, prev.SampleCount),
+            rollingBounds: rollingBounds,
+            zClampRange: new RobustZClampRange(
+                -PortaExecutionConstants.BaselineUpdateGating.ZScoreMax * 2d,
+                PortaExecutionConstants.BaselineUpdateGating.ZScoreMax * 2d));
+
+        if (!normalized.BaselineReadyForMetric)
+        {
+            return false;
+        }
+
+        return Math.Abs(normalized.Z) > PortaExecutionConstants.BaselineUpdateGating.ZScoreMax
+            || (boundsMature && normalized.WasWinsorized);
+    }
+
+    private static MetricBoundsRow? ReadMetricBounds(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        string metricKey)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            SELECT p5, p95, bounds_sample_count, last_bounds_update_utc, samples_json, estimator_ver
+            FROM metric_bounds
+            WHERE metric_key = $metric_key
+            LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$metric_key", metricKey);
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        if (!reader.Read())
+        {
+            return null;
+        }
+
+        return new MetricBoundsRow(
+            P5: reader.GetDouble(0),
+            P95: reader.GetDouble(1),
+            BoundsSampleCount: reader.GetInt32(2),
+            LastBoundsUpdateUtc: reader.GetString(3),
+            SamplesJson: reader.GetString(4),
+            EstimatorVersion: reader.GetInt32(5));
+    }
+
+    private static void UpsertMetricBounds(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        string metricKey,
+        double sampleValue,
+        string lastUpdateUtc,
+        MetricBoundsRow? existing)
+    {
+        List<double> samples = existing.HasValue
+            ? DeserializeSamples(existing.Value.SamplesJson)
+            : new List<double>(capacity: PortaExecutionConstants.RobustNormalization.RollingBoundsBufferSize);
+        samples.Add(ClampFiniteNonNegative(sampleValue));
+
+        int capacity = PortaExecutionConstants.RobustNormalization.RollingBoundsBufferSize;
+        if (samples.Count > capacity)
+        {
+            samples.RemoveRange(0, samples.Count - capacity);
+        }
+
+        double[] sorted = samples.OrderBy(static value => value).ToArray();
+        double p5 = ComputeNearestRankPercentile(sorted, PortaExecutionConstants.RobustNormalization.BoundsP5Quantile);
+        double p95 = ComputeNearestRankPercentile(sorted, PortaExecutionConstants.RobustNormalization.BoundsP95Quantile);
+        if (p95 < p5)
+        {
+            (p5, p95) = (p95, p5);
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            INSERT INTO metric_bounds (
+                metric_key,
+                p5,
+                p95,
+                bounds_sample_count,
+                last_bounds_update_utc,
+                samples_json,
+                estimator_ver
+            ) VALUES (
+                $metric_key,
+                $p5,
+                $p95,
+                $bounds_sample_count,
+                $last_bounds_update_utc,
+                $samples_json,
+                $estimator_ver
+            )
+            ON CONFLICT(metric_key) DO UPDATE SET
+                p5 = excluded.p5,
+                p95 = excluded.p95,
+                bounds_sample_count = excluded.bounds_sample_count,
+                last_bounds_update_utc = excluded.last_bounds_update_utc,
+                samples_json = excluded.samples_json,
+                estimator_ver = excluded.estimator_ver;
+            """;
+        cmd.Parameters.AddWithValue("$metric_key", metricKey);
+        cmd.Parameters.AddWithValue("$p5", p5);
+        cmd.Parameters.AddWithValue("$p95", p95);
+        cmd.Parameters.AddWithValue("$bounds_sample_count", samples.Count);
+        cmd.Parameters.AddWithValue("$last_bounds_update_utc", lastUpdateUtc);
+        cmd.Parameters.AddWithValue("$samples_json", JsonSerializer.Serialize(samples));
+        cmd.Parameters.AddWithValue("$estimator_ver", PortaExecutionConstants.RobustNormalization.BoundsEstimatorVersion);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static List<double> DeserializeSamples(string? samplesJson)
+    {
+        if (string.IsNullOrWhiteSpace(samplesJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            double[]? values = JsonSerializer.Deserialize<double[]>(samplesJson);
+            if (values == null || values.Length == 0)
+            {
+                return [];
+            }
+
+            return values
+                .Where(static value => double.IsFinite(value))
+                .Select(ClampFiniteNonNegative)
+                .ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static double ComputeNearestRankPercentile(IReadOnlyList<double> sortedAscending, double quantile)
+    {
+        if (sortedAscending.Count == 0)
+        {
+            return 0d;
+        }
+
+        double q = Math.Clamp(quantile, 0d, 1d);
+        int rank = (int)Math.Ceiling(q * sortedAscending.Count);
+        int index = Math.Clamp(rank - 1, 0, sortedAscending.Count - 1);
+        return sortedAscending[index];
+    }
+
+    private static double ResolveComponentValue(
+        IReadOnlyDictionary<string, MetricNormalizationValue> metrics,
+        IReadOnlyList<string> keys,
+        double fallback)
+    {
+        double sum = 0d;
+        int count = 0;
+        foreach (string key in keys)
+        {
+            if (!metrics.TryGetValue(key, out MetricNormalizationValue value))
+            {
+                continue;
+            }
+
+            if (!value.MetricReady)
+            {
+                continue;
+            }
+
+            // Convert clamped z in [-3,3] to [0,1] component space.
+            double unit = (value.Z - PortaExecutionConstants.RobustNormalization.ZClampMin)
+                / (PortaExecutionConstants.RobustNormalization.ZClampMax - PortaExecutionConstants.RobustNormalization.ZClampMin);
+            sum += Math.Clamp(unit, 0d, 1d);
+            count++;
+        }
+
+        if (count == 0)
+        {
+            return Math.Clamp(fallback, 0d, 1d);
+        }
+
+        return Math.Clamp(sum / count, 0d, 1d);
     }
 
     private static BaselineStatRow? ReadBaselineStat(
@@ -409,4 +703,11 @@ internal static class BaselineManager
 
     private readonly record struct BaselineStatRow(double Mean, double Std, double M2, int SampleCount);
     private readonly record struct QualityWindowStats(int BucketCount, double AverageQuality);
+    private readonly record struct MetricBoundsRow(
+        double P5,
+        double P95,
+        int BoundsSampleCount,
+        string LastBoundsUpdateUtc,
+        string SamplesJson,
+        int EstimatorVersion);
 }
