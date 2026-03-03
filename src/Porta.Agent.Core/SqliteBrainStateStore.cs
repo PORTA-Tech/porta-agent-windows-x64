@@ -99,25 +99,41 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     mapped,
                     primitive,
                     gating);
+                OverloadInferenceResult overloadInference = OverloadInferenceComputer.ComputeForFinalizedBucket(
+                    gatedSnapshot,
+                    mapped,
+                    primitive,
+                    gating,
+                    robust);
+                AgentBrainSnapshot inferredSnapshot = ApplyOverloadInference(gatedSnapshot, overloadInference);
                 PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, primitive, robust);
                 StateBucketWriteModel stateRow = BuildStateBucketRow(
                     mapped,
-                    gatedSnapshot,
+                    inferredSnapshot,
                     primitive,
                     robust,
                     gating,
-                    derivedSession);
+                    derivedSession,
+                    overloadInference);
                 UpsertPrimitiveBucket(connection, tx, primitiveRow);
                 UpsertStateBucket(connection, tx, stateRow);
-                InsertLegacySnapshot(connection, tx, gatedSnapshot);
-                TryInsertAutomaticInterventionEvent(connection, tx, gatedSnapshot);
-                UpsertRuntimeStateForSnapshot(connection, tx, gatedSnapshot, mapped, gating, primitive, derivedSession);
+                InsertLegacySnapshot(connection, tx, inferredSnapshot);
+                TryInsertAutomaticInterventionEvent(connection, tx, inferredSnapshot);
+                UpsertRuntimeStateForSnapshot(
+                    connection,
+                    tx,
+                    inferredSnapshot,
+                    mapped,
+                    gating,
+                    primitive,
+                    derivedSession,
+                    overloadInference);
                 PrimitiveComputer.PersistSPrevForFinalizedBucket(
                     connection,
                     tx,
                     mapped.TimestampUtc,
                     primitive);
-                PruneIfNeeded(connection, tx, gatedSnapshot.TimestampUtc);
+                PruneIfNeeded(connection, tx, inferredSnapshot.TimestampUtc);
                 tx.Commit();
             }
             catch (Exception ex)
@@ -994,7 +1010,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         InputBucketRow mapped,
         BaselineGatingResult gating,
         PrimitiveComputationResult primitive,
-        DerivedSessionMetricsResult derivedSession)
+        DerivedSessionMetricsResult derivedSession,
+        OverloadInferenceResult overloadInference)
     {
         string valueJson = JsonSerializer.Serialize(new
         {
@@ -1003,14 +1020,27 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             start_utc = mapped.StartUtc,
             end_utc = Time.toIsoUtcMsString(Time.bucketStartEnd(mapped.BucketSeq).endUtcMs),
             timestamp_utc = mapped.TimestampUtc,
-            overload_likelihood = snapshot.OverloadLikelihood,
-            confidence = snapshot.Confidence,
+            overload_likelihood = overloadInference.OverloadLikelihood,
+            confidence = overloadInference.Confidence,
             typing_burst_intensity_raw = primitive.TypingRaw,
             scroll_velocity_index_raw = primitive.ScrollRaw,
             focus_switch_rate_raw = primitive.FocusRaw,
             typing_burst_intensity_smoothed = primitive.TypingSmoothed,
             scroll_velocity_index_smoothed = primitive.ScrollSmoothed,
             focus_switch_rate_smoothed = primitive.FocusSmoothed,
+            overload_inference = new
+            {
+                source = overloadInference.Source,
+                components_registry_ver = overloadInference.ComponentsRegistryVersion,
+                used_snapshot_fallback = overloadInference.UsedSnapshotFallback,
+                f_component = overloadInference.FComponent,
+                i_component = overloadInference.IComponent,
+                v_component = overloadInference.VComponent,
+                quality = overloadInference.Quality,
+                agreement = overloadInference.Agreement,
+                primitive_coverage = overloadInference.PrimitiveCoverage,
+                missing_primitive_count = overloadInference.MissingPrimitiveCount
+            },
             sustained_attention_duration_sec = derivedSession.SustainedAttentionDurationSec,
             idle_fragmentation_index = derivedSession.IdleFragmentationIndex,
             derived_session_partial = derivedSession.Partial,
@@ -1244,36 +1274,16 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         PrimitiveComputationResult primitive,
         RobustNormalizationSnapshot? robust,
         BaselineGatingResult gating,
-        DerivedSessionMetricsResult derivedSession)
+        DerivedSessionMetricsResult derivedSession,
+        OverloadInferenceResult overloadInference)
     {
-        string contributorsJson = JsonSerializer.Serialize(new
-        {
-            schema_ver = 1,
-            contributors = snapshot.Contributors,
-            robust_normalization = new
-            {
-                available = robust != null,
-                typing_component = robust?.TypingComponent ?? 0d,
-                scroll_component = robust?.ScrollComponent ?? 0d,
-                focus_component = robust?.FocusComponent ?? 0d
-            },
-            derived_session = new
-            {
-                sustained_attention_duration_sec = derivedSession.SustainedAttentionDurationSec,
-                idle_fragmentation_index = derivedSession.IdleFragmentationIndex,
-                partial = derivedSession.Partial,
-                dominant_app_hash = derivedSession.DominantAppHash,
-                sa_freeze_reason = derivedSession.SaFreezeReason,
-                sa_untrusted = derivedSession.SaUntrusted
-            }
-        });
-        string stateFlagsJson = JsonSerializer.Serialize(new
-        {
-            schema_ver = 1,
-            cold_start = gating.ColdStart,
-            partial = mapped.Partial == 1 || derivedSession.Partial,
-            sa_reset_reason = derivedSession.SaFreezeReason
-        });
+        _ = robust;
+        string contributorsJson = BuildOverloadContributorsJson(snapshot.Contributors, overloadInference);
+        string stateFlagsJson = BuildStateBucketStateFlagsJson(
+            coldStart: gating.ColdStart,
+            partial: mapped.Partial == 1 || derivedSession.Partial,
+            saResetReason: derivedSession.SaFreezeReason,
+            overloadInferenceSource: overloadInference.Source);
 
         return new StateBucketWriteModel(
             TimestampUtc: mapped.StartUtc,
@@ -1284,12 +1294,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             ScrollSmoothed: primitive.ScrollSmoothed,
             FocusSmoothed: primitive.FocusSmoothed,
             FocusStrength: snapshot.FocusStrength,
-            OverloadLikelihood: snapshot.OverloadLikelihood,
+            OverloadLikelihood: overloadInference.OverloadLikelihood,
             FatigueProbability: snapshot.FatigueProbability,
             CognitiveStability: snapshot.CognitiveStability,
             DominantStateName: snapshot.DominantStateName,
             DominantStateValue: snapshot.DominantStateValue,
-            Confidence: snapshot.Confidence,
+            Confidence: overloadInference.Confidence,
             SustainedAttentionDurationSec: derivedSession.SustainedAttentionDurationSec,
             IdleFragmentationIndex: derivedSession.IdleFragmentationIndex,
             ActivationWindowTriggered: snapshot.ActivationWindowTriggered ? 1 : 0,
@@ -1297,6 +1307,89 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             ActivationWindowOpen: snapshot.ActivationWindowOpen ? 1 : 0,
             ContributorsJson: contributorsJson,
             StateFlagsJson: stateFlagsJson);
+    }
+
+    internal static string BuildOverloadContributorsJson(
+        IReadOnlyList<string> contributors,
+        OverloadInferenceResult overloadInference)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            quality = overloadInference.Quality,
+            agreement = overloadInference.Agreement,
+            components = new
+            {
+                F = new
+                {
+                    value = overloadInference.FComponent,
+                    top = overloadInference.FTopPrimitives.Select(static item => new
+                    {
+                        key = item.Key,
+                        value = item.Value,
+                        w = item.Weight,
+                        contrib = item.Contribution
+                    })
+                },
+                I = new
+                {
+                    value = overloadInference.IComponent,
+                    top = overloadInference.ITopPrimitives.Select(static item => new
+                    {
+                        key = item.Key,
+                        value = item.Value,
+                        w = item.Weight,
+                        contrib = item.Contribution
+                    })
+                },
+                V = new
+                {
+                    value = overloadInference.VComponent,
+                    top = overloadInference.VTopPrimitives.Select(static item => new
+                    {
+                        key = item.Key,
+                        value = item.Value,
+                        w = item.Weight,
+                        contrib = item.Contribution
+                    })
+                }
+            },
+            contributors = contributors
+        });
+    }
+
+    internal static string BuildStateBucketStateFlagsJson(
+        bool coldStart,
+        bool partial,
+        string saResetReason,
+        string overloadInferenceSource)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            cold_start = coldStart ? 1 : 0,
+            partial = partial ? 1 : 0,
+            sa_reset_reason = saResetReason ?? string.Empty,
+            overload_inference_source = overloadInferenceSource ?? string.Empty
+        });
+    }
+
+    private static AgentBrainSnapshot ApplyOverloadInference(
+        AgentBrainSnapshot snapshot,
+        OverloadInferenceResult overloadInference)
+    {
+        double overload = overloadInference.OverloadLikelihood;
+        double confidence = overloadInference.Confidence;
+        double dominantValue = Math.Max(snapshot.FocusStrength, Math.Max(overload, snapshot.FatigueProbability));
+        string dominantName = ResolveDominantStateName(snapshot.FocusStrength, overload, snapshot.FatigueProbability);
+
+        return snapshot with
+        {
+            OverloadLikelihood = overload,
+            Confidence = confidence,
+            DominantStateName = dominantName,
+            DominantStateValue = dominantValue
+        };
     }
 
     private void UpsertInputBucket(

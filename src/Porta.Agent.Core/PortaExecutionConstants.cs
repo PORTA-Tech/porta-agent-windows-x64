@@ -64,6 +64,14 @@ public static class PortaExecutionConstants
         public const int GapAllowSeconds = 10;
     }
 
+    public static class OverloadInference
+    {
+        public const double WeightF = 0.45;
+        public const double WeightV = 0.30;
+        public const double WeightI = 0.25;
+        public const double AgreementPartialPenalty = 0.80;
+    }
+
     public static class BreakPolicy
     {
         public const int SustainedAttentionSeconds = 3600;
