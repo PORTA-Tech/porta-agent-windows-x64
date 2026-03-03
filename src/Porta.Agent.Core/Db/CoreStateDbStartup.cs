@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Porta.Agent.Core.Analysis;
 
 namespace Porta.Agent.Core.Db;
 
@@ -24,6 +25,7 @@ public static class CoreStateDbStartup
             {
                 using var connection = DbOpen.OpenConnection(connectionString, logPragmasAtBoot);
                 Migrations.Migrate(connection);
+                PrimitiveComputer.EnsurePrimitivesPrevStateInitialized(connection);
                 _dbPath = dbPath;
                 _initialized = true;
                 return dbPath;

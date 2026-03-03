@@ -599,6 +599,13 @@ internal static class Schema
         EnsureColumnExists(connection, "metric_bounds", "estimator_ver", "INTEGER NOT NULL DEFAULT 1");
     }
 
+    internal static void ApplyPrimitiveBucketsJsonContractV13(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "primitive_buckets", "contributors_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1}'");
+        EnsureColumnExists(connection, "primitive_buckets", "why_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1}'");
+        EnsureColumnExists(connection, "primitive_buckets", "state_flags_json", "TEXT NOT NULL DEFAULT '{\"schema_ver\":1}'");
+    }
+
     internal static void AssertEventsContract(SqliteConnection connection)
     {
         HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
@@ -766,6 +773,52 @@ internal static class Schema
         {
             throw new InvalidOperationException(
                 "Metric bounds schema assertion failed. metric_key must be the PRIMARY KEY.");
+        }
+    }
+
+    internal static void AssertPrimitiveBucketsContract(SqliteConnection connection)
+    {
+        HashSet<string> requiredColumns = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "bucket_seq",
+            "start_utc",
+            "end_utc",
+            "primitives_json",
+            "contributors_json",
+            "why_json",
+            "state_flags_json",
+            "quality",
+            "partial"
+        };
+
+        HashSet<string> actualColumns = GetTableColumns(connection, "primitive_buckets");
+        List<string> missing = requiredColumns.Where(column => !actualColumns.Contains(column)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Primitive buckets schema assertion failed. Missing required columns: {string.Join(", ", missing)}.");
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "PRAGMA table_info(primitive_buckets);";
+        using SqliteDataReader reader = cmd.ExecuteReader();
+
+        bool bucketSeqPrimaryKey = false;
+        while (reader.Read())
+        {
+            string columnName = reader.GetString(1);
+            int pkOrder = reader.GetInt32(5);
+            if (string.Equals(columnName, "bucket_seq", StringComparison.OrdinalIgnoreCase))
+            {
+                bucketSeqPrimaryKey = pkOrder > 0;
+                break;
+            }
+        }
+
+        if (!bucketSeqPrimaryKey)
+        {
+            throw new InvalidOperationException(
+                "Primitive buckets schema assertion failed. bucket_seq must be the PRIMARY KEY.");
         }
     }
 

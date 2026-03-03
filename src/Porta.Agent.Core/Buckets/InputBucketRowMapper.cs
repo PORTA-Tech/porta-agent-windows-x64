@@ -36,6 +36,7 @@ internal static class InputBucketRowMapper
         double scroll = Clamp01(bucket.ScrollVelocityIndexSum / sampleCount);
         double focus = Clamp01(bucket.FocusSwitchRateSum / sampleCount);
         string startUtc = Time.toIsoUtcMsString(bucket.StartUtcMs);
+        IReadOnlyList<string> missingMajorChannels = ResolveMissingMajorChannels(bucket);
 
         string contributorsJson = JsonSerializer.Serialize(new
         {
@@ -57,7 +58,8 @@ internal static class InputBucketRowMapper
             idle = new
             {
                 idle_s = ClampNonNegativeFinite(bucket.Idle.IdleSeconds)
-            }
+            },
+            missing_major_channels = missingMajorChannels
         });
 
         return new InputBucketRow(
@@ -82,6 +84,22 @@ internal static class InputBucketRowMapper
             QualityScore: Clamp01(bucket.QualityScore),
             Partial: bucket.Partial ? 1 : 0,
             ContributorsJson: contributorsJson);
+    }
+
+    private static IReadOnlyList<string> ResolveMissingMajorChannels(BucketBuffer bucket)
+    {
+        if (!bucket.StateFlagsStage.TryGetValue("major_channels_missing", out string? raw)
+            || string.IsNullOrWhiteSpace(raw))
+        {
+            return [];
+        }
+
+        return raw
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(static value => !string.IsNullOrWhiteSpace(value))
+            .Select(static value => value.ToLowerInvariant())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static double Clamp01(double value)

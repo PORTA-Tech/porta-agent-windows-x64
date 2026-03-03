@@ -58,8 +58,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private void WriteSnapshotCore(AgentBrainSnapshot snapshot, InputBucketRow? inputBucketRow)
     {
         snapshot = BucketPrivacyContract.SanitizeForBucketPersistence(snapshot);
-        bool isBucketFinalizeWrite = inputBucketRow.HasValue;
-        InputBucketRow mapped = inputBucketRow ?? BuildFallbackInputBucketRow(snapshot);
+        InputBucketRow mapped = inputBucketRow
+            ?? throw new InvalidOperationException(
+                "PrimitiveComputer contract violation: snapshot persistence requires finalized input bucket row.");
         long bucketSeq = mapped.BucketSeq;
 
         lock (_gate)
@@ -77,22 +78,33 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 // 6) runtime_state updates
                 // Any failure in this block rolls back the entire bucket finalize (fail-closed determinism).
                 UpsertInputBucket(connection, tx, mapped);
-                BaselineGatingResult gating = BaselineGatingResult.Warm;
-                RobustNormalizationSnapshot? robust = null;
-                if (isBucketFinalizeWrite)
+                // Baseline updates are finalize-only to keep deterministic finalized-bucket semantics.
+                BaselineGatingResult gating = BaselineManager.UpdateForFinalizedBucket(connection, tx, mapped);
+                RobustNormalizationSnapshot? robust = BaselineManager.ComputeRobustNormalizationForBucket(connection, tx, mapped);
+                PrimitiveComputationResult primitive = PrimitiveComputer.ComputeForFinalizedBucket(connection, tx, mapped, robust);
+
+                AgentBrainSnapshot primitiveSnapshot = snapshot with
                 {
-                    // Baseline updates are finalize-only to keep deterministic finalized-bucket semantics.
-                    gating = BaselineManager.UpdateForFinalizedBucket(connection, tx, mapped);
-                    robust = BaselineManager.ComputeRobustNormalizationForBucket(connection, tx, mapped);
-                }
-                AgentBrainSnapshot gatedSnapshot = ApplyBaselineGating(snapshot, gating);
-                PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, gatedSnapshot, robust);
-                StateBucketWriteModel stateRow = BuildStateBucketRow(mapped, gatedSnapshot, robust);
+                    TypingBurstIntensity = primitive.TypingRaw,
+                    ScrollVelocityIndex = primitive.ScrollRaw,
+                    FocusSwitchRate = primitive.FocusRaw,
+                    SmoothedTypingBurstIntensity = primitive.TypingSmoothed,
+                    SmoothedScrollVelocityIndex = primitive.ScrollSmoothed,
+                    SmoothedFocusSwitchRate = primitive.FocusSmoothed
+                };
+                AgentBrainSnapshot gatedSnapshot = ApplyBaselineGating(primitiveSnapshot, gating);
+                PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, primitive, robust);
+                StateBucketWriteModel stateRow = BuildStateBucketRow(mapped, gatedSnapshot, primitive, robust);
                 UpsertPrimitiveBucket(connection, tx, primitiveRow);
                 UpsertStateBucket(connection, tx, stateRow);
                 InsertLegacySnapshot(connection, tx, gatedSnapshot);
                 TryInsertAutomaticInterventionEvent(connection, tx, gatedSnapshot);
-                UpsertRuntimeStateForSnapshot(connection, tx, gatedSnapshot, mapped, gating);
+                UpsertRuntimeStateForSnapshot(connection, tx, gatedSnapshot, mapped, gating, primitive);
+                PrimitiveComputer.PersistSPrevForFinalizedBucket(
+                    connection,
+                    tx,
+                    mapped.TimestampUtc,
+                    primitive);
                 PruneIfNeeded(connection, tx, gatedSnapshot.TimestampUtc);
                 tx.Commit();
             }
@@ -968,7 +980,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         SqliteTransaction tx,
         AgentBrainSnapshot snapshot,
         InputBucketRow mapped,
-        BaselineGatingResult gating)
+        BaselineGatingResult gating,
+        PrimitiveComputationResult primitive)
     {
         string valueJson = JsonSerializer.Serialize(new
         {
@@ -979,6 +992,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             timestamp_utc = mapped.TimestampUtc,
             overload_likelihood = snapshot.OverloadLikelihood,
             confidence = snapshot.Confidence,
+            typing_burst_intensity_raw = primitive.TypingRaw,
+            scroll_velocity_index_raw = primitive.ScrollRaw,
+            focus_switch_rate_raw = primitive.FocusRaw,
+            typing_burst_intensity_smoothed = primitive.TypingSmoothed,
+            scroll_velocity_index_smoothed = primitive.ScrollSmoothed,
+            focus_switch_rate_smoothed = primitive.FocusSmoothed,
             baseline_ready = gating.BaselineReady,
             cold_start = gating.ColdStart,
             confidence_cap = gating.ConfidenceCap,
@@ -1069,53 +1088,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         };
     }
 
-    private static InputBucketRow BuildFallbackInputBucketRow(AgentBrainSnapshot snapshot)
-    {
-        long bucketSeq = Time.bucketSeqFromEventTs(snapshot.TimestampUtc.ToUnixTimeMilliseconds());
-        (long startUtcMs, _) = Time.bucketStartEnd(bucketSeq);
-        string startUtc = Time.toIsoUtcMsString(startUtcMs);
-        string contributorsJson = JsonSerializer.Serialize(new
-        {
-            schema_ver = 1,
-            keyboard = new { keys = 0, backspace = 0 },
-            mouse = new { moves = 0, scroll = 0 },
-            focus = new { switches = 0 },
-            idle = new { idle_s = 0d }
-        });
-
-        return new InputBucketRow(
-            BucketSeq: bucketSeq,
-            TimestampUtc: startUtc,
-            StartUtc: startUtc,
-            TypingBurstIntensity: Math.Clamp(snapshot.TypingBurstIntensity, 0d, 1d),
-            ScrollVelocityIndex: Math.Clamp(snapshot.ScrollVelocityIndex, 0d, 1d),
-            FocusSwitchRate: Math.Clamp(snapshot.FocusSwitchRate, 0d, 1d),
-            KeyboardIkiMean: 0d,
-            KeyboardIkiCv: 0d,
-            KeyboardBurstRate: 0d,
-            KeyboardBackspaceRate: 0d,
-            MouseSpeedMean: 0d,
-            MouseJerkP95: 0d,
-            MouseScrollSpeed: 0d,
-            MouseMicroCorrectionRate: 0d,
-            FocusAppEntropy: 0d,
-            FocusActiveAppCount: 0d,
-            IdleSeconds: 0d,
-            IdleMicroIdleCount: 0d,
-            QualityScore: 1d,
-            Partial: 0,
-            ContributorsJson: contributorsJson);
-    }
-
     private static PrimitiveBucketWriteModel BuildPrimitiveBucketRow(
         InputBucketRow mapped,
-        AgentBrainSnapshot snapshot,
+        PrimitiveComputationResult primitive,
         RobustNormalizationSnapshot? robust)
     {
         (long startUtcMs, long endUtcMs) = Time.bucketStartEnd(mapped.BucketSeq);
-        double typingRaw = robust?.TypingComponent ?? mapped.TypingBurstIntensity;
-        double scrollRaw = robust?.ScrollComponent ?? mapped.ScrollVelocityIndex;
-        double focusRaw = robust?.FocusComponent ?? mapped.FocusSwitchRate;
         object robustJson = robust == null
             ? new
             {
@@ -1145,13 +1123,55 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string primitivesJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
-            typing_burst_intensity_raw = typingRaw,
-            scroll_velocity_index_raw = scrollRaw,
-            focus_switch_rate_raw = focusRaw,
-            typing_burst_intensity_smoothed = snapshot.SmoothedTypingBurstIntensity,
-            scroll_velocity_index_smoothed = snapshot.SmoothedScrollVelocityIndex,
-            focus_switch_rate_smoothed = snapshot.SmoothedFocusSwitchRate,
+            primitive_registry_ver = PrimitiveRegistry.RegistryVersion,
+            typing_burst_intensity_raw = primitive.TypingRaw,
+            scroll_velocity_index_raw = primitive.ScrollRaw,
+            focus_switch_rate_raw = primitive.FocusRaw,
+            typing_burst_intensity_smoothed = primitive.TypingSmoothed,
+            scroll_velocity_index_smoothed = primitive.ScrollSmoothed,
+            focus_switch_rate_smoothed = primitive.FocusSmoothed,
+            primitive_registry = PrimitiveRegistry.Metrics.Select(static metric => new
+            {
+                primitive_key = metric.PrimitiveKey,
+                source_metric_keys = metric.SourceMetricKeys,
+                channel_dependency = metric.ChannelDependency,
+                ewma_alpha = metric.EwmaAlpha,
+                applies_missing_channel_rule = metric.AppliesMissingChannelRule
+            }),
+            channels = new
+            {
+                typing_available = primitive.TypingChannelAvailable,
+                scroll_available = primitive.ScrollChannelAvailable,
+                focus_available = primitive.FocusChannelAvailable
+            },
             robust_normalization = robustJson
+        });
+        string whyJson = JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            primitive_registry_ver = PrimitiveRegistry.RegistryVersion,
+            source = "robust_z_clamped",
+            transform = new
+            {
+                sigmoid_scale = PortaExecutionConstants.PrimitiveNormalization.SigmoidScale,
+                ewma_alpha = PortaExecutionConstants.PrimitiveNormalization.EwmaAlpha,
+                missing_channel_decay = PortaExecutionConstants.PrimitiveNormalization.MissingChannelDecay
+            },
+            debug_scores = new
+            {
+                typing_burst_intensity = primitive.TypingRaw,
+                scroll_velocity_index = primitive.ScrollRaw,
+                focus_switch_rate = primitive.FocusRaw
+            }
+        });
+        string stateFlagsJson = JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            partial = mapped.Partial == 1,
+            quality_score = mapped.QualityScore,
+            typing_channel_available = primitive.TypingChannelAvailable,
+            scroll_channel_available = primitive.ScrollChannelAvailable,
+            focus_channel_available = primitive.FocusChannelAvailable
         });
 
         return new PrimitiveBucketWriteModel(
@@ -1160,6 +1180,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             EndUtc: Time.toIsoUtcMsString(endUtcMs),
             PrimitivesJson: primitivesJson,
             ContributorsJson: mapped.ContributorsJson,
+            WhyJson: whyJson,
+            StateFlagsJson: stateFlagsJson,
             Quality: mapped.QualityScore,
             Partial: mapped.Partial);
     }
@@ -1167,11 +1189,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private static StateBucketWriteModel BuildStateBucketRow(
         InputBucketRow mapped,
         AgentBrainSnapshot snapshot,
+        PrimitiveComputationResult primitive,
         RobustNormalizationSnapshot? robust)
     {
-        double typingRaw = robust?.TypingComponent ?? mapped.TypingBurstIntensity;
-        double scrollRaw = robust?.ScrollComponent ?? mapped.ScrollVelocityIndex;
-        double focusRaw = robust?.FocusComponent ?? mapped.FocusSwitchRate;
         string contributorsJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
@@ -1187,12 +1207,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
         return new StateBucketWriteModel(
             TimestampUtc: mapped.StartUtc,
-            TypingRaw: typingRaw,
-            ScrollRaw: scrollRaw,
-            FocusRaw: focusRaw,
-            TypingSmoothed: snapshot.SmoothedTypingBurstIntensity,
-            ScrollSmoothed: snapshot.SmoothedScrollVelocityIndex,
-            FocusSmoothed: snapshot.SmoothedFocusSwitchRate,
+            TypingRaw: primitive.TypingRaw,
+            ScrollRaw: primitive.ScrollRaw,
+            FocusRaw: primitive.FocusRaw,
+            TypingSmoothed: primitive.TypingSmoothed,
+            ScrollSmoothed: primitive.ScrollSmoothed,
+            FocusSmoothed: primitive.FocusSmoothed,
             FocusStrength: snapshot.FocusStrength,
             OverloadLikelihood: snapshot.OverloadLikelihood,
             FatigueProbability: snapshot.FatigueProbability,
@@ -1306,16 +1326,20 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 end_utc,
                 primitives_json,
                 contributors_json,
+                why_json,
+                state_flags_json,
                 quality,
                 partial
             ) VALUES (
-                $bucket_seq, $start_utc, $end_utc, $primitives_json, $contributors_json, $quality, $partial
+                $bucket_seq, $start_utc, $end_utc, $primitives_json, $contributors_json, $why_json, $state_flags_json, $quality, $partial
             )
             ON CONFLICT(bucket_seq) DO UPDATE SET
                 start_utc = excluded.start_utc,
                 end_utc = excluded.end_utc,
                 primitives_json = excluded.primitives_json,
                 contributors_json = excluded.contributors_json,
+                why_json = excluded.why_json,
+                state_flags_json = excluded.state_flags_json,
                 quality = excluded.quality,
                 partial = excluded.partial;
             """;
@@ -1324,6 +1348,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         cmd.Parameters.AddWithValue("$end_utc", row.EndUtc);
         cmd.Parameters.AddWithValue("$primitives_json", row.PrimitivesJson);
         cmd.Parameters.AddWithValue("$contributors_json", row.ContributorsJson);
+        cmd.Parameters.AddWithValue("$why_json", row.WhyJson);
+        cmd.Parameters.AddWithValue("$state_flags_json", row.StateFlagsJson);
         cmd.Parameters.AddWithValue("$quality", row.Quality);
         cmd.Parameters.AddWithValue("$partial", row.Partial);
         cmd.ExecuteNonQuery();
@@ -1404,6 +1430,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string EndUtc,
         string PrimitivesJson,
         string ContributorsJson,
+        string WhyJson,
+        string StateFlagsJson,
         double Quality,
         int Partial);
 

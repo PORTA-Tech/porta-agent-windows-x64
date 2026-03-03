@@ -36,6 +36,17 @@ public static class PortaExecutionConstants
         public const string WinsorFallbackStrategy = "identity";
     }
 
+    public static class PrimitiveNormalization
+    {
+        public const double SigmoidScale = 1.2;
+        public const double EwmaAlpha = 0.35;
+        public const double MissingChannelDecay = 0.90;
+        public const double InitialSPrevNeutral = 0.5;
+        public const string SPrevRuntimeStateKey = "primitives_prev_json";
+        public const string LegacySPrevRuntimeStateKey = "primitive_computer:s_prev";
+        public const string ContractVersion = "v1";
+    }
+
     public static class OverloadStabilization
     {
         public const double ThresholdOn = 0.80;

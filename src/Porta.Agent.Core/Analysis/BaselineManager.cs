@@ -527,9 +527,13 @@ internal static class BaselineManager
                 continue;
             }
 
-            // Convert clamped z in [-3,3] to [0,1] component space.
-            double unit = (value.Z - PortaExecutionConstants.RobustNormalization.ZClampMin)
-                / (PortaExecutionConstants.RobustNormalization.ZClampMax - PortaExecutionConstants.RobustNormalization.ZClampMin);
+            // Step 9 contract: z -> sigmoid(1.2*z) for primitive unit-space conversion.
+            double unit = 1d / (1d + Math.Exp(-(PortaExecutionConstants.PrimitiveNormalization.SigmoidScale * value.Z)));
+            if (!double.IsFinite(unit))
+            {
+                continue;
+            }
+
             sum += Math.Clamp(unit, 0d, 1d);
             count++;
         }
