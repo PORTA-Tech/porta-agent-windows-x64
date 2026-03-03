@@ -58,7 +58,17 @@ public sealed class StateBucketJsonContractsTests
             coldStart: true,
             partial: true,
             saResetReason: "context_changed",
-            overloadInferenceSource: "bucket_finalizer");
+            overloadInferenceSource: "bucket_finalizer",
+            overloadActive: true,
+            lowQuality: true,
+            dwellOnMs: 15000,
+            dwellOffMs: 5000,
+            gapMs: 10000,
+            overloadStateDebug: new
+            {
+                mode = "stable_hold",
+                previous_overload_active = false
+            });
         using JsonDocument doc = JsonDocument.Parse(json);
         JsonElement root = doc.RootElement;
 
@@ -66,5 +76,11 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal(1, root.GetProperty("cold_start").GetInt32());
         Assert.Equal(1, root.GetProperty("partial").GetInt32());
         Assert.Equal("context_changed", root.GetProperty("sa_reset_reason").GetString());
+        Assert.True(root.GetProperty("overload_active").GetBoolean());
+        Assert.True(root.GetProperty("low_quality").GetBoolean());
+        Assert.Equal(15000, root.GetProperty("dwell_on_ms").GetInt64());
+        Assert.Equal(5000, root.GetProperty("dwell_off_ms").GetInt64());
+        Assert.Equal(10d, root.GetProperty("gap_s").GetDouble(), precision: 6);
+        Assert.Equal("stable_hold", root.GetProperty("overload_state_debug").GetProperty("mode").GetString());
     }
 }

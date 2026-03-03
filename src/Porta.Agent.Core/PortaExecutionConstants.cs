@@ -62,6 +62,11 @@ public static class PortaExecutionConstants
         public const int DwellOffSeconds = 60;
         public const double ConfidenceMin = 0.60;
         public const int GapAllowSeconds = 10;
+        public const double LowQualityPauseThreshold = 0.40;
+        public const int LowQualityDwellDecayMs = 5000;
+        public const string RuntimeStateKey = "overload_stabilization:current";
+        public const string ActiveRuntimeStateKey = "overload_active";
+        public const string ContractVersion = "v1";
     }
 
     public static class OverloadInference

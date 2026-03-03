@@ -105,6 +105,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     primitive,
                     gating,
                     robust);
+                OverloadStabilizationRuntimeState previousOverloadStabilization = ReadOverloadStabilizationRuntimeState(connection, tx);
+                OverloadStabilizationResult overloadStabilization = OverloadStabilizationComputer.ComputeForFinalizedBucket(
+                    mapped,
+                    overloadInference,
+                    previousOverloadStabilization);
                 AgentBrainSnapshot inferredSnapshot = ApplyOverloadInference(gatedSnapshot, overloadInference);
                 PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, primitive, robust);
                 StateBucketWriteModel stateRow = BuildStateBucketRow(
@@ -114,7 +119,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     robust,
                     gating,
                     derivedSession,
-                    overloadInference);
+                    overloadInference,
+                    overloadStabilization);
                 UpsertPrimitiveBucket(connection, tx, primitiveRow);
                 UpsertStateBucket(connection, tx, stateRow);
                 InsertLegacySnapshot(connection, tx, inferredSnapshot);
@@ -127,7 +133,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     gating,
                     primitive,
                     derivedSession,
-                    overloadInference);
+                    overloadInference,
+                    overloadStabilization);
                 PrimitiveComputer.PersistSPrevForFinalizedBucket(
                     connection,
                     tx,
@@ -1011,7 +1018,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         BaselineGatingResult gating,
         PrimitiveComputationResult primitive,
         DerivedSessionMetricsResult derivedSession,
-        OverloadInferenceResult overloadInference)
+        OverloadInferenceResult overloadInference,
+        OverloadStabilizationResult overloadStabilization)
     {
         string valueJson = JsonSerializer.Serialize(new
         {
@@ -1022,6 +1030,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             timestamp_utc = mapped.TimestampUtc,
             overload_likelihood = overloadInference.OverloadLikelihood,
             confidence = overloadInference.Confidence,
+            overload_active = overloadStabilization.OverloadActive,
             typing_burst_intensity_raw = primitive.TypingRaw,
             scroll_velocity_index_raw = primitive.ScrollRaw,
             focus_switch_rate_raw = primitive.FocusRaw,
@@ -1054,6 +1063,27 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             cold_start = gating.ColdStart,
             confidence_cap = gating.ConfidenceCap,
             policies_enabled = gating.PoliciesEnabled,
+            overload_stabilization = new
+            {
+                contract_ver = PortaExecutionConstants.OverloadStabilization.ContractVersion,
+                overload_active = overloadStabilization.OverloadActive,
+                debug_mode = overloadStabilization.DebugMode,
+                transition = overloadStabilization.Transition,
+                transitioned = overloadStabilization.Transitioned,
+                previous_overload_active = overloadStabilization.PreviousOverloadActive,
+                gap_exceeded = overloadStabilization.GapExceeded,
+                low_quality_paused = overloadStabilization.LowQualityPaused,
+                eligible = overloadStabilization.Eligible,
+                on_signal = overloadStabilization.OnSignal,
+                off_signal = overloadStabilization.OffSignal,
+                between_thresholds = overloadStabilization.BetweenThresholds,
+                gap_ms = overloadStabilization.GapMs,
+                on_dwell_ms = overloadStabilization.RuntimeState.OnDwellMs,
+                off_dwell_ms = overloadStabilization.RuntimeState.OffDwellMs,
+                last_good_ts_ms = overloadStabilization.RuntimeState.LastGoodTsMs,
+                last_bucket_seq = overloadStabilization.RuntimeState.LastBucketSeq,
+                last_transition_ts_ms = overloadStabilization.RuntimeState.LastTransitionTsMs
+            },
             cooldown_end_timestamp_utc = snapshot.CooldownEndTimestampUtc?.ToString("O") ?? string.Empty
         });
 
@@ -1064,35 +1094,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             updated_utc = mapped.TimestampUtc
         });
 
-        using var cmd = connection.CreateCommand();
-        cmd.Transaction = tx;
-        cmd.CommandText =
-            """
-            INSERT INTO runtime_state (key, value_json, updated_utc)
-            VALUES ($key, $value_json, $updated_utc)
-            ON CONFLICT(key) DO UPDATE SET
-                value_json = excluded.value_json,
-                updated_utc = excluded.updated_utc;
-            """;
-        cmd.Parameters.AddWithValue("$key", "bucket_finalizer:last_snapshot");
-        cmd.Parameters.AddWithValue("$value_json", valueJson);
-        cmd.Parameters.AddWithValue("$updated_utc", mapped.TimestampUtc);
-        cmd.ExecuteNonQuery();
-
-        using var cmd2 = connection.CreateCommand();
-        cmd2.Transaction = tx;
-        cmd2.CommandText =
-            """
-            INSERT INTO runtime_state (key, value_json, updated_utc)
-            VALUES ($key, $value_json, $updated_utc)
-            ON CONFLICT(key) DO UPDATE SET
-                value_json = excluded.value_json,
-                updated_utc = excluded.updated_utc;
-            """;
-        cmd2.Parameters.AddWithValue("$key", "bucket_finalizer:last_finalized_bucket_seq");
-        cmd2.Parameters.AddWithValue("$value_json", finalizedSeqValueJson);
-        cmd2.Parameters.AddWithValue("$updated_utc", mapped.TimestampUtc);
-        cmd2.ExecuteNonQuery();
+        UpsertRuntimeStateValue(connection, tx, "bucket_finalizer:last_snapshot", valueJson, mapped.TimestampUtc);
+        UpsertRuntimeStateValue(connection, tx, "bucket_finalizer:last_finalized_bucket_seq", finalizedSeqValueJson, mapped.TimestampUtc);
 
         string derivedSessionValueJson = JsonSerializer.Serialize(new
         {
@@ -1109,9 +1112,36 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             partial = derivedSession.Partial,
             dominant_app_hash = derivedSession.DominantAppHash
         });
-        using var cmd3 = connection.CreateCommand();
-        cmd3.Transaction = tx;
-        cmd3.CommandText =
+        UpsertRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.DerivedSessionMetrics.RuntimeStateKey,
+            derivedSessionValueJson,
+            mapped.TimestampUtc);
+        UpsertRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.OverloadStabilization.ActiveRuntimeStateKey,
+            BuildOverloadActiveRuntimeStateJson(mapped, overloadStabilization),
+            mapped.TimestampUtc);
+        UpsertRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.OverloadStabilization.RuntimeStateKey,
+            BuildOverloadStabilizationRuntimeStateJson(mapped, overloadStabilization),
+            mapped.TimestampUtc);
+    }
+
+    private static void UpsertRuntimeStateValue(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        string key,
+        string valueJson,
+        string updatedUtc)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
             """
             INSERT INTO runtime_state (key, value_json, updated_utc)
             VALUES ($key, $value_json, $updated_utc)
@@ -1119,10 +1149,257 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 value_json = excluded.value_json,
                 updated_utc = excluded.updated_utc;
             """;
-        cmd3.Parameters.AddWithValue("$key", PortaExecutionConstants.DerivedSessionMetrics.RuntimeStateKey);
-        cmd3.Parameters.AddWithValue("$value_json", derivedSessionValueJson);
-        cmd3.Parameters.AddWithValue("$updated_utc", mapped.TimestampUtc);
-        cmd3.ExecuteNonQuery();
+        cmd.Parameters.AddWithValue("$key", key);
+        cmd.Parameters.AddWithValue("$value_json", valueJson);
+        cmd.Parameters.AddWithValue("$updated_utc", updatedUtc);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static string BuildOverloadActiveRuntimeStateJson(
+        InputBucketRow mapped,
+        OverloadStabilizationResult overloadStabilization)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            contract_ver = PortaExecutionConstants.OverloadStabilization.ContractVersion,
+            value = overloadStabilization.OverloadActive,
+            overload_active = overloadStabilization.OverloadActive,
+            bucket_seq = mapped.BucketSeq,
+            updated_utc = mapped.TimestampUtc
+        });
+    }
+
+    private static string BuildOverloadStabilizationRuntimeStateJson(
+        InputBucketRow mapped,
+        OverloadStabilizationResult overloadStabilization)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            contract_ver = PortaExecutionConstants.OverloadStabilization.ContractVersion,
+            overload_active = overloadStabilization.OverloadActive,
+            on_dwell_ms = overloadStabilization.RuntimeState.OnDwellMs,
+            off_dwell_ms = overloadStabilization.RuntimeState.OffDwellMs,
+            last_good_ts_ms = overloadStabilization.RuntimeState.LastGoodTsMs,
+            last_bucket_seq = overloadStabilization.RuntimeState.LastBucketSeq,
+            last_transition_ts_ms = overloadStabilization.RuntimeState.LastTransitionTsMs,
+            debug_mode = overloadStabilization.DebugMode,
+            transition = overloadStabilization.Transition,
+            transitioned = overloadStabilization.Transitioned,
+            previous_overload_active = overloadStabilization.PreviousOverloadActive,
+            gap_exceeded = overloadStabilization.GapExceeded,
+            low_quality_paused = overloadStabilization.LowQualityPaused,
+            eligible = overloadStabilization.Eligible,
+            on_signal = overloadStabilization.OnSignal,
+            off_signal = overloadStabilization.OffSignal,
+            between_thresholds = overloadStabilization.BetweenThresholds,
+            gap_ms = overloadStabilization.GapMs,
+            overload = overloadStabilization.OverloadLikelihood,
+            confidence = overloadStabilization.Confidence,
+            quality_score = overloadStabilization.QualityScore
+        });
+    }
+
+    private static OverloadStabilizationRuntimeState ReadOverloadStabilizationRuntimeState(
+        SqliteConnection connection,
+        SqliteTransaction tx)
+    {
+        string? currentJson = ReadRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.OverloadStabilization.RuntimeStateKey);
+        if (!string.IsNullOrWhiteSpace(currentJson)
+            && TryParseOverloadStabilizationRuntimeState(currentJson, out OverloadStabilizationRuntimeState parsedCurrent))
+        {
+            return parsedCurrent;
+        }
+
+        string? activeJson = ReadRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.OverloadStabilization.ActiveRuntimeStateKey);
+        if (!string.IsNullOrWhiteSpace(activeJson)
+            && TryParseOverloadActiveValue(activeJson, out bool active))
+        {
+            return new OverloadStabilizationRuntimeState(
+                OverloadActive: active,
+                OnDwellMs: 0,
+                OffDwellMs: 0,
+                LastGoodTsMs: 0,
+                LastBucketSeq: 0,
+                LastTransitionTsMs: 0);
+        }
+
+        return new OverloadStabilizationRuntimeState(
+            OverloadActive: false,
+            OnDwellMs: 0,
+            OffDwellMs: 0,
+            LastGoodTsMs: 0,
+            LastBucketSeq: 0,
+            LastTransitionTsMs: 0);
+    }
+
+    private static string? ReadRuntimeStateValue(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        string key)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            SELECT value_json
+            FROM runtime_state
+            WHERE key = $key
+            LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$key", key);
+        object? scalar = cmd.ExecuteScalar();
+        if (scalar == null || scalar == DBNull.Value)
+        {
+            return null;
+        }
+
+        return Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static bool TryParseOverloadStabilizationRuntimeState(
+        string json,
+        out OverloadStabilizationRuntimeState state)
+    {
+        state = default;
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            bool active = TryReadBool(root, out bool value)
+                ? value
+                : TryReadBoolProperty(root, "overload_active", out bool activeProp) && activeProp;
+            long lastBucketSeq = ReadInt64Property(root, "last_bucket_seq", "bucket_seq");
+            long onDwellMs = ReadInt64Property(root, "on_dwell_ms", "dwell_on_ms");
+            long offDwellMs = ReadInt64Property(root, "off_dwell_ms", "dwell_off_ms");
+            long lastGoodTsMs = ReadInt64Property(root, "last_good_ts_ms", "last_updated_utc_ms");
+            long lastTransitionTsMs = ReadInt64Property(root, "last_transition_ts_ms");
+            state = new OverloadStabilizationRuntimeState(
+                OverloadActive: active,
+                OnDwellMs: Math.Max(0, onDwellMs),
+                OffDwellMs: Math.Max(0, offDwellMs),
+                LastGoodTsMs: Math.Max(0, lastGoodTsMs),
+                LastBucketSeq: Math.Max(0, lastBucketSeq),
+                LastTransitionTsMs: Math.Max(0, lastTransitionTsMs));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryParseOverloadActiveValue(string json, out bool overloadActive)
+    {
+        overloadActive = false;
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (TryReadBool(root, out bool value))
+            {
+                overloadActive = value;
+                return true;
+            }
+
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                if (TryReadBoolProperty(root, "value", out bool valueProp))
+                {
+                    overloadActive = valueProp;
+                    return true;
+                }
+
+                if (TryReadBoolProperty(root, "overload_active", out bool activeProp))
+                {
+                    overloadActive = activeProp;
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private static bool TryReadBool(JsonElement value, out bool parsed)
+    {
+        parsed = false;
+        if (value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            parsed = value.GetBoolean();
+            return true;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int numeric))
+        {
+            parsed = numeric != 0;
+            return true;
+        }
+
+        if (value.ValueKind == JsonValueKind.String
+            && bool.TryParse(value.GetString(), out bool fromString))
+        {
+            parsed = fromString;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryReadBoolProperty(JsonElement root, string propertyName, out bool parsed)
+    {
+        parsed = false;
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty(propertyName, out JsonElement property))
+        {
+            return false;
+        }
+
+        return TryReadBool(property, out parsed);
+    }
+
+    private static long ReadInt64Property(JsonElement root, params string[] propertyNames)
+    {
+        foreach (string propertyName in propertyNames)
+        {
+            if (!root.TryGetProperty(propertyName, out JsonElement value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long numeric))
+            {
+                return numeric;
+            }
+
+            if (value.ValueKind == JsonValueKind.String
+                && long.TryParse(
+                    value.GetString(),
+                    System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out long fromString))
+            {
+                return fromString;
+            }
+        }
+
+        return 0;
     }
 
     private static AgentBrainSnapshot ApplyBaselineGating(AgentBrainSnapshot snapshot, BaselineGatingResult gating)
@@ -1275,7 +1552,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         RobustNormalizationSnapshot? robust,
         BaselineGatingResult gating,
         DerivedSessionMetricsResult derivedSession,
-        OverloadInferenceResult overloadInference)
+        OverloadInferenceResult overloadInference,
+        OverloadStabilizationResult overloadStabilization)
     {
         _ = robust;
         string contributorsJson = BuildOverloadContributorsJson(snapshot.Contributors, overloadInference);
@@ -1283,7 +1561,31 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             coldStart: gating.ColdStart,
             partial: mapped.Partial == 1 || derivedSession.Partial,
             saResetReason: derivedSession.SaFreezeReason,
-            overloadInferenceSource: overloadInference.Source);
+            overloadInferenceSource: overloadInference.Source,
+            overloadActive: overloadStabilization.OverloadActive,
+            lowQuality: overloadStabilization.LowQualityPaused,
+            dwellOnMs: overloadStabilization.RuntimeState.OnDwellMs,
+            dwellOffMs: overloadStabilization.RuntimeState.OffDwellMs,
+            gapMs: overloadStabilization.GapMs,
+            overloadStateDebug: new
+            {
+                mode = overloadStabilization.DebugMode,
+                transition = overloadStabilization.Transition,
+                transitioned = overloadStabilization.Transitioned,
+                previous_overload_active = overloadStabilization.PreviousOverloadActive,
+                gap_exceeded = overloadStabilization.GapExceeded,
+                low_quality_paused = overloadStabilization.LowQualityPaused,
+                eligible = overloadStabilization.Eligible,
+                on_signal = overloadStabilization.OnSignal,
+                off_signal = overloadStabilization.OffSignal,
+                between_thresholds = overloadStabilization.BetweenThresholds,
+                gap_ms = overloadStabilization.GapMs,
+                overload = overloadStabilization.OverloadLikelihood,
+                confidence = overloadStabilization.Confidence,
+                quality_score = overloadStabilization.QualityScore,
+                on_dwell_ms = overloadStabilization.RuntimeState.OnDwellMs,
+                off_dwell_ms = overloadStabilization.RuntimeState.OffDwellMs
+            });
 
         return new StateBucketWriteModel(
             TimestampUtc: mapped.StartUtc,
@@ -1362,7 +1664,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         bool coldStart,
         bool partial,
         string saResetReason,
-        string overloadInferenceSource)
+        string overloadInferenceSource,
+        bool overloadActive,
+        bool lowQuality,
+        long dwellOnMs,
+        long dwellOffMs,
+        long gapMs,
+        object? overloadStateDebug = null)
     {
         return JsonSerializer.Serialize(new
         {
@@ -1370,7 +1678,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             cold_start = coldStart ? 1 : 0,
             partial = partial ? 1 : 0,
             sa_reset_reason = saResetReason ?? string.Empty,
-            overload_inference_source = overloadInferenceSource ?? string.Empty
+            overload_inference_source = overloadInferenceSource ?? string.Empty,
+            overload_active = overloadActive,
+            low_quality = lowQuality,
+            dwell_on_ms = Math.Max(0, dwellOnMs),
+            dwell_off_ms = Math.Max(0, dwellOffMs),
+            gap_s = Math.Max(0d, gapMs / 1000d),
+            overload_state_debug = overloadStateDebug
         });
     }
 
