@@ -122,6 +122,29 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    public async Task<IReadOnlyList<LocalApiEventResponse>> GetEventsSinceIdAsync(long sinceIdExclusive, int limit = 200, CancellationToken token = default)
+    {
+        if (_settings == null)
+        {
+            return [];
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            int boundedLimit = Math.Clamp(limit, 1, 1000);
+            long safeSinceId = Math.Max(0, sinceIdExclusive);
+            string path = $"/v1/events?since_id={safeSinceId}&limit={boundedLimit}";
+            IReadOnlyList<LocalApiEventResponse>? response =
+                await _httpClient.GetFromJsonAsync<IReadOnlyList<LocalApiEventResponse>>(path, token).ConfigureAwait(false);
+            return response ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     public async Task<LocalApiTimelineResponse?> GetTimelineAsync(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,

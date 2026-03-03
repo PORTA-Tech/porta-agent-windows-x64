@@ -17,6 +17,7 @@ public partial class MainWindow : Window
 {
     private const string AgentServiceName = "AriAgent";
     private static readonly TimeSpan SlowRefreshInterval = TimeSpan.FromSeconds(5);
+    private const string EventCursorFileName = "control-center.events.cursor";
 
     private readonly LocalApiClient _apiClient = new();
     private readonly DispatcherTimer _refreshTimer;
@@ -33,6 +34,7 @@ public partial class MainWindow : Window
     private DateTimeOffset _lastSlowRefreshUtc = DateTimeOffset.MinValue;
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private int _manualRefreshPending;
+    private long _lastSeenEventId;
 
     private enum UiSection
     {
@@ -48,9 +50,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _lastSeenEventId = LoadLastSeenEventId();
 
         ShowSection(UiSection.Overview);
-        _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _refreshTimer.Tick += async (_, _) => await RefreshDiagnosticsAsync().ConfigureAwait(true);
         Loaded += async (_, _) =>
         {
@@ -121,9 +124,34 @@ public partial class MainWindow : Window
         LocalApiInputsSummaryResponse? inputSummary = apiReachable
             ? await _apiClient.GetInputsSummaryAsync(60).ConfigureAwait(true)
             : null;
-        _allRecentEvents = apiReachable
-            ? await _apiClient.GetRecentEventsAsync(50).ConfigureAwait(true)
-            : [];
+        if (apiReachable)
+        {
+            if (_allRecentEvents.Count == 0)
+            {
+                IReadOnlyList<LocalApiEventResponse> baselineEvents =
+                    await _apiClient.GetRecentEventsAsync(50).ConfigureAwait(true);
+                _allRecentEvents = baselineEvents
+                    .OrderByDescending(static evt => evt.Id)
+                    .ToList();
+                if (baselineEvents.Count > 0)
+                {
+                    UpdateLastSeenEventId(Math.Max(_lastSeenEventId, baselineEvents.Max(static evt => evt.Id)));
+                }
+            }
+
+            IReadOnlyList<LocalApiEventResponse> newEvents =
+                await _apiClient.GetEventsSinceIdAsync(_lastSeenEventId, 200).ConfigureAwait(true);
+            if (newEvents.Count > 0)
+            {
+                _allRecentEvents = MergeRecentEvents(_allRecentEvents, newEvents, maxEvents: 250);
+                UpdateLastSeenEventId(Math.Max(_lastSeenEventId, newEvents.Max(static evt => evt.Id)));
+            }
+        }
+        else
+        {
+            _allRecentEvents = [];
+        }
+
         _recentEvents = _allRecentEvents.Take(5).ToArray();
         _lastSnapshot = snapshot;
 
@@ -561,6 +589,85 @@ public partial class MainWindow : Window
         }
 
         return new SolidColorBrush(Color.FromRgb(239, 68, 68));
+    }
+
+    private static IReadOnlyList<LocalApiEventResponse> MergeRecentEvents(
+        IReadOnlyList<LocalApiEventResponse> existing,
+        IReadOnlyList<LocalApiEventResponse> incoming,
+        int maxEvents)
+    {
+        var byId = new Dictionary<long, LocalApiEventResponse>();
+        foreach (LocalApiEventResponse evt in existing)
+        {
+            byId[evt.Id] = evt;
+        }
+
+        foreach (LocalApiEventResponse evt in incoming)
+        {
+            byId[evt.Id] = evt;
+        }
+
+        return byId.Values
+            .OrderByDescending(static evt => evt.Id)
+            .Take(Math.Max(1, maxEvents))
+            .ToList();
+    }
+
+    private void UpdateLastSeenEventId(long newValue)
+    {
+        if (newValue <= _lastSeenEventId)
+        {
+            return;
+        }
+
+        _lastSeenEventId = newValue;
+        SaveLastSeenEventId(_lastSeenEventId);
+    }
+
+    private static long LoadLastSeenEventId()
+    {
+        try
+        {
+            string path = BuildEventCursorPath();
+            if (!File.Exists(path))
+            {
+                return 0;
+            }
+
+            string raw = File.ReadAllText(path).Trim();
+            return long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed) && parsed > 0
+                ? parsed
+                : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static void SaveLastSeenEventId(long id)
+    {
+        try
+        {
+            string path = BuildEventCursorPath();
+            string? dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            File.WriteAllText(path, id.ToString(CultureInfo.InvariantCulture), Encoding.UTF8);
+        }
+        catch
+        {
+            // Best effort cursor persistence.
+        }
+    }
+
+    private static string BuildEventCursorPath()
+    {
+        string root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(root, "PortaAgent", EventCursorFileName);
     }
 
     private void RenderRecentActions(IReadOnlyList<LocalApiEventResponse> recentEvents)

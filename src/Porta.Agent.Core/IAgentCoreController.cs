@@ -7,6 +7,7 @@ public interface IAgentCoreController
     AgentBrainSnapshot GetCurrentSnapshot();
     AgentInputSummary GetInputsSummary(int windowSeconds = 60);
     IReadOnlyList<AgentControlEvent> GetRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null);
+    IReadOnlyList<AgentControlEvent> GetEventsSinceId(long sinceIdExclusive, int limit = 200);
     AgentTimelineData GetTimeline(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,

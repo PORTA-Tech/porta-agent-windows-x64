@@ -42,6 +42,8 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
 
     public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null)
         => _inner.ReadRecentEvents(limit, sinceUtc);
+    public IReadOnlyList<AgentControlEvent> ReadEventsSinceId(long sinceIdExclusive, int limit = 200)
+        => _inner.ReadEventsSinceId(sinceIdExclusive, limit);
 
     public IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000)
         => _inner.ReadEvents(fromUtc, toUtc, limit);

@@ -174,6 +174,21 @@ public static class LocalApiEndpointMapping
             return events.Select(ToEventResponse).ToList();
         });
 
+        api.MapGet("/events", (IAgentCoreController controller, HttpContext httpContext, int? limit) =>
+        {
+            int boundedLimit = Math.Clamp(limit ?? 200, 1, 1000);
+            long sinceId = 0;
+            if (httpContext.Request.Query.TryGetValue("since_id", out var sinceRaw)
+                && long.TryParse(sinceRaw.ToString(), out long parsedSinceId)
+                && parsedSinceId > 0)
+            {
+                sinceId = parsedSinceId;
+            }
+
+            IReadOnlyList<AgentControlEvent> events = controller.GetEventsSinceId(sinceId, boundedLimit);
+            return events.Select(ToEventResponse).ToList();
+        });
+
         api.MapGet("/timeline", (IAgentCoreController controller, DateTimeOffset from, DateTimeOffset to, int? bucketSeconds) =>
         {
             _ = bucketSeconds;

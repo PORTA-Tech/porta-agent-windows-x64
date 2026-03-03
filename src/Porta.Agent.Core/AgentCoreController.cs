@@ -239,6 +239,13 @@ public sealed class AgentCoreController : IAgentCoreController
         return _stateStore.ReadRecentEvents(boundedLimit, sinceUtc);
     }
 
+    public IReadOnlyList<AgentControlEvent> GetEventsSinceId(long sinceIdExclusive, int limit = 200)
+    {
+        int boundedLimit = Math.Clamp(limit, 1, 1000);
+        long safeSinceId = Math.Max(0, sinceIdExclusive);
+        return _stateStore.ReadEventsSinceId(safeSinceId, boundedLimit);
+    }
+
     public AgentTimelineData GetTimeline(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,

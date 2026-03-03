@@ -157,6 +157,7 @@ public sealed class BucketRecomputeRulesTests
         public AgentBrainSnapshot? ReadLatestSnapshot() => null;
         public IReadOnlyList<AgentBrainSnapshot> ReadTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, int bucketSeconds = Time.bucketSeconds) => [];
         public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null) => [];
+        public IReadOnlyList<AgentControlEvent> ReadEventsSinceId(long sinceIdExclusive, int limit = 200) => [];
         public IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000) => [];
         public AgentStorageInfo ReadStorageInfo() => new(RetentionDays: 0, DatabaseBytes: 0);
         public AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null)

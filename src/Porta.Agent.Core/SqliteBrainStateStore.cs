@@ -725,6 +725,88 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
     }
 
+    public IReadOnlyList<AgentControlEvent> ReadEventsSinceId(long sinceIdExclusive, int limit = 200)
+    {
+        lock (_gate)
+        {
+            int boundedLimit = Math.Clamp(limit, 1, 1000);
+            long safeSinceId = Math.Max(0, sinceIdExclusive);
+            var rows = new List<AgentControlEvent>(boundedLimit);
+
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT
+                    id,
+                    ts_utc,
+                    timestamp_utc,
+                    action,
+                    trigger_state,
+                    trigger_value,
+                    confidence,
+                    duration_seconds,
+                    escalation,
+                    reversible,
+                    why,
+                    contributors_json,
+                    intervention_id,
+                    policy_id,
+                    domain,
+                    planned_end_timestamp_utc,
+                    actual_end_timestamp_utc,
+                    previous_system_state_json,
+                    what_changed,
+                    how_to_undo,
+                    reversal_applied,
+                    cooldown_end_timestamp_utc,
+                    lifecycle_state,
+                    idempotency_key,
+                    why_json,
+                    state_flags_json
+                FROM events
+                WHERE id > $since_id
+                ORDER BY id ASC
+                LIMIT $limit;
+                """;
+            cmd.Parameters.AddWithValue("$since_id", safeSinceId);
+            cmd.Parameters.AddWithValue("$limit", boundedLimit);
+
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(new AgentControlEvent(
+                    TimestampUtc: ParseEventTsUtc(reader),
+                    Action: reader.GetString(3),
+                    TriggerState: reader.GetString(4),
+                    TriggerValue: reader.GetDouble(5),
+                    Confidence: reader.GetDouble(6),
+                    DurationSeconds: reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                    EscalationLevel: reader.GetString(8),
+                    Reversible: reader.GetInt32(9) == 1,
+                    Reason: reader.GetString(10),
+                    Contributors: DeserializeContributors(reader.GetString(11)),
+                    InterventionId: ReadStringOrFallback(reader, 12, string.Empty),
+                    PolicyId: ReadStringOrFallback(reader, 13, "n/a"),
+                    Domain: ReadStringOrFallback(reader, 14, "control"),
+                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 15, string.Empty)),
+                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 16, string.Empty)),
+                    PreviousSystemStateJson: ReadStringOrFallback(reader, 17, "{}"),
+                    WhatChanged: ReadStringOrFallback(reader, 18, string.Empty),
+                    HowToUndo: ReadStringOrFallback(reader, 19, string.Empty),
+                    ReversalApplied: ReadBoolOrFallback(reader, 20, false),
+                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 21, string.Empty)),
+                    LifecycleState: ReadStringOrFallback(reader, 22, "activated"),
+                    EventId: reader.GetInt64(0),
+                    IdempotencyKey: ReadStringOrFallback(reader, 23, string.Empty),
+                    WhyJson: ReadStringOrFallback(reader, 24, "{\"schema_ver\":1}"),
+                    StateFlagsJson: ReadStringOrFallback(reader, 25, "{\"schema_ver\":1}")));
+            }
+
+            return rows;
+        }
+    }
+
     public IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000)
     {
         lock (_gate)
