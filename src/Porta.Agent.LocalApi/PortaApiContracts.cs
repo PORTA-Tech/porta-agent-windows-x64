@@ -46,6 +46,7 @@ public sealed record LocalApiCurrentSnapshotResponse(
     IReadOnlyList<string> Contributors,
     double SustainedAttentionDurationSec = 0,
     double IdleFragmentationIndex = 0,
+    double FocusChoppinessIndex = 0,
     bool OverloadActive = false,
     string? StateFlagsJson = null,
     string? ContributorsJson = null,

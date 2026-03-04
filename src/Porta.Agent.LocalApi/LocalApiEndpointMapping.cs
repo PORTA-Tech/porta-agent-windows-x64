@@ -320,6 +320,13 @@ public static class LocalApiEndpointMapping
         AgentBrainSnapshot snapshot,
         AgentLatestStateDetails? latestState = null)
     {
+        double idleFragmentationIndex = latestState?.IdleFragmentationIndex ?? 0d;
+        double entropyNorm = Clamp01((latestState?.FocusAppEntropy ?? 0d) / 2d);
+        double focusChoppinessIndex = Clamp01(
+            (0.50d * idleFragmentationIndex)
+            + (0.35d * Clamp01(snapshot.SmoothedFocusSwitchRate))
+            + (0.15d * entropyNorm));
+
         return new LocalApiCurrentSnapshotResponse(
             snapshot.TimestampUtc,
             snapshot.TypingBurstIntensity,
@@ -341,7 +348,8 @@ public static class LocalApiEndpointMapping
             snapshot.ActivationWindowOpen,
             snapshot.Contributors,
             latestState?.SustainedAttentionDurationSec ?? 0d,
-            latestState?.IdleFragmentationIndex ?? 0d,
+            idleFragmentationIndex,
+            focusChoppinessIndex,
             latestState?.OverloadActive ?? false,
             latestState?.StateFlagsJson,
             latestState?.ContributorsJson,
@@ -353,6 +361,8 @@ public static class LocalApiEndpointMapping
             latestState?.PartialData,
             latestState?.MissingMajorChannels);
     }
+
+    private static double Clamp01(double value) => Math.Clamp(value, 0d, 1d);
 
     private static LocalApiEventResponse ToEventResponse(AgentControlEvent ev)
     {

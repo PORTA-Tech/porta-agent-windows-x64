@@ -552,6 +552,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             bool? coldStart = null;
             double? currentQualityScore = null;
             bool? partialData = null;
+            double? focusAppEntropy = null;
             IReadOnlyList<string>? missingMajorChannels = null;
 
             using (var baselineCmd = connection.CreateCommand())
@@ -607,7 +608,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     SELECT
                         quality_score,
                         partial,
-                        contributors_json
+                        contributors_json,
+                        focus_app_entropy
                     FROM input_buckets
                     ORDER BY id DESC
                     LIMIT 1;
@@ -618,6 +620,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     currentQualityScore = ReadDoubleOrFallback(inputReader, 0, 0d);
                     partialData = ReadBoolOrFallback(inputReader, 1, false);
                     string contributorsJson = ReadStringOrFallback(inputReader, 2, "{\"schema_ver\":1}");
+                    focusAppEntropy = ReadDoubleOrFallback(inputReader, 3, 0d);
                     try
                     {
                         using JsonDocument contributorsDoc = JsonDocument.Parse(contributorsJson);
@@ -691,6 +694,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 Confidence: ReadDoubleOrFallback(reader, 2, 0d),
                 SustainedAttentionDurationSec: ReadDoubleOrFallback(reader, 3, 0d),
                 IdleFragmentationIndex: ReadDoubleOrFallback(reader, 4, 0d),
+                FocusAppEntropy: focusAppEntropy ?? 0d,
                 OverloadActive: overloadActive,
                 StateFlagsJson: stateFlagsJson,
                 ContributorsJson: ReadStringOrFallback(reader, 6, "{\"schema_ver\":1}"),

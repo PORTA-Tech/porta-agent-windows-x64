@@ -69,6 +69,7 @@ public sealed record AgentLatestStateDetails(
     double Confidence,
     double SustainedAttentionDurationSec,
     double IdleFragmentationIndex,
+    double FocusAppEntropy,
     bool OverloadActive,
     string StateFlagsJson,
     string ContributorsJson,
