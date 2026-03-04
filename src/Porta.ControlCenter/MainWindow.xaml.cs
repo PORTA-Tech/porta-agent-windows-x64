@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.ServiceProcess;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -17,10 +18,13 @@ public partial class MainWindow : Window
 {
     private const string AgentServiceName = "AriAgent";
     private static readonly TimeSpan SlowRefreshInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ManualRefreshThrottle = TimeSpan.FromMilliseconds(700);
+    private static readonly TimeSpan StatusFreshnessWindow = TimeSpan.FromSeconds(12);
     private const string EventCursorFileName = "control-center.events.cursor";
 
     private readonly LocalApiClient _apiClient = new();
     private readonly DispatcherTimer _refreshTimer;
+    private readonly string _uiVersion = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "n/a";
     private LocalApiStatusResponse? _latestStatus;
     private LocalApiCurrentSnapshotResponse? _lastSnapshot;
     private IReadOnlyList<LocalApiEventResponse> _recentEvents = [];
@@ -35,6 +39,8 @@ public partial class MainWindow : Window
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private int _manualRefreshPending;
     private long _lastSeenEventId;
+    private DateTimeOffset _lastManualRefreshUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset? _lastStatusSuccessUtc;
 
     private enum UiSection
     {
@@ -51,6 +57,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _lastSeenEventId = LoadLastSeenEventId();
+        UiVersionMenuItem.Header = $"UI: {_uiVersion}";
 
         ShowSection(UiSection.Overview);
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -89,8 +96,11 @@ public partial class MainWindow : Window
 
         try
         {
-            RefreshButton.IsEnabled = false;
-            RefreshButton.Content = "Refreshing...";
+            if (manual)
+            {
+                RefreshButton.IsEnabled = false;
+                RefreshButton.Content = "Refreshing...";
+            }
             do
             {
                 Interlocked.Exchange(ref _manualRefreshPending, 0);
@@ -104,8 +114,11 @@ public partial class MainWindow : Window
         }
         finally
         {
-            RefreshButton.Content = "Refresh";
-            RefreshButton.IsEnabled = true;
+            if (manual)
+            {
+                RefreshButton.Content = "Refresh";
+                RefreshButton.IsEnabled = true;
+            }
             _refreshGate.Release();
         }
     }
@@ -113,8 +126,18 @@ public partial class MainWindow : Window
     private async Task RefreshDiagnosticsCoreAsync()
     {
         LocalApiEndpointSettings? endpoint = LocalApiRuntimeSettingsStore.LoadEndpoint();
+        LocalApiRuntimeSettings? runtimeSettings = LocalApiRuntimeSettingsStore.Load();
         ServiceProbeResult serviceProbe = ProbeServiceStatus();
         _latestStatus = await _apiClient.GetStatusAsync().ConfigureAwait(true);
+        if (_latestStatus != null)
+        {
+            _lastStatusSuccessUtc = DateTimeOffset.UtcNow;
+        }
+
+        bool statusFresh = _latestStatus != null
+            && _lastStatusSuccessUtc.HasValue
+            && (DateTimeOffset.UtcNow - _lastStatusSuccessUtc.Value) <= StatusFreshnessWindow
+            && (DateTimeOffset.UtcNow - _latestStatus.LastUpdatedUtc) <= StatusFreshnessWindow;
 
         bool apiReachable = _latestStatus != null;
         LocalApiCurrentSnapshotResponse? previousSnapshot = _lastSnapshot;
@@ -154,6 +177,7 @@ public partial class MainWindow : Window
 
         _recentEvents = _allRecentEvents.Take(5).ToArray();
         _lastSnapshot = snapshot;
+        NowTruth nowTruth = BuildNowTruth(serviceProbe, runtimeSettings, _latestStatus, snapshot, statusFresh);
 
         bool needsSlowRefresh = apiReachable
             && (DateTimeOffset.UtcNow - _lastSlowRefreshUtc) >= SlowRefreshInterval;
@@ -176,13 +200,10 @@ public partial class MainWindow : Window
         TrayRunningValue.Text = trayRunning ? "Yes" : "No";
         ApiReachableValue.Text = apiReachable ? "Yes" : "No";
         ApiPortValue.Text = endpoint?.Port.ToString(CultureInfo.InvariantCulture) ?? "Unavailable";
+        UpdateDebugFooter(nowTruth, statusFresh);
 
         if (_latestStatus == null)
         {
-            StatusPillText.Text = serviceProbe.Running ? "API Unreachable" : "Offline";
-            ConsentBadgeText.Text = "Consent: Unknown";
-            BackendBadgeText.Text = "Backend: Unknown";
-            VersionText.Text = "Version: n/a";
             ConsentActiveValue.Text = "Unknown";
             BackendConnectedValue.Text = "Unknown";
             FocusStrengthValue.Text = "Unknown";
@@ -203,7 +224,8 @@ public partial class MainWindow : Window
             QuickPauseResumeButton.Content = "Pause";
             QuickPauseResumeButton.IsEnabled = false;
             ConsentOverlay.Visibility = Visibility.Collapsed;
-            PopulateOverview(null, null, [], previousSnapshot);
+            UpdateTopBar(serviceProbe, runtimeSettings, null, nowTruth);
+            PopulateOverview(nowTruth, null, [], previousSnapshot);
             PopulateInputs(null, null);
             PopulateInterventions([], null);
             PopulateSettings(null);
@@ -214,24 +236,25 @@ public partial class MainWindow : Window
         }
 
         bool consentMissing = !_latestStatus.ConsentActive;
-        StatusPillText.Text = consentMissing
-            ? "Needs Consent"
-            : (_latestStatus.Paused ? "Paused" : "Running");
-        ConsentBadgeText.Text = $"Consent: {(_latestStatus.ConsentActive ? "Active" : "Missing")}";
-        BackendBadgeText.Text = $"Backend: {(_latestStatus.BackendConnected ? "Connected" : "Offline")}";
-        VersionText.Text = $"Version: {_latestStatus.AgentVersion}";
 
         ConsentActiveValue.Text = _latestStatus.ConsentActive ? "Yes" : "No";
         BackendConnectedValue.Text = _latestStatus.BackendConnected ? "Yes" : "No";
-        double focusStrength = snapshot?.FocusStrength ?? _latestStatus.FocusStrength;
-        double overloadLikelihood = snapshot?.OverloadLikelihood ?? _latestStatus.OverloadLikelihood;
-        string lastAction = snapshot?.LastAction ?? _latestStatus.LastAction;
+        LocalApiCurrentSnapshotResponse? truthSnapshot = nowTruth.Snapshot;
+        if (truthSnapshot != null)
+        {
+            FocusStrengthValue.Text = truthSnapshot.FocusStrength.ToString("F2", CultureInfo.InvariantCulture);
+            OverloadValue.Text = truthSnapshot.OverloadLikelihood.ToString("F2", CultureInfo.InvariantCulture);
+            LastActionValue.Text = inputSummary != null
+                ? $"{truthSnapshot.LastAction} | inputSamples={inputSummary.SampleCount}"
+                : truthSnapshot.LastAction;
+        }
+        else
+        {
+            FocusStrengthValue.Text = "Unknown";
+            OverloadValue.Text = "Unknown";
+            LastActionValue.Text = "Unknown";
+        }
 
-        FocusStrengthValue.Text = focusStrength.ToString("F2", CultureInfo.InvariantCulture);
-        OverloadValue.Text = overloadLikelihood.ToString("F2", CultureInfo.InvariantCulture);
-        LastActionValue.Text = inputSummary != null
-            ? $"{lastAction} | inputSamples={inputSummary.SampleCount}"
-            : lastAction;
         LastEventValue.Text = _latestStatus.LastEventTimestampUtc?.ToString("O") ?? "n/a";
         PolicyVersionValue.Text = _latestStatus.PolicyVersion;
         SchemaVersionValue.Text = _latestStatus.SchemaVersion;
@@ -239,37 +262,52 @@ public partial class MainWindow : Window
         ConsentVersionValue.Text = _latestStatus.ConsentVersion;
         ConsentTimestampValue.Text = _latestStatus.ConsentTimestampUtc?.ToString("O") ?? "n/a";
         ConsentHashValue.Text = _latestStatus.ConsentDisclosureHash;
-        LastErrorValue.Text = BuildOnlineErrorMessage(_latestStatus.LastError, serviceProbe);
-        SnapshotConfidenceValue.Text = snapshot != null
-            ? snapshot.Confidence.ToString("F2", CultureInfo.InvariantCulture)
+        LastErrorValue.Text = string.IsNullOrWhiteSpace(nowTruth.Explanation)
+            ? BuildOnlineErrorMessage(_latestStatus.LastError, serviceProbe, statusFresh)
+            : nowTruth.Explanation;
+        SnapshotConfidenceValue.Text = truthSnapshot != null
+            ? truthSnapshot.Confidence.ToString("F2", CultureInfo.InvariantCulture)
             : "n/a";
-        OverloadActiveValue.Text = snapshot != null
-            ? (snapshot.OverloadActive ? "Yes" : "No")
+        OverloadActiveValue.Text = truthSnapshot != null
+            ? (truthSnapshot.OverloadActive ? "Yes" : "No")
             : "n/a";
-        SustainedAttentionValue.Text = snapshot != null
-            ? snapshot.SustainedAttentionDurationSec.ToString("F0", CultureInfo.InvariantCulture)
+        SustainedAttentionValue.Text = truthSnapshot != null
+            ? truthSnapshot.SustainedAttentionDurationSec.ToString("F0", CultureInfo.InvariantCulture)
             : "n/a";
-        IdleFragmentationValue.Text = snapshot != null
-            ? snapshot.IdleFragmentationIndex.ToString("F2", CultureInfo.InvariantCulture)
+        IdleFragmentationValue.Text = truthSnapshot != null
+            ? truthSnapshot.IdleFragmentationIndex.ToString("F2", CultureInfo.InvariantCulture)
             : "n/a";
         QuickPauseResumeButton.Content = _latestStatus.Paused ? "Resume" : "Pause";
         QuickPauseResumeButton.IsEnabled = true;
         ConsentOverlay.Visibility = consentMissing ? Visibility.Visible : Visibility.Collapsed;
+        UpdateTopBar(serviceProbe, runtimeSettings, _latestStatus, nowTruth);
 
-        PopulateOverview(snapshot, inputSummary, _recentEvents, previousSnapshot);
+        PopulateOverview(nowTruth, inputSummary, _recentEvents, previousSnapshot);
         PopulateInputs(inputSummary, _retention);
         PopulateInterventions(_allRecentEvents, _effectiveSettings);
         PopulateSettings(_effectiveSettings);
-        PopulateStates(snapshot);
+        PopulateStates(truthSnapshot);
         PopulateTimeline(_hourTimeline);
         UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
     }
 
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)
     {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        if ((nowUtc - _lastManualRefreshUtc) < ManualRefreshThrottle)
+        {
+            return;
+        }
+
+        _lastManualRefreshUtc = nowUtc;
         ControlCenterFileLog.Info("manual_refresh_clicked");
         await RefreshDiagnosticsAsync(manual: true).ConfigureAwait(true);
         ControlCenterFileLog.Info($"manual_refresh_completed api_reachable={(_latestStatus != null).ToString().ToLowerInvariant()}");
+    }
+
+    private void NowOpenActionsButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowSection(UiSection.Interventions);
     }
 
     private void OverviewNavButton_Click(object sender, RoutedEventArgs e)
@@ -501,11 +539,14 @@ public partial class MainWindow : Window
     }
 
     private void PopulateOverview(
-        LocalApiCurrentSnapshotResponse? snapshot,
+        NowTruth nowTruth,
         LocalApiInputsSummaryResponse? inputSummary,
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         LocalApiCurrentSnapshotResponse? previousSnapshot)
     {
+        PopulateNowCards(nowTruth, recentEvents);
+        LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
+
         if (snapshot == null)
         {
             SetStateCard(FocusCardValue, FocusCardConfidence, FocusCardTrend, FocusCardBand, null, null, "focus", null);
@@ -531,6 +572,371 @@ public partial class MainWindow : Window
 
         RenderRecentActions(recentEvents);
         UpdateTodaySummary(inputSummary);
+    }
+
+    private void PopulateNowCards(NowTruth nowTruth, IReadOnlyList<LocalApiEventResponse> recentEvents)
+    {
+        LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
+        if (snapshot == null)
+        {
+            NowOverloadValueText.Text = "Overload: --";
+            NowOverloadActiveText.Text = "Active: --";
+            NowOverloadTrustText.Text = "Trust level: --";
+            NowFocusStreakValueText.Text = "Focused time: --";
+            NowFocusChoppinessText.Text = "Choppiness: --";
+            NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
+            NowFocusStatusText.Text = nowTruth.Explanation;
+            NowFocusStatusText.Visibility = string.IsNullOrWhiteSpace(nowTruth.Explanation)
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+            NowOverloadFivText.Text = "Explain not available (backend field missing).";
+            NowOverloadTopReasonsText.Text = "Top reasons: --";
+            NowOverloadQualityAgreementText.Text = "Quality: -- | Agreement: --";
+
+            NowCalibrationStatusText.Text = "Calibrating...";
+            NowCalibrationProgressText.Text = "Progress: --";
+            NowCalibrationQualityText.Text = "Recent data quality: -- (last 2 min)";
+            NowCalibrationColdStartText.Text = "Cold start: --";
+            NowCalibrationTrustCapText.Visibility = Visibility.Visible;
+
+            NowDataQualityScoreText.Text = "Quality score: --";
+            NowDataQualityPartialText.Text = "Partial data: --";
+            NowDataQualityMissingText.Visibility = Visibility.Collapsed;
+
+            NowLastActionTitleText.Text = "No actions recently";
+            NowLastActionTimeText.Text = "Time: --";
+            NowOpenActionsButton.IsEnabled = false;
+
+            NowWhatPortaDoingText.Text = nowTruth.Explanation;
+            return;
+        }
+
+        NowOverloadValueText.Text = $"Overload {(snapshot.OverloadLikelihood * 100d):F0}%";
+        NowOverloadActiveText.Text = $"Active: {(snapshot.OverloadActive ? "Yes" : "No")}";
+        NowOverloadTrustText.Text = $"Trust level: {(snapshot.Confidence * 100d):F0}%";
+        NowFocusStreakValueText.Text = $"Focused time: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
+        NowFocusChoppinessText.Text = $"Choppiness: {MapChoppiness(snapshot.IdleFragmentationIndex)} ({snapshot.IdleFragmentationIndex:F2})";
+        NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
+        string focusStatus = BuildFocusStatusMessage(snapshot);
+        NowFocusStatusText.Text = focusStatus;
+        NowFocusStatusText.Visibility = string.IsNullOrWhiteSpace(focusStatus)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+        OverloadExplainView explain = ParseOverloadExplain(snapshot.ContributorsJson);
+        NowOverloadFivText.Text = explain.FivSummary;
+        NowOverloadTopReasonsText.Text = $"Top reasons: {explain.TopReasons}";
+        NowOverloadQualityAgreementText.Text = $"Quality: {explain.Quality} | Agreement: {explain.Agreement}";
+
+        bool calibrationReady = snapshot.BaselineReady == true;
+        NowCalibrationStatusText.Text = calibrationReady ? "Ready" : "Calibrating...";
+        NowCalibrationProgressText.Text = snapshot.BaselineReadyPct.HasValue
+            ? $"Progress: {(snapshot.BaselineReadyPct.Value * 100d):F0}% metrics ready"
+            : "Progress: n/a";
+        NowCalibrationQualityText.Text = snapshot.AvgQuality2m.HasValue
+            ? $"Recent data quality: {snapshot.AvgQuality2m.Value:F2} (last 2 min)"
+            : "Recent data quality: n/a (last 2 min)";
+        NowCalibrationColdStartText.Text = $"Cold start: {MapOnOff(snapshot.ColdStart)}";
+        NowCalibrationTrustCapText.Visibility = calibrationReady ? Visibility.Collapsed : Visibility.Visible;
+
+        NowDataQualityScoreText.Text = snapshot.CurrentQualityScore.HasValue
+            ? $"Quality score: {snapshot.CurrentQualityScore.Value:F2}"
+            : "Quality score: n/a";
+        NowDataQualityPartialText.Text = $"Partial data: {MapYesNo(snapshot.PartialData)}";
+        if (snapshot.MissingMajorChannels != null && snapshot.MissingMajorChannels.Count > 0)
+        {
+            string missing = string.Join(" / ", snapshot.MissingMajorChannels.Select(ToDisplayChannelName));
+            NowDataQualityMissingText.Text = $"Missing: {missing}";
+            NowDataQualityMissingText.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            NowDataQualityMissingText.Visibility = Visibility.Collapsed;
+        }
+
+        LocalApiEventResponse? lastActionEvent = recentEvents.FirstOrDefault();
+        if (lastActionEvent == null)
+        {
+            NowLastActionTitleText.Text = "No actions recently";
+            NowLastActionTimeText.Text = "Time: n/a";
+            NowOpenActionsButton.IsEnabled = false;
+        }
+        else
+        {
+            NowLastActionTitleText.Text = ToActionTitle(lastActionEvent);
+            NowLastActionTimeText.Text = $"Time: {lastActionEvent.TsUtc.ToLocalTime():HH:mm:ss}";
+            NowOpenActionsButton.IsEnabled = true;
+        }
+
+        NowWhatPortaDoingText.Text = BuildNowDoingSentence(snapshot);
+    }
+
+    private static string FormatFocusedTime(double sustainedAttentionSeconds)
+    {
+        if (sustainedAttentionSeconds < 60d)
+        {
+            return $"{Math.Max(0d, sustainedAttentionSeconds):F0} sec";
+        }
+
+        double minutes = Math.Floor(sustainedAttentionSeconds / 60d);
+        return $"{minutes:F0} min";
+    }
+
+    private static string MapChoppiness(double idleFragmentationIndex)
+    {
+        if (idleFragmentationIndex < 0.20d)
+        {
+            return "Low";
+        }
+
+        if (idleFragmentationIndex < 0.45d)
+        {
+            return "Medium";
+        }
+
+        return "High";
+    }
+
+    private static string BuildFocusStatusMessage(LocalApiCurrentSnapshotResponse snapshot)
+    {
+        if (snapshot.PartialData == true && snapshot.MissingMajorChannels is { Count: > 0 })
+        {
+            string missing = string.Join("/", snapshot.MissingMajorChannels.Select(ToDisplayChannelName));
+            return $"Focus streak paused: missing {missing} signals.";
+        }
+
+        if (snapshot.PartialData == true)
+        {
+            return "Focus streak is conservative while data is partial.";
+        }
+
+        if (snapshot.SustainedAttentionDurationSec <= 0.5d)
+        {
+            return "No continuous focus streak detected yet.";
+        }
+
+        return string.Empty;
+    }
+
+    private static string MapOnOff(bool? value)
+    {
+        if (!value.HasValue)
+        {
+            return "n/a";
+        }
+
+        return value.Value ? "On" : "Off";
+    }
+
+    private static string MapYesNo(bool? value)
+    {
+        if (!value.HasValue)
+        {
+            return "n/a";
+        }
+
+        return value.Value ? "Yes" : "No";
+    }
+
+    private static string ToDisplayChannelName(string channel)
+    {
+        return channel.ToLowerInvariant() switch
+        {
+            "keyboard" => "Keyboard",
+            "mouse" => "Mouse",
+            "focus" => "Focus",
+            "idle" => "Idle",
+            _ => channel
+        };
+    }
+
+    private static string ToActionTitle(LocalApiEventResponse actionEvent)
+    {
+        if (string.Equals(actionEvent.Type, "BREAK_SUGGESTION", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(actionEvent.Action, "BREAK_SUGGESTION", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Break suggested";
+        }
+
+        if (string.IsNullOrWhiteSpace(actionEvent.Action))
+        {
+            return "Action recorded";
+        }
+
+        return actionEvent.Action.Replace('_', ' ');
+    }
+
+    private string BuildNowDoingSentence(LocalApiCurrentSnapshotResponse snapshot)
+    {
+        if (_latestStatus?.Paused == true)
+        {
+            if (_latestStatus.PauseUntilUtc.HasValue && _latestStatus.PauseUntilUtc.Value > DateTimeOffset.UtcNow)
+            {
+                return $"Paused until {_latestStatus.PauseUntilUtc.Value.ToLocalTime():h:mm tt}";
+            }
+
+            return "Paused.";
+        }
+
+        if (_latestStatus?.ConsentActive == false)
+        {
+            return "Waiting for consent before collecting.";
+        }
+
+        if (_effectiveSettings != null
+            && !_effectiveSettings.NotificationReductionEnabled
+            && !_effectiveSettings.FocusModeEnabled
+            && !_effectiveSettings.AnimationReductionEnabled
+            && !_effectiveSettings.TemporaryAppRestrictionEnabled)
+        {
+            return "Watching only (no actions enabled)";
+        }
+
+        if (snapshot.BaselineReady == false)
+        {
+            return "Calibrating before suggesting actions.";
+        }
+
+        return "Ready to suggest breaks when needed";
+    }
+
+    private static OverloadExplainView ParseOverloadExplain(string? contributorsJson)
+    {
+        if (string.IsNullOrWhiteSpace(contributorsJson))
+        {
+            return OverloadExplainView.Unavailable;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(contributorsJson);
+            JsonElement root = doc.RootElement;
+            if (!root.TryGetProperty("components", out JsonElement components))
+            {
+                return OverloadExplainView.Unavailable;
+            }
+
+            double? clarity = ReadComponentValue(components, "F");
+            double? pressure = ReadComponentValue(components, "I");
+            double? jitter = ReadComponentValue(components, "V");
+            string fivSummary = BuildFivSummary(clarity, pressure, jitter);
+
+            string topReasons = BuildTopReasons(components);
+
+            string qualityText = TryReadDouble(root, "quality", out double quality)
+                ? quality.ToString("F2", CultureInfo.InvariantCulture)
+                : "n/a";
+            string agreementText = TryReadDouble(root, "agreement", out double agreement)
+                ? agreement.ToString("F2", CultureInfo.InvariantCulture)
+                : "n/a";
+
+            return new OverloadExplainView(
+                FivSummary: fivSummary,
+                TopReasons: topReasons,
+                Quality: qualityText,
+                Agreement: agreementText);
+        }
+        catch
+        {
+            return OverloadExplainView.Unavailable;
+        }
+    }
+
+    private static string BuildFivSummary(double? clarity, double? pressure, double? jitter)
+    {
+        if (!clarity.HasValue || !pressure.HasValue || !jitter.HasValue)
+        {
+            return "Explain not available (backend field missing).";
+        }
+
+        return $"Clarity: {clarity.Value:F2} | Pressure: {pressure.Value:F2} | Jitter: {jitter.Value:F2}";
+    }
+
+    private static double? ReadComponentValue(JsonElement components, string key)
+    {
+        if (!components.TryGetProperty(key, out JsonElement component))
+        {
+            return null;
+        }
+
+        if (!component.TryGetProperty("value", out JsonElement value))
+        {
+            return null;
+        }
+
+        return value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out double parsed)
+            ? parsed
+            : null;
+    }
+
+    private static string BuildTopReasons(JsonElement components)
+    {
+        var reasons = new List<(string Key, double Weight)>();
+        foreach (string componentKey in new[] { "F", "I", "V" })
+        {
+            if (!components.TryGetProperty(componentKey, out JsonElement component)
+                || !component.TryGetProperty("top", out JsonElement top)
+                || top.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (JsonElement item in top.EnumerateArray())
+            {
+                if (!item.TryGetProperty("key", out JsonElement keyElem))
+                {
+                    continue;
+                }
+
+                string? key = keyElem.GetString();
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    continue;
+                }
+
+                double weight = 0d;
+                if (item.TryGetProperty("contrib", out JsonElement contrib)
+                    && contrib.ValueKind == JsonValueKind.Number
+                    && contrib.TryGetDouble(out double parsedContrib))
+                {
+                    weight = Math.Abs(parsedContrib);
+                }
+                else if (item.TryGetProperty("w", out JsonElement w)
+                    && w.ValueKind == JsonValueKind.Number
+                    && w.TryGetDouble(out double parsedW))
+                {
+                    weight = Math.Abs(parsedW);
+                }
+                else if (item.TryGetProperty("value", out JsonElement value)
+                    && value.ValueKind == JsonValueKind.Number
+                    && value.TryGetDouble(out double parsedValue))
+                {
+                    weight = Math.Abs(parsedValue);
+                }
+
+                reasons.Add((key, weight));
+            }
+        }
+
+        string[] topReasons = reasons
+            .OrderByDescending(static reason => reason.Weight)
+            .ThenBy(static reason => reason.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(static reason => reason.Key)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .ToArray();
+
+        return topReasons.Length > 0
+            ? string.Join(", ", topReasons)
+            : "Explain not available (backend field missing).";
+    }
+
+    private static bool TryReadDouble(JsonElement parent, string propertyName, out double value)
+    {
+        value = default;
+        return parent.TryGetProperty(propertyName, out JsonElement property)
+            && property.ValueKind == JsonValueKind.Number
+            && property.TryGetDouble(out value);
     }
 
     private void SetStateCard(
@@ -1430,6 +1836,196 @@ public partial class MainWindow : Window
         }
     }
 
+    private void UpdateTopBar(
+        ServiceProbeResult serviceProbe,
+        LocalApiRuntimeSettings? runtimeSettings,
+        LocalApiStatusResponse? status,
+        NowTruth nowTruth)
+    {
+        string runState = status == null
+            ? (serviceProbe.Running ? "Running" : "Paused")
+            : (status.Paused ? "Paused" : "Running");
+        StatusPillText.Text = runState;
+        SetBadgeVisual(StatusPillBorder, isPositive: runState == "Running");
+
+        bool consentOn = status?.ConsentActive == true;
+        ConsentBadgeText.Text = $"Consent: {(consentOn ? "On" : "Needed")}";
+        SetBadgeVisual(ConsentBadgeBorder, isPositive: consentOn);
+
+        bool calibrationReady = nowTruth.Snapshot?.BaselineReady
+            ?? (status != null && (_effectiveSettings?.BaselineRecalibrationActive != true));
+        CalibrationBadgeText.Text = $"Calibration: {(calibrationReady ? "Ready" : "Calibrating")}";
+        SetBadgeVisual(CalibrationBadgeBorder, isPositive: calibrationReady);
+
+        string trustLabel = MapTrustLabel(nowTruth.Snapshot?.Confidence);
+        TrustBadgeText.Text = $"Trust: {trustLabel}";
+        SetTrustBadgeVisual(trustLabel);
+
+        bool statusFresh = status != null
+            && _lastStatusSuccessUtc.HasValue
+            && (DateTimeOffset.UtcNow - _lastStatusSuccessUtc.Value) <= StatusFreshnessWindow
+            && (DateTimeOffset.UtcNow - status.LastUpdatedUtc) <= StatusFreshnessWindow;
+        string? hint = BuildTopBarHint(serviceProbe, runtimeSettings, status, statusFresh);
+        TopBarHintText.Text = hint ?? string.Empty;
+        TopBarHintText.Visibility = string.IsNullOrWhiteSpace(hint) ? Visibility.Collapsed : Visibility.Visible;
+
+        AgentVersionMenuItem.Header = $"Agent: {status?.AgentVersion ?? "n/a"}";
+        UiVersionMenuItem.Header = $"UI: {_uiVersion}";
+        SchemaVersionMenuItem.Header = $"Schema: {status?.SchemaVersion ?? "n/a"}";
+    }
+
+    private static void SetBadgeVisual(Border border, bool isPositive)
+    {
+        border.Background = isPositive
+            ? new SolidColorBrush(Color.FromRgb(6, 95, 70))
+            : new SolidColorBrush(Color.FromRgb(127, 29, 29));
+    }
+
+    private void SetTrustBadgeVisual(string trustLabel)
+    {
+        TrustBadgeBorder.Background = trustLabel switch
+        {
+            "High" => new SolidColorBrush(Color.FromRgb(6, 95, 70)),
+            "Medium" => new SolidColorBrush(Color.FromRgb(146, 64, 14)),
+            "--" => new SolidColorBrush(Color.FromRgb(51, 65, 85)),
+            _ => new SolidColorBrush(Color.FromRgb(127, 29, 29))
+        };
+    }
+
+    private static string MapTrustLabel(double? confidence)
+    {
+        if (!confidence.HasValue)
+        {
+            return "--";
+        }
+
+        if (confidence.Value >= 0.85d)
+        {
+            return "High";
+        }
+
+        return confidence.Value >= 0.65d ? "Medium" : "Low";
+    }
+
+    private static string? BuildTopBarHint(
+        ServiceProbeResult serviceProbe,
+        LocalApiRuntimeSettings? runtimeSettings,
+        LocalApiStatusResponse? status,
+        bool statusFresh)
+    {
+        if (status == null)
+        {
+            if (runtimeSettings is { LocalApiAuthReady: false })
+            {
+                return $"Local API auth error: {runtimeSettings.LocalApiAuthError ?? "TOKEN_READ_FAILED"}";
+            }
+
+            return serviceProbe.Running
+                ? "Not updating: Local API unreachable"
+                : "Not updating: Service offline";
+        }
+
+        if (!status.LocalApiAuthReady)
+        {
+            return $"Local API auth error: {status.LocalApiAuthError ?? "TOKEN_READ_FAILED"}";
+        }
+
+        if (!statusFresh)
+        {
+            return "Not updating: Status stale";
+        }
+
+        if (!status.ConsentActive)
+        {
+            return "Not collecting: Consent needed";
+        }
+
+        if (IsMigrationFailure(status.LastError))
+        {
+            return "Not updating: Database migration failed";
+        }
+
+        return null;
+    }
+
+    private static NowTruth BuildNowTruth(
+        ServiceProbeResult serviceProbe,
+        LocalApiRuntimeSettings? runtimeSettings,
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        bool statusFresh)
+    {
+        if (status == null)
+        {
+            if (runtimeSettings is { LocalApiAuthReady: false })
+            {
+                return new NowTruth(
+                    Snapshot: null,
+                    Explanation: $"Local API auth error: {runtimeSettings.LocalApiAuthError ?? "TOKEN_READ_FAILED"}");
+            }
+
+            string explanation = serviceProbe.Running
+                ? "Not updating: Local API unreachable"
+                : "Not updating: Service offline";
+            return new NowTruth(
+                Snapshot: null,
+                Explanation: explanation);
+        }
+
+        if (!status.LocalApiAuthReady)
+        {
+            return new NowTruth(
+                Snapshot: null,
+                Explanation: $"Local API auth error: {status.LocalApiAuthError ?? "TOKEN_READ_FAILED"}");
+        }
+
+        if (!statusFresh)
+        {
+            return new NowTruth(
+                Snapshot: null,
+                Explanation: "Not updating: Status stale");
+        }
+
+        if (snapshot == null)
+        {
+            return new NowTruth(
+                Snapshot: null,
+                Explanation: "Not updating: Snapshot unavailable");
+        }
+
+        return new NowTruth(
+            Snapshot: snapshot,
+            Explanation: string.Empty);
+    }
+
+    private void UpdateDebugFooter(NowTruth nowTruth, bool statusFresh)
+    {
+#if DEBUG
+        string statusCode = _apiClient.LastStatusHttpCode?.ToString(CultureInfo.InvariantCulture) ?? "n/a";
+        string snapshotCode = _apiClient.LastSnapshotHttpCode?.ToString(CultureInfo.InvariantCulture) ?? "n/a";
+        string statusAt = _apiClient.LastStatusProbeUtc?.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture) ?? "--:--:--";
+        string snapshotAt = _apiClient.LastSnapshotProbeUtc?.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture) ?? "--:--:--";
+        string snapshotState = nowTruth.Snapshot != null ? "yes" : "no";
+        string freshness = statusFresh ? "fresh" : "stale";
+        DebugFooterText.Text =
+            $"DEBUG /v1/status={statusCode} @{statusAt} | /v1/snapshot/current={snapshotCode} @{snapshotAt} | status={freshness} | snapshot={snapshotState}";
+        DebugFooterText.Visibility = Visibility.Visible;
+#else
+        DebugFooterText.Visibility = Visibility.Collapsed;
+#endif
+    }
+
+    private static bool IsMigrationFailure(string? errorText)
+    {
+        if (string.IsNullOrWhiteSpace(errorText))
+        {
+            return false;
+        }
+
+        return errorText.Contains("db_migration_failed", StringComparison.OrdinalIgnoreCase)
+            || errorText.Contains("migration", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string BuildOfflineErrorMessage(ServiceProbeResult serviceProbe, LocalApiEndpointSettings? endpoint)
     {
         string endpointText = endpoint == null
@@ -1443,11 +2039,16 @@ public partial class MainWindow : Window
         return $"local_api_unreachable ({serviceText}, {endpointText})";
     }
 
-    private static string BuildOnlineErrorMessage(string? apiError, ServiceProbeResult serviceProbe)
+    private static string BuildOnlineErrorMessage(string? apiError, ServiceProbeResult serviceProbe, bool statusFresh)
     {
         if (!string.IsNullOrWhiteSpace(apiError))
         {
             return apiError;
+        }
+
+        if (!statusFresh)
+        {
+            return "status_stale";
         }
 
         return serviceProbe.Running
@@ -1482,6 +2083,21 @@ public partial class MainWindow : Window
 
     private sealed record ServiceProbeResult(bool Exists, bool Running, string StatusText, string? ErrorText);
     private sealed record RestartResult(bool Success, string Message);
+    private sealed record NowTruth(LocalApiCurrentSnapshotResponse? Snapshot, string Explanation);
+    private sealed record OverloadExplainView(
+        string FivSummary,
+        string TopReasons,
+        string Quality,
+        string Agreement)
+    {
+        public static OverloadExplainView Unavailable =>
+            new(
+                "Explain not available (backend field missing).",
+                "Explain not available (backend field missing).",
+                "n/a",
+                "n/a");
+    }
+
     private enum TimelineTrackKind
     {
         Primitives,

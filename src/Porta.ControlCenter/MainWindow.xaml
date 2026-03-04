@@ -38,19 +38,113 @@
             <Border Grid.Row="0" Background="#0B1220" BorderBrush="#1F2937" BorderThickness="0,0,0,1">
                 <DockPanel LastChildFill="False" Margin="16,10">
                     <TextBlock x:Name="SectionTitleText" Text="Now" DockPanel.Dock="Left" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,20,0" />
-                    <Border CornerRadius="12" Background="#1D4ED8" Padding="10,4" Margin="0,0,10,0"><TextBlock x:Name="StatusPillText" Text="Unknown" FontWeight="Bold" /></Border>
-                    <Border CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0"><TextBlock x:Name="ConsentBadgeText" Text="Consent: Unknown" /></Border>
-                    <Border CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0"><TextBlock x:Name="BackendBadgeText" Text="Backend: Unknown" /></Border>
-                    <TextBlock x:Name="VersionText" Text="Version: n/a" VerticalAlignment="Center" Margin="0,0,20,0" />
+                    <Border x:Name="StatusPillBorder" CornerRadius="12" Background="#1D4ED8" Padding="10,4" Margin="0,0,10,0">
+                        <TextBlock x:Name="StatusPillText" Text="Running" FontWeight="Bold" />
+                    </Border>
+                    <Border x:Name="ConsentBadgeBorder" CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0">
+                        <TextBlock x:Name="ConsentBadgeText" Text="Consent: Needed" />
+                    </Border>
+                    <Border x:Name="CalibrationBadgeBorder" CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0">
+                        <TextBlock x:Name="CalibrationBadgeText" Text="Calibration: Calibrating" />
+                    </Border>
+                    <Border x:Name="TrustBadgeBorder" CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0">
+                        <TextBlock x:Name="TrustBadgeText" Text="Trust: Low" />
+                    </Border>
+                    <TextBlock x:Name="TopBarHintText" Text="" VerticalAlignment="Center" Foreground="#FB923C" Margin="0,0,16,0" Visibility="Collapsed" />
                     <Button x:Name="QuickPauseResumeButton" Content="Pause" Padding="12,6" Margin="0,0,10,0" Click="QuickPauseResumeButton_Click" />
-                    <Button x:Name="RefreshButton" Content="Refresh" Padding="12,6" Click="RefreshButton_Click" />
+                    <Button x:Name="RefreshButton" Content="Refresh" Padding="12,6" Margin="0,0,10,0" Click="RefreshButton_Click" />
+                    <Menu Background="Transparent" Foreground="#E2E8F0" VerticalAlignment="Center">
+                        <MenuItem Header="Versions">
+                            <MenuItem x:Name="AgentVersionMenuItem" Header="Agent: n/a" IsEnabled="False" />
+                            <MenuItem x:Name="UiVersionMenuItem" Header="UI: n/a" IsEnabled="False" />
+                            <MenuItem x:Name="SchemaVersionMenuItem" Header="Schema: n/a" IsEnabled="False" />
+                        </MenuItem>
+                    </Menu>
                 </DockPanel>
             </Border>
 
             <Grid Grid.Row="1">
                 <ScrollViewer x:Name="OverviewPanel" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <WrapPanel Margin="0,0,0,12">
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Background="#111827" CornerRadius="8" Padding="12" Margin="0,0,8,0" BorderBrush="#1F2937" BorderThickness="1">
+                                <StackPanel>
+                                    <TextBlock Text="Overload" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowOverloadValueText" Text="Overload: n/a" FontSize="26" FontWeight="Bold" />
+                                    <TextBlock x:Name="NowOverloadActiveText" Text="Active: n/a" Margin="0,6,0,0" />
+                                    <TextBlock x:Name="NowOverloadTrustText" Text="Trust level: n/a" Margin="0,4,0,8" />
+                                    <Expander Header="Why?" Margin="0,4,0,0" Foreground="#E2E8F0">
+                                        <Border Background="#0B1220" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,8,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="Signals behind overload" FontSize="12" Foreground="#93C5FD" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                                <TextBlock x:Name="NowOverloadFivText" Text="Explain not available (backend field missing)." TextWrapping="Wrap" Foreground="#E2E8F0" />
+                                                <TextBlock x:Name="NowOverloadTopReasonsText" Text="Top reasons: n/a" TextWrapping="Wrap" Foreground="#CBD5E1" Margin="0,8,0,0" />
+                                                <TextBlock x:Name="NowOverloadQualityAgreementText" Text="Quality: n/a | Agreement: n/a" Foreground="#CBD5E1" Margin="0,8,0,0" />
+                                                <TextBlock Text="Turns ON after 2 min above 80%" Margin="0,8,0,0" Foreground="#93C5FD" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </Border>
+                                    </Expander>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Background="#111827" CornerRadius="8" Padding="12" Margin="8,0,0,0" BorderBrush="#1F2937" BorderThickness="1">
+                                <StackPanel>
+                                    <TextBlock Text="Focus streak" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowFocusStreakValueText" Text="Focused time: n/a" FontSize="26" FontWeight="Bold" />
+                                    <TextBlock x:Name="NowFocusChoppinessText" Text="Choppiness: n/a" Margin="0,8,0,0" />
+                                    <TextBlock x:Name="NowFocusFootnoteText" Text="Resets after 2+ minutes away." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowFocusStatusText" Text="" Margin="0,6,0,0" Foreground="#F59E0B" TextWrapping="Wrap" Visibility="Collapsed" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Background="#111827" CornerRadius="8" Padding="12" Margin="0,0,8,0" BorderBrush="#1F2937" BorderThickness="1">
+                                <StackPanel>
+                                    <TextBlock Text="Calibration" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowCalibrationStatusText" Text="Calibrating..." FontSize="20" FontWeight="Bold" />
+                                    <TextBlock x:Name="NowCalibrationProgressText" Text="Progress: n/a" Margin="0,6,0,0" />
+                                    <TextBlock x:Name="NowCalibrationQualityText" Text="Recent data quality: n/a (last 2 min)" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="NowCalibrationColdStartText" Text="Cold start: n/a" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="NowCalibrationTrustCapText" Text="Trust is capped until calibration completes." Foreground="#FB923C" Margin="0,8,0,0" Visibility="Collapsed" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Background="#111827" CornerRadius="8" Padding="12" Margin="8,0,0,0" BorderBrush="#1F2937" BorderThickness="1">
+                                <StackPanel>
+                                    <TextBlock Text="Data quality" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowDataQualityScoreText" Text="Quality score: n/a" FontSize="20" FontWeight="Bold" />
+                                    <TextBlock x:Name="NowDataQualityPartialText" Text="Partial data: n/a" Margin="0,6,0,0" />
+                                    <TextBlock x:Name="NowDataQualityMissingText" Text="" Margin="0,6,0,0" Visibility="Collapsed" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Background="#111827" CornerRadius="8" Padding="12" Margin="0,0,8,0" BorderBrush="#1F2937" BorderThickness="1">
+                                <StackPanel>
+                                    <TextBlock Text="Last action" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowLastActionTitleText" Text="No actions recently" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowLastActionTimeText" Text="Time: n/a" Margin="0,6,0,8" />
+                                    <Button x:Name="NowOpenActionsButton" Content="Open Actions" Padding="10,6" Width="130" Click="NowOpenActionsButton_Click" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Background="#111827" CornerRadius="8" Padding="12" Margin="8,0,0,0" BorderBrush="#1F2937" BorderThickness="1">
+                                <StackPanel>
+                                    <TextBlock Text="What PORTA is doing" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowWhatPortaDoingText" Text="n/a" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <WrapPanel Margin="0,0,0,12" Visibility="Collapsed">
                             <Border Background="#111827" CornerRadius="8" Padding="10" Margin="0,0,8,8" BorderBrush="#1F2937" BorderThickness="1" Width="200">
                                 <StackPanel><Border x:Name="FocusCardBand" Height="4" Background="#475569" Margin="0,0,0,6" /><TextBlock Text="Focus" /><TextBlock x:Name="FocusCardValue" FontSize="24" Text="0.00" /><TextBlock x:Name="FocusCardConfidence" Text="Confidence: 0%" /><TextBlock x:Name="FocusCardTrend" Text="Trend: Stable" /></StackPanel>
                             </Border>
@@ -64,10 +158,10 @@
                                 <StackPanel><Border x:Name="StabilityCardBand" Height="4" Background="#475569" Margin="0,0,0,6" /><TextBlock Text="Stability" /><TextBlock x:Name="StabilityCardValue" FontSize="24" Text="0.00" /><TextBlock x:Name="StabilityCardConfidence" Text="Confidence: 0%" /><TextBlock x:Name="StabilityCardTrend" Text="Trend: Stable" /></StackPanel>
                             </Border>
                         </WrapPanel>
-                        <Border Background="#111827" CornerRadius="8" Padding="10" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12">
+                        <Border Background="#111827" CornerRadius="8" Padding="10" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12" Visibility="Collapsed">
                             <StackPanel x:Name="RecentActionsPanel"><TextBlock Text="No recent actions yet." /></StackPanel>
                         </Border>
-                        <Border Background="#111827" CornerRadius="8" Padding="10" BorderBrush="#1F2937" BorderThickness="1">
+                        <Border Background="#111827" CornerRadius="8" Padding="10" BorderBrush="#1F2937" BorderThickness="1" Visibility="Collapsed">
                             <Grid>
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="260" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                 <Grid Grid.Column="0">
@@ -84,6 +178,7 @@
                             </Grid>
                         </Border>
                         <TextBlock x:Name="UpdatedValue" Margin="0,10,0,0" Foreground="#94A3B8" Text="Last refresh: n/a" />
+                        <TextBlock x:Name="DebugFooterText" Margin="0,6,0,0" Foreground="#F59E0B" FontFamily="Consolas" FontSize="11" Text="" Visibility="Collapsed" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>
                 <ScrollViewer x:Name="InputsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
