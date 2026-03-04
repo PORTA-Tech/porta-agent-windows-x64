@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     private IReadOnlyList<LocalApiEventResponse> _allRecentEvents = [];
     private LocalApiTimelineResponse? _todayTimeline;
     private LocalApiTimelineResponse? _hourTimeline;
+    private LocalApiTimelineResponse? _fourHourTimeline;
     private LocalApiSettingsResponse? _effectiveSettings;
     private LocalApiRetentionResponse? _retention;
     private bool _suppressSettingsEvents;
@@ -41,6 +42,8 @@ public partial class MainWindow : Window
     private long _lastSeenEventId;
     private DateTimeOffset _lastManualRefreshUtc = DateTimeOffset.MinValue;
     private DateTimeOffset? _lastStatusSuccessUtc;
+    private HistoryRange _historyRange = HistoryRange.Last1Hour;
+    private bool _historyExplainMode;
 
     private enum UiSection
     {
@@ -53,6 +56,13 @@ public partial class MainWindow : Window
         Diagnostics
     }
 
+    private enum HistoryRange
+    {
+        Last1Hour,
+        Last4Hours,
+        Today
+    }
+
     public MainWindow()
     {
         InitializeComponent();
@@ -60,6 +70,7 @@ public partial class MainWindow : Window
         UiVersionMenuItem.Header = $"UI: {_uiVersion}";
 
         ShowSection(UiSection.Overview);
+        UpdateHistoryControls();
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _refreshTimer.Tick += async (_, _) => await RefreshDiagnosticsAsync().ConfigureAwait(true);
         Loaded += async (_, _) =>
@@ -186,6 +197,7 @@ public partial class MainWindow : Window
             DateTimeOffset fromUtc = DateTimeOffset.UtcNow.Date;
             _todayTimeline = await _apiClient.GetTimelineAsync(fromUtc, DateTimeOffset.UtcNow, 60).ConfigureAwait(true);
             _hourTimeline = await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow, 5).ConfigureAwait(true);
+            _fourHourTimeline = await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddHours(-4), DateTimeOffset.UtcNow, 15).ConfigureAwait(true);
             _effectiveSettings = await _apiClient.GetEffectiveSettingsAsync().ConfigureAwait(true);
             _retention = await _apiClient.GetDataRetentionAsync().ConfigureAwait(true);
             _lastSlowRefreshUtc = DateTimeOffset.UtcNow;
@@ -287,7 +299,7 @@ public partial class MainWindow : Window
         PopulateInterventions(_allRecentEvents, _effectiveSettings);
         PopulateSettings(_effectiveSettings);
         PopulateStates(truthSnapshot);
-        PopulateTimeline(_hourTimeline);
+        PopulateTimeline(GetSelectedHistoryTimeline());
         UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
     }
 
@@ -318,6 +330,34 @@ public partial class MainWindow : Window
     private void TimelineNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Timeline);
+        PopulateTimeline(GetSelectedHistoryTimeline());
+    }
+
+    private void HistoryRange1hButton_Click(object sender, RoutedEventArgs e)
+    {
+        _historyRange = HistoryRange.Last1Hour;
+        UpdateHistoryControls();
+        PopulateTimeline(GetSelectedHistoryTimeline());
+    }
+
+    private void HistoryRange4hButton_Click(object sender, RoutedEventArgs e)
+    {
+        _historyRange = HistoryRange.Last4Hours;
+        UpdateHistoryControls();
+        PopulateTimeline(GetSelectedHistoryTimeline());
+    }
+
+    private void HistoryRangeTodayButton_Click(object sender, RoutedEventArgs e)
+    {
+        _historyRange = HistoryRange.Today;
+        UpdateHistoryControls();
+        PopulateTimeline(GetSelectedHistoryTimeline());
+    }
+
+    private void HistoryExplainModeCheckBox_Changed(object sender, RoutedEventArgs e)
+    {
+        _historyExplainMode = HistoryExplainModeCheckBox.IsChecked == true;
+        PopulateTimeline(GetSelectedHistoryTimeline());
     }
 
     private void InterventionsNavButton_Click(object sender, RoutedEventArgs e)
@@ -536,6 +576,45 @@ public partial class MainWindow : Window
         button.BorderBrush = selected
             ? new SolidColorBrush(Color.FromRgb(147, 197, 253))
             : new SolidColorBrush(Color.FromRgb(51, 65, 85));
+    }
+
+    private LocalApiTimelineResponse? GetSelectedHistoryTimeline()
+    {
+        return _historyRange switch
+        {
+            HistoryRange.Last1Hour => _hourTimeline,
+            HistoryRange.Last4Hours => _fourHourTimeline,
+            HistoryRange.Today => _todayTimeline,
+            _ => _hourTimeline
+        };
+    }
+
+    private void UpdateHistoryControls()
+    {
+        if (HistoryExplainModeCheckBox != null)
+        {
+            HistoryExplainModeCheckBox.IsChecked = _historyExplainMode;
+        }
+
+        ApplyHistoryButtonState(HistoryRange1hButton, _historyRange == HistoryRange.Last1Hour);
+        ApplyHistoryButtonState(HistoryRange4hButton, _historyRange == HistoryRange.Last4Hours);
+        ApplyHistoryButtonState(HistoryRangeTodayButton, _historyRange == HistoryRange.Today);
+    }
+
+    private static void ApplyHistoryButtonState(Button button, bool selected)
+    {
+        if (button == null)
+        {
+            return;
+        }
+
+        button.Background = selected
+            ? new SolidColorBrush(Color.FromRgb(37, 99, 235))
+            : new SolidColorBrush(Color.FromRgb(31, 41, 55));
+        button.BorderBrush = selected
+            ? new SolidColorBrush(Color.FromRgb(147, 197, 253))
+            : new SolidColorBrush(Color.FromRgb(51, 65, 85));
+        button.Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240));
     }
 
     private void PopulateOverview(
@@ -834,7 +913,10 @@ public partial class MainWindow : Window
                 FivSummary: fivSummary,
                 TopReasons: topReasons,
                 Quality: qualityText,
-                Agreement: agreementText);
+                Agreement: agreementText,
+                Clarity: clarity,
+                Pressure: pressure,
+                Jitter: jitter);
         }
         catch
         {
@@ -850,6 +932,32 @@ public partial class MainWindow : Window
         }
 
         return $"Clarity: {clarity.Value:F2} | Pressure: {pressure.Value:F2} | Jitter: {jitter.Value:F2}";
+    }
+
+    private static string BuildHumanFivSummary(OverloadExplainView explain)
+    {
+        if (!explain.Clarity.HasValue || !explain.Pressure.HasValue || !explain.Jitter.HasValue)
+        {
+            return "Why: explain details not available.";
+        }
+
+        return $"Clarity: {ToBandLabel(explain.Clarity.Value)} | Pressure: {ToBandLabel(explain.Pressure.Value)} | Jitter: {ToBandLabel(explain.Jitter.Value)}";
+    }
+
+    private static string ToBandLabel(double value)
+    {
+        double clamped = Math.Clamp(value, 0d, 1d);
+        if (clamped < 0.34d)
+        {
+            return "Low";
+        }
+
+        if (clamped < 0.67d)
+        {
+            return "Medium";
+        }
+
+        return "High";
     }
 
     private static double? ReadComponentValue(JsonElement components, string key)
@@ -1593,65 +1701,131 @@ public partial class MainWindow : Window
 
     private void PopulateTimeline(LocalApiTimelineResponse? timeline)
     {
-        TimelinePrimitivesTrackPanel.Children.Clear();
-        TimelineStatesTrackPanel.Children.Clear();
-        TimelineInterventionsTrackPanel.Children.Clear();
+        UpdateHistoryControls();
+        TimelineOverloadTrackPanel.Children.Clear();
+        TimelineTrustTrackPanel.Children.Clear();
+        TimelineFocusTrackPanel.Children.Clear();
+        TimelineOverloadActiveOverlayPanel.Children.Clear();
+        TimelineActionMarkersPanel.Children.Clear();
 
         if (timeline == null || timeline.Snapshots.Count == 0)
         {
-            TimelinePrimitivesTrackPanel.Children.Add(new TextBlock { Text = "No timeline data." });
-            TimelineStatesTrackPanel.Children.Add(new TextBlock { Text = "No timeline data." });
-            TimelineInterventionsTrackPanel.Children.Add(new TextBlock { Text = "No interventions." });
+            TimelineOverloadTrackPanel.Children.Add(new TextBlock { Text = "No timeline data." });
+            TimelineTrustTrackPanel.Children.Add(new TextBlock { Text = "No timeline data." });
+            TimelineFocusTrackPanel.Children.Add(new TextBlock { Text = "No timeline data." });
+            TimelineOverloadActiveOverlayPanel.Children.Add(new TextBlock { Text = "No overload-active data." });
+            TimelineActionMarkersPanel.Children.Add(new TextBlock { Text = "No actions." });
             SetTimelineDetail(null, null);
             return;
         }
 
-        foreach (LocalApiCurrentSnapshotResponse snapshot in timeline.Snapshots.TakeLast(240))
+        int maxPoints = _historyRange switch
         {
-            TimelinePrimitivesTrackPanel.Children.Add(BuildSnapshotBar(snapshot, TimelineTrackKind.Primitives));
-            TimelineStatesTrackPanel.Children.Add(BuildSnapshotBar(snapshot, TimelineTrackKind.States));
+            HistoryRange.Last1Hour => 360,
+            HistoryRange.Last4Hours => 480,
+            _ => 600
+        };
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = DownsampleSnapshots(timeline.Snapshots, maxPoints);
+
+        foreach (LocalApiCurrentSnapshotResponse snapshot in snapshots)
+        {
+            TimelineOverloadTrackPanel.Children.Add(BuildTrackPoint(snapshot, snapshot.OverloadLikelihood, Color.FromRgb(239, 68, 68), "Overload"));
+            TimelineTrustTrackPanel.Children.Add(BuildTrackPoint(snapshot, snapshot.Confidence, Color.FromRgb(59, 130, 246), "Trust"));
+            double focusNormalized = Math.Clamp(snapshot.SustainedAttentionDurationSec / 3600d, 0d, 1d);
+            TimelineFocusTrackPanel.Children.Add(BuildTrackPoint(snapshot, focusNormalized, Color.FromRgb(34, 197, 94), "Focus streak"));
+            TimelineOverloadActiveOverlayPanel.Children.Add(BuildOverloadActiveMarker(snapshot));
         }
 
-        foreach (LocalApiEventResponse intervention in timeline.Interventions.TakeLast(80))
+        foreach (LocalApiEventResponse intervention in timeline.Interventions
+                     .OrderBy(static evt => evt.TimestampUtc)
+                     .TakeLast(120))
         {
-            TimelineInterventionsTrackPanel.Children.Add(BuildInterventionBar(intervention));
+            TimelineActionMarkersPanel.Children.Add(BuildInterventionMarker(intervention));
         }
 
-        SetTimelineDetail(timeline.Snapshots.LastOrDefault(), null);
+        SetTimelineDetail(snapshots.LastOrDefault(), null);
     }
 
-    private UIElement BuildSnapshotBar(LocalApiCurrentSnapshotResponse snapshot, TimelineTrackKind kind)
+    private static IReadOnlyList<LocalApiCurrentSnapshotResponse> DownsampleSnapshots(
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots,
+        int maxPoints)
     {
-        double score = kind switch
+        if (snapshots.Count <= maxPoints)
         {
-            TimelineTrackKind.Primitives => Math.Clamp((snapshot.TypingBurstIntensity + snapshot.ScrollVelocityIndex + snapshot.FocusSwitchRate) / 3d, 0d, 1d),
-            _ => Math.Clamp((snapshot.FocusStrength + snapshot.OverloadLikelihood + snapshot.FatigueProbability) / 3d, 0d, 1d)
-        };
+            return snapshots;
+        }
+
+        int step = Math.Max(1, (int)Math.Ceiling((double)snapshots.Count / maxPoints));
+        var reduced = new List<LocalApiCurrentSnapshotResponse>(maxPoints + 1);
+        for (int index = 0; index < snapshots.Count; index += step)
+        {
+            reduced.Add(snapshots[index]);
+        }
+
+        LocalApiCurrentSnapshotResponse last = snapshots[^1];
+        if (!ReferenceEquals(reduced[^1], last))
+        {
+            reduced.Add(last);
+        }
+
+        return reduced;
+    }
+
+    private UIElement BuildTrackPoint(
+        LocalApiCurrentSnapshotResponse snapshot,
+        double value,
+        Color color,
+        string label)
+    {
+        double clamped = Math.Clamp(value, 0d, 1d);
 
         var button = new Button
         {
-            Width = 10,
-            Height = Math.Max(6d, 40d * score),
+            Width = 8,
+            Height = Math.Max(6d, 40d * clamped),
             Margin = new Thickness(1, 0, 1, 0),
             VerticalAlignment = VerticalAlignment.Bottom,
             Tag = snapshot,
-            Background = kind == TimelineTrackKind.Primitives
-                ? new SolidColorBrush(Color.FromRgb(34, 197, 94))
-                : new SolidColorBrush(Color.FromRgb(59, 130, 246)),
+            Background = new SolidColorBrush(color),
             BorderBrush = new SolidColorBrush(Color.FromRgb(15, 23, 42))
         };
+        button.ToolTip = $"{snapshot.TimestampUtc.ToLocalTime():HH:mm:ss} | {label}: {clamped:F2}";
         button.Click += TimelineSnapshotButton_Click;
         return button;
     }
 
-    private UIElement BuildInterventionBar(LocalApiEventResponse intervention)
+    private UIElement BuildOverloadActiveMarker(LocalApiCurrentSnapshotResponse snapshot)
     {
+        bool active = snapshot.OverloadActive || snapshot.ActivationWindowOpen;
         var button = new Button
         {
-            Content = "I",
+            Width = 8,
+            Height = 16,
+            Margin = new Thickness(1, 0, 1, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Tag = snapshot,
+            Background = active
+                ? new SolidColorBrush(Color.FromArgb(180, 220, 38, 38))
+                : Brushes.Transparent,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(51, 65, 85)),
+            BorderThickness = new Thickness(0.5)
+        };
+        button.ToolTip = active
+            ? $"{snapshot.TimestampUtc.ToLocalTime():HH:mm:ss} | Overload Active"
+            : $"{snapshot.TimestampUtc.ToLocalTime():HH:mm:ss} | Overload Inactive";
+        button.Click += TimelineSnapshotButton_Click;
+        return button;
+    }
+
+    private UIElement BuildInterventionMarker(LocalApiEventResponse intervention)
+    {
+        string marker = intervention.Action.Contains("break", StringComparison.OrdinalIgnoreCase) ? "B" : "A";
+        var button = new Button
+        {
+            Content = marker,
             Width = intervention.DurationSeconds.HasValue
-                ? Math.Clamp(intervention.DurationSeconds.Value / 8d, 10d, 42d)
-                : 12d,
+                ? Math.Clamp(intervention.DurationSeconds.Value / 12d, 12d, 40d)
+                : 14d,
             Height = 22,
             Margin = new Thickness(2, 0, 2, 0),
             Tag = intervention,
@@ -1683,35 +1857,96 @@ public partial class MainWindow : Window
         if (snapshot == null && intervention == null)
         {
             TimelineDetailTimestamp.Text = "Timestamp: n/a";
-            TimelineDetailStates.Text = "State values: n/a";
-            TimelineDetailConfidence.Text = "Confidence: n/a";
-            TimelineDetailContributors.Text = "Contributors: n/a";
-            TimelineDetailPolicy.Text = "Policy ID: n/a";
-            TimelineDetailSystemChange.Text = "What changed on system: n/a";
+            TimelineDetailOverload.Text = "Overload: n/a";
+            TimelineDetailTrust.Text = "Trust level: n/a";
+            TimelineDetailFocus.Text = "Focus streak: n/a";
+            TimelineDetailWhyHeader.Text = "Why: n/a";
+            TimelineDetailWhyFiv.Text = "Clarity/Pressure/Jitter: n/a";
+            TimelineDetailWhyReasons.Text = "Top reasons: n/a";
+            TimelineDetailWhyQuality.Text = "Quality: n/a | Agreement: n/a";
+            TimelineDetailStabilization.Text = "Stabilization: n/a";
+            TimelineDetailAction.Text = "Action: n/a";
             return;
         }
 
         if (snapshot != null)
         {
+            OverloadExplainView explain = ParseOverloadExplain(snapshot.ContributorsJson);
+            bool overloadActive = snapshot.OverloadActive || snapshot.ActivationWindowOpen;
             TimelineDetailTimestamp.Text = $"Timestamp: {snapshot.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
-            TimelineDetailStates.Text = $"State values: focus={snapshot.FocusStrength:F2}, overload={snapshot.OverloadLikelihood:F2}, fatigue={snapshot.FatigueProbability:F2}";
-            TimelineDetailConfidence.Text = $"Confidence: {(snapshot.Confidence * 100d):F0}%";
-            TimelineDetailContributors.Text = snapshot.Contributors.Count > 0
-                ? $"Contributors: {string.Join(", ", snapshot.Contributors.Take(6))}"
-                : "Contributors: n/a";
-            TimelineDetailPolicy.Text = "Policy ID: n/a";
-            TimelineDetailSystemChange.Text = $"What changed on system: {snapshot.LastAction}";
+            TimelineDetailOverload.Text = $"Overload: {(snapshot.OverloadLikelihood * 100d):F0}% | Active: {(overloadActive ? "Yes" : "No")}";
+            TimelineDetailTrust.Text = $"Trust level: {(snapshot.Confidence * 100d):F0}%";
+            TimelineDetailFocus.Text = $"Focus streak: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
+            TimelineDetailWhyHeader.Text = _historyExplainMode ? "Why? (Explain mode)" : "Why?";
+            TimelineDetailWhyFiv.Text = _historyExplainMode
+                ? explain.FivSummary
+                : BuildHumanFivSummary(explain);
+            TimelineDetailWhyReasons.Text = $"Top reasons: {explain.TopReasons}";
+            TimelineDetailWhyQuality.Text = $"Quality: {explain.Quality} | Agreement: {explain.Agreement}";
+            TimelineDetailStabilization.Text = BuildStabilizationText(snapshot.StateFlagsJson);
+            TimelineDetailAction.Text = string.IsNullOrWhiteSpace(snapshot.LastAction)
+                ? "Action: n/a"
+                : $"Action: {snapshot.LastAction}";
             return;
         }
 
         TimelineDetailTimestamp.Text = $"Timestamp: {intervention!.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
-        TimelineDetailStates.Text = $"State values: trigger={intervention.TriggerState}, value={intervention.TriggerValue:F2}";
-        TimelineDetailConfidence.Text = $"Confidence: {(intervention.Confidence * 100d):F0}%";
-        TimelineDetailContributors.Text = intervention.Contributors.Count > 0
-            ? $"Contributors: {string.Join(", ", intervention.Contributors.Take(6))}"
-            : "Contributors: n/a";
-        TimelineDetailPolicy.Text = $"Policy ID: {intervention.PolicyId}";
-        TimelineDetailSystemChange.Text = $"What changed on system: {(string.IsNullOrWhiteSpace(intervention.WhatChanged) ? intervention.Action : intervention.WhatChanged)}";
+        TimelineDetailOverload.Text = $"Action trigger: {intervention.TriggerState}={intervention.TriggerValue:F2}";
+        TimelineDetailTrust.Text = $"Trust level: {(intervention.Confidence * 100d):F0}%";
+        TimelineDetailFocus.Text = "Focus streak: n/a (event marker)";
+        TimelineDetailWhyHeader.Text = "Why?";
+        TimelineDetailWhyFiv.Text = string.IsNullOrWhiteSpace(intervention.Reason)
+            ? "Reason: n/a"
+            : $"Reason: {intervention.Reason}";
+        TimelineDetailWhyReasons.Text = intervention.Contributors.Count > 0
+            ? $"Top reasons: {string.Join(", ", intervention.Contributors.Take(6))}"
+            : "Top reasons: n/a";
+        TimelineDetailWhyQuality.Text = "Quality: n/a | Agreement: n/a";
+        TimelineDetailStabilization.Text = "Stabilization: n/a";
+        TimelineDetailAction.Text = $"Action: {(string.IsNullOrWhiteSpace(intervention.WhatChanged) ? intervention.Action : intervention.WhatChanged)}";
+    }
+
+    private static string BuildStabilizationText(string? stateFlagsJson)
+    {
+        if (string.IsNullOrWhiteSpace(stateFlagsJson))
+        {
+            return "Stabilization: ON timer n/a / 120s";
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
+            JsonElement root = doc.RootElement;
+            double dwellOnSeconds = 0d;
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("dwell_on_ms", out JsonElement dwellOnElem)
+                && dwellOnElem.ValueKind == JsonValueKind.Number
+                && dwellOnElem.TryGetDouble(out double dwellOnMs))
+            {
+                dwellOnSeconds = Math.Max(0d, dwellOnMs / 1000d);
+            }
+
+            bool active = false;
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("overload_active", out JsonElement activeElem))
+            {
+                if (activeElem.ValueKind == JsonValueKind.True)
+                {
+                    active = true;
+                }
+                else if (activeElem.ValueKind == JsonValueKind.Number
+                    && activeElem.TryGetInt32(out int activeInt))
+                {
+                    active = activeInt != 0;
+                }
+            }
+
+            return $"Stabilization: ON timer {dwellOnSeconds:F0}s / 120s{(active ? " (active)" : string.Empty)}";
+        }
+        catch
+        {
+            return "Stabilization: ON timer n/a / 120s";
+        }
     }
 
     private static string FormatPreviousValue(string raw)
@@ -2088,20 +2323,20 @@ public partial class MainWindow : Window
         string FivSummary,
         string TopReasons,
         string Quality,
-        string Agreement)
+        string Agreement,
+        double? Clarity,
+        double? Pressure,
+        double? Jitter)
     {
         public static OverloadExplainView Unavailable =>
             new(
                 "Explain not available (backend field missing).",
                 "Explain not available (backend field missing).",
                 "n/a",
-                "n/a");
-    }
-
-    private enum TimelineTrackKind
-    {
-        Primitives,
-        States
+                "n/a",
+                null,
+                null,
+                null);
     }
 
     private sealed record InterventionRow(

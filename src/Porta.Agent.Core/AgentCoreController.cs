@@ -260,8 +260,7 @@ public sealed class AgentCoreController : IAgentCoreController
         DateTimeOffset toUtc,
         int bucketSeconds = Time.bucketSeconds)
     {
-        _ = bucketSeconds; // Bucket size is pinned in v1.
-        int bucket = Time.bucketSeconds;
+        int bucket = Math.Clamp(bucketSeconds, 1, 3600);
         DateTimeOffset from = fromUtc;
         DateTimeOffset to = toUtc;
         if (to < from)

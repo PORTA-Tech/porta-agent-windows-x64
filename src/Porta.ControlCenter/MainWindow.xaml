@@ -328,22 +328,41 @@
                     <Grid Margin="20">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="1.2*" /></Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                            <TextBlock Text="Timeline (last 60 minutes)" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12" />
-                            <TextBlock Text="Track 1 - Behavioral primitives" FontWeight="SemiBold" />
-                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,0,0,10"><StackPanel x:Name="TimelinePrimitivesTrackPanel" Orientation="Horizontal" /></ScrollViewer>
-                            <TextBlock Text="Track 2 - Inferred states" FontWeight="SemiBold" />
-                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,0,0,10"><StackPanel x:Name="TimelineStatesTrackPanel" Orientation="Horizontal" /></ScrollViewer>
-                            <TextBlock Text="Track 3 - Interventions overlay" FontWeight="SemiBold" />
-                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"><StackPanel x:Name="TimelineInterventionsTrackPanel" Orientation="Horizontal" /></ScrollViewer>
+                            <TextBlock Text="History" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12" />
+                            <WrapPanel Margin="0,0,0,10">
+                                <Button x:Name="HistoryRange1hButton" Content="Last 1h" Padding="10,4" Margin="0,0,8,0" Click="HistoryRange1hButton_Click" />
+                                <Button x:Name="HistoryRange4hButton" Content="Last 4h" Padding="10,4" Margin="0,0,8,0" Click="HistoryRange4hButton_Click" />
+                                <Button x:Name="HistoryRangeTodayButton" Content="Today" Padding="10,4" Margin="0,0,14,0" Click="HistoryRangeTodayButton_Click" />
+                                <CheckBox x:Name="HistoryExplainModeCheckBox" Content="Explain mode" VerticalAlignment="Center" Checked="HistoryExplainModeCheckBox_Changed" Unchecked="HistoryExplainModeCheckBox_Changed" />
+                            </WrapPanel>
+
+                            <TextBlock Text="Overload" FontWeight="SemiBold" />
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,0,0,10"><StackPanel x:Name="TimelineOverloadTrackPanel" Orientation="Horizontal" /></ScrollViewer>
+
+                            <TextBlock Text="Trust level" FontWeight="SemiBold" />
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,0,0,10"><StackPanel x:Name="TimelineTrustTrackPanel" Orientation="Horizontal" /></ScrollViewer>
+
+                            <TextBlock Text="Focus streak" FontWeight="SemiBold" />
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,0,0,10"><StackPanel x:Name="TimelineFocusTrackPanel" Orientation="Horizontal" /></ScrollViewer>
+
+                            <TextBlock Text="Overload active windows" FontWeight="SemiBold" />
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,0,0,10"><StackPanel x:Name="TimelineOverloadActiveOverlayPanel" Orientation="Horizontal" /></ScrollViewer>
+
+                            <TextBlock Text="Actions" FontWeight="SemiBold" />
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"><StackPanel x:Name="TimelineActionMarkersPanel" Orientation="Horizontal" /></ScrollViewer>
                         </StackPanel>
                         <Border Grid.Column="1" Background="#111827" CornerRadius="8" Padding="10" BorderBrush="#1F2937" BorderThickness="1">
                             <StackPanel>
                                 <TextBlock x:Name="TimelineDetailTimestamp" Text="Timestamp: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="TimelineDetailStates" Text="State values: n/a" TextWrapping="Wrap" Margin="0,0,0,6" />
-                                <TextBlock x:Name="TimelineDetailConfidence" Text="Confidence: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="TimelineDetailContributors" Text="Contributors: n/a" TextWrapping="Wrap" Margin="0,0,0,6" />
-                                <TextBlock x:Name="TimelineDetailPolicy" Text="Policy ID: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="TimelineDetailSystemChange" Text="What changed on system: n/a" TextWrapping="Wrap" />
+                                <TextBlock x:Name="TimelineDetailOverload" Text="Overload: n/a" TextWrapping="Wrap" Margin="0,0,0,6" />
+                                <TextBlock x:Name="TimelineDetailTrust" Text="Trust level: n/a" Margin="0,0,0,6" />
+                                <TextBlock x:Name="TimelineDetailFocus" Text="Focus streak: n/a" Margin="0,0,0,10" />
+                                <TextBlock x:Name="TimelineDetailWhyHeader" Text="Why: n/a" FontWeight="SemiBold" Margin="0,0,0,6" />
+                                <TextBlock x:Name="TimelineDetailWhyFiv" Text="Clarity/Pressure/Jitter: n/a" TextWrapping="Wrap" Margin="0,0,0,6" />
+                                <TextBlock x:Name="TimelineDetailWhyReasons" Text="Top reasons: n/a" TextWrapping="Wrap" Margin="0,0,0,6" />
+                                <TextBlock x:Name="TimelineDetailWhyQuality" Text="Quality: n/a | Agreement: n/a" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                <TextBlock x:Name="TimelineDetailStabilization" Text="Stabilization: n/a" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                <TextBlock x:Name="TimelineDetailAction" Text="Action: n/a" TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
                     </Grid>

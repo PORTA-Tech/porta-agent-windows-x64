@@ -25,4 +25,9 @@ public sealed record AgentBrainSnapshot(
     string EscalationLevel = "Inform",
     DateTimeOffset? PlannedEndTimestampUtc = null,
     DateTimeOffset? ActualEndTimestampUtc = null,
-    DateTimeOffset? CooldownEndTimestampUtc = null);
+    DateTimeOffset? CooldownEndTimestampUtc = null,
+    double SustainedAttentionDurationSec = 0,
+    double IdleFragmentationIndex = 0,
+    bool OverloadActive = false,
+    string StateFlagsJson = "{\"schema_ver\":1}",
+    string ContributorsJson = "{\"schema_ver\":1}");

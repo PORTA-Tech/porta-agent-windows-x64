@@ -193,8 +193,8 @@ public static class LocalApiEndpointMapping
 
         api.MapGet("/timeline", (IAgentCoreController controller, DateTimeOffset from, DateTimeOffset to, int? bucketSeconds) =>
         {
-            _ = bucketSeconds;
-            AgentTimelineData timeline = controller.GetTimeline(from, to, Time.bucketSeconds);
+            int bucket = Math.Clamp(bucketSeconds ?? Time.bucketSeconds, 1, 3600);
+            AgentTimelineData timeline = controller.GetTimeline(from, to, bucket);
             return new LocalApiTimelineResponse(
                 timeline.FromUtc,
                 timeline.ToUtc,
@@ -320,7 +320,11 @@ public static class LocalApiEndpointMapping
         AgentBrainSnapshot snapshot,
         AgentLatestStateDetails? latestState = null)
     {
-        double idleFragmentationIndex = latestState?.IdleFragmentationIndex ?? 0d;
+        double idleFragmentationIndex = latestState?.IdleFragmentationIndex ?? snapshot.IdleFragmentationIndex;
+        string stateFlagsJson = latestState?.StateFlagsJson ?? snapshot.StateFlagsJson;
+        string contributorsJson = latestState?.ContributorsJson ?? snapshot.ContributorsJson;
+        bool overloadActive = latestState?.OverloadActive ?? snapshot.OverloadActive;
+        double sustainedAttentionSeconds = latestState?.SustainedAttentionDurationSec ?? snapshot.SustainedAttentionDurationSec;
         double entropyNorm = Clamp01((latestState?.FocusAppEntropy ?? 0d) / 2d);
         double focusChoppinessIndex = Clamp01(
             (0.50d * idleFragmentationIndex)
@@ -347,12 +351,12 @@ public static class LocalApiEndpointMapping
             snapshot.CooldownTriggered,
             snapshot.ActivationWindowOpen,
             snapshot.Contributors,
-            latestState?.SustainedAttentionDurationSec ?? 0d,
+            sustainedAttentionSeconds,
             idleFragmentationIndex,
             focusChoppinessIndex,
-            latestState?.OverloadActive ?? false,
-            latestState?.StateFlagsJson,
-            latestState?.ContributorsJson,
+            overloadActive,
+            string.IsNullOrWhiteSpace(stateFlagsJson) ? null : stateFlagsJson,
+            string.IsNullOrWhiteSpace(contributorsJson) ? null : contributorsJson,
             latestState?.BaselineReady,
             latestState?.BaselineReadyPct,
             latestState?.AvgQuality2m,

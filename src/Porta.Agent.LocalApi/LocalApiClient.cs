@@ -187,8 +187,7 @@ public sealed class LocalApiClient : IDisposable
         try
         {
             RefreshEndpointBinding();
-            _ = bucketSeconds;
-            int bucket = Time.bucketSeconds;
+            int bucket = Math.Clamp(bucketSeconds, 1, 3600);
             string from = Uri.EscapeDataString(fromUtc.ToString("O"));
             string to = Uri.EscapeDataString(toUtc.ToString("O"));
             string path = $"/v1/timeline?from={from}&to={to}&bucketSeconds={bucket}";

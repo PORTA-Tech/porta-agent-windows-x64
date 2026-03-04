@@ -476,33 +476,38 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             cmd.CommandText =
                 """
                 SELECT
-                    timestamp_utc,
-                    typing_burst_intensity,
-                    scroll_velocity_index,
-                    focus_switch_rate,
-                    smoothed_typing_burst_intensity,
-                    smoothed_scroll_velocity_index,
-                    smoothed_focus_switch_rate,
-                    focus_strength,
-                    overload_likelihood,
-                    fatigue_probability,
-                    cognitive_stability,
-                    dominant_state_name,
-                    dominant_state_value,
-                    confidence,
-                    last_action,
-                    activation_window_triggered,
-                    cooldown_triggered,
-                    activation_window_open,
-                    contributors_json,
-                    policy_id,
-                    domain,
-                    escalation_level,
-                    planned_end_timestamp_utc,
-                    actual_end_timestamp_utc,
-                    cooldown_end_timestamp_utc
-                FROM brain_snapshots
-                ORDER BY id DESC
+                    b.timestamp_utc,
+                    b.typing_burst_intensity,
+                    b.scroll_velocity_index,
+                    b.focus_switch_rate,
+                    b.smoothed_typing_burst_intensity,
+                    b.smoothed_scroll_velocity_index,
+                    b.smoothed_focus_switch_rate,
+                    b.focus_strength,
+                    b.overload_likelihood,
+                    b.fatigue_probability,
+                    b.cognitive_stability,
+                    b.dominant_state_name,
+                    b.dominant_state_value,
+                    b.confidence,
+                    b.last_action,
+                    b.activation_window_triggered,
+                    b.cooldown_triggered,
+                    b.activation_window_open,
+                    b.contributors_json,
+                    b.policy_id,
+                    b.domain,
+                    b.escalation_level,
+                    b.planned_end_timestamp_utc,
+                    b.actual_end_timestamp_utc,
+                    b.cooldown_end_timestamp_utc,
+                    sb.sustained_attention_duration_sec,
+                    sb.idle_fragmentation_index,
+                    sb.state_flags_json,
+                    sb.contributors_json
+                FROM brain_snapshots b
+                LEFT JOIN state_buckets sb ON sb.timestamp_utc = b.timestamp_utc
+                ORDER BY b.id DESC
                 LIMIT 1;
                 """;
 
@@ -537,7 +542,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 EscalationLevel: ReadStringOrFallback(reader, 21, "Inform"),
                 PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 22, string.Empty)),
                 ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 23, string.Empty)),
-                CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 24, string.Empty)));
+                CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 24, string.Empty)),
+                SustainedAttentionDurationSec: ReadDoubleOrFallback(reader, 25, 0d),
+                IdleFragmentationIndex: ReadDoubleOrFallback(reader, 26, 0d),
+                OverloadActive: ParseOverloadActive(ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}")),
+                StateFlagsJson: ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}"),
+                ContributorsJson: ReadStringOrFallback(reader, 28, "{\"schema_ver\":1}"));
         }
     }
 
@@ -720,8 +730,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 return [];
             }
 
-            _ = bucketSeconds; // Bucket size is pinned in v1.
-            int bucket = Time.bucketSeconds;
+            int bucket = Math.Clamp(bucketSeconds, 1, 3600);
             var rawRows = new List<AgentBrainSnapshot>();
 
             using var connection = DbOpen.OpenConnection(_connectionString);
@@ -729,34 +738,39 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             cmd.CommandText =
                 """
                 SELECT
-                    timestamp_utc,
-                    typing_burst_intensity,
-                    scroll_velocity_index,
-                    focus_switch_rate,
-                    smoothed_typing_burst_intensity,
-                    smoothed_scroll_velocity_index,
-                    smoothed_focus_switch_rate,
-                    focus_strength,
-                    overload_likelihood,
-                    fatigue_probability,
-                    cognitive_stability,
-                    dominant_state_name,
-                    dominant_state_value,
-                    confidence,
-                    last_action,
-                    activation_window_triggered,
-                    cooldown_triggered,
-                    activation_window_open,
-                    contributors_json,
-                    policy_id,
-                    domain,
-                    escalation_level,
-                    planned_end_timestamp_utc,
-                    actual_end_timestamp_utc,
-                    cooldown_end_timestamp_utc
-                FROM brain_snapshots
-                WHERE timestamp_utc >= $from AND timestamp_utc <= $to
-                ORDER BY timestamp_utc ASC;
+                    b.timestamp_utc,
+                    b.typing_burst_intensity,
+                    b.scroll_velocity_index,
+                    b.focus_switch_rate,
+                    b.smoothed_typing_burst_intensity,
+                    b.smoothed_scroll_velocity_index,
+                    b.smoothed_focus_switch_rate,
+                    b.focus_strength,
+                    b.overload_likelihood,
+                    b.fatigue_probability,
+                    b.cognitive_stability,
+                    b.dominant_state_name,
+                    b.dominant_state_value,
+                    b.confidence,
+                    b.last_action,
+                    b.activation_window_triggered,
+                    b.cooldown_triggered,
+                    b.activation_window_open,
+                    b.contributors_json,
+                    b.policy_id,
+                    b.domain,
+                    b.escalation_level,
+                    b.planned_end_timestamp_utc,
+                    b.actual_end_timestamp_utc,
+                    b.cooldown_end_timestamp_utc,
+                    sb.sustained_attention_duration_sec,
+                    sb.idle_fragmentation_index,
+                    sb.state_flags_json,
+                    sb.contributors_json
+                FROM brain_snapshots b
+                LEFT JOIN state_buckets sb ON sb.timestamp_utc = b.timestamp_utc
+                WHERE b.timestamp_utc >= $from AND b.timestamp_utc <= $to
+                ORDER BY b.timestamp_utc ASC;
                 """;
             cmd.Parameters.AddWithValue("$from", fromUtc.ToString("O"));
             cmd.Parameters.AddWithValue("$to", toUtc.ToString("O"));
@@ -789,7 +803,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     EscalationLevel: ReadStringOrFallback(reader, 21, "Inform"),
                     PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 22, string.Empty)),
                     ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 23, string.Empty)),
-                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 24, string.Empty))));
+                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 24, string.Empty)),
+                    SustainedAttentionDurationSec: ReadDoubleOrFallback(reader, 25, 0d),
+                    IdleFragmentationIndex: ReadDoubleOrFallback(reader, 26, 0d),
+                    OverloadActive: ParseOverloadActive(ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}")),
+                    StateFlagsJson: ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}"),
+                    ContributorsJson: ReadStringOrFallback(reader, 28, "{\"schema_ver\":1}")));
             }
 
             if (bucket == 1 || rawRows.Count <= 1)
@@ -1624,6 +1643,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
 
         return false;
+    }
+
+    private static bool ParseOverloadActive(string stateFlagsJson)
+    {
+        return TryParseOverloadActiveValue(stateFlagsJson, out bool active) && active;
     }
 
     private static bool TryReadBool(JsonElement value, out bool parsed)
