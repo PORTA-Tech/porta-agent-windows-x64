@@ -29,28 +29,48 @@ internal sealed class RuntimeSignalIngestionWorker(
         FullMode = BoundedChannelFullMode.DropOldest
     });
     private readonly object _mouseGate = new();
+    private readonly bool _isInteractiveSession =
+        Environment.UserInteractive
+        && !string.Equals(
+            Environment.GetEnvironmentVariable("PORTA_FORCE_NON_INTERACTIVE_FALLBACK"),
+            "1",
+            StringComparison.Ordinal);
     private long _pendingMouseDx;
     private long _pendingMouseDy;
     private int _pendingMouseMoveCount;
     private int _collectionEnabled = 1;
+    private bool _hasCursorPosition;
+    private int _lastCursorX;
+    private int _lastCursorY;
+    private double _lastIdleSeconds = double.NaN;
     private string _lastForegroundAppHash = string.Empty;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _keyboardHook.KeyChanged += OnKeyChanged;
-        _mouseHook.MouseMoved += OnMouseMoved;
-        _mouseHook.ScrollDeltaChanged += OnScrollDeltaChanged;
+        if (_isInteractiveSession)
+        {
+            _keyboardHook.KeyChanged += OnKeyChanged;
+            _mouseHook.MouseMoved += OnMouseMoved;
+            _mouseHook.ScrollDeltaChanged += OnScrollDeltaChanged;
+        }
 
         try
         {
-            if (!_keyboardHook.Install())
+            if (_isInteractiveSession)
             {
-                Console.WriteLine("runtime_input_bridge keyboard_hook_unavailable=true");
-            }
+                if (!_keyboardHook.Install())
+                {
+                    Console.WriteLine("runtime_input_bridge keyboard_hook_unavailable=true");
+                }
 
-            if (!_mouseHook.Install())
+                if (!_mouseHook.Install())
+                {
+                    Console.WriteLine("runtime_input_bridge mouse_hook_unavailable=true");
+                }
+            }
+            else
             {
-                Console.WriteLine("runtime_input_bridge mouse_hook_unavailable=true");
+                Console.WriteLine("runtime_input_bridge non_interactive_fallback_sampling=true");
             }
 
             RefreshCollectionGate();
@@ -68,7 +88,11 @@ internal sealed class RuntimeSignalIngestionWorker(
                     tick = 0;
                     RefreshCollectionGate();
                     CaptureForegroundHeartbeat();
-                    CaptureIdleHeartbeat();
+                    bool hasIdleSample = CaptureIdleHeartbeat(out double idleSeconds);
+                    if (!_isInteractiveSession)
+                    {
+                        CaptureNonInteractiveFallback(hasIdleSample ? idleSeconds : null);
+                    }
                     ProcessQueuedSamples();
                 }
             }
@@ -78,11 +102,14 @@ internal sealed class RuntimeSignalIngestionWorker(
         }
         finally
         {
-            _keyboardHook.KeyChanged -= OnKeyChanged;
-            _mouseHook.MouseMoved -= OnMouseMoved;
-            _mouseHook.ScrollDeltaChanged -= OnScrollDeltaChanged;
-            _keyboardHook.Uninstall();
-            _mouseHook.Uninstall();
+            if (_isInteractiveSession)
+            {
+                _keyboardHook.KeyChanged -= OnKeyChanged;
+                _mouseHook.MouseMoved -= OnMouseMoved;
+                _mouseHook.ScrollDeltaChanged -= OnScrollDeltaChanged;
+                _keyboardHook.Uninstall();
+                _mouseHook.Uninstall();
+            }
         }
     }
 
@@ -177,15 +204,22 @@ internal sealed class RuntimeSignalIngestionWorker(
             return;
         }
 
-        if (!TryReadForegroundProcessId(out uint processId) || processId == 0)
+        string appHash;
+        if (TryReadForegroundProcessId(out uint processId) && processId != 0)
         {
-            return;
+            appHash = ComputeForegroundAppHash(processId);
+            if (string.IsNullOrWhiteSpace(appHash))
+            {
+                appHash = "unknown";
+            }
         }
-
-        string appHash = ComputeForegroundAppHash(processId);
-        if (string.IsNullOrWhiteSpace(appHash))
+        else if (!string.IsNullOrWhiteSpace(_lastForegroundAppHash))
         {
-            return;
+            appHash = _lastForegroundAppHash;
+        }
+        else
+        {
+            appHash = "unknown";
         }
 
         _lastForegroundAppHash = appHash;
@@ -194,16 +228,76 @@ internal sealed class RuntimeSignalIngestionWorker(
         Enqueue(new RawInputSample(tsUtcMs, contributor));
     }
 
-    private void CaptureIdleHeartbeat()
+    private bool CaptureIdleHeartbeat(out double idleSeconds)
     {
-        if (!IsCollectionEnabled() || !TryReadIdleSeconds(out double idleSeconds))
+        idleSeconds = 0d;
+        if (!IsCollectionEnabled() || !TryReadIdleSeconds(out idleSeconds))
         {
-            return;
+            return false;
         }
 
         long tsUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         string contributor = RawInputContributors.Idle(idleSeconds);
         Enqueue(new RawInputSample(tsUtcMs, contributor));
+        return true;
+    }
+
+    private void CaptureNonInteractiveFallback(double? idleSeconds)
+    {
+        if (!IsCollectionEnabled())
+        {
+            _hasCursorPosition = false;
+            _lastIdleSeconds = double.NaN;
+            return;
+        }
+
+        bool mouseMoved = false;
+        if (TryReadCursorPosition(out int cursorX, out int cursorY))
+        {
+            if (_hasCursorPosition)
+            {
+                int dx = cursorX - _lastCursorX;
+                int dy = cursorY - _lastCursorY;
+                if (dx != 0 || dy != 0)
+                {
+                    mouseMoved = true;
+                    long tsUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    string contributor = RawInputContributors.MouseMove(dx, dy);
+                    Enqueue(new RawInputSample(tsUtcMs, contributor));
+                }
+            }
+
+            _lastCursorX = cursorX;
+            _lastCursorY = cursorY;
+            _hasCursorPosition = true;
+        }
+
+        if (!idleSeconds.HasValue)
+        {
+            return;
+        }
+
+        double currentIdle = Math.Max(0d, idleSeconds.Value);
+        bool emitKeyboard = false;
+        if (double.IsFinite(_lastIdleSeconds))
+        {
+            bool resetDetected = currentIdle + 0.20d < _lastIdleSeconds;
+            bool sustainedActive = currentIdle <= 0.35d && _lastIdleSeconds <= 0.35d;
+            if ((resetDetected || sustainedActive) && !mouseMoved)
+            {
+                emitKeyboard = true;
+            }
+        }
+
+        _lastIdleSeconds = currentIdle;
+        if (!emitKeyboard)
+        {
+            return;
+        }
+
+        long keyboardTsUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        string keyboardContributor = RawInputContributors.KeyboardKeydown(isBackspace: false);
+        Enqueue(new RawInputSample(keyboardTsUtcMs, keyboardContributor));
     }
 
     private void Enqueue(RawInputSample sample)
@@ -341,6 +435,20 @@ internal sealed class RuntimeSignalIngestionWorker(
         return true;
     }
 
+    private static bool TryReadCursorPosition(out int x, out int y)
+    {
+        x = 0;
+        y = 0;
+        if (!GetCursorPos(out CursorPoint point))
+        {
+            return false;
+        }
+
+        x = point.X;
+        y = point.Y;
+        return true;
+    }
+
     private readonly record struct RawInputSample(long TimestampUtcMs, string Contributor);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -348,6 +456,13 @@ internal sealed class RuntimeSignalIngestionWorker(
     {
         public uint CbSize;
         public uint DwTime;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CursorPoint
+    {
+        public int X;
+        public int Y;
     }
 
     [DllImport("user32.dll")]
@@ -359,4 +474,8 @@ internal sealed class RuntimeSignalIngestionWorker(
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetLastInputInfo(ref LastInputInfo info);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorPos(out CursorPoint point);
 }

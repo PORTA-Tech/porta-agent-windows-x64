@@ -14,6 +14,10 @@ public sealed class LocalApiClient : IDisposable
     private readonly LocalApiRuntimeSettings? _settings;
     private string _host = "127.0.0.1";
     private int _port;
+    public int? LastStatusHttpCode { get; private set; }
+    public DateTimeOffset? LastStatusProbeUtc { get; private set; }
+    public int? LastSnapshotHttpCode { get; private set; }
+    public DateTimeOffset? LastSnapshotProbeUtc { get; private set; }
 
     public LocalApiClient()
     {
@@ -44,16 +48,28 @@ public sealed class LocalApiClient : IDisposable
     {
         if (_settings == null)
         {
+            LastStatusProbeUtc = DateTimeOffset.UtcNow;
+            LastStatusHttpCode = null;
             return null;
         }
 
         try
         {
             RefreshEndpointBinding();
-            return await _httpClient.GetFromJsonAsync<LocalApiStatusResponse>("/v1/status", token).ConfigureAwait(false);
+            LastStatusProbeUtc = DateTimeOffset.UtcNow;
+            using HttpResponseMessage response = await _httpClient.GetAsync("/v1/status", token).ConfigureAwait(false);
+            LastStatusHttpCode = (int)response.StatusCode;
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<LocalApiStatusResponse>(cancellationToken: token).ConfigureAwait(false);
         }
         catch
         {
+            LastStatusProbeUtc = DateTimeOffset.UtcNow;
+            LastStatusHttpCode = null;
             return null;
         }
     }
@@ -62,16 +78,28 @@ public sealed class LocalApiClient : IDisposable
     {
         if (_settings == null)
         {
+            LastSnapshotProbeUtc = DateTimeOffset.UtcNow;
+            LastSnapshotHttpCode = null;
             return null;
         }
 
         try
         {
             RefreshEndpointBinding();
-            return await _httpClient.GetFromJsonAsync<LocalApiCurrentSnapshotResponse>("/v1/snapshot/current", token).ConfigureAwait(false);
+            LastSnapshotProbeUtc = DateTimeOffset.UtcNow;
+            using HttpResponseMessage response = await _httpClient.GetAsync("/v1/snapshot/current", token).ConfigureAwait(false);
+            LastSnapshotHttpCode = (int)response.StatusCode;
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<LocalApiCurrentSnapshotResponse>(cancellationToken: token).ConfigureAwait(false);
         }
         catch
         {
+            LastSnapshotProbeUtc = DateTimeOffset.UtcNow;
+            LastSnapshotHttpCode = null;
             return null;
         }
     }

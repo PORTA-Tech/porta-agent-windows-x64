@@ -6,6 +6,7 @@ public sealed record AgentServiceStatusSnapshot(
     AgentStatus Status,
     bool ServiceRunning,
     bool Paused,
+    DateTimeOffset? PauseUntilUtc,
     bool ConsentActive,
     string ConsentVersion,
     DateTimeOffset? ConsentTimestampUtc,

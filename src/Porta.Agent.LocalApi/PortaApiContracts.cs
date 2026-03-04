@@ -6,6 +6,7 @@ public sealed record LocalApiStatusResponse(
     AgentStatus Status,
     bool ServiceRunning,
     bool Paused,
+    DateTimeOffset? PauseUntilUtc,
     bool ConsentActive,
     string ConsentVersion,
     DateTimeOffset? ConsentTimestampUtc,
@@ -46,7 +47,15 @@ public sealed record LocalApiCurrentSnapshotResponse(
     double SustainedAttentionDurationSec = 0,
     double IdleFragmentationIndex = 0,
     bool OverloadActive = false,
-    string? StateFlagsJson = null);
+    string? StateFlagsJson = null,
+    string? ContributorsJson = null,
+    bool? BaselineReady = null,
+    double? BaselineReadyPct = null,
+    double? AvgQuality2m = null,
+    bool? ColdStart = null,
+    double? CurrentQualityScore = null,
+    bool? PartialData = null,
+    IReadOnlyList<string>? MissingMajorChannels = null);
 
 public sealed record LocalApiInputsSummaryResponse(
     DateTimeOffset FromUtc,

@@ -125,6 +125,7 @@ public sealed class AgentCoreController : IAgentCoreController
                 Status: status,
                 ServiceRunning: true,
                 Paused: _paused,
+                PauseUntilUtc: _pauseUntilUtc,
                 ConsentActive: _consentActive,
                 ConsentVersion: _consentState.Version,
                 ConsentTimestampUtc: _consentState.TimestampUtc,

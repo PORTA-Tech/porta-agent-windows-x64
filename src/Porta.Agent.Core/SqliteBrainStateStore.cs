@@ -546,6 +546,110 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         lock (_gate)
         {
             using var connection = DbOpen.OpenConnection(_connectionString);
+            bool? baselineReady = null;
+            double? baselineReadyPct = null;
+            double? avgQuality2m = null;
+            bool? coldStart = null;
+            double? currentQualityScore = null;
+            bool? partialData = null;
+            IReadOnlyList<string>? missingMajorChannels = null;
+
+            using (var baselineCmd = connection.CreateCommand())
+            {
+                baselineCmd.CommandText =
+                    """
+                    SELECT value_json
+                    FROM runtime_state
+                    WHERE key = 'baseline_status'
+                    LIMIT 1;
+                    """;
+                object? baselineScalar = baselineCmd.ExecuteScalar();
+                if (baselineScalar != null && baselineScalar != DBNull.Value)
+                {
+                    string baselineStatusJson = Convert.ToString(baselineScalar, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(baselineStatusJson))
+                    {
+                        try
+                        {
+                            using JsonDocument baselineDoc = JsonDocument.Parse(baselineStatusJson);
+                            JsonElement baselineRoot = baselineDoc.RootElement;
+                            if (TryReadBoolProperty(baselineRoot, "baseline_ready", out bool baselineReadyParsed))
+                            {
+                                baselineReady = baselineReadyParsed;
+                            }
+
+                            if (TryReadDoubleProperty(baselineRoot, "baseline_ready_pct", out double baselineReadyPctParsed))
+                            {
+                                baselineReadyPct = baselineReadyPctParsed;
+                            }
+
+                            if (TryReadDoubleProperty(baselineRoot, "avg_quality_2m", out double avgQuality2mParsed))
+                            {
+                                avgQuality2m = avgQuality2mParsed;
+                            }
+
+                            if (TryReadBoolProperty(baselineRoot, "cold_start", out bool coldStartParsed))
+                            {
+                                coldStart = coldStartParsed;
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+            }
+
+            using (var inputCmd = connection.CreateCommand())
+            {
+                inputCmd.CommandText =
+                    """
+                    SELECT
+                        quality_score,
+                        partial,
+                        contributors_json
+                    FROM input_buckets
+                    ORDER BY id DESC
+                    LIMIT 1;
+                    """;
+                using SqliteDataReader inputReader = inputCmd.ExecuteReader();
+                if (inputReader.Read())
+                {
+                    currentQualityScore = ReadDoubleOrFallback(inputReader, 0, 0d);
+                    partialData = ReadBoolOrFallback(inputReader, 1, false);
+                    string contributorsJson = ReadStringOrFallback(inputReader, 2, "{\"schema_ver\":1}");
+                    try
+                    {
+                        using JsonDocument contributorsDoc = JsonDocument.Parse(contributorsJson);
+                        JsonElement contributorsRoot = contributorsDoc.RootElement;
+                        if (contributorsRoot.ValueKind == JsonValueKind.Object
+                            && contributorsRoot.TryGetProperty("missing_major_channels", out JsonElement channels)
+                            && channels.ValueKind == JsonValueKind.Array)
+                        {
+                            var parsedChannels = new List<string>();
+                            foreach (JsonElement item in channels.EnumerateArray())
+                            {
+                                if (item.ValueKind == JsonValueKind.String)
+                                {
+                                    string? channel = item.GetString();
+                                    if (!string.IsNullOrWhiteSpace(channel))
+                                    {
+                                        parsedChannels.Add(channel.Trim().ToLowerInvariant());
+                                    }
+                                }
+                            }
+
+                            missingMajorChannels = parsedChannels
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToArray();
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
             using var cmd = connection.CreateCommand();
             cmd.CommandText =
                 """
@@ -589,7 +693,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 IdleFragmentationIndex: ReadDoubleOrFallback(reader, 4, 0d),
                 OverloadActive: overloadActive,
                 StateFlagsJson: stateFlagsJson,
-                ContributorsJson: ReadStringOrFallback(reader, 6, "{\"schema_ver\":1}"));
+                ContributorsJson: ReadStringOrFallback(reader, 6, "{\"schema_ver\":1}"),
+                BaselineReady: baselineReady,
+                BaselineReadyPct: baselineReadyPct,
+                AvgQuality2m: avgQuality2m,
+                ColdStart: coldStart,
+                CurrentQualityScore: currentQualityScore,
+                PartialData: partialData,
+                MissingMajorChannels: missingMajorChannels);
         }
     }
 
@@ -1546,6 +1657,35 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
 
         return TryReadBool(property, out parsed);
+    }
+
+    private static bool TryReadDoubleProperty(JsonElement root, string propertyName, out double parsed)
+    {
+        parsed = 0d;
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty(propertyName, out JsonElement property))
+        {
+            return false;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetDouble(out double numeric))
+        {
+            parsed = numeric;
+            return true;
+        }
+
+        if (property.ValueKind == JsonValueKind.String
+            && double.TryParse(
+                property.GetString(),
+                System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowThousands,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out double fromString))
+        {
+            parsed = fromString;
+            return true;
+        }
+
+        return false;
     }
 
     private static long ReadInt64Property(JsonElement root, params string[] propertyNames)

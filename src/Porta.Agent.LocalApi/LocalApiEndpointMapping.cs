@@ -129,6 +129,7 @@ public static class LocalApiEndpointMapping
                 status.Status,
                 status.ServiceRunning,
                 status.Paused,
+                status.PauseUntilUtc,
                 status.ConsentActive,
                 status.ConsentVersion,
                 status.ConsentTimestampUtc,
@@ -342,7 +343,15 @@ public static class LocalApiEndpointMapping
             latestState?.SustainedAttentionDurationSec ?? 0d,
             latestState?.IdleFragmentationIndex ?? 0d,
             latestState?.OverloadActive ?? false,
-            latestState?.StateFlagsJson);
+            latestState?.StateFlagsJson,
+            latestState?.ContributorsJson,
+            latestState?.BaselineReady,
+            latestState?.BaselineReadyPct,
+            latestState?.AvgQuality2m,
+            latestState?.ColdStart,
+            latestState?.CurrentQualityScore,
+            latestState?.PartialData,
+            latestState?.MissingMajorChannels);
     }
 
     private static LocalApiEventResponse ToEventResponse(AgentControlEvent ev)

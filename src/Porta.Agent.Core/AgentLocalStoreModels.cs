@@ -71,7 +71,14 @@ public sealed record AgentLatestStateDetails(
     double IdleFragmentationIndex,
     bool OverloadActive,
     string StateFlagsJson,
-    string ContributorsJson);
+    string ContributorsJson,
+    bool? BaselineReady = null,
+    double? BaselineReadyPct = null,
+    double? AvgQuality2m = null,
+    bool? ColdStart = null,
+    double? CurrentQualityScore = null,
+    bool? PartialData = null,
+    IReadOnlyList<string>? MissingMajorChannels = null);
 
 public sealed record AgentSettingsState(
     string RegulationIntensity,
