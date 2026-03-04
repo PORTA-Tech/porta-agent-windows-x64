@@ -19,13 +19,13 @@
         <Border Grid.Column="0" Background="#111827" BorderBrush="#1F2937" BorderThickness="0,0,1,0">
             <StackPanel Margin="16">
                 <TextBlock Text="PORTA" FontSize="24" FontWeight="Bold" Margin="0,0,0,20" />
-                <Button x:Name="OverviewNavButton" Content="Overview" Margin="0,0,0,8" Padding="10,8" Click="OverviewNavButton_Click" />
-                <Button x:Name="TimelineNavButton" Content="Timeline" Margin="0,0,0,8" Padding="10,8" Click="TimelineNavButton_Click" />
-                <Button x:Name="InterventionsNavButton" Content="Interventions" Margin="0,0,0,8" Padding="10,8" Click="InterventionsNavButton_Click" />
-                <Button x:Name="InputsNavButton" Content="Inputs" Margin="0,0,0,8" Padding="10,8" Click="InputsNavButton_Click" />
-                <Button x:Name="StatesNavButton" Content="States" Margin="0,0,0,8" Padding="10,8" Click="StatesNavButton_Click" />
-                <Button x:Name="SettingsNavButton" Content="Settings" Margin="0,0,0,8" Padding="10,8" Click="SettingsNavButton_Click" />
-                <Button x:Name="DiagnosticsNavButton" Content="Diagnostics" Margin="0,16,0,0" Padding="10,8" Click="DiagnosticsNavButton_Click" />
+                <Button x:Name="OverviewNavButton" Content="Now" Margin="0,0,0,8" Padding="10,8" Click="OverviewNavButton_Click" />
+                <Button x:Name="TimelineNavButton" Content="History" Margin="0,0,0,8" Padding="10,8" Click="TimelineNavButton_Click" />
+                <Button x:Name="InterventionsNavButton" Content="Actions" Margin="0,0,0,8" Padding="10,8" Click="InterventionsNavButton_Click" />
+                <Button x:Name="InputsNavButton" Content="What I Track" Margin="0,0,0,8" Padding="10,8" Click="InputsNavButton_Click" />
+                <Button x:Name="StatesNavButton" Content="How It Decides" Margin="0,0,0,8" Padding="10,8" Click="StatesNavButton_Click" />
+                <Button x:Name="SettingsNavButton" Content="Controls" Margin="0,0,0,8" Padding="10,8" Click="SettingsNavButton_Click" />
+                <Button x:Name="DiagnosticsNavButton" Content="Health" Margin="0,0,0,0" Padding="10,8" Click="DiagnosticsNavButton_Click" />
             </StackPanel>
         </Border>
 
@@ -37,7 +37,7 @@
 
             <Border Grid.Row="0" Background="#0B1220" BorderBrush="#1F2937" BorderThickness="0,0,0,1">
                 <DockPanel LastChildFill="False" Margin="16,10">
-                    <TextBlock x:Name="SectionTitleText" Text="Overview" DockPanel.Dock="Left" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,20,0" />
+                    <TextBlock x:Name="SectionTitleText" Text="Now" DockPanel.Dock="Left" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,20,0" />
                     <Border CornerRadius="12" Background="#1D4ED8" Padding="10,4" Margin="0,0,10,0"><TextBlock x:Name="StatusPillText" Text="Unknown" FontWeight="Bold" /></Border>
                     <Border CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0"><TextBlock x:Name="ConsentBadgeText" Text="Consent: Unknown" /></Border>
                     <Border CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0"><TextBlock x:Name="BackendBadgeText" Text="Backend: Unknown" /></Border>

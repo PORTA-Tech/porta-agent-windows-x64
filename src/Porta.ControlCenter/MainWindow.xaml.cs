@@ -470,14 +470,14 @@ public partial class MainWindow : Window
 
         SectionTitleText.Text = section switch
         {
-            UiSection.Overview => "Overview",
-            UiSection.Timeline => "Timeline",
-            UiSection.Interventions => "Interventions",
-            UiSection.Inputs => "Inputs",
-            UiSection.States => "States",
-            UiSection.Settings => "Settings",
-            UiSection.Diagnostics => "Diagnostics",
-            _ => "Overview"
+            UiSection.Overview => "Now",
+            UiSection.Timeline => "History",
+            UiSection.Interventions => "Actions",
+            UiSection.Inputs => "What I Track",
+            UiSection.States => "How It Decides",
+            UiSection.Settings => "Controls",
+            UiSection.Diagnostics => "Health",
+            _ => "Now"
         };
 
         ApplyNavState(OverviewNavButton, section == UiSection.Overview);
