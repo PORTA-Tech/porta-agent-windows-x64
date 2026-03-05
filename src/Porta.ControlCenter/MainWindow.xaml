@@ -209,71 +209,270 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <ScrollViewer x:Name="InterventionsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer x:Name="InterventionsPanel"
+                              Visibility="Collapsed"
+                              VerticalScrollBarVisibility="Disabled"
+                              HorizontalScrollBarVisibility="Disabled"
+                              PanningMode="None">
                     <Grid Margin="20">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="1.2*" /></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="1.8*" /><ColumnDefinition Width="1.2*" /></Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                            <TextBlock Text="Interventions" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12" />
-                            <Border Background="#0B1220" BorderBrush="#1E3A8A" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
-                                <StackPanel>
-                                    <TextBlock Text="Auto-Regulation is ON" FontWeight="SemiBold" Foreground="#93C5FD" />
-                                    <TextBlock Text="PORTA applies interventions automatically when inferred overload/fatigue crosses thresholds. Toggles below are opt-out safety controls." TextWrapping="Wrap" Foreground="#CBD5E1" Margin="0,4,0,0" />
-                                </StackPanel>
-                            </Border>
-                            <WrapPanel Margin="0,0,0,10">
-                                <CheckBox x:Name="InterventionNotificationToggle" Content="Allow notification reduction (auto)" Margin="0,0,16,0" Click="InterventionCategoryToggle_Click" Foreground="#F8FAFC" FontWeight="SemiBold" />
-                                <CheckBox x:Name="InterventionFocusModeToggle" Content="Allow focus mode nudge (auto)" Margin="0,0,16,0" Click="InterventionCategoryToggle_Click" Foreground="#F8FAFC" FontWeight="SemiBold" />
-                                <CheckBox x:Name="InterventionAnimationToggle" Content="Allow animation reduction (auto)" Margin="0,0,16,0" Click="InterventionCategoryToggle_Click" Foreground="#F8FAFC" FontWeight="SemiBold" />
-                                <CheckBox x:Name="InterventionAppRestrictionToggle" Content="Allow temporary app restriction (auto)" Click="InterventionCategoryToggle_Click" Foreground="#F8FAFC" FontWeight="SemiBold" />
+                            <TextBlock Text="Actions" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <TextBlock Text="What PORTA did, why it happened, and whether undo is available." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                            <WrapPanel Margin="0,0,0,12">
+                                <Border Background="#1E3A8A" CornerRadius="12" Padding="10,4" Margin="0,0,8,0">
+                                    <TextBlock x:Name="SuggestionsCountText" Text="Suggestions: 0" Foreground="#DBEAFE" FontWeight="SemiBold" />
+                                </Border>
+                                <Border Background="#14532D" CornerRadius="12" Padding="10,4" Margin="0,0,8,0">
+                                    <TextBlock x:Name="ChangesCountText" Text="Changes: 0" Foreground="#DCFCE7" FontWeight="SemiBold" />
+                                </Border>
                             </WrapPanel>
-                            <ListView x:Name="InterventionsListView" SelectionChanged="InterventionsListView_SelectionChanged" Background="#0B1220" Foreground="#E2E8F0" BorderBrush="#1F2937">
-                                <ListView.Resources>
-                                    <Style TargetType="GridViewColumnHeader">
-                                        <Setter Property="Foreground" Value="#F8FAFC" />
-                                        <Setter Property="Background" Value="#1E293B" />
-                                        <Setter Property="FontWeight" Value="SemiBold" />
-                                    </Style>
-                                    <Style TargetType="ListViewItem">
-                                        <Setter Property="Foreground" Value="#E2E8F0" />
-                                        <Setter Property="Background" Value="#0B1220" />
-                                    </Style>
-                                </ListView.Resources>
-                                <ListView.View>
-                                    <GridView>
-                                        <GridViewColumn Header="Action" Width="150" DisplayMemberBinding="{Binding Action}" />
-                                        <GridViewColumn Header="Policy" Width="140" DisplayMemberBinding="{Binding PolicyId}" />
-                                        <GridViewColumn Header="Domain" Width="90" DisplayMemberBinding="{Binding Domain}" />
-                                        <GridViewColumn Header="Trigger" Width="90" DisplayMemberBinding="{Binding TriggerState}" />
-                                        <GridViewColumn Header="Value" Width="60" DisplayMemberBinding="{Binding TriggerValue}" />
-                                        <GridViewColumn Header="Conf" Width="60" DisplayMemberBinding="{Binding Confidence}" />
-                                        <GridViewColumn Header="Duration" Width="70" DisplayMemberBinding="{Binding Duration}" />
-                                        <GridViewColumn Header="Escalation" Width="90" DisplayMemberBinding="{Binding Escalation}" />
-                                        <GridViewColumn Header="Lifecycle" Width="90" DisplayMemberBinding="{Binding Lifecycle}" />
-                                        <GridViewColumn Header="Reversible" Width="70" DisplayMemberBinding="{Binding Reversible}" />
-                                    </GridView>
-                                </ListView.View>
-                            </ListView>
-                        </StackPanel>
-                        <Border Grid.Column="1" Background="#111827" CornerRadius="8" Padding="10" BorderBrush="#1F2937" BorderThickness="1">
-                            <StackPanel>
-                                <TextBlock x:Name="InterventionDrawerTitle" Text="Select an intervention" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBlock x:Name="InterventionDrawerIdentity" Text="Intervention ID: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="InterventionDrawerPolicy" Text="Policy/Domain: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="InterventionDrawerLifecycle" Text="Lifecycle: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="InterventionDrawerWhen" Text="When: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="InterventionDrawerPlanned" Text="Planned end: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="InterventionDrawerActual" Text="Actual end: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="InterventionDrawerCooldown" Text="Cooldown end: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="InterventionDrawerReversal" Text="Reversal applied: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="InterventionDrawerWhy" Text="Why: n/a" TextWrapping="Wrap" Margin="0,0,0,6" />
-                                <TextBlock x:Name="InterventionDrawerContributors" Text="Contributors: n/a" TextWrapping="Wrap" Margin="0,0,0,6" />
-                                <TextBlock x:Name="InterventionDrawerConfidence" Text="Confidence: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="InterventionDrawerDuration" Text="Duration: n/a" Margin="0,0,0,6" />
-                                <TextBlock x:Name="InterventionDrawerChanged" Text="What changed: n/a" TextWrapping="Wrap" Margin="0,0,0,8" />
-                                <TextBlock x:Name="InterventionDrawerPrevious" Text="Previous value: n/a" TextWrapping="Wrap" Margin="0,0,0,8" />
-                                <TextBlock x:Name="InterventionDrawerUndo" Text="How to undo: n/a" TextWrapping="Wrap" Margin="0,0,0,8" />
-                                <Button x:Name="InterventionToggleButton" Content="Undo Action" Padding="12,6" Click="InterventionToggleButton_Click" IsEnabled="False" />
+
+                            <!-- Keep these hidden toggles for existing settings/undo wiring. -->
+                            <StackPanel Visibility="Collapsed">
+                                <CheckBox x:Name="InterventionNotificationToggle" Content="Allow notification reduction (auto)" Click="InterventionCategoryToggle_Click" />
+                                <CheckBox x:Name="InterventionFocusModeToggle" Content="Allow focus mode nudge (auto)" Click="InterventionCategoryToggle_Click" />
+                                <CheckBox x:Name="InterventionAnimationToggle" Content="Allow animation reduction (auto)" Click="InterventionCategoryToggle_Click" />
+                                <CheckBox x:Name="InterventionAppRestrictionToggle" Content="Allow temporary app restriction (auto)" Click="InterventionCategoryToggle_Click" />
                             </StackPanel>
+
+                            <WrapPanel Margin="0,0,0,8">
+                                <Button x:Name="ActionsSuggestionsTabButton" Content="Suggestions" Padding="12,6" Margin="0,0,8,0" Click="ActionsSuggestionsTabButton_Click" />
+                                <Button x:Name="ActionsChangesTabButton" Content="Changes" Padding="12,6" Click="ActionsChangesTabButton_Click" />
+                            </WrapPanel>
+                            <Border Background="#0B1220" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="10" Padding="10" Height="540">
+                                <Grid>
+                                    <Grid x:Name="SuggestionsTabContent" Margin="4">
+                                        <TextBlock x:Name="SuggestionsEmptyStateText"
+                                                   Text="No suggestions yet."
+                                                   Foreground="#CBD5E1"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"
+                                                   HorizontalAlignment="Center"
+                                                   Visibility="Collapsed" />
+                                        <ListView x:Name="SuggestionsListView"
+                                                  SelectionChanged="SuggestionsListView_SelectionChanged"
+                                                  Background="#0B1220"
+                                                  Foreground="#E2E8F0"
+                                                  BorderBrush="#1F2937">
+                                            <ListView.Resources>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="Foreground" Value="#E2E8F0" />
+                                                    <Setter Property="Background" Value="#111827" />
+                                                    <Setter Property="BorderBrush" Value="#1F2937" />
+                                                    <Setter Property="BorderThickness" Value="0" />
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Margin" Value="0,0,0,8" />
+                                                    <Setter Property="Cursor" Value="Hand" />
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="#1E293B" />
+                                                            <Setter Property="BorderBrush" Value="#334155" />
+                                                        </Trigger>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter Property="Background" Value="#1D4ED8" />
+                                                            <Setter Property="BorderBrush" Value="#60A5FA" />
+                                                            <Setter Property="Foreground" Value="#FFFFFF" />
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                                <Style TargetType="{x:Type ScrollBar}">
+                                                    <Setter Property="Width" Value="10" />
+                                                    <Setter Property="Background" Value="#0F172A" />
+                                                    <Setter Property="Template">
+                                                        <Setter.Value>
+                                                            <ControlTemplate TargetType="{x:Type ScrollBar}">
+                                                                <Grid Background="{TemplateBinding Background}" Width="{TemplateBinding Width}">
+                                                                    <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                                                        <Track.DecreaseRepeatButton>
+                                                                            <RepeatButton Command="ScrollBar.PageUpCommand"
+                                                                                          Background="Transparent"
+                                                                                          BorderThickness="0"
+                                                                                          Opacity="0" />
+                                                                        </Track.DecreaseRepeatButton>
+                                                                        <Track.Thumb>
+                                                                            <Thumb x:Name="ScrollThumb"
+                                                                                   Background="#526079"
+                                                                                   BorderBrush="#64748B"
+                                                                                   BorderThickness="1" />
+                                                                        </Track.Thumb>
+                                                                        <Track.IncreaseRepeatButton>
+                                                                            <RepeatButton Command="ScrollBar.PageDownCommand"
+                                                                                          Background="Transparent"
+                                                                                          BorderThickness="0"
+                                                                                          Opacity="0" />
+                                                                        </Track.IncreaseRepeatButton>
+                                                                    </Track>
+                                                                </Grid>
+                                                                <ControlTemplate.Triggers>
+                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                        <Setter TargetName="ScrollThumb" Property="Background" Value="#64748B" />
+                                                                    </Trigger>
+                                                                </ControlTemplate.Triggers>
+                                                            </ControlTemplate>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </Style>
+                                            </ListView.Resources>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="{Binding RelativeSource={RelativeSource AncestorType=ListViewItem}, Path=Background}"
+                                                            BorderBrush="{Binding RelativeSource={RelativeSource AncestorType=ListViewItem}, Path=BorderBrush}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="8"
+                                                            Padding="10">
+                                                        <StackPanel>
+                                                            <Grid Margin="0,0,0,6">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" Foreground="#F8FAFC" />
+                                                                <Border Grid.Column="1" Background="#1E293B" CornerRadius="10" Padding="8,2">
+                                                                    <TextBlock Text="{Binding Time}" Foreground="#CBD5E1" FontSize="11" />
+                                                                </Border>
+                                                            </Grid>
+                                                            <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                    </Grid>
+                                    <Grid x:Name="ChangesTabContent" Margin="4" Visibility="Collapsed">
+                                        <TextBlock x:Name="ChangesEmptyStateText"
+                                                   Text="No system changes are enabled in this version."
+                                                   Foreground="#CBD5E1"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"
+                                                   HorizontalAlignment="Center"
+                                                   Visibility="Collapsed" />
+                                        <ListView x:Name="ChangesListView"
+                                                  SelectionChanged="ChangesListView_SelectionChanged"
+                                                  PreviewMouseWheel="ChangesListView_PreviewMouseWheel"
+                                                  Background="#0B1220"
+                                                  Foreground="#E2E8F0"
+                                                  BorderBrush="#1F2937"
+                                                  ScrollViewer.CanContentScroll="False">
+                                            <ListView.Resources>
+                                                <Style TargetType="ListViewItem">
+                                                    <Setter Property="Foreground" Value="#E2E8F0" />
+                                                    <Setter Property="Background" Value="#111827" />
+                                                    <Setter Property="BorderBrush" Value="#1F2937" />
+                                                    <Setter Property="BorderThickness" Value="0" />
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Margin" Value="0,0,0,8" />
+                                                    <Setter Property="Cursor" Value="Hand" />
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="#1E293B" />
+                                                            <Setter Property="BorderBrush" Value="#334155" />
+                                                        </Trigger>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter Property="Background" Value="#1D4ED8" />
+                                                            <Setter Property="BorderBrush" Value="#60A5FA" />
+                                                            <Setter Property="Foreground" Value="#FFFFFF" />
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </ListView.Resources>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="{Binding RelativeSource={RelativeSource AncestorType=ListViewItem}, Path=Background}"
+                                                            BorderBrush="{Binding RelativeSource={RelativeSource AncestorType=ListViewItem}, Path=BorderBrush}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="8"
+                                                            Padding="10">
+                                                        <StackPanel>
+                                                            <Grid Margin="0,0,0,6">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Text="{Binding WhatChanged}" FontSize="14" FontWeight="SemiBold" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                                <Border Grid.Column="1" Background="#064E3B" CornerRadius="10" Padding="8,2" Margin="8,0,0,0">
+                                                                    <TextBlock Text="{Binding Undo}" Foreground="#D1FAE5" FontSize="11" />
+                                                                </Border>
+                                                            </Grid>
+                                                            <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,6" />
+                                                            <TextBlock Text="{Binding When}" Foreground="#94A3B8" FontSize="11" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                    </Grid>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                        <Border Grid.Column="1" Background="#0B1220" CornerRadius="10" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Height="540" VerticalAlignment="Top">
+                            <ScrollViewer x:Name="ActionDetailsScrollViewer"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          CanContentScroll="False"
+                                          IsManipulationEnabled="True"
+                                          PanningMode="VerticalOnly">
+                                <ScrollViewer.Resources>
+                                    <Style TargetType="{x:Type ScrollBar}">
+                                        <Setter Property="Width" Value="10" />
+                                        <Setter Property="Background" Value="#0F172A" />
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="{x:Type ScrollBar}">
+                                                    <Grid Background="{TemplateBinding Background}" Width="{TemplateBinding Width}">
+                                                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                                            <Track.DecreaseRepeatButton>
+                                                                <RepeatButton Command="ScrollBar.PageUpCommand"
+                                                                              Background="Transparent"
+                                                                              BorderThickness="0"
+                                                                              Opacity="0" />
+                                                            </Track.DecreaseRepeatButton>
+                                                            <Track.Thumb>
+                                                                <Thumb x:Name="ScrollThumb"
+                                                                       Background="#526079"
+                                                                       BorderBrush="#64748B"
+                                                                       BorderThickness="1" />
+                                                            </Track.Thumb>
+                                                            <Track.IncreaseRepeatButton>
+                                                                <RepeatButton Command="ScrollBar.PageDownCommand"
+                                                                              Background="Transparent"
+                                                                              BorderThickness="0"
+                                                                              Opacity="0" />
+                                                            </Track.IncreaseRepeatButton>
+                                                        </Track>
+                                                    </Grid>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="ScrollThumb" Property="Background" Value="#64748B" />
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ScrollViewer.Resources>
+                                <StackPanel>
+                                    <TextBlock Text="Details" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="ActionDrawerTitle" Text="Select an action event" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,10" />
+                                    <Border Background="#111827" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
+                                        <StackPanel>
+                                            <TextBlock x:Name="ActionDrawerWhen" Text="When: n/a" Margin="0,0,0,6" Foreground="#CBD5E1" />
+                                            <TextBlock x:Name="ActionDrawerCooldown" Text="Cooldown remaining: n/a" Margin="0,0,0,6" Foreground="#CBD5E1" />
+                                            <TextBlock x:Name="ActionDrawerUndo" Text="Undo: n/a" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#CBD5E1" />
+                                            <TextBlock x:Name="ActionDrawerShortWhy" Text="Why: n/a" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" MaxHeight="58" />
+                                            <TextBlock x:Name="ActionDrawerRepeat" Text="" Foreground="#93C5FD" TextWrapping="Wrap" Margin="0,0,0,6" Visibility="Collapsed" />
+                                            <TextBlock x:Name="ActionDrawerWhatChanged" Text="What changed: n/a" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" MaxHeight="58" />
+                                        </StackPanel>
+                                    </Border>
+                                    <TextBlock Text="Technical details (why_json)" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,4" />
+                                    <Border Background="#111827" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="8" Padding="8">
+                                        <ScrollViewer VerticalScrollBarVisibility="Disabled" Height="190">
+                                            <TextBlock x:Name="ActionDrawerWhyJson" Text="n/a" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" />
+                                        </ScrollViewer>
+                                    </Border>
+                                    <Button x:Name="ActionDrawerUndoButton" Content="Undo change" Padding="12,6" Margin="0,10,0,0" Click="ActionDrawerUndoButton_Click" IsEnabled="False" />
+                                </StackPanel>
+                            </ScrollViewer>
                         </Border>
                     </Grid>
                 </ScrollViewer>

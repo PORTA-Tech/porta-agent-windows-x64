@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Porta.Agent.LocalApi;
@@ -44,6 +45,7 @@ public partial class MainWindow : Window
     private DateTimeOffset? _lastStatusSuccessUtc;
     private HistoryRange _historyRange = HistoryRange.Last1Hour;
     private bool _historyExplainMode;
+    private ActionsView _actionsView = ActionsView.Suggestions;
     private static readonly TimeSpan HistorySelectionHold = TimeSpan.FromSeconds(12);
     private DateTimeOffset? _selectedHistorySnapshotTimestampUtc;
     private long? _selectedHistoryInterventionId;
@@ -65,6 +67,12 @@ public partial class MainWindow : Window
         Last1Hour,
         Last4Hours,
         Today
+    }
+
+    private enum ActionsView
+    {
+        Suggestions,
+        Changes
     }
 
     public MainWindow()
@@ -369,6 +377,18 @@ public partial class MainWindow : Window
         ShowSection(UiSection.Interventions);
     }
 
+    private void ActionsSuggestionsTabButton_Click(object sender, RoutedEventArgs e)
+    {
+        _actionsView = ActionsView.Suggestions;
+        UpdateActionsTabControls();
+    }
+
+    private void ActionsChangesTabButton_Click(object sender, RoutedEventArgs e)
+    {
+        _actionsView = ActionsView.Changes;
+        UpdateActionsTabControls();
+    }
+
     private void InputsNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Inputs);
@@ -569,6 +589,29 @@ public partial class MainWindow : Window
         ApplyNavState(StatesNavButton, section == UiSection.States);
         ApplyNavState(SettingsNavButton, section == UiSection.Settings);
         ApplyNavState(DiagnosticsNavButton, section == UiSection.Diagnostics);
+
+        if (section == UiSection.Interventions)
+        {
+            UpdateActionsTabControls();
+        }
+    }
+
+    private void UpdateActionsTabControls()
+    {
+        if (ActionsSuggestionsTabButton == null
+            || ActionsChangesTabButton == null
+            || SuggestionsTabContent == null
+            || ChangesTabContent == null)
+        {
+            return;
+        }
+
+        bool showSuggestions = _actionsView == ActionsView.Suggestions;
+        SuggestionsTabContent.Visibility = showSuggestions ? Visibility.Visible : Visibility.Collapsed;
+        ChangesTabContent.Visibility = showSuggestions ? Visibility.Collapsed : Visibility.Visible;
+
+        ApplyHistoryButtonState(ActionsSuggestionsTabButton, showSuggestions);
+        ApplyHistoryButtonState(ActionsChangesTabButton, !showSuggestions);
     }
 
     private static void ApplyNavState(Button button, bool selected)
@@ -1494,85 +1537,150 @@ public partial class MainWindow : Window
 
         _suppressSettingsEvents = false;
 
-        InterventionsListView.ItemsSource = events
-            .Select(e => new InterventionRow(
-                e.Action,
-                e.PolicyId,
-                e.Domain,
-                e.TriggerState,
-                e.TriggerValue.ToString("F2", CultureInfo.InvariantCulture),
-                $"{(e.Confidence * 100d):F0}%",
-                e.DurationSeconds.HasValue ? $"{Math.Max(e.DurationSeconds.Value, 0)}s" : "n/a",
-                e.EscalationLevel,
-                e.LifecycleState,
-                e.Reversible ? "Yes" : "No",
+        IReadOnlyList<LocalApiEventResponse> ordered = events
+            .OrderByDescending(static e => e.TimestampUtc)
+            .ToList();
+
+        IReadOnlyList<SuggestionRow> suggestions = ordered
+            .Where(static e => IsSuggestionEvent(e.Action))
+            .Select(e => new SuggestionRow(
+                BuildSuggestionTitle(e.Action),
+                e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                BuildSuggestionShortWhy(e),
                 e))
             .ToList();
 
-        if (events.Count == 0)
+        IReadOnlyList<ChangeRow> changes = ordered
+            .Where(static e => IsSystemChangeEvent(e))
+            .Select(e => new ChangeRow(
+                WhatChanged: string.IsNullOrWhiteSpace(e.WhatChanged) ? HumanizeActionName(e.Action) : e.WhatChanged,
+                When: e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                Why: BuildChangeShortWhy(e),
+                Undo: BuildUndoBadge(e),
+                Source: e))
+            .ToList();
+
+        SuggestionsListView.ItemsSource = suggestions;
+        ChangesListView.ItemsSource = changes;
+        SuggestionsCountText.Text = $"Suggestions: {suggestions.Count}";
+        ChangesCountText.Text = $"Changes: {changes.Count}";
+
+        SuggestionsEmptyStateText.Visibility = suggestions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        SuggestionsListView.Visibility = suggestions.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        ChangesEmptyStateText.Visibility = changes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ChangesListView.Visibility = changes.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        UpdateActionsTabControls();
+
+        bool selectedStillExists = _selectedIntervention != null
+            && ordered.Any(e => e.Id == _selectedIntervention.Id);
+        if (!selectedStillExists)
+        {
+            _selectedIntervention = null;
+            UpdateInterventionDrawer(null);
+            return;
+        }
+
+        if (_selectedIntervention != null)
+        {
+            LocalApiEventResponse? latestSelected = ordered.FirstOrDefault(e => e.Id == _selectedIntervention.Id);
+            _selectedIntervention = latestSelected;
+            UpdateInterventionDrawer(_selectedIntervention);
+        }
+    }
+
+    private void SuggestionsListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (SuggestionsListView.SelectedItem is SuggestionRow row)
+        {
+            _actionsView = ActionsView.Suggestions;
+            UpdateActionsTabControls();
+            ChangesListView.SelectedItem = null;
+            _selectedIntervention = row.Source;
+            UpdateInterventionDrawer(row.Source);
+            return;
+        }
+
+        if (ChangesListView.SelectedItem == null)
         {
             _selectedIntervention = null;
             UpdateInterventionDrawer(null);
         }
     }
 
-    private void InterventionsListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void ChangesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (InterventionsListView.SelectedItem is InterventionRow row)
+        if (ChangesListView.SelectedItem is ChangeRow row)
         {
+            _actionsView = ActionsView.Changes;
+            UpdateActionsTabControls();
+            SuggestionsListView.SelectedItem = null;
             _selectedIntervention = row.Source;
             UpdateInterventionDrawer(row.Source);
             return;
         }
 
-        _selectedIntervention = null;
-        UpdateInterventionDrawer(null);
+        if (SuggestionsListView.SelectedItem == null)
+        {
+            _selectedIntervention = null;
+            UpdateInterventionDrawer(null);
+        }
+    }
+
+    private void ChangesListView_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not ListView listView)
+        {
+            return;
+        }
+
+        ScrollViewer? scrollViewer = FindDescendant<ScrollViewer>(listView);
+        if (scrollViewer == null)
+        {
+            return;
+        }
+
+        // Keep change-list scrolling controlled/readable instead of fast jumps.
+        double step = 24d;
+        double nextOffset = scrollViewer.VerticalOffset - (Math.Sign(e.Delta) * step);
+        scrollViewer.ScrollToVerticalOffset(Math.Max(0d, nextOffset));
+        e.Handled = true;
     }
 
     private void UpdateInterventionDrawer(LocalApiEventResponse? item)
     {
         if (item == null)
         {
-            InterventionDrawerTitle.Text = "Select an intervention";
-            InterventionDrawerIdentity.Text = "Intervention ID: n/a";
-            InterventionDrawerPolicy.Text = "Policy/Domain: n/a";
-            InterventionDrawerLifecycle.Text = "Lifecycle: n/a";
-            InterventionDrawerWhen.Text = "When: n/a";
-            InterventionDrawerPlanned.Text = "Planned end: n/a";
-            InterventionDrawerActual.Text = "Actual end: n/a";
-            InterventionDrawerCooldown.Text = "Cooldown end: n/a";
-            InterventionDrawerReversal.Text = "Reversal applied: n/a";
-            InterventionDrawerWhy.Text = "Why: n/a";
-            InterventionDrawerContributors.Text = "Contributors: n/a";
-            InterventionDrawerConfidence.Text = "Confidence: n/a";
-            InterventionDrawerDuration.Text = "Duration: n/a";
-            InterventionDrawerChanged.Text = "What changed: n/a";
-            InterventionDrawerPrevious.Text = "Previous value: n/a";
-            InterventionDrawerUndo.Text = "How to undo: n/a";
-            InterventionToggleButton.IsEnabled = false;
+            ActionDrawerTitle.Text = "Select an action event";
+            ActionDrawerWhen.Text = "When: n/a";
+            ActionDrawerShortWhy.Text = "Why: n/a";
+            ActionDrawerCooldown.Text = "Cooldown remaining: n/a";
+            ActionDrawerRepeat.Text = string.Empty;
+            ActionDrawerRepeat.Visibility = Visibility.Collapsed;
+            ActionDrawerWhatChanged.Text = "What changed: n/a";
+            ActionDrawerUndo.Text = "Undo: n/a";
+            ActionDrawerWhyJson.Text = "n/a";
+            ActionDrawerUndoButton.IsEnabled = false;
             return;
         }
 
-        string duration = item.DurationSeconds.HasValue ? $"{Math.Max(item.DurationSeconds.Value, 0)}s" : "n/a";
-        InterventionDrawerTitle.Text = item.Action;
-        InterventionDrawerIdentity.Text = $"Intervention ID: {item.InterventionId}";
-        InterventionDrawerPolicy.Text = $"Policy/Domain: {item.PolicyId} / {item.Domain}";
-        InterventionDrawerLifecycle.Text = $"Lifecycle: {item.LifecycleState}";
-        InterventionDrawerWhen.Text = $"When: {item.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
-        InterventionDrawerPlanned.Text = $"Planned end: {(item.PlannedEndTimestampUtc.HasValue ? item.PlannedEndTimestampUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") : "n/a")}";
-        InterventionDrawerActual.Text = $"Actual end: {(item.ActualEndTimestampUtc.HasValue ? item.ActualEndTimestampUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") : "n/a")}";
-        InterventionDrawerCooldown.Text = $"Cooldown end: {(item.CooldownEndTimestampUtc.HasValue ? item.CooldownEndTimestampUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") : "n/a")}";
-        InterventionDrawerReversal.Text = $"Reversal applied: {(item.ReversalApplied ? "Yes" : "No")}";
-        InterventionDrawerWhy.Text = $"Why: {item.Reason}";
-        InterventionDrawerContributors.Text = item.Contributors.Count > 0
-            ? $"Contributors: {string.Join(", ", item.Contributors.Take(5))}"
-            : "Contributors: n/a";
-        InterventionDrawerConfidence.Text = $"Confidence: {(item.Confidence * 100d):F0}%";
-        InterventionDrawerDuration.Text = $"Duration: {duration}";
-        InterventionDrawerChanged.Text = $"What changed: {(string.IsNullOrWhiteSpace(item.WhatChanged) ? item.Action : item.WhatChanged)}";
-        InterventionDrawerPrevious.Text = $"Previous value: {FormatPreviousValue(item.PreviousSystemStateJson)}";
-        InterventionDrawerUndo.Text = $"How to undo: {(string.IsNullOrWhiteSpace(item.HowToUndo) ? "n/a" : item.HowToUndo)}";
-        InterventionToggleButton.IsEnabled = item.Reversible;
+        bool isSuggestion = IsSuggestionEvent(item.Action);
+        ActionDrawerTitle.Text = isSuggestion
+            ? BuildSuggestionTitle(item.Action)
+            : (string.IsNullOrWhiteSpace(item.WhatChanged) ? HumanizeActionName(item.Action) : item.WhatChanged);
+        ActionDrawerWhen.Text = $"When: {item.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
+        ActionDrawerShortWhy.Text = $"Why: {(isSuggestion ? BuildSuggestionShortWhy(item) : BuildChangeShortWhy(item))}";
+        ActionDrawerCooldown.Text = $"Cooldown remaining: {FormatCooldownRemaining(item.CooldownEndTimestampUtc)}";
+        ActionDrawerRepeat.Text = isSuggestion
+            ? BuildSuggestionRepeatLine(item)
+            : string.Empty;
+        ActionDrawerRepeat.Visibility = isSuggestion ? Visibility.Visible : Visibility.Collapsed;
+        ActionDrawerWhatChanged.Text = $"What changed: {(string.IsNullOrWhiteSpace(item.WhatChanged) ? HumanizeActionName(item.Action) : item.WhatChanged)}";
+        ActionDrawerUndo.Text = isSuggestion
+            ? "Undo: Not needed for suggestions."
+            : $"Undo: {BuildUndoDetails(item)}";
+        ActionDrawerUndo.Visibility = Visibility.Visible;
+        ActionDrawerWhyJson.Text = FormatWhyJsonForDisplay(item.WhyJson);
+        ActionDrawerUndoButton.IsEnabled = !isSuggestion && item.Reversible;
     }
 
     private async void InterventionCategoryToggle_Click(object sender, RoutedEventArgs e)
@@ -1585,7 +1693,7 @@ public partial class MainWindow : Window
         await SaveSettingsAsync("intervention_category_toggle").ConfigureAwait(true);
     }
 
-    private async void InterventionToggleButton_Click(object sender, RoutedEventArgs e)
+    private async void ActionDrawerUndoButton_Click(object sender, RoutedEventArgs e)
     {
         if (_selectedIntervention == null || !_selectedIntervention.Reversible)
         {
@@ -1620,6 +1728,366 @@ public partial class MainWindow : Window
         }
 
         await SaveSettingsAsync("intervention_reversible_toggle").ConfigureAwait(true);
+    }
+
+    private static bool IsSuggestionEvent(string? action)
+    {
+        if (string.IsNullOrWhiteSpace(action))
+        {
+            return false;
+        }
+
+        string normalized = action.Trim().ToLowerInvariant();
+        return normalized.EndsWith("_suggestion", StringComparison.Ordinal)
+            || normalized.Contains("suggestion", StringComparison.Ordinal);
+    }
+
+    private static bool IsSystemChangeEvent(LocalApiEventResponse ev)
+    {
+        if (IsSuggestionEvent(ev.Action))
+        {
+            return false;
+        }
+
+        string action = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (action.StartsWith("inform_", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(ev.WhatChanged)
+            || !string.IsNullOrWhiteSpace(action);
+    }
+
+    private static string BuildSuggestionTitle(string? action)
+    {
+        string normalized = action?.Trim().ToLowerInvariant() ?? string.Empty;
+        return normalized switch
+        {
+            "break_suggestion" => "Take a break",
+            "focus_lock_in_suggestion" => "Lock in focus",
+            "stretch_break_suggestion" => "Take a stretch break",
+            _ => HumanizeActionName(action)
+        };
+    }
+
+    private static string BuildSuggestionShortWhy(LocalApiEventResponse ev)
+    {
+        if (!string.IsNullOrWhiteSpace(ev.Reason))
+        {
+            return TrimSentence(ev.Reason, 120);
+        }
+
+        if (TryExtractSuggestionReason(ev.WhyJson, out string? reasonFromWhyJson) && !string.IsNullOrWhiteSpace(reasonFromWhyJson))
+        {
+            return reasonFromWhyJson;
+        }
+
+        return "Triggered by current focus and overload pattern.";
+    }
+
+    private static string BuildChangeShortWhy(LocalApiEventResponse ev)
+    {
+        if (!string.IsNullOrWhiteSpace(ev.Reason))
+        {
+            return TrimSentence(ev.Reason, 120);
+        }
+
+        if (TryExtractSuggestionReason(ev.WhyJson, out string? reasonFromWhyJson) && !string.IsNullOrWhiteSpace(reasonFromWhyJson))
+        {
+            return reasonFromWhyJson;
+        }
+
+        return "Applied according to current regulation policy.";
+    }
+
+    private static string BuildUndoBadge(LocalApiEventResponse ev)
+    {
+        if (ev.Reversible)
+        {
+            return "Available";
+        }
+
+        if (!string.IsNullOrWhiteSpace(ev.HowToUndo) || HasManualUndoHint(ev.Action))
+        {
+            return "Manual";
+        }
+
+        return "Info only";
+    }
+
+    private static string BuildUndoDetails(LocalApiEventResponse ev)
+    {
+        if (!string.IsNullOrWhiteSpace(ev.HowToUndo))
+        {
+            return ev.HowToUndo.Trim();
+        }
+
+        if (TryInferManualUndo(ev.Action, out string? manualUndo))
+        {
+            return manualUndo;
+        }
+
+        return "No direct undo for this event type.";
+    }
+
+    private static bool HasManualUndoHint(string? action)
+    {
+        return TryInferManualUndo(action, out _);
+    }
+
+    private static bool TryInferManualUndo(string? action, out string? instruction)
+    {
+        instruction = null;
+        if (string.IsNullOrWhiteSpace(action))
+        {
+            return false;
+        }
+
+        string normalized = action.Trim().ToLowerInvariant();
+        if (normalized.Contains("notification", StringComparison.Ordinal))
+        {
+            instruction = "Open Controls and disable Notification reduction.";
+            return true;
+        }
+
+        if (normalized.Contains("focus", StringComparison.Ordinal))
+        {
+            instruction = "Open Controls and disable Focus mode nudge.";
+            return true;
+        }
+
+        if (normalized.Contains("animation", StringComparison.Ordinal))
+        {
+            instruction = "Open Controls and disable Animation reduction.";
+            return true;
+        }
+
+        if (normalized.Contains("app", StringComparison.Ordinal) || normalized.Contains("restrict", StringComparison.Ordinal))
+        {
+            instruction = "Open Controls and disable Temporary app restriction.";
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryExtractSuggestionReason(string? whyJson, out string? reason)
+    {
+        reason = null;
+        if (string.IsNullOrWhiteSpace(whyJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(whyJson);
+            if (!doc.RootElement.TryGetProperty("reasons", out JsonElement reasons)
+                || reasons.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            double? attentionSec = TryGetDouble(reasons, "sustained_attention_s");
+            bool? overloadActive = TryGetBool(reasons, "overload_active");
+
+            if (attentionSec.HasValue && overloadActive.HasValue)
+            {
+                double focusedMinutes = Math.Max(0d, attentionSec.Value / 60d);
+                reason = overloadActive.Value
+                    ? $"Focused for {focusedMinutes:F0} min while overload stayed high."
+                    : $"Focused for {focusedMinutes:F0} min with elevated load.";
+                return true;
+            }
+
+            if (attentionSec.HasValue)
+            {
+                reason = $"Focused for {Math.Max(0d, attentionSec.Value / 60d):F0} min.";
+                return true;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private static string FormatCooldownRemaining(DateTimeOffset? cooldownEndUtc)
+    {
+        if (!cooldownEndUtc.HasValue)
+        {
+            return "n/a";
+        }
+
+        TimeSpan remaining = cooldownEndUtc.Value - DateTimeOffset.UtcNow;
+        if (remaining <= TimeSpan.Zero)
+        {
+            return "none";
+        }
+
+        if (remaining.TotalMinutes >= 1)
+        {
+            return $"{Math.Ceiling(remaining.TotalMinutes):F0} min";
+        }
+
+        return $"{Math.Ceiling(remaining.TotalSeconds):F0} sec";
+    }
+
+    private static string BuildSuggestionRepeatLine(LocalApiEventResponse ev)
+    {
+        if (ev.CooldownEndTimestampUtc.HasValue)
+        {
+            TimeSpan remaining = ev.CooldownEndTimestampUtc.Value - DateTimeOffset.UtcNow;
+            if (remaining > TimeSpan.Zero)
+            {
+                return $"This won\u2019t repeat for {Math.Ceiling(remaining.TotalMinutes):F0} min.";
+            }
+        }
+
+        if (TryExtractCooldownMinutes(ev.WhyJson, out int cooldownMinutes) && cooldownMinutes > 0)
+        {
+            return $"This won\u2019t repeat for {cooldownMinutes} min after a trigger.";
+        }
+
+        return "This suggestion can trigger again when policy conditions are met.";
+    }
+
+    private static bool TryExtractCooldownMinutes(string? whyJson, out int minutes)
+    {
+        minutes = 0;
+        if (string.IsNullOrWhiteSpace(whyJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(whyJson);
+            if (!doc.RootElement.TryGetProperty("thresholds", out JsonElement thresholds)
+                || thresholds.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            double? cooldownSeconds = TryGetDouble(thresholds, "cooldown_min_s");
+            if (!cooldownSeconds.HasValue || cooldownSeconds.Value <= 0)
+            {
+                return false;
+            }
+
+            minutes = (int)Math.Ceiling(cooldownSeconds.Value / 60d);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string FormatWhyJsonForDisplay(string? whyJson)
+    {
+        if (string.IsNullOrWhiteSpace(whyJson))
+        {
+            return "n/a";
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(whyJson);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return whyJson.Trim();
+        }
+    }
+
+    private static string HumanizeActionName(string? action)
+    {
+        if (string.IsNullOrWhiteSpace(action))
+        {
+            return "Action recorded";
+        }
+
+        return action.Replace('_', ' ').Trim();
+    }
+
+    private static string TrimSentence(string value, int maxLen)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "n/a";
+        }
+
+        string trimmed = value.Trim();
+        if (trimmed.Length <= maxLen)
+        {
+            return trimmed;
+        }
+
+        return $"{trimmed[..maxLen].TrimEnd()}...";
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        int childCount = VisualTreeHelper.GetChildrenCount(root);
+        for (int index = 0; index < childCount; index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            T? nested = FindDescendant<T>(child);
+            if (nested != null)
+            {
+                return nested;
+            }
+        }
+
+        return null;
+    }
+
+    private static double? TryGetDouble(JsonElement root, string propertyName)
+    {
+        if (root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty(propertyName, out JsonElement element)
+            && element.ValueKind == JsonValueKind.Number
+            && element.TryGetDouble(out double value))
+        {
+            return value;
+        }
+
+        return null;
+    }
+
+    private static bool? TryGetBool(JsonElement root, string propertyName)
+    {
+        if (root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty(propertyName, out JsonElement element))
+        {
+            if (element.ValueKind == JsonValueKind.True)
+            {
+                return true;
+            }
+
+            if (element.ValueKind == JsonValueKind.False)
+            {
+                return false;
+            }
+
+            if (element.ValueKind == JsonValueKind.Number
+                && element.TryGetInt32(out int intValue))
+            {
+                return intValue != 0;
+            }
+        }
+
+        return null;
     }
 
     private void PopulateSettings(LocalApiSettingsResponse? settings)
@@ -2478,16 +2946,16 @@ public partial class MainWindow : Window
                 false);
     }
 
-    private sealed record InterventionRow(
-        string Action,
-        string PolicyId,
-        string Domain,
-        string TriggerState,
-        string TriggerValue,
-        string Confidence,
-        string Duration,
-        string Escalation,
-        string Lifecycle,
-        string Reversible,
+    private sealed record SuggestionRow(
+        string Title,
+        string Time,
+        string Why,
+        LocalApiEventResponse Source);
+
+    private sealed record ChangeRow(
+        string WhatChanged,
+        string When,
+        string Why,
+        string Undo,
         LocalApiEventResponse Source);
 }
