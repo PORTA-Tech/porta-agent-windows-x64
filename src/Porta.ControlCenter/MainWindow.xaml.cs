@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -18,14 +18,18 @@ namespace Porta.ControlCenter;
 public partial class MainWindow : Window
 {
     private const string AgentServiceName = "AriAgent";
+    private const string NotAvailableText = "Not available";
+    private const string WaitingForServiceDataText = "Waiting for service data";
     private static readonly TimeSpan SlowRefreshInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ManualRefreshThrottle = TimeSpan.FromMilliseconds(700);
     private static readonly TimeSpan StatusFreshnessWindow = TimeSpan.FromSeconds(12);
+    private static readonly TimeSpan TopMetricAnimationDuration = TimeSpan.FromMilliseconds(220);
+    private static readonly TimeSpan TopMetricAnimationFrameInterval = TimeSpan.FromMilliseconds(16);
     private const string EventCursorFileName = "control-center.events.cursor";
 
     private readonly LocalApiClient _apiClient = new();
     private readonly DispatcherTimer _refreshTimer;
-    private readonly string _uiVersion = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "n/a";
+    private readonly string _uiVersion = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? NotAvailableText;
     private LocalApiStatusResponse? _latestStatus;
     private LocalApiCurrentSnapshotResponse? _lastSnapshot;
     private IReadOnlyList<LocalApiEventResponse> _recentEvents = [];
@@ -54,6 +58,8 @@ public partial class MainWindow : Window
     private DateTimeOffset? _selectedHistorySnapshotTimestampUtc;
     private long? _selectedHistoryInterventionId;
     private DateTimeOffset? _historySelectionExpiresUtc;
+    private readonly Dictionary<string, DispatcherTimer> _topMetricAnimationTimers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, double> _topMetricAnimationLastValues = new(StringComparer.Ordinal);
 
     private enum UiSection
     {
@@ -112,6 +118,10 @@ public partial class MainWindow : Window
         {
             _refreshTimer.Stop();
             _settingsAutoSaveTimer.Stop();
+            foreach (DispatcherTimer timer in _topMetricAnimationTimers.Values)
+            {
+                timer.Stop();
+            }
             _apiClient.Dispose();
             _refreshGate.Dispose();
         };
@@ -247,23 +257,23 @@ public partial class MainWindow : Window
 
         if (_latestStatus == null)
         {
-            ConsentActiveValue.Text = "Unknown";
-            BackendConnectedValue.Text = "Unknown";
-            FocusStrengthValue.Text = "Unknown";
-            OverloadValue.Text = "Unknown";
-            LastActionValue.Text = "Unknown";
-            LastEventValue.Text = "Unknown";
-            PolicyVersionValue.Text = "Unknown";
-            SchemaVersionValue.Text = "Unknown";
-            AgentVersionValue.Text = "Unknown";
-            ConsentVersionValue.Text = "Unknown";
-            ConsentTimestampValue.Text = "Unknown";
-            ConsentHashValue.Text = "Unknown";
+            ConsentActiveValue.Text = NotAvailableText;
+            BackendConnectedValue.Text = NotAvailableText;
+            FocusStrengthValue.Text = NotAvailableText;
+            OverloadValue.Text = NotAvailableText;
+            LastActionValue.Text = NotAvailableText;
+            LastEventValue.Text = NotAvailableText;
+            PolicyVersionValue.Text = NotAvailableText;
+            SchemaVersionValue.Text = NotAvailableText;
+            AgentVersionValue.Text = NotAvailableText;
+            ConsentVersionValue.Text = NotAvailableText;
+            ConsentTimestampValue.Text = NotAvailableText;
+            ConsentHashValue.Text = NotAvailableText;
             LastErrorValue.Text = BuildOfflineErrorMessage(serviceProbe, endpoint);
-            SnapshotConfidenceValue.Text = "Unknown";
-            OverloadActiveValue.Text = "Unknown";
-            SustainedAttentionValue.Text = "Unknown";
-            IdleFragmentationValue.Text = "Unknown";
+            SnapshotConfidenceValue.Text = NotAvailableText;
+            OverloadActiveValue.Text = NotAvailableText;
+            SustainedAttentionValue.Text = NotAvailableText;
+            IdleFragmentationValue.Text = NotAvailableText;
             QuickPauseResumeButton.Content = "Pause";
             QuickPauseResumeButton.IsEnabled = false;
             ConsentOverlay.Visibility = Visibility.Collapsed;
@@ -294,33 +304,33 @@ public partial class MainWindow : Window
         }
         else
         {
-            FocusStrengthValue.Text = "Unknown";
-            OverloadValue.Text = "Unknown";
-            LastActionValue.Text = "Unknown";
+            FocusStrengthValue.Text = NotAvailableText;
+            OverloadValue.Text = NotAvailableText;
+            LastActionValue.Text = NotAvailableText;
         }
 
-        LastEventValue.Text = _latestStatus.LastEventTimestampUtc?.ToString("O") ?? "n/a";
+        LastEventValue.Text = _latestStatus.LastEventTimestampUtc?.ToString("O") ?? NotAvailableText;
         PolicyVersionValue.Text = _latestStatus.PolicyVersion;
         SchemaVersionValue.Text = _latestStatus.SchemaVersion;
         AgentVersionValue.Text = _latestStatus.AgentVersion;
         ConsentVersionValue.Text = _latestStatus.ConsentVersion;
-        ConsentTimestampValue.Text = _latestStatus.ConsentTimestampUtc?.ToString("O") ?? "n/a";
+        ConsentTimestampValue.Text = _latestStatus.ConsentTimestampUtc?.ToString("O") ?? NotAvailableText;
         ConsentHashValue.Text = _latestStatus.ConsentDisclosureHash;
         LastErrorValue.Text = string.IsNullOrWhiteSpace(nowTruth.Explanation)
             ? BuildOnlineErrorMessage(_latestStatus.LastError, serviceProbe, statusFresh)
             : nowTruth.Explanation;
         SnapshotConfidenceValue.Text = truthSnapshot != null
             ? truthSnapshot.Confidence.ToString("F2", CultureInfo.InvariantCulture)
-            : "n/a";
+            : NotAvailableText;
         OverloadActiveValue.Text = truthSnapshot != null
             ? (truthSnapshot.OverloadActive ? "Yes" : "No")
-            : "n/a";
+            : NotAvailableText;
         SustainedAttentionValue.Text = truthSnapshot != null
             ? truthSnapshot.SustainedAttentionDurationSec.ToString("F0", CultureInfo.InvariantCulture)
-            : "n/a";
+            : NotAvailableText;
         IdleFragmentationValue.Text = truthSnapshot != null
             ? truthSnapshot.IdleFragmentationIndex.ToString("F2", CultureInfo.InvariantCulture)
-            : "n/a";
+            : NotAvailableText;
         QuickPauseResumeButton.Content = _latestStatus.Paused ? "Resume" : "Pause";
         QuickPauseResumeButton.IsEnabled = true;
         ConsentOverlay.Visibility = consentMissing ? Visibility.Visible : Visibility.Collapsed;
@@ -638,12 +648,12 @@ public partial class MainWindow : Window
     private static void ApplyNavState(Button button, bool selected)
     {
         button.Background = selected
-            ? new SolidColorBrush(Color.FromRgb(37, 99, 235))
-            : new SolidColorBrush(Color.FromRgb(31, 41, 55));
-        button.Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240));
+            ? new SolidColorBrush(Color.FromRgb(26, 31, 38))
+            : new SolidColorBrush(Color.FromRgb(17, 21, 26));
+        button.Foreground = new SolidColorBrush(Color.FromRgb(230, 233, 237));
         button.BorderBrush = selected
-            ? new SolidColorBrush(Color.FromRgb(147, 197, 253))
-            : new SolidColorBrush(Color.FromRgb(51, 65, 85));
+            ? new SolidColorBrush(Color.FromRgb(42, 47, 54))
+            : new SolidColorBrush(Color.FromRgb(38, 43, 51));
     }
 
     private LocalApiTimelineResponse? GetSelectedHistoryTimeline()
@@ -677,12 +687,12 @@ public partial class MainWindow : Window
         }
 
         button.Background = selected
-            ? new SolidColorBrush(Color.FromRgb(37, 99, 235))
-            : new SolidColorBrush(Color.FromRgb(31, 41, 55));
+            ? new SolidColorBrush(Color.FromRgb(26, 31, 38))
+            : new SolidColorBrush(Color.FromRgb(17, 21, 26));
         button.BorderBrush = selected
-            ? new SolidColorBrush(Color.FromRgb(147, 197, 253))
-            : new SolidColorBrush(Color.FromRgb(51, 65, 85));
-        button.Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240));
+            ? new SolidColorBrush(Color.FromRgb(42, 47, 54))
+            : new SolidColorBrush(Color.FromRgb(38, 43, 51));
+        button.Foreground = new SolidColorBrush(Color.FromRgb(230, 233, 237));
     }
 
     private void PopulateOverview(
@@ -706,7 +716,7 @@ public partial class MainWindow : Window
             TodayAvgFocusValue.Text = "0%";
             TodayPeakOverloadValue.Text = "0%";
             TodayIdleFragmentationValue.Text = inputSummary?.IdleFragmentationIndex.ToString("F2", CultureInfo.InvariantCulture) ?? "0.00";
-            TodayMostVolatileHourValue.Text = "n/a";
+            TodayMostVolatileHourValue.Text = NotAvailableText;
             RenderHourlyChart(null);
             return;
         }
@@ -726,42 +736,60 @@ public partial class MainWindow : Window
         LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
         if (snapshot == null)
         {
-            NowOverloadValueText.Text = "Overload: --";
-            NowOverloadActiveText.Text = "Active: --";
-            NowOverloadTrustText.Text = "Trust level: --";
-            NowFocusStreakValueText.Text = "Focused time: --";
-            NowFocusChoppinessText.Text = "Choppiness: --";
+            NowOverloadValueText.Text = $"Overload: {NotAvailableText}";
+            NowOverloadActiveText.Text = $"Active: {NotAvailableText}";
+            NowOverloadTrustText.Text = $"Trust level: {NotAvailableText}";
+            NowFocusStreakValueText.Text = $"Focused time: {NotAvailableText}";
+            NowFocusChoppinessText.Text = $"Choppiness: {NotAvailableText}";
             NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
-            NowFocusStatusText.Text = nowTruth.Explanation;
-            NowFocusStatusText.Visibility = string.IsNullOrWhiteSpace(nowTruth.Explanation)
-                ? Visibility.Collapsed
-                : Visibility.Visible;
+            NowFocusStatusText.Text = string.IsNullOrWhiteSpace(nowTruth.Explanation)
+                ? WaitingForServiceDataText
+                : nowTruth.Explanation;
+            NowFocusStatusText.Visibility = Visibility.Visible;
             NowOverloadFivText.Text = "Explain not available (backend field missing).";
-            NowOverloadTopReasonsText.Text = "Top reasons: --";
-            NowOverloadQualityAgreementText.Text = "Quality: -- | Agreement: --";
+            NowOverloadTopReasonsText.Text = $"Top reasons: {NotAvailableText}";
+            NowOverloadQualityAgreementText.Text = $"Quality: {NotAvailableText} | Agreement: {NotAvailableText}";
 
             NowCalibrationStatusText.Text = "Calibrating...";
-            NowCalibrationProgressText.Text = "Progress: --";
-            NowCalibrationQualityText.Text = "Recent data quality: -- (last 2 min)";
-            NowCalibrationColdStartText.Text = "Cold start: --";
+            NowCalibrationProgressText.Text = $"Progress: {NotAvailableText}";
+            NowCalibrationQualityText.Text = $"Recent data quality: {NotAvailableText} (last 2 min)";
+            NowCalibrationColdStartText.Text = $"Cold start: {NotAvailableText}";
             NowCalibrationTrustCapText.Visibility = Visibility.Visible;
 
-            NowDataQualityScoreText.Text = "Quality score: --";
-            NowDataQualityPartialText.Text = "Partial data: --";
+            NowDataQualityScoreText.Text = $"Quality score: {NotAvailableText}";
+            NowDataQualityPartialText.Text = $"Partial data: {NotAvailableText}";
             NowDataQualityMissingText.Visibility = Visibility.Collapsed;
 
             NowLastActionTitleText.Text = "No actions recently";
-            NowLastActionTimeText.Text = "Time: --";
+            NowLastActionTimeText.Text = $"Time: {NotAvailableText}";
             NowOpenActionsButton.IsEnabled = false;
 
-            NowWhatPortaDoingText.Text = nowTruth.Explanation;
+            NowWhatPortaDoingText.Text = string.IsNullOrWhiteSpace(nowTruth.Explanation)
+                ? WaitingForServiceDataText
+                : nowTruth.Explanation;
+            NowWaitingDataText.Visibility = Visibility.Visible;
             return;
         }
 
-        NowOverloadValueText.Text = $"Overload {(snapshot.OverloadLikelihood * 100d):F0}%";
+        NowWaitingDataText.Visibility = Visibility.Collapsed;
+        // Source: GET /v1/snapshot/current -> overload_likelihood
+        AnimateTopMetric(
+            metricKey: "now_overload",
+            targetValue: Math.Clamp(snapshot.OverloadLikelihood * 100d, 0d, 100d),
+            applyValue: value => NowOverloadValueText.Text = $"Overload {value:F0}%");
+        // Source: GET /v1/snapshot/current -> overload_active
         NowOverloadActiveText.Text = $"Active: {(snapshot.OverloadActive ? "Yes" : "No")}";
-        NowOverloadTrustText.Text = $"Trust level: {(snapshot.Confidence * 100d):F0}%";
-        NowFocusStreakValueText.Text = $"Focused time: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
+        // Source: GET /v1/snapshot/current -> confidence
+        AnimateTopMetric(
+            metricKey: "now_trust",
+            targetValue: Math.Clamp(snapshot.Confidence * 100d, 0d, 100d),
+            applyValue: value => NowOverloadTrustText.Text = $"Trust level: {value:F0}%");
+        // Source: GET /v1/snapshot/current -> sustained_attention_duration_sec
+        AnimateTopMetric(
+            metricKey: "now_focus",
+            targetValue: Math.Max(0d, snapshot.SustainedAttentionDurationSec / 60d),
+            applyValue: value => NowFocusStreakValueText.Text = $"Focused time: {FormatFocusedTime(value * 60d)}");
+        // Source: GET /v1/snapshot/current -> idle_fragmentation_index
         NowFocusChoppinessText.Text = $"Choppiness: {MapChoppiness(snapshot.IdleFragmentationIndex)} ({snapshot.IdleFragmentationIndex:F2})";
         NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
         string focusStatus = BuildFocusStatusMessage(snapshot);
@@ -775,21 +803,28 @@ public partial class MainWindow : Window
         NowOverloadTopReasonsText.Text = $"Top reasons: {explain.TopReasons}";
         NowOverloadQualityAgreementText.Text = $"Quality: {explain.Quality} | Agreement: {explain.Agreement}";
 
+        // Source: GET /v1/snapshot/current -> baseline_ready
         bool calibrationReady = snapshot.BaselineReady == true;
         NowCalibrationStatusText.Text = calibrationReady ? "Ready" : "Calibrating...";
+        // Source: GET /v1/snapshot/current -> baseline_ready_pct
         NowCalibrationProgressText.Text = snapshot.BaselineReadyPct.HasValue
             ? $"Progress: {(snapshot.BaselineReadyPct.Value * 100d):F0}% metrics ready"
-            : "Progress: n/a";
+            : $"Progress: {NotAvailableText}";
+        // Source: GET /v1/snapshot/current -> avg_quality_2m
         NowCalibrationQualityText.Text = snapshot.AvgQuality2m.HasValue
             ? $"Recent data quality: {snapshot.AvgQuality2m.Value:F2} (last 2 min)"
-            : "Recent data quality: n/a (last 2 min)";
+            : $"Recent data quality: {NotAvailableText} (last 2 min)";
+        // Source: GET /v1/snapshot/current -> cold_start
         NowCalibrationColdStartText.Text = $"Cold start: {MapOnOff(snapshot.ColdStart)}";
         NowCalibrationTrustCapText.Visibility = calibrationReady ? Visibility.Collapsed : Visibility.Visible;
 
+        // Source: GET /v1/snapshot/current -> current_quality_score
         NowDataQualityScoreText.Text = snapshot.CurrentQualityScore.HasValue
             ? $"Quality score: {snapshot.CurrentQualityScore.Value:F2}"
-            : "Quality score: n/a";
+            : $"Quality score: {NotAvailableText}";
+        // Source: GET /v1/snapshot/current -> partial_data
         NowDataQualityPartialText.Text = $"Partial data: {MapYesNo(snapshot.PartialData)}";
+        // Source: GET /v1/snapshot/current -> missing_major_channels[]
         if (snapshot.MissingMajorChannels != null && snapshot.MissingMajorChannels.Count > 0)
         {
             string missing = string.Join(" / ", snapshot.MissingMajorChannels.Select(ToDisplayChannelName));
@@ -805,7 +840,7 @@ public partial class MainWindow : Window
         if (lastActionEvent == null)
         {
             NowLastActionTitleText.Text = "No actions recently";
-            NowLastActionTimeText.Text = "Time: n/a";
+            NowLastActionTimeText.Text = $"Time: {NotAvailableText}";
             NowOpenActionsButton.IsEnabled = false;
         }
         else
@@ -816,6 +851,49 @@ public partial class MainWindow : Window
         }
 
         NowWhatPortaDoingText.Text = BuildNowDoingSentence(snapshot);
+    }
+
+    private void AnimateTopMetric(string metricKey, double targetValue, Action<double> applyValue)
+    {
+        targetValue = Math.Max(0d, targetValue);
+        if (!_topMetricAnimationLastValues.TryGetValue(metricKey, out double startValue))
+        {
+            _topMetricAnimationLastValues[metricKey] = targetValue;
+            applyValue(targetValue);
+            return;
+        }
+
+        if (Math.Abs(startValue - targetValue) < 0.05d)
+        {
+            _topMetricAnimationLastValues[metricKey] = targetValue;
+            applyValue(targetValue);
+            return;
+        }
+
+        if (_topMetricAnimationTimers.TryGetValue(metricKey, out DispatcherTimer? runningTimer))
+        {
+            runningTimer.Stop();
+        }
+
+        DateTimeOffset startedAt = DateTimeOffset.UtcNow;
+        var timer = new DispatcherTimer { Interval = TopMetricAnimationFrameInterval };
+        timer.Tick += (_, _) =>
+        {
+            double elapsedMs = (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds;
+            double t = Math.Clamp(elapsedMs / TopMetricAnimationDuration.TotalMilliseconds, 0d, 1d);
+            double eased = 1d - ((1d - t) * (1d - t));
+            double current = startValue + ((targetValue - startValue) * eased);
+            applyValue(current);
+            if (t >= 1d)
+            {
+                timer.Stop();
+                _topMetricAnimationLastValues[metricKey] = targetValue;
+                applyValue(targetValue);
+            }
+        };
+
+        _topMetricAnimationTimers[metricKey] = timer;
+        timer.Start();
     }
 
     private static string FormatFocusedTime(double sustainedAttentionSeconds)
@@ -869,7 +947,7 @@ public partial class MainWindow : Window
     {
         if (!value.HasValue)
         {
-            return "n/a";
+            return NotAvailableText;
         }
 
         return value.Value ? "On" : "Off";
@@ -879,7 +957,7 @@ public partial class MainWindow : Window
     {
         if (!value.HasValue)
         {
-            return "n/a";
+            return NotAvailableText;
         }
 
         return value.Value ? "Yes" : "No";
@@ -972,10 +1050,10 @@ public partial class MainWindow : Window
 
             string qualityText = TryReadDouble(root, "quality", out double quality)
                 ? quality.ToString("F2", CultureInfo.InvariantCulture)
-                : "n/a";
+                : NotAvailableText;
             string agreementText = TryReadDouble(root, "agreement", out double agreement)
                 ? agreement.ToString("F2", CultureInfo.InvariantCulture)
-                : "n/a";
+                : NotAvailableText;
 
             return new OverloadExplainView(
                 FivSummary: fivSummary,
@@ -1195,8 +1273,8 @@ public partial class MainWindow : Window
     {
         if (!value.HasValue)
         {
-            valueText.Text = "Unknown";
-            confidenceText.Text = "Confidence: Unknown";
+            valueText.Text = NotAvailableText;
+            confidenceText.Text = $"Confidence: {NotAvailableText}";
             trendText.Text = "Trend: -";
             intensityBand.Background = new SolidColorBrush(Color.FromRgb(71, 85, 105));
             return;
@@ -1205,7 +1283,7 @@ public partial class MainWindow : Window
         valueText.Text = value.Value.ToString("F2", CultureInfo.InvariantCulture);
         confidenceText.Text = confidence.HasValue
             ? $"Confidence: {Math.Clamp(confidence.Value * 100d, 0d, 100d):F0}%"
-            : "Confidence: Unknown";
+            : $"Confidence: {NotAvailableText}";
 
         trendText.Text = $"Trend: {ComputeTrend(metricKey, value.Value, previousSnapshot)}";
         intensityBand.Background = BuildIntensityBrush(value.Value);
@@ -1370,7 +1448,7 @@ public partial class MainWindow : Window
 
             string duration = evt.DurationSeconds.HasValue
                 ? TimeSpan.FromSeconds(Math.Max(0, evt.DurationSeconds.Value)).ToString(@"mm\:ss", CultureInfo.InvariantCulture)
-                : "n/a";
+                : NotAvailableText;
             stack.Children.Add(new TextBlock
             {
                 Text = $"Duration: {duration} | Trigger: {evt.TriggerState} {evt.TriggerValue:F2} | Confidence: {(evt.Confidence * 100d):F0}%",
@@ -1425,7 +1503,7 @@ public partial class MainWindow : Window
     {
         if (snapshots.Count < 2)
         {
-            return "n/a";
+            return NotAvailableText;
         }
 
         var byHour = snapshots
@@ -1455,7 +1533,7 @@ public partial class MainWindow : Window
 
         if (bestHour < 0)
         {
-            return "n/a";
+            return NotAvailableText;
         }
 
         return $"{bestHour:00}:00-{bestHour:00}:59";
@@ -1529,10 +1607,10 @@ public partial class MainWindow : Window
             LiveMouseMeter.Value = 0;
             LiveSwitchMeter.Value = 0;
             LiveIdleMeter.Value = 0;
-            LiveKeyboardValue.Text = "Unknown";
-            LiveMouseValue.Text = "Unknown";
-            LiveSwitchValue.Text = "Unknown";
-            LiveIdleValue.Text = "Unknown";
+            LiveKeyboardValue.Text = NotAvailableText;
+            LiveMouseValue.Text = NotAvailableText;
+            LiveSwitchValue.Text = NotAvailableText;
+            LiveIdleValue.Text = NotAvailableText;
         }
         else
         {
@@ -1555,18 +1633,18 @@ public partial class MainWindow : Window
 
         if (snapshot == null)
         {
-            LiveQualityValue.Text = "Quality score: Unknown";
-            LivePartialValue.Text = "Partial data: Unknown";
-            LiveMissingChannelsValue.Text = "Missing: n/a";
+            LiveQualityValue.Text = $"Quality score: {NotAvailableText}";
+            LivePartialValue.Text = $"Partial data: {NotAvailableText}";
+            LiveMissingChannelsValue.Text = $"Missing: {NotAvailableText}";
         }
         else
         {
             LiveQualityValue.Text = snapshot.CurrentQualityScore.HasValue
                 ? $"Quality score: {snapshot.CurrentQualityScore.Value:F2}"
-                : "Quality score: Unknown";
+                : $"Quality score: {NotAvailableText}";
             LivePartialValue.Text = snapshot.PartialData.HasValue
                 ? $"Partial data: {(snapshot.PartialData.Value ? "Yes" : "No")}"
-                : "Partial data: Unknown";
+                : $"Partial data: {NotAvailableText}";
             LiveMissingChannelsValue.Text = snapshot.MissingMajorChannels is { Count: > 0 }
                 ? $"Missing: {string.Join(" / ", snapshot.MissingMajorChannels)}"
                 : "Missing: None";
@@ -1574,8 +1652,8 @@ public partial class MainWindow : Window
 
         if (retention == null)
         {
-            RetentionWindowValue.Text = "Retention window: Unknown";
-            RetentionSizeValue.Text = "Local data size: Unknown";
+            RetentionWindowValue.Text = $"Retention window: {NotAvailableText}";
+            RetentionSizeValue.Text = $"Local data size: {NotAvailableText}";
             return;
         }
 
@@ -1717,14 +1795,14 @@ public partial class MainWindow : Window
         if (item == null)
         {
             ActionDrawerTitle.Text = "Select an action event";
-            ActionDrawerWhen.Text = "When: n/a";
-            ActionDrawerShortWhy.Text = "Why: n/a";
-            ActionDrawerCooldown.Text = "Cooldown remaining: n/a";
+            ActionDrawerWhen.Text = $"When: {NotAvailableText}";
+            ActionDrawerShortWhy.Text = $"Why: {NotAvailableText}";
+            ActionDrawerCooldown.Text = $"Cooldown remaining: {NotAvailableText}";
             ActionDrawerRepeat.Text = string.Empty;
             ActionDrawerRepeat.Visibility = Visibility.Collapsed;
-            ActionDrawerWhatChanged.Text = "What changed: n/a";
-            ActionDrawerUndo.Text = "Undo: n/a";
-            ActionDrawerWhyJson.Text = "n/a";
+            ActionDrawerWhatChanged.Text = $"What changed: {NotAvailableText}";
+            ActionDrawerUndo.Text = $"Undo: {NotAvailableText}";
+            ActionDrawerWhyJson.Text = NotAvailableText;
             ActionDrawerUndoButton.IsEnabled = false;
             return;
         }
@@ -1985,7 +2063,7 @@ public partial class MainWindow : Window
     {
         if (!cooldownEndUtc.HasValue)
         {
-            return "n/a";
+            return NotAvailableText;
         }
 
         TimeSpan remaining = cooldownEndUtc.Value - DateTimeOffset.UtcNow;
@@ -2057,7 +2135,7 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(whyJson))
         {
-            return "n/a";
+            return NotAvailableText;
         }
 
         try
@@ -2085,7 +2163,7 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            return "n/a";
+            return NotAvailableText;
         }
 
         string trimmed = value.Trim();
@@ -2520,7 +2598,7 @@ public partial class MainWindow : Window
         string baselinePctText = snapshot.BaselineReadyPct.HasValue
             ? $"{Math.Clamp(snapshot.BaselineReadyPct.Value * 100d, 0d, 100d):F0}% metrics ready"
             : "progress unavailable";
-        CalibrationCurrentText.Text = $"Current status: {(baselineReady ? "baseline ready" : "calibrating")} ({baselinePctText}), quality {(snapshot.CurrentQualityScore?.ToString("F2", CultureInfo.InvariantCulture) ?? "n/a")}, cold start {(coldStart ? "on" : "off")}.";
+        CalibrationCurrentText.Text = $"Current status: {(baselineReady ? "baseline ready" : "calibrating")} ({baselinePctText}), quality {(snapshot.CurrentQualityScore?.ToString("F2", CultureInfo.InvariantCulture) ?? NotAvailableText)}, cold start {(coldStart ? "on" : "off")}.";
 
         bool smoothingHasValues =
             snapshot.SmoothedTypingBurstIntensity > 0d
@@ -2718,7 +2796,7 @@ public partial class MainWindow : Window
             Background = new SolidColorBrush(color),
             BorderBrush = new SolidColorBrush(Color.FromRgb(15, 23, 42))
         };
-        button.ToolTip = $"{snapshot.TimestampUtc.ToLocalTime():HH:mm:ss} | {label}: {clamped:F2}";
+        button.ToolTip = BuildTimelinePointTooltip(snapshot, label, clamped);
         button.Click += TimelineSnapshotButton_Click;
         return button;
     }
@@ -2745,9 +2823,13 @@ public partial class MainWindow : Window
             BorderBrush = new SolidColorBrush(Color.FromRgb(71, 85, 105)),
             BorderThickness = new Thickness(0.25)
         };
-        button.ToolTip = active
-            ? $"{snapshot.TimestampUtc.ToLocalTime():HH:mm:ss} | Overload Active"
-            : $"{snapshot.TimestampUtc.ToLocalTime():HH:mm:ss} | Overload Inactive";
+        button.ToolTip = _historyExplainMode
+            ? (active
+                ? $"{snapshot.TimestampUtc.ToLocalTime():HH:mm:ss} | overload_active=1"
+                : $"{snapshot.TimestampUtc.ToLocalTime():HH:mm:ss} | overload_active=0")
+            : (active
+                ? $"{snapshot.TimestampUtc.ToLocalTime():HH:mm:ss} | Overload was active at this moment."
+                : $"{snapshot.TimestampUtc.ToLocalTime():HH:mm:ss} | Overload was not active at this moment.");
         button.Click += TimelineSnapshotButton_Click;
         return button;
     }
@@ -2770,9 +2852,28 @@ public partial class MainWindow : Window
             FontWeight = FontWeights.Bold,
             FontSize = 12
         };
-        button.ToolTip = $"{intervention.TimestampUtc.ToLocalTime():HH:mm:ss} | {intervention.Action}";
+        button.ToolTip = _historyExplainMode
+            ? $"{intervention.TimestampUtc.ToLocalTime():HH:mm:ss} | {intervention.Action}"
+            : $"{intervention.TimestampUtc.ToLocalTime():HH:mm:ss} | {ToActionTitle(intervention)}";
         button.Click += TimelineInterventionButton_Click;
         return button;
+    }
+
+    private string BuildTimelinePointTooltip(LocalApiCurrentSnapshotResponse snapshot, string label, double normalizedValue)
+    {
+        string time = snapshot.TimestampUtc.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+        if (_historyExplainMode)
+        {
+            return $"{time} | {label}: {normalizedValue:F2}";
+        }
+
+        return label switch
+        {
+            "Overload" => $"{time} | Overload was {(Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d) * 100d):F0}%.",
+            "Trust" => $"{time} | Trust level was {(Math.Clamp(snapshot.Confidence, 0d, 1d) * 100d):F0}%.",
+            "Focus streak" => $"{time} | Focus streak was {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}.",
+            _ => $"{time} | Value: {normalizedValue:F2}"
+        };
     }
 
     private void TimelineSnapshotButton_Click(object sender, RoutedEventArgs e)
@@ -2801,15 +2902,15 @@ public partial class MainWindow : Window
     {
         if (snapshot == null && intervention == null)
         {
-            TimelineDetailTimestamp.Text = "Timestamp: n/a";
-            TimelineDetailOverload.Text = "Overload: n/a";
-            TimelineDetailTrust.Text = "Trust level: n/a";
-            TimelineDetailFocus.Text = "Focus streak: n/a";
-            TimelineDetailWhyHeader.Text = "Why: n/a";
-            TimelineDetailWhyFiv.Text = "Clarity/Pressure/Jitter: n/a";
-            TimelineDetailWhyReasons.Text = "Top reasons: n/a";
-            TimelineDetailWhyQuality.Text = "Quality: n/a | Agreement: n/a";
-            TimelineDetailStabilization.Text = "Stabilization: n/a";
+            TimelineDetailTimestamp.Text = $"Timestamp: {NotAvailableText}";
+            TimelineDetailOverload.Text = $"Overload: {NotAvailableText}";
+            TimelineDetailTrust.Text = $"Trust level: {NotAvailableText}";
+            TimelineDetailFocus.Text = $"Focus streak: {NotAvailableText}";
+            TimelineDetailWhyHeader.Text = $"Why: {NotAvailableText}";
+            TimelineDetailWhyFiv.Text = $"Clarity/Pressure/Jitter: {NotAvailableText}";
+            TimelineDetailWhyReasons.Text = $"Top reasons: {NotAvailableText}";
+            TimelineDetailWhyQuality.Text = $"Quality: {NotAvailableText} | Agreement: {NotAvailableText}";
+            TimelineDetailStabilization.Text = $"Stabilization: {NotAvailableText}";
             return;
         }
 
@@ -2837,7 +2938,7 @@ public partial class MainWindow : Window
             TimelineDetailWhyReasons.Text = $"Top reasons: {FormatTopReasons(explain.TopReasons, _historyExplainMode)}";
             TimelineDetailWhyQuality.Text = hasContributorsPayload
                 ? $"Quality: {explain.Quality} | Agreement: {explain.Agreement}"
-                : "Quality: n/a | Agreement: n/a";
+                : $"Quality: {NotAvailableText} | Agreement: {NotAvailableText}";
             TimelineDetailStabilization.Text = BuildStabilizationText(snapshot.StateFlagsJson, _historyExplainMode);
             return;
         }
@@ -2845,17 +2946,17 @@ public partial class MainWindow : Window
         TimelineDetailTimestamp.Text = $"Timestamp: {intervention!.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
         TimelineDetailOverload.Text = $"Action trigger: {intervention.TriggerState}={intervention.TriggerValue:F2}";
         TimelineDetailTrust.Text = $"Trust level: {(intervention.Confidence * 100d):F0}%";
-        TimelineDetailFocus.Text = "Focus streak: n/a (event marker)";
+        TimelineDetailFocus.Text = $"Focus streak: {NotAvailableText} (event marker)";
         TimelineDetailWhyHeader.Text = _historyExplainMode
             ? "Why? (Detailed)"
             : "Why?";
         TimelineDetailWhyFiv.Text = string.IsNullOrWhiteSpace(intervention.Reason)
-            ? "Reason: n/a"
+            ? $"Reason: {NotAvailableText}"
             : $"Reason: {intervention.Reason}";
         TimelineDetailWhyReasons.Text = intervention.Contributors.Count > 0
             ? $"Top reasons: {FormatTopReasons(string.Join(", ", intervention.Contributors.Take(6)), _historyExplainMode)}"
-            : "Top reasons: n/a";
-        TimelineDetailWhyQuality.Text = "Quality: n/a | Agreement: n/a";
+            : $"Top reasons: {NotAvailableText}";
+        TimelineDetailWhyQuality.Text = $"Quality: {NotAvailableText} | Agreement: {NotAvailableText}";
         TimelineDetailStabilization.Text = BuildStabilizationText(intervention.StateFlagsJson, _historyExplainMode);
     }
 
@@ -2865,7 +2966,7 @@ public partial class MainWindow : Window
         {
             return explainMode
                 ? "Stabilization: detailed flags missing"
-                : "Stabilization: ON timer n/a / 120s";
+                : $"Stabilization: ON timer {NotAvailableText} / 120s";
         }
 
         try
@@ -2927,7 +3028,7 @@ public partial class MainWindow : Window
         {
             return explainMode
                 ? "Stabilization: detailed flags unavailable"
-                : "Stabilization: ON timer n/a / 120s";
+                : $"Stabilization: ON timer {NotAvailableText} / 120s";
         }
     }
 
@@ -2935,7 +3036,7 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
-            return "n/a";
+            return NotAvailableText;
         }
 
         string compact = raw.Replace(Environment.NewLine, " ", StringComparison.Ordinal).Trim();
@@ -2973,7 +3074,7 @@ public partial class MainWindow : Window
     {
         return value.HasValue
             ? value.Value.ToString("F2", CultureInfo.InvariantCulture)
-            : "Unknown";
+            : NotAvailableText;
     }
 
     private void UpdateHealthChecklist(ServiceProbeResult serviceProbe, bool apiReachable)
@@ -2982,30 +3083,30 @@ public partial class MainWindow : Window
         string lastUpdate = UpdatedValue.Text.Replace("Last refresh:", string.Empty, StringComparison.OrdinalIgnoreCase).Trim();
 
         HealthServiceValue.Text = serviceProbe.Running
-            ? "✅ Yes"
-            : $"❌ No ({serviceProbe.StatusText})";
+            ? "Yes"
+            : $"No ({serviceProbe.StatusText})";
 
         HealthApiValue.Text = apiReachable
-            ? "✅ Yes"
-            : "❌ No";
+            ? "Yes"
+            : "No";
 
         if (_latestStatus == null)
         {
-            HealthAuthValue.Text = "❌ Unknown (status unavailable)";
-            HealthConsentValue.Text = "❌ Unknown";
-            HealthDatabaseValue.Text = "❌ Unknown";
-            HealthLastUpdateValue.Text = string.IsNullOrWhiteSpace(lastUpdate) ? "Unknown" : lastUpdate;
+            HealthAuthValue.Text = $"No ({NotAvailableText})";
+            HealthConsentValue.Text = NotAvailableText;
+            HealthDatabaseValue.Text = NotAvailableText;
+            HealthLastUpdateValue.Text = string.IsNullOrWhiteSpace(lastUpdate) ? NotAvailableText : lastUpdate;
             HealthLastErrorValue.Text = string.IsNullOrWhiteSpace(lastError) ? "None" : lastError;
             return;
         }
 
         HealthAuthValue.Text = _latestStatus.LocalApiAuthReady
-            ? "✅ Yes"
-            : $"❌ No ({_latestStatus.LocalApiAuthError ?? "TOKEN_READ_FAILED"})";
+            ? "Yes"
+            : $"No ({_latestStatus.LocalApiAuthError ?? "TOKEN_READ_FAILED"})";
 
         HealthConsentValue.Text = _latestStatus.ConsentActive
-            ? "✅ Yes"
-            : "❌ No";
+            ? "Yes"
+            : "No";
 
         bool migrationFailure =
             (!string.IsNullOrWhiteSpace(_latestStatus.LastError)
@@ -3020,12 +3121,12 @@ public partial class MainWindow : Window
         bool schemaKnown = !string.IsNullOrWhiteSpace(_latestStatus.SchemaVersion) && !_latestStatus.SchemaVersion.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
         bool databaseOk = schemaKnown && !migrationFailure;
         HealthDatabaseValue.Text = databaseOk
-            ? $"✅ Yes (schema {_latestStatus.SchemaVersion})"
+            ? $"Yes (schema {_latestStatus.SchemaVersion})"
             : migrationFailure
-                ? "❌ No (migration/startup error)"
-                : "❌ No (schema unknown)";
+                ? "No (migration/startup error)"
+                : $"No ({NotAvailableText})";
 
-        HealthLastUpdateValue.Text = string.IsNullOrWhiteSpace(lastUpdate) ? "Unknown" : lastUpdate;
+        HealthLastUpdateValue.Text = string.IsNullOrWhiteSpace(lastUpdate) ? NotAvailableText : lastUpdate;
         HealthLastErrorValue.Text = string.IsNullOrWhiteSpace(lastError) ? "None" : lastError;
     }
 
@@ -3139,9 +3240,9 @@ public partial class MainWindow : Window
         TopBarHintText.Text = hint ?? string.Empty;
         TopBarHintText.Visibility = string.IsNullOrWhiteSpace(hint) ? Visibility.Collapsed : Visibility.Visible;
 
-        AgentVersionMenuItem.Header = $"Agent: {status?.AgentVersion ?? "n/a"}";
+        AgentVersionMenuItem.Header = $"Agent: {status?.AgentVersion ?? NotAvailableText}";
         UiVersionMenuItem.Header = $"UI: {_uiVersion}";
-        SchemaVersionMenuItem.Header = $"Schema: {status?.SchemaVersion ?? "n/a"}";
+        SchemaVersionMenuItem.Header = $"Schema: {status?.SchemaVersion ?? NotAvailableText}";
     }
 
     private static void SetBadgeVisual(Border border, bool isPositive)
@@ -3157,7 +3258,7 @@ public partial class MainWindow : Window
         {
             "High" => new SolidColorBrush(Color.FromRgb(6, 95, 70)),
             "Medium" => new SolidColorBrush(Color.FromRgb(146, 64, 14)),
-            "--" => new SolidColorBrush(Color.FromRgb(51, 65, 85)),
+            NotAvailableText => new SolidColorBrush(Color.FromRgb(51, 65, 85)),
             _ => new SolidColorBrush(Color.FromRgb(127, 29, 29))
         };
     }
@@ -3166,7 +3267,7 @@ public partial class MainWindow : Window
     {
         if (!confidence.HasValue)
         {
-            return "--";
+            return NotAvailableText;
         }
 
         if (confidence.Value >= 0.85d)
@@ -3353,7 +3454,11 @@ public partial class MainWindow : Window
 
     private sealed record ServiceProbeResult(bool Exists, bool Running, string StatusText, string? ErrorText);
     private sealed record RestartResult(bool Success, string Message);
-    private sealed record NowTruth(LocalApiCurrentSnapshotResponse? Snapshot, string Explanation);
+    private sealed record NowTruth(
+        // Source: GET /v1/snapshot/current -> full snapshot payload (null if service/auth/freshness checks fail)
+        LocalApiCurrentSnapshotResponse? Snapshot,
+        // Source: computed from GET /v1/status + runtime/service checks
+        string Explanation);
     private sealed record OverloadExplainView(
         string FivSummary,
         string TopReasons,
@@ -3368,8 +3473,8 @@ public partial class MainWindow : Window
             new(
                 "Explain not available (backend field missing).",
                 "Explain not available (backend field missing).",
-                "n/a",
-                "n/a",
+                NotAvailableText,
+                NotAvailableText,
                 null,
                 null,
                 null,
@@ -3389,3 +3494,4 @@ public partial class MainWindow : Window
         string Undo,
         LocalApiEventResponse Source);
 }
+

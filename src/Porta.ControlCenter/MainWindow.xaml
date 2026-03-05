@@ -1,4 +1,4 @@
-
+﻿
 <Window x:Class="Porta.ControlCenter.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -8,15 +8,91 @@
         MinHeight="700"
         MinWidth="1000"
         WindowStartupLocation="CenterScreen"
-        Background="#0F172A"
-        Foreground="#E2E8F0">
+        Background="#0F1114"
+        Foreground="#E6E9ED"
+        FontFamily="Segoe UI Variable, Segoe UI, Inter">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PortaSurfaceBaseBrush" Color="#15181C" />
+        <SolidColorBrush x:Key="PortaSurfaceElevatedBrush" Color="#1B1F25" />
+        <SolidColorBrush x:Key="PortaBorderBrush" Color="#262B33" />
+        <SolidColorBrush x:Key="PortaBorderHoverBrush" Color="#303743" />
+        <SolidColorBrush x:Key="PortaTextPrimaryBrush" Color="#E6E9ED" />
+        <SolidColorBrush x:Key="PortaTextSecondaryBrush" Color="#9AA4B2" />
+
+        <Style TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource PortaTextPrimaryBrush}" />
+            <Setter Property="Background" Value="#1A1F26" />
+            <Setter Property="BorderBrush" Value="{StaticResource PortaBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonChrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"
+                                              RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="#1E242C" />
+                                <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{StaticResource PortaBorderHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="#161B22" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ToolTip">
+            <Setter Property="Background" Value="#1D2127" />
+            <Setter Property="BorderBrush" Value="#2A3038" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="#E6E9ED" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="MaxWidth" Value="260" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
+        <Style x:Key="QuietHoverCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource PortaSurfaceBaseBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource PortaBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="12" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#171B20" />
+                    <Setter Property="BorderBrush" Value="{StaticResource PortaBorderHoverBrush}" />
+                    <Setter Property="Effect">
+                        <Setter.Value>
+                            <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.30" Color="#000000" />
+                        </Setter.Value>
+                    </Setter>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="240" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Background="#111827" BorderBrush="#1F2937" BorderThickness="0,0,1,0">
+        <Border Grid.Column="0" Background="#0C0E11" BorderBrush="#262B33" BorderThickness="0,0,1,0">
             <StackPanel Margin="16">
                 <TextBlock Text="PORTA" FontSize="24" FontWeight="Bold" Margin="0,0,0,20" />
                 <Button x:Name="OverviewNavButton" Content="Now" Margin="0,0,0,8" Padding="10,8" Click="OverviewNavButton_Click" />
@@ -35,7 +111,7 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Border Grid.Row="0" Background="#0B1220" BorderBrush="#1F2937" BorderThickness="0,0,0,1">
+            <Border Grid.Row="0" Background="#15181C" BorderBrush="#262B33" BorderThickness="0,0,0,1">
                 <DockPanel LastChildFill="False" Margin="16,10">
                     <TextBlock x:Name="SectionTitleText" Text="Now" DockPanel.Dock="Left" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,20,0" />
                     <Border x:Name="StatusPillBorder" CornerRadius="12" Background="#1D4ED8" Padding="10,4" Margin="0,0,10,0">
@@ -55,9 +131,9 @@
                     <Button x:Name="RefreshButton" Content="Refresh" Padding="12,6" Margin="0,0,10,0" Click="RefreshButton_Click" />
                     <Menu Background="Transparent" Foreground="#E2E8F0" VerticalAlignment="Center">
                         <MenuItem Header="Versions">
-                            <MenuItem x:Name="AgentVersionMenuItem" Header="Agent: n/a" IsEnabled="False" />
-                            <MenuItem x:Name="UiVersionMenuItem" Header="UI: n/a" IsEnabled="False" />
-                            <MenuItem x:Name="SchemaVersionMenuItem" Header="Schema: n/a" IsEnabled="False" />
+                            <MenuItem x:Name="AgentVersionMenuItem" Header="Agent: Not available" IsEnabled="False" />
+                            <MenuItem x:Name="UiVersionMenuItem" Header="UI: Not available" IsEnabled="False" />
+                            <MenuItem x:Name="SchemaVersionMenuItem" Header="Schema: Not available" IsEnabled="False" />
                         </MenuItem>
                     </Menu>
                 </DockPanel>
@@ -66,35 +142,39 @@
             <Grid Grid.Row="1">
                 <ScrollViewer x:Name="OverviewPanel" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
+                        <TextBlock Text="What's happening, how sure are you, and why?"
+                                   Foreground="#9AA4B2"
+                                   FontSize="13"
+                                   Margin="0,0,0,10" />
                         <Grid Margin="0,0,0,12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Background="#111827" CornerRadius="8" Padding="12" Margin="0,0,8,0" BorderBrush="#1F2937" BorderThickness="1">
+                            <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="Overload" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowOverloadValueText" Text="Overload: n/a" FontSize="26" FontWeight="Bold" />
-                                    <TextBlock x:Name="NowOverloadActiveText" Text="Active: n/a" Margin="0,6,0,0" />
-                                    <TextBlock x:Name="NowOverloadTrustText" Text="Trust level: n/a" Margin="0,4,0,8" />
+                                    <TextBlock x:Name="NowOverloadValueText" Text="Overload: Not available" FontSize="26" FontWeight="Bold" />
+                                    <TextBlock x:Name="NowOverloadActiveText" Text="Active: Not available" Margin="0,6,0,0" />
+                                    <TextBlock x:Name="NowOverloadTrustText" Text="Trust level: Not available" Margin="0,4,0,8" />
                                     <Expander Header="Why?" Margin="0,4,0,0" Foreground="#E2E8F0">
-                                        <Border Background="#0B1220" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,8,0,0">
+                                        <Border Background="#1B1F25" BorderBrush="#262B33" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,8,0,0">
                                             <StackPanel>
                                                 <TextBlock Text="Signals behind overload" FontSize="12" Foreground="#93C5FD" FontWeight="SemiBold" Margin="0,0,0,4" />
                                                 <TextBlock x:Name="NowOverloadFivText" Text="Explain not available (backend field missing)." TextWrapping="Wrap" Foreground="#E2E8F0" />
-                                                <TextBlock x:Name="NowOverloadTopReasonsText" Text="Top reasons: n/a" TextWrapping="Wrap" Foreground="#CBD5E1" Margin="0,8,0,0" />
-                                                <TextBlock x:Name="NowOverloadQualityAgreementText" Text="Quality: n/a | Agreement: n/a" Foreground="#CBD5E1" Margin="0,8,0,0" />
+                                                <TextBlock x:Name="NowOverloadTopReasonsText" Text="Top reasons: Not available" TextWrapping="Wrap" Foreground="#CBD5E1" Margin="0,8,0,0" />
+                                                <TextBlock x:Name="NowOverloadQualityAgreementText" Text="Quality: Not available | Agreement: Not available" Foreground="#CBD5E1" Margin="0,8,0,0" />
                                                 <TextBlock Text="Turns ON after 2 min above 80%" Margin="0,8,0,0" Foreground="#93C5FD" TextWrapping="Wrap" />
                                             </StackPanel>
                                         </Border>
                                     </Expander>
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Column="1" Background="#111827" CornerRadius="8" Padding="12" Margin="8,0,0,0" BorderBrush="#1F2937" BorderThickness="1">
+                            <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="8,0,0,0">
                                 <StackPanel>
                                     <TextBlock Text="Focus streak" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowFocusStreakValueText" Text="Focused time: n/a" FontSize="26" FontWeight="Bold" />
-                                    <TextBlock x:Name="NowFocusChoppinessText" Text="Choppiness: n/a" Margin="0,8,0,0" />
+                                    <TextBlock x:Name="NowFocusStreakValueText" Text="Focused time: Not available" FontSize="26" FontWeight="Bold" />
+                                    <TextBlock x:Name="NowFocusChoppinessText" Text="Choppiness: Not available" Margin="0,8,0,0" />
                                     <TextBlock x:Name="NowFocusFootnoteText" Text="Resets after 2+ minutes away." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" />
                                     <TextBlock x:Name="NowFocusStatusText" Text="" Margin="0,6,0,0" Foreground="#F59E0B" TextWrapping="Wrap" Visibility="Collapsed" />
                                 </StackPanel>
@@ -105,21 +185,21 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Background="#111827" CornerRadius="8" Padding="12" Margin="0,0,8,0" BorderBrush="#1F2937" BorderThickness="1">
+                            <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="Calibration" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock x:Name="NowCalibrationStatusText" Text="Calibrating..." FontSize="20" FontWeight="Bold" />
-                                    <TextBlock x:Name="NowCalibrationProgressText" Text="Progress: n/a" Margin="0,6,0,0" />
-                                    <TextBlock x:Name="NowCalibrationQualityText" Text="Recent data quality: n/a (last 2 min)" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="NowCalibrationColdStartText" Text="Cold start: n/a" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="NowCalibrationProgressText" Text="Progress: Not available" Margin="0,6,0,0" />
+                                    <TextBlock x:Name="NowCalibrationQualityText" Text="Recent data quality: Not available (last 2 min)" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="NowCalibrationColdStartText" Text="Cold start: Not available" Margin="0,4,0,0" />
                                     <TextBlock x:Name="NowCalibrationTrustCapText" Text="Trust is capped until calibration completes." Foreground="#FB923C" Margin="0,8,0,0" Visibility="Collapsed" />
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Column="1" Background="#111827" CornerRadius="8" Padding="12" Margin="8,0,0,0" BorderBrush="#1F2937" BorderThickness="1">
+                            <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="8,0,0,0">
                                 <StackPanel>
                                     <TextBlock Text="Data quality" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowDataQualityScoreText" Text="Quality score: n/a" FontSize="20" FontWeight="Bold" />
-                                    <TextBlock x:Name="NowDataQualityPartialText" Text="Partial data: n/a" Margin="0,6,0,0" />
+                                    <TextBlock x:Name="NowDataQualityScoreText" Text="Quality score: Not available" FontSize="20" FontWeight="Bold" />
+                                    <TextBlock x:Name="NowDataQualityPartialText" Text="Partial data: Not available" Margin="0,6,0,0" />
                                     <TextBlock x:Name="NowDataQualityMissingText" Text="" Margin="0,6,0,0" Visibility="Collapsed" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
@@ -129,21 +209,27 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Background="#111827" CornerRadius="8" Padding="12" Margin="0,0,8,0" BorderBrush="#1F2937" BorderThickness="1">
+                            <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="Last action" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock x:Name="NowLastActionTitleText" Text="No actions recently" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowLastActionTimeText" Text="Time: n/a" Margin="0,6,0,8" />
+                                    <TextBlock x:Name="NowLastActionTimeText" Text="Time: Not available" Margin="0,6,0,8" />
                                     <Button x:Name="NowOpenActionsButton" Content="Open Actions" Padding="10,6" Width="130" Click="NowOpenActionsButton_Click" />
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Column="1" Background="#111827" CornerRadius="8" Padding="12" Margin="8,0,0,0" BorderBrush="#1F2937" BorderThickness="1">
+                            <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="8,0,0,0">
                                 <StackPanel>
                                     <TextBlock Text="What PORTA is doing" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowWhatPortaDoingText" Text="n/a" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowWhatPortaDoingText" Text="Not available" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
                         </Grid>
+                        <TextBlock x:Name="NowWaitingDataText"
+                                   Text="Waiting for service data"
+                                   Foreground="#9AA4B2"
+                                   FontSize="12"
+                                   Margin="0,0,0,8"
+                                   Visibility="Collapsed" />
                         <WrapPanel Margin="0,0,0,12" Visibility="Collapsed">
                             <Border Background="#111827" CornerRadius="8" Padding="10" Margin="0,0,8,8" BorderBrush="#1F2937" BorderThickness="1" Width="200">
                                 <StackPanel><Border x:Name="FocusCardBand" Height="4" Background="#475569" Margin="0,0,0,6" /><TextBlock Text="Focus" /><TextBlock x:Name="FocusCardValue" FontSize="24" Text="0.00" /><TextBlock x:Name="FocusCardConfidence" Text="Confidence: 0%" /><TextBlock x:Name="FocusCardTrend" Text="Trend: Stable" /></StackPanel>
@@ -170,14 +256,14 @@
                                     <TextBlock Grid.Row="1" Text="Average focus %" /><TextBlock x:Name="TodayAvgFocusValue" Grid.Row="1" HorizontalAlignment="Right" Text="0%" />
                                     <TextBlock Grid.Row="2" Text="Peak overload %" /><TextBlock x:Name="TodayPeakOverloadValue" Grid.Row="2" HorizontalAlignment="Right" Text="0%" />
                                     <TextBlock Grid.Row="3" Text="Idle fragmentation" /><TextBlock x:Name="TodayIdleFragmentationValue" Grid.Row="3" HorizontalAlignment="Right" Text="0.00" />
-                                    <TextBlock Grid.Row="4" Text="Most volatile hour" /><TextBlock x:Name="TodayMostVolatileHourValue" Grid.Row="4" HorizontalAlignment="Right" Text="n/a" />
+                                    <TextBlock Grid.Row="4" Text="Most volatile hour" /><TextBlock x:Name="TodayMostVolatileHourValue" Grid.Row="4" HorizontalAlignment="Right" Text="Not available" />
                                 </Grid>
                                 <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                     <StackPanel x:Name="TodayHourlyChartPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
                                 </ScrollViewer>
                             </Grid>
                         </Border>
-                        <TextBlock x:Name="UpdatedValue" Margin="0,10,0,0" Foreground="#94A3B8" Text="Last refresh: n/a" />
+                        <TextBlock x:Name="UpdatedValue" Margin="0,10,0,0" Foreground="#94A3B8" Text="Last refresh: Not available" />
                         <TextBlock x:Name="DebugFooterText" Margin="0,6,0,0" Foreground="#F59E0B" FontFamily="Consolas" FontSize="11" Text="" Visibility="Collapsed" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>
@@ -221,10 +307,10 @@
                         <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12">
                             <StackPanel>
                                 <TextBlock Text="Never collected" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10" />
-                                <TextBlock Text="• Keystroke content" Margin="0,0,0,6" />
-                                <TextBlock Text="• Screen content" Margin="0,0,0,6" />
-                                <TextBlock Text="• Clipboard" Margin="0,0,0,6" />
-                                <TextBlock Text="• Microphone / camera" />
+                                <TextBlock Text="- Keystroke content" Margin="0,0,0,6" />
+                                <TextBlock Text="- Screen content" Margin="0,0,0,6" />
+                                <TextBlock Text="- Clipboard" Margin="0,0,0,6" />
+                                <TextBlock Text="- Microphone / camera" />
                             </StackPanel>
                         </Border>
 
@@ -260,17 +346,17 @@
                                     <ProgressBar Grid.Row="3" Grid.Column="1" x:Name="LiveIdleMeter" Height="10" Minimum="0" Maximum="100" Value="0" Margin="8,4" />
                                     <TextBlock Grid.Row="3" Grid.Column="2" x:Name="LiveIdleValue" Text="0s" HorizontalAlignment="Right" VerticalAlignment="Center" />
                                 </Grid>
-                                <TextBlock x:Name="LiveQualityValue" Text="Quality score: Unknown" Margin="0,4,0,0" />
-                                <TextBlock x:Name="LivePartialValue" Text="Partial data: Unknown" Margin="0,4,0,0" />
-                                <TextBlock x:Name="LiveMissingChannelsValue" Text="Missing: n/a" Margin="0,4,0,0" Foreground="#94A3B8" />
+                                <TextBlock x:Name="LiveQualityValue" Text="Quality score: Not available" Margin="0,4,0,0" />
+                                <TextBlock x:Name="LivePartialValue" Text="Partial data: Not available" Margin="0,4,0,0" />
+                                <TextBlock x:Name="LiveMissingChannelsValue" Text="Missing: Not available" Margin="0,4,0,0" Foreground="#94A3B8" />
                             </StackPanel>
                         </Border>
 
                         <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1">
                             <StackPanel>
                                 <TextBlock Text="Your data" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10" />
-                                <TextBlock x:Name="RetentionWindowValue" Text="Retention window: Unknown" />
-                                <TextBlock x:Name="RetentionSizeValue" Text="Local data size: Unknown" Margin="0,6,0,10" />
+                                <TextBlock x:Name="RetentionWindowValue" Text="Retention window: Not available" />
+                                <TextBlock x:Name="RetentionSizeValue" Text="Local data size: Not available" Margin="0,6,0,10" />
                                 <WrapPanel>
                                     <Button Content="Export Data" Padding="12,6" Margin="0,0,10,0" Click="ExportDataButton_Click" />
                                     <Button Content="Delete Local Data" Padding="12,6" Click="DeleteLocalDataButton_Click" />
@@ -527,18 +613,18 @@
                                     <TextBlock x:Name="ActionDrawerTitle" Text="Select an action event" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,10" />
                                     <Border Background="#111827" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
                                         <StackPanel>
-                                            <TextBlock x:Name="ActionDrawerWhen" Text="When: n/a" Margin="0,0,0,6" Foreground="#CBD5E1" />
-                                            <TextBlock x:Name="ActionDrawerCooldown" Text="Cooldown remaining: n/a" Margin="0,0,0,6" Foreground="#CBD5E1" />
-                                            <TextBlock x:Name="ActionDrawerUndo" Text="Undo: n/a" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#CBD5E1" />
-                                            <TextBlock x:Name="ActionDrawerShortWhy" Text="Why: n/a" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" MaxHeight="58" />
+                                            <TextBlock x:Name="ActionDrawerWhen" Text="When: Not available" Margin="0,0,0,6" Foreground="#CBD5E1" />
+                                            <TextBlock x:Name="ActionDrawerCooldown" Text="Cooldown remaining: Not available" Margin="0,0,0,6" Foreground="#CBD5E1" />
+                                            <TextBlock x:Name="ActionDrawerUndo" Text="Undo: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#CBD5E1" />
+                                            <TextBlock x:Name="ActionDrawerShortWhy" Text="Why: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" MaxHeight="58" />
                                             <TextBlock x:Name="ActionDrawerRepeat" Text="" Foreground="#93C5FD" TextWrapping="Wrap" Margin="0,0,0,6" Visibility="Collapsed" />
-                                            <TextBlock x:Name="ActionDrawerWhatChanged" Text="What changed: n/a" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" MaxHeight="58" />
+                                            <TextBlock x:Name="ActionDrawerWhatChanged" Text="What changed: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" MaxHeight="58" />
                                         </StackPanel>
                                     </Border>
                                     <TextBlock Text="Technical details (why_json)" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,4" />
                                     <Border Background="#111827" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="8" Padding="8">
                                         <ScrollViewer VerticalScrollBarVisibility="Disabled" Height="190">
-                                            <TextBlock x:Name="ActionDrawerWhyJson" Text="n/a" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" />
+                                            <TextBlock x:Name="ActionDrawerWhyJson" Text="Not available" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" />
                                         </ScrollViewer>
                                     </Border>
                                     <Button x:Name="ActionDrawerUndoButton" Content="Undo change" Padding="12,6" Margin="0,10,0,0" Click="ActionDrawerUndoButton_Click" IsEnabled="False" />
@@ -668,7 +754,7 @@
                             <Button Content="Apply controls" Padding="12,6" Margin="0,0,10,0" Click="SaveSettingsButton_Click" />
                             <Button Content="Resume now" Padding="12,6" Click="ResumeFromSettingsButton_Click" />
                         </WrapPanel>
-                        <TextBlock x:Name="SettingsStatusText" Text="Settings status: n/a" Margin="0,10,0,0" />
+                        <TextBlock x:Name="SettingsStatusText" Text="Settings status: Not available" Margin="0,10,0,0" />
                     </StackPanel>
                 </ScrollViewer>
 
@@ -686,12 +772,12 @@
                                     </Border>
                                 </DockPanel>
                                 <TextBlock Text="What it means: PORTA reads activity patterns from keyboard, mouse, app switches, and idle time." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
-                                <TextBlock x:Name="SignalsBlockersText" Text="What can block it: n/a" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
-                                <TextBlock x:Name="SignalsCurrentText" Text="Current status: n/a" TextWrapping="Wrap" Foreground="#93C5FD" />
+                                <TextBlock x:Name="SignalsBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
+                                <TextBlock x:Name="SignalsCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="↓" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
+                        <TextBlock Text="v" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
 
                         <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,10">
                             <StackPanel>
@@ -702,12 +788,12 @@
                                     </Border>
                                 </DockPanel>
                                 <TextBlock Text="What it means: PORTA learns your normal pattern and sets a stable baseline." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
-                                <TextBlock x:Name="CalibrationBlockersText" Text="What can block it: n/a" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
-                                <TextBlock x:Name="CalibrationCurrentText" Text="Current status: n/a" TextWrapping="Wrap" Foreground="#93C5FD" />
+                                <TextBlock x:Name="CalibrationBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
+                                <TextBlock x:Name="CalibrationCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="↓" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
+                        <TextBlock Text="v" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
 
                         <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,10">
                             <StackPanel>
@@ -718,12 +804,12 @@
                                     </Border>
                                 </DockPanel>
                                 <TextBlock Text="What it means: PORTA smooths raw input signals to prevent one-off spikes." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
-                                <TextBlock x:Name="SmoothingBlockersText" Text="What can block it: n/a" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
-                                <TextBlock x:Name="SmoothingCurrentText" Text="Current status: n/a" TextWrapping="Wrap" Foreground="#93C5FD" />
+                                <TextBlock x:Name="SmoothingBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
+                                <TextBlock x:Name="SmoothingCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="↓" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
+                        <TextBlock Text="v" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
 
                         <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1">
                             <StackPanel>
@@ -734,8 +820,8 @@
                                     </Border>
                                 </DockPanel>
                                 <TextBlock Text="What it means: PORTA combines overload + focus streak + policy rules to decide whether to suggest an action." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
-                                <TextBlock x:Name="DecisionsBlockersText" Text="What can block it: n/a" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
-                                <TextBlock x:Name="DecisionsCurrentText" Text="Current status: n/a" TextWrapping="Wrap" Foreground="#93C5FD" />
+                                <TextBlock x:Name="DecisionsBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
+                                <TextBlock x:Name="DecisionsCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -784,15 +870,15 @@
                         </StackPanel>
                         <Border Grid.Column="1" Background="#0B1220" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1">
                             <StackPanel>
-                                <TextBlock x:Name="TimelineDetailTimestamp" Text="Timestamp: n/a" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailOverload" Text="Overload: n/a" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailTrust" Text="Trust level: n/a" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailFocus" Text="Focus streak: n/a" Margin="0,0,0,10" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailWhyHeader" Text="Why: n/a" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
-                                <TextBlock x:Name="TimelineDetailWhyFiv" Text="Clarity/Pressure/Jitter: n/a" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock x:Name="TimelineDetailWhyReasons" Text="Top reasons: n/a" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock x:Name="TimelineDetailWhyQuality" Text="Quality: n/a | Agreement: n/a" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock x:Name="TimelineDetailStabilization" Text="Stabilization: n/a" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
+                                <TextBlock x:Name="TimelineDetailTimestamp" Text="Timestamp: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                <TextBlock x:Name="TimelineDetailOverload" Text="Overload: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                <TextBlock x:Name="TimelineDetailTrust" Text="Trust level: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                <TextBlock x:Name="TimelineDetailFocus" Text="Focus streak: Not available" Margin="0,0,0,10" Foreground="#F8FAFC" />
+                                <TextBlock x:Name="TimelineDetailWhyHeader" Text="Why: Not available" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
+                                <TextBlock x:Name="TimelineDetailWhyFiv" Text="Clarity/Pressure/Jitter: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
+                                <TextBlock x:Name="TimelineDetailWhyReasons" Text="Top reasons: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
+                                <TextBlock x:Name="TimelineDetailWhyQuality" Text="Quality: Not available | Agreement: Not available" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
+                                <TextBlock x:Name="TimelineDetailStabilization" Text="Stabilization: Not available" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
                             </StackPanel>
                         </Border>
                     </Grid>
@@ -819,22 +905,22 @@
                                 </Grid.RowDefinitions>
 
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Service running" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthServiceValue" Grid.Row="0" Grid.Column="1" Text="Unknown" />
+                                <TextBlock x:Name="HealthServiceValue" Grid.Row="0" Grid.Column="1" Text="Not available" />
 
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Local API reachable" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthApiValue" Grid.Row="1" Grid.Column="1" Text="Unknown" />
+                                <TextBlock x:Name="HealthApiValue" Grid.Row="1" Grid.Column="1" Text="Not available" />
 
                                 <TextBlock Grid.Row="2" Grid.Column="0" Text="Auth ready" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthAuthValue" Grid.Row="2" Grid.Column="1" Text="Unknown" TextWrapping="Wrap" />
+                                <TextBlock x:Name="HealthAuthValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
                                 <TextBlock Grid.Row="3" Grid.Column="0" Text="Consent active" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthConsentValue" Grid.Row="3" Grid.Column="1" Text="Unknown" />
+                                <TextBlock x:Name="HealthConsentValue" Grid.Row="3" Grid.Column="1" Text="Not available" />
 
                                 <TextBlock Grid.Row="4" Grid.Column="0" Text="Database OK" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthDatabaseValue" Grid.Row="4" Grid.Column="1" Text="Unknown" TextWrapping="Wrap" />
+                                <TextBlock x:Name="HealthDatabaseValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
                                 <TextBlock Grid.Row="5" Grid.Column="0" Text="Last update time" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthLastUpdateValue" Grid.Row="5" Grid.Column="1" Text="Unknown" />
+                                <TextBlock x:Name="HealthLastUpdateValue" Grid.Row="5" Grid.Column="1" Text="Not available" />
 
                                 <TextBlock Grid.Row="6" Grid.Column="0" Text="Last error" Foreground="#CBD5E1" />
                                 <TextBlock x:Name="HealthLastErrorValue" Grid.Row="6" Grid.Column="1" Text="None" TextWrapping="Wrap" />
@@ -850,27 +936,27 @@
 
                         <!-- Legacy diagnostic bindings kept hidden for existing code and summary export. -->
                         <StackPanel Visibility="Collapsed">
-                            <TextBlock x:Name="ServiceRunningValue" Text="Unknown" />
-                            <TextBlock x:Name="TrayRunningValue" Text="Unknown" />
-                            <TextBlock x:Name="ConsentActiveValue" Text="Unknown" />
-                            <TextBlock x:Name="BackendConnectedValue" Text="Unknown" />
-                            <TextBlock x:Name="FocusStrengthValue" Text="Unknown" />
-                            <TextBlock x:Name="OverloadValue" Text="Unknown" />
-                            <TextBlock x:Name="LastActionValue" Text="Unknown" />
-                            <TextBlock x:Name="LastEventValue" Text="Unknown" />
-                            <TextBlock x:Name="PolicyVersionValue" Text="Unknown" />
-                            <TextBlock x:Name="SchemaVersionValue" Text="Unknown" />
-                            <TextBlock x:Name="AgentVersionValue" Text="Unknown" />
-                            <TextBlock x:Name="ApiReachableValue" Text="Unknown" />
-                            <TextBlock x:Name="ApiPortValue" Text="Unknown" />
-                            <TextBlock x:Name="ConsentVersionValue" Text="Unknown" />
-                            <TextBlock x:Name="ConsentTimestampValue" Text="Unknown" />
-                            <TextBlock x:Name="ConsentHashValue" Text="Unknown" />
+                            <TextBlock x:Name="ServiceRunningValue" Text="Not available" />
+                            <TextBlock x:Name="TrayRunningValue" Text="Not available" />
+                            <TextBlock x:Name="ConsentActiveValue" Text="Not available" />
+                            <TextBlock x:Name="BackendConnectedValue" Text="Not available" />
+                            <TextBlock x:Name="FocusStrengthValue" Text="Not available" />
+                            <TextBlock x:Name="OverloadValue" Text="Not available" />
+                            <TextBlock x:Name="LastActionValue" Text="Not available" />
+                            <TextBlock x:Name="LastEventValue" Text="Not available" />
+                            <TextBlock x:Name="PolicyVersionValue" Text="Not available" />
+                            <TextBlock x:Name="SchemaVersionValue" Text="Not available" />
+                            <TextBlock x:Name="AgentVersionValue" Text="Not available" />
+                            <TextBlock x:Name="ApiReachableValue" Text="Not available" />
+                            <TextBlock x:Name="ApiPortValue" Text="Not available" />
+                            <TextBlock x:Name="ConsentVersionValue" Text="Not available" />
+                            <TextBlock x:Name="ConsentTimestampValue" Text="Not available" />
+                            <TextBlock x:Name="ConsentHashValue" Text="Not available" />
                             <TextBlock x:Name="LastErrorValue" Text="None" />
-                            <TextBlock x:Name="SnapshotConfidenceValue" Text="Unknown" />
-                            <TextBlock x:Name="OverloadActiveValue" Text="Unknown" />
-                            <TextBlock x:Name="SustainedAttentionValue" Text="Unknown" />
-                            <TextBlock x:Name="IdleFragmentationValue" Text="Unknown" />
+                            <TextBlock x:Name="SnapshotConfidenceValue" Text="Not available" />
+                            <TextBlock x:Name="OverloadActiveValue" Text="Not available" />
+                            <TextBlock x:Name="SustainedAttentionValue" Text="Not available" />
+                            <TextBlock x:Name="IdleFragmentationValue" Text="Not available" />
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
@@ -922,3 +1008,5 @@
         </Border>
     </Grid>
 </Window>
+
+
