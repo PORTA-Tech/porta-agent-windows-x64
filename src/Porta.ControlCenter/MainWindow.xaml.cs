@@ -275,6 +275,7 @@ public partial class MainWindow : Window
             PopulateStates(null);
             PopulateTimeline(null);
             UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+            UpdateHealthChecklist(serviceProbe, apiReachable);
             return;
         }
 
@@ -332,6 +333,7 @@ public partial class MainWindow : Window
         PopulateStates(truthSnapshot);
         PopulateTimeline(GetSelectedHistoryTimeline());
         UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+        UpdateHealthChecklist(serviceProbe, apiReachable);
     }
 
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)
@@ -2972,6 +2974,59 @@ public partial class MainWindow : Window
         return value.HasValue
             ? value.Value.ToString("F2", CultureInfo.InvariantCulture)
             : "Unknown";
+    }
+
+    private void UpdateHealthChecklist(ServiceProbeResult serviceProbe, bool apiReachable)
+    {
+        string lastError = LastErrorValue.Text;
+        string lastUpdate = UpdatedValue.Text.Replace("Last refresh:", string.Empty, StringComparison.OrdinalIgnoreCase).Trim();
+
+        HealthServiceValue.Text = serviceProbe.Running
+            ? "✅ Yes"
+            : $"❌ No ({serviceProbe.StatusText})";
+
+        HealthApiValue.Text = apiReachable
+            ? "✅ Yes"
+            : "❌ No";
+
+        if (_latestStatus == null)
+        {
+            HealthAuthValue.Text = "❌ Unknown (status unavailable)";
+            HealthConsentValue.Text = "❌ Unknown";
+            HealthDatabaseValue.Text = "❌ Unknown";
+            HealthLastUpdateValue.Text = string.IsNullOrWhiteSpace(lastUpdate) ? "Unknown" : lastUpdate;
+            HealthLastErrorValue.Text = string.IsNullOrWhiteSpace(lastError) ? "None" : lastError;
+            return;
+        }
+
+        HealthAuthValue.Text = _latestStatus.LocalApiAuthReady
+            ? "✅ Yes"
+            : $"❌ No ({_latestStatus.LocalApiAuthError ?? "TOKEN_READ_FAILED"})";
+
+        HealthConsentValue.Text = _latestStatus.ConsentActive
+            ? "✅ Yes"
+            : "❌ No";
+
+        bool migrationFailure =
+            (!string.IsNullOrWhiteSpace(_latestStatus.LastError)
+                && (_latestStatus.LastError.Contains("migration", StringComparison.OrdinalIgnoreCase)
+                    || _latestStatus.LastError.Contains("readonly database", StringComparison.OrdinalIgnoreCase)
+                    || _latestStatus.LastError.Contains("sqlite error", StringComparison.OrdinalIgnoreCase)
+                    || _latestStatus.LastError.Contains("db startup failed", StringComparison.OrdinalIgnoreCase)))
+            || (lastError.Contains("migration", StringComparison.OrdinalIgnoreCase)
+                || lastError.Contains("readonly database", StringComparison.OrdinalIgnoreCase)
+                || lastError.Contains("sqlite error", StringComparison.OrdinalIgnoreCase)
+                || lastError.Contains("db startup failed", StringComparison.OrdinalIgnoreCase));
+        bool schemaKnown = !string.IsNullOrWhiteSpace(_latestStatus.SchemaVersion) && !_latestStatus.SchemaVersion.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
+        bool databaseOk = schemaKnown && !migrationFailure;
+        HealthDatabaseValue.Text = databaseOk
+            ? $"✅ Yes (schema {_latestStatus.SchemaVersion})"
+            : migrationFailure
+                ? "❌ No (migration/startup error)"
+                : "❌ No (schema unknown)";
+
+        HealthLastUpdateValue.Text = string.IsNullOrWhiteSpace(lastUpdate) ? "Unknown" : lastUpdate;
+        HealthLastErrorValue.Text = string.IsNullOrWhiteSpace(lastError) ? "None" : lastError;
     }
 
     private static string FormatBytes(long bytes)

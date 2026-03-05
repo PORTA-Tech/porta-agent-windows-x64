@@ -799,46 +799,79 @@
                 </ScrollViewer>
                 <ScrollViewer x:Name="DiagnosticsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <TextBlock Text="Diagnostics Truth Panel" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12" />
-                        <Border Background="#111827" CornerRadius="8" Padding="10" BorderBrush="#1F2937" BorderThickness="1">
+                        <TextBlock Text="Health" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <TextBlock Text="Why isn't it working?" Foreground="#CBD5E1" Margin="0,0,0,12" />
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12">
                             <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="260" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="260" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Service running" /><TextBlock x:Name="ServiceRunningValue" Grid.Row="0" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Tray running" /><TextBlock x:Name="TrayRunningValue" Grid.Row="1" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Consent active" /><TextBlock x:Name="ConsentActiveValue" Grid.Row="2" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Backend connected" /><TextBlock x:Name="BackendConnectedValue" Grid.Row="3" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Focus strength" /><TextBlock x:Name="FocusStrengthValue" Grid.Row="4" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="5" Grid.Column="0" Text="Overload likelihood" /><TextBlock x:Name="OverloadValue" Grid.Row="5" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="6" Grid.Column="0" Text="Last action" /><TextBlock x:Name="LastActionValue" Grid.Row="6" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="7" Grid.Column="0" Text="Last event timestamp" /><TextBlock x:Name="LastEventValue" Grid.Row="7" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="8" Grid.Column="0" Text="Current policy version" /><TextBlock x:Name="PolicyVersionValue" Grid.Row="8" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="9" Grid.Column="0" Text="Schema version" /><TextBlock x:Name="SchemaVersionValue" Grid.Row="9" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="10" Grid.Column="0" Text="Agent version" /><TextBlock x:Name="AgentVersionValue" Grid.Row="10" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="11" Grid.Column="0" Text="Local API reachable" /><TextBlock x:Name="ApiReachableValue" Grid.Row="11" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="12" Grid.Column="0" Text="Local API port" /><TextBlock x:Name="ApiPortValue" Grid.Row="12" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="13" Grid.Column="0" Text="Consent version" /><TextBlock x:Name="ConsentVersionValue" Grid.Row="13" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="14" Grid.Column="0" Text="Consent timestamp" /><TextBlock x:Name="ConsentTimestampValue" Grid.Row="14" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="15" Grid.Column="0" Text="Disclosure hash" /><TextBlock x:Name="ConsentHashValue" Grid.Row="15" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="16" Grid.Column="0" Text="Last error" /><TextBlock x:Name="LastErrorValue" Grid.Row="16" Grid.Column="1" Text="None" TextWrapping="Wrap" />
-                                <TextBlock Grid.Row="17" Grid.Column="0" Text="Snapshot confidence" /><TextBlock x:Name="SnapshotConfidenceValue" Grid.Row="17" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="18" Grid.Column="0" Text="Overload active" /><TextBlock x:Name="OverloadActiveValue" Grid.Row="18" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="19" Grid.Column="0" Text="Sustained attention (s)" /><TextBlock x:Name="SustainedAttentionValue" Grid.Row="19" Grid.Column="1" Text="Unknown" />
-                                <TextBlock Grid.Row="20" Grid.Column="0" Text="Idle fragmentation index" /><TextBlock x:Name="IdleFragmentationValue" Grid.Row="20" Grid.Column="1" Text="Unknown" />
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Service running" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthServiceValue" Grid.Row="0" Grid.Column="1" Text="Unknown" />
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Local API reachable" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthApiValue" Grid.Row="1" Grid.Column="1" Text="Unknown" />
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Auth ready" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthAuthValue" Grid.Row="2" Grid.Column="1" Text="Unknown" TextWrapping="Wrap" />
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Consent active" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthConsentValue" Grid.Row="3" Grid.Column="1" Text="Unknown" />
+
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Database OK" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthDatabaseValue" Grid.Row="4" Grid.Column="1" Text="Unknown" TextWrapping="Wrap" />
+
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="Last update time" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthLastUpdateValue" Grid.Row="5" Grid.Column="1" Text="Unknown" />
+
+                                <TextBlock Grid.Row="6" Grid.Column="0" Text="Last error" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthLastErrorValue" Grid.Row="6" Grid.Column="1" Text="None" TextWrapping="Wrap" />
                             </Grid>
                         </Border>
-                        <WrapPanel Margin="0,10,0,0">
-                            <Button Content="Restart Service" Padding="12,6" Margin="0,0,10,0" Click="RestartServiceButton_Click" />
-                            <Button Content="Export Bundle" Padding="12,6" Margin="0,0,10,0" Click="ExportBundleButton_Click" />
-                            <Button Content="Open Logs Folder" Padding="12,6" Margin="0,0,10,0" Click="OpenLogsFolderButton_Click" />
-                            <Button Content="Copy Diagnostics Summary" Padding="12,6" Click="CopyDiagnosticsSummaryButton_Click" />
+
+                        <WrapPanel Margin="0,0,0,0">
+                            <Button Content="Restart service" Padding="12,6" Margin="0,0,10,0" Click="RestartServiceButton_Click" />
+                            <Button Content="Export bundle" Padding="12,6" Margin="0,0,10,0" Click="ExportBundleButton_Click" />
+                            <Button Content="Open logs" Padding="12,6" Margin="0,0,10,0" Click="OpenLogsFolderButton_Click" />
+                            <Button Content="Copy diagnostics" Padding="12,6" Click="CopyDiagnosticsSummaryButton_Click" />
                         </WrapPanel>
+
+                        <!-- Legacy diagnostic bindings kept hidden for existing code and summary export. -->
+                        <StackPanel Visibility="Collapsed">
+                            <TextBlock x:Name="ServiceRunningValue" Text="Unknown" />
+                            <TextBlock x:Name="TrayRunningValue" Text="Unknown" />
+                            <TextBlock x:Name="ConsentActiveValue" Text="Unknown" />
+                            <TextBlock x:Name="BackendConnectedValue" Text="Unknown" />
+                            <TextBlock x:Name="FocusStrengthValue" Text="Unknown" />
+                            <TextBlock x:Name="OverloadValue" Text="Unknown" />
+                            <TextBlock x:Name="LastActionValue" Text="Unknown" />
+                            <TextBlock x:Name="LastEventValue" Text="Unknown" />
+                            <TextBlock x:Name="PolicyVersionValue" Text="Unknown" />
+                            <TextBlock x:Name="SchemaVersionValue" Text="Unknown" />
+                            <TextBlock x:Name="AgentVersionValue" Text="Unknown" />
+                            <TextBlock x:Name="ApiReachableValue" Text="Unknown" />
+                            <TextBlock x:Name="ApiPortValue" Text="Unknown" />
+                            <TextBlock x:Name="ConsentVersionValue" Text="Unknown" />
+                            <TextBlock x:Name="ConsentTimestampValue" Text="Unknown" />
+                            <TextBlock x:Name="ConsentHashValue" Text="Unknown" />
+                            <TextBlock x:Name="LastErrorValue" Text="None" />
+                            <TextBlock x:Name="SnapshotConfidenceValue" Text="Unknown" />
+                            <TextBlock x:Name="OverloadActiveValue" Text="Unknown" />
+                            <TextBlock x:Name="SustainedAttentionValue" Text="Unknown" />
+                            <TextBlock x:Name="IdleFragmentationValue" Text="Unknown" />
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
