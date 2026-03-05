@@ -44,6 +44,10 @@ public partial class MainWindow : Window
     private DateTimeOffset? _lastStatusSuccessUtc;
     private HistoryRange _historyRange = HistoryRange.Last1Hour;
     private bool _historyExplainMode;
+    private static readonly TimeSpan HistorySelectionHold = TimeSpan.FromSeconds(12);
+    private DateTimeOffset? _selectedHistorySnapshotTimestampUtc;
+    private long? _selectedHistoryInterventionId;
+    private DateTimeOffset? _historySelectionExpiresUtc;
 
     private enum UiSection
     {
@@ -916,7 +920,8 @@ public partial class MainWindow : Window
                 Agreement: agreementText,
                 Clarity: clarity,
                 Pressure: pressure,
-                Jitter: jitter);
+                Jitter: jitter,
+                HasStructuredData: true);
         }
         catch
         {
@@ -938,10 +943,39 @@ public partial class MainWindow : Window
     {
         if (!explain.Clarity.HasValue || !explain.Pressure.HasValue || !explain.Jitter.HasValue)
         {
-            return "Why: explain details not available.";
+            return "No structured explain data at this timestamp.";
         }
 
-        return $"Clarity: {ToBandLabel(explain.Clarity.Value)} | Pressure: {ToBandLabel(explain.Pressure.Value)} | Jitter: {ToBandLabel(explain.Jitter.Value)}";
+        string clarityBand = ToBandLabel(explain.Clarity.Value);
+        string pressureBand = ToBandLabel(explain.Pressure.Value);
+        string jitterBand = ToBandLabel(explain.Jitter.Value);
+        string sentence = BuildHumanWhySentence(clarityBand, pressureBand, jitterBand);
+        return $"Clarity: {clarityBand} | Pressure: {pressureBand} | Jitter: {jitterBand}{Environment.NewLine}{sentence}";
+    }
+
+    private static string BuildHumanWhySentence(string clarityBand, string pressureBand, string jitterBand)
+    {
+        if (pressureBand == "High" && jitterBand == "High")
+        {
+            return "Pattern shows sustained pressure with unstable behavior.";
+        }
+
+        if (pressureBand == "High")
+        {
+            return "Pattern shows elevated workload pressure.";
+        }
+
+        if (clarityBand == "Low" && jitterBand == "High")
+        {
+            return "Pattern shows fragmented and volatile interaction.";
+        }
+
+        if (clarityBand == "High" && pressureBand == "Low")
+        {
+            return "Pattern looks stable with low pressure.";
+        }
+
+        return "Pattern is mixed; monitor trend over the next intervals.";
     }
 
     private static string ToBandLabel(double value)
@@ -1037,6 +1071,44 @@ public partial class MainWindow : Window
         return topReasons.Length > 0
             ? string.Join(", ", topReasons)
             : "Explain not available (backend field missing).";
+    }
+
+    private static string FormatTopReasons(string topReasonsRaw, bool explainMode)
+    {
+        if (string.IsNullOrWhiteSpace(topReasonsRaw)
+            || topReasonsRaw.Contains("not available", StringComparison.OrdinalIgnoreCase))
+        {
+            return "No ranked contributors in this snapshot.";
+        }
+
+        string[] items = topReasonsRaw
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (items.Length == 0)
+        {
+            return "No ranked contributors in this snapshot.";
+        }
+
+        if (explainMode)
+        {
+            return string.Join(", ", items);
+        }
+
+        return string.Join(", ", items.Select(HumanizeReasonKey));
+    }
+
+    private static string HumanizeReasonKey(string key)
+    {
+        return key.Trim().ToLowerInvariant() switch
+        {
+            "typing_burst_intensity" => "typing intensity",
+            "focus_switch_rate" => "focus switching",
+            "scroll_velocity_index" => "scroll intensity",
+            "keyboard_iki_cv" => "typing rhythm variance",
+            "mouse_jerk_p95" => "mouse jerk",
+            "idle_micro_idle_seconds" => "micro-idle time",
+            "focus_app_entropy" => "app-switch entropy",
+            _ => key.Replace('_', ' ')
+        };
     }
 
     private static bool TryReadDouble(JsonElement parent, string propertyName, out double value)
@@ -1706,15 +1778,13 @@ public partial class MainWindow : Window
         TimelineTrustTrackPanel.Children.Clear();
         TimelineFocusTrackPanel.Children.Clear();
         TimelineOverloadActiveOverlayPanel.Children.Clear();
-        TimelineActionMarkersPanel.Children.Clear();
 
         if (timeline == null || timeline.Snapshots.Count == 0)
         {
-            TimelineOverloadTrackPanel.Children.Add(new TextBlock { Text = "No timeline data." });
-            TimelineTrustTrackPanel.Children.Add(new TextBlock { Text = "No timeline data." });
-            TimelineFocusTrackPanel.Children.Add(new TextBlock { Text = "No timeline data." });
-            TimelineOverloadActiveOverlayPanel.Children.Add(new TextBlock { Text = "No overload-active data." });
-            TimelineActionMarkersPanel.Children.Add(new TextBlock { Text = "No actions." });
+            TimelineOverloadTrackPanel.Children.Add(new TextBlock { Text = "No timeline data.", Foreground = Brushes.Gainsboro });
+            TimelineTrustTrackPanel.Children.Add(new TextBlock { Text = "No timeline data.", Foreground = Brushes.Gainsboro });
+            TimelineFocusTrackPanel.Children.Add(new TextBlock { Text = "No timeline data.", Foreground = Brushes.Gainsboro });
+            TimelineOverloadActiveOverlayPanel.Children.Add(new TextBlock { Text = "No overload-active data.", Foreground = Brushes.Gainsboro });
             SetTimelineDetail(null, null);
             return;
         }
@@ -1736,14 +1806,28 @@ public partial class MainWindow : Window
             TimelineOverloadActiveOverlayPanel.Children.Add(BuildOverloadActiveMarker(snapshot));
         }
 
-        foreach (LocalApiEventResponse intervention in timeline.Interventions
-                     .OrderBy(static evt => evt.TimestampUtc)
-                     .TakeLast(120))
+        if (_historySelectionExpiresUtc.HasValue
+            && DateTimeOffset.UtcNow >= _historySelectionExpiresUtc.Value)
         {
-            TimelineActionMarkersPanel.Children.Add(BuildInterventionMarker(intervention));
+            _selectedHistorySnapshotTimestampUtc = null;
+            _selectedHistoryInterventionId = null;
+            _historySelectionExpiresUtc = null;
         }
 
-        SetTimelineDetail(snapshots.LastOrDefault(), null);
+        LocalApiEventResponse? selectedIntervention = _selectedHistoryInterventionId.HasValue
+            ? timeline.Interventions.FirstOrDefault(evt => evt.Id == _selectedHistoryInterventionId.Value)
+            : null;
+        if (selectedIntervention != null)
+        {
+            SetTimelineDetail(null, selectedIntervention);
+            return;
+        }
+
+        LocalApiCurrentSnapshotResponse? selectedSnapshot = _selectedHistorySnapshotTimestampUtc.HasValue
+            ? snapshots.FirstOrDefault(s => s.TimestampUtc == _selectedHistorySnapshotTimestampUtc.Value)
+            : null;
+
+        SetTimelineDetail(selectedSnapshot ?? snapshots.LastOrDefault(), null);
     }
 
     private static IReadOnlyList<LocalApiCurrentSnapshotResponse> DownsampleSnapshots(
@@ -1781,9 +1865,9 @@ public partial class MainWindow : Window
 
         var button = new Button
         {
-            Width = 8,
-            Height = Math.Max(6d, 40d * clamped),
-            Margin = new Thickness(1, 0, 1, 0),
+            Width = 9,
+            Height = Math.Max(8d, 64d * clamped),
+            Margin = new Thickness(1.5, 0, 1.5, 0),
             VerticalAlignment = VerticalAlignment.Bottom,
             Tag = snapshot,
             Background = new SolidColorBrush(color),
@@ -1797,18 +1881,24 @@ public partial class MainWindow : Window
     private UIElement BuildOverloadActiveMarker(LocalApiCurrentSnapshotResponse snapshot)
     {
         bool active = snapshot.OverloadActive || snapshot.ActivationWindowOpen;
+        double overload = Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d);
+        double strength = active
+            ? Math.Max(0.55d, overload)
+            : Math.Max(0.20d, overload * 0.60d);
+        byte alpha = (byte)Math.Round((active ? 120d : 60d) + (strength * (active ? 110d : 90d)));
+
         var button = new Button
         {
-            Width = 8,
-            Height = 16,
-            Margin = new Thickness(1, 0, 1, 0),
+            Width = 9,
+            Height = Math.Max(8d, 22d * strength),
+            Margin = new Thickness(1.5, 0, 1.5, 0),
             VerticalAlignment = VerticalAlignment.Center,
             Tag = snapshot,
             Background = active
-                ? new SolidColorBrush(Color.FromArgb(180, 220, 38, 38))
-                : Brushes.Transparent,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(51, 65, 85)),
-            BorderThickness = new Thickness(0.5)
+                ? new SolidColorBrush(Color.FromArgb(alpha, 220, 38, 38))
+                : new SolidColorBrush(Color.FromArgb(alpha, 100, 116, 139)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(71, 85, 105)),
+            BorderThickness = new Thickness(0.25)
         };
         button.ToolTip = active
             ? $"{snapshot.TimestampUtc.ToLocalTime():HH:mm:ss} | Overload Active"
@@ -1824,14 +1914,18 @@ public partial class MainWindow : Window
         {
             Content = marker,
             Width = intervention.DurationSeconds.HasValue
-                ? Math.Clamp(intervention.DurationSeconds.Value / 12d, 12d, 40d)
-                : 14d,
-            Height = 22,
-            Margin = new Thickness(2, 0, 2, 0),
+                ? Math.Clamp(intervention.DurationSeconds.Value / 10d, 18d, 48d)
+                : 20d,
+            Height = 26,
+            Margin = new Thickness(3, 0, 3, 0),
             Tag = intervention,
             Background = new SolidColorBrush(Color.FromRgb(245, 158, 11)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(15, 23, 42))
+            BorderBrush = new SolidColorBrush(Color.FromRgb(15, 23, 42)),
+            Foreground = Brushes.Black,
+            FontWeight = FontWeights.Bold,
+            FontSize = 12
         };
+        button.ToolTip = $"{intervention.TimestampUtc.ToLocalTime():HH:mm:ss} | {intervention.Action}";
         button.Click += TimelineInterventionButton_Click;
         return button;
     }
@@ -1840,6 +1934,9 @@ public partial class MainWindow : Window
     {
         if (sender is Button button && button.Tag is LocalApiCurrentSnapshotResponse snapshot)
         {
+            _selectedHistoryInterventionId = null;
+            _selectedHistorySnapshotTimestampUtc = snapshot.TimestampUtc;
+            _historySelectionExpiresUtc = DateTimeOffset.UtcNow.Add(HistorySelectionHold);
             SetTimelineDetail(snapshot, null);
         }
     }
@@ -1848,6 +1945,9 @@ public partial class MainWindow : Window
     {
         if (sender is Button button && button.Tag is LocalApiEventResponse intervention)
         {
+            _selectedHistorySnapshotTimestampUtc = null;
+            _selectedHistoryInterventionId = intervention.Id;
+            _historySelectionExpiresUtc = DateTimeOffset.UtcNow.Add(HistorySelectionHold);
             SetTimelineDetail(null, intervention);
         }
     }
@@ -1865,7 +1965,6 @@ public partial class MainWindow : Window
             TimelineDetailWhyReasons.Text = "Top reasons: n/a";
             TimelineDetailWhyQuality.Text = "Quality: n/a | Agreement: n/a";
             TimelineDetailStabilization.Text = "Stabilization: n/a";
-            TimelineDetailAction.Text = "Action: n/a";
             return;
         }
 
@@ -1873,20 +1972,28 @@ public partial class MainWindow : Window
         {
             OverloadExplainView explain = ParseOverloadExplain(snapshot.ContributorsJson);
             bool overloadActive = snapshot.OverloadActive || snapshot.ActivationWindowOpen;
+            bool hasContributorsPayload = !string.IsNullOrWhiteSpace(snapshot.ContributorsJson)
+                && explain.HasStructuredData
+                && explain.Clarity.HasValue
+                && explain.Pressure.HasValue
+                && explain.Jitter.HasValue;
             TimelineDetailTimestamp.Text = $"Timestamp: {snapshot.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
             TimelineDetailOverload.Text = $"Overload: {(snapshot.OverloadLikelihood * 100d):F0}% | Active: {(overloadActive ? "Yes" : "No")}";
             TimelineDetailTrust.Text = $"Trust level: {(snapshot.Confidence * 100d):F0}%";
             TimelineDetailFocus.Text = $"Focus streak: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
-            TimelineDetailWhyHeader.Text = _historyExplainMode ? "Why? (Explain mode)" : "Why?";
-            TimelineDetailWhyFiv.Text = _historyExplainMode
-                ? explain.FivSummary
-                : BuildHumanFivSummary(explain);
-            TimelineDetailWhyReasons.Text = $"Top reasons: {explain.TopReasons}";
-            TimelineDetailWhyQuality.Text = $"Quality: {explain.Quality} | Agreement: {explain.Agreement}";
-            TimelineDetailStabilization.Text = BuildStabilizationText(snapshot.StateFlagsJson);
-            TimelineDetailAction.Text = string.IsNullOrWhiteSpace(snapshot.LastAction)
-                ? "Action: n/a"
-                : $"Action: {snapshot.LastAction}";
+            TimelineDetailWhyHeader.Text = _historyExplainMode
+                ? "Why? (Detailed)"
+                : "Why?";
+            TimelineDetailWhyFiv.Text = hasContributorsPayload
+                ? (_historyExplainMode
+                    ? $"F (Clarity): {explain.Clarity!.Value:F3}{Environment.NewLine}I (Pressure): {explain.Pressure!.Value:F3}{Environment.NewLine}V (Jitter): {explain.Jitter!.Value:F3}"
+                    : BuildHumanFivSummary(explain))
+                : "No detailed explanation is available for this moment.";
+            TimelineDetailWhyReasons.Text = $"Top reasons: {FormatTopReasons(explain.TopReasons, _historyExplainMode)}";
+            TimelineDetailWhyQuality.Text = hasContributorsPayload
+                ? $"Quality: {explain.Quality} | Agreement: {explain.Agreement}"
+                : "Quality: n/a | Agreement: n/a";
+            TimelineDetailStabilization.Text = BuildStabilizationText(snapshot.StateFlagsJson, _historyExplainMode);
             return;
         }
 
@@ -1894,23 +2001,26 @@ public partial class MainWindow : Window
         TimelineDetailOverload.Text = $"Action trigger: {intervention.TriggerState}={intervention.TriggerValue:F2}";
         TimelineDetailTrust.Text = $"Trust level: {(intervention.Confidence * 100d):F0}%";
         TimelineDetailFocus.Text = "Focus streak: n/a (event marker)";
-        TimelineDetailWhyHeader.Text = "Why?";
+        TimelineDetailWhyHeader.Text = _historyExplainMode
+            ? "Why? (Detailed)"
+            : "Why?";
         TimelineDetailWhyFiv.Text = string.IsNullOrWhiteSpace(intervention.Reason)
             ? "Reason: n/a"
             : $"Reason: {intervention.Reason}";
         TimelineDetailWhyReasons.Text = intervention.Contributors.Count > 0
-            ? $"Top reasons: {string.Join(", ", intervention.Contributors.Take(6))}"
+            ? $"Top reasons: {FormatTopReasons(string.Join(", ", intervention.Contributors.Take(6)), _historyExplainMode)}"
             : "Top reasons: n/a";
         TimelineDetailWhyQuality.Text = "Quality: n/a | Agreement: n/a";
-        TimelineDetailStabilization.Text = "Stabilization: n/a";
-        TimelineDetailAction.Text = $"Action: {(string.IsNullOrWhiteSpace(intervention.WhatChanged) ? intervention.Action : intervention.WhatChanged)}";
+        TimelineDetailStabilization.Text = BuildStabilizationText(intervention.StateFlagsJson, _historyExplainMode);
     }
 
-    private static string BuildStabilizationText(string? stateFlagsJson)
+    private static string BuildStabilizationText(string? stateFlagsJson, bool explainMode)
     {
         if (string.IsNullOrWhiteSpace(stateFlagsJson))
         {
-            return "Stabilization: ON timer n/a / 120s";
+            return explainMode
+                ? "Stabilization: detailed flags missing"
+                : "Stabilization: ON timer n/a / 120s";
         }
 
         try
@@ -1918,12 +2028,32 @@ public partial class MainWindow : Window
             using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
             JsonElement root = doc.RootElement;
             double dwellOnSeconds = 0d;
+            long dwellOnMs = 0;
+            long dwellOffMs = 0;
+            double gapSeconds = 0d;
             if (root.ValueKind == JsonValueKind.Object
                 && root.TryGetProperty("dwell_on_ms", out JsonElement dwellOnElem)
                 && dwellOnElem.ValueKind == JsonValueKind.Number
-                && dwellOnElem.TryGetDouble(out double dwellOnMs))
+                && dwellOnElem.TryGetDouble(out double parsedDwellOnMs))
             {
-                dwellOnSeconds = Math.Max(0d, dwellOnMs / 1000d);
+                dwellOnSeconds = Math.Max(0d, parsedDwellOnMs / 1000d);
+                dwellOnMs = (long)Math.Max(0d, parsedDwellOnMs);
+            }
+
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("dwell_off_ms", out JsonElement dwellOffElem)
+                && dwellOffElem.ValueKind == JsonValueKind.Number
+                && dwellOffElem.TryGetInt64(out long parsedDwellOffMs))
+            {
+                dwellOffMs = Math.Max(0, parsedDwellOffMs);
+            }
+
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("gap_s", out JsonElement gapElem)
+                && gapElem.ValueKind == JsonValueKind.Number
+                && gapElem.TryGetDouble(out double parsedGap))
+            {
+                gapSeconds = Math.Max(0d, parsedGap);
             }
 
             bool active = false;
@@ -1941,11 +2071,18 @@ public partial class MainWindow : Window
                 }
             }
 
+            if (explainMode)
+            {
+                return $"Stabilization:{Environment.NewLine}overload_active={(active ? 1 : 0)}{Environment.NewLine}dwell_on_ms={dwellOnMs}{Environment.NewLine}dwell_off_ms={dwellOffMs}{Environment.NewLine}gap_s={gapSeconds:F1}";
+            }
+
             return $"Stabilization: ON timer {dwellOnSeconds:F0}s / 120s{(active ? " (active)" : string.Empty)}";
         }
         catch
         {
-            return "Stabilization: ON timer n/a / 120s";
+            return explainMode
+                ? "Stabilization: detailed flags unavailable"
+                : "Stabilization: ON timer n/a / 120s";
         }
     }
 
@@ -2326,7 +2463,8 @@ public partial class MainWindow : Window
         string Agreement,
         double? Clarity,
         double? Pressure,
-        double? Jitter)
+        double? Jitter,
+        bool HasStructuredData)
     {
         public static OverloadExplainView Unavailable =>
             new(
@@ -2336,7 +2474,8 @@ public partial class MainWindow : Window
                 "n/a",
                 null,
                 null,
-                null);
+                null,
+                false);
     }
 
     private sealed record InterventionRow(
