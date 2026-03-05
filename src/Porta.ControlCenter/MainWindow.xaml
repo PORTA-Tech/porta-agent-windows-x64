@@ -183,21 +183,92 @@
                 </ScrollViewer>
                 <ScrollViewer x:Name="InputsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <TextBlock Text="Inputs" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12" />
-                        <Border Background="#111827" CornerRadius="8" Padding="10" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12">
-                            <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="260" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Keystroke timing intervals" /><TextBlock x:Name="InputTypingValue" Grid.Row="0" Grid.Column="1" Text="0.00" />
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Mouse acceleration index" /><TextBlock x:Name="InputMouseValue" Grid.Row="1" Grid.Column="1" Text="0.00" />
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Scroll velocity index" /><TextBlock x:Name="InputScrollValue" Grid.Row="2" Grid.Column="1" Text="0.00" />
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Focus switch frequency" /><TextBlock x:Name="InputFocusSwitchValue" Grid.Row="3" Grid.Column="1" Text="0.00" />
-                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Idle fragmentation" /><TextBlock x:Name="InputIdleFragmentationValue" Grid.Row="4" Grid.Column="1" Text="0.00" />
-                                <TextBlock Grid.Row="5" Grid.Column="0" Text="Notification reaction latency" /><TextBlock x:Name="InputNotificationLatencyValue" Grid.Row="5" Grid.Column="1" Text="0.00" />
-                            </Grid>
-                        </Border>
-                        <Border Background="#111827" CornerRadius="8" Padding="10" BorderBrush="#1F2937" BorderThickness="1">
+                        <TextBlock Text="What I Track" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <TextBlock Text="Patterns only. Never content." Foreground="#CBD5E1" Margin="0,0,0,12" />
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12">
                             <StackPanel>
+                                <TextBlock Text="Collected (patterns only)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10" />
+                                <UniformGrid Columns="2">
+                                    <Border Background="#0B1220" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,8,8">
+                                        <StackPanel>
+                                            <TextBlock Text="Keyboard timing" FontWeight="SemiBold" />
+                                            <TextBlock Text="No keystroke content" Foreground="#94A3B8" FontSize="12" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="#0B1220" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,8">
+                                        <StackPanel>
+                                            <TextBlock Text="Mouse movement patterns" FontWeight="SemiBold" />
+                                            <TextBlock Text="Motion/scroll behavior only" Foreground="#94A3B8" FontSize="12" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="#0B1220" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,8,0">
+                                        <StackPanel>
+                                            <TextBlock Text="App switching" FontWeight="SemiBold" />
+                                            <TextBlock Text="Identifiers are hashed" Foreground="#94A3B8" FontSize="12" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="#0B1220" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="8" Padding="10">
+                                        <StackPanel>
+                                            <TextBlock Text="Idle time" FontWeight="SemiBold" />
+                                            <TextBlock Text="Activity gaps only" Foreground="#94A3B8" FontSize="12" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Never collected" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10" />
+                                <TextBlock Text="• Keystroke content" Margin="0,0,0,6" />
+                                <TextBlock Text="• Screen content" Margin="0,0,0,6" />
+                                <TextBlock Text="• Clipboard" Margin="0,0,0,6" />
+                                <TextBlock Text="• Microphone / camera" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Live activity (last 60 seconds)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10" />
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="170" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="80" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Keyboard activity" VerticalAlignment="Center" />
+                                    <ProgressBar Grid.Row="0" Grid.Column="1" x:Name="LiveKeyboardMeter" Height="10" Minimum="0" Maximum="100" Value="0" Margin="8,4" />
+                                    <TextBlock Grid.Row="0" Grid.Column="2" x:Name="LiveKeyboardValue" Text="0%" HorizontalAlignment="Right" VerticalAlignment="Center" />
+
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Mouse activity" VerticalAlignment="Center" />
+                                    <ProgressBar Grid.Row="1" Grid.Column="1" x:Name="LiveMouseMeter" Height="10" Minimum="0" Maximum="100" Value="0" Margin="8,4" />
+                                    <TextBlock Grid.Row="1" Grid.Column="2" x:Name="LiveMouseValue" Text="0%" HorizontalAlignment="Right" VerticalAlignment="Center" />
+
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="App switches" VerticalAlignment="Center" />
+                                    <ProgressBar Grid.Row="2" Grid.Column="1" x:Name="LiveSwitchMeter" Height="10" Minimum="0" Maximum="100" Value="0" Margin="8,4" />
+                                    <TextBlock Grid.Row="2" Grid.Column="2" x:Name="LiveSwitchValue" Text="0%" HorizontalAlignment="Right" VerticalAlignment="Center" />
+
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Idle seconds" VerticalAlignment="Center" />
+                                    <ProgressBar Grid.Row="3" Grid.Column="1" x:Name="LiveIdleMeter" Height="10" Minimum="0" Maximum="100" Value="0" Margin="8,4" />
+                                    <TextBlock Grid.Row="3" Grid.Column="2" x:Name="LiveIdleValue" Text="0s" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                </Grid>
+                                <TextBlock x:Name="LiveQualityValue" Text="Quality score: Unknown" Margin="0,4,0,0" />
+                                <TextBlock x:Name="LivePartialValue" Text="Partial data: Unknown" Margin="0,4,0,0" />
+                                <TextBlock x:Name="LiveMissingChannelsValue" Text="Missing: n/a" Margin="0,4,0,0" Foreground="#94A3B8" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Your data" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10" />
                                 <TextBlock x:Name="RetentionWindowValue" Text="Retention window: Unknown" />
                                 <TextBlock x:Name="RetentionSizeValue" Text="Local data size: Unknown" Margin="0,6,0,10" />
                                 <WrapPanel>
@@ -477,29 +548,125 @@
                     </Grid>
                 </ScrollViewer>
                 <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer.Resources>
+                        <Style TargetType="{x:Type TextBlock}">
+                            <Setter Property="Foreground" Value="#E2E8F0" />
+                        </Style>
+                        <Style TargetType="{x:Type CheckBox}">
+                            <Setter Property="Foreground" Value="#E5E7EB" />
+                            <Setter Property="FontSize" Value="13" />
+                            <Setter Property="Margin" Value="0,0,0,4" />
+                        </Style>
+                        <Style TargetType="{x:Type Button}">
+                            <Setter Property="Background" Value="#1E293B" />
+                            <Setter Property="Foreground" Value="#E2E8F0" />
+                            <Setter Property="BorderBrush" Value="#334155" />
+                            <Setter Property="BorderThickness" Value="1" />
+                        </Style>
+                        <Style TargetType="{x:Type ComboBox}">
+                            <Setter Property="Foreground" Value="#111827" />
+                            <Setter Property="Background" Value="#F8FAFC" />
+                            <Setter Property="BorderBrush" Value="#94A3B8" />
+                            <Setter Property="BorderThickness" Value="1" />
+                        </Style>
+                        <Style TargetType="{x:Type DatePicker}">
+                            <Setter Property="Foreground" Value="#111827" />
+                            <Setter Property="Background" Value="#F8FAFC" />
+                            <Setter Property="BorderBrush" Value="#94A3B8" />
+                            <Setter Property="BorderThickness" Value="1" />
+                        </Style>
+                        <Style x:Key="ReadableSettingsComboItemStyle" TargetType="{x:Type ComboBoxItem}">
+                            <Setter Property="Foreground" Value="#111827" />
+                            <Setter Property="Background" Value="#F8FAFC" />
+                            <Setter Property="Padding" Value="6,4" />
+                            <Style.Triggers>
+                                <Trigger Property="IsHighlighted" Value="True">
+                                    <Setter Property="Background" Value="#DBEAFE" />
+                                    <Setter Property="Foreground" Value="#1E3A8A" />
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="#2563EB" />
+                                    <Setter Property="Foreground" Value="#FFFFFF" />
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ScrollViewer.Resources>
                     <StackPanel Margin="20">
-                        <TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12" />
-                        <TextBlock Text="Regulation intensity" />
-                        <Slider x:Name="IntensitySlider" Minimum="0" Maximum="2" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="IntensitySlider_ValueChanged" Margin="0,4,0,0" />
-                        <TextBlock x:Name="IntensityValueText" Text="Balanced" Margin="0,6,0,12" />
-                        <TextBlock Text="Privacy level" />
-                        <ComboBox x:Name="PrivacyLevelComboBox" Width="220" SelectionChanged="PrivacyLevelComboBox_SelectionChanged" Margin="0,4,0,12">
-                            <ComboBoxItem Content="Minimal" />
-                            <ComboBoxItem Content="Standard" />
-                            <ComboBoxItem Content="Detailed" />
-                        </ComboBox>
-                        <WrapPanel Margin="0,0,0,8">
-                            <Button Content="Pause until tomorrow" Padding="12,6" Margin="0,0,10,0" Click="PauseUntilTomorrowButton_Click" />
-                            <Button Content="Resume now" Padding="12,6" Click="ResumeFromSettingsButton_Click" />
-                        </WrapPanel>
-                        <WrapPanel Margin="0,0,0,12">
-                            <DatePicker x:Name="PauseUntilDatePicker" Width="170" Margin="0,0,10,0" />
-                            <Button Content="Pause until selected 08:00" Padding="12,6" Click="PauseUntilSelectedButton_Click" />
-                        </WrapPanel>
+                        <TextBlock Text="Controls" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <TextBlock Text="Adjust behavior without overwhelming settings." Foreground="#CBD5E1" Margin="0,0,0,12" />
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="A) Main controls" FontSize="16" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,8" />
+                                <TextBlock Text="Intensity" />
+                                <Slider x:Name="IntensitySlider" Minimum="0" Maximum="2" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="IntensitySlider_ValueChanged" Margin="0,4,0,0" />
+                                <TextBlock x:Name="IntensityValueText" Text="Balanced" Margin="0,6,0,10" />
+                                <TextBlock Text="Privacy mode" />
+                                <ComboBox x:Name="PrivacyLevelComboBox"
+                                          Width="240"
+                                          SelectionChanged="PrivacyLevelComboBox_SelectionChanged"
+                                          Margin="0,4,0,0"
+                                          ItemContainerStyle="{StaticResource ReadableSettingsComboItemStyle}">
+                                    <ComboBoxItem Content="Minimal" Foreground="#111827" Background="#F8FAFC" />
+                                    <ComboBoxItem Content="Standard" Foreground="#111827" Background="#F8FAFC" />
+                                    <ComboBoxItem Content="Detailed" Foreground="#111827" Background="#F8FAFC" />
+                                </ComboBox>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="B) Collection controls" FontSize="16" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,8" />
+                                <WrapPanel Margin="0,0,0,10">
+                                    <Button Content="Pause now" Padding="12,6" Margin="0,0,10,0" Click="PauseButton_Click" />
+                                    <Button Content="Revoke consent" Padding="12,6" Click="RevokeConsentFromSettingsButton_Click" />
+                                </WrapPanel>
+                                <TextBlock Text="Pause until" Margin="0,0,0,4" />
+                                <WrapPanel>
+                                    <DatePicker x:Name="PauseUntilDatePicker" Width="160" Margin="0,0,8,0" />
+                                    <ComboBox x:Name="PauseUntilTimeComboBox"
+                                              Width="110"
+                                              Margin="0,0,8,0"
+                                              ItemContainerStyle="{StaticResource ReadableSettingsComboItemStyle}"
+                                              Foreground="#111827"
+                                              Background="#F8FAFC" />
+                                    <Button Content="Pause until selected time" Padding="12,6" Click="PauseUntilSelectedButton_Click" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="C) Calibration controls" FontSize="16" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,8" />
+                                <Button Content="Recalibrate baseline" Padding="12,6" Width="180" HorizontalAlignment="Left" Click="RecalibrateBaselineButton_Click" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="D) Safety toggles" FontSize="16" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,8" />
+                                <Border Background="#0B1220" BorderBrush="#334155" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,0,8">
+                                    <CheckBox x:Name="SettingsSuggestionsOnlyToggle" Content="Suggestions only (no system changes)" Click="SettingsSuggestionsOnlyToggle_Click" Margin="0" />
+                                </Border>
+                                <TextBlock Text="Categories" Foreground="#94A3B8" Margin="0,0,0,6" />
+                                <Border Background="#0B1220" BorderBrush="#334155" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,0,6">
+                                    <CheckBox x:Name="SettingsNotificationToggle" Content="Notification reduction" Click="SettingsCategoryToggle_Click" Margin="0" />
+                                </Border>
+                                <Border Background="#0B1220" BorderBrush="#334155" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,0,6">
+                                    <CheckBox x:Name="SettingsFocusModeToggle" Content="Focus mode nudge" Click="SettingsCategoryToggle_Click" Margin="0" />
+                                </Border>
+                                <Border Background="#0B1220" BorderBrush="#334155" BorderThickness="1" CornerRadius="6" Padding="8" Margin="0,0,0,6">
+                                    <CheckBox x:Name="SettingsAnimationToggle" Content="Animation reduction" Click="SettingsCategoryToggle_Click" Margin="0" />
+                                </Border>
+                                <Border Background="#0B1220" BorderBrush="#334155" BorderThickness="1" CornerRadius="6" Padding="8">
+                                    <CheckBox x:Name="SettingsAppRestrictionToggle" Content="Temporary app restriction" Click="SettingsCategoryToggle_Click" Margin="0" />
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
                         <WrapPanel>
-                            <Button Content="Save Settings" Padding="12,6" Margin="0,0,10,0" Click="SaveSettingsButton_Click" />
-                            <Button Content="Revoke Consent" Padding="12,6" Margin="0,0,10,0" Click="RevokeConsentFromSettingsButton_Click" />
-                            <Button Content="Recalibrate Baseline" Padding="12,6" Click="RecalibrateBaselineButton_Click" />
+                            <Button Content="Apply controls" Padding="12,6" Margin="0,0,10,0" Click="SaveSettingsButton_Click" />
+                            <Button Content="Resume now" Padding="12,6" Click="ResumeFromSettingsButton_Click" />
                         </WrapPanel>
                         <TextBlock x:Name="SettingsStatusText" Text="Settings status: n/a" Margin="0,10,0,0" />
                     </StackPanel>
@@ -507,19 +674,70 @@
 
                 <ScrollViewer x:Name="StatesPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <TextBlock Text="States" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12" />
-                        <TextBlock Text="Focus - Definition: sustained goal-oriented behavior." FontWeight="SemiBold" />
-                        <TextBlock x:Name="FocusStateConfidence" Text="Confidence: n/a" />
-                        <TextBlock x:Name="FocusStateContributors" Text="Contributors: n/a" TextWrapping="Wrap" Margin="0,0,0,10" />
-                        <TextBlock Text="Overload - Definition: demand exceeds capacity." FontWeight="SemiBold" />
-                        <TextBlock x:Name="OverloadStateConfidence" Text="Confidence: n/a" />
-                        <TextBlock x:Name="OverloadStateContributors" Text="Contributors: n/a" TextWrapping="Wrap" Margin="0,0,0,10" />
-                        <TextBlock Text="Fatigue - Definition: fatigue-related decline probability." FontWeight="SemiBold" />
-                        <TextBlock x:Name="FatigueStateConfidence" Text="Confidence: n/a" />
-                        <TextBlock x:Name="FatigueStateContributors" Text="Contributors: n/a" TextWrapping="Wrap" Margin="0,0,0,10" />
-                        <TextBlock Text="Stability - Definition: transition smoothness probability." FontWeight="SemiBold" />
-                        <TextBlock x:Name="StabilityStateConfidence" Text="Confidence: n/a" />
-                        <TextBlock x:Name="StabilityStateContributors" Text="Contributors: n/a" TextWrapping="Wrap" />
+                        <TextBlock Text="How It Decides" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <TextBlock Text="Engine flow in plain language." Foreground="#CBD5E1" Margin="0,0,0,12" />
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,10">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,8">
+                                    <TextBlock Text="1) Signals" FontSize="16" FontWeight="SemiBold" />
+                                    <Border x:Name="SignalsStatusPill" Background="#334155" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
+                                        <TextBlock x:Name="SignalsStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
+                                    </Border>
+                                </DockPanel>
+                                <TextBlock Text="What it means: PORTA reads activity patterns from keyboard, mouse, app switches, and idle time." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
+                                <TextBlock x:Name="SignalsBlockersText" Text="What can block it: n/a" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
+                                <TextBlock x:Name="SignalsCurrentText" Text="Current status: n/a" TextWrapping="Wrap" Foreground="#93C5FD" />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="↓" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,10">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,8">
+                                    <TextBlock Text="2) Calibration" FontSize="16" FontWeight="SemiBold" />
+                                    <Border x:Name="CalibrationStatusPill" Background="#334155" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
+                                        <TextBlock x:Name="CalibrationStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
+                                    </Border>
+                                </DockPanel>
+                                <TextBlock Text="What it means: PORTA learns your normal pattern and sets a stable baseline." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
+                                <TextBlock x:Name="CalibrationBlockersText" Text="What can block it: n/a" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
+                                <TextBlock x:Name="CalibrationCurrentText" Text="Current status: n/a" TextWrapping="Wrap" Foreground="#93C5FD" />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="↓" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,10">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,8">
+                                    <TextBlock Text="3) Smoothing" FontSize="16" FontWeight="SemiBold" />
+                                    <Border x:Name="SmoothingStatusPill" Background="#334155" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
+                                        <TextBlock x:Name="SmoothingStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
+                                    </Border>
+                                </DockPanel>
+                                <TextBlock Text="What it means: PORTA smooths raw input signals to prevent one-off spikes." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
+                                <TextBlock x:Name="SmoothingBlockersText" Text="What can block it: n/a" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
+                                <TextBlock x:Name="SmoothingCurrentText" Text="Current status: n/a" TextWrapping="Wrap" Foreground="#93C5FD" />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="↓" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
+
+                        <Border Background="#111827" CornerRadius="8" Padding="12" BorderBrush="#1F2937" BorderThickness="1">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,8">
+                                    <TextBlock Text="4) Decisions" FontSize="16" FontWeight="SemiBold" />
+                                    <Border x:Name="DecisionsStatusPill" Background="#334155" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
+                                        <TextBlock x:Name="DecisionsStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
+                                    </Border>
+                                </DockPanel>
+                                <TextBlock Text="What it means: PORTA combines overload + focus streak + policy rules to decide whether to suggest an action." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
+                                <TextBlock x:Name="DecisionsBlockersText" Text="What can block it: n/a" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
+                                <TextBlock x:Name="DecisionsCurrentText" Text="Current status: n/a" TextWrapping="Wrap" Foreground="#93C5FD" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
 

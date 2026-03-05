@@ -46,6 +46,10 @@ public partial class MainWindow : Window
     private HistoryRange _historyRange = HistoryRange.Last1Hour;
     private bool _historyExplainMode;
     private ActionsView _actionsView = ActionsView.Suggestions;
+    private readonly DispatcherTimer _settingsAutoSaveTimer;
+    private string _settingsAutoSaveReason = "settings_auto";
+    private DateTimeOffset _settingsDirtyUntilUtc = DateTimeOffset.MinValue;
+    private bool _settingsSaveInFlight;
     private static readonly TimeSpan HistorySelectionHold = TimeSpan.FromSeconds(12);
     private DateTimeOffset? _selectedHistorySnapshotTimestampUtc;
     private long? _selectedHistoryInterventionId;
@@ -75,11 +79,25 @@ public partial class MainWindow : Window
         Changes
     }
 
+    private enum FlowStepState
+    {
+        Ready,
+        Warning,
+        Blocked
+    }
+
     public MainWindow()
     {
         InitializeComponent();
         _lastSeenEventId = LoadLastSeenEventId();
         UiVersionMenuItem.Header = $"UI: {_uiVersion}";
+        InitializePauseUntilControls();
+        _settingsAutoSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+        _settingsAutoSaveTimer.Tick += async (_, _) =>
+        {
+            _settingsAutoSaveTimer.Stop();
+            await SaveSettingsAsync(_settingsAutoSaveReason).ConfigureAwait(true);
+        };
 
         ShowSection(UiSection.Overview);
         UpdateHistoryControls();
@@ -93,6 +111,7 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _refreshTimer.Stop();
+            _settingsAutoSaveTimer.Stop();
             _apiClient.Dispose();
             _refreshGate.Dispose();
         };
@@ -250,7 +269,7 @@ public partial class MainWindow : Window
             ConsentOverlay.Visibility = Visibility.Collapsed;
             UpdateTopBar(serviceProbe, runtimeSettings, null, nowTruth);
             PopulateOverview(nowTruth, null, [], previousSnapshot);
-            PopulateInputs(null, null);
+            PopulateInputs(null, null, null);
             PopulateInterventions([], null);
             PopulateSettings(null);
             PopulateStates(null);
@@ -307,7 +326,7 @@ public partial class MainWindow : Window
         UpdateTopBar(serviceProbe, runtimeSettings, _latestStatus, nowTruth);
 
         PopulateOverview(nowTruth, inputSummary, _recentEvents, previousSnapshot);
-        PopulateInputs(inputSummary, _retention);
+        PopulateInputs(inputSummary, _retention, truthSnapshot);
         PopulateInterventions(_allRecentEvents, _effectiveSettings);
         PopulateSettings(_effectiveSettings);
         PopulateStates(truthSnapshot);
@@ -1497,14 +1516,59 @@ public partial class MainWindow : Window
         }
     }
 
-    private void PopulateInputs(LocalApiInputsSummaryResponse? inputsSummary, LocalApiRetentionResponse? retention)
+    private void PopulateInputs(
+        LocalApiInputsSummaryResponse? inputsSummary,
+        LocalApiRetentionResponse? retention,
+        LocalApiCurrentSnapshotResponse? snapshot)
     {
-        InputTypingValue.Text = FormatMetric(inputsSummary?.TypingBurstIntensity);
-        InputMouseValue.Text = "n/a";
-        InputScrollValue.Text = FormatMetric(inputsSummary?.ScrollVelocityIndex);
-        InputFocusSwitchValue.Text = FormatMetric(inputsSummary?.FocusSwitchRate);
-        InputIdleFragmentationValue.Text = FormatMetric(inputsSummary?.IdleFragmentationIndex);
-        InputNotificationLatencyValue.Text = FormatMetric(inputsSummary?.NotificationLatencyIndex);
+        if (inputsSummary == null)
+        {
+            LiveKeyboardMeter.Value = 0;
+            LiveMouseMeter.Value = 0;
+            LiveSwitchMeter.Value = 0;
+            LiveIdleMeter.Value = 0;
+            LiveKeyboardValue.Text = "Unknown";
+            LiveMouseValue.Text = "Unknown";
+            LiveSwitchValue.Text = "Unknown";
+            LiveIdleValue.Text = "Unknown";
+        }
+        else
+        {
+            double keyboardNorm = Math.Clamp(inputsSummary.TypingBurstIntensity, 0d, 1d);
+            double mouseNorm = Math.Clamp(inputsSummary.ScrollVelocityIndex, 0d, 1d);
+            double switchesNorm = Math.Clamp(inputsSummary.FocusSwitchRate, 0d, 1d);
+            double idleNorm = Math.Clamp(inputsSummary.IdleFragmentationIndex, 0d, 1d);
+            double idleSeconds = Math.Clamp(idleNorm * inputsSummary.WindowSeconds, 0d, inputsSummary.WindowSeconds);
+
+            LiveKeyboardMeter.Value = keyboardNorm * 100d;
+            LiveMouseMeter.Value = mouseNorm * 100d;
+            LiveSwitchMeter.Value = switchesNorm * 100d;
+            LiveIdleMeter.Value = idleNorm * 100d;
+
+            LiveKeyboardValue.Text = $"{LiveKeyboardMeter.Value:F0}%";
+            LiveMouseValue.Text = $"{LiveMouseMeter.Value:F0}%";
+            LiveSwitchValue.Text = $"{LiveSwitchMeter.Value:F0}%";
+            LiveIdleValue.Text = $"{idleSeconds:F0}s";
+        }
+
+        if (snapshot == null)
+        {
+            LiveQualityValue.Text = "Quality score: Unknown";
+            LivePartialValue.Text = "Partial data: Unknown";
+            LiveMissingChannelsValue.Text = "Missing: n/a";
+        }
+        else
+        {
+            LiveQualityValue.Text = snapshot.CurrentQualityScore.HasValue
+                ? $"Quality score: {snapshot.CurrentQualityScore.Value:F2}"
+                : "Quality score: Unknown";
+            LivePartialValue.Text = snapshot.PartialData.HasValue
+                ? $"Partial data: {(snapshot.PartialData.Value ? "Yes" : "No")}"
+                : "Partial data: Unknown";
+            LiveMissingChannelsValue.Text = snapshot.MissingMajorChannels is { Count: > 0 }
+                ? $"Missing: {string.Join(" / ", snapshot.MissingMajorChannels)}"
+                : "Missing: None";
+        }
 
         if (retention == null)
         {
@@ -2092,11 +2156,22 @@ public partial class MainWindow : Window
 
     private void PopulateSettings(LocalApiSettingsResponse? settings)
     {
+        if (DateTimeOffset.UtcNow < _settingsDirtyUntilUtc)
+        {
+            SettingsStatusText.Text = "Settings status: applying changes...";
+            return;
+        }
+
         _suppressSettingsEvents = true;
         if (settings == null)
         {
             IntensitySlider.Value = 1;
             SelectPrivacyLevel("Standard");
+            SettingsSuggestionsOnlyToggle.IsChecked = false;
+            SettingsNotificationToggle.IsChecked = false;
+            SettingsFocusModeToggle.IsChecked = false;
+            SettingsAnimationToggle.IsChecked = false;
+            SettingsAppRestrictionToggle.IsChecked = false;
             SettingsStatusText.Text = "Settings status: unavailable";
             _suppressSettingsEvents = false;
             return;
@@ -2109,6 +2184,16 @@ public partial class MainWindow : Window
             _ => 1
         };
         SelectPrivacyLevel(settings.PrivacyLevel);
+        SettingsNotificationToggle.IsChecked = settings.NotificationReductionEnabled;
+        SettingsFocusModeToggle.IsChecked = settings.FocusModeEnabled;
+        SettingsAnimationToggle.IsChecked = settings.AnimationReductionEnabled;
+        SettingsAppRestrictionToggle.IsChecked = settings.TemporaryAppRestrictionEnabled;
+        SettingsSuggestionsOnlyToggle.IsChecked =
+            !settings.NotificationReductionEnabled
+            && !settings.FocusModeEnabled
+            && !settings.AnimationReductionEnabled
+            && !settings.TemporaryAppRestrictionEnabled;
+        SyncInterventionTogglesFromSettingsUi();
         SettingsStatusText.Text = $"Settings status: updated {settings.UpdatedAtUtc.ToLocalTime():HH:mm:ss}";
         _suppressSettingsEvents = false;
         UpdateIntensityLabel();
@@ -2117,13 +2202,19 @@ public partial class MainWindow : Window
     private void IntensitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         UpdateIntensityLabel();
+        if (_suppressSettingsEvents)
+        {
+            return;
+        }
+
+        QueueSettingsAutoSave("settings_intensity_auto");
     }
 
     private void UpdateIntensityLabel()
     {
         IntensityValueText.Text = IntensitySlider.Value switch
         {
-            <= 0.5 => "Gentle",
+            <= 0.5 => "Low",
             >= 1.5 => "Strong",
             _ => "Balanced"
         };
@@ -2135,6 +2226,8 @@ public partial class MainWindow : Window
         {
             return;
         }
+
+        QueueSettingsAutoSave("settings_privacy_auto");
     }
 
     private async void SaveSettingsButton_Click(object sender, RoutedEventArgs e)
@@ -2144,29 +2237,48 @@ public partial class MainWindow : Window
 
     private async Task SaveSettingsAsync(string reason)
     {
-        var request = new LocalApiUpdateSettingsRequest(
-            RegulationIntensity: IntensitySlider.Value switch
-            {
-                <= 0.5 => "Gentle",
-                >= 1.5 => "Strong",
-                _ => "Balanced"
-            },
-            PrivacyLevel: GetSelectedPrivacyLevel(),
-            NotificationReductionEnabled: InterventionNotificationToggle.IsChecked ?? false,
-            FocusModeEnabled: InterventionFocusModeToggle.IsChecked ?? false,
-            AnimationReductionEnabled: InterventionAnimationToggle.IsChecked ?? false,
-            TemporaryAppRestrictionEnabled: InterventionAppRestrictionToggle.IsChecked ?? false);
-
-        LocalApiSettingsResponse? response = await _apiClient.UpdateSettingsAsync(request).ConfigureAwait(true);
-        if (response == null)
+        if (_settingsSaveInFlight)
         {
-            SettingsStatusText.Text = $"Settings status: save failed ({reason})";
             return;
         }
 
-        _effectiveSettings = response;
-        PopulateSettings(response);
-        SettingsStatusText.Text = $"Settings status: saved ({reason})";
+        _settingsSaveInFlight = true;
+        if (reason.StartsWith("settings", StringComparison.OrdinalIgnoreCase))
+        {
+            SyncInterventionTogglesFromSettingsUi();
+        }
+
+        try
+        {
+            var request = new LocalApiUpdateSettingsRequest(
+                RegulationIntensity: IntensitySlider.Value switch
+                {
+                    <= 0.5 => "Gentle",
+                    >= 1.5 => "Strong",
+                    _ => "Balanced"
+                },
+                PrivacyLevel: GetSelectedPrivacyLevel(),
+                NotificationReductionEnabled: InterventionNotificationToggle.IsChecked ?? false,
+                FocusModeEnabled: InterventionFocusModeToggle.IsChecked ?? false,
+                AnimationReductionEnabled: InterventionAnimationToggle.IsChecked ?? false,
+                TemporaryAppRestrictionEnabled: InterventionAppRestrictionToggle.IsChecked ?? false);
+
+            LocalApiSettingsResponse? response = await _apiClient.UpdateSettingsAsync(request).ConfigureAwait(true);
+            if (response == null)
+            {
+                SettingsStatusText.Text = $"Settings status: save failed ({reason})";
+                return;
+            }
+
+            _settingsDirtyUntilUtc = DateTimeOffset.MinValue;
+            _effectiveSettings = response;
+            PopulateSettings(response);
+            SettingsStatusText.Text = $"Settings status: saved ({reason})";
+        }
+        finally
+        {
+            _settingsSaveInFlight = false;
+        }
     }
 
     private async void PauseUntilTomorrowButton_Click(object sender, RoutedEventArgs e)
@@ -2184,7 +2296,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        DateTime until = PauseUntilDatePicker.SelectedDate.Value.Date.AddHours(8);
+        if (PauseUntilTimeComboBox.SelectedItem is not string selectedTime
+            || !TimeSpan.TryParseExact(selectedTime, "hh\\:mm", CultureInfo.InvariantCulture, out TimeSpan timeOfDay))
+        {
+            MessageBox.Show("Select a valid time.", "PORTA Control Center", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        DateTime until = PauseUntilDatePicker.SelectedDate.Value.Date.Add(timeOfDay);
         await _apiClient.PauseAsync("settings_pause_scheduled", new DateTimeOffset(until)).ConfigureAwait(true);
         await RefreshDiagnosticsAsync().ConfigureAwait(true);
     }
@@ -2210,33 +2329,289 @@ public partial class MainWindow : Window
         await RefreshDiagnosticsAsync().ConfigureAwait(true);
     }
 
+    private void SettingsSuggestionsOnlyToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (_suppressSettingsEvents)
+        {
+            return;
+        }
+
+        bool suggestionsOnly = SettingsSuggestionsOnlyToggle.IsChecked == true;
+        if (suggestionsOnly)
+        {
+            SettingsNotificationToggle.IsChecked = false;
+            SettingsFocusModeToggle.IsChecked = false;
+            SettingsAnimationToggle.IsChecked = false;
+            SettingsAppRestrictionToggle.IsChecked = false;
+        }
+
+        SyncInterventionTogglesFromSettingsUi();
+        QueueSettingsAutoSave("settings_suggestions_only_auto");
+    }
+
+    private void SettingsCategoryToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (_suppressSettingsEvents)
+        {
+            return;
+        }
+
+        bool allDisabled =
+            SettingsNotificationToggle.IsChecked != true
+            && SettingsFocusModeToggle.IsChecked != true
+            && SettingsAnimationToggle.IsChecked != true
+            && SettingsAppRestrictionToggle.IsChecked != true;
+
+        bool anySelected = !allDisabled;
+        if (anySelected)
+        {
+            SettingsSuggestionsOnlyToggle.IsChecked = false;
+        }
+
+        SyncInterventionTogglesFromSettingsUi();
+        QueueSettingsAutoSave("settings_category_auto");
+    }
+
+    private void SyncInterventionTogglesFromSettingsUi()
+    {
+        InterventionNotificationToggle.IsChecked = SettingsNotificationToggle.IsChecked == true;
+        InterventionFocusModeToggle.IsChecked = SettingsFocusModeToggle.IsChecked == true;
+        InterventionAnimationToggle.IsChecked = SettingsAnimationToggle.IsChecked == true;
+        InterventionAppRestrictionToggle.IsChecked = SettingsAppRestrictionToggle.IsChecked == true;
+    }
+
+    private void InitializePauseUntilControls()
+    {
+        if (PauseUntilTimeComboBox == null)
+        {
+            return;
+        }
+
+        PauseUntilTimeComboBox.Items.Clear();
+        for (int hour = 0; hour < 24; hour++)
+        {
+            PauseUntilTimeComboBox.Items.Add($"{hour:00}:00");
+            PauseUntilTimeComboBox.Items.Add($"{hour:00}:30");
+        }
+
+        DateTime now = DateTime.Now;
+        int roundedMinutes = now.Minute < 30 ? 30 : 0;
+        int roundedHour = now.Minute < 30 ? now.Hour : (now.Hour + 1) % 24;
+        string defaultTime = $"{roundedHour:00}:{roundedMinutes:00}";
+        PauseUntilTimeComboBox.SelectedItem = defaultTime;
+        PauseUntilDatePicker.SelectedDate = now.Date;
+    }
+
+    private void QueueSettingsAutoSave(string reason)
+    {
+        if (_suppressSettingsEvents)
+        {
+            return;
+        }
+
+        _settingsAutoSaveReason = reason;
+        _settingsDirtyUntilUtc = DateTimeOffset.UtcNow.AddSeconds(3);
+        _settingsAutoSaveTimer.Stop();
+        _settingsAutoSaveTimer.Start();
+    }
+
     private void PopulateStates(LocalApiCurrentSnapshotResponse? snapshot)
     {
         if (snapshot == null)
         {
-            FocusStateConfidence.Text = "Confidence: n/a";
-            OverloadStateConfidence.Text = "Confidence: n/a";
-            FatigueStateConfidence.Text = "Confidence: n/a";
-            StabilityStateConfidence.Text = "Confidence: n/a";
-            FocusStateContributors.Text = "Contributors: n/a";
-            OverloadStateContributors.Text = "Contributors: n/a";
-            FatigueStateContributors.Text = "Contributors: n/a";
-            StabilityStateContributors.Text = "Contributors: n/a";
+            SetFlowStepState(SignalsStatusPill, SignalsStatusText, FlowStepState.Blocked, "Blocked");
+            SignalsBlockersText.Text = "What can block it: service offline / consent needed / auth not ready.";
+            SignalsCurrentText.Text = "Current status: no live signal snapshot.";
+
+            SetFlowStepState(CalibrationStatusPill, CalibrationStatusText, FlowStepState.Blocked, "Blocked");
+            CalibrationBlockersText.Text = "What can block it: no live signal snapshot.";
+            CalibrationCurrentText.Text = "Current status: baseline readiness unknown.";
+
+            SetFlowStepState(SmoothingStatusPill, SmoothingStatusText, FlowStepState.Blocked, "Blocked");
+            SmoothingBlockersText.Text = "What can block it: no live signal snapshot.";
+            SmoothingCurrentText.Text = "Current status: smoothing values unavailable.";
+
+            SetFlowStepState(DecisionsStatusPill, DecisionsStatusText, FlowStepState.Blocked, "Blocked");
+            DecisionsBlockersText.Text = "What can block it: no live signal snapshot.";
+            DecisionsCurrentText.Text = "Current status: decision layer unavailable.";
             return;
         }
 
-        string confidenceText = $"Confidence: {(snapshot.Confidence * 100d):F0}%";
-        string contributors = snapshot.Contributors.Count > 0
-            ? string.Join(", ", snapshot.Contributors.Take(6))
-            : "n/a";
-        FocusStateConfidence.Text = confidenceText;
-        OverloadStateConfidence.Text = confidenceText;
-        FatigueStateConfidence.Text = confidenceText;
-        StabilityStateConfidence.Text = confidenceText;
-        FocusStateContributors.Text = $"Contributors: {contributors}";
-        OverloadStateContributors.Text = $"Contributors: {contributors}";
-        FatigueStateContributors.Text = $"Contributors: {contributors}";
-        StabilityStateContributors.Text = $"Contributors: {contributors}";
+        bool consentActive = _latestStatus?.ConsentActive == true;
+        bool apiAuthReady = _latestStatus?.LocalApiAuthReady == true;
+        bool partialData = snapshot.PartialData == true;
+        IReadOnlyList<string> missingChannels = snapshot.MissingMajorChannels ?? [];
+
+        var signalBlockers = new List<string>();
+        if (!consentActive)
+        {
+            signalBlockers.Add("consent needed");
+        }
+
+        if (!apiAuthReady)
+        {
+            signalBlockers.Add("local API auth not ready");
+        }
+
+        if (missingChannels.Count > 0)
+        {
+            signalBlockers.Add($"missing channels ({string.Join("/", missingChannels)})");
+        }
+
+        FlowStepState signalsState = signalBlockers.Count == 0
+            ? FlowStepState.Ready
+            : FlowStepState.Warning;
+        SetFlowStepState(
+            SignalsStatusPill,
+            SignalsStatusText,
+            signalsState,
+            signalsState == FlowStepState.Ready ? "Ready" : "Partial");
+        SignalsBlockersText.Text = signalBlockers.Count == 0
+            ? "What can block it: none detected."
+            : $"What can block it: {string.Join(" / ", signalBlockers)}.";
+        SignalsCurrentText.Text = $"Current status: keyboard {ChannelAvailabilityLabel(missingChannels, "keyboard")}, mouse {ChannelAvailabilityLabel(missingChannels, "mouse")}, focus {ChannelAvailabilityLabel(missingChannels, "focus")}, idle {ChannelAvailabilityLabel(missingChannels, "idle")}.";
+
+        bool baselineReady = snapshot.BaselineReady == true;
+        bool coldStart = snapshot.ColdStart == true;
+        bool overloadActive = snapshot.OverloadActive;
+        double quality = snapshot.CurrentQualityScore ?? 0d;
+        var calibrationBlockers = new List<string>();
+        if (!baselineReady)
+        {
+            if (quality > 0d && quality < 0.65d)
+            {
+                calibrationBlockers.Add("low quality");
+            }
+
+            if (overloadActive)
+            {
+                calibrationBlockers.Add("overload active");
+            }
+
+            if (partialData)
+            {
+                calibrationBlockers.Add("partial buckets");
+            }
+
+            if (coldStart)
+            {
+                calibrationBlockers.Add("cold start");
+            }
+
+            if (calibrationBlockers.Count == 0)
+            {
+                calibrationBlockers.Add("collecting enough baseline data");
+            }
+        }
+
+        FlowStepState calibrationState = baselineReady
+            ? FlowStepState.Ready
+            : FlowStepState.Warning;
+        SetFlowStepState(
+            CalibrationStatusPill,
+            CalibrationStatusText,
+            calibrationState,
+            baselineReady ? "Ready" : "Calibrating");
+        CalibrationBlockersText.Text = calibrationBlockers.Count == 0
+            ? "What can block it: none detected."
+            : $"What can block it: {string.Join(" / ", calibrationBlockers)}.";
+        string baselinePctText = snapshot.BaselineReadyPct.HasValue
+            ? $"{Math.Clamp(snapshot.BaselineReadyPct.Value * 100d, 0d, 100d):F0}% metrics ready"
+            : "progress unavailable";
+        CalibrationCurrentText.Text = $"Current status: {(baselineReady ? "baseline ready" : "calibrating")} ({baselinePctText}), quality {(snapshot.CurrentQualityScore?.ToString("F2", CultureInfo.InvariantCulture) ?? "n/a")}, cold start {(coldStart ? "on" : "off")}.";
+
+        bool smoothingHasValues =
+            snapshot.SmoothedTypingBurstIntensity > 0d
+            || snapshot.SmoothedScrollVelocityIndex > 0d
+            || snapshot.SmoothedFocusSwitchRate > 0d;
+        var smoothingBlockers = new List<string>();
+        if (partialData)
+        {
+            smoothingBlockers.Add("partial buckets");
+        }
+
+        if (!smoothingHasValues)
+        {
+            smoothingBlockers.Add("very low recent activity");
+        }
+
+        FlowStepState smoothingState = smoothingBlockers.Count == 0
+            ? FlowStepState.Ready
+            : FlowStepState.Warning;
+        SetFlowStepState(
+            SmoothingStatusPill,
+            SmoothingStatusText,
+            smoothingState,
+            smoothingState == FlowStepState.Ready ? "Ready" : "Watching");
+        SmoothingBlockersText.Text = smoothingBlockers.Count == 0
+            ? "What can block it: none detected."
+            : $"What can block it: {string.Join(" / ", smoothingBlockers)}.";
+        SmoothingCurrentText.Text = $"Current status: smoothed keyboard {snapshot.SmoothedTypingBurstIntensity:F2}, smoothed mouse {snapshot.SmoothedScrollVelocityIndex:F2}, smoothed switches {snapshot.SmoothedFocusSwitchRate:F2}.";
+
+        double trust = Math.Clamp(snapshot.Confidence, 0d, 1d);
+        double overload = Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d);
+        double focusedMinutes = Math.Max(0d, snapshot.SustainedAttentionDurationSec / 60d);
+        var decisionBlockers = new List<string>();
+        if (trust < 0.60d)
+        {
+            decisionBlockers.Add("low trust");
+        }
+
+        if (snapshot.CooldownTriggered)
+        {
+            decisionBlockers.Add("cooldown active");
+        }
+
+        if (snapshot.SustainedAttentionDurationSec < 600d)
+        {
+            decisionBlockers.Add("not enough focus streak");
+        }
+
+        if (overload < 0.80d)
+        {
+            decisionBlockers.Add("overload below action threshold");
+        }
+
+        FlowStepState decisionsState = decisionBlockers.Count == 0
+            ? FlowStepState.Ready
+            : FlowStepState.Warning;
+        string decisionLabel = decisionsState == FlowStepState.Ready
+            ? "Ready"
+            : snapshot.OverloadActive
+                ? "Monitoring"
+                : "Holding";
+        SetFlowStepState(DecisionsStatusPill, DecisionsStatusText, decisionsState, decisionLabel);
+        DecisionsBlockersText.Text = decisionBlockers.Count == 0
+            ? "What can block it: none detected."
+            : $"What can block it: {string.Join(" / ", decisionBlockers)}.";
+        DecisionsCurrentText.Text = $"Current status: overload {(overload * 100d):F0}%, trust {(trust * 100d):F0}%, focus streak {focusedMinutes:F0} min, overload active {(snapshot.OverloadActive ? "yes" : "no")}.";
+    }
+
+    private static string ChannelAvailabilityLabel(IReadOnlyList<string> missingChannels, string channel)
+    {
+        return missingChannels.Any(c => string.Equals(c, channel, StringComparison.OrdinalIgnoreCase))
+            ? "missing"
+            : "ok";
+    }
+
+    private void SetFlowStepState(Border pill, TextBlock label, FlowStepState state, string text)
+    {
+        label.Text = text;
+        switch (state)
+        {
+            case FlowStepState.Ready:
+                pill.Background = new SolidColorBrush(Color.FromRgb(22, 101, 52));
+                label.Foreground = new SolidColorBrush(Color.FromRgb(220, 252, 231));
+                break;
+            case FlowStepState.Warning:
+                pill.Background = new SolidColorBrush(Color.FromRgb(133, 77, 14));
+                label.Foreground = new SolidColorBrush(Color.FromRgb(254, 243, 199));
+                break;
+            default:
+                pill.Background = new SolidColorBrush(Color.FromRgb(51, 65, 85));
+                label.Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240));
+                break;
+        }
     }
 
     private void PopulateTimeline(LocalApiTimelineResponse? timeline)
