@@ -21,6 +21,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private readonly string _dbPath;
     private readonly string _connectionString;
     private readonly IDeepWorkOutputActionCoordinator _deepWorkOutputActionCoordinator;
+    private readonly IOverloadBrightnessActionCoordinator _overloadBrightnessActionCoordinator;
     private readonly TimeSpan _retention = TimeSpan.FromDays(DefaultRetentionDays);
     private DateTimeOffset _lastPruneUtc = DateTimeOffset.MinValue;
     private string? _lastAutoEventAction;
@@ -38,14 +39,27 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         DateTimeOffset? CooldownEndTimestampUtc);
 
     public SqliteBrainStateStore()
-        : this(new DeepWorkOutputActionCoordinator(new NoOpNotificationController()))
+        : this(
+            new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
+            new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()))
     {
     }
 
     public SqliteBrainStateStore(IDeepWorkOutputActionCoordinator deepWorkOutputActionCoordinator)
+        : this(
+            deepWorkOutputActionCoordinator,
+            new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()))
+    {
+    }
+
+    public SqliteBrainStateStore(
+        IDeepWorkOutputActionCoordinator deepWorkOutputActionCoordinator,
+        IOverloadBrightnessActionCoordinator overloadBrightnessActionCoordinator)
     {
         _deepWorkOutputActionCoordinator = deepWorkOutputActionCoordinator
             ?? throw new ArgumentNullException(nameof(deepWorkOutputActionCoordinator));
+        _overloadBrightnessActionCoordinator = overloadBrightnessActionCoordinator
+            ?? throw new ArgumentNullException(nameof(overloadBrightnessActionCoordinator));
         _dbPath = DbPaths.GetCoreStateDbPath();
         _connectionString = DbOpen.BuildConnectionString(_dbPath);
         EnsureSchema();
@@ -194,6 +208,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         LowQualityPaused: deepWorkStabilization.LowQualityPaused,
                         Confidence: overloadInference.Confidence),
                     previousNotificationSuppressionState);
+                BrightnessActionRuntimeState previousBrightnessActionState = ReadBrightnessActionRuntimeState(connection, tx);
+                OverloadBrightnessTransitionExecution overloadBrightnessTransitionExecution = _overloadBrightnessActionCoordinator.HandleOverloadTransition(
+                    new OverloadTransitionContext(
+                        BucketSeq: mapped.BucketSeq,
+                        BucketEndUtc: DateTimeOffset.FromUnixTimeMilliseconds(Time.bucketStartEnd(mapped.BucketSeq).endUtcMs),
+                        PreviousOverloadActive: previousOverloadStabilization.OverloadActive,
+                        CurrentOverloadActive: overloadStabilization.OverloadActive,
+                        LowQualityPaused: overloadStabilization.LowQualityPaused,
+                        OverloadLikelihood: overloadInference.OverloadLikelihood,
+                        Confidence: overloadInference.Confidence),
+                    previousBrightnessActionState);
                 long finalizeTsMs = Time.bucketStartEnd(mapped.BucketSeq).endUtcMs;
                 BreakSuggestionDecision breakSuggestionDecision = BreakSuggestionPolicy.ShouldTriggerBreak(
                     gating,
@@ -213,7 +238,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     overloadInference,
                     overloadStabilization,
                     deepWorkStabilization,
-                    deepWorkTransitionExecution.RuntimeState);
+                    deepWorkTransitionExecution.RuntimeState,
+                    overloadBrightnessTransitionExecution.RuntimeState);
                 TryInsertDeepWorkNotificationEvent(
                     connection,
                     tx,
@@ -246,7 +272,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     overloadInference,
                     overloadStabilization,
                     deepWorkStabilization,
-                    deepWorkTransitionExecution.RuntimeState);
+                    deepWorkTransitionExecution.RuntimeState,
+                    overloadBrightnessTransitionExecution.RuntimeState);
                 PrimitiveComputer.PersistSPrevForFinalizedBucket(
                     connection,
                     tx,
@@ -1419,7 +1446,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         OverloadInferenceResult overloadInference,
         OverloadStabilizationResult overloadStabilization,
         DeepWorkStabilizationResult deepWorkStabilization,
-        NotificationSuppressionRuntimeState notificationSuppressionRuntimeState)
+        NotificationSuppressionRuntimeState notificationSuppressionRuntimeState,
+        BrightnessActionRuntimeState brightnessActionRuntimeState)
     {
         string valueJson = JsonSerializer.Serialize(new
         {
@@ -1513,6 +1541,22 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 v_component = deepWorkStabilization.VComponent,
                 sustained_attention_duration_sec = deepWorkStabilization.SustainedAttentionDurationSec
             },
+            overload_brightness_action = new
+            {
+                contract_ver = PortaExecutionConstants.BrightnessAdjustment.ContractVersion,
+                supported = brightnessActionRuntimeState.BrightnessSupported,
+                active = brightnessActionRuntimeState.Active,
+                prev_level = brightnessActionRuntimeState.PreviousLevel,
+                target_level = brightnessActionRuntimeState.TargetLevel,
+                current_level = brightnessActionRuntimeState.CurrentLevel,
+                ramp_direction = brightnessActionRuntimeState.RampDirection,
+                last_change_utc_ms = brightnessActionRuntimeState.LastChangeUtcMs,
+                cooldown_until_utc_ms = brightnessActionRuntimeState.CooldownUntilUtcMs,
+                backoff_until_utc_ms = brightnessActionRuntimeState.BackoffUntilUtcMs,
+                last_error_code = brightnessActionRuntimeState.LastErrorCode,
+                logged_unsupported = brightnessActionRuntimeState.LoggedUnsupported,
+                action_state = brightnessActionRuntimeState.ActionState
+            },
             cooldown_end_timestamp_utc = snapshot.CooldownEndTimestampUtc?.ToString("O") ?? string.Empty
         });
 
@@ -1576,6 +1620,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             tx,
             PortaExecutionConstants.NotificationSuppression.RuntimeStateKey,
             BuildNotificationSuppressionRuntimeStateJson(mapped, notificationSuppressionRuntimeState),
+            mapped.TimestampUtc);
+        UpsertRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.BrightnessAdjustment.RuntimeStateKey,
+            BuildBrightnessActionRuntimeStateJson(mapped, brightnessActionRuntimeState),
             mapped.TimestampUtc);
     }
 
@@ -1751,6 +1801,60 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         });
     }
 
+    private static string BuildBrightnessActionRuntimeStateJson(
+        InputBucketRow mapped,
+        BrightnessActionRuntimeState brightnessActionRuntimeState)
+    {
+        return BuildBrightnessActionRuntimeStateJson(
+            mapped.BucketSeq,
+            mapped.TimestampUtc,
+            brightnessActionRuntimeState);
+    }
+
+    private static string BuildBrightnessActionRuntimeStateJson(
+        long bucketSeq,
+        string updatedUtc,
+        BrightnessActionRuntimeState brightnessActionRuntimeState)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            contract_ver = PortaExecutionConstants.BrightnessAdjustment.ContractVersion,
+            supported = brightnessActionRuntimeState.BrightnessSupported,
+            active = brightnessActionRuntimeState.Active,
+            prev_level = brightnessActionRuntimeState.PreviousLevel,
+            target_level = brightnessActionRuntimeState.TargetLevel,
+            current_level = brightnessActionRuntimeState.CurrentLevel,
+            ramp_direction = brightnessActionRuntimeState.RampDirection ?? "idle",
+            last_change_utc_ms = Math.Max(0, brightnessActionRuntimeState.LastChangeUtcMs),
+            cooldown_until_utc_ms = Math.Max(0, brightnessActionRuntimeState.CooldownUntilUtcMs),
+            last_error_code = brightnessActionRuntimeState.LastErrorCode,
+            backoff_until_utc_ms = Math.Max(0, brightnessActionRuntimeState.BackoffUntilUtcMs),
+            logged_unsupported = brightnessActionRuntimeState.LoggedUnsupported ? 1 : 0,
+            last_transition_source_bucket_seq = Math.Max(0, brightnessActionRuntimeState.LastTransitionSourceBucketSeq),
+            action_state = brightnessActionRuntimeState.ActionState ?? string.Empty,
+            bucket_seq = Math.Max(0, bucketSeq),
+            updated_utc = updatedUtc
+        });
+    }
+
+    private static BrightnessActionRuntimeState ReadBrightnessActionRuntimeState(
+        SqliteConnection connection,
+        SqliteTransaction tx)
+    {
+        string? currentJson = ReadRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.BrightnessAdjustment.RuntimeStateKey);
+        if (!string.IsNullOrWhiteSpace(currentJson)
+            && TryParseBrightnessActionRuntimeState(currentJson, out BrightnessActionRuntimeState parsedCurrent))
+        {
+            return parsedCurrent;
+        }
+
+        return BrightnessActionRuntimeState.CreateDefault();
+    }
+
     private static NotificationSuppressionRuntimeState ReadNotificationSuppressionRuntimeState(
         SqliteConnection connection,
         SqliteTransaction tx)
@@ -1766,6 +1870,63 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
 
         return NotificationSuppressionRuntimeState.CreateDefault();
+    }
+
+    private static bool TryParseBrightnessActionRuntimeState(
+        string json,
+        out BrightnessActionRuntimeState state)
+    {
+        state = BrightnessActionRuntimeState.CreateDefault();
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            bool active = TryReadBoolProperty(root, "active", out bool activeProp) && activeProp;
+            bool brightnessSupported = TryReadBoolProperty(root, "supported", out bool supportedPropNew)
+                ? supportedPropNew
+                : (!TryReadBoolProperty(root, "brightness_supported", out bool supportedPropLegacy) || supportedPropLegacy);
+            int previousLevel = (int)ReadInt64Property(root, "prev_level", "previous_level");
+            int targetLevel = (int)ReadInt64Property(root, "target_level");
+            int currentLevel = (int)ReadInt64Property(root, "current_level");
+            string rampDirection = ReadStringProperty(root, "ramp_direction");
+            if (string.IsNullOrWhiteSpace(rampDirection))
+            {
+                rampDirection = "idle";
+            }
+            long lastChangeUtcMs = ReadInt64Property(root, "last_change_utc_ms");
+            long cooldownUntilUtcMs = ReadInt64Property(root, "cooldown_until_utc_ms");
+            string lastErrorCode = ReadStringProperty(root, "last_error_code");
+            long backoffUntilUtcMs = ReadInt64Property(root, "backoff_until_utc_ms");
+            long lastTransitionSourceBucketSeq = ReadInt64Property(root, "last_transition_source_bucket_seq");
+            bool loggedUnsupported = TryReadBoolProperty(root, "logged_unsupported", out bool loggedUnsupportedProp) && loggedUnsupportedProp;
+            string actionState = ReadStringProperty(root, "action_state");
+
+            state = new BrightnessActionRuntimeState(
+                SchemaVer: 1,
+                Active: active,
+                BrightnessSupported: brightnessSupported,
+                PreviousLevel: previousLevel,
+                TargetLevel: targetLevel,
+                CurrentLevel: currentLevel,
+                RampDirection: rampDirection,
+                LastChangeUtcMs: Math.Max(0, lastChangeUtcMs),
+                CooldownUntilUtcMs: Math.Max(0, cooldownUntilUtcMs),
+                LastErrorCode: lastErrorCode,
+                BackoffUntilUtcMs: Math.Max(0, backoffUntilUtcMs),
+                LastTransitionSourceBucketSeq: Math.Max(0, lastTransitionSourceBucketSeq),
+                LoggedUnsupported: loggedUnsupported,
+                ActionState: string.IsNullOrWhiteSpace(actionState) ? (active ? "active" : "inactive") : actionState);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static DeepWorkStabilizationRuntimeState ReadDeepWorkStabilizationRuntimeState(
@@ -2436,7 +2597,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         OverloadInferenceResult overloadInference,
         OverloadStabilizationResult overloadStabilization,
         DeepWorkStabilizationResult deepWorkStabilization,
-        NotificationSuppressionRuntimeState notificationSuppressionRuntimeState)
+        NotificationSuppressionRuntimeState notificationSuppressionRuntimeState,
+        BrightnessActionRuntimeState brightnessActionRuntimeState)
     {
         _ = robust;
         string contributorsJson = BuildOverloadContributorsJson(snapshot.Contributors, overloadInference);
@@ -2464,6 +2626,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             notificationSuppressionEnableCooldownUntilUtcMs: notificationSuppressionRuntimeState.EnableCooldownUntilUtcMs,
             notificationSuppressionMinOnUntilUtcMs: notificationSuppressionRuntimeState.MinOnUntilUtcMs,
             notificationSuppressionBackoffUntilUtcMs: notificationSuppressionRuntimeState.BackoffUntilUtcMs,
+            brightnessAdjusted: brightnessActionRuntimeState.Active,
+            brightnessActionState: brightnessActionRuntimeState.ActionState,
+            brightnessSupported: brightnessActionRuntimeState.BrightnessSupported,
+            brightnessLastErrorCode: brightnessActionRuntimeState.LastErrorCode,
+            brightnessCooldownUntilUtcMs: brightnessActionRuntimeState.CooldownUntilUtcMs,
+            brightnessBackoffUntilUtcMs: brightnessActionRuntimeState.BackoffUntilUtcMs,
             overloadStateDebug: new
             {
                 mode = overloadStabilization.DebugMode,
@@ -2604,6 +2772,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         long notificationSuppressionEnableCooldownUntilUtcMs,
         long notificationSuppressionMinOnUntilUtcMs,
         long notificationSuppressionBackoffUntilUtcMs,
+        bool brightnessAdjusted,
+        string brightnessActionState,
+        bool brightnessSupported,
+        string brightnessLastErrorCode,
+        long brightnessCooldownUntilUtcMs,
+        long brightnessBackoffUntilUtcMs,
         object? overloadStateDebug = null,
         object? deepWorkStateDebug = null)
     {
@@ -2636,7 +2810,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             notification_suppression_error = notificationSuppressionLastErrorCode ?? string.Empty,
             notification_enable_cooldown_until_utc_ms = Math.Max(0, notificationSuppressionEnableCooldownUntilUtcMs),
             notification_min_on_until_utc_ms = Math.Max(0, notificationSuppressionMinOnUntilUtcMs),
-            notification_backoff_until_utc_ms = Math.Max(0, notificationSuppressionBackoffUntilUtcMs)
+            notification_backoff_until_utc_ms = Math.Max(0, notificationSuppressionBackoffUntilUtcMs),
+            brightness_adjusted = brightnessAdjusted,
+            brightness_action_state = brightnessActionState ?? string.Empty,
+            brightness_supported = brightnessSupported ? 1 : 0,
+            brightness_error = brightnessLastErrorCode ?? string.Empty,
+            brightness_cooldown_until_utc_ms = Math.Max(0, brightnessCooldownUntilUtcMs),
+            brightness_backoff_until_utc_ms = Math.Max(0, brightnessBackoffUntilUtcMs)
         });
     }
 

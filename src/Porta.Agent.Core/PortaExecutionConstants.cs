@@ -111,4 +111,15 @@ public static class PortaExecutionConstants
         public const int EnableCooldownSeconds = 600;
         public const int MinOnSeconds = 120;
     }
+
+    public static class BrightnessAdjustment
+    {
+        public const string RuntimeStateKey = "overload_brightness:current";
+        public const string ContractVersion = "v1";
+        public const int ReductionDelta = 5;
+        public const int MinSafeBrightness = 20;
+        public const int RampStepPerBucket = 1;
+        public const int CooldownSeconds = 600;
+        public const int FailureBackoffSeconds = 300;
+    }
 }

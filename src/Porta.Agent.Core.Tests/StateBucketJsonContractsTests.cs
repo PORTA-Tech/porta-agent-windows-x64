@@ -78,6 +78,12 @@ public sealed class StateBucketJsonContractsTests
             notificationSuppressionEnableCooldownUntilUtcMs: 100000,
             notificationSuppressionMinOnUntilUtcMs: 90000,
             notificationSuppressionBackoffUntilUtcMs: 120000,
+            brightnessAdjusted: true,
+            brightnessActionState: "overload_entered_pending_ramp",
+            brightnessSupported: false,
+            brightnessLastErrorCode: "brightness_unsupported",
+            brightnessCooldownUntilUtcMs: 130000,
+            brightnessBackoffUntilUtcMs: 140000,
             overloadStateDebug: new
             {
                 mode = "stable_hold",
@@ -117,6 +123,12 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal(100000, root.GetProperty("notification_enable_cooldown_until_utc_ms").GetInt64());
         Assert.Equal(90000, root.GetProperty("notification_min_on_until_utc_ms").GetInt64());
         Assert.Equal(120000, root.GetProperty("notification_backoff_until_utc_ms").GetInt64());
+        Assert.True(root.GetProperty("brightness_adjusted").GetBoolean());
+        Assert.Equal("overload_entered_pending_ramp", root.GetProperty("brightness_action_state").GetString());
+        Assert.Equal(0, root.GetProperty("brightness_supported").GetInt32());
+        Assert.Equal("brightness_unsupported", root.GetProperty("brightness_error").GetString());
+        Assert.Equal(130000, root.GetProperty("brightness_cooldown_until_utc_ms").GetInt64());
+        Assert.Equal(140000, root.GetProperty("brightness_backoff_until_utc_ms").GetInt64());
     }
 
     [Fact]
