@@ -156,6 +156,16 @@ public sealed class BucketRecomputeRulesTests
         public void DeleteLocalData() { }
         public AgentBrainSnapshot? ReadLatestSnapshot() => null;
         public AgentLatestStateDetails? ReadLatestStateDetails() => null;
+        public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus()
+            => new(
+                Active: false,
+                Ready: true,
+                ActionState: "inactive",
+                LastError: null,
+                BackoffUntilUtc: null,
+                EnableCooldownUntilUtc: null,
+                MinOnUntilUtc: null,
+                RestorePending: false);
         public IReadOnlyList<AgentBrainSnapshot> ReadTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, int bucketSeconds = Time.bucketSeconds) => [];
         public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null) => [];
         public IReadOnlyList<AgentControlEvent> ReadEventsSinceId(long sinceIdExclusive, int limit = 200) => [];

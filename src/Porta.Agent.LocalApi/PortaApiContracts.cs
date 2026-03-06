@@ -22,6 +22,10 @@ public sealed record LocalApiStatusResponse(
     string? LastError,
     bool LocalApiAuthReady,
     string? LocalApiAuthError,
+    bool NotificationSuppressionActive,
+    bool NotificationSuppressionReady,
+    string? NotificationSuppressionLastError,
+    DateTimeOffset? NotificationSuppressionBackoffUntilUtc,
     DateTimeOffset LastUpdatedUtc);
 
 public sealed record LocalApiCurrentSnapshotResponse(

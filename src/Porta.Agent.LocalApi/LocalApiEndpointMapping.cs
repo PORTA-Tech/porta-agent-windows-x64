@@ -145,6 +145,10 @@ public static class LocalApiEndpointMapping
                 status.LastError,
                 localApiAuthReady,
                 localApiAuthError,
+                status.NotificationSuppressionActive,
+                status.NotificationSuppressionReady,
+                status.NotificationSuppressionLastError,
+                status.NotificationSuppressionBackoffUntilUtc,
                 status.LastUpdatedUtc);
         });
 

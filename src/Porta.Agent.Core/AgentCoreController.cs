@@ -117,6 +117,7 @@ public sealed class AgentCoreController : IAgentCoreController
         {
             TryAutoResumeLocked();
             UpdateRecalibrationStateLocked();
+            AgentNotificationSuppressionStatus suppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
             string? effectiveLastError = ResolveEffectiveLastError(_lastError, _latestSnapshot.StateFlagsJson);
             AgentStatus status = effectiveLastError is null
                 ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
@@ -142,6 +143,10 @@ public sealed class AgentCoreController : IAgentCoreController
                 LastError: effectiveLastError,
                 LocalApiAuthReady: _localApiAuthReady,
                 LocalApiAuthError: _localApiAuthError,
+                NotificationSuppressionActive: suppressionStatus.Active,
+                NotificationSuppressionReady: suppressionStatus.Ready,
+                NotificationSuppressionLastError: suppressionStatus.LastError,
+                NotificationSuppressionBackoffUntilUtc: suppressionStatus.BackoffUntilUtc,
                 LastUpdatedUtc: DateTimeOffset.UtcNow);
         }
     }
@@ -1541,6 +1546,7 @@ public sealed class AgentCoreController : IAgentCoreController
 
     private string BuildDiagnosticsSummaryJson()
     {
+        AgentNotificationSuppressionStatus suppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
         string? effectiveLastError = ResolveEffectiveLastError(_lastError, _latestSnapshot.StateFlagsJson);
         AgentStatus status = effectiveLastError is null
             ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
@@ -1559,6 +1565,17 @@ public sealed class AgentCoreController : IAgentCoreController
             last_error = effectiveLastError,
             local_api_auth_ready = _localApiAuthReady,
             local_api_auth_error = _localApiAuthError,
+            notification_suppression = new
+            {
+                active = suppressionStatus.Active,
+                ready = suppressionStatus.Ready,
+                action_state = suppressionStatus.ActionState,
+                last_error = suppressionStatus.LastError,
+                backoff_until_utc = suppressionStatus.BackoffUntilUtc,
+                enable_cooldown_until_utc = suppressionStatus.EnableCooldownUntilUtc,
+                min_on_until_utc = suppressionStatus.MinOnUntilUtc,
+                restore_pending = suppressionStatus.RestorePending
+            },
             last_action = _latestSnapshot.LastAction,
             focus_strength = _latestSnapshot.FocusStrength,
             overload_likelihood = _latestSnapshot.OverloadLikelihood,

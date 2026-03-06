@@ -118,4 +118,24 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal(90000, root.GetProperty("notification_min_on_until_utc_ms").GetInt64());
         Assert.Equal(120000, root.GetProperty("notification_backoff_until_utc_ms").GetInt64());
     }
+
+    [Fact]
+    public void BuildDeepWorkNotificationIdempotencyKey_UsesTransitionWindows()
+    {
+        long baseMs = 120_000_000;
+        string onKeyA = SqliteBrainStateStore.BuildDeepWorkNotificationIdempotencyKey(
+            "deep_work_notifications_suppressed",
+            baseMs + 5_000);
+        string onKeyB = SqliteBrainStateStore.BuildDeepWorkNotificationIdempotencyKey(
+            "deep_work_notifications_suppressed",
+            baseMs + 90_000);
+        string offKey = SqliteBrainStateStore.BuildDeepWorkNotificationIdempotencyKey(
+            "deep_work_notifications_restored",
+            baseMs + 60_000);
+
+        Assert.Equal(onKeyA, onKeyB);
+        Assert.StartsWith("dw_notify_on:v1:", onKeyA);
+        Assert.StartsWith("dw_notify_off:v1:", offKey);
+        Assert.NotEqual(onKeyA, offKey);
+    }
 }

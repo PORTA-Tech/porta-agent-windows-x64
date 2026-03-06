@@ -22,4 +22,8 @@ public sealed record AgentServiceStatusSnapshot(
     string? LastError,
     bool LocalApiAuthReady,
     string? LocalApiAuthError,
+    bool NotificationSuppressionActive,
+    bool NotificationSuppressionReady,
+    string? NotificationSuppressionLastError,
+    DateTimeOffset? NotificationSuppressionBackoffUntilUtc,
     DateTimeOffset LastUpdatedUtc);

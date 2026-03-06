@@ -1886,6 +1886,55 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
     }
 
+    public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus()
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT value_json
+                FROM runtime_state
+                WHERE key = $key
+                LIMIT 1;
+                """;
+            cmd.Parameters.AddWithValue("$key", PortaExecutionConstants.NotificationSuppression.RuntimeStateKey);
+            object? scalar = cmd.ExecuteScalar();
+            string? json = scalar == null || scalar == DBNull.Value
+                ? null
+                : Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture);
+
+            if (string.IsNullOrWhiteSpace(json)
+                || !TryParseNotificationSuppressionRuntimeState(json, out NotificationSuppressionRuntimeState parsed))
+            {
+                return new AgentNotificationSuppressionStatus(
+                    Active: false,
+                    Ready: true,
+                    ActionState: "inactive",
+                    LastError: null,
+                    BackoffUntilUtc: null,
+                    EnableCooldownUntilUtc: null,
+                    MinOnUntilUtc: null,
+                    RestorePending: false);
+            }
+
+            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+            bool inBackoff = parsed.BackoffUntilUtcMs > nowUtc.ToUnixTimeMilliseconds();
+            string? lastError = string.IsNullOrWhiteSpace(parsed.LastErrorCode) ? null : parsed.LastErrorCode;
+            bool ready = !inBackoff && string.IsNullOrWhiteSpace(lastError);
+            return new AgentNotificationSuppressionStatus(
+                Active: parsed.Active,
+                Ready: ready,
+                ActionState: parsed.ActionState,
+                LastError: lastError,
+                BackoffUntilUtc: ToOptionalUtc(parsed.BackoffUntilUtcMs),
+                EnableCooldownUntilUtc: ToOptionalUtc(parsed.EnableCooldownUntilUtcMs),
+                MinOnUntilUtc: ToOptionalUtc(parsed.MinOnUntilUtcMs),
+                RestorePending: parsed.RestorePending);
+        }
+    }
+
     private static OverloadStabilizationRuntimeState ReadOverloadStabilizationRuntimeState(
         SqliteConnection connection,
         SqliteTransaction tx)
@@ -2187,6 +2236,23 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
 
         return false;
+    }
+
+    private static DateTimeOffset? ToOptionalUtc(long utcMs)
+    {
+        if (utcMs <= 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(utcMs);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static long ReadInt64Property(JsonElement root, params string[] propertyNames)
@@ -3127,11 +3193,19 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             "deep_work_notifications_restored" => "deactivated",
             _ => "failed"
         };
-        string interventionId = $"dw_notify:{action}:{inputBucket.BucketSeq}";
+        string operation = ResolveDeepWorkNotificationOperation(action, outcome);
+        long eventTsMs = eventTimestampUtc.ToUnixTimeMilliseconds();
+        string interventionId = $"dw_notify:{action}:{ResolveDeepWorkTransitionWindowStartMs(action, eventTsMs)}";
+        string deterministicIdempotencyKey = BuildDeepWorkNotificationIdempotencyKey(action, eventTsMs);
         string whyJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
             policy = "deep_work_notifications_v1",
+            operation,
+            error_code = outcome.ErrorCode,
+            error_detail = outcome.ErrorDetail,
+            backoff_until_utc_ms = transitionExecution.RuntimeState.BackoffUntilUtcMs,
+            deep_work_active = deepWorkStabilization.DeepWorkActive,
             outcome = new
             {
                 reason = outcome.OutcomeReason,
@@ -3191,7 +3265,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             ReversalApplied: action == "deep_work_notifications_restored",
             CooldownEndTimestampUtc: null,
             LifecycleState: lifecycleState,
-            WhyJsonOverride: whyJson);
+            WhyJsonOverride: whyJson,
+            IdempotencyKey: deterministicIdempotencyKey);
 
         try
         {
@@ -3215,6 +3290,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
 
         string interventionId = $"startup_notify_diag:{reconciliation.DiagnosticEventAction}:{nowUtc.ToUnixTimeMilliseconds()}";
+        string diagnosticIdempotencyKey = $"startup_notify_diag:v1:{reconciliation.DiagnosticEventAction}:{ResolveWindowStartMs(nowUtc.ToUnixTimeMilliseconds(), 300000)}";
         string whyJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
@@ -3257,7 +3333,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             ReversalApplied: false,
             CooldownEndTimestampUtc: null,
             LifecycleState: "failed",
-            WhyJsonOverride: whyJson);
+            WhyJsonOverride: whyJson,
+            IdempotencyKey: diagnosticIdempotencyKey);
 
         try
         {
@@ -3282,6 +3359,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
         if (!outcome.Succeeded && outcome.EnteringDeepWork)
         {
+            if (string.Equals(outcome.ErrorCode, "snapshot_capture_failed", StringComparison.Ordinal)
+                || string.Equals(outcome.ErrorCode, "snapshot_invalid", StringComparison.Ordinal))
+            {
+                return "notification_snapshot_failed";
+            }
+
             return "notification_suppress_failed";
         }
 
@@ -3299,10 +3382,41 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         {
             "deep_work_notifications_suppressed" => "System notifications suppressed for deep work protection.",
             "deep_work_notifications_restored" => "System notifications restored to pre-deep-work snapshot.",
+            "notification_snapshot_failed" => "Failed to capture current notification state snapshot.",
             "notification_suppress_failed" => "Failed to suppress system notifications for deep work.",
             "notification_restore_failed" => "Failed to restore system notifications from persisted snapshot.",
             _ => "No notification suppression change."
         };
+    }
+
+    private static string ResolveDeepWorkNotificationOperation(string action, DeepWorkActionOutcome outcome)
+    {
+        if (action == "deep_work_notifications_suppressed")
+        {
+            return "apply";
+        }
+
+        if (action == "deep_work_notifications_restored")
+        {
+            return "restore";
+        }
+
+        if (action == "notification_snapshot_failed")
+        {
+            return "snapshot";
+        }
+
+        if (action == "notification_suppress_failed")
+        {
+            return outcome.SuppressionAttempted ? "apply" : "snapshot";
+        }
+
+        if (action == "notification_restore_failed")
+        {
+            return "restore";
+        }
+
+        return "unknown";
     }
 
     private static void PersistBreakPolicyCooldownState(
@@ -3927,6 +4041,54 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return checked(quotient * windowMs);
     }
 
+    internal static string BuildDeepWorkNotificationIdempotencyKey(string action, long eventTsMs)
+    {
+        string normalizedAction = string.IsNullOrWhiteSpace(action)
+            ? "unknown"
+            : action.Trim().ToLowerInvariant();
+        long windowStartMs = ResolveDeepWorkTransitionWindowStartMs(normalizedAction, eventTsMs);
+        string keyPrefix = normalizedAction switch
+        {
+            "deep_work_notifications_suppressed" => "dw_notify_on",
+            "deep_work_notifications_restored" => "dw_notify_off",
+            "notification_suppress_failed" => "dw_notify_on_fail",
+            "notification_snapshot_failed" => "dw_notify_snapshot_fail",
+            "notification_restore_failed" => "dw_notify_off_fail",
+            _ => "dw_notify"
+        };
+        return $"{keyPrefix}:v1:{windowStartMs}";
+    }
+
+    private static long ResolveDeepWorkTransitionWindowStartMs(string action, long eventTsMs)
+    {
+        long windowMs = action switch
+        {
+            "deep_work_notifications_suppressed" => PortaExecutionConstants.DeepWorkDetection.DwellOnSeconds * 1000L,
+            "notification_suppress_failed" => PortaExecutionConstants.DeepWorkDetection.DwellOnSeconds * 1000L,
+            "notification_snapshot_failed" => PortaExecutionConstants.DeepWorkDetection.DwellOnSeconds * 1000L,
+            "deep_work_notifications_restored" => PortaExecutionConstants.DeepWorkDetection.DwellOffSeconds * 1000L,
+            "notification_restore_failed" => PortaExecutionConstants.DeepWorkDetection.DwellOffSeconds * 1000L,
+            _ => Time.bucketSeconds * 1000L
+        };
+        return ResolveWindowStartMs(eventTsMs, windowMs);
+    }
+
+    private static long ResolveWindowStartMs(long nowUtcMs, long windowMs)
+    {
+        if (windowMs <= 0)
+        {
+            return nowUtcMs;
+        }
+
+        long quotient = Math.DivRem(nowUtcMs, windowMs, out long remainder);
+        if (remainder < 0)
+        {
+            quotient--;
+        }
+
+        return checked(quotient * windowMs);
+    }
+
     private static string ResolveBreakInstallIdHash()
     {
 #pragma warning disable CA1416
@@ -3939,6 +4101,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private static string BuildEventIdempotencyKey(AgentControlEvent controlEvent)
     {
+        if (!string.IsNullOrWhiteSpace(controlEvent.IdempotencyKey))
+        {
+            return controlEvent.IdempotencyKey.Trim();
+        }
+
         string interventionId = string.IsNullOrWhiteSpace(controlEvent.InterventionId)
             ? "none"
             : controlEvent.InterventionId.Trim();
