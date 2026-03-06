@@ -140,7 +140,6 @@ public sealed record LocalApiCurrentSnapshotResponse(
 {
     // Step 18D pinned snake_case aliases for snapshot consumers.
     public double overload_likelihood => OverloadLikelihood;
-    public double confidence => Confidence;
     public double sustained_attention_duration_sec => SustainedAttentionDurationSec;
     public LocalApiCooldownsRemainingResponse? cooldowns_remaining => CooldownsRemaining;
     public string? contributors_json => ContributorsJson;
@@ -159,7 +158,7 @@ public sealed record LocalApiCurrentSnapshotResponse(
         notifications_suppressed: notifications_suppressed,
         brightness_adjusted: brightness_adjusted,
         overload_likelihood: overload_likelihood,
-        confidence: confidence,
+        confidence: Confidence,
         sustained_attention_duration_sec: sustained_attention_duration_sec,
         f: F,
         i: I,

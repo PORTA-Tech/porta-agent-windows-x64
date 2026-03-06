@@ -37,7 +37,7 @@ public sealed class LocalApiSnapshotAcceptanceTests
         var dto = SnapshotMapper.Map(snapshot, latest);
 
         Assert.InRange(dto.overload_likelihood - 0.84d, -0.000001d, 0.000001d);
-        Assert.InRange(dto.confidence - 0.91d, -0.000001d, 0.000001d);
+        Assert.InRange(dto.Confidence - 0.91d, -0.000001d, 0.000001d);
         Assert.InRange(dto.sustained_attention_duration_sec - 1810d, -0.000001d, 0.000001d);
         Assert.True(dto.overload_active);
         Assert.True(dto.deep_work_active);
