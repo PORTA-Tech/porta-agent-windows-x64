@@ -31,6 +31,8 @@ public sealed class FakeNotificationController : INotificationController
 
     public int RestoreCalls { get; private set; }
 
+    public bool Supported { get; set; } = true;
+
     public bool FailNextSnapshot { get; set; }
 
     public bool FailNextApply { get; set; }
@@ -42,6 +44,12 @@ public sealed class FakeNotificationController : INotificationController
     public string ApplyFailureCode { get; set; } = "suppression_apply_failed";
 
     public string RestoreFailureCode { get; set; } = "suppression_restore_failed";
+
+    public string UnsupportedErrorCode { get; set; } = "notification_unsupported";
+
+    public NotificationControllerSnapshot? LastSnapshot { get; private set; }
+
+    public string LastErrorCode { get; private set; } = string.Empty;
 
     public bool CurrentQuietHoursEnabled { get; private set; }
 
@@ -62,10 +70,35 @@ public sealed class FakeNotificationController : INotificationController
     {
         GetSnapshotCalls++;
 
+        if (!Supported)
+        {
+            NotificationControllerSnapshot unsupportedSnapshot = BuildSnapshot(isValid: false);
+            LastSnapshot = unsupportedSnapshot;
+            LastErrorCode = UnsupportedErrorCode;
+            _calls.Add(new NotificationControllerCall(
+                Operation: nameof(GetSnapshot),
+                TimestampUtc: Clock.UtcNow,
+                Succeeded: false,
+                ErrorCode: UnsupportedErrorCode,
+                StateChanged: false,
+                ArgumentSnapshot: null,
+                ResultFocusAssistMode: CurrentFocusAssistMode,
+                ResultQuietHoursEnabled: CurrentQuietHoursEnabled,
+                ResultToastBannersEnabled: CurrentToastBannersEnabled,
+                ResultSuppressed: IsSuppressed));
+            return new NotificationControllerSnapshotResult(
+                Succeeded: false,
+                ErrorCode: UnsupportedErrorCode,
+                ErrorDetail: "Notification control is unsupported in fake controller.",
+                Snapshot: unsupportedSnapshot);
+        }
+
         if (FailNextSnapshot)
         {
             FailNextSnapshot = false;
             NotificationControllerSnapshot failedSnapshot = BuildSnapshot(isValid: false);
+            LastSnapshot = failedSnapshot;
+            LastErrorCode = SnapshotFailureCode;
             _calls.Add(new NotificationControllerCall(
                 Operation: nameof(GetSnapshot),
                 TimestampUtc: Clock.UtcNow,
@@ -85,6 +118,8 @@ public sealed class FakeNotificationController : INotificationController
         }
 
         NotificationControllerSnapshot snapshot = BuildSnapshot(isValid: true);
+        LastSnapshot = snapshot;
+        LastErrorCode = string.Empty;
         _calls.Add(new NotificationControllerCall(
             Operation: nameof(GetSnapshot),
             TimestampUtc: Clock.UtcNow,
@@ -107,9 +142,31 @@ public sealed class FakeNotificationController : INotificationController
     {
         ApplyCalls++;
 
+        if (!Supported)
+        {
+            LastErrorCode = UnsupportedErrorCode;
+            _calls.Add(new NotificationControllerCall(
+                Operation: nameof(ApplySuppression),
+                TimestampUtc: Clock.UtcNow,
+                Succeeded: false,
+                ErrorCode: UnsupportedErrorCode,
+                StateChanged: false,
+                ArgumentSnapshot: snapshot,
+                ResultFocusAssistMode: CurrentFocusAssistMode,
+                ResultQuietHoursEnabled: CurrentQuietHoursEnabled,
+                ResultToastBannersEnabled: CurrentToastBannersEnabled,
+                ResultSuppressed: IsSuppressed));
+            return new NotificationControllerActionResult(
+                Succeeded: false,
+                ErrorCode: UnsupportedErrorCode,
+                ErrorDetail: "Notification control is unsupported in fake controller.",
+                StateChanged: false);
+        }
+
         if (FailNextApply)
         {
             FailNextApply = false;
+            LastErrorCode = ApplyFailureCode;
             _calls.Add(new NotificationControllerCall(
                 Operation: nameof(ApplySuppression),
                 TimestampUtc: Clock.UtcNow,
@@ -134,6 +191,7 @@ public sealed class FakeNotificationController : INotificationController
         CurrentQuietHoursEnabled = true;
         CurrentToastBannersEnabled = false;
         bool changed = !previousSuppressed;
+        LastErrorCode = string.Empty;
         _calls.Add(new NotificationControllerCall(
             Operation: nameof(ApplySuppression),
             TimestampUtc: Clock.UtcNow,
@@ -156,9 +214,31 @@ public sealed class FakeNotificationController : INotificationController
     {
         RestoreCalls++;
 
+        if (!Supported)
+        {
+            LastErrorCode = UnsupportedErrorCode;
+            _calls.Add(new NotificationControllerCall(
+                Operation: nameof(Restore),
+                TimestampUtc: Clock.UtcNow,
+                Succeeded: false,
+                ErrorCode: UnsupportedErrorCode,
+                StateChanged: false,
+                ArgumentSnapshot: snapshot,
+                ResultFocusAssistMode: CurrentFocusAssistMode,
+                ResultQuietHoursEnabled: CurrentQuietHoursEnabled,
+                ResultToastBannersEnabled: CurrentToastBannersEnabled,
+                ResultSuppressed: IsSuppressed));
+            return new NotificationControllerActionResult(
+                Succeeded: false,
+                ErrorCode: UnsupportedErrorCode,
+                ErrorDetail: "Notification control is unsupported in fake controller.",
+                StateChanged: false);
+        }
+
         if (FailNextRestore)
         {
             FailNextRestore = false;
+            LastErrorCode = RestoreFailureCode;
             _calls.Add(new NotificationControllerCall(
                 Operation: nameof(Restore),
                 TimestampUtc: Clock.UtcNow,
@@ -179,6 +259,7 @@ public sealed class FakeNotificationController : INotificationController
 
         if (!snapshot.IsValid)
         {
+            LastErrorCode = "snapshot_invalid";
             _calls.Add(new NotificationControllerCall(
                 Operation: nameof(Restore),
                 TimestampUtc: Clock.UtcNow,
@@ -202,6 +283,7 @@ public sealed class FakeNotificationController : INotificationController
         CurrentQuietHoursEnabled = snapshot.QuietHoursEnabled;
         CurrentToastBannersEnabled = snapshot.ToastBannersEnabled;
         bool changed = previousSuppressed != IsSuppressed;
+        LastErrorCode = string.Empty;
         _calls.Add(new NotificationControllerCall(
             Operation: nameof(Restore),
             TimestampUtc: Clock.UtcNow,

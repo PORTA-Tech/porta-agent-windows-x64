@@ -32,6 +32,10 @@ public sealed class FakeBrightnessController : IBrightnessController
 
     public bool FailNextSetLevel { get; set; }
 
+    public bool FailNextRampDown { get; set; }
+
+    public bool FailNextRampUp { get; set; }
+
     public string GetLevelFailureCode { get; set; } = "brightness_get_failed";
 
     public string SetLevelFailureCode { get; set; } = "brightness_set_failed";
@@ -41,6 +45,10 @@ public sealed class FakeBrightnessController : IBrightnessController
     public int GetLevelCalls { get; private set; }
 
     public int SetLevelCalls { get; private set; }
+
+    public int LevelChangeCount { get; private set; }
+
+    public string LastErrorCode { get; private set; } = string.Empty;
 
     public IReadOnlyList<BrightnessControllerCall> Calls => _calls;
 
@@ -67,6 +75,7 @@ public sealed class FakeBrightnessController : IBrightnessController
         if (FailNextGetLevel)
         {
             FailNextGetLevel = false;
+            LastErrorCode = GetLevelFailureCode;
             _calls.Add(new BrightnessControllerCall(
                 Operation: nameof(GetLevel),
                 TimestampUtc: Clock.UtcNow,
@@ -87,6 +96,7 @@ public sealed class FakeBrightnessController : IBrightnessController
 
         if (!Supported)
         {
+            LastErrorCode = "brightness_unsupported";
             _calls.Add(new BrightnessControllerCall(
                 Operation: nameof(GetLevel),
                 TimestampUtc: Clock.UtcNow,
@@ -115,6 +125,7 @@ public sealed class FakeBrightnessController : IBrightnessController
             Succeeded: true,
             ErrorCode: string.Empty,
             StateChanged: false));
+        LastErrorCode = string.Empty;
         return new BrightnessControllerLevelResult(
             Succeeded: true,
             ErrorCode: string.Empty,
@@ -127,15 +138,19 @@ public sealed class FakeBrightnessController : IBrightnessController
     {
         SetLevelCalls++;
         int clamped = Math.Clamp(level, 0, 100);
+        int before = CurrentLevel;
+        bool rampingDown = clamped < before;
+        bool rampingUp = clamped > before;
 
         if (!Supported)
         {
+            LastErrorCode = "brightness_unsupported";
             _calls.Add(new BrightnessControllerCall(
                 Operation: nameof(SetLevel),
                 TimestampUtc: Clock.UtcNow,
                 RequestedLevel: level,
-                LevelBefore: CurrentLevel,
-                LevelAfter: CurrentLevel,
+                LevelBefore: before,
+                LevelAfter: before,
                 SupportedAfter: Supported,
                 Succeeded: false,
                 ErrorCode: "brightness_unsupported",
@@ -149,15 +164,62 @@ public sealed class FakeBrightnessController : IBrightnessController
                 AppliedLevel: CurrentLevel);
         }
 
-        if (FailNextSetLevel)
+        if (FailNextRampDown && rampingDown)
         {
-            FailNextSetLevel = false;
+            FailNextRampDown = false;
+            LastErrorCode = SetLevelFailureCode;
             _calls.Add(new BrightnessControllerCall(
                 Operation: nameof(SetLevel),
                 TimestampUtc: Clock.UtcNow,
                 RequestedLevel: level,
-                LevelBefore: CurrentLevel,
-                LevelAfter: CurrentLevel,
+                LevelBefore: before,
+                LevelAfter: before,
+                SupportedAfter: Supported,
+                Succeeded: false,
+                ErrorCode: SetLevelFailureCode,
+                StateChanged: false));
+            return new BrightnessControllerSetResult(
+                Succeeded: false,
+                ErrorCode: SetLevelFailureCode,
+                ErrorDetail: "Injected ramp-down failure.",
+                IsSupported: true,
+                StateChanged: false,
+                AppliedLevel: before);
+        }
+
+        if (FailNextRampUp && rampingUp)
+        {
+            FailNextRampUp = false;
+            LastErrorCode = SetLevelFailureCode;
+            _calls.Add(new BrightnessControllerCall(
+                Operation: nameof(SetLevel),
+                TimestampUtc: Clock.UtcNow,
+                RequestedLevel: level,
+                LevelBefore: before,
+                LevelAfter: before,
+                SupportedAfter: Supported,
+                Succeeded: false,
+                ErrorCode: SetLevelFailureCode,
+                StateChanged: false));
+            return new BrightnessControllerSetResult(
+                Succeeded: false,
+                ErrorCode: SetLevelFailureCode,
+                ErrorDetail: "Injected ramp-up failure.",
+                IsSupported: true,
+                StateChanged: false,
+                AppliedLevel: before);
+        }
+
+        if (FailNextSetLevel)
+        {
+            FailNextSetLevel = false;
+            LastErrorCode = SetLevelFailureCode;
+            _calls.Add(new BrightnessControllerCall(
+                Operation: nameof(SetLevel),
+                TimestampUtc: Clock.UtcNow,
+                RequestedLevel: level,
+                LevelBefore: before,
+                LevelAfter: before,
                 SupportedAfter: Supported,
                 Succeeded: false,
                 ErrorCode: SetLevelFailureCode,
@@ -171,9 +233,13 @@ public sealed class FakeBrightnessController : IBrightnessController
                 AppliedLevel: CurrentLevel);
         }
 
-        bool changed = CurrentLevel != clamped;
-        int before = CurrentLevel;
+        bool changed = before != clamped;
         CurrentLevel = clamped;
+        if (changed)
+        {
+            LevelChangeCount++;
+        }
+        LastErrorCode = string.Empty;
         _calls.Add(new BrightnessControllerCall(
             Operation: nameof(SetLevel),
             TimestampUtc: Clock.UtcNow,

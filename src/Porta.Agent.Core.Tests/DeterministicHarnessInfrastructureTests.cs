@@ -59,6 +59,54 @@ public sealed class DeterministicHarnessInfrastructureTests
         Assert.False(string.IsNullOrWhiteSpace(secondPath));
     }
 
+    [Fact]
+    public void FakeNotificationController_TracksLastSnapshotAndUnsupportedMode()
+    {
+        var clock = new DeterministicTestClock(DateTimeOffset.Parse("2026-03-06T00:00:00.000+00:00"));
+        var fake = new FakeNotificationController(clock);
+
+        var snapshotResult = fake.GetSnapshot();
+        Assert.True(snapshotResult.Succeeded);
+        Assert.True(fake.LastSnapshot.HasValue);
+        Assert.False(fake.IsSuppressed);
+        Assert.Equal(string.Empty, fake.LastErrorCode);
+
+        fake.Supported = false;
+        var applyResult = fake.ApplySuppression(snapshotResult.Snapshot);
+        Assert.False(applyResult.Succeeded);
+        Assert.Equal("notification_unsupported", applyResult.ErrorCode);
+        Assert.Equal("notification_unsupported", fake.LastErrorCode);
+    }
+
+    [Fact]
+    public void FakeBrightnessController_SupportsDirectionalFailureInjectionAndChangeTracking()
+    {
+        var clock = new DeterministicTestClock(DateTimeOffset.Parse("2026-03-06T00:00:00.000+00:00"));
+        var fake = new FakeBrightnessController(clock)
+        {
+            Supported = true,
+            CurrentLevel = 50
+        };
+
+        fake.FailNextRampDown = true;
+        var downFailure = fake.SetLevel(49);
+        Assert.False(downFailure.Succeeded);
+        Assert.Equal("brightness_set_failed", fake.LastErrorCode);
+        Assert.Equal(50, fake.CurrentLevel);
+
+        fake.FailNextRampUp = true;
+        var upFailure = fake.SetLevel(51);
+        Assert.False(upFailure.Succeeded);
+        Assert.Equal("brightness_set_failed", fake.LastErrorCode);
+        Assert.Equal(50, fake.CurrentLevel);
+
+        var success = fake.SetLevel(55);
+        Assert.True(success.Succeeded);
+        Assert.Equal(55, fake.CurrentLevel);
+        Assert.Equal(1, fake.LevelChangeCount);
+        Assert.Equal(string.Empty, fake.LastErrorCode);
+    }
+
     private static bool TableExists(SqliteConnection connection, string tableName)
     {
         using var cmd = connection.CreateCommand();
