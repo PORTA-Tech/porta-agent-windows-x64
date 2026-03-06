@@ -11,6 +11,11 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
     private readonly BucketFinalizer _finalizer;
 
     public BucketFinalizerStateStore(IBrainStateStore inner)
+        : this(inner, nowProvider: null)
+    {
+    }
+
+    internal BucketFinalizerStateStore(IBrainStateStore inner, Func<DateTimeOffset>? nowProvider)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         if (_inner is not IBucketFinalizerDbWriter bucketDbWriter)
@@ -19,7 +24,7 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
                 "BucketFinalizerStateStore requires an inner store that implements IBucketFinalizerDbWriter.");
         }
 
-        _finalizer = new BucketFinalizer(_inner, bucketDbWriter);
+        _finalizer = new BucketFinalizer(_inner, bucketDbWriter, nowProvider);
     }
 
     public void WriteSnapshot(AgentBrainSnapshot snapshot) => _finalizer.WriteSnapshot(snapshot);

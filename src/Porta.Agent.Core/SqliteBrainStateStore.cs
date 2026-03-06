@@ -41,26 +41,43 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     public SqliteBrainStateStore()
         : this(
             new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
-            new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()))
+            new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+            dbPathOverride: null)
     {
     }
 
     public SqliteBrainStateStore(IDeepWorkOutputActionCoordinator deepWorkOutputActionCoordinator)
         : this(
             deepWorkOutputActionCoordinator,
-            new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()))
+            new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+            dbPathOverride: null)
     {
     }
 
     public SqliteBrainStateStore(
         IDeepWorkOutputActionCoordinator deepWorkOutputActionCoordinator,
         IOverloadBrightnessActionCoordinator overloadBrightnessActionCoordinator)
+        : this(deepWorkOutputActionCoordinator, overloadBrightnessActionCoordinator, dbPathOverride: null)
+    {
+    }
+
+    internal SqliteBrainStateStore(
+        IDeepWorkOutputActionCoordinator deepWorkOutputActionCoordinator,
+        IOverloadBrightnessActionCoordinator overloadBrightnessActionCoordinator,
+        string? dbPathOverride)
     {
         _deepWorkOutputActionCoordinator = deepWorkOutputActionCoordinator
             ?? throw new ArgumentNullException(nameof(deepWorkOutputActionCoordinator));
         _overloadBrightnessActionCoordinator = overloadBrightnessActionCoordinator
             ?? throw new ArgumentNullException(nameof(overloadBrightnessActionCoordinator));
-        _dbPath = DbPaths.GetCoreStateDbPath();
+        _dbPath = string.IsNullOrWhiteSpace(dbPathOverride)
+            ? DbPaths.GetCoreStateDbPath()
+            : dbPathOverride;
+        string? dbDirectory = Path.GetDirectoryName(_dbPath);
+        if (!string.IsNullOrWhiteSpace(dbDirectory))
+        {
+            Directory.CreateDirectory(dbDirectory);
+        }
         _connectionString = DbOpen.BuildConnectionString(_dbPath);
         EnsureSchema();
         TryReconcileNotificationSuppressionOnStartup();
@@ -4843,7 +4860,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private void EnsureSchema()
     {
-        CoreStateDbStartup.InitializeAndMigrate(logPragmasAtBoot: true);
+        CoreStateDbStartup.InitializeAndMigrate(logPragmasAtBoot: true, dbPathOverride: _dbPath);
     }
 
     private static List<string> DeserializeContributors(string? raw)

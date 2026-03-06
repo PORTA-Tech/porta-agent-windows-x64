@@ -47,4 +47,15 @@ public sealed class DeterministicTestClock
 
         return AdvanceSeconds(checked(bucketCount * BucketSeconds));
     }
+
+    public DateTimeOffset AdvanceTo(DateTimeOffset targetUtc)
+    {
+        if (targetUtc < UtcNow)
+        {
+            throw new ArgumentOutOfRangeException(nameof(targetUtc), targetUtc, "Clock cannot move backwards.");
+        }
+
+        UtcNow = targetUtc;
+        return UtcNow;
+    }
 }

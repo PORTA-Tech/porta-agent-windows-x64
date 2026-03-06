@@ -6,19 +6,20 @@ namespace Porta.Agent.Core.Db;
 public static class CoreStateDbStartup
 {
     private static readonly object Gate = new();
-    private static bool _initialized;
-    private static string? _dbPath;
+    private static readonly HashSet<string> InitializedDbPaths = new(StringComparer.OrdinalIgnoreCase);
 
-    public static string InitializeAndMigrate(bool logPragmasAtBoot = true)
+    public static string InitializeAndMigrate(bool logPragmasAtBoot = true, string? dbPathOverride = null)
     {
         lock (Gate)
         {
-            if (_initialized && !string.IsNullOrWhiteSpace(_dbPath))
+            string dbPath = string.IsNullOrWhiteSpace(dbPathOverride)
+                ? DbPaths.GetCoreStateDbPath()
+                : dbPathOverride;
+            if (InitializedDbPaths.Contains(dbPath))
             {
-                return _dbPath;
+                return dbPath;
             }
 
-            string dbPath = DbPaths.GetCoreStateDbPath();
             string connectionString = DbOpen.BuildConnectionString(dbPath);
 
             try
@@ -26,8 +27,7 @@ public static class CoreStateDbStartup
                 using var connection = DbOpen.OpenConnection(connectionString, logPragmasAtBoot);
                 Migrations.Migrate(connection);
                 PrimitiveComputer.EnsurePrimitivesPrevStateInitialized(connection);
-                _dbPath = dbPath;
-                _initialized = true;
+                InitializedDbPaths.Add(dbPath);
                 return dbPath;
             }
             catch

@@ -18,6 +18,7 @@ internal sealed class BucketFinalizer
 
     private readonly IBrainStateStore _writer;
     private readonly IBucketFinalizerDbWriter _bucketDbWriter;
+    private readonly Func<DateTimeOffset> _nowProvider;
     private readonly BucketBuffers _buffers = new();
     private readonly ConcurrentDictionary<long, long> _finalizedBucketMarkers = new();
     private long _highestFinalBucketSeq = long.MinValue;
@@ -26,10 +27,14 @@ internal sealed class BucketFinalizer
     private long _tooOldDropCount;
     private BucketDropCountersSnapshot _qualityDropSnapshot = new(0, 0, 0);
 
-    public BucketFinalizer(IBrainStateStore writer, IBucketFinalizerDbWriter bucketDbWriter)
+    public BucketFinalizer(
+        IBrainStateStore writer,
+        IBucketFinalizerDbWriter bucketDbWriter,
+        Func<DateTimeOffset>? nowProvider = null)
     {
         _writer = writer ?? throw new ArgumentNullException(nameof(writer));
         _bucketDbWriter = bucketDbWriter ?? throw new ArgumentNullException(nameof(bucketDbWriter));
+        _nowProvider = nowProvider ?? (() => DateTimeOffset.UtcNow);
         if (Interlocked.Increment(ref _instanceCount) > 1)
         {
             Console.WriteLine("bucket_single_writer_violation multiple_bucket_finalizer_instances_detected=true");
@@ -47,7 +52,7 @@ internal sealed class BucketFinalizer
         // - per-bucket lock only during aggregate mutation
         long tsUtcMs = snapshot.TimestampUtc.ToUnixTimeMilliseconds();
         long bucketSeq = Time.bucketSeqFromEventTs(tsUtcMs);
-        long nowUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        long nowUtcMs = _nowProvider().ToUnixTimeMilliseconds();
         BucketLifecycleState initialBucketState = IsFinalBucket(bucketSeq)
             ? BucketLifecycleState.FINAL
             : BucketLifecycleState.OPEN;
