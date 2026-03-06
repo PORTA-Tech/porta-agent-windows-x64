@@ -123,6 +123,87 @@ public sealed class DeepWorkOutputActionCoordinatorTests
         Assert.Equal(0, fake.ApplyCalls);
     }
 
+    [Fact]
+    public void HandleDeepWorkTransition_EnteringWhileEnableCooldownActive_DoesNotAttemptSuppression()
+    {
+        var fake = new FakeNotificationController();
+        var coordinator = new DeepWorkOutputActionCoordinator(fake);
+        long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        NotificationSuppressionRuntimeState state = NotificationSuppressionRuntimeState.CreateDefault() with
+        {
+            EnableCooldownUntilUtcMs = nowMs + 60_000
+        };
+
+        DeepWorkTransitionExecution execution = coordinator.HandleDeepWorkTransition(
+            BuildContext(previousActive: false, currentActive: true),
+            state);
+
+        Assert.True(execution.Outcome.Succeeded);
+        Assert.Equal("enable_cooldown_active", execution.Outcome.OutcomeReason);
+        Assert.Equal(0, fake.GetSnapshotCalls);
+        Assert.Equal(0, fake.ApplyCalls);
+    }
+
+    [Fact]
+    public void HandleDeepWorkTransition_ExitBeforeMinOn_LeavesSuppressionActiveAndPendingRestore()
+    {
+        var fake = new FakeNotificationController();
+        var coordinator = new DeepWorkOutputActionCoordinator(fake);
+        NotificationControllerSnapshot snapshot = fake.BuildValidSnapshot();
+        long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        NotificationSuppressionRuntimeState state = NotificationSuppressionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            Snapshot = snapshot,
+            MinOnUntilUtcMs = nowMs + 30_000
+        };
+
+        DeepWorkTransitionExecution execution = coordinator.HandleDeepWorkTransition(
+            BuildContext(previousActive: true, currentActive: false),
+            state);
+
+        Assert.True(execution.Outcome.Succeeded);
+        Assert.Equal("min_on_not_elapsed", execution.Outcome.OutcomeReason);
+        Assert.False(execution.Outcome.RestoreAttempted);
+        Assert.Equal(0, fake.RestoreCalls);
+        Assert.True(execution.RuntimeState.Active);
+        Assert.True(execution.RuntimeState.RestorePending);
+        Assert.Equal("restore_pending", execution.RuntimeState.ActionState);
+    }
+
+    [Fact]
+    public void HandleDeepWorkTransition_RestoreFailure_MarksActiveWithRestoreErrorAndBackoff()
+    {
+        var fake = new FakeNotificationController
+        {
+            RestoreResult = new NotificationControllerActionResult(
+                Succeeded: false,
+                ErrorCode: "RESTORE_API_FAILED",
+                ErrorDetail: "unit test restore failure",
+                StateChanged: false)
+        };
+        var coordinator = new DeepWorkOutputActionCoordinator(fake);
+        NotificationControllerSnapshot snapshot = fake.BuildValidSnapshot();
+        NotificationSuppressionRuntimeState state = NotificationSuppressionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            Snapshot = snapshot,
+            MinOnUntilUtcMs = 0
+        };
+
+        DeepWorkTransitionExecution execution = coordinator.HandleDeepWorkTransition(
+            BuildContext(previousActive: true, currentActive: false),
+            state);
+
+        Assert.False(execution.Outcome.Succeeded);
+        Assert.Equal("RESTORE_API_FAILED", execution.Outcome.ErrorCode);
+        Assert.Equal(1, fake.RestoreCalls);
+        Assert.True(execution.RuntimeState.Active);
+        Assert.True(execution.RuntimeState.RestorePending);
+        Assert.Equal("active_with_restore_error", execution.RuntimeState.ActionState);
+        Assert.True(execution.RuntimeState.BackoffUntilUtcMs > 0);
+    }
+
     private static DeepWorkTransitionContext BuildContext(bool previousActive, bool currentActive)
     {
         return new DeepWorkTransitionContext(

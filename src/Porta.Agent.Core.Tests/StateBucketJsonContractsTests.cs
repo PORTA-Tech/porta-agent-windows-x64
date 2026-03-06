@@ -71,6 +71,13 @@ public sealed class StateBucketJsonContractsTests
             deepWorkCandidate: true,
             deepWorkExitCandidate: false,
             deepWorkLowQualityPaused: true,
+            notificationSuppressionActive: true,
+            notificationSuppressionActionState: "active_with_restore_error",
+            notificationSuppressionRestorePending: true,
+            notificationSuppressionLastErrorCode: "notification_restore_failed",
+            notificationSuppressionEnableCooldownUntilUtcMs: 100000,
+            notificationSuppressionMinOnUntilUtcMs: 90000,
+            notificationSuppressionBackoffUntilUtcMs: 120000,
             overloadStateDebug: new
             {
                 mode = "stable_hold",
@@ -103,5 +110,12 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal(0, root.GetProperty("dw_exit").GetInt32());
         Assert.Equal(1, root.GetProperty("dw_low_quality").GetInt32());
         Assert.Equal("active_hold", root.GetProperty("deep_work_state_debug").GetProperty("mode").GetString());
+        Assert.True(root.GetProperty("notifications_suppressed").GetBoolean());
+        Assert.Equal("active_with_restore_error", root.GetProperty("notification_suppression_action_state").GetString());
+        Assert.Equal(1, root.GetProperty("notification_suppression_restore_pending").GetInt32());
+        Assert.Equal("notification_restore_failed", root.GetProperty("notification_suppression_error").GetString());
+        Assert.Equal(100000, root.GetProperty("notification_enable_cooldown_until_utc_ms").GetInt64());
+        Assert.Equal(90000, root.GetProperty("notification_min_on_until_utc_ms").GetInt64());
+        Assert.Equal(120000, root.GetProperty("notification_backoff_until_utc_ms").GetInt64());
     }
 }

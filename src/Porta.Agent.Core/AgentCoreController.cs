@@ -117,7 +117,8 @@ public sealed class AgentCoreController : IAgentCoreController
         {
             TryAutoResumeLocked();
             UpdateRecalibrationStateLocked();
-            AgentStatus status = _lastError is null
+            string? effectiveLastError = ResolveEffectiveLastError(_lastError, _latestSnapshot.StateFlagsJson);
+            AgentStatus status = effectiveLastError is null
                 ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
                 : AgentStatus.Degraded;
 
@@ -138,7 +139,7 @@ public sealed class AgentCoreController : IAgentCoreController
                 SchemaVersion: DefaultSchemaVersion,
                 PolicyVersion: DefaultPolicyVersion,
                 LastEventTimestampUtc: _lastEventTimestampUtc,
-                LastError: _lastError,
+                LastError: effectiveLastError,
                 LocalApiAuthReady: _localApiAuthReady,
                 LocalApiAuthError: _localApiAuthError,
                 LastUpdatedUtc: DateTimeOffset.UtcNow);
@@ -1540,7 +1541,8 @@ public sealed class AgentCoreController : IAgentCoreController
 
     private string BuildDiagnosticsSummaryJson()
     {
-        AgentStatus status = _lastError is null
+        string? effectiveLastError = ResolveEffectiveLastError(_lastError, _latestSnapshot.StateFlagsJson);
+        AgentStatus status = effectiveLastError is null
             ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
             : AgentStatus.Degraded;
 
@@ -1554,7 +1556,7 @@ public sealed class AgentCoreController : IAgentCoreController
             backend_connected = _backendConnected,
             last_event_timestamp_utc = _lastEventTimestampUtc,
             last_backend_ok_utc = _lastBackendOkUtc,
-            last_error = _lastError,
+            last_error = effectiveLastError,
             local_api_auth_ready = _localApiAuthReady,
             local_api_auth_error = _localApiAuthError,
             last_action = _latestSnapshot.LastAction,
@@ -1573,6 +1575,43 @@ public sealed class AgentCoreController : IAgentCoreController
         };
 
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static string? ResolveEffectiveLastError(string? controllerLastError, string stateFlagsJson)
+    {
+        if (!string.IsNullOrWhiteSpace(controllerLastError))
+        {
+            return controllerLastError;
+        }
+
+        if (string.IsNullOrWhiteSpace(stateFlagsJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            if (!root.TryGetProperty("notification_suppression_error", out JsonElement errorNode))
+            {
+                return null;
+            }
+
+            string? error = errorNode.ValueKind == JsonValueKind.String
+                ? errorNode.GetString()
+                : errorNode.ToString();
+            return string.IsNullOrWhiteSpace(error) ? null : error;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private string BuildConsentRecordJson()

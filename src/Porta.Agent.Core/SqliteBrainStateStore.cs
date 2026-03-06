@@ -161,6 +161,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     derivedSession,
                     overloadInference,
                     overloadStabilization,
+                    deepWorkStabilization,
+                    deepWorkTransitionExecution.RuntimeState);
+                TryInsertDeepWorkNotificationEvent(
+                    connection,
+                    tx,
+                    mapped,
+                    deepWorkTransitionExecution,
                     deepWorkStabilization);
                 UpsertPrimitiveBucket(connection, tx, primitiveRow);
                 UpsertStateBucket(connection, tx, stateRow);
@@ -1675,6 +1682,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             last_error_code = notificationSuppressionRuntimeState.LastErrorCode,
             backoff_until_utc_ms = Math.Max(0, notificationSuppressionRuntimeState.BackoffUntilUtcMs),
             last_transition_source_bucket_seq = Math.Max(0, notificationSuppressionRuntimeState.LastTransitionSourceBucketSeq),
+            restore_pending = notificationSuppressionRuntimeState.RestorePending ? 1 : 0,
+            action_state = notificationSuppressionRuntimeState.ActionState ?? string.Empty,
             bucket_seq = mapped.BucketSeq,
             updated_utc = mapped.TimestampUtc
         });
@@ -1759,6 +1768,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             string lastErrorCode = ReadStringProperty(root, "last_error_code");
             long backoffUntilUtcMs = ReadInt64Property(root, "backoff_until_utc_ms");
             long lastTransitionSourceBucketSeq = ReadInt64Property(root, "last_transition_source_bucket_seq");
+            bool restorePending = TryReadBoolProperty(root, "restore_pending", out bool restorePendingProp) && restorePendingProp;
+            string actionState = ReadStringProperty(root, "action_state");
 
             NotificationControllerSnapshot? snapshot = null;
             if (root.TryGetProperty("snapshot", out JsonElement snapshotNode)
@@ -1802,7 +1813,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 MinOnUntilUtcMs: Math.Max(0, minOnUntilUtcMs),
                 LastErrorCode: lastErrorCode,
                 BackoffUntilUtcMs: Math.Max(0, backoffUntilUtcMs),
-                LastTransitionSourceBucketSeq: Math.Max(0, lastTransitionSourceBucketSeq));
+                LastTransitionSourceBucketSeq: Math.Max(0, lastTransitionSourceBucketSeq),
+                RestorePending: restorePending,
+                ActionState: string.IsNullOrWhiteSpace(actionState) ? (active ? "active" : "inactive") : actionState);
             return true;
         }
         catch
@@ -2294,7 +2307,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         DerivedSessionMetricsResult derivedSession,
         OverloadInferenceResult overloadInference,
         OverloadStabilizationResult overloadStabilization,
-        DeepWorkStabilizationResult deepWorkStabilization)
+        DeepWorkStabilizationResult deepWorkStabilization,
+        NotificationSuppressionRuntimeState notificationSuppressionRuntimeState)
     {
         _ = robust;
         string contributorsJson = BuildOverloadContributorsJson(snapshot.Contributors, overloadInference);
@@ -2315,6 +2329,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             deepWorkCandidate: deepWorkStabilization.DeepWorkCandidate,
             deepWorkExitCandidate: deepWorkStabilization.DeepWorkExitCandidate,
             deepWorkLowQualityPaused: deepWorkStabilization.LowQualityPaused,
+            notificationSuppressionActive: notificationSuppressionRuntimeState.Active,
+            notificationSuppressionActionState: notificationSuppressionRuntimeState.ActionState,
+            notificationSuppressionRestorePending: notificationSuppressionRuntimeState.RestorePending,
+            notificationSuppressionLastErrorCode: notificationSuppressionRuntimeState.LastErrorCode,
+            notificationSuppressionEnableCooldownUntilUtcMs: notificationSuppressionRuntimeState.EnableCooldownUntilUtcMs,
+            notificationSuppressionMinOnUntilUtcMs: notificationSuppressionRuntimeState.MinOnUntilUtcMs,
+            notificationSuppressionBackoffUntilUtcMs: notificationSuppressionRuntimeState.BackoffUntilUtcMs,
             overloadStateDebug: new
             {
                 mode = overloadStabilization.DebugMode,
@@ -2448,6 +2469,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         bool deepWorkCandidate,
         bool deepWorkExitCandidate,
         bool deepWorkLowQualityPaused,
+        bool notificationSuppressionActive,
+        string notificationSuppressionActionState,
+        bool notificationSuppressionRestorePending,
+        string notificationSuppressionLastErrorCode,
+        long notificationSuppressionEnableCooldownUntilUtcMs,
+        long notificationSuppressionMinOnUntilUtcMs,
+        long notificationSuppressionBackoffUntilUtcMs,
         object? overloadStateDebug = null,
         object? deepWorkStateDebug = null)
     {
@@ -2473,7 +2501,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             dw_candidate = deepWorkCandidate ? 1 : 0,
             dw_exit = deepWorkExitCandidate ? 1 : 0,
             dw_low_quality = deepWorkLowQualityPaused ? 1 : 0,
-            deep_work_state_debug = deepWorkStateDebug
+            deep_work_state_debug = deepWorkStateDebug,
+            notifications_suppressed = notificationSuppressionActive,
+            notification_suppression_action_state = notificationSuppressionActionState ?? string.Empty,
+            notification_suppression_restore_pending = notificationSuppressionRestorePending ? 1 : 0,
+            notification_suppression_error = notificationSuppressionLastErrorCode ?? string.Empty,
+            notification_enable_cooldown_until_utc_ms = Math.Max(0, notificationSuppressionEnableCooldownUntilUtcMs),
+            notification_min_on_until_utc_ms = Math.Max(0, notificationSuppressionMinOnUntilUtcMs),
+            notification_backoff_until_utc_ms = Math.Max(0, notificationSuppressionBackoffUntilUtcMs)
         });
     }
 
@@ -3006,6 +3041,141 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 dominant_app_hash = derivedSession.DominantAppHash
             }
         });
+    }
+
+    private static void TryInsertDeepWorkNotificationEvent(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        InputBucketRow inputBucket,
+        DeepWorkTransitionExecution transitionExecution,
+        DeepWorkStabilizationResult deepWorkStabilization)
+    {
+        DeepWorkActionOutcome outcome = transitionExecution.Outcome;
+        string action = ResolveDeepWorkNotificationAction(outcome);
+        if (string.IsNullOrWhiteSpace(action))
+        {
+            return;
+        }
+
+        DateTimeOffset eventTimestampUtc = DateTimeOffset.FromUnixTimeMilliseconds(
+            Time.bucketStartEnd(inputBucket.BucketSeq).endUtcMs);
+        string lifecycleState = action switch
+        {
+            "deep_work_notifications_suppressed" => "activated",
+            "deep_work_notifications_restored" => "deactivated",
+            _ => "failed"
+        };
+        string interventionId = $"dw_notify:{action}:{inputBucket.BucketSeq}";
+        string whyJson = JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            policy = "deep_work_notifications_v1",
+            outcome = new
+            {
+                reason = outcome.OutcomeReason,
+                succeeded = outcome.Succeeded,
+                entering = outcome.EnteringDeepWork,
+                exiting = outcome.ExitingDeepWork,
+                suppression_attempted = outcome.SuppressionAttempted,
+                restore_attempted = outcome.RestoreAttempted,
+                state_changed = outcome.StateChanged,
+                error_code = outcome.ErrorCode,
+                error_detail = outcome.ErrorDetail
+            },
+            deep_work = new
+            {
+                active = deepWorkStabilization.DeepWorkActive,
+                confidence = deepWorkStabilization.Confidence,
+                f_component = deepWorkStabilization.FComponent,
+                i_component = deepWorkStabilization.IComponent,
+                v_component = deepWorkStabilization.VComponent,
+                sustained_attention_duration_sec = deepWorkStabilization.SustainedAttentionDurationSec
+            },
+            notification_suppression = new
+            {
+                active = transitionExecution.RuntimeState.Active,
+                action_state = transitionExecution.RuntimeState.ActionState,
+                restore_pending = transitionExecution.RuntimeState.RestorePending,
+                enable_cooldown_until_utc_ms = transitionExecution.RuntimeState.EnableCooldownUntilUtcMs,
+                min_on_until_utc_ms = transitionExecution.RuntimeState.MinOnUntilUtcMs,
+                backoff_until_utc_ms = transitionExecution.RuntimeState.BackoffUntilUtcMs,
+                last_error_code = transitionExecution.RuntimeState.LastErrorCode
+            },
+            context = new
+            {
+                bucket_seq = inputBucket.BucketSeq
+            }
+        });
+
+        var ev = new AgentControlEvent(
+            TimestampUtc: eventTimestampUtc,
+            Action: action,
+            TriggerState: "deep_work",
+            TriggerValue: deepWorkStabilization.Confidence,
+            Confidence: deepWorkStabilization.Confidence,
+            DurationSeconds: null,
+            EscalationLevel: "Auto",
+            Reversible: true,
+            Reason: action,
+            Contributors: Array.Empty<string>(),
+            InterventionId: interventionId,
+            PolicyId: "deep_work_notifications_v1",
+            Domain: "output_action",
+            PlannedEndTimestampUtc: null,
+            ActualEndTimestampUtc: null,
+            PreviousSystemStateJson: "{}",
+            WhatChanged: ResolveDeepWorkNotificationWhatChanged(action),
+            HowToUndo: "Automatically restored when deep work exits.",
+            ReversalApplied: action == "deep_work_notifications_restored",
+            CooldownEndTimestampUtc: null,
+            LifecycleState: lifecycleState,
+            WhyJsonOverride: whyJson);
+
+        try
+        {
+            InsertInterventionEvent(connection, tx, ev);
+        }
+        catch (SqliteException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            // idempotency key already inserted for this finalized bucket.
+        }
+    }
+
+    private static string ResolveDeepWorkNotificationAction(DeepWorkActionOutcome outcome)
+    {
+        if (outcome.SuppressionAttempted && outcome.Succeeded)
+        {
+            return "deep_work_notifications_suppressed";
+        }
+
+        if (outcome.RestoreAttempted && outcome.Succeeded)
+        {
+            return "deep_work_notifications_restored";
+        }
+
+        if (!outcome.Succeeded && outcome.EnteringDeepWork)
+        {
+            return "notification_suppress_failed";
+        }
+
+        if (!outcome.Succeeded && outcome.ExitingDeepWork)
+        {
+            return "notification_restore_failed";
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveDeepWorkNotificationWhatChanged(string action)
+    {
+        return action switch
+        {
+            "deep_work_notifications_suppressed" => "System notifications suppressed for deep work protection.",
+            "deep_work_notifications_restored" => "System notifications restored to pre-deep-work snapshot.",
+            "notification_suppress_failed" => "Failed to suppress system notifications for deep work.",
+            "notification_restore_failed" => "Failed to restore system notifications from persisted snapshot.",
+            _ => "No notification suppression change."
+        };
     }
 
     private static void PersistBreakPolicyCooldownState(

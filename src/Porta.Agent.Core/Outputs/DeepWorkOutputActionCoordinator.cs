@@ -20,7 +20,9 @@ public readonly record struct NotificationSuppressionRuntimeState(
     long MinOnUntilUtcMs,
     string LastErrorCode,
     long BackoffUntilUtcMs,
-    long LastTransitionSourceBucketSeq)
+    long LastTransitionSourceBucketSeq,
+    bool RestorePending,
+    string ActionState)
 {
     public static NotificationSuppressionRuntimeState CreateDefault()
     {
@@ -35,7 +37,9 @@ public readonly record struct NotificationSuppressionRuntimeState(
             MinOnUntilUtcMs: 0,
             LastErrorCode: string.Empty,
             BackoffUntilUtcMs: 0,
-            LastTransitionSourceBucketSeq: 0);
+            LastTransitionSourceBucketSeq: 0,
+            RestorePending: false,
+            ActionState: "inactive");
     }
 }
 
@@ -47,7 +51,8 @@ public readonly record struct DeepWorkActionOutcome(
     bool Succeeded,
     string ErrorCode,
     string ErrorDetail,
-    bool StateChanged);
+    bool StateChanged,
+    string OutcomeReason);
 
 public readonly record struct DeepWorkTransitionExecution(
     DeepWorkActionOutcome Outcome,
@@ -73,31 +78,32 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
         DeepWorkTransitionContext context,
         NotificationSuppressionRuntimeState runtimeState)
     {
-        NotificationSuppressionRuntimeState normalizedState = NormalizeRuntimeState(runtimeState);
-        bool entering = !context.PreviousDeepWorkActive && context.CurrentDeepWorkActive;
-        bool exiting = context.PreviousDeepWorkActive && !context.CurrentDeepWorkActive;
-        if (!entering && !exiting)
-        {
-            return new DeepWorkTransitionExecution(
-                Outcome: new DeepWorkActionOutcome(
-                    EnteringDeepWork: false,
-                    ExitingDeepWork: false,
-                    SuppressionAttempted: false,
-                    RestoreAttempted: false,
-                    Succeeded: true,
-                    ErrorCode: string.Empty,
-                    ErrorDetail: string.Empty,
-                    StateChanged: false),
-                RuntimeState: normalizedState);
-        }
+        NotificationSuppressionRuntimeState state = NormalizeRuntimeState(runtimeState);
+        long nowUtcMs = context.BucketEndUtc.ToUnixTimeMilliseconds();
+        bool enteringTransition = !context.PreviousDeepWorkActive && context.CurrentDeepWorkActive;
 
-        if (entering)
+        if (enteringTransition)
         {
+            if (state.Active)
+            {
+                return NoOp(state, "already_active");
+            }
+
+            if (nowUtcMs < state.EnableCooldownUntilUtcMs)
+            {
+                return NoOp(state, "enable_cooldown_active");
+            }
+
+            if (nowUtcMs < state.BackoffUntilUtcMs)
+            {
+                return NoOp(state with { ActionState = "backoff_wait" }, "backoff_active");
+            }
+
             NotificationControllerSnapshotResult snapshotResult = _notificationController.GetSnapshot();
             if (!snapshotResult.Succeeded)
             {
                 return BuildFailureExecution(
-                    normalizedState,
+                    state,
                     context,
                     entering: true,
                     exiting: false,
@@ -106,27 +112,29 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
                     errorCode: string.IsNullOrWhiteSpace(snapshotResult.ErrorCode)
                         ? "snapshot_capture_failed"
                         : snapshotResult.ErrorCode,
-                    errorDetail: snapshotResult.ErrorDetail);
+                    errorDetail: snapshotResult.ErrorDetail,
+                    actionState: "inactive");
             }
 
             if (!snapshotResult.Snapshot.IsValid)
             {
                 return BuildFailureExecution(
-                    normalizedState,
+                    state,
                     context,
                     entering: true,
                     exiting: false,
                     suppressionAttempted: false,
                     restoreAttempted: false,
                     errorCode: "snapshot_invalid",
-                    errorDetail: "Notification snapshot is invalid and cannot be used for exact restore.");
+                    errorDetail: "Notification snapshot is invalid and cannot be used for exact restore.",
+                    actionState: "inactive");
             }
 
             NotificationControllerActionResult applyResult = _notificationController.ApplySuppression(snapshotResult.Snapshot);
             if (!applyResult.Succeeded)
             {
                 return BuildFailureExecution(
-                    normalizedState,
+                    state,
                     context,
                     entering: true,
                     exiting: false,
@@ -135,19 +143,27 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
                     errorCode: string.IsNullOrWhiteSpace(applyResult.ErrorCode)
                         ? "suppression_apply_failed"
                         : applyResult.ErrorCode,
-                    errorDetail: applyResult.ErrorDetail);
+                    errorDetail: applyResult.ErrorDetail,
+                    actionState: "inactive");
             }
 
-            NotificationSuppressionRuntimeState updatedState = normalizedState with
+            long minOnUntilUtcMs = checked(nowUtcMs + (PortaExecutionConstants.NotificationSuppression.MinOnSeconds * 1000L));
+            long enableCooldownUntilUtcMs = checked(nowUtcMs + (PortaExecutionConstants.NotificationSuppression.EnableCooldownSeconds * 1000L));
+            NotificationSuppressionRuntimeState updatedState = state with
             {
                 SchemaVer = 1,
                 Active = true,
                 Snapshot = snapshotResult.Snapshot,
                 SnapshotCapturedAtUtc = snapshotResult.Snapshot.CapturedAtUtc.ToString("O"),
                 SuppressedAtUtc = context.BucketEndUtc.ToString("O"),
+                RestoredAtUtc = string.Empty,
+                EnableCooldownUntilUtcMs = enableCooldownUntilUtcMs,
+                MinOnUntilUtcMs = minOnUntilUtcMs,
                 LastErrorCode = string.Empty,
                 BackoffUntilUtcMs = 0,
-                LastTransitionSourceBucketSeq = context.BucketSeq
+                LastTransitionSourceBucketSeq = context.BucketSeq,
+                RestorePending = false,
+                ActionState = "active"
             };
             return new DeepWorkTransitionExecution(
                 Outcome: new DeepWorkActionOutcome(
@@ -158,29 +174,69 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
                     Succeeded: true,
                     ErrorCode: string.Empty,
                     ErrorDetail: string.Empty,
-                    StateChanged: applyResult.StateChanged),
+                    StateChanged: applyResult.StateChanged,
+                    OutcomeReason: "suppressed"),
                 RuntimeState: updatedState);
         }
 
-        NotificationControllerSnapshot? snapshot = normalizedState.Snapshot;
+        bool shouldAttemptRestore = state.Active && !context.CurrentDeepWorkActive;
+        if (!shouldAttemptRestore)
+        {
+            return NoOp(state, "no_transition");
+        }
+
+        if (nowUtcMs < state.MinOnUntilUtcMs)
+        {
+            NotificationSuppressionRuntimeState pendingState = state with
+            {
+                RestorePending = true,
+                ActionState = "restore_pending"
+            };
+            return NoOp(pendingState, "min_on_not_elapsed");
+        }
+
+        if (nowUtcMs < state.BackoffUntilUtcMs)
+        {
+            string actionState = string.IsNullOrWhiteSpace(state.LastErrorCode)
+                ? "restore_pending"
+                : "active_with_restore_error";
+            return NoOp(
+                state with
+                {
+                    RestorePending = true,
+                    ActionState = actionState
+                },
+                "backoff_active");
+        }
+
+        NotificationControllerSnapshot? snapshot = state.Snapshot;
         if (!snapshot.HasValue || !snapshot.Value.IsValid)
         {
             return BuildFailureExecution(
-                normalizedState,
+                state with
+                {
+                    RestorePending = true,
+                    ActionState = "active_with_restore_error"
+                },
                 context,
                 entering: false,
                 exiting: true,
                 suppressionAttempted: false,
                 restoreAttempted: false,
                 errorCode: "snapshot_missing_or_invalid",
-                errorDetail: "Cannot restore notifications exactly because persisted snapshot is missing or invalid.");
+                errorDetail: "Cannot restore notifications exactly because persisted snapshot is missing or invalid.",
+                actionState: "active_with_restore_error");
         }
 
         NotificationControllerActionResult restoreResult = _notificationController.Restore(snapshot.Value);
         if (!restoreResult.Succeeded)
         {
             return BuildFailureExecution(
-                normalizedState,
+                state with
+                {
+                    RestorePending = true,
+                    ActionState = "active_with_restore_error"
+                },
                 context,
                 entering: false,
                 exiting: true,
@@ -189,17 +245,23 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
                 errorCode: string.IsNullOrWhiteSpace(restoreResult.ErrorCode)
                     ? "suppression_restore_failed"
                     : restoreResult.ErrorCode,
-                errorDetail: restoreResult.ErrorDetail);
+                errorDetail: restoreResult.ErrorDetail,
+                actionState: "active_with_restore_error");
         }
 
-        NotificationSuppressionRuntimeState restoredState = normalizedState with
+        NotificationSuppressionRuntimeState restoredState = state with
         {
             SchemaVer = 1,
             Active = false,
+            Snapshot = null,
+            SnapshotCapturedAtUtc = state.SnapshotCapturedAtUtc,
             RestoredAtUtc = context.BucketEndUtc.ToString("O"),
+            MinOnUntilUtcMs = 0,
             LastErrorCode = string.Empty,
             BackoffUntilUtcMs = 0,
-            LastTransitionSourceBucketSeq = context.BucketSeq
+            LastTransitionSourceBucketSeq = context.BucketSeq,
+            RestorePending = false,
+            ActionState = "inactive"
         };
         return new DeepWorkTransitionExecution(
             Outcome: new DeepWorkActionOutcome(
@@ -210,12 +272,32 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
                 Succeeded: true,
                 ErrorCode: string.Empty,
                 ErrorDetail: string.Empty,
-                StateChanged: restoreResult.StateChanged),
+                StateChanged: restoreResult.StateChanged,
+                OutcomeReason: "restored"),
             RuntimeState: restoredState);
+    }
+
+    private static DeepWorkTransitionExecution NoOp(NotificationSuppressionRuntimeState state, string reason)
+    {
+        return new DeepWorkTransitionExecution(
+            Outcome: new DeepWorkActionOutcome(
+                EnteringDeepWork: false,
+                ExitingDeepWork: false,
+                SuppressionAttempted: false,
+                RestoreAttempted: false,
+                Succeeded: true,
+                ErrorCode: string.Empty,
+                ErrorDetail: string.Empty,
+                StateChanged: false,
+                OutcomeReason: reason),
+            RuntimeState: state);
     }
 
     private static NotificationSuppressionRuntimeState NormalizeRuntimeState(NotificationSuppressionRuntimeState runtimeState)
     {
+        string actionState = string.IsNullOrWhiteSpace(runtimeState.ActionState)
+            ? (runtimeState.Active ? "active" : "inactive")
+            : runtimeState.ActionState;
         return new NotificationSuppressionRuntimeState(
             SchemaVer: runtimeState.SchemaVer <= 0 ? 1 : runtimeState.SchemaVer,
             Active: runtimeState.Active,
@@ -227,7 +309,9 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
             MinOnUntilUtcMs: Math.Max(0, runtimeState.MinOnUntilUtcMs),
             LastErrorCode: runtimeState.LastErrorCode ?? string.Empty,
             BackoffUntilUtcMs: Math.Max(0, runtimeState.BackoffUntilUtcMs),
-            LastTransitionSourceBucketSeq: Math.Max(0, runtimeState.LastTransitionSourceBucketSeq));
+            LastTransitionSourceBucketSeq: Math.Max(0, runtimeState.LastTransitionSourceBucketSeq),
+            RestorePending: runtimeState.RestorePending,
+            ActionState: actionState);
     }
 
     private static DeepWorkTransitionExecution BuildFailureExecution(
@@ -238,16 +322,20 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
         bool suppressionAttempted,
         bool restoreAttempted,
         string errorCode,
-        string errorDetail)
+        string errorDetail,
+        string actionState)
     {
         long nowUtcMs = context.BucketEndUtc.ToUnixTimeMilliseconds();
         long backoffUntilUtcMs = checked(nowUtcMs + (PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds * 1000L));
+        string normalizedErrorCode = string.IsNullOrWhiteSpace(errorCode) ? "unknown_notification_error" : errorCode;
         NotificationSuppressionRuntimeState failedState = runtimeState with
         {
             SchemaVer = 1,
-            LastErrorCode = string.IsNullOrWhiteSpace(errorCode) ? "unknown_notification_error" : errorCode,
+            Active = runtimeState.Active,
+            LastErrorCode = normalizedErrorCode,
             BackoffUntilUtcMs = backoffUntilUtcMs,
-            LastTransitionSourceBucketSeq = context.BucketSeq
+            LastTransitionSourceBucketSeq = context.BucketSeq,
+            ActionState = string.IsNullOrWhiteSpace(actionState) ? runtimeState.ActionState : actionState
         };
         return new DeepWorkTransitionExecution(
             Outcome: new DeepWorkActionOutcome(
@@ -256,9 +344,10 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
                 SuppressionAttempted: suppressionAttempted,
                 RestoreAttempted: restoreAttempted,
                 Succeeded: false,
-                ErrorCode: failedState.LastErrorCode,
+                ErrorCode: normalizedErrorCode,
                 ErrorDetail: errorDetail ?? string.Empty,
-                StateChanged: false),
+                StateChanged: false,
+                OutcomeReason: "failure"),
             RuntimeState: failedState);
     }
 }

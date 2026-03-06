@@ -108,5 +108,7 @@ public static class PortaExecutionConstants
         public const string RuntimeStateKey = "deep_work_notifications:current";
         public const string ContractVersion = "v1";
         public const int FailureBackoffSeconds = 60;
+        public const int EnableCooldownSeconds = 600;
+        public const int MinOnSeconds = 120;
     }
 }
