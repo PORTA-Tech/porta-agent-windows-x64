@@ -91,14 +91,48 @@ public sealed record LocalApiCurrentSnapshotResponse(
     double? CurrentQualityScore = null,
     bool? PartialData = null,
     IReadOnlyList<string>? MissingMajorChannels = null,
-    LocalApiCooldownsRemainingResponse? CooldownsRemaining = null);
+    LocalApiCooldownsRemainingResponse? CooldownsRemaining = null,
+    bool DeepWorkActive = false,
+    bool NotificationsSuppressed = false,
+    bool BrightnessAdjusted = false,
+    double? FComponent = null,
+    double? IComponent = null,
+    double? VComponent = null)
+{
+    // Step 18D pinned snake_case aliases for snapshot consumers.
+    public double overload_likelihood => OverloadLikelihood;
+    public double confidence => Confidence;
+    public double sustained_attention_duration_sec => SustainedAttentionDurationSec;
+    public LocalApiCooldownsRemainingResponse? cooldowns_remaining => CooldownsRemaining;
+    public string? contributors_json => ContributorsJson;
+    public string? state_flags_json => StateFlagsJson;
+    public bool overload_active => OverloadActive;
+    public bool deep_work_active => DeepWorkActive;
+    public bool notifications_suppressed => NotificationsSuppressed;
+    public bool brightness_adjusted => BrightnessAdjusted;
+    public double? F => FComponent;
+    public double? I => IComponent;
+    public double? V => VComponent;
+}
 
 public sealed record LocalApiCooldownsRemainingResponse(
-    int NotificationEnableSeconds,
-    int NotificationMinOnSeconds,
-    int BrightnessSeconds,
-    int BreakSuggestionSeconds,
-    bool AnyActive);
+    int BreakSuggestionSecRemaining,
+    int DeepWorkNotificationEnableSecRemaining,
+    int BrightnessActionSecRemaining,
+    int DeepWorkNotificationMinOnSecRemaining,
+    bool AnyActive)
+{
+    // Backward-compatible aliases for existing UI code.
+    public int BreakSuggestionSeconds => BreakSuggestionSecRemaining;
+    public int NotificationEnableSeconds => DeepWorkNotificationEnableSecRemaining;
+    public int BrightnessSeconds => BrightnessActionSecRemaining;
+    public int NotificationMinOnSeconds => DeepWorkNotificationMinOnSecRemaining;
+
+    // Step 18D pinned snake_case aliases.
+    public int break_suggestion_sec_remaining => BreakSuggestionSecRemaining;
+    public int deep_work_notification_enable_sec_remaining => DeepWorkNotificationEnableSecRemaining;
+    public int brightness_action_sec_remaining => BrightnessActionSecRemaining;
+}
 
 public sealed record LocalApiInputsSummaryResponse(
     DateTimeOffset FromUtc,
@@ -138,7 +172,15 @@ public sealed record LocalApiEventResponse(
     string HowToUndo,
     bool ReversalApplied,
     DateTimeOffset? CooldownEndTimestampUtc,
-    string LifecycleState);
+    string LifecycleState)
+{
+    // Step 18E pinned proof-trail aliases for events/recent consumers.
+    public long id => Id;
+    public DateTimeOffset ts_utc => TsUtc;
+    public string type => Type;
+    public string why_json => WhyJson;
+    public string? state_flags_json => StateFlagsJson;
+}
 
 public sealed record LocalApiTimelineResponse(
     DateTimeOffset FromUtc,

@@ -199,12 +199,10 @@ public static class LocalApiEndpointMapping
 
         api.MapGet("/events/recent", (IAgentCoreController controller, int? limit, DateTimeOffset? since) =>
         {
+            // Source order is pinned in SqliteBrainStateStore query:
+            // ORDER BY ts_utc DESC, id DESC
             IReadOnlyList<AgentControlEvent> events = controller.GetRecentEvents(limit ?? 50, since);
-            return events
-                .OrderByDescending(static ev => ev.TimestampUtc)
-                .ThenByDescending(static ev => ev.EventId)
-                .Select(ToEventResponse)
-                .ToList();
+            return events.Select(ToEventResponse).ToList();
         });
 
         api.MapGet("/events", (IAgentCoreController controller, HttpContext httpContext, int? limit) =>
@@ -351,6 +349,8 @@ public static class LocalApiEndpointMapping
         AgentBrainSnapshot snapshot,
         AgentLatestStateDetails? latestState = null)
     {
+        double overloadLikelihood = latestState?.OverloadLikelihood ?? snapshot.OverloadLikelihood;
+        double confidence = latestState?.Confidence ?? snapshot.Confidence;
         double idleFragmentationIndex = latestState?.IdleFragmentationIndex ?? snapshot.IdleFragmentationIndex;
         string stateFlagsJson = latestState?.StateFlagsJson ?? snapshot.StateFlagsJson;
         string contributorsJson = latestState?.ContributorsJson ?? snapshot.ContributorsJson;
@@ -361,9 +361,14 @@ public static class LocalApiEndpointMapping
             (0.50d * idleFragmentationIndex)
             + (0.35d * Clamp01(snapshot.SmoothedFocusSwitchRate))
             + (0.15d * entropyNorm));
-        LocalApiCooldownsRemainingResponse cooldownsRemaining = BuildCooldownsRemaining(stateFlagsJson);
         string normalizedStateFlagsJson = EnsureSchemaV1Json(stateFlagsJson, "{\"schema_ver\":1}");
         string normalizedContributorsJson = EnsureSchemaV1Json(contributorsJson, "{\"schema_ver\":1}");
+        LocalApiCooldownsRemainingResponse cooldownsRemaining = BuildCooldownsRemaining(normalizedStateFlagsJson);
+        overloadActive = ReadBoolFlag(normalizedStateFlagsJson, "overload_active", overloadActive);
+        bool deepWorkActive = ReadBoolFlag(normalizedStateFlagsJson, "deep_work_active");
+        bool notificationsSuppressed = ReadBoolFlag(normalizedStateFlagsJson, "notifications_suppressed");
+        bool brightnessAdjusted = ReadBoolFlag(normalizedStateFlagsJson, "brightness_adjusted");
+        (double? fComponent, double? iComponent, double? vComponent) = ReadFivComponents(normalizedContributorsJson);
 
         return new LocalApiCurrentSnapshotResponse(
             snapshot.TimestampUtc,
@@ -374,12 +379,12 @@ public static class LocalApiEndpointMapping
             snapshot.SmoothedScrollVelocityIndex,
             snapshot.SmoothedFocusSwitchRate,
             snapshot.FocusStrength,
-            snapshot.OverloadLikelihood,
+            overloadLikelihood,
             snapshot.FatigueProbability,
             snapshot.CognitiveStability,
             snapshot.DominantStateValue,
             snapshot.DominantStateName,
-            snapshot.Confidence,
+            confidence,
             snapshot.LastAction,
             snapshot.ActivationWindowTriggered,
             snapshot.CooldownTriggered,
@@ -398,7 +403,13 @@ public static class LocalApiEndpointMapping
             latestState?.CurrentQualityScore,
             latestState?.PartialData,
             latestState?.MissingMajorChannels,
-            cooldownsRemaining);
+            cooldownsRemaining,
+            deepWorkActive,
+            notificationsSuppressed,
+            brightnessAdjusted,
+            fComponent,
+            iComponent,
+            vComponent);
     }
 
     private static double Clamp01(double value) => Math.Clamp(value, 0d, 1d);
@@ -406,22 +417,96 @@ public static class LocalApiEndpointMapping
     private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(string? stateFlagsJson)
     {
         long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        int notificationEnableSeconds = RemainingSeconds(ReadInt64Flag(stateFlagsJson, "notification_enable_cooldown_until_utc_ms"), nowMs);
-        int notificationMinOnSeconds = RemainingSeconds(ReadInt64Flag(stateFlagsJson, "notification_min_on_until_utc_ms"), nowMs);
-        int brightnessSeconds = RemainingSeconds(ReadInt64Flag(stateFlagsJson, "brightness_cooldown_until_utc_ms"), nowMs);
+        int deepWorkNotificationEnableSeconds = RemainingSeconds(ReadInt64Flag(stateFlagsJson, "notification_enable_cooldown_until_utc_ms"), nowMs);
+        int deepWorkNotificationMinOnSeconds = RemainingSeconds(ReadInt64Flag(stateFlagsJson, "notification_min_on_until_utc_ms"), nowMs);
+        int brightnessActionSeconds = RemainingSeconds(ReadInt64Flag(stateFlagsJson, "brightness_cooldown_until_utc_ms"), nowMs);
         int breakSuggestionSeconds = RemainingSeconds(
             ReadInt64Flag(stateFlagsJson, "break_cooldown_until_utc_ms", "cooldown_end_ts_ms"),
             nowMs);
 
         return new LocalApiCooldownsRemainingResponse(
-            NotificationEnableSeconds: notificationEnableSeconds,
-            NotificationMinOnSeconds: notificationMinOnSeconds,
-            BrightnessSeconds: brightnessSeconds,
-            BreakSuggestionSeconds: breakSuggestionSeconds,
-            AnyActive: notificationEnableSeconds > 0
-                || notificationMinOnSeconds > 0
-                || brightnessSeconds > 0
+            BreakSuggestionSecRemaining: breakSuggestionSeconds,
+            DeepWorkNotificationEnableSecRemaining: deepWorkNotificationEnableSeconds,
+            BrightnessActionSecRemaining: brightnessActionSeconds,
+            DeepWorkNotificationMinOnSecRemaining: deepWorkNotificationMinOnSeconds,
+            AnyActive: deepWorkNotificationEnableSeconds > 0
+                || deepWorkNotificationMinOnSeconds > 0
+                || brightnessActionSeconds > 0
                 || breakSuggestionSeconds > 0);
+    }
+
+    private static bool ReadBoolFlag(string? json, string name, bool fallback = false)
+    {
+        if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(name))
+        {
+            return fallback;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty(name, out JsonElement node))
+            {
+                return fallback;
+            }
+
+            return node.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Number when node.TryGetInt32(out int numeric) => numeric != 0,
+                _ => fallback
+            };
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
+    private static (double? F, double? I, double? V) ReadFivComponents(string? contributorsJson)
+    {
+        if (string.IsNullOrWhiteSpace(contributorsJson))
+        {
+            return (null, null, null);
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(contributorsJson);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("components", out JsonElement components)
+                || components.ValueKind != JsonValueKind.Object)
+            {
+                return (null, null, null);
+            }
+
+            return (
+                ReadComponentValue(components, "F"),
+                ReadComponentValue(components, "I"),
+                ReadComponentValue(components, "V"));
+        }
+        catch
+        {
+            return (null, null, null);
+        }
+    }
+
+    private static double? ReadComponentValue(JsonElement components, string key)
+    {
+        if (!components.TryGetProperty(key, out JsonElement component)
+            || component.ValueKind != JsonValueKind.Object
+            || !component.TryGetProperty("value", out JsonElement value)
+            || value.ValueKind != JsonValueKind.Number
+            || !value.TryGetDouble(out double parsed))
+        {
+            return null;
+        }
+
+        return parsed;
     }
 
     private static int RemainingSeconds(long untilUtcMs, long nowUtcMs)

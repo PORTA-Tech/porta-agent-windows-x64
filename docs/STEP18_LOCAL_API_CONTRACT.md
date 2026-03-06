@@ -27,17 +27,22 @@ Compatibility fields are still exposed in parallel (`notificationSuppressionActi
 
 Snapshot payload includes:
 
-- `overloadLikelihood`
+- `overloadLikelihood` + alias `overload_likelihood`
 - `confidence`
-- `sustainedAttentionDurationSec`
+- `sustainedAttentionDurationSec` + alias `sustained_attention_duration_sec`
 - `cooldownsRemaining`:
-  - `notificationEnableSeconds`
-  - `notificationMinOnSeconds`
-  - `brightnessSeconds`
-  - `breakSuggestionSeconds`
+  - `breakSuggestionSecRemaining` + alias `break_suggestion_sec_remaining`
+  - `deepWorkNotificationEnableSecRemaining` + alias `deep_work_notification_enable_sec_remaining`
+  - `brightnessActionSecRemaining` + alias `brightness_action_sec_remaining`
+  - `deepWorkNotificationMinOnSecRemaining`
   - `anyActive`
-- `contributorsJson` with `schema_ver: 1`
-- `stateFlagsJson` with `schema_ver: 1`
+- `contributorsJson` + alias `contributors_json`, with `schema_ver: 1`
+- `stateFlagsJson` + alias `state_flags_json`, with `schema_ver: 1`
+- `FComponent / IComponent / VComponent` + aliases `F/I/V` (when present in contributors JSON)
+- `overloadActive` + alias `overload_active`
+- `deepWorkActive` + alias `deep_work_active`
+- `notificationsSuppressed` + alias `notifications_suppressed`
+- `brightnessAdjusted` + alias `brightness_adjusted`
 
 ## `/v1/events/recent`
 
@@ -45,4 +50,20 @@ Pinned ordering:
 
 - `ORDER BY ts_utc DESC, id DESC`
 
-API layer also enforces the same sort before response mapping.
+Event response includes proof-trail fields:
+
+- `id`
+- `ts_utc` (also available as `tsUtc`)
+- `type`
+- `why_json` (also available as `whyJson`)
+- `state_flags_json` (also available as `stateFlagsJson`, nullable)
+
+Expected recent action coverage includes:
+
+- `DEEP_WORK_NOTIFICATIONS_SUPPRESSED`
+- `DEEP_WORK_NOTIFICATIONS_RESTORED`
+- `OVERLOAD_BRIGHTNESS_REDUCED`
+- `OVERLOAD_BRIGHTNESS_RESTORED`
+- `NOTIFICATION_SUPPRESS_FAILED`
+- `BRIGHTNESS_CONTROL_FAILED`
+- `BREAK_SUGGESTION`
