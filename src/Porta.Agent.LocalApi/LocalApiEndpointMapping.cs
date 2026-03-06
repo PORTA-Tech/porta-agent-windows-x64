@@ -149,8 +149,11 @@ public static class LocalApiEndpointMapping
                 status.NotificationSuppressionReady,
                 status.NotificationSuppressionLastError,
                 status.NotificationSuppressionBackoffUntilUtc,
+                status.BrightnessActionReady,
+                status.BrightnessActionActive,
                 status.BrightnessSupported,
-                status.BrightnessAdjusted,
+                status.BrightnessCurrentLevel,
+                status.BrightnessTargetLevel,
                 status.BrightnessLastError,
                 status.BrightnessBackoffUntilUtc,
                 status.LastUpdatedUtc);

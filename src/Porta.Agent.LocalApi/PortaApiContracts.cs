@@ -26,8 +26,11 @@ public sealed record LocalApiStatusResponse(
     bool NotificationSuppressionReady,
     string? NotificationSuppressionLastError,
     DateTimeOffset? NotificationSuppressionBackoffUntilUtc,
+    bool BrightnessActionReady,
+    bool BrightnessActionActive,
     bool BrightnessSupported,
-    bool BrightnessAdjusted,
+    int BrightnessCurrentLevel,
+    int BrightnessTargetLevel,
     string? BrightnessLastError,
     DateTimeOffset? BrightnessBackoffUntilUtc,
     DateTimeOffset LastUpdatedUtc);

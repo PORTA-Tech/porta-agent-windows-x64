@@ -148,8 +148,11 @@ public sealed class AgentCoreController : IAgentCoreController
                 NotificationSuppressionReady: suppressionStatus.Ready,
                 NotificationSuppressionLastError: suppressionStatus.LastError,
                 NotificationSuppressionBackoffUntilUtc: suppressionStatus.BackoffUntilUtc,
+                BrightnessActionReady: brightnessStatus.ActionReady,
+                BrightnessActionActive: brightnessStatus.Active,
                 BrightnessSupported: brightnessStatus.Supported,
-                BrightnessAdjusted: brightnessStatus.Active,
+                BrightnessCurrentLevel: brightnessStatus.CurrentLevel,
+                BrightnessTargetLevel: brightnessStatus.TargetLevel,
                 BrightnessLastError: brightnessStatus.LastError,
                 BrightnessBackoffUntilUtc: brightnessStatus.BackoffUntilUtc,
                 LastUpdatedUtc: DateTimeOffset.UtcNow);

@@ -64,6 +64,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         _connectionString = DbOpen.BuildConnectionString(_dbPath);
         EnsureSchema();
         TryReconcileNotificationSuppressionOnStartup();
+        TryReconcileBrightnessActionOnStartup();
     }
 
     public void WriteSnapshot(AgentBrainSnapshot snapshot)
@@ -129,6 +130,47 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             {
                 TryRollback(tx);
                 Console.WriteLine($"startup_notification_reconcile_failed error={ex.GetType().Name}:{ex.Message}");
+            }
+        }
+    }
+
+    private void TryReconcileBrightnessActionOnStartup()
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            try
+            {
+                DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+                BrightnessActionRuntimeState existingState = ReadBrightnessActionRuntimeState(connection, tx);
+                BrightnessStartupReconciliation reconciliation = _overloadBrightnessActionCoordinator.ReconcileOnStartup(
+                    existingState,
+                    nowUtc);
+
+                if (reconciliation.Reconciled || !existingState.Equals(reconciliation.RuntimeState))
+                {
+                    long bucketSeq = Math.Max(
+                        existingState.LastTransitionSourceBucketSeq,
+                        reconciliation.RuntimeState.LastTransitionSourceBucketSeq);
+                    string updatedUtc = nowUtc.ToString("O");
+                    UpsertRuntimeStateValue(
+                        connection,
+                        tx,
+                        PortaExecutionConstants.BrightnessAdjustment.RuntimeStateKey,
+                        BuildBrightnessActionRuntimeStateJson(
+                            bucketSeq,
+                            updatedUtc,
+                            reconciliation.RuntimeState),
+                        updatedUtc);
+                }
+
+                tx.Commit();
+            }
+            catch (Exception ex)
+            {
+                TryRollback(tx);
+                Console.WriteLine($"startup_brightness_reconcile_failed error={ex.GetType().Name}:{ex.Message}");
             }
         }
     }
@@ -2128,6 +2170,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             {
                 return new AgentBrightnessActionStatus(
                     Supported: true,
+                    ActionReady: true,
                     Active: false,
                     RampDirection: "idle",
                     PreviousLevel: -1,
@@ -2138,14 +2181,19 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     CooldownUntilUtc: null);
             }
 
+            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+            bool inBackoff = parsed.BackoffUntilUtcMs > nowUtc.ToUnixTimeMilliseconds();
+            string? lastError = string.IsNullOrWhiteSpace(parsed.LastErrorCode) ? null : parsed.LastErrorCode;
+            bool actionReady = parsed.BrightnessSupported && !inBackoff && lastError is null;
             return new AgentBrightnessActionStatus(
                 Supported: parsed.BrightnessSupported,
+                ActionReady: actionReady,
                 Active: parsed.Active,
                 RampDirection: parsed.RampDirection,
                 PreviousLevel: parsed.PreviousLevel,
                 TargetLevel: parsed.TargetLevel,
                 CurrentLevel: parsed.CurrentLevel,
-                LastError: string.IsNullOrWhiteSpace(parsed.LastErrorCode) ? null : parsed.LastErrorCode,
+                LastError: lastError,
                 BackoffUntilUtc: ToOptionalUtc(parsed.BackoffUntilUtcMs),
                 CooldownUntilUtc: ToOptionalUtc(parsed.CooldownUntilUtcMs));
         }
@@ -3611,6 +3659,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             schema_ver = 1,
             policy = "overload_brightness_v1",
             action,
+            reason = ResolveOverloadBrightnessReason(action, transitionExecution.Outcome),
             outcome = new
             {
                 reason = transitionExecution.Outcome.OutcomeReason,
@@ -3731,18 +3780,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             {
                 return previousState.LoggedUnsupported
                     ? string.Empty
-                    : "overload_brightness_unsupported";
+                    : "brightness_unsupported";
             }
 
-            if (outcome.EnteringOverload || outcome.ReduceAttempted)
-            {
-                return "overload_brightness_failed";
-            }
-
-            if (outcome.ExitingOverload || outcome.RestoreAttempted)
-            {
-                return "overload_brightness_restore_failed";
-            }
+            return "brightness_control_failed";
         }
 
         return string.Empty;
@@ -3754,11 +3795,40 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         {
             "overload_brightness_reduced" => "Display brightness entered reduced mode for overload dampening.",
             "overload_brightness_restored" => "Display brightness restoration to pre-overload level completed.",
-            "overload_brightness_unsupported" => "Brightness control is unsupported on this device; no change applied.",
-            "overload_brightness_failed" => "Failed to reduce brightness while overload mode was active.",
-            "overload_brightness_restore_failed" => "Failed to restore brightness after overload mode ended.",
+            "brightness_unsupported" => "Brightness control is unsupported on this device; no change applied.",
+            "brightness_control_failed" => "Brightness control operation failed during overload brightness handling.",
             _ => "No brightness action change."
         };
+    }
+
+    private static string ResolveOverloadBrightnessReason(string action, OverloadBrightnessActionOutcome outcome)
+    {
+        if (action == "overload_brightness_reduced")
+        {
+            return "session_started";
+        }
+
+        if (action == "overload_brightness_restored")
+        {
+            return "restore_completed";
+        }
+
+        if (action == "brightness_unsupported")
+        {
+            return "unsupported";
+        }
+
+        if (action == "brightness_control_failed")
+        {
+            if (outcome.RestoreAttempted || outcome.ExitingOverload)
+            {
+                return "restore_failed";
+            }
+
+            return "reduce_failed";
+        }
+
+        return "unknown";
     }
 
     private static string ResolveDeepWorkNotificationAction(DeepWorkActionOutcome outcome)
@@ -4483,12 +4553,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         long windowStartMs = ResolveOverloadBrightnessTransitionWindowStartMs(normalizedAction, eventTsMs);
         string keyPrefix = normalizedAction switch
         {
-            "overload_brightness_reduced" => "ovr_brightness_on",
-            "overload_brightness_restored" => "ovr_brightness_off",
-            "overload_brightness_unsupported" => "ovr_brightness_unsupported",
-            "overload_brightness_failed" => "ovr_brightness_on_fail",
-            "overload_brightness_restore_failed" => "ovr_brightness_off_fail",
-            _ => "ovr_brightness"
+            "overload_brightness_reduced" => "brightness_on",
+            "overload_brightness_restored" => "brightness_off",
+            "brightness_unsupported" => "brightness_unsupported",
+            "brightness_control_failed" => "brightness_fail",
+            _ => "brightness"
         };
         return $"{keyPrefix}:v1:{windowStartMs}";
     }
@@ -4512,10 +4581,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         long windowMs = action switch
         {
             "overload_brightness_reduced" => PortaExecutionConstants.OverloadStabilization.DwellOnSeconds * 1000L,
-            "overload_brightness_failed" => PortaExecutionConstants.OverloadStabilization.DwellOnSeconds * 1000L,
-            "overload_brightness_unsupported" => PortaExecutionConstants.OverloadStabilization.DwellOnSeconds * 1000L,
+            "brightness_control_failed" => PortaExecutionConstants.OverloadStabilization.DwellOnSeconds * 1000L,
+            "brightness_unsupported" => PortaExecutionConstants.OverloadStabilization.DwellOnSeconds * 1000L,
             "overload_brightness_restored" => PortaExecutionConstants.OverloadStabilization.DwellOffSeconds * 1000L,
-            "overload_brightness_restore_failed" => PortaExecutionConstants.OverloadStabilization.DwellOffSeconds * 1000L,
             _ => Time.bucketSeconds * 1000L
         };
         return ResolveWindowStartMs(eventTsMs, windowMs);

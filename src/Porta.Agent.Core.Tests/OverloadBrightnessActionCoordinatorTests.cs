@@ -204,6 +204,62 @@ public sealed class OverloadBrightnessActionCoordinatorTests
     }
 
     [Fact]
+    public void ReconcileOnStartup_ActiveRampingDown_AlignsCurrentLevelAndKeepsDirection()
+    {
+        var fake = new FakeBrightnessController
+        {
+            Supported = true,
+            CurrentLevel = 69
+        };
+        var coordinator = new OverloadBrightnessActionCoordinator(fake);
+        BrightnessActionRuntimeState state = BrightnessActionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            PreviousLevel = 72,
+            TargetLevel = 67,
+            CurrentLevel = 70,
+            RampDirection = "down",
+            ActionState = "ramping_down"
+        };
+
+        BrightnessStartupReconciliation reconciliation = coordinator.ReconcileOnStartup(state, DateTimeOffset.UtcNow);
+
+        Assert.True(reconciliation.Reconciled);
+        Assert.True(reconciliation.RuntimeState.Active);
+        Assert.Equal("down", reconciliation.RuntimeState.RampDirection);
+        Assert.Equal(69, reconciliation.RuntimeState.CurrentLevel);
+    }
+
+    [Fact]
+    public void ReconcileOnStartup_ActiveRampingUpAndRestored_CompletesSessionAndCooldown()
+    {
+        var fake = new FakeBrightnessController
+        {
+            Supported = true,
+            CurrentLevel = 72
+        };
+        var coordinator = new OverloadBrightnessActionCoordinator(fake);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        BrightnessActionRuntimeState state = BrightnessActionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            PreviousLevel = 72,
+            TargetLevel = 67,
+            CurrentLevel = 70,
+            RampDirection = "up",
+            ActionState = "ramping_up"
+        };
+
+        BrightnessStartupReconciliation reconciliation = coordinator.ReconcileOnStartup(state, now);
+
+        Assert.True(reconciliation.Reconciled);
+        Assert.False(reconciliation.RuntimeState.Active);
+        Assert.Equal("idle", reconciliation.RuntimeState.RampDirection);
+        Assert.Equal("restored", reconciliation.RuntimeState.ActionState);
+        Assert.True(reconciliation.RuntimeState.CooldownUntilUtcMs >= now.ToUnixTimeMilliseconds() + 600_000 - 1);
+    }
+
+    [Fact]
     public void HandleOverloadTransition_ClampsOutgoingSetLevelTo_0_100()
     {
         var fake = new FakeBrightnessController

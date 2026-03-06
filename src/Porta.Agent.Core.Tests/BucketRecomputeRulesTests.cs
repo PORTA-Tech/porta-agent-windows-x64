@@ -169,6 +169,7 @@ public sealed class BucketRecomputeRulesTests
         public AgentBrightnessActionStatus ReadBrightnessActionStatus()
             => new(
                 Supported: true,
+                ActionReady: true,
                 Active: false,
                 RampDirection: "idle",
                 PreviousLevel: -1,

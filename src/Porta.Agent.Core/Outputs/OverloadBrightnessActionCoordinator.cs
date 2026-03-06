@@ -60,11 +60,20 @@ public readonly record struct OverloadBrightnessTransitionExecution(
     OverloadBrightnessActionOutcome Outcome,
     BrightnessActionRuntimeState RuntimeState);
 
+public readonly record struct BrightnessStartupReconciliation(
+    BrightnessActionRuntimeState RuntimeState,
+    bool Reconciled,
+    string OutcomeReason);
+
 public interface IOverloadBrightnessActionCoordinator
 {
     OverloadBrightnessTransitionExecution HandleOverloadTransition(
         OverloadTransitionContext context,
         BrightnessActionRuntimeState runtimeState);
+
+    BrightnessStartupReconciliation ReconcileOnStartup(
+        BrightnessActionRuntimeState runtimeState,
+        DateTimeOffset nowUtc);
 }
 
 public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessActionCoordinator
@@ -113,6 +122,144 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
         }
 
         return NoOp(state, "no_transition");
+    }
+
+    public BrightnessStartupReconciliation ReconcileOnStartup(
+        BrightnessActionRuntimeState runtimeState,
+        DateTimeOffset nowUtc)
+    {
+        BrightnessActionRuntimeState state = NormalizeRuntimeState(runtimeState);
+        long nowUtcMs = nowUtc.ToUnixTimeMilliseconds();
+
+        if (!state.Active)
+        {
+            return new BrightnessStartupReconciliation(
+                RuntimeState: state,
+                Reconciled: false,
+                OutcomeReason: "startup_inactive");
+        }
+
+        if (!_brightnessController.IsSupported())
+        {
+            BrightnessActionRuntimeState unsupported = state with
+            {
+                Active = false,
+                BrightnessSupported = false,
+                RampDirection = "idle",
+                LastErrorCode = "brightness_unsupported",
+                BackoffUntilUtcMs = Math.Max(
+                    state.BackoffUntilUtcMs,
+                    checked(nowUtcMs + (PortaExecutionConstants.BrightnessAdjustment.FailureBackoffSeconds * 1000L))),
+                LoggedUnsupported = true,
+                ActionState = "startup_unsupported"
+            };
+            return new BrightnessStartupReconciliation(
+                RuntimeState: unsupported,
+                Reconciled: true,
+                OutcomeReason: "startup_unsupported");
+        }
+
+        BrightnessControllerLevelResult levelResult = _brightnessController.GetLevel();
+        if (!levelResult.Succeeded || !levelResult.IsSupported)
+        {
+            string errorCode = string.IsNullOrWhiteSpace(levelResult.ErrorCode)
+                ? "startup_brightness_get_failed"
+                : levelResult.ErrorCode;
+            BrightnessActionRuntimeState failed = state with
+            {
+                BrightnessSupported = true,
+                LastErrorCode = errorCode,
+                BackoffUntilUtcMs = Math.Max(
+                    state.BackoffUntilUtcMs,
+                    checked(nowUtcMs + (PortaExecutionConstants.BrightnessAdjustment.FailureBackoffSeconds * 1000L))),
+                ActionState = "startup_reconcile_failed"
+            };
+            return new BrightnessStartupReconciliation(
+                RuntimeState: failed,
+                Reconciled: true,
+                OutcomeReason: "startup_get_level_failed");
+        }
+
+        int actualLevel = ClampLevel(levelResult.Level);
+        string direction = NormalizeDirection(state.RampDirection);
+        if (direction == "idle")
+        {
+            if (actualLevel > state.TargetLevel)
+            {
+                direction = "down";
+            }
+            else if (actualLevel < state.PreviousLevel)
+            {
+                direction = "up";
+            }
+        }
+
+        BrightnessActionRuntimeState reconciled = state with
+        {
+            BrightnessSupported = true,
+            CurrentLevel = actualLevel,
+            LastChangeUtcMs = nowUtcMs,
+            LastErrorCode = string.Empty,
+            BackoffUntilUtcMs = 0
+        };
+
+        if (direction == "down")
+        {
+            if (actualLevel <= state.TargetLevel)
+            {
+                reconciled = reconciled with
+                {
+                    Active = true,
+                    RampDirection = "idle",
+                    ActionState = "dimmed"
+                };
+            }
+            else
+            {
+                reconciled = reconciled with
+                {
+                    Active = true,
+                    RampDirection = "down",
+                    ActionState = "ramping_down"
+                };
+            }
+        }
+        else if (direction == "up")
+        {
+            if (actualLevel >= state.PreviousLevel)
+            {
+                reconciled = reconciled with
+                {
+                    Active = false,
+                    RampDirection = "idle",
+                    CooldownUntilUtcMs = checked(nowUtcMs + (PortaExecutionConstants.BrightnessAdjustment.CooldownSeconds * 1000L)),
+                    ActionState = "restored"
+                };
+            }
+            else
+            {
+                reconciled = reconciled with
+                {
+                    Active = true,
+                    RampDirection = "up",
+                    ActionState = "ramping_up"
+                };
+            }
+        }
+        else
+        {
+            reconciled = reconciled with
+            {
+                Active = actualLevel < state.PreviousLevel,
+                RampDirection = "idle",
+                ActionState = actualLevel >= state.PreviousLevel ? "restored" : "dimmed"
+            };
+        }
+
+        return new BrightnessStartupReconciliation(
+            RuntimeState: reconciled,
+            Reconciled: !reconciled.Equals(state),
+            OutcomeReason: "startup_reconciled");
     }
 
     private OverloadBrightnessTransitionExecution HandleEntering(
@@ -424,13 +571,7 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
         string actionState = string.IsNullOrWhiteSpace(runtimeState.ActionState)
             ? (runtimeState.Active ? "active" : "inactive")
             : runtimeState.ActionState;
-        string rampDirection = string.IsNullOrWhiteSpace(runtimeState.RampDirection)
-            ? "idle"
-            : runtimeState.RampDirection.Trim().ToLowerInvariant();
-        if (rampDirection is not ("up" or "down" or "idle"))
-        {
-            rampDirection = "idle";
-        }
+        string rampDirection = NormalizeDirection(runtimeState.RampDirection);
 
         return new BrightnessActionRuntimeState(
             SchemaVer: runtimeState.SchemaVer <= 0 ? 1 : runtimeState.SchemaVer,
@@ -447,6 +588,16 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
             LastTransitionSourceBucketSeq: Math.Max(0, runtimeState.LastTransitionSourceBucketSeq),
             LoggedUnsupported: runtimeState.LoggedUnsupported,
             ActionState: actionState);
+    }
+
+    private static string NormalizeDirection(string direction)
+    {
+        string normalized = string.IsNullOrWhiteSpace(direction)
+            ? "idle"
+            : direction.Trim().ToLowerInvariant();
+        return normalized is "up" or "down" or "idle"
+            ? normalized
+            : "idle";
     }
 
     private static OverloadBrightnessTransitionExecution BuildFailure(
