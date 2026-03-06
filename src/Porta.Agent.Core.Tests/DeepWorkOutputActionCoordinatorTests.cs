@@ -75,6 +75,30 @@ public sealed class DeepWorkOutputActionCoordinatorTests
     }
 
     [Fact]
+    public void HandleDeepWorkTransition_ExitingAfterMinOnElapsed_Restores()
+    {
+        var fake = new FakeNotificationController();
+        var coordinator = new DeepWorkOutputActionCoordinator(fake);
+        NotificationControllerSnapshot snapshot = fake.BuildValidSnapshot();
+        long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        NotificationSuppressionRuntimeState state = NotificationSuppressionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            Snapshot = snapshot,
+            MinOnUntilUtcMs = nowMs - 1
+        };
+
+        DeepWorkTransitionExecution execution = coordinator.HandleDeepWorkTransition(
+            BuildContext(previousActive: true, currentActive: false),
+            state);
+
+        Assert.True(execution.Outcome.Succeeded);
+        Assert.True(execution.Outcome.RestoreAttempted);
+        Assert.Equal("restored", execution.Outcome.OutcomeReason);
+        Assert.False(execution.RuntimeState.Active);
+    }
+
+    [Fact]
     public void HandleDeepWorkTransition_ExitingWithoutSnapshot_ReturnsTypedFailure()
     {
         var fake = new FakeNotificationController();
@@ -205,6 +229,40 @@ public sealed class DeepWorkOutputActionCoordinatorTests
     }
 
     [Fact]
+    public void HandleDeepWorkTransition_ApplyFailure_SetsBackoffAndSkipsRetryDuringBackoff()
+    {
+        var fake = new FakeNotificationController
+        {
+            ApplyResult = new NotificationControllerActionResult(
+                Succeeded: false,
+                ErrorCode: "APPLY_FAILED",
+                ErrorDetail: "unit test apply failure",
+                StateChanged: false)
+        };
+        var coordinator = new DeepWorkOutputActionCoordinator(fake);
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+
+        DeepWorkTransitionExecution first = coordinator.HandleDeepWorkTransition(
+            BuildContext(previousActive: false, currentActive: true, nowUtc: nowUtc),
+            NotificationSuppressionRuntimeState.CreateDefault());
+
+        Assert.False(first.Outcome.Succeeded);
+        Assert.Equal("APPLY_FAILED", first.Outcome.ErrorCode);
+        Assert.True(first.RuntimeState.BackoffUntilUtcMs > nowUtc.ToUnixTimeMilliseconds());
+        Assert.Equal(1, fake.GetSnapshotCalls);
+        Assert.Equal(1, fake.ApplyCalls);
+
+        DeepWorkTransitionExecution second = coordinator.HandleDeepWorkTransition(
+            BuildContext(previousActive: false, currentActive: true, nowUtc: nowUtc.AddSeconds(30)),
+            first.RuntimeState);
+
+        Assert.True(second.Outcome.Succeeded);
+        Assert.Equal("backoff_active", second.Outcome.OutcomeReason);
+        Assert.Equal(1, fake.GetSnapshotCalls);
+        Assert.Equal(1, fake.ApplyCalls);
+    }
+
+    [Fact]
     public void ReconcileOnStartup_InactiveState_NoActionNeeded()
     {
         var fake = new FakeNotificationController();
@@ -321,11 +379,11 @@ public sealed class DeepWorkOutputActionCoordinatorTests
         Assert.Equal("startup_discrepancy_cleared", reconciliation.RuntimeState.ActionState);
     }
 
-    private static DeepWorkTransitionContext BuildContext(bool previousActive, bool currentActive)
+    private static DeepWorkTransitionContext BuildContext(bool previousActive, bool currentActive, DateTimeOffset? nowUtc = null)
     {
         return new DeepWorkTransitionContext(
             BucketSeq: 99,
-            BucketEndUtc: DateTimeOffset.UtcNow,
+            BucketEndUtc: nowUtc ?? DateTimeOffset.UtcNow,
             PreviousDeepWorkActive: previousActive,
             CurrentDeepWorkActive: currentActive,
             BaselineReady: true,

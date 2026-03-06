@@ -36,7 +36,7 @@ internal sealed class AgentService : IHostedService, IDisposable
         });
 
         builder.Services.AddPortaLocalApi();
-        builder.Services.AddSingleton<INotificationController, NoOpNotificationController>();
+        builder.Services.AddSingleton<INotificationController, WindowsNotificationController>();
         builder.Services.AddSingleton<IDeepWorkOutputActionCoordinator, DeepWorkOutputActionCoordinator>();
         builder.Services.AddSingleton<BucketFinalizerStateStore>(sp =>
             new BucketFinalizerStateStore(new SqliteBrainStateStore(
