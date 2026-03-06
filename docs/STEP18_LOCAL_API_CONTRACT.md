@@ -115,6 +115,14 @@ Null/partial behavior:
 - Durations are integers in seconds and use `_sec`/`_sec_remaining` naming.
 - Timestamps exposed for diagnostics use ISO UTC millisecond strings with `_utc` suffix.
 
+## Do Not
+
+- Do not compute business logic inside endpoint handlers/controllers.
+- Do not expose raw secrets or token material in API payloads/logs.
+- Do not let UI depend directly on private DB schemas.
+- Do not omit `schema_ver` in JSON blobs.
+- Do not use inconsistent field naming across endpoints for the same concept.
+
 ## `/v1/events/recent`
 
 Pinned ordering:

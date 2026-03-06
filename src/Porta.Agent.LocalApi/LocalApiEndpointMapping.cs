@@ -156,7 +156,7 @@ public static class LocalApiEndpointMapping
             // Source order is pinned in SqliteBrainStateStore query:
             // ORDER BY ts_utc DESC, id DESC
             IReadOnlyList<AgentControlEvent> events = controller.GetRecentEvents(limit ?? 50, since);
-            return events.Select(EventMapper.Map).ToList();
+            return EventMapper.MapRecentOrdered(events);
         });
 
         api.MapGet("/events", (IAgentCoreController controller, HttpContext httpContext, int? limit) =>
