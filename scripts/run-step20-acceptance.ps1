@@ -6,7 +6,7 @@ Set-Location $repoRoot
 Write-Host "Running Step 20 acceptance gates..." -ForegroundColor Cyan
 
 $testProject = "src/Porta.Agent.Core.Tests/Porta.Agent.Core.Tests.csproj"
-$filter = "FullyQualifiedName~Step20AcceptanceGatesTests"
+$filter = "Category=AcceptanceGate"
 
 dotnet test $testProject --filter $filter -v minimal
 if ($LASTEXITCODE -ne 0) {
