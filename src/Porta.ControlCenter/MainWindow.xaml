@@ -127,6 +127,7 @@
                         <TextBlock x:Name="TrustBadgeText" Text="Trust: Low" />
                     </Border>
                     <TextBlock x:Name="TopBarHintText" Text="" VerticalAlignment="Center" Foreground="#FB923C" Margin="0,0,16,0" Visibility="Collapsed" />
+                    <Button x:Name="WhyDrawerToggleButton" Content="Why" Padding="12,6" Margin="0,0,10,0" Click="WhyDrawerToggleButton_Click" />
                     <Button x:Name="QuickPauseResumeButton" Content="Pause" Padding="12,6" Margin="0,0,10,0" Click="QuickPauseResumeButton_Click" />
                     <Button x:Name="RefreshButton" Content="Refresh" Padding="12,6" Margin="0,0,10,0" Click="RefreshButton_Click" />
                     <Menu Background="Transparent" Foreground="#E2E8F0" VerticalAlignment="Center">
@@ -174,6 +175,12 @@
                                 <StackPanel>
                                     <TextBlock Text="Focus streak" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock x:Name="NowFocusStreakValueText" Text="Focused time: Not available" FontSize="26" FontWeight="Bold" />
+                                    <TextBlock x:Name="NowDeepWorkStreakText"
+                                               Text=""
+                                               Margin="0,6,0,0"
+                                               Foreground="{StaticResource PortaTextSecondaryBrush}"
+                                               FontWeight="SemiBold"
+                                               Visibility="Collapsed" />
                                     <TextBlock x:Name="NowFocusChoppinessText" Text="Choppiness: Not available" Margin="0,8,0,0" />
                                     <TextBlock x:Name="NowFocusFootnoteText" Text="Resets after 2+ minutes away." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" />
                                     <TextBlock x:Name="NowFocusStatusText" Text="" Margin="0,6,0,0" Foreground="#F59E0B" TextWrapping="Wrap" Visibility="Collapsed" />
@@ -238,10 +245,20 @@
                                 Padding="10,8"
                                 Margin="0,0,0,8"
                                 Visibility="Collapsed">
-                            <TextBlock x:Name="NowRecoveryBannerText"
-                                       Text=""
-                                       Foreground="#7FD1A3"
-                                       TextWrapping="Wrap" />
+                            <DockPanel LastChildFill="True">
+                                <Button x:Name="NowRecoveryDismissButton"
+                                        DockPanel.Dock="Right"
+                                        Content="Dismiss"
+                                        Padding="8,4"
+                                        Margin="8,0,0,0"
+                                        MinHeight="28"
+                                        Click="NowRecoveryDismissButton_Click" />
+                                <TextBlock x:Name="NowRecoveryBannerText"
+                                           Text=""
+                                           Foreground="#7FD1A3"
+                                           TextWrapping="Wrap"
+                                           VerticalAlignment="Center" />
+                            </DockPanel>
                         </Border>
                         <WrapPanel Margin="0,0,0,12" Visibility="Collapsed">
                             <Border Background="#111827" CornerRadius="8" Padding="10" Margin="0,0,8,8" BorderBrush="#1F2937" BorderThickness="1" Width="200">
@@ -975,6 +992,70 @@
                 </ScrollViewer>
             </Grid>
         </Grid>
+
+        <Border x:Name="WhyDrawerPanel"
+                Grid.Column="1"
+                Grid.RowSpan="2"
+                Width="380"
+                HorizontalAlignment="Right"
+                Margin="0,8,8,8"
+                Padding="12"
+                Background="#15181C"
+                BorderBrush="#303743"
+                BorderThickness="1"
+                CornerRadius="12"
+                Visibility="Collapsed"
+                Panel.ZIndex="200">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <DockPanel Margin="0,0,0,10">
+                        <TextBlock Text="Why"
+                                   DockPanel.Dock="Left"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   Foreground="#E6E9ED" />
+                        <Button DockPanel.Dock="Right"
+                                Content="Close"
+                                Padding="10,4"
+                                MinHeight="30"
+                                Click="WhyDrawerCloseButton_Click" />
+                    </DockPanel>
+
+                    <Border Background="#1B1F25" BorderBrush="#262B33" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="Current state" Foreground="#93C5FD" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <TextBlock x:Name="WhyDrawerStateText" Text="State: Not available" Foreground="#E6E9ED" TextWrapping="Wrap" />
+                            <TextBlock x:Name="WhyDrawerConfidenceText" Text="Confidence: Not available" Foreground="#CBD5E1" Margin="0,4,0,0" TextWrapping="Wrap" />
+                            <TextBlock x:Name="WhyDrawerFivText" Text="Clarity/Pressure/Jitter: Not available" Foreground="#CBD5E1" Margin="0,6,0,0" TextWrapping="Wrap" />
+                            <TextBlock x:Name="WhyDrawerContributorsText" Text="Top contributors: Not available" Foreground="#CBD5E1" Margin="0,6,0,0" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="#1B1F25" BorderBrush="#262B33" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="Policy status" Foreground="#93C5FD" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <TextBlock x:Name="WhyDrawerPolicyText" Text="Not available" Foreground="#E6E9ED" TextWrapping="Wrap" />
+                            <TextBlock x:Name="WhyDrawerCooldownText" Text="Cooldowns: Not available" Foreground="#CBD5E1" Margin="0,6,0,0" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="#1B1F25" BorderBrush="#262B33" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="Latest action states" Foreground="#93C5FD" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <TextBlock x:Name="WhyDrawerActionStateText" Text="Not available" Foreground="#E6E9ED" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="#1B1F25" BorderBrush="#262B33" BorderThickness="1" CornerRadius="8" Padding="10">
+                        <StackPanel>
+                            <TextBlock Text="Structured explanation" Foreground="#93C5FD" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <TextBlock x:Name="WhyDrawerContributorsSummaryText" Text="Contributors JSON: Not available" Foreground="#CBD5E1" TextWrapping="Wrap" />
+                            <TextBlock x:Name="WhyDrawerWhySummaryText" Text="Why JSON: Not available" Foreground="#CBD5E1" Margin="0,6,0,0" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
 
         <Border x:Name="ConsentOverlay" Grid.ColumnSpan="2" Background="#CC020617" Visibility="Collapsed">
             <Grid>

@@ -13,9 +13,15 @@ internal enum PortaVisualMode
     Overload
 }
 
+internal sealed record PortaModeTheme(
+    Color AccentColor,
+    Color BadgeColor,
+    Color StatusChipColor,
+    Color BackgroundTint);
+
 internal sealed record PortaVisualState(
     PortaVisualMode Mode,
-    Color AccentColor,
+    PortaModeTheme Theme,
     string ModeLabel,
     string TrustLabel,
     string FocusStreakText,
@@ -23,7 +29,10 @@ internal sealed record PortaVisualState(
     string OperatingSentence,
     bool OverloadActive,
     bool DeepWorkActive,
+    bool ShowDeepWorkStreak,
+    string DeepWorkStreakText,
     bool ShowRecoveryBanner,
+    long RecoveryEventId,
     string RecoveryBannerText,
     string WhySummary);
 
@@ -31,7 +40,31 @@ internal static class VisualStateAdapter
 {
     private const string NotAvailableText = "Not available";
     private const string WaitingForServiceDataText = "Waiting for service data";
-    private static readonly TimeSpan RecoveryBannerWindow = TimeSpan.FromMinutes(20);
+    private static readonly TimeSpan RecoveryBannerWindow = TimeSpan.FromSeconds(90);
+    private static readonly IReadOnlyDictionary<PortaVisualMode, PortaModeTheme> ThemeByMode =
+        new Dictionary<PortaVisualMode, PortaModeTheme>
+        {
+            [PortaVisualMode.Unavailable] = new(
+                AccentColor: Color.FromRgb(107, 116, 128),
+                BadgeColor: Color.FromRgb(71, 85, 105),
+                StatusChipColor: Color.FromRgb(51, 65, 85),
+                BackgroundTint: Color.FromArgb(0x10, 107, 116, 128)),
+            [PortaVisualMode.Normal] = new(
+                AccentColor: Color.FromRgb(127, 209, 163),
+                BadgeColor: Color.FromRgb(76, 118, 99),
+                StatusChipColor: Color.FromRgb(25, 90, 68),
+                BackgroundTint: Color.FromArgb(0x10, 127, 209, 163)),
+            [PortaVisualMode.DeepWork] = new(
+                AccentColor: Color.FromRgb(94, 200, 255),
+                BadgeColor: Color.FromRgb(57, 107, 136),
+                StatusChipColor: Color.FromRgb(18, 68, 102),
+                BackgroundTint: Color.FromArgb(0x12, 94, 200, 255)),
+            [PortaVisualMode.Overload] = new(
+                AccentColor: Color.FromRgb(255, 180, 84),
+                BadgeColor: Color.FromRgb(141, 98, 43),
+                StatusChipColor: Color.FromRgb(120, 74, 26),
+                BackgroundTint: Color.FromArgb(0x14, 255, 180, 84))
+        };
 
     public static PortaVisualState Build(
         LocalApiStatusResponse? status,
@@ -47,7 +80,7 @@ internal static class VisualStateAdapter
                 : fallbackExplanation;
             return new PortaVisualState(
                 Mode: PortaVisualMode.Unavailable,
-                AccentColor: Color.FromRgb(107, 116, 128),
+                Theme: ThemeByMode[PortaVisualMode.Unavailable],
                 ModeLabel: "Unavailable",
                 TrustLabel: NotAvailableText,
                 FocusStreakText: $"Focused time: {NotAvailableText}",
@@ -55,29 +88,36 @@ internal static class VisualStateAdapter
                 OperatingSentence: waitingReason,
                 OverloadActive: false,
                 DeepWorkActive: false,
+                ShowDeepWorkStreak: false,
+                DeepWorkStreakText: string.Empty,
                 ShowRecoveryBanner: false,
+                RecoveryEventId: 0,
                 RecoveryBannerText: string.Empty,
                 WhySummary: NotAvailableText);
         }
 
+        // Source: GET /v1/snapshot/current -> state_flags_json.deep_work_active
         bool deepWorkActive = TryReadDeepWorkActive(snapshot.StateFlagsJson);
+        // Source: GET /v1/snapshot/current -> state_flags_json.deep_work_started_at_utc_ms
+        long deepWorkStartedAtUtcMs = TryReadDeepWorkStartedAtUtcMs(snapshot.StateFlagsJson);
+        // Source: GET /v1/snapshot/current -> overload_active
         bool overloadActive = snapshot.OverloadActive;
         PortaVisualMode mode = ResolveMode(overloadActive, deepWorkActive);
-        Color accent = mode switch
-        {
-            PortaVisualMode.Overload => Color.FromRgb(255, 180, 84),
-            PortaVisualMode.DeepWork => Color.FromRgb(94, 200, 255),
-            _ => Color.FromRgb(127, 209, 163)
-        };
+        PortaModeTheme theme = ThemeByMode[mode];
 
         string focusStatus = BuildFocusStatus(snapshot);
         string operatingSentence = BuildOperatingSentence(status, snapshot, mode, fallbackExplanation);
-        (bool showRecoveryBanner, string recoveryBannerText) = BuildRecoveryBanner(mode, recentEvents, nowUtc);
+        (bool showRecoveryBanner, long recoveryEventId, string recoveryBannerText) = BuildRecoveryBanner(mode, recentEvents, nowUtc);
+        (bool showDeepWorkStreak, string deepWorkStreakText) = BuildDeepWorkStreak(
+            deepWorkActive,
+            deepWorkStartedAtUtcMs,
+            snapshot.SustainedAttentionDurationSec,
+            nowUtc);
         string whySummary = BuildWhySummary(snapshot, recentEvents);
 
         return new PortaVisualState(
             Mode: mode,
-            AccentColor: accent,
+            Theme: theme,
             ModeLabel: mode.ToString(),
             TrustLabel: MapTrustLabel(snapshot.Confidence),
             FocusStreakText: $"Focused time: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}",
@@ -85,7 +125,10 @@ internal static class VisualStateAdapter
             OperatingSentence: operatingSentence,
             OverloadActive: overloadActive,
             DeepWorkActive: deepWorkActive,
+            ShowDeepWorkStreak: showDeepWorkStreak,
+            DeepWorkStreakText: deepWorkStreakText,
             ShowRecoveryBanner: showRecoveryBanner,
+            RecoveryEventId: recoveryEventId,
             RecoveryBannerText: recoveryBannerText,
             WhySummary: whySummary);
     }
@@ -134,32 +177,35 @@ internal static class VisualStateAdapter
         return "Ready to suggest breaks when needed.";
     }
 
-    private static (bool Show, string Message) BuildRecoveryBanner(
+    private static (bool Show, long EventId, string Message) BuildRecoveryBanner(
         PortaVisualMode mode,
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         DateTimeOffset nowUtc)
     {
         if (mode == PortaVisualMode.Overload)
         {
-            return (false, string.Empty);
+            return (false, 0, string.Empty);
         }
 
         LocalApiEventResponse? recoveryEvent = recentEvents
             .OrderByDescending(static evt => evt.TsUtc)
             .FirstOrDefault(static evt =>
-                string.Equals(evt.Action, "overload_brightness_restored", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(evt.Type, "overload_brightness_restored", StringComparison.OrdinalIgnoreCase));
+                string.Equals(evt.Action, "overload_recovered", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(evt.Type, "OVERLOAD_RECOVERED", StringComparison.OrdinalIgnoreCase));
         if (recoveryEvent == null)
         {
-            return (false, string.Empty);
+            return (false, 0, string.Empty);
         }
 
         if ((nowUtc - recoveryEvent.TsUtc) > RecoveryBannerWindow)
         {
-            return (false, string.Empty);
+            return (false, 0, string.Empty);
         }
 
-        return (true, "Recovery complete: overload mitigation returned to normal.");
+        string message = string.IsNullOrWhiteSpace(recoveryEvent.WhatChanged)
+            ? "Recovery complete: overload returned to normal."
+            : recoveryEvent.WhatChanged.Trim();
+        return (true, recoveryEvent.Id, message);
     }
 
     private static string BuildWhySummary(
@@ -196,6 +242,33 @@ internal static class VisualStateAdapter
         }
 
         return NotAvailableText;
+    }
+
+    private static (bool Show, string Text) BuildDeepWorkStreak(
+        bool deepWorkActive,
+        long deepWorkStartedAtUtcMs,
+        double sustainedAttentionSeconds,
+        DateTimeOffset nowUtc)
+    {
+        if (!deepWorkActive)
+        {
+            return (false, string.Empty);
+        }
+
+        if (deepWorkStartedAtUtcMs > 0)
+        {
+            DateTimeOffset startedAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(deepWorkStartedAtUtcMs);
+            TimeSpan streak = nowUtc - startedAtUtc;
+            if (streak < TimeSpan.Zero)
+            {
+                streak = TimeSpan.Zero;
+            }
+
+            return (true, $"Deep Work streak: {FormatShortDuration(streak)}");
+        }
+
+        TimeSpan fallback = TimeSpan.FromSeconds(Math.Max(0d, sustainedAttentionSeconds));
+        return (true, $"Deep Work streak: {FormatShortDuration(fallback)}");
     }
 
     private static PortaVisualMode ResolveMode(bool overloadActive, bool deepWorkActive)
@@ -242,6 +315,32 @@ internal static class VisualStateAdapter
         catch
         {
             return false;
+        }
+    }
+
+    private static long TryReadDeepWorkStartedAtUtcMs(string? stateFlagsJson)
+    {
+        if (string.IsNullOrWhiteSpace(stateFlagsJson))
+        {
+            return 0;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
+            JsonElement root = doc.RootElement;
+            if (!root.TryGetProperty("deep_work_started_at_utc_ms", out JsonElement value))
+            {
+                return 0;
+            }
+
+            return value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long startedAtUtcMs)
+                ? Math.Max(0, startedAtUtcMs)
+                : 0;
+        }
+        catch
+        {
+            return 0;
         }
     }
 
@@ -297,5 +396,18 @@ internal static class VisualStateAdapter
 
         double minutes = Math.Floor(sustainedAttentionSeconds / 60d);
         return $"{minutes.ToString("F0", CultureInfo.InvariantCulture)} min";
+    }
+
+    private static string FormatShortDuration(TimeSpan duration)
+    {
+        if (duration.TotalHours >= 1d)
+        {
+            int hours = (int)Math.Floor(duration.TotalHours);
+            int minutes = duration.Minutes;
+            return $"{hours.ToString(CultureInfo.InvariantCulture)}h {minutes.ToString("00", CultureInfo.InvariantCulture)}m";
+        }
+
+        int mins = (int)Math.Floor(duration.TotalMinutes);
+        return $"{Math.Max(0, mins).ToString(CultureInfo.InvariantCulture)}m";
     }
 }

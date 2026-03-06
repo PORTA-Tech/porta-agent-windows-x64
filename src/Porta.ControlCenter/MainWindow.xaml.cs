@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private static readonly TimeSpan TopMetricAnimationDuration = TimeSpan.FromMilliseconds(220);
     private static readonly TimeSpan TopMetricAnimationFrameInterval = TimeSpan.FromMilliseconds(16);
     private const string EventCursorFileName = "control-center.events.cursor";
+    private const string RecoveryAckFileName = "control-center.recovery.ack";
 
     private readonly LocalApiClient _apiClient = new();
     private readonly DispatcherTimer _refreshTimer;
@@ -45,6 +46,8 @@ public partial class MainWindow : Window
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private int _manualRefreshPending;
     private long _lastSeenEventId;
+    private long _dismissedRecoveryEventId;
+    private long _activeRecoveryEventId;
     private DateTimeOffset _lastManualRefreshUtc = DateTimeOffset.MinValue;
     private DateTimeOffset? _lastStatusSuccessUtc;
     private HistoryRange _historyRange = HistoryRange.Last1Hour;
@@ -102,6 +105,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _lastSeenEventId = LoadLastSeenEventId();
+        _dismissedRecoveryEventId = LoadRecoveryAckEventId();
         UiVersionMenuItem.Header = $"UI: {_uiVersion}";
         InitializePauseUntilControls();
         _settingsAutoSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
@@ -296,6 +300,7 @@ public partial class MainWindow : Window
             PopulateSettings(null);
             PopulateStates(null);
             PopulateTimeline(null);
+            PopulateWhyDrawer(nowTruth, [], _latestVisualState);
             UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
             UpdateHealthChecklist(serviceProbe, apiReachable);
             return;
@@ -354,6 +359,7 @@ public partial class MainWindow : Window
         PopulateSettings(_effectiveSettings);
         PopulateStates(truthSnapshot);
         PopulateTimeline(GetSelectedHistoryTimeline());
+        PopulateWhyDrawer(nowTruth, _allRecentEvents, _latestVisualState);
         UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
         UpdateHealthChecklist(serviceProbe, apiReachable);
     }
@@ -370,6 +376,31 @@ public partial class MainWindow : Window
         ControlCenterFileLog.Info("manual_refresh_clicked");
         await RefreshDiagnosticsAsync(manual: true).ConfigureAwait(true);
         ControlCenterFileLog.Info($"manual_refresh_completed api_reachable={(_latestStatus != null).ToString().ToLowerInvariant()}");
+    }
+
+    private void WhyDrawerToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        bool show = WhyDrawerPanel.Visibility != Visibility.Visible;
+        WhyDrawerPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        WhyDrawerToggleButton.Content = show ? "Hide Why" : "Why";
+    }
+
+    private void WhyDrawerCloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        WhyDrawerPanel.Visibility = Visibility.Collapsed;
+        WhyDrawerToggleButton.Content = "Why";
+    }
+
+    private void NowRecoveryDismissButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_activeRecoveryEventId > 0)
+        {
+            _dismissedRecoveryEventId = _activeRecoveryEventId;
+            SaveRecoveryAckEventId(_dismissedRecoveryEventId);
+        }
+
+        _activeRecoveryEventId = 0;
+        NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
     }
 
     private void NowOpenActionsButton_Click(object sender, RoutedEventArgs e)
@@ -755,6 +786,7 @@ public partial class MainWindow : Window
             NowOverloadActiveText.Text = $"Active: {NotAvailableText}";
             NowOverloadTrustText.Text = $"Trust level: {NotAvailableText}";
             NowFocusStreakValueText.Text = visualState.FocusStreakText;
+            NowDeepWorkStreakText.Visibility = Visibility.Collapsed;
             NowFocusChoppinessText.Text = $"Choppiness: {NotAvailableText}";
             NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
             NowFocusStatusText.Text = visualState.FocusStatusText;
@@ -778,7 +810,8 @@ public partial class MainWindow : Window
             NowOpenActionsButton.IsEnabled = false;
 
             NowWhatPortaDoingText.Text = visualState.OperatingSentence;
-            NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.AccentColor);
+            NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
+            _activeRecoveryEventId = 0;
             NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
             NowWaitingDataText.Visibility = Visibility.Visible;
             return;
@@ -802,6 +835,15 @@ public partial class MainWindow : Window
             metricKey: "now_focus",
             targetValue: Math.Max(0d, snapshot.SustainedAttentionDurationSec / 60d),
             applyValue: value => NowFocusStreakValueText.Text = $"Focused time: {FormatFocusedTime(value * 60d)}");
+        if (visualState.ShowDeepWorkStreak)
+        {
+            NowDeepWorkStreakText.Text = visualState.DeepWorkStreakText;
+            NowDeepWorkStreakText.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            NowDeepWorkStreakText.Visibility = Visibility.Collapsed;
+        }
         // Source: GET /v1/snapshot/current -> idle_fragmentation_index
         NowFocusChoppinessText.Text = $"Choppiness: {MapChoppiness(snapshot.IdleFragmentationIndex)} ({snapshot.IdleFragmentationIndex:F2})";
         NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
@@ -865,16 +907,228 @@ public partial class MainWindow : Window
         }
 
         NowWhatPortaDoingText.Text = visualState.OperatingSentence;
-        NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.AccentColor);
-        if (visualState.ShowRecoveryBanner)
+        NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
+        if (visualState.ShowRecoveryBanner
+            && visualState.RecoveryEventId > 0
+            && visualState.RecoveryEventId != _dismissedRecoveryEventId)
         {
+            _activeRecoveryEventId = visualState.RecoveryEventId;
             NowRecoveryBannerText.Text = visualState.RecoveryBannerText;
             NowRecoveryBannerBorder.Visibility = Visibility.Visible;
         }
         else
         {
+            _activeRecoveryEventId = 0;
             NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
         }
+    }
+
+    private void PopulateWhyDrawer(
+        NowTruth nowTruth,
+        IReadOnlyList<LocalApiEventResponse> recentEvents,
+        PortaVisualState visualState)
+    {
+        LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
+        WhyDrawerStateText.Text = $"State: {visualState.ModeLabel}";
+        WhyDrawerConfidenceText.Text = snapshot == null
+            ? $"Confidence: {NotAvailableText}"
+            : $"Confidence: {(snapshot.Confidence * 100d):F0}% ({visualState.TrustLabel})";
+
+        OverloadExplainView explain = snapshot == null
+            ? OverloadExplainView.Unavailable
+            : ParseOverloadExplain(snapshot.ContributorsJson);
+        WhyDrawerFivText.Text = BuildWhyDrawerFivText(explain);
+        string topContributors = explain.HasStructuredData
+            ? FormatTopReasons(explain.TopReasons, explainMode: false)
+            : NotAvailableText;
+        WhyDrawerContributorsText.Text = $"Top contributors: {topContributors}";
+
+        WhyDrawerPolicyText.Text = BuildWhyDrawerPolicyText(snapshot, visualState);
+        WhyDrawerCooldownText.Text = $"Cooldowns: {BuildWhyDrawerCooldownText(_latestStatus, recentEvents)}";
+        WhyDrawerActionStateText.Text = BuildWhyDrawerActionStateText(_latestStatus);
+
+        WhyDrawerContributorsSummaryText.Text = BuildContributorsStructuredSummary(snapshot?.ContributorsJson, explain);
+        LocalApiEventResponse? latestEvent = recentEvents
+            .OrderByDescending(static ev => ev.TsUtc)
+            .ThenByDescending(static ev => ev.Id)
+            .FirstOrDefault();
+        WhyDrawerWhySummaryText.Text = BuildWhyStructuredSummary(latestEvent?.WhyJson);
+    }
+
+    private static string BuildWhyDrawerFivText(OverloadExplainView explain)
+    {
+        if (!explain.Clarity.HasValue || !explain.Pressure.HasValue || !explain.Jitter.HasValue)
+        {
+            return $"Clarity/Pressure/Jitter: {NotAvailableText}";
+        }
+
+        return $"Clarity (F): {explain.Clarity.Value:F2} ({ToBandLabel(explain.Clarity.Value)})"
+            + $"{Environment.NewLine}Pressure (I): {explain.Pressure.Value:F2} ({ToBandLabel(explain.Pressure.Value)})"
+            + $"{Environment.NewLine}Jitter (V): {explain.Jitter.Value:F2} ({ToBandLabel(explain.Jitter.Value)})";
+    }
+
+    private static string BuildWhyDrawerPolicyText(
+        LocalApiCurrentSnapshotResponse? snapshot,
+        PortaVisualState visualState)
+    {
+        string overload = visualState.OverloadActive ? "ON" : "OFF";
+        string deepWork = visualState.DeepWorkActive ? "ON" : "OFF";
+        string stabilization = BuildStabilizationText(snapshot?.StateFlagsJson, explainMode: false);
+        return $"overload_active: {overload}{Environment.NewLine}deep_work_active: {deepWork}{Environment.NewLine}{stabilization}";
+    }
+
+    private static string BuildWhyDrawerCooldownText(
+        LocalApiStatusResponse? status,
+        IReadOnlyList<LocalApiEventResponse> recentEvents)
+    {
+        var parts = new List<string>();
+        if (status?.NotificationSuppressionBackoffUntilUtc is DateTimeOffset notifyUntil
+            && notifyUntil > DateTimeOffset.UtcNow)
+        {
+            parts.Add($"notifications backoff {FormatCooldownRemaining(notifyUntil)}");
+        }
+
+        if (status?.BrightnessBackoffUntilUtc is DateTimeOffset brightnessUntil
+            && brightnessUntil > DateTimeOffset.UtcNow)
+        {
+            parts.Add($"brightness backoff {FormatCooldownRemaining(brightnessUntil)}");
+        }
+
+        DateTimeOffset? recentCooldownEnd = recentEvents
+            .Where(static ev => ev.CooldownEndTimestampUtc.HasValue)
+            .OrderByDescending(static ev => ev.CooldownEndTimestampUtc)
+            .Select(static ev => ev.CooldownEndTimestampUtc)
+            .FirstOrDefault();
+        if (recentCooldownEnd.HasValue && recentCooldownEnd.Value > DateTimeOffset.UtcNow)
+        {
+            parts.Add($"event cooldown {FormatCooldownRemaining(recentCooldownEnd)}");
+        }
+
+        return parts.Count == 0 ? "none" : string.Join(" | ", parts);
+    }
+
+    private static string BuildWhyDrawerActionStateText(LocalApiStatusResponse? status)
+    {
+        if (status == null)
+        {
+            return NotAvailableText;
+        }
+
+        return $"Notifications suppressed: {MapYesNo(status.NotificationSuppressionActive)}"
+            + $"{Environment.NewLine}Brightness reduced: {MapYesNo(status.BrightnessActionActive)}";
+    }
+
+    private static string BuildContributorsStructuredSummary(string? contributorsJson, OverloadExplainView explain)
+    {
+        if (string.IsNullOrWhiteSpace(contributorsJson))
+        {
+            return "Contributors data: Not available";
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(contributorsJson);
+            JsonElement root = doc.RootElement;
+            var parts = new List<string>();
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("schema_ver", out JsonElement schemaElem)
+                && schemaElem.ValueKind == JsonValueKind.Number
+                && schemaElem.TryGetInt32(out int schemaVer))
+            {
+                parts.Add($"schema v{schemaVer}");
+            }
+
+            if (TryReadDouble(root, "quality", out double quality))
+            {
+                parts.Add($"quality {quality:F2}");
+            }
+
+            if (TryReadDouble(root, "agreement", out double agreement))
+            {
+                parts.Add($"agreement {agreement:F2}");
+            }
+
+            if (explain.HasStructuredData)
+            {
+                parts.Add($"top {FormatTopReasons(explain.TopReasons, explainMode: false)}");
+            }
+
+            return parts.Count == 0
+                ? "Contributors data: available"
+                : $"Contributors data: {string.Join(" | ", parts)}";
+        }
+        catch
+        {
+            return "Contributors data: unavailable (invalid payload)";
+        }
+    }
+
+    private static string BuildWhyStructuredSummary(string? whyJson)
+    {
+        if (string.IsNullOrWhiteSpace(whyJson))
+        {
+            return "Why data: Not available";
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(whyJson);
+            JsonElement root = doc.RootElement;
+            var parts = new List<string>();
+            if (TryReadStringProperty(root, "policy", out string? policy))
+            {
+                parts.Add($"policy {policy}");
+            }
+
+            if (TryReadStringProperty(root, "action", out string? action))
+            {
+                parts.Add($"action {action}");
+            }
+
+            if (TryReadStringProperty(root, "reason", out string? reason))
+            {
+                parts.Add(reason!);
+            }
+
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("outcome", out JsonElement outcome)
+                && outcome.ValueKind == JsonValueKind.Object)
+            {
+                if (TryReadStringProperty(outcome, "reason", out string? outcomeReason))
+                {
+                    parts.Add($"outcome {outcomeReason}");
+                }
+                else if (TryReadStringProperty(outcome, "error_code", out string? errorCode))
+                {
+                    parts.Add($"error {errorCode}");
+                }
+            }
+
+            return parts.Count == 0
+                ? "Why data: available"
+                : $"Why data: {string.Join(" | ", parts.Take(4))}";
+        }
+        catch
+        {
+            return "Why data: unavailable (invalid payload)";
+        }
+    }
+
+    private static bool TryReadStringProperty(JsonElement parent, string propertyName, out string? value)
+    {
+        value = null;
+        if (!parent.TryGetProperty(propertyName, out JsonElement prop))
+        {
+            return false;
+        }
+
+        if (prop.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = prop.GetString();
+        return !string.IsNullOrWhiteSpace(value);
     }
 
     private void AnimateTopMetric(string metricKey, double targetValue, Action<double> applyValue)
@@ -1434,8 +1688,58 @@ public partial class MainWindow : Window
 
     private static string BuildEventCursorPath()
     {
+        return BuildLocalStatePath(EventCursorFileName);
+    }
+
+    private static long LoadRecoveryAckEventId()
+    {
+        try
+        {
+            string path = BuildRecoveryAckPath();
+            if (!File.Exists(path))
+            {
+                return 0;
+            }
+
+            string raw = File.ReadAllText(path).Trim();
+            return long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed) && parsed > 0
+                ? parsed
+                : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static void SaveRecoveryAckEventId(long id)
+    {
+        try
+        {
+            string path = BuildRecoveryAckPath();
+            string? dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            File.WriteAllText(path, id.ToString(CultureInfo.InvariantCulture), Encoding.UTF8);
+        }
+        catch
+        {
+            // Best effort local ack persistence.
+        }
+    }
+
+    private static string BuildRecoveryAckPath()
+    {
+        return BuildLocalStatePath(RecoveryAckFileName);
+    }
+
+    private static string BuildLocalStatePath(string fileName)
+    {
         string root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(root, "PortaAgent", EventCursorFileName);
+        return Path.Combine(root, "PortaAgent", fileName);
     }
 
     private void RenderRecentActions(IReadOnlyList<LocalApiEventResponse> recentEvents)
@@ -3243,6 +3547,7 @@ public partial class MainWindow : Window
             : (status.Paused ? "Paused" : "Running");
         StatusPillText.Text = runState;
         SetBadgeVisual(StatusPillBorder, isPositive: runState == "Running");
+        ApplyModeTheme(visualState);
 
         bool consentOn = status?.ConsentActive == true;
         ConsentBadgeText.Text = $"Consent: {(consentOn ? "On" : "Needed")}";
@@ -3256,7 +3561,7 @@ public partial class MainWindow : Window
         string trustLabel = visualState.TrustLabel;
         TrustBadgeText.Text = $"Trust: {trustLabel}";
         SetTrustBadgeVisual(trustLabel);
-        SectionTitleText.Foreground = new SolidColorBrush(visualState.AccentColor);
+        SectionTitleText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
 
         bool statusFresh = status != null
             && _lastStatusSuccessUtc.HasValue
@@ -3276,6 +3581,36 @@ public partial class MainWindow : Window
         border.Background = isPositive
             ? new SolidColorBrush(Color.FromRgb(6, 95, 70))
             : new SolidColorBrush(Color.FromRgb(127, 29, 29));
+    }
+
+    private void ApplyModeTheme(PortaVisualState visualState)
+    {
+        PortaModeTheme theme = visualState.Theme;
+        var accentBrush = new SolidColorBrush(theme.AccentColor);
+        var badgeBrush = new SolidColorBrush(theme.BadgeColor);
+        var statusChipBrush = new SolidColorBrush(theme.StatusChipColor);
+        var tintBrush = new SolidColorBrush(theme.BackgroundTint);
+
+        StatusPillBorder.BorderBrush = badgeBrush;
+        StatusPillBorder.BorderThickness = new Thickness(1);
+        if (StatusPillText.Text == "Running")
+        {
+            StatusPillBorder.Background = statusChipBrush;
+        }
+
+        ConsentBadgeBorder.BorderBrush = badgeBrush;
+        ConsentBadgeBorder.BorderThickness = new Thickness(1);
+        CalibrationBadgeBorder.BorderBrush = badgeBrush;
+        CalibrationBadgeBorder.BorderThickness = new Thickness(1);
+        TrustBadgeBorder.BorderBrush = badgeBrush;
+        TrustBadgeBorder.BorderThickness = new Thickness(1);
+
+        NowRecoveryBannerBorder.BorderBrush = badgeBrush;
+        NowRecoveryBannerText.Foreground = accentBrush;
+        NowDeepWorkStreakText.Foreground = accentBrush;
+        OverviewPanel.Background = tintBrush;
+        WhyDrawerPanel.BorderBrush = badgeBrush;
+        WhyDrawerToggleButton.BorderBrush = badgeBrush;
     }
 
     private void SetTrustBadgeVisual(string trustLabel)

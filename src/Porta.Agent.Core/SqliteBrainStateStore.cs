@@ -296,6 +296,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     overloadBrightnessTransitionExecution,
                     overloadStabilization,
                     overloadInference);
+                TryInsertOverloadRecoveryEvent(
+                    connection,
+                    tx,
+                    mapped,
+                    overloadStabilization,
+                    overloadInference);
                 UpsertPrimitiveBucket(connection, tx, primitiveRow);
                 UpsertStateBucket(connection, tx, stateRow);
                 InsertLegacySnapshot(connection, tx, inferredSnapshot);
@@ -1758,6 +1764,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             contract_ver = PortaExecutionConstants.DeepWorkDetection.ContractVersion,
             value = deepWorkStabilization.DeepWorkActive,
             deep_work_active = deepWorkStabilization.DeepWorkActive,
+            deep_work_started_at_utc_ms = deepWorkStabilization.RuntimeState.DeepWorkStartedAtUtcMs,
             bucket_seq = mapped.BucketSeq,
             updated_utc = mapped.TimestampUtc
         });
@@ -1777,6 +1784,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             dw_last_good_ts_ms = deepWorkStabilization.RuntimeState.LastGoodTsMs,
             last_bucket_seq = deepWorkStabilization.RuntimeState.LastBucketSeq,
             dw_last_transition_ts_ms = deepWorkStabilization.RuntimeState.LastTransitionTsMs,
+            deep_work_started_at_utc_ms = deepWorkStabilization.RuntimeState.DeepWorkStartedAtUtcMs,
             debug_mode = deepWorkStabilization.DebugMode,
             transition = deepWorkStabilization.Transition,
             transitioned = deepWorkStabilization.Transitioned,
@@ -1998,7 +2006,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             tx,
             PortaExecutionConstants.DeepWorkDetection.ActiveRuntimeStateKey);
         if (!string.IsNullOrWhiteSpace(activeJson)
-            && TryParseDeepWorkActiveValue(activeJson, out bool active))
+            && TryParseDeepWorkActiveValue(activeJson, out bool active, out long startedAtUtcMs))
         {
             return new DeepWorkStabilizationRuntimeState(
                 DeepWorkActive: active,
@@ -2006,7 +2014,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 OffDwellMs: 0,
                 LastGoodTsMs: 0,
                 LastBucketSeq: 0,
-                LastTransitionTsMs: 0);
+                LastTransitionTsMs: 0,
+                DeepWorkStartedAtUtcMs: Math.Max(0, startedAtUtcMs));
         }
 
         return new DeepWorkStabilizationRuntimeState(
@@ -2015,7 +2024,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             OffDwellMs: 0,
             LastGoodTsMs: 0,
             LastBucketSeq: 0,
-            LastTransitionTsMs: 0);
+            LastTransitionTsMs: 0,
+            DeepWorkStartedAtUtcMs: 0);
     }
 
     private static bool TryParseNotificationSuppressionRuntimeState(
@@ -2321,13 +2331,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             long offDwellMs = ReadInt64Property(root, "dw_off_dwell_ms", "off_dwell_ms", "dwell_off_ms");
             long lastGoodTsMs = ReadInt64Property(root, "dw_last_good_ts_ms", "last_good_ts_ms", "last_updated_utc_ms");
             long lastTransitionTsMs = ReadInt64Property(root, "dw_last_transition_ts_ms", "last_transition_ts_ms");
+            long deepWorkStartedAtUtcMs = ReadInt64Property(root, "deep_work_started_at_utc_ms");
             state = new DeepWorkStabilizationRuntimeState(
                 DeepWorkActive: active,
                 OnDwellMs: Math.Max(0, onDwellMs),
                 OffDwellMs: Math.Max(0, offDwellMs),
                 LastGoodTsMs: Math.Max(0, lastGoodTsMs),
                 LastBucketSeq: Math.Max(0, lastBucketSeq),
-                LastTransitionTsMs: Math.Max(0, lastTransitionTsMs));
+                LastTransitionTsMs: Math.Max(0, lastTransitionTsMs),
+                DeepWorkStartedAtUtcMs: Math.Max(0, deepWorkStartedAtUtcMs));
             return true;
         }
         catch
@@ -2372,9 +2384,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return false;
     }
 
-    private static bool TryParseDeepWorkActiveValue(string json, out bool deepWorkActive)
+    private static bool TryParseDeepWorkActiveValue(string json, out bool deepWorkActive, out long deepWorkStartedAtUtcMs)
     {
         deepWorkActive = false;
+        deepWorkStartedAtUtcMs = 0;
         try
         {
             using JsonDocument doc = JsonDocument.Parse(json);
@@ -2387,6 +2400,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
             if (root.ValueKind == JsonValueKind.Object)
             {
+                deepWorkStartedAtUtcMs = Math.Max(0, ReadInt64Property(root, "deep_work_started_at_utc_ms"));
                 if (TryReadBoolProperty(root, "value", out bool valueProp))
                 {
                     deepWorkActive = valueProp;
@@ -2719,6 +2733,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             deepWorkDwellOnMs: deepWorkStabilization.RuntimeState.OnDwellMs,
             deepWorkDwellOffMs: deepWorkStabilization.RuntimeState.OffDwellMs,
             deepWorkGapMs: deepWorkStabilization.GapMs,
+            deepWorkStartedAtUtcMs: deepWorkStabilization.RuntimeState.DeepWorkStartedAtUtcMs,
             deepWorkCandidate: deepWorkStabilization.DeepWorkCandidate,
             deepWorkExitCandidate: deepWorkStabilization.DeepWorkExitCandidate,
             deepWorkLowQualityPaused: deepWorkStabilization.LowQualityPaused,
@@ -2865,6 +2880,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         long deepWorkDwellOnMs,
         long deepWorkDwellOffMs,
         long deepWorkGapMs,
+        long deepWorkStartedAtUtcMs,
         bool deepWorkCandidate,
         bool deepWorkExitCandidate,
         bool deepWorkLowQualityPaused,
@@ -2901,6 +2917,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             deep_work_dwell_on_ms = Math.Max(0, deepWorkDwellOnMs),
             deep_work_dwell_off_ms = Math.Max(0, deepWorkDwellOffMs),
             deep_work_gap_s = Math.Max(0d, deepWorkGapMs / 1000d),
+            deep_work_started_at_utc_ms = Math.Max(0, deepWorkStartedAtUtcMs),
             dw_on_dwell_ms = Math.Max(0, deepWorkDwellOnMs),
             dw_off_dwell_ms = Math.Max(0, deepWorkDwellOffMs),
             dw_candidate = deepWorkCandidate ? 1 : 0,
@@ -3751,6 +3768,83 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
     }
 
+    private static void TryInsertOverloadRecoveryEvent(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        InputBucketRow inputBucket,
+        OverloadStabilizationResult overloadStabilization,
+        OverloadInferenceResult overloadInference)
+    {
+        if (!overloadStabilization.Transitioned
+            || !overloadStabilization.PreviousOverloadActive
+            || overloadStabilization.OverloadActive)
+        {
+            return;
+        }
+
+        DateTimeOffset eventTimestampUtc = DateTimeOffset.FromUnixTimeMilliseconds(
+            Time.bucketStartEnd(inputBucket.BucketSeq).endUtcMs);
+        long eventTsMs = eventTimestampUtc.ToUnixTimeMilliseconds();
+        const string action = "overload_recovered";
+
+        string whyJson = JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            policy = "overload_stabilization_v1",
+            action,
+            reason = "overload_active_transition_off",
+            overload = new
+            {
+                previous_overload_active = overloadStabilization.PreviousOverloadActive,
+                overload_active = overloadStabilization.OverloadActive,
+                likelihood = overloadInference.OverloadLikelihood,
+                confidence = overloadInference.Confidence,
+                on_dwell_ms = overloadStabilization.RuntimeState.OnDwellMs,
+                off_dwell_ms = overloadStabilization.RuntimeState.OffDwellMs,
+                gap_s = overloadStabilization.GapMs / 1000d
+            },
+            context = new
+            {
+                bucket_seq = inputBucket.BucketSeq
+            }
+        });
+
+        string interventionId = $"overload_recovery:v1:{ResolveWindowStartMs(eventTsMs, PortaExecutionConstants.OverloadStabilization.DwellOffSeconds * 1000L)}";
+        string deterministicIdempotencyKey = BuildOverloadRecoveryIdempotencyKey(eventTsMs);
+        var ev = new AgentControlEvent(
+            TimestampUtc: eventTimestampUtc,
+            Action: action,
+            TriggerState: "overload",
+            TriggerValue: overloadInference.OverloadLikelihood,
+            Confidence: overloadInference.Confidence,
+            DurationSeconds: null,
+            EscalationLevel: "Auto",
+            Reversible: false,
+            Reason: "Overload ended after stabilization.",
+            Contributors: Array.Empty<string>(),
+            InterventionId: interventionId,
+            PolicyId: "overload_stabilization_v1",
+            Domain: "state_transition",
+            PlannedEndTimestampUtc: null,
+            ActualEndTimestampUtc: null,
+            PreviousSystemStateJson: "{}",
+            WhatChanged: "Overload state returned to normal after stabilization dwell was satisfied.",
+            HowToUndo: "No action needed.",
+            ReversalApplied: false,
+            CooldownEndTimestampUtc: null,
+            LifecycleState: "deactivated",
+            WhyJsonOverride: whyJson,
+            IdempotencyKey: deterministicIdempotencyKey);
+
+        try
+        {
+            InsertInterventionEvent(connection, tx, ev);
+        }
+        catch (SqliteException ex) when (IsUniqueConstraintViolation(ex))
+        {
+        }
+    }
+
     private static string ResolveOverloadBrightnessAction(
         BrightnessActionRuntimeState previousState,
         OverloadBrightnessTransitionExecution transitionExecution)
@@ -4560,6 +4654,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             _ => "brightness"
         };
         return $"{keyPrefix}:v1:{windowStartMs}";
+    }
+
+    internal static string BuildOverloadRecoveryIdempotencyKey(long eventTsMs)
+    {
+        long windowMs = PortaExecutionConstants.OverloadStabilization.DwellOffSeconds * 1000L;
+        long windowStartMs = ResolveWindowStartMs(eventTsMs, windowMs);
+        return $"overload_recovery:v1:{windowStartMs}";
     }
 
     private static long ResolveDeepWorkTransitionWindowStartMs(string action, long eventTsMs)

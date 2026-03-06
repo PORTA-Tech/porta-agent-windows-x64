@@ -68,6 +68,7 @@ public sealed class StateBucketJsonContractsTests
             deepWorkDwellOnMs: 10000,
             deepWorkDwellOffMs: 5000,
             deepWorkGapMs: 5000,
+            deepWorkStartedAtUtcMs: 45000,
             deepWorkCandidate: true,
             deepWorkExitCandidate: false,
             deepWorkLowQualityPaused: true,
@@ -110,6 +111,7 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal(10000, root.GetProperty("deep_work_dwell_on_ms").GetInt64());
         Assert.Equal(5000, root.GetProperty("deep_work_dwell_off_ms").GetInt64());
         Assert.Equal(5d, root.GetProperty("deep_work_gap_s").GetDouble(), precision: 6);
+        Assert.Equal(45000, root.GetProperty("deep_work_started_at_utc_ms").GetInt64());
         Assert.Equal(10000, root.GetProperty("dw_on_dwell_ms").GetInt64());
         Assert.Equal(5000, root.GetProperty("dw_off_dwell_ms").GetInt64());
         Assert.Equal(1, root.GetProperty("dw_candidate").GetInt32());

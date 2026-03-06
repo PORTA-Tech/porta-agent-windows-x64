@@ -8,7 +8,8 @@ internal readonly record struct DeepWorkStabilizationRuntimeState(
     long OffDwellMs,
     long LastGoodTsMs,
     long LastBucketSeq,
-    long LastTransitionTsMs);
+    long LastTransitionTsMs,
+    long DeepWorkStartedAtUtcMs);
 
 internal readonly record struct DeepWorkStabilizationResult(
     bool DeepWorkActive,
@@ -156,6 +157,20 @@ internal static class DeepWorkStabilizationComputer
         long lastTransitionTsMs = transitioned
             ? currentBucketEndUtcMs
             : previous.LastTransitionTsMs;
+        long deepWorkStartedAtUtcMs = previous.DeepWorkStartedAtUtcMs;
+        if (transitioned && deepWorkActive)
+        {
+            deepWorkStartedAtUtcMs = currentBucketEndUtcMs;
+        }
+        else if (transitioned && !deepWorkActive)
+        {
+            deepWorkStartedAtUtcMs = 0;
+        }
+        else if (deepWorkActive && deepWorkStartedAtUtcMs <= 0)
+        {
+            // Backfill if older runtime state did not carry a start timestamp.
+            deepWorkStartedAtUtcMs = currentBucketEndUtcMs;
+        }
         long lastGoodTsMs = dwellAccumulated
             ? currentBucketEndUtcMs
             : previous.LastGoodTsMs;
@@ -165,7 +180,8 @@ internal static class DeepWorkStabilizationComputer
             OffDwellMs: Math.Max(0, offDwellMs),
             LastGoodTsMs: Math.Max(0, lastGoodTsMs),
             LastBucketSeq: Math.Max(previous.LastBucketSeq, bucket.BucketSeq),
-            LastTransitionTsMs: Math.Max(0, lastTransitionTsMs));
+            LastTransitionTsMs: Math.Max(0, lastTransitionTsMs),
+            DeepWorkStartedAtUtcMs: Math.Max(0, deepWorkStartedAtUtcMs));
 
         return new DeepWorkStabilizationResult(
             DeepWorkActive: deepWorkActive,

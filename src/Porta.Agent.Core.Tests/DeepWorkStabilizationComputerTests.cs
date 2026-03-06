@@ -42,6 +42,7 @@ public sealed class DeepWorkStabilizationComputerTests
         Assert.True(result.Transitioned);
         Assert.Equal("activated", result.Transition);
         Assert.Equal(Time.bucketStartEnd(requiredBuckets).endUtcMs, result.RuntimeState.LastTransitionTsMs);
+        Assert.Equal(Time.bucketStartEnd(requiredBuckets).endUtcMs, result.RuntimeState.DeepWorkStartedAtUtcMs);
         Assert.Equal(1, transitionCount);
     }
 
@@ -54,7 +55,8 @@ public sealed class DeepWorkStabilizationComputerTests
             OffDwellMs: 0,
             LastGoodTsMs: Time.bucketStartEnd(100).endUtcMs,
             LastBucketSeq: 100,
-            LastTransitionTsMs: Time.bucketStartEnd(100).endUtcMs);
+            LastTransitionTsMs: Time.bucketStartEnd(100).endUtcMs,
+            DeepWorkStartedAtUtcMs: Time.bucketStartEnd(100).endUtcMs);
         DeepWorkStabilizationRuntimeState state = activeState;
         DeepWorkStabilizationResult result = default;
         const int requiredBuckets = PortaExecutionConstants.DeepWorkDetection.DwellOffSeconds / Time.bucketSeconds;
@@ -80,6 +82,7 @@ public sealed class DeepWorkStabilizationComputerTests
         Assert.True(result.Transitioned);
         Assert.Equal("deactivated", result.Transition);
         Assert.Equal(Time.bucketStartEnd(100 + requiredBuckets).endUtcMs, result.RuntimeState.LastTransitionTsMs);
+        Assert.Equal(0, result.RuntimeState.DeepWorkStartedAtUtcMs);
     }
 
     [Fact]
@@ -109,7 +112,8 @@ public sealed class DeepWorkStabilizationComputerTests
             OffDwellMs: 5_000,
             LastGoodTsMs: Time.bucketStartEnd(10).endUtcMs,
             LastBucketSeq: 10,
-            LastTransitionTsMs: 0);
+            LastTransitionTsMs: 0,
+            DeepWorkStartedAtUtcMs: 0);
 
         DeepWorkStabilizationResult result = DeepWorkStabilizationComputer.ComputeForFinalizedBucket(
             BuildBucket(bucketSeq: 14),
@@ -190,7 +194,8 @@ public sealed class DeepWorkStabilizationComputerTests
             OffDwellMs: 5_000,
             LastGoodTsMs: Time.bucketStartEnd(100).endUtcMs,
             LastBucketSeq: 100,
-            LastTransitionTsMs: Time.bucketStartEnd(95).endUtcMs);
+            LastTransitionTsMs: Time.bucketStartEnd(95).endUtcMs,
+            DeepWorkStartedAtUtcMs: Time.bucketStartEnd(95).endUtcMs);
 
         // Candidate remains true while active -> off candidate is false, treated as gap.
         DeepWorkStabilizationResult b101 = DeepWorkStabilizationComputer.ComputeForFinalizedBucket(
@@ -247,7 +252,8 @@ public sealed class DeepWorkStabilizationComputerTests
             OffDwellMs: 10_000,
             LastGoodTsMs: Time.bucketStartEnd(50).endUtcMs,
             LastBucketSeq: 50,
-            LastTransitionTsMs: 0);
+            LastTransitionTsMs: 0,
+            DeepWorkStartedAtUtcMs: 0);
 
         for (int i = 1; i <= 3; i++)
         {
@@ -288,7 +294,8 @@ public sealed class DeepWorkStabilizationComputerTests
             OffDwellMs: state.OffDwellMs,
             LastGoodTsMs: state.LastGoodTsMs,
             LastBucketSeq: state.LastBucketSeq,
-            LastTransitionTsMs: state.LastTransitionTsMs);
+            LastTransitionTsMs: state.LastTransitionTsMs,
+            DeepWorkStartedAtUtcMs: state.DeepWorkStartedAtUtcMs);
 
         int remainingBuckets = (PortaExecutionConstants.DeepWorkDetection.DwellOnSeconds / Time.bucketSeconds) - 10;
         DeepWorkStabilizationResult final = default;
