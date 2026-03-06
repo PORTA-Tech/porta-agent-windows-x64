@@ -56,6 +56,45 @@ public sealed record LocalApiStatusResponse(
     public bool brightness_adjusted => BrightnessAdjusted;
     public bool brightness_supported => BrightnessSupported;
     public bool db_migration_failed => DbMigrationFailed;
+    public int deep_work_streak_sec => DeepWorkStreakSeconds;
+    public string last_updated_utc => ToUtcMsString(LastUpdatedUtc);
+
+    // Step 18H/J: product-facing grouped contract blocks.
+    public LocalApiStatusAuthView auth => new(LocalApiAuthReady, LocalApiAuthError);
+    public LocalApiStatusOutputsView outputs => new(
+        notifications_suppressed: NotificationsSuppressed,
+        brightness_adjusted: BrightnessAdjusted,
+        brightness_supported: BrightnessSupported,
+        notification_error: NotificationSuppressionError,
+        brightness_error: BrightnessError,
+        notification_backoff_sec_remaining: ToRemainingSeconds(NotificationBackoffUntilUtc),
+        brightness_backoff_sec_remaining: ToRemainingSeconds(BrightnessBackoffUntilUtc),
+        notification_backoff_utc: ToUtcMsStringOrNull(NotificationBackoffUntilUtc),
+        brightness_backoff_utc: ToUtcMsStringOrNull(BrightnessBackoffUntilUtc));
+    public LocalApiStatusDegradedView degraded => new(
+        degraded: !ServiceRunning || !LocalApiAuthReady || DbMigrationFailed || !NotificationSuppressionReady || !BrightnessActionReady,
+        service_running: ServiceRunning,
+        db_migration_failed: DbMigrationFailed,
+        auth_ready: LocalApiAuthReady,
+        notification_ready: NotificationSuppressionReady,
+        brightness_ready: BrightnessActionReady);
+
+    private static int ToRemainingSeconds(DateTimeOffset? untilUtc)
+    {
+        if (!untilUtc.HasValue)
+        {
+            return 0;
+        }
+
+        double seconds = (untilUtc.Value - DateTimeOffset.UtcNow).TotalSeconds;
+        return seconds <= 0d ? 0 : (int)Math.Ceiling(seconds);
+    }
+
+    private static string ToUtcMsString(DateTimeOffset utc) =>
+        utc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+
+    private static string? ToUtcMsStringOrNull(DateTimeOffset? utc) =>
+        utc.HasValue ? ToUtcMsString(utc.Value) : null;
 }
 
 public sealed record LocalApiCurrentSnapshotResponse(
@@ -113,6 +152,18 @@ public sealed record LocalApiCurrentSnapshotResponse(
     public double? F => FComponent;
     public double? I => IComponent;
     public double? V => VComponent;
+    public string timestamp_utc => TimestampUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+    public LocalApiSnapshotCurrentView current => new(
+        overload_active: overload_active,
+        deep_work_active: deep_work_active,
+        notifications_suppressed: notifications_suppressed,
+        brightness_adjusted: brightness_adjusted,
+        overload_likelihood: overload_likelihood,
+        confidence: confidence,
+        sustained_attention_duration_sec: sustained_attention_duration_sec,
+        f: F,
+        i: I,
+        v: V);
 }
 
 public sealed record LocalApiCooldownsRemainingResponse(
@@ -133,6 +184,41 @@ public sealed record LocalApiCooldownsRemainingResponse(
     public int deep_work_notification_enable_sec_remaining => DeepWorkNotificationEnableSecRemaining;
     public int brightness_action_sec_remaining => BrightnessActionSecRemaining;
 }
+
+public sealed record LocalApiStatusAuthView(
+    bool ready,
+    string? error);
+
+public sealed record LocalApiStatusOutputsView(
+    bool notifications_suppressed,
+    bool brightness_adjusted,
+    bool brightness_supported,
+    string? notification_error,
+    string? brightness_error,
+    int notification_backoff_sec_remaining,
+    int brightness_backoff_sec_remaining,
+    string? notification_backoff_utc,
+    string? brightness_backoff_utc);
+
+public sealed record LocalApiStatusDegradedView(
+    bool degraded,
+    bool service_running,
+    bool db_migration_failed,
+    bool auth_ready,
+    bool notification_ready,
+    bool brightness_ready);
+
+public sealed record LocalApiSnapshotCurrentView(
+    bool overload_active,
+    bool deep_work_active,
+    bool notifications_suppressed,
+    bool brightness_adjusted,
+    double overload_likelihood,
+    double confidence,
+    double sustained_attention_duration_sec,
+    double? f,
+    double? i,
+    double? v);
 
 public sealed record LocalApiInputsSummaryResponse(
     DateTimeOffset FromUtc,

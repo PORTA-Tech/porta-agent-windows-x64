@@ -1,0 +1,59 @@
+using Porta.Agent.Core;
+
+namespace Porta.Agent.LocalApi.Mappers;
+
+internal static class StatusMapper
+{
+    public static LocalApiStatusResponse Map(
+        AgentServiceStatusSnapshot status,
+        bool localApiAuthReady,
+        string? localApiAuthError)
+    {
+        return new LocalApiStatusResponse(
+            status.Status,
+            status.ServiceRunning,
+            status.Paused,
+            status.PauseUntilUtc,
+            status.ConsentActive,
+            status.ConsentVersion,
+            status.ConsentTimestampUtc,
+            status.ConsentDisclosureHash,
+            status.BackendConnected,
+            status.FocusStrength,
+            status.OverloadLikelihood,
+            status.LastAction,
+            status.AgentVersion,
+            status.SchemaVersion,
+            status.PolicyVersion,
+            status.LastEventTimestampUtc,
+            status.LastError,
+            localApiAuthReady,
+            localApiAuthError,
+            status.NotificationSuppressionActive,
+            status.NotificationSuppressionReady,
+            status.NotificationSuppressionLastError,
+            status.NotificationSuppressionError,
+            status.NotificationSuppressionBackoffUntilUtc,
+            status.NotificationBackoffUntilUtc,
+            status.NotificationsSuppressed,
+            status.BrightnessActionReady,
+            status.BrightnessActionActive,
+            status.BrightnessAdjusted,
+            status.BrightnessSupported,
+            status.BrightnessCurrentLevel,
+            status.BrightnessTargetLevel,
+            status.BrightnessLastError,
+            status.BrightnessError,
+            status.BrightnessBackoffUntilUtc,
+            status.DbMigrationFailed,
+            status.BaselineReady,
+            status.ColdStart,
+            status.OverloadActive,
+            status.DeepWorkActive,
+            status.DeepWorkStreakSeconds,
+            status.VisualMode,
+            status.LatestContributorsJson,
+            status.LatestWhyJson,
+            status.LastUpdatedUtc);
+    }
+}

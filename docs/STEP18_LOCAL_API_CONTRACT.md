@@ -2,6 +2,17 @@
 
 This contract keeps the Control Center bound to backend truth only.
 
+## Normalization Layer
+
+Endpoint handlers do not stitch DB/runtime fields directly.
+Pinned mappers:
+
+- `StatusMapper`
+- `SnapshotMapper`
+- `EventMapper`
+
+These map core/runtime structures to API DTOs in one place.
+
 ## `/v1/status`
 
 Status payload includes:
@@ -23,6 +34,34 @@ Status payload includes:
 
 Compatibility fields are still exposed in parallel (`notificationSuppressionActive`, `brightnessActionActive`, etc.).
 
+Null/partial behavior:
+
+- Endpoint still returns `200` for degraded subsystems.
+- Unhealthy subsystem values are explicit in fields (`*_error`, `*_ready`, `*_supported`, `dbMigrationFailed`).
+
+Control Center-oriented grouped blocks:
+
+- `auth`:
+  - `ready`
+  - `error`
+- `outputs`:
+  - `notifications_suppressed`
+  - `brightness_adjusted`
+  - `brightness_supported`
+  - `notification_error`
+  - `brightness_error`
+  - `notification_backoff_sec_remaining`
+  - `brightness_backoff_sec_remaining`
+  - `notification_backoff_utc`
+  - `brightness_backoff_utc`
+- `degraded`:
+  - `degraded`
+  - `service_running`
+  - `db_migration_failed`
+  - `auth_ready`
+  - `notification_ready`
+  - `brightness_ready`
+
 ## `/v1/snapshot/current`
 
 Snapshot payload includes:
@@ -43,6 +82,38 @@ Snapshot payload includes:
 - `deepWorkActive` + alias `deep_work_active`
 - `notificationsSuppressed` + alias `notifications_suppressed`
 - `brightnessAdjusted` + alias `brightness_adjusted`
+
+Control Center-oriented grouped block:
+
+- `current`:
+  - `overload_active`
+  - `deep_work_active`
+  - `notifications_suppressed`
+  - `brightness_adjusted`
+  - `overload_likelihood`
+  - `confidence`
+  - `sustained_attention_duration_sec`
+  - `f`, `i`, `v` (nullable)
+
+Null/partial behavior:
+
+- If no finalized bucket row exists yet, endpoint still returns safe defaults.
+- `baselineReady=false`, `coldStart=true` by default until finalized-state metadata exists.
+- `contributorsJson` and `stateFlagsJson` are always emitted with `schema_ver: 1`.
+
+## Authentication behavior
+
+- Protected endpoints still require valid `X-PORTA-TOKEN`.
+- `/v1/status` remains diagnosable even when token material is unavailable.
+- On token read failure, `/v1/status` exposes:
+  - `localApiAuthReady=false`
+  - `localApiAuthError=\"TOKEN_READ_FAILED\"`
+
+## JSON discipline
+
+- Booleans are booleans.
+- Durations are integers in seconds and use `_sec`/`_sec_remaining` naming.
+- Timestamps exposed for diagnostics use ISO UTC millisecond strings with `_utc` suffix.
 
 ## `/v1/events/recent`
 
@@ -67,3 +138,7 @@ Expected recent action coverage includes:
 - `NOTIFICATION_SUPPRESS_FAILED`
 - `BRIGHTNESS_CONTROL_FAILED`
 - `BREAK_SUGGESTION`
+
+Null/partial behavior:
+
+- If no rows exist, endpoint returns `[]`.
