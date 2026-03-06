@@ -63,6 +63,7 @@ public partial class MainWindow : Window
     private DateTimeOffset? _historySelectionExpiresUtc;
     private readonly Dictionary<string, DispatcherTimer> _topMetricAnimationTimers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _topMetricAnimationLastValues = new(StringComparer.Ordinal);
+    private UiSection _activeSection = UiSection.Overview;
     private PortaVisualState _latestVisualState = VisualStateAdapter.Build(
         status: null,
         snapshot: null,
@@ -636,6 +637,7 @@ public partial class MainWindow : Window
 
     private void ShowSection(UiSection section)
     {
+        _activeSection = section;
         OverviewPanel.Visibility = section == UiSection.Overview ? Visibility.Visible : Visibility.Collapsed;
         TimelinePanel.Visibility = section == UiSection.Timeline ? Visibility.Visible : Visibility.Collapsed;
         InterventionsPanel.Visibility = section == UiSection.Interventions ? Visibility.Visible : Visibility.Collapsed;
@@ -928,6 +930,7 @@ public partial class MainWindow : Window
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         PortaVisualState visualState)
     {
+        WhyDrawerTitleText.Text = $"Why ({visualState.ModeLabel})";
         LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
         WhyDrawerStateText.Text = $"State: {visualState.ModeLabel}";
         WhyDrawerConfidenceText.Text = snapshot == null
@@ -947,12 +950,13 @@ public partial class MainWindow : Window
         WhyDrawerCooldownText.Text = $"Cooldowns: {BuildWhyDrawerCooldownText(_latestStatus, recentEvents)}";
         WhyDrawerActionStateText.Text = BuildWhyDrawerActionStateText(_latestStatus);
 
-        WhyDrawerContributorsSummaryText.Text = BuildContributorsStructuredSummary(snapshot?.ContributorsJson, explain);
+        string? contributorsJson = _latestStatus?.LatestContributorsJson ?? snapshot?.ContributorsJson;
+        WhyDrawerContributorsSummaryText.Text = BuildContributorsStructuredSummary(contributorsJson, explain);
         LocalApiEventResponse? latestEvent = recentEvents
             .OrderByDescending(static ev => ev.TsUtc)
             .ThenByDescending(static ev => ev.Id)
             .FirstOrDefault();
-        WhyDrawerWhySummaryText.Text = BuildWhyStructuredSummary(latestEvent?.WhyJson);
+        WhyDrawerWhySummaryText.Text = BuildWhyStructuredSummary(_latestStatus?.LatestWhyJson ?? latestEvent?.WhyJson);
     }
 
     private static string BuildWhyDrawerFivText(OverloadExplainView explain)
@@ -3562,6 +3566,10 @@ public partial class MainWindow : Window
         TrustBadgeText.Text = $"Trust: {trustLabel}";
         SetTrustBadgeVisual(trustLabel);
         SectionTitleText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
+        if (_activeSection == UiSection.Overview)
+        {
+            SectionTitleText.Text = $"Now ({visualState.ModeLabel})";
+        }
 
         bool statusFresh = status != null
             && _lastStatusSuccessUtc.HasValue

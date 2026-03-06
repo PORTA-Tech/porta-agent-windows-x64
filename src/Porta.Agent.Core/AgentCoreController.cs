@@ -119,6 +119,22 @@ public sealed class AgentCoreController : IAgentCoreController
             UpdateRecalibrationStateLocked();
             AgentNotificationSuppressionStatus suppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
             AgentBrightnessActionStatus brightnessStatus = _stateStore.ReadBrightnessActionStatus();
+            AgentLatestStateDetails? latestState = _stateStore.ReadLatestStateDetails();
+            string stateFlagsJson = latestState?.StateFlagsJson ?? _latestSnapshot.StateFlagsJson;
+            bool overloadActive = latestState?.OverloadActive
+                ?? (TryReadBoolFromStateFlags(stateFlagsJson, "overload_active", out bool parsedOverloadActive)
+                    && parsedOverloadActive);
+            bool deepWorkActive = TryReadBoolFromStateFlags(stateFlagsJson, "deep_work_active", out bool parsedDeepWorkActive)
+                && parsedDeepWorkActive;
+            long deepWorkStartedAtUtcMs = ReadInt64FromStateFlags(stateFlagsJson, "deep_work_started_at_utc_ms");
+            double fallbackSustainedAttentionSeconds = latestState?.SustainedAttentionDurationSec ?? _latestSnapshot.SustainedAttentionDurationSec;
+            int deepWorkStreakSeconds = ComputeDeepWorkStreakSeconds(
+                deepWorkActive,
+                deepWorkStartedAtUtcMs,
+                fallbackSustainedAttentionSeconds);
+            PresentedVisualMode visualMode = PresentedVisualModeMapper.Map(overloadActive, deepWorkActive);
+            string? latestContributorsJson = latestState?.ContributorsJson;
+            string? latestWhyJson = _stateStore.ReadRecentEvents(1).FirstOrDefault()?.WhyJson;
             string? effectiveLastError = ResolveEffectiveLastError(_lastError, _latestSnapshot.StateFlagsJson);
             AgentStatus status = effectiveLastError is null
                 ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
@@ -155,6 +171,12 @@ public sealed class AgentCoreController : IAgentCoreController
                 BrightnessTargetLevel: brightnessStatus.TargetLevel,
                 BrightnessLastError: brightnessStatus.LastError,
                 BrightnessBackoffUntilUtc: brightnessStatus.BackoffUntilUtc,
+                OverloadActive: overloadActive,
+                DeepWorkActive: deepWorkActive,
+                DeepWorkStreakSeconds: deepWorkStreakSeconds,
+                VisualMode: PresentedVisualModeMapper.ToToken(visualMode),
+                LatestContributorsJson: latestContributorsJson,
+                LatestWhyJson: latestWhyJson,
                 LastUpdatedUtc: DateTimeOffset.UtcNow);
         }
     }
@@ -1636,6 +1658,92 @@ public sealed class AgentCoreController : IAgentCoreController
         catch
         {
             return null;
+        }
+    }
+
+    private static int ComputeDeepWorkStreakSeconds(
+        bool deepWorkActive,
+        long deepWorkStartedAtUtcMs,
+        double fallbackSustainedAttentionSeconds)
+    {
+        if (!deepWorkActive)
+        {
+            return 0;
+        }
+
+        if (deepWorkStartedAtUtcMs > 0)
+        {
+            DateTimeOffset startedAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(deepWorkStartedAtUtcMs);
+            double elapsedSeconds = (DateTimeOffset.UtcNow - startedAtUtc).TotalSeconds;
+            return (int)Math.Max(0, Math.Floor(elapsedSeconds));
+        }
+
+        return (int)Math.Max(0, Math.Floor(fallbackSustainedAttentionSeconds));
+    }
+
+    private static bool TryReadBoolFromStateFlags(string? stateFlagsJson, string propertyName, out bool value)
+    {
+        value = false;
+        if (string.IsNullOrWhiteSpace(stateFlagsJson) || string.IsNullOrWhiteSpace(propertyName))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty(propertyName, out JsonElement prop))
+            {
+                return false;
+            }
+
+            switch (prop.ValueKind)
+            {
+                case JsonValueKind.True:
+                    value = true;
+                    return true;
+                case JsonValueKind.False:
+                    value = false;
+                    return true;
+                case JsonValueKind.Number when prop.TryGetInt32(out int intValue):
+                    value = intValue != 0;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static long ReadInt64FromStateFlags(string? stateFlagsJson, string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(stateFlagsJson) || string.IsNullOrWhiteSpace(propertyName))
+        {
+            return 0;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty(propertyName, out JsonElement prop))
+            {
+                return 0;
+            }
+
+            return prop.ValueKind == JsonValueKind.Number && prop.TryGetInt64(out long parsed)
+                ? Math.Max(0, parsed)
+                : 0;
+        }
+        catch
+        {
+            return 0;
         }
     }
 

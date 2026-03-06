@@ -156,6 +156,12 @@ public static class LocalApiEndpointMapping
                 status.BrightnessTargetLevel,
                 status.BrightnessLastError,
                 status.BrightnessBackoffUntilUtc,
+                status.OverloadActive,
+                status.DeepWorkActive,
+                status.DeepWorkStreakSeconds,
+                status.VisualMode,
+                status.LatestContributorsJson,
+                status.LatestWhyJson,
                 status.LastUpdatedUtc);
         });
 

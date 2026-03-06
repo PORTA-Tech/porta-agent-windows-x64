@@ -1,10 +1,13 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Windows.Media;
+using Porta.Agent.Common.Contracts;
 using Porta.Agent.LocalApi;
 
 namespace Porta.ControlCenter;
 
+// Step 17 guardrail:
+// This adapter only maps backend state to UI visuals. It must not perform any OS-manipulation behavior.
 internal enum PortaVisualMode
 {
     Unavailable,
@@ -96,13 +99,13 @@ internal static class VisualStateAdapter
                 WhySummary: NotAvailableText);
         }
 
-        // Source: GET /v1/snapshot/current -> state_flags_json.deep_work_active
-        bool deepWorkActive = TryReadDeepWorkActive(snapshot.StateFlagsJson);
+        // Source: GET /v1/status -> deep_work_active (fallback: state_flags_json.deep_work_active)
+        bool deepWorkActive = status?.DeepWorkActive ?? TryReadDeepWorkActive(snapshot.StateFlagsJson);
         // Source: GET /v1/snapshot/current -> state_flags_json.deep_work_started_at_utc_ms
         long deepWorkStartedAtUtcMs = TryReadDeepWorkStartedAtUtcMs(snapshot.StateFlagsJson);
-        // Source: GET /v1/snapshot/current -> overload_active
-        bool overloadActive = snapshot.OverloadActive;
-        PortaVisualMode mode = ResolveMode(overloadActive, deepWorkActive);
+        // Source: GET /v1/status -> overload_active (fallback: snapshot.overload_active)
+        bool overloadActive = status?.OverloadActive ?? snapshot.OverloadActive;
+        PortaVisualMode mode = ResolveMode(status?.VisualMode, overloadActive, deepWorkActive);
         PortaModeTheme theme = ThemeByMode[mode];
 
         string focusStatus = BuildFocusStatus(snapshot);
@@ -110,15 +113,20 @@ internal static class VisualStateAdapter
         (bool showRecoveryBanner, long recoveryEventId, string recoveryBannerText) = BuildRecoveryBanner(mode, recentEvents, nowUtc);
         (bool showDeepWorkStreak, string deepWorkStreakText) = BuildDeepWorkStreak(
             deepWorkActive,
+            status?.DeepWorkStreakSeconds,
             deepWorkStartedAtUtcMs,
             snapshot.SustainedAttentionDurationSec,
             nowUtc);
-        string whySummary = BuildWhySummary(snapshot, recentEvents);
+        string whySummary = BuildWhySummary(
+            status?.LatestContributorsJson,
+            status?.LatestWhyJson,
+            snapshot,
+            recentEvents);
 
         return new PortaVisualState(
             Mode: mode,
             Theme: theme,
-            ModeLabel: mode.ToString(),
+            ModeLabel: ToModeLabel(mode),
             TrustLabel: MapTrustLabel(snapshot.Confidence),
             FocusStreakText: $"Focused time: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}",
             FocusStatusText: focusStatus,
@@ -209,12 +217,23 @@ internal static class VisualStateAdapter
     }
 
     private static string BuildWhySummary(
+        string? latestContributorsJsonFromStatus,
+        string? latestWhyJsonFromStatus,
         LocalApiCurrentSnapshotResponse snapshot,
         IReadOnlyList<LocalApiEventResponse> recentEvents)
     {
-        if (!string.IsNullOrWhiteSpace(snapshot.ContributorsJson))
+        if (!string.IsNullOrWhiteSpace(latestContributorsJsonFromStatus)
+            || !string.IsNullOrWhiteSpace(snapshot.ContributorsJson))
         {
             return "Live signal explain data is available.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(latestWhyJsonFromStatus))
+        {
+            if (TryExtractReason(latestWhyJsonFromStatus, out string reasonFromStatus))
+            {
+                return reasonFromStatus;
+            }
         }
 
         LocalApiEventResponse? latest = recentEvents
@@ -225,27 +244,40 @@ internal static class VisualStateAdapter
             return NotAvailableText;
         }
 
+        if (TryExtractReason(latest.WhyJson, out string reasonFromRecent))
+        {
+            return reasonFromRecent;
+        }
+
+        return NotAvailableText;
+    }
+
+    private static bool TryExtractReason(string whyJson, out string reason)
+    {
+        reason = string.Empty;
         try
         {
-            using JsonDocument doc = JsonDocument.Parse(latest.WhyJson);
+            using JsonDocument doc = JsonDocument.Parse(whyJson);
             JsonElement root = doc.RootElement;
-            string reason = root.TryGetProperty("reason", out JsonElement reasonEl)
+            reason = root.TryGetProperty("reason", out JsonElement reasonEl)
                 ? reasonEl.GetString() ?? string.Empty
                 : string.Empty;
             if (!string.IsNullOrWhiteSpace(reason))
             {
-                return reason;
+                return true;
             }
         }
         catch
         {
         }
 
-        return NotAvailableText;
+        reason = string.Empty;
+        return false;
     }
 
     private static (bool Show, string Text) BuildDeepWorkStreak(
         bool deepWorkActive,
+        int? deepWorkStreakSecondsFromStatus,
         long deepWorkStartedAtUtcMs,
         double sustainedAttentionSeconds,
         DateTimeOffset nowUtc)
@@ -267,25 +299,46 @@ internal static class VisualStateAdapter
             return (true, $"Deep Work streak: {FormatShortDuration(streak)}");
         }
 
+        if (deepWorkStreakSecondsFromStatus is > 0)
+        {
+            TimeSpan statusStreak = TimeSpan.FromSeconds(deepWorkStreakSecondsFromStatus.Value);
+            return (true, $"Deep Work streak: {FormatShortDuration(statusStreak)}");
+        }
+
         TimeSpan fallback = TimeSpan.FromSeconds(Math.Max(0d, sustainedAttentionSeconds));
         return (true, $"Deep Work streak: {FormatShortDuration(fallback)}");
     }
 
-    private static PortaVisualMode ResolveMode(bool overloadActive, bool deepWorkActive)
+    private static PortaVisualMode ResolveMode(string? visualModeFromStatus, bool overloadActive, bool deepWorkActive)
     {
-        // Pinned visual priority model:
-        // overload wins, then deep work, then normal.
-        if (overloadActive)
+        if (PresentedVisualModeMapper.TryParseToken(visualModeFromStatus, out PresentedVisualMode fromStatus))
         {
-            return PortaVisualMode.Overload;
+            return MapPresentedMode(fromStatus);
         }
 
-        if (deepWorkActive)
-        {
-            return PortaVisualMode.DeepWork;
-        }
+        PresentedVisualMode mapped = PresentedVisualModeMapper.Map(overloadActive, deepWorkActive);
+        return MapPresentedMode(mapped);
+    }
 
-        return PortaVisualMode.Normal;
+    private static PortaVisualMode MapPresentedMode(PresentedVisualMode mode)
+    {
+        return mode switch
+        {
+            PresentedVisualMode.OVERLOAD => PortaVisualMode.Overload,
+            PresentedVisualMode.DEEP_WORK => PortaVisualMode.DeepWork,
+            _ => PortaVisualMode.Normal
+        };
+    }
+
+    private static string ToModeLabel(PortaVisualMode mode)
+    {
+        return mode switch
+        {
+            PortaVisualMode.Overload => PresentedVisualModeMapper.ToToken(PresentedVisualMode.OVERLOAD),
+            PortaVisualMode.DeepWork => PresentedVisualModeMapper.ToToken(PresentedVisualMode.DEEP_WORK),
+            PortaVisualMode.Normal => PresentedVisualModeMapper.ToToken(PresentedVisualMode.NORMAL),
+            _ => "UNAVAILABLE"
+        };
     }
 
     private static bool TryReadDeepWorkActive(string? stateFlagsJson)

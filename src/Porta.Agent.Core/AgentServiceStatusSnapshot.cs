@@ -33,4 +33,10 @@ public sealed record AgentServiceStatusSnapshot(
     int BrightnessTargetLevel,
     string? BrightnessLastError,
     DateTimeOffset? BrightnessBackoffUntilUtc,
+    bool OverloadActive,
+    bool DeepWorkActive,
+    int DeepWorkStreakSeconds,
+    string VisualMode,
+    string? LatestContributorsJson,
+    string? LatestWhyJson,
     DateTimeOffset LastUpdatedUtc);

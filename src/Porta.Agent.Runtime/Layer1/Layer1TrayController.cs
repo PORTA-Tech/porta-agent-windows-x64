@@ -2,11 +2,14 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using Porta.Agent.Common.Contracts;
 
 namespace Porta.Agent.Runtime.Layer1;
 
 internal sealed class Layer1TrayController : IDisposable
 {
+    // Step 17 guardrail:
+    // Tray is visual-only and must never perform OS theme/input/app manipulation.
     private readonly ManualResetEventSlim _started = new(false);
     private readonly object _stateGate = new();
     private Thread? _thread;
@@ -358,18 +361,13 @@ internal sealed class Layer1TrayController : IDisposable
 
         private static TrayVisualMode ResolveVisualMode(Layer1TraySnapshot snapshot)
         {
-            // Priority is pinned and deterministic: overload > deep work > normal.
-            if (snapshot.OverloadActive)
+            PresentedVisualMode mode = PresentedVisualModeMapper.Map(snapshot.OverloadActive, snapshot.DeepWorkActive);
+            return mode switch
             {
-                return TrayVisualMode.Overload;
-            }
-
-            if (snapshot.DeepWorkActive)
-            {
-                return TrayVisualMode.DeepWork;
-            }
-
-            return TrayVisualMode.Normal;
+                PresentedVisualMode.OVERLOAD => TrayVisualMode.Overload,
+                PresentedVisualMode.DEEP_WORK => TrayVisualMode.DeepWork,
+                _ => TrayVisualMode.Normal
+            };
         }
 
         private static string FormatTime(DateTimeOffset? time) => time.HasValue ? time.Value.ToString("O") : "n/a";
