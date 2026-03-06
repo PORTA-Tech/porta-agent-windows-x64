@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Porta.Agent.Core;
 using Porta.Agent.Core.Db;
+using Porta.Agent.Core.Outputs;
 using Porta.Agent.LocalApi;
 using Porta.Agent.Runtime.Layer1;
 
@@ -35,8 +36,11 @@ internal sealed class AgentService : IHostedService, IDisposable
         });
 
         builder.Services.AddPortaLocalApi();
-        builder.Services.AddSingleton<BucketFinalizerStateStore>(_ =>
-            new BucketFinalizerStateStore(new SqliteBrainStateStore()));
+        builder.Services.AddSingleton<INotificationController, NoOpNotificationController>();
+        builder.Services.AddSingleton<IDeepWorkOutputActionCoordinator, DeepWorkOutputActionCoordinator>();
+        builder.Services.AddSingleton<BucketFinalizerStateStore>(sp =>
+            new BucketFinalizerStateStore(new SqliteBrainStateStore(
+                sp.GetRequiredService<IDeepWorkOutputActionCoordinator>())));
         builder.Services.AddSingleton<IBrainStateStore>(sp => sp.GetRequiredService<BucketFinalizerStateStore>());
         builder.Services.AddSingleton<IBucketFinalizerPump>(sp => sp.GetRequiredService<BucketFinalizerStateStore>());
         builder.Services.AddSingleton<IAgentCoreController>(sp =>

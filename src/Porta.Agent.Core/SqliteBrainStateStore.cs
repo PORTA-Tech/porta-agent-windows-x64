@@ -6,6 +6,7 @@ using Microsoft.Data.Sqlite;
 using Porta.Agent.Core.Analysis;
 using Porta.Agent.Core.Buckets;
 using Porta.Agent.Core.Db;
+using Porta.Agent.Core.Outputs;
 using Porta.Agent.Core.Security;
 
 namespace Porta.Agent.Core;
@@ -19,6 +20,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private readonly object _gate = new();
     private readonly string _dbPath;
     private readonly string _connectionString;
+    private readonly IDeepWorkOutputActionCoordinator _deepWorkOutputActionCoordinator;
     private readonly TimeSpan _retention = TimeSpan.FromDays(DefaultRetentionDays);
     private DateTimeOffset _lastPruneUtc = DateTimeOffset.MinValue;
     private string? _lastAutoEventAction;
@@ -36,7 +38,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         DateTimeOffset? CooldownEndTimestampUtc);
 
     public SqliteBrainStateStore()
+        : this(new DeepWorkOutputActionCoordinator(new NoOpNotificationController()))
     {
+    }
+
+    public SqliteBrainStateStore(IDeepWorkOutputActionCoordinator deepWorkOutputActionCoordinator)
+    {
+        _deepWorkOutputActionCoordinator = deepWorkOutputActionCoordinator
+            ?? throw new ArgumentNullException(nameof(deepWorkOutputActionCoordinator));
         _dbPath = DbPaths.GetCoreStateDbPath();
         _connectionString = DbOpen.BuildConnectionString(_dbPath);
         EnsureSchema();
@@ -121,6 +130,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     derivedSession,
                     gating,
                     previousDeepWorkStabilization);
+                _ = _deepWorkOutputActionCoordinator.HandleDeepWorkTransition(
+                    new DeepWorkTransitionContext(
+                        BucketSeq: mapped.BucketSeq,
+                        BucketEndUtc: DateTimeOffset.FromUnixTimeMilliseconds(Time.bucketStartEnd(mapped.BucketSeq).endUtcMs),
+                        PreviousDeepWorkActive: previousDeepWorkStabilization.DeepWorkActive,
+                        CurrentDeepWorkActive: deepWorkStabilization.DeepWorkActive,
+                        BaselineReady: gating.BaselineReady,
+                        LowQualityPaused: deepWorkStabilization.LowQualityPaused,
+                        Confidence: overloadInference.Confidence));
                 long finalizeTsMs = Time.bucketStartEnd(mapped.BucketSeq).endUtcMs;
                 BreakSuggestionDecision breakSuggestionDecision = BreakSuggestionPolicy.ShouldTriggerBreak(
                     gating,
