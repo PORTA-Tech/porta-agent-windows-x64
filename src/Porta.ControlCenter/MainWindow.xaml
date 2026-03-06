@@ -230,6 +230,19 @@
                                    FontSize="12"
                                    Margin="0,0,0,8"
                                    Visibility="Collapsed" />
+                        <Border x:Name="NowRecoveryBannerBorder"
+                                Background="#102019"
+                                BorderBrush="#2A3038"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="10,8"
+                                Margin="0,0,0,8"
+                                Visibility="Collapsed">
+                            <TextBlock x:Name="NowRecoveryBannerText"
+                                       Text=""
+                                       Foreground="#7FD1A3"
+                                       TextWrapping="Wrap" />
+                        </Border>
                         <WrapPanel Margin="0,0,0,12" Visibility="Collapsed">
                             <Border Background="#111827" CornerRadius="8" Padding="10" Margin="0,0,8,8" BorderBrush="#1F2937" BorderThickness="1" Width="200">
                                 <StackPanel><Border x:Name="FocusCardBand" Height="4" Background="#475569" Margin="0,0,0,6" /><TextBlock Text="Focus" /><TextBlock x:Name="FocusCardValue" FontSize="24" Text="0.00" /><TextBlock x:Name="FocusCardConfidence" Text="Confidence: 0%" /><TextBlock x:Name="FocusCardTrend" Text="Trend: Stable" /></StackPanel>

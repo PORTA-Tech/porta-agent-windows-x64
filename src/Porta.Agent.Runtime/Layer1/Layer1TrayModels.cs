@@ -10,7 +10,9 @@ internal sealed record Layer1TraySnapshot(
     IReadOnlyDictionary<string, double> RiskProbabilities,
     double RiskSigma,
     IReadOnlyList<Layer1TrayPrimitiveView> RecentPrimitives,
-    IReadOnlyList<Layer1TrayInterventionView> RecentInterventions);
+    IReadOnlyList<Layer1TrayInterventionView> RecentInterventions,
+    bool OverloadActive,
+    bool DeepWorkActive);
 
 internal sealed record Layer1TrayPrimitiveView(
     string CorrelationId,

@@ -60,6 +60,12 @@ public partial class MainWindow : Window
     private DateTimeOffset? _historySelectionExpiresUtc;
     private readonly Dictionary<string, DispatcherTimer> _topMetricAnimationTimers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _topMetricAnimationLastValues = new(StringComparer.Ordinal);
+    private PortaVisualState _latestVisualState = VisualStateAdapter.Build(
+        status: null,
+        snapshot: null,
+        recentEvents: [],
+        fallbackExplanation: string.Empty,
+        nowUtc: DateTimeOffset.UtcNow);
 
     private enum UiSection
     {
@@ -230,6 +236,12 @@ public partial class MainWindow : Window
         _recentEvents = _allRecentEvents.Take(5).ToArray();
         _lastSnapshot = snapshot;
         NowTruth nowTruth = BuildNowTruth(serviceProbe, runtimeSettings, _latestStatus, snapshot, statusFresh);
+        _latestVisualState = VisualStateAdapter.Build(
+            _latestStatus,
+            nowTruth.Snapshot,
+            _allRecentEvents,
+            nowTruth.Explanation,
+            DateTimeOffset.UtcNow);
 
         bool needsSlowRefresh = apiReachable
             && (DateTimeOffset.UtcNow - _lastSlowRefreshUtc) >= SlowRefreshInterval;
@@ -277,7 +289,7 @@ public partial class MainWindow : Window
             QuickPauseResumeButton.Content = "Pause";
             QuickPauseResumeButton.IsEnabled = false;
             ConsentOverlay.Visibility = Visibility.Collapsed;
-            UpdateTopBar(serviceProbe, runtimeSettings, null, nowTruth);
+            UpdateTopBar(serviceProbe, runtimeSettings, null, nowTruth, _latestVisualState);
             PopulateOverview(nowTruth, null, [], previousSnapshot);
             PopulateInputs(null, null, null);
             PopulateInterventions([], null);
@@ -334,7 +346,7 @@ public partial class MainWindow : Window
         QuickPauseResumeButton.Content = _latestStatus.Paused ? "Resume" : "Pause";
         QuickPauseResumeButton.IsEnabled = true;
         ConsentOverlay.Visibility = consentMissing ? Visibility.Visible : Visibility.Collapsed;
-        UpdateTopBar(serviceProbe, runtimeSettings, _latestStatus, nowTruth);
+        UpdateTopBar(serviceProbe, runtimeSettings, _latestStatus, nowTruth, _latestVisualState);
 
         PopulateOverview(nowTruth, inputSummary, _recentEvents, previousSnapshot);
         PopulateInputs(inputSummary, _retention, truthSnapshot);
@@ -701,7 +713,7 @@ public partial class MainWindow : Window
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         LocalApiCurrentSnapshotResponse? previousSnapshot)
     {
-        PopulateNowCards(nowTruth, recentEvents);
+        PopulateNowCards(nowTruth, recentEvents, _latestVisualState);
         LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
 
         if (snapshot == null)
@@ -731,7 +743,10 @@ public partial class MainWindow : Window
         UpdateTodaySummary(inputSummary);
     }
 
-    private void PopulateNowCards(NowTruth nowTruth, IReadOnlyList<LocalApiEventResponse> recentEvents)
+    private void PopulateNowCards(
+        NowTruth nowTruth,
+        IReadOnlyList<LocalApiEventResponse> recentEvents,
+        PortaVisualState visualState)
     {
         LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
         if (snapshot == null)
@@ -739,15 +754,13 @@ public partial class MainWindow : Window
             NowOverloadValueText.Text = $"Overload: {NotAvailableText}";
             NowOverloadActiveText.Text = $"Active: {NotAvailableText}";
             NowOverloadTrustText.Text = $"Trust level: {NotAvailableText}";
-            NowFocusStreakValueText.Text = $"Focused time: {NotAvailableText}";
+            NowFocusStreakValueText.Text = visualState.FocusStreakText;
             NowFocusChoppinessText.Text = $"Choppiness: {NotAvailableText}";
             NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
-            NowFocusStatusText.Text = string.IsNullOrWhiteSpace(nowTruth.Explanation)
-                ? WaitingForServiceDataText
-                : nowTruth.Explanation;
+            NowFocusStatusText.Text = visualState.FocusStatusText;
             NowFocusStatusText.Visibility = Visibility.Visible;
             NowOverloadFivText.Text = "Explain not available (backend field missing).";
-            NowOverloadTopReasonsText.Text = $"Top reasons: {NotAvailableText}";
+            NowOverloadTopReasonsText.Text = $"Top reasons: {visualState.WhySummary}";
             NowOverloadQualityAgreementText.Text = $"Quality: {NotAvailableText} | Agreement: {NotAvailableText}";
 
             NowCalibrationStatusText.Text = "Calibrating...";
@@ -764,9 +777,9 @@ public partial class MainWindow : Window
             NowLastActionTimeText.Text = $"Time: {NotAvailableText}";
             NowOpenActionsButton.IsEnabled = false;
 
-            NowWhatPortaDoingText.Text = string.IsNullOrWhiteSpace(nowTruth.Explanation)
-                ? WaitingForServiceDataText
-                : nowTruth.Explanation;
+            NowWhatPortaDoingText.Text = visualState.OperatingSentence;
+            NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.AccentColor);
+            NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
             NowWaitingDataText.Visibility = Visibility.Visible;
             return;
         }
@@ -778,7 +791,7 @@ public partial class MainWindow : Window
             targetValue: Math.Clamp(snapshot.OverloadLikelihood * 100d, 0d, 100d),
             applyValue: value => NowOverloadValueText.Text = $"Overload {value:F0}%");
         // Source: GET /v1/snapshot/current -> overload_active
-        NowOverloadActiveText.Text = $"Active: {(snapshot.OverloadActive ? "Yes" : "No")}";
+        NowOverloadActiveText.Text = $"Active: {(visualState.OverloadActive ? "Yes" : "No")}";
         // Source: GET /v1/snapshot/current -> confidence
         AnimateTopMetric(
             metricKey: "now_trust",
@@ -792,7 +805,7 @@ public partial class MainWindow : Window
         // Source: GET /v1/snapshot/current -> idle_fragmentation_index
         NowFocusChoppinessText.Text = $"Choppiness: {MapChoppiness(snapshot.IdleFragmentationIndex)} ({snapshot.IdleFragmentationIndex:F2})";
         NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
-        string focusStatus = BuildFocusStatusMessage(snapshot);
+        string focusStatus = visualState.FocusStatusText;
         NowFocusStatusText.Text = focusStatus;
         NowFocusStatusText.Visibility = string.IsNullOrWhiteSpace(focusStatus)
             ? Visibility.Collapsed
@@ -800,7 +813,8 @@ public partial class MainWindow : Window
 
         OverloadExplainView explain = ParseOverloadExplain(snapshot.ContributorsJson);
         NowOverloadFivText.Text = explain.FivSummary;
-        NowOverloadTopReasonsText.Text = $"Top reasons: {explain.TopReasons}";
+        string topReasons = explain.HasStructuredData ? explain.TopReasons : visualState.WhySummary;
+        NowOverloadTopReasonsText.Text = $"Top reasons: {topReasons}";
         NowOverloadQualityAgreementText.Text = $"Quality: {explain.Quality} | Agreement: {explain.Agreement}";
 
         // Source: GET /v1/snapshot/current -> baseline_ready
@@ -850,7 +864,17 @@ public partial class MainWindow : Window
             NowOpenActionsButton.IsEnabled = true;
         }
 
-        NowWhatPortaDoingText.Text = BuildNowDoingSentence(snapshot);
+        NowWhatPortaDoingText.Text = visualState.OperatingSentence;
+        NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.AccentColor);
+        if (visualState.ShowRecoveryBanner)
+        {
+            NowRecoveryBannerText.Text = visualState.RecoveryBannerText;
+            NowRecoveryBannerBorder.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void AnimateTopMetric(string metricKey, double targetValue, Action<double> applyValue)
@@ -3211,7 +3235,8 @@ public partial class MainWindow : Window
         ServiceProbeResult serviceProbe,
         LocalApiRuntimeSettings? runtimeSettings,
         LocalApiStatusResponse? status,
-        NowTruth nowTruth)
+        NowTruth nowTruth,
+        PortaVisualState visualState)
     {
         string runState = status == null
             ? (serviceProbe.Running ? "Running" : "Paused")
@@ -3228,9 +3253,10 @@ public partial class MainWindow : Window
         CalibrationBadgeText.Text = $"Calibration: {(calibrationReady ? "Ready" : "Calibrating")}";
         SetBadgeVisual(CalibrationBadgeBorder, isPositive: calibrationReady);
 
-        string trustLabel = MapTrustLabel(nowTruth.Snapshot?.Confidence);
+        string trustLabel = visualState.TrustLabel;
         TrustBadgeText.Text = $"Trust: {trustLabel}";
         SetTrustBadgeVisual(trustLabel);
+        SectionTitleText.Foreground = new SolidColorBrush(visualState.AccentColor);
 
         bool statusFresh = status != null
             && _lastStatusSuccessUtc.HasValue

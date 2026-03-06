@@ -75,6 +75,8 @@ public sealed class Layer1AgentHost : IDisposable
     private double _riskSigma;
     private DateTimeOffset? _pauseUntilUtc;
     private string _lastCommittedState = "stable";
+    private bool _trayOverloadActive;
+    private bool _trayDeepWorkActive;
     private readonly Layer1LocalLogStore _localLogStore;
     private readonly string _expectedPolicyVersion = Environment.GetEnvironmentVariable("PORTA_EXPECTED_POLICY_VERSION") ?? "1.0.0";
     private long _agentEventsTotal;
@@ -929,7 +931,9 @@ public sealed class Layer1AgentHost : IDisposable
                 RiskProbabilities: new Dictionary<string, double>(_riskProbabilities, StringComparer.OrdinalIgnoreCase),
                 RiskSigma: _riskSigma,
                 RecentPrimitives: _recentPrimitives.ToArray(),
-                RecentInterventions: _recentInterventions.ToArray());
+                RecentInterventions: _recentInterventions.ToArray(),
+                OverloadActive: _trayOverloadActive,
+                DeepWorkActive: _trayDeepWorkActive);
         }
 
         _tray.Update(snapshot);
@@ -1170,6 +1174,7 @@ public sealed class Layer1AgentHost : IDisposable
                 _riskProbabilities["focus"] = ReadDistribution(distribution, "stable");
                 _riskProbabilities["fatigue"] = ReadDistribution(distribution, "elevated_risk");
                 _riskSigma = Math.Clamp(1.0 - stabilized.Confidence, 0, 1);
+                (_trayOverloadActive, _trayDeepWorkActive) = ResolveTrayVisualFlags(stabilized, _riskProbabilities);
             }
 
             AppendInterventionForTray(stabilized, layer3);
@@ -1221,6 +1226,29 @@ public sealed class Layer1AgentHost : IDisposable
             }
         }
         Interlocked.Increment(ref _interventionsAppliedTotal);
+    }
+
+    private static (bool OverloadActive, bool DeepWorkActive) ResolveTrayVisualFlags(
+        Layer4StateResult stabilized,
+        IReadOnlyDictionary<string, double> riskProbabilities)
+    {
+        // Priority-aligned state derivation for tray visuals from pipeline outputs:
+        // overload (protective) always wins over deep work.
+        double overloadRisk = ReadDistribution(riskProbabilities, "overload");
+        double focusRisk = ReadDistribution(riskProbabilities, "focus");
+        double fatigueRisk = ReadDistribution(riskProbabilities, "fatigue");
+
+        bool overloadActive = string.Equals(stabilized.CommittedState, "critical", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(stabilized.CommittedState, "degrading", StringComparison.OrdinalIgnoreCase)
+            || overloadRisk >= 0.50d;
+
+        bool deepWorkActive = !overloadActive
+            && string.Equals(stabilized.CommittedState, "stable", StringComparison.OrdinalIgnoreCase)
+            && focusRisk >= 0.65d
+            && overloadRisk <= 0.45d
+            && fatigueRisk <= 0.50d;
+
+        return (overloadActive, deepWorkActive);
     }
 
     private void TryAutoResumePaused()

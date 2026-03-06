@@ -21,7 +21,9 @@ internal sealed class Layer1TrayController : IDisposable
         RiskProbabilities: new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
         RiskSigma: 0,
         RecentPrimitives: Array.Empty<Layer1TrayPrimitiveView>(),
-        RecentInterventions: Array.Empty<Layer1TrayInterventionView>());
+        RecentInterventions: Array.Empty<Layer1TrayInterventionView>(),
+        OverloadActive: false,
+        DeepWorkActive: false);
     private int _disposed;
 
     public event Action<int>? PauseRequested;
@@ -85,8 +87,22 @@ internal sealed class Layer1TrayController : IDisposable
 
     private sealed class TrayContext : ApplicationContext
     {
+        private enum TrayVisualMode
+        {
+            Normal,
+            DeepWork,
+            Overload
+        }
+
         private static readonly int[] PausePresetsMinutes = [1, 5, 10, 15, 30, 60];
         private static readonly string[] RiskOrder = ["stress", "overload", "focus", "fatigue"];
+        private static readonly IReadOnlyDictionary<TrayVisualMode, Icon> ModeIconMap =
+            new Dictionary<TrayVisualMode, Icon>
+            {
+                [TrayVisualMode.Normal] = SystemIcons.Information,
+                [TrayVisualMode.DeepWork] = SystemIcons.Shield,
+                [TrayVisualMode.Overload] = SystemIcons.Warning
+            };
         private readonly Layer1TrayController _owner;
         private readonly NotifyIcon _icon;
         private readonly ToolStripMenuItem _statusItem;
@@ -99,6 +115,7 @@ internal sealed class Layer1TrayController : IDisposable
         private readonly ToolStripMenuItem _recentPrimitivesItem;
         private readonly System.Windows.Forms.Timer _menuRefreshTimer;
         private readonly System.Windows.Forms.Timer _tooltipTimer;
+        private TrayVisualMode? _lastVisualMode;
         private DateTimeOffset? _stressBreachSinceUtc;
         private DateTimeOffset? _overloadBreachSinceUtc;
         private DateTimeOffset? _fatigueBreachSinceUtc;
@@ -242,7 +259,12 @@ internal sealed class Layer1TrayController : IDisposable
 
             UpdateRecentInterventions(snapshot.RecentInterventions);
             UpdateRecentPrimitives(snapshot.RecentPrimitives);
-            _icon.Icon = SelectIcon(snapshot);
+            TrayVisualMode mode = ResolveVisualMode(snapshot);
+            if (_lastVisualMode != mode)
+            {
+                _icon.Icon = ModeIconMap[mode];
+                _lastVisualMode = mode;
+            }
             MaybeShowAlerts(snapshot);
         }
 
@@ -334,22 +356,20 @@ internal sealed class Layer1TrayController : IDisposable
             _icon.Text = tooltip.Length > 63 ? tooltip[..63] : tooltip;
         }
 
-        private static Icon SelectIcon(Layer1TraySnapshot snapshot)
+        private static TrayVisualMode ResolveVisualMode(Layer1TraySnapshot snapshot)
         {
-            if (snapshot.Status.Equals("Error", StringComparison.OrdinalIgnoreCase))
+            // Priority is pinned and deterministic: overload > deep work > normal.
+            if (snapshot.OverloadActive)
             {
-                return SystemIcons.Error;
-            }
-            if (snapshot.Status.Equals("Paused", StringComparison.OrdinalIgnoreCase))
-            {
-                return SystemIcons.Warning;
-            }
-            if (snapshot.RecentInterventions.Count > 0)
-            {
-                return SystemIcons.Shield;
+                return TrayVisualMode.Overload;
             }
 
-            return SystemIcons.Information;
+            if (snapshot.DeepWorkActive)
+            {
+                return TrayVisualMode.DeepWork;
+            }
+
+            return TrayVisualMode.Normal;
         }
 
         private static string FormatTime(DateTimeOffset? time) => time.HasValue ? time.Value.ToString("O") : "n/a";
@@ -432,7 +452,9 @@ internal sealed class Layer1TrayController : IDisposable
                 RiskProbabilities: new Dictionary<string, double>(_snapshot.RiskProbabilities, StringComparer.OrdinalIgnoreCase),
                 RiskSigma: _snapshot.RiskSigma,
                 RecentPrimitives: _snapshot.RecentPrimitives.ToArray(),
-                RecentInterventions: _snapshot.RecentInterventions.ToArray());
+                RecentInterventions: _snapshot.RecentInterventions.ToArray(),
+                OverloadActive: _snapshot.OverloadActive,
+                DeepWorkActive: _snapshot.DeepWorkActive);
         }
     }
 
