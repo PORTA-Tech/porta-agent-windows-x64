@@ -90,6 +90,8 @@ public sealed class OverloadBrightnessActionCoordinatorTests
         Assert.Equal("unsupported_latched", second.Outcome.OutcomeReason);
         Assert.False(second.RuntimeState.BrightnessSupported);
         Assert.True(second.RuntimeState.LoggedUnsupported);
+        Assert.Equal(0, fake.GetLevelCalls);
+        Assert.Equal(0, fake.SetLevelCalls);
     }
 
     [Fact]
@@ -204,6 +206,143 @@ public sealed class OverloadBrightnessActionCoordinatorTests
     }
 
     [Fact]
+    public void HandleOverloadTransition_BackoffActive_DoesNotRetryControllerCalls()
+    {
+        var fake = new FakeBrightnessController
+        {
+            Supported = true,
+            CurrentLevel = 70
+        };
+        var coordinator = new OverloadBrightnessActionCoordinator(fake);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        BrightnessActionRuntimeState state = BrightnessActionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            PreviousLevel = 72,
+            TargetLevel = 67,
+            CurrentLevel = 70,
+            RampDirection = "down",
+            BackoffUntilUtcMs = now.ToUnixTimeMilliseconds() + 300_000
+        };
+
+        OverloadBrightnessTransitionExecution execution = coordinator.HandleOverloadTransition(
+            BuildContext(previousActive: true, currentActive: true, nowUtc: now),
+            state);
+
+        Assert.True(execution.Outcome.Succeeded);
+        Assert.Equal("backoff_active", execution.Outcome.OutcomeReason);
+        Assert.Equal(0, fake.GetLevelCalls);
+        Assert.Equal(0, fake.SetLevelCalls);
+    }
+
+    [Fact]
+    public void HandleOverloadTransition_StayOverloaded_RampsOnePercentPerBucketUntilTarget()
+    {
+        var fake = new FakeBrightnessController
+        {
+            Supported = true,
+            CurrentLevel = 72
+        };
+        var coordinator = new OverloadBrightnessActionCoordinator(fake);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        OverloadBrightnessTransitionExecution execution = coordinator.HandleOverloadTransition(
+            BuildContext(previousActive: false, currentActive: true, nowUtc: now),
+            BrightnessActionRuntimeState.CreateDefault());
+        BrightnessActionRuntimeState state = execution.RuntimeState;
+
+        Assert.Equal(71, state.CurrentLevel);
+        Assert.Equal(67, state.TargetLevel);
+
+        int expectedLevel = 70;
+        while (state.CurrentLevel > state.TargetLevel)
+        {
+            now = now.AddSeconds(5);
+            execution = coordinator.HandleOverloadTransition(
+                BuildContext(previousActive: true, currentActive: true, nowUtc: now),
+                state);
+            state = execution.RuntimeState;
+            Assert.Equal(expectedLevel, state.CurrentLevel);
+            expectedLevel--;
+        }
+
+        Assert.Equal(67, state.CurrentLevel);
+        Assert.Equal("idle", state.RampDirection);
+        Assert.True(state.Active);
+        Assert.Equal(5, fake.SetLevelCalls);
+    }
+
+    [Fact]
+    public void HandleOverloadTransition_EnteringWhileAlreadyActive_DoesNotOverwritePreviousLevel()
+    {
+        var fake = new FakeBrightnessController
+        {
+            Supported = true,
+            CurrentLevel = 69
+        };
+        var coordinator = new OverloadBrightnessActionCoordinator(fake);
+        BrightnessActionRuntimeState state = BrightnessActionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            PreviousLevel = 72,
+            TargetLevel = 67,
+            CurrentLevel = 69,
+            RampDirection = "down",
+            ActionState = "ramping_down"
+        };
+
+        OverloadBrightnessTransitionExecution execution = coordinator.HandleOverloadTransition(
+            BuildContext(previousActive: false, currentActive: true),
+            state);
+
+        Assert.True(execution.Outcome.Succeeded);
+        Assert.Equal("already_active", execution.Outcome.OutcomeReason);
+        Assert.Equal(72, execution.RuntimeState.PreviousLevel);
+        Assert.Equal(67, execution.RuntimeState.TargetLevel);
+        Assert.Equal(0, fake.GetLevelCalls);
+        Assert.Equal(0, fake.SetLevelCalls);
+    }
+
+    [Fact]
+    public void HandleOverloadTransition_ExitOverload_RampsUpToPreviousAndCompletes()
+    {
+        var fake = new FakeBrightnessController
+        {
+            Supported = true,
+            CurrentLevel = 67
+        };
+        var coordinator = new OverloadBrightnessActionCoordinator(fake);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        BrightnessActionRuntimeState state = BrightnessActionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            PreviousLevel = 72,
+            TargetLevel = 67,
+            CurrentLevel = 67,
+            RampDirection = "idle",
+            ActionState = "dimmed"
+        };
+
+        OverloadBrightnessTransitionExecution execution;
+        do
+        {
+            now = now.AddSeconds(5);
+            execution = coordinator.HandleOverloadTransition(
+                BuildContext(previousActive: true, currentActive: false, nowUtc: now),
+                state);
+            state = execution.RuntimeState;
+        }
+        while (state.Active);
+
+        Assert.Equal("restored", execution.Outcome.OutcomeReason);
+        Assert.False(state.Active);
+        Assert.Equal(72, state.CurrentLevel);
+        Assert.Equal("idle", state.RampDirection);
+        Assert.True(state.CooldownUntilUtcMs >= now.ToUnixTimeMilliseconds() + 600_000 - 1);
+        Assert.Equal(5, fake.SetLevelCalls);
+    }
+
+    [Fact]
     public void ReconcileOnStartup_ActiveRampingDown_AlignsCurrentLevelAndKeepsDirection()
     {
         var fake = new FakeBrightnessController
@@ -257,6 +396,38 @@ public sealed class OverloadBrightnessActionCoordinatorTests
         Assert.Equal("idle", reconciliation.RuntimeState.RampDirection);
         Assert.Equal("restored", reconciliation.RuntimeState.ActionState);
         Assert.True(reconciliation.RuntimeState.CooldownUntilUtcMs >= now.ToUnixTimeMilliseconds() + 600_000 - 1);
+    }
+
+    [Fact]
+    public void ReconcileOnStartup_ActiveMidRampDown_ContinuesSafelyOnNextBucket()
+    {
+        var fake = new FakeBrightnessController
+        {
+            Supported = true,
+            CurrentLevel = 69
+        };
+        var coordinator = new OverloadBrightnessActionCoordinator(fake);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        BrightnessActionRuntimeState persisted = BrightnessActionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            PreviousLevel = 72,
+            TargetLevel = 67,
+            CurrentLevel = 70,
+            RampDirection = "down",
+            ActionState = "ramping_down"
+        };
+
+        BrightnessStartupReconciliation reconciliation = coordinator.ReconcileOnStartup(persisted, now);
+        OverloadBrightnessTransitionExecution execution = coordinator.HandleOverloadTransition(
+            BuildContext(previousActive: true, currentActive: true, nowUtc: now.AddSeconds(5)),
+            reconciliation.RuntimeState);
+
+        Assert.True(reconciliation.Reconciled);
+        Assert.True(execution.Outcome.Succeeded);
+        Assert.Equal("ramping", execution.Outcome.OutcomeReason);
+        Assert.Equal(68, execution.RuntimeState.CurrentLevel);
+        Assert.Equal("down", execution.RuntimeState.RampDirection);
     }
 
     [Fact]

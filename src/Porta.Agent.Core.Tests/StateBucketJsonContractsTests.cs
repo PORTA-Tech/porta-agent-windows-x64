@@ -150,4 +150,24 @@ public sealed class StateBucketJsonContractsTests
         Assert.StartsWith("dw_notify_off:v1:", offKey);
         Assert.NotEqual(onKeyA, offKey);
     }
+
+    [Fact]
+    public void BuildOverloadBrightnessIdempotencyKey_UsesSessionWindows()
+    {
+        long baseMs = 120_000_000;
+        string onKeyA = SqliteBrainStateStore.BuildOverloadBrightnessIdempotencyKey(
+            "overload_brightness_reduced",
+            baseMs + 5_000);
+        string onKeyB = SqliteBrainStateStore.BuildOverloadBrightnessIdempotencyKey(
+            "overload_brightness_reduced",
+            baseMs + 90_000);
+        string offKey = SqliteBrainStateStore.BuildOverloadBrightnessIdempotencyKey(
+            "overload_brightness_restored",
+            baseMs + 60_000);
+
+        Assert.Equal(onKeyA, onKeyB);
+        Assert.StartsWith("brightness_on:v1:", onKeyA);
+        Assert.StartsWith("brightness_off:v1:", offKey);
+        Assert.NotEqual(onKeyA, offKey);
+    }
 }
