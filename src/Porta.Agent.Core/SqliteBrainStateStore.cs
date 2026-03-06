@@ -130,7 +130,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     derivedSession,
                     gating,
                     previousDeepWorkStabilization);
-                _ = _deepWorkOutputActionCoordinator.HandleDeepWorkTransition(
+                NotificationSuppressionRuntimeState previousNotificationSuppressionState = ReadNotificationSuppressionRuntimeState(
+                    connection,
+                    tx);
+                DeepWorkTransitionExecution deepWorkTransitionExecution = _deepWorkOutputActionCoordinator.HandleDeepWorkTransition(
                     new DeepWorkTransitionContext(
                         BucketSeq: mapped.BucketSeq,
                         BucketEndUtc: DateTimeOffset.FromUnixTimeMilliseconds(Time.bucketStartEnd(mapped.BucketSeq).endUtcMs),
@@ -138,7 +141,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         CurrentDeepWorkActive: deepWorkStabilization.DeepWorkActive,
                         BaselineReady: gating.BaselineReady,
                         LowQualityPaused: deepWorkStabilization.LowQualityPaused,
-                        Confidence: overloadInference.Confidence));
+                        Confidence: overloadInference.Confidence),
+                    previousNotificationSuppressionState);
                 long finalizeTsMs = Time.bucketStartEnd(mapped.BucketSeq).endUtcMs;
                 BreakSuggestionDecision breakSuggestionDecision = BreakSuggestionPolicy.ShouldTriggerBreak(
                     gating,
@@ -183,7 +187,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     derivedSession,
                     overloadInference,
                     overloadStabilization,
-                    deepWorkStabilization);
+                    deepWorkStabilization,
+                    deepWorkTransitionExecution.RuntimeState);
                 PrimitiveComputer.PersistSPrevForFinalizedBucket(
                     connection,
                     tx,
@@ -1355,7 +1360,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         DerivedSessionMetricsResult derivedSession,
         OverloadInferenceResult overloadInference,
         OverloadStabilizationResult overloadStabilization,
-        DeepWorkStabilizationResult deepWorkStabilization)
+        DeepWorkStabilizationResult deepWorkStabilization,
+        NotificationSuppressionRuntimeState notificationSuppressionRuntimeState)
     {
         string valueJson = JsonSerializer.Serialize(new
         {
@@ -1507,6 +1513,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             PortaExecutionConstants.DeepWorkDetection.RuntimeStateKey,
             BuildDeepWorkStabilizationRuntimeStateJson(mapped, deepWorkStabilization),
             mapped.TimestampUtc);
+        UpsertRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.NotificationSuppression.RuntimeStateKey,
+            BuildNotificationSuppressionRuntimeStateJson(mapped, notificationSuppressionRuntimeState),
+            mapped.TimestampUtc);
     }
 
     private static void UpsertRuntimeStateValue(
@@ -1628,6 +1640,63 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         });
     }
 
+    private static string BuildNotificationSuppressionRuntimeStateJson(
+        InputBucketRow mapped,
+        NotificationSuppressionRuntimeState notificationSuppressionRuntimeState)
+    {
+        object? snapshotPayload = null;
+        if (notificationSuppressionRuntimeState.Snapshot is NotificationControllerSnapshot snapshot)
+        {
+            snapshotPayload = new
+            {
+                schema_ver = snapshot.SchemaVer,
+                contract_ver = snapshot.ContractVersion,
+                captured_at_utc = snapshot.CapturedAtUtc.ToString("O"),
+                is_valid = snapshot.IsValid,
+                provider = snapshot.Provider,
+                focus_assist_mode = snapshot.FocusAssistMode,
+                quiet_hours_enabled = snapshot.QuietHoursEnabled,
+                toast_banners_enabled = snapshot.ToastBannersEnabled,
+                raw_state_json = snapshot.RawStateJson
+            };
+        }
+
+        return JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            contract_ver = PortaExecutionConstants.NotificationSuppression.ContractVersion,
+            active = notificationSuppressionRuntimeState.Active,
+            snapshot = snapshotPayload,
+            snapshot_captured_at_utc = notificationSuppressionRuntimeState.SnapshotCapturedAtUtc,
+            suppressed_at_utc = notificationSuppressionRuntimeState.SuppressedAtUtc,
+            restored_at_utc = notificationSuppressionRuntimeState.RestoredAtUtc,
+            enable_cooldown_until_utc_ms = Math.Max(0, notificationSuppressionRuntimeState.EnableCooldownUntilUtcMs),
+            min_on_until_utc_ms = Math.Max(0, notificationSuppressionRuntimeState.MinOnUntilUtcMs),
+            last_error_code = notificationSuppressionRuntimeState.LastErrorCode,
+            backoff_until_utc_ms = Math.Max(0, notificationSuppressionRuntimeState.BackoffUntilUtcMs),
+            last_transition_source_bucket_seq = Math.Max(0, notificationSuppressionRuntimeState.LastTransitionSourceBucketSeq),
+            bucket_seq = mapped.BucketSeq,
+            updated_utc = mapped.TimestampUtc
+        });
+    }
+
+    private static NotificationSuppressionRuntimeState ReadNotificationSuppressionRuntimeState(
+        SqliteConnection connection,
+        SqliteTransaction tx)
+    {
+        string? currentJson = ReadRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.NotificationSuppression.RuntimeStateKey);
+        if (!string.IsNullOrWhiteSpace(currentJson)
+            && TryParseNotificationSuppressionRuntimeState(currentJson, out NotificationSuppressionRuntimeState parsedCurrent))
+        {
+            return parsedCurrent;
+        }
+
+        return NotificationSuppressionRuntimeState.CreateDefault();
+    }
+
     private static DeepWorkStabilizationRuntimeState ReadDeepWorkStabilizationRuntimeState(
         SqliteConnection connection,
         SqliteTransaction tx)
@@ -1665,6 +1734,81 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             LastGoodTsMs: 0,
             LastBucketSeq: 0,
             LastTransitionTsMs: 0);
+    }
+
+    private static bool TryParseNotificationSuppressionRuntimeState(
+        string json,
+        out NotificationSuppressionRuntimeState state)
+    {
+        state = NotificationSuppressionRuntimeState.CreateDefault();
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            bool active = TryReadBoolProperty(root, "active", out bool activeProp) && activeProp;
+            string snapshotCapturedAtUtc = ReadStringProperty(root, "snapshot_captured_at_utc");
+            string suppressedAtUtc = ReadStringProperty(root, "suppressed_at_utc");
+            string restoredAtUtc = ReadStringProperty(root, "restored_at_utc");
+            long enableCooldownUntilUtcMs = ReadInt64Property(root, "enable_cooldown_until_utc_ms");
+            long minOnUntilUtcMs = ReadInt64Property(root, "min_on_until_utc_ms");
+            string lastErrorCode = ReadStringProperty(root, "last_error_code");
+            long backoffUntilUtcMs = ReadInt64Property(root, "backoff_until_utc_ms");
+            long lastTransitionSourceBucketSeq = ReadInt64Property(root, "last_transition_source_bucket_seq");
+
+            NotificationControllerSnapshot? snapshot = null;
+            if (root.TryGetProperty("snapshot", out JsonElement snapshotNode)
+                && snapshotNode.ValueKind == JsonValueKind.Object)
+            {
+                int schemaVer = (int)Math.Max(1, ReadInt64Property(snapshotNode, "schema_ver"));
+                string contractVer = ReadStringProperty(snapshotNode, "contract_ver");
+                string capturedAtUtcRaw = ReadStringProperty(snapshotNode, "captured_at_utc");
+                if (!DateTimeOffset.TryParse(capturedAtUtcRaw, out DateTimeOffset capturedAtUtc))
+                {
+                    capturedAtUtc = DateTimeOffset.UnixEpoch;
+                }
+
+                bool isValid = TryReadBoolProperty(snapshotNode, "is_valid", out bool isValidProp) && isValidProp;
+                string provider = ReadStringProperty(snapshotNode, "provider");
+                string focusAssistMode = ReadStringProperty(snapshotNode, "focus_assist_mode");
+                bool quietHoursEnabled = TryReadBoolProperty(snapshotNode, "quiet_hours_enabled", out bool quietProp) && quietProp;
+                bool toastBannersEnabled = !TryReadBoolProperty(snapshotNode, "toast_banners_enabled", out bool toastProp) || toastProp;
+                string rawStateJson = ReadStringProperty(snapshotNode, "raw_state_json");
+
+                snapshot = new NotificationControllerSnapshot(
+                    SchemaVer: schemaVer,
+                    ContractVersion: string.IsNullOrWhiteSpace(contractVer) ? "v1" : contractVer,
+                    CapturedAtUtc: capturedAtUtc,
+                    IsValid: isValid,
+                    Provider: provider,
+                    FocusAssistMode: focusAssistMode,
+                    QuietHoursEnabled: quietHoursEnabled,
+                    ToastBannersEnabled: toastBannersEnabled,
+                    RawStateJson: string.IsNullOrWhiteSpace(rawStateJson) ? "{}" : rawStateJson);
+            }
+
+            state = new NotificationSuppressionRuntimeState(
+                SchemaVer: 1,
+                Active: active,
+                Snapshot: snapshot,
+                SnapshotCapturedAtUtc: snapshotCapturedAtUtc,
+                SuppressedAtUtc: suppressedAtUtc,
+                RestoredAtUtc: restoredAtUtc,
+                EnableCooldownUntilUtcMs: Math.Max(0, enableCooldownUntilUtcMs),
+                MinOnUntilUtcMs: Math.Max(0, minOnUntilUtcMs),
+                LastErrorCode: lastErrorCode,
+                BackoffUntilUtcMs: Math.Max(0, backoffUntilUtcMs),
+                LastTransitionSourceBucketSeq: Math.Max(0, lastTransitionSourceBucketSeq));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static OverloadStabilizationRuntimeState ReadOverloadStabilizationRuntimeState(
@@ -1916,6 +2060,29 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
 
         return TryReadBool(property, out parsed);
+    }
+
+    private static string ReadStringProperty(JsonElement root, string propertyName)
+    {
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty(propertyName, out JsonElement property))
+        {
+            return string.Empty;
+        }
+
+        if (property.ValueKind == JsonValueKind.String)
+        {
+            return property.GetString() ?? string.Empty;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number
+            || property.ValueKind == JsonValueKind.True
+            || property.ValueKind == JsonValueKind.False)
+        {
+            return property.ToString();
+        }
+
+        return string.Empty;
     }
 
     private static bool TryReadDoubleProperty(JsonElement root, string propertyName, out double parsed)

@@ -102,4 +102,11 @@ public static class PortaExecutionConstants
         public const string ActiveRuntimeStateKey = "deep_work_active";
         public const string ContractVersion = "v1";
     }
+
+    public static class NotificationSuppression
+    {
+        public const string RuntimeStateKey = "deep_work_notifications:current";
+        public const string ContractVersion = "v1";
+        public const int FailureBackoffSeconds = 60;
+    }
 }
