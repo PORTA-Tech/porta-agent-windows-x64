@@ -155,6 +155,40 @@ public sealed class DeterministicFinalizerScenarioRunner : IDisposable
         return new LocalApiProjectionSnapshot(statusDto, snapshotDto, events);
     }
 
+    public void RunFinalizerTick(DateTimeOffset nowUtc)
+    {
+        EnsureNotDisposed();
+        _stateStore.RunFinalizerTick(nowUtc);
+    }
+
+    public void UpsertRuntimeStateValue(string key, string valueJson, DateTimeOffset? updatedUtc = null)
+    {
+        EnsureNotDisposed();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new ArgumentException("Runtime-state key is required.", nameof(key));
+        }
+
+        using var connection = new SqliteConnection($"Data Source={_dbPath}");
+        connection.Open();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            INSERT INTO runtime_state (key, value_json, updated_utc)
+            VALUES ($key, $value_json, $updated_utc)
+            ON CONFLICT(key) DO UPDATE SET
+                value_json = excluded.value_json,
+                updated_utc = excluded.updated_utc;
+            """;
+        cmd.Parameters.AddWithValue("$key", key.Trim());
+        cmd.Parameters.AddWithValue("$value_json", valueJson ?? string.Empty);
+        cmd.Parameters.AddWithValue("$updated_utc", (updatedUtc ?? Clock.UtcNow).ToString("O", CultureInfo.InvariantCulture));
+        cmd.ExecuteNonQuery();
+        tx.Commit();
+    }
+
     public string? ReadRuntimeStateValue(string key)
     {
         EnsureNotDisposed();
