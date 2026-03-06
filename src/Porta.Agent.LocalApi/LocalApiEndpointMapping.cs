@@ -1,5 +1,7 @@
 using System.Threading.RateLimiting;
 using System.Runtime.Versioning;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
@@ -148,14 +150,22 @@ public static class LocalApiEndpointMapping
                 status.NotificationSuppressionActive,
                 status.NotificationSuppressionReady,
                 status.NotificationSuppressionLastError,
+                status.NotificationSuppressionError,
                 status.NotificationSuppressionBackoffUntilUtc,
+                status.NotificationBackoffUntilUtc,
+                status.NotificationsSuppressed,
                 status.BrightnessActionReady,
                 status.BrightnessActionActive,
+                status.BrightnessAdjusted,
                 status.BrightnessSupported,
                 status.BrightnessCurrentLevel,
                 status.BrightnessTargetLevel,
                 status.BrightnessLastError,
+                status.BrightnessError,
                 status.BrightnessBackoffUntilUtc,
+                status.DbMigrationFailed,
+                status.BaselineReady,
+                status.ColdStart,
                 status.OverloadActive,
                 status.DeepWorkActive,
                 status.DeepWorkStreakSeconds,
@@ -190,7 +200,11 @@ public static class LocalApiEndpointMapping
         api.MapGet("/events/recent", (IAgentCoreController controller, int? limit, DateTimeOffset? since) =>
         {
             IReadOnlyList<AgentControlEvent> events = controller.GetRecentEvents(limit ?? 50, since);
-            return events.Select(ToEventResponse).ToList();
+            return events
+                .OrderByDescending(static ev => ev.TimestampUtc)
+                .ThenByDescending(static ev => ev.EventId)
+                .Select(ToEventResponse)
+                .ToList();
         });
 
         api.MapGet("/events", (IAgentCoreController controller, HttpContext httpContext, int? limit) =>
@@ -347,6 +361,9 @@ public static class LocalApiEndpointMapping
             (0.50d * idleFragmentationIndex)
             + (0.35d * Clamp01(snapshot.SmoothedFocusSwitchRate))
             + (0.15d * entropyNorm));
+        LocalApiCooldownsRemainingResponse cooldownsRemaining = BuildCooldownsRemaining(stateFlagsJson);
+        string normalizedStateFlagsJson = EnsureSchemaV1Json(stateFlagsJson, "{\"schema_ver\":1}");
+        string normalizedContributorsJson = EnsureSchemaV1Json(contributorsJson, "{\"schema_ver\":1}");
 
         return new LocalApiCurrentSnapshotResponse(
             snapshot.TimestampUtc,
@@ -372,18 +389,111 @@ public static class LocalApiEndpointMapping
             idleFragmentationIndex,
             focusChoppinessIndex,
             overloadActive,
-            string.IsNullOrWhiteSpace(stateFlagsJson) ? null : stateFlagsJson,
-            string.IsNullOrWhiteSpace(contributorsJson) ? null : contributorsJson,
+            normalizedStateFlagsJson,
+            normalizedContributorsJson,
             latestState?.BaselineReady,
             latestState?.BaselineReadyPct,
             latestState?.AvgQuality2m,
             latestState?.ColdStart,
             latestState?.CurrentQualityScore,
             latestState?.PartialData,
-            latestState?.MissingMajorChannels);
+            latestState?.MissingMajorChannels,
+            cooldownsRemaining);
     }
 
     private static double Clamp01(double value) => Math.Clamp(value, 0d, 1d);
+
+    private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(string? stateFlagsJson)
+    {
+        long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        int notificationEnableSeconds = RemainingSeconds(ReadInt64Flag(stateFlagsJson, "notification_enable_cooldown_until_utc_ms"), nowMs);
+        int notificationMinOnSeconds = RemainingSeconds(ReadInt64Flag(stateFlagsJson, "notification_min_on_until_utc_ms"), nowMs);
+        int brightnessSeconds = RemainingSeconds(ReadInt64Flag(stateFlagsJson, "brightness_cooldown_until_utc_ms"), nowMs);
+        int breakSuggestionSeconds = RemainingSeconds(
+            ReadInt64Flag(stateFlagsJson, "break_cooldown_until_utc_ms", "cooldown_end_ts_ms"),
+            nowMs);
+
+        return new LocalApiCooldownsRemainingResponse(
+            NotificationEnableSeconds: notificationEnableSeconds,
+            NotificationMinOnSeconds: notificationMinOnSeconds,
+            BrightnessSeconds: brightnessSeconds,
+            BreakSuggestionSeconds: breakSuggestionSeconds,
+            AnyActive: notificationEnableSeconds > 0
+                || notificationMinOnSeconds > 0
+                || brightnessSeconds > 0
+                || breakSuggestionSeconds > 0);
+    }
+
+    private static int RemainingSeconds(long untilUtcMs, long nowUtcMs)
+    {
+        if (untilUtcMs <= 0 || untilUtcMs <= nowUtcMs)
+        {
+            return 0;
+        }
+
+        return (int)Math.Ceiling((untilUtcMs - nowUtcMs) / 1000d);
+    }
+
+    private static long ReadInt64Flag(string? json, params string[] names)
+    {
+        if (string.IsNullOrWhiteSpace(json) || names.Length == 0)
+        {
+            return 0;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return 0;
+            }
+
+            foreach (string name in names)
+            {
+                if (root.TryGetProperty(name, out JsonElement node)
+                    && node.ValueKind == JsonValueKind.Number
+                    && node.TryGetInt64(out long value))
+                {
+                    return Math.Max(0, value);
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return 0;
+    }
+
+    private static string EnsureSchemaV1Json(string? json, string fallbackJson)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return fallbackJson;
+        }
+
+        try
+        {
+            JsonNode? node = JsonNode.Parse(json);
+            if (node is not JsonObject obj)
+            {
+                return fallbackJson;
+            }
+
+            if (obj["schema_ver"] is null)
+            {
+                obj["schema_ver"] = 1;
+            }
+
+            return obj.ToJsonString();
+        }
+        catch
+        {
+            return fallbackJson;
+        }
+    }
 
     private static LocalApiEventResponse ToEventResponse(AgentControlEvent ev)
     {

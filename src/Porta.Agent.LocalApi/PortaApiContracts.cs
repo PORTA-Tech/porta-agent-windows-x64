@@ -25,21 +25,38 @@ public sealed record LocalApiStatusResponse(
     bool NotificationSuppressionActive,
     bool NotificationSuppressionReady,
     string? NotificationSuppressionLastError,
+    string? NotificationSuppressionError,
     DateTimeOffset? NotificationSuppressionBackoffUntilUtc,
+    DateTimeOffset? NotificationBackoffUntilUtc,
+    bool NotificationsSuppressed,
     bool BrightnessActionReady,
     bool BrightnessActionActive,
+    bool BrightnessAdjusted,
     bool BrightnessSupported,
     int BrightnessCurrentLevel,
     int BrightnessTargetLevel,
     string? BrightnessLastError,
+    string? BrightnessError,
     DateTimeOffset? BrightnessBackoffUntilUtc,
+    bool DbMigrationFailed,
+    bool BaselineReady,
+    bool ColdStart,
     bool OverloadActive,
     bool DeepWorkActive,
     int DeepWorkStreakSeconds,
     string VisualMode,
     string? LatestContributorsJson,
     string? LatestWhyJson,
-    DateTimeOffset LastUpdatedUtc);
+    DateTimeOffset LastUpdatedUtc)
+{
+    // Step 18 pinned snake_case aliases for operational truth consumers.
+    public bool overload_active => OverloadActive;
+    public bool deep_work_active => DeepWorkActive;
+    public bool notifications_suppressed => NotificationsSuppressed;
+    public bool brightness_adjusted => BrightnessAdjusted;
+    public bool brightness_supported => BrightnessSupported;
+    public bool db_migration_failed => DbMigrationFailed;
+}
 
 public sealed record LocalApiCurrentSnapshotResponse(
     DateTimeOffset TimestampUtc,
@@ -73,7 +90,15 @@ public sealed record LocalApiCurrentSnapshotResponse(
     bool? ColdStart = null,
     double? CurrentQualityScore = null,
     bool? PartialData = null,
-    IReadOnlyList<string>? MissingMajorChannels = null);
+    IReadOnlyList<string>? MissingMajorChannels = null,
+    LocalApiCooldownsRemainingResponse? CooldownsRemaining = null);
+
+public sealed record LocalApiCooldownsRemainingResponse(
+    int NotificationEnableSeconds,
+    int NotificationMinOnSeconds,
+    int BrightnessSeconds,
+    int BreakSuggestionSeconds,
+    bool AnyActive);
 
 public sealed record LocalApiInputsSummaryResponse(
     DateTimeOffset FromUtc,

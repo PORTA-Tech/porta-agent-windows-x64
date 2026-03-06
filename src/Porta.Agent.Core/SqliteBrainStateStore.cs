@@ -2209,6 +2209,30 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
     }
 
+    public bool ReadDbMigrationFailed()
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT value
+                FROM diagnostics
+                WHERE key = 'db_migration_failed'
+                LIMIT 1;
+                """;
+
+            object? scalar = cmd.ExecuteScalar();
+            string value = scalar == null || scalar == DBNull.Value
+                ? string.Empty
+                : Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+
+            return value.Equals("true", StringComparison.OrdinalIgnoreCase)
+                || value.Equals("1", StringComparison.Ordinal);
+        }
+    }
+
     private static OverloadStabilizationRuntimeState ReadOverloadStabilizationRuntimeState(
         SqliteConnection connection,
         SqliteTransaction tx)

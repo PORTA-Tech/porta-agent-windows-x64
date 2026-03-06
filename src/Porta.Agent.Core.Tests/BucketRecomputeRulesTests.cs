@@ -178,6 +178,7 @@ public sealed class BucketRecomputeRulesTests
                 LastError: null,
                 BackoffUntilUtc: null,
                 CooldownUntilUtc: null);
+        public bool ReadDbMigrationFailed() => false;
         public IReadOnlyList<AgentBrainSnapshot> ReadTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, int bucketSeconds = Time.bucketSeconds) => [];
         public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null) => [];
         public IReadOnlyList<AgentControlEvent> ReadEventsSinceId(long sinceIdExclusive, int limit = 200) => [];

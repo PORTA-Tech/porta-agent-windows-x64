@@ -136,6 +136,11 @@ public sealed class AgentCoreController : IAgentCoreController
             string? latestContributorsJson = latestState?.ContributorsJson;
             string? latestWhyJson = _stateStore.ReadRecentEvents(1).FirstOrDefault()?.WhyJson;
             string? effectiveLastError = ResolveEffectiveLastError(_lastError, _latestSnapshot.StateFlagsJson);
+            bool baselineReady = latestState?.BaselineReady ?? false;
+            bool coldStart = latestState?.ColdStart ?? false;
+            bool dbMigrationFailedFromStore = _stateStore.ReadDbMigrationFailed();
+            bool dbMigrationFailed = IsDbMigrationFailure(effectiveLastError);
+            dbMigrationFailed = dbMigrationFailed || dbMigrationFailedFromStore;
             AgentStatus status = effectiveLastError is null
                 ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
                 : AgentStatus.Degraded;
@@ -163,14 +168,22 @@ public sealed class AgentCoreController : IAgentCoreController
                 NotificationSuppressionActive: suppressionStatus.Active,
                 NotificationSuppressionReady: suppressionStatus.Ready,
                 NotificationSuppressionLastError: suppressionStatus.LastError,
+                NotificationSuppressionError: suppressionStatus.LastError,
                 NotificationSuppressionBackoffUntilUtc: suppressionStatus.BackoffUntilUtc,
+                NotificationBackoffUntilUtc: suppressionStatus.BackoffUntilUtc,
+                NotificationsSuppressed: suppressionStatus.Active,
                 BrightnessActionReady: brightnessStatus.ActionReady,
                 BrightnessActionActive: brightnessStatus.Active,
+                BrightnessAdjusted: brightnessStatus.Active,
                 BrightnessSupported: brightnessStatus.Supported,
                 BrightnessCurrentLevel: brightnessStatus.CurrentLevel,
                 BrightnessTargetLevel: brightnessStatus.TargetLevel,
                 BrightnessLastError: brightnessStatus.LastError,
+                BrightnessError: brightnessStatus.LastError,
                 BrightnessBackoffUntilUtc: brightnessStatus.BackoffUntilUtc,
+                DbMigrationFailed: dbMigrationFailed,
+                BaselineReady: baselineReady,
+                ColdStart: coldStart,
                 OverloadActive: overloadActive,
                 DeepWorkActive: deepWorkActive,
                 DeepWorkStreakSeconds: deepWorkStreakSeconds,
@@ -1659,6 +1672,19 @@ public sealed class AgentCoreController : IAgentCoreController
         {
             return null;
         }
+    }
+
+    private static bool IsDbMigrationFailure(string? errorText)
+    {
+        if (string.IsNullOrWhiteSpace(errorText))
+        {
+            return false;
+        }
+
+        return errorText.Contains("db_migration_failed", StringComparison.OrdinalIgnoreCase)
+            || errorText.Contains("migration", StringComparison.OrdinalIgnoreCase)
+            || errorText.Contains("readonly database", StringComparison.OrdinalIgnoreCase)
+            || errorText.Contains("sqlite error", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int ComputeDeepWorkStreakSeconds(

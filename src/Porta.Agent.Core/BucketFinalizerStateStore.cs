@@ -36,6 +36,7 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
     public AgentLatestStateDetails? ReadLatestStateDetails() => _inner.ReadLatestStateDetails();
     public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus() => _inner.ReadNotificationSuppressionStatus();
     public AgentBrightnessActionStatus ReadBrightnessActionStatus() => _inner.ReadBrightnessActionStatus();
+    public bool ReadDbMigrationFailed() => _inner.ReadDbMigrationFailed();
 
     public IReadOnlyList<AgentBrainSnapshot> ReadTimeline(
         DateTimeOffset fromUtc,
