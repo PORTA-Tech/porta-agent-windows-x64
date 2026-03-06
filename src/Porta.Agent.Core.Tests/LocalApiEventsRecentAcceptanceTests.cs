@@ -19,7 +19,7 @@ public sealed class LocalApiEventsRecentAcceptanceTests
 
         IReadOnlyList<Porta.Agent.LocalApi.LocalApiEventResponse> mapped = EventMapper.MapRecentOrdered(events);
 
-        Assert.Equal(new long[] { 3L, 2L, 5L, 1L }, mapped.Select(static e => e.id).ToArray());
+        Assert.Equal(new long[] { 3L, 2L, 5L, 1L }, mapped.Select(static e => e.Id).ToArray());
     }
 
     [Fact]
@@ -38,7 +38,7 @@ public sealed class LocalApiEventsRecentAcceptanceTests
         ];
 
         IReadOnlyList<Porta.Agent.LocalApi.LocalApiEventResponse> mapped = EventMapper.MapRecentOrdered(events);
-        HashSet<string> types = mapped.Select(static e => e.type).ToHashSet(StringComparer.Ordinal);
+        HashSet<string> types = mapped.Select(static e => e.Type).ToHashSet(StringComparer.Ordinal);
 
         Assert.Contains("DEEP_WORK_NOTIFICATIONS_SUPPRESSED", types);
         Assert.Contains("DEEP_WORK_NOTIFICATIONS_RESTORED", types);

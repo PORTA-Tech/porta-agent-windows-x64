@@ -260,9 +260,7 @@ public sealed record LocalApiEventResponse(
     string LifecycleState)
 {
     // Step 18E pinned proof-trail aliases for events/recent consumers.
-    public long id => Id;
     public DateTimeOffset ts_utc => TsUtc;
-    public string type => Type;
     public string why_json => WhyJson;
     public string? state_flags_json => StateFlagsJson;
 }
