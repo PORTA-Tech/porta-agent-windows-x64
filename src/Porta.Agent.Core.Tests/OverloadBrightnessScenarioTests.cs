@@ -218,6 +218,115 @@ public sealed class OverloadBrightnessScenarioTests
         Assert.Equal(1, restoredEvents);
     }
 
+    [Fact]
+    public void Scenario_BrightnessUnsupported_LogsOnceAndDoesNotSpamRetries()
+    {
+        using var runner = new DeterministicFinalizerScenarioRunner(
+            startUtc: DateTimeOffset.Parse("2026-03-06T12:00:00.000+00:00"),
+            seed: 61034);
+        runner.BrightnessController.Supported = false;
+
+        OverloadActivationOutcome activation = ActivateOverload(runner);
+        Assert.True(activation.IsActive, activation.Debug);
+
+        IReadOnlyList<(string TimestampUtc, string Action, string IdempotencyKey)> eventsAfterActivation =
+            runner.ReadRecentEventRows(4000);
+        int unsupportedEvents = CountEvents(eventsAfterActivation, "brightness_unsupported");
+        Assert.Equal(1, unsupportedEvents);
+        ScenarioAssertions.AssertEventsDescendingByTimestamp(eventsAfterActivation);
+
+        int isSupportedCallsAtActivation = runner.BrightnessController.IsSupportedCalls;
+        int setLevelCallsAtActivation = runner.BrightnessController.SetLevelCalls;
+        Assert.True(isSupportedCallsAtActivation >= 1);
+        Assert.Equal(0, setLevelCallsAtActivation);
+
+        for (int i = 0; i < 40; i++)
+        {
+            runner.RunBucket(OverloadCandidate);
+        }
+
+        int unsupportedEventsAfterHold = CountEvents(
+            runner.ReadRecentEventRows(4000),
+            "brightness_unsupported");
+        Assert.Equal(1, unsupportedEventsAfterHold);
+        Assert.Equal(isSupportedCallsAtActivation, runner.BrightnessController.IsSupportedCalls);
+        Assert.Equal(0, runner.BrightnessController.SetLevelCalls);
+        ScenarioAssertions.AssertTimestampsNonDecreasing(
+            runner.BrightnessController.Calls.Select(c => c.TimestampUtc));
+
+        LocalApiProjectionSnapshot projection = runner.ReadLocalApiProjection();
+        Assert.True(projection.Status.overload_active);
+        Assert.False(projection.Status.brightness_supported);
+        Assert.False(projection.Status.BrightnessActionReady);
+        Assert.Equal("brightness_unsupported", projection.Status.BrightnessError);
+        Assert.NotNull(projection.Status.BrightnessBackoffUntilUtc);
+
+        ScenarioAssertions.AssertRuntimeStateRowCount(
+            runner.DbPath,
+            PortaExecutionConstants.BrightnessAdjustment.RuntimeStateKey);
+        ScenarioAssertions.AssertLatestStateBucketJsonContracts(runner.DbPath);
+    }
+
+    [Fact]
+    public void Scenario_BrightnessRampDownFailure_EntersBackoffAndKeepsIncompleteStateWithoutSpamRetries()
+    {
+        using var runner = new DeterministicFinalizerScenarioRunner(
+            startUtc: DateTimeOffset.Parse("2026-03-06T14:00:00.000+00:00"),
+            seed: 61035);
+
+        OverloadActivationOutcome activation = ActivateOverload(runner);
+        FinalizerTickObservation last = activation.LastObservation;
+        Assert.True(activation.IsActive, activation.Debug);
+
+        // Ensure reduction session has started and one ramp step succeeded.
+        last = runner.RunBucket(OverloadCandidate);
+        Assert.True(last.BrightnessStatus.Active);
+        Assert.Equal("down", last.BrightnessStatus.RampDirection);
+        Assert.True(last.BrightnessStatus.CurrentLevel > last.BrightnessStatus.TargetLevel);
+
+        runner.BrightnessController.FailNextRampDown = true;
+        last = runner.RunBucket(OverloadCandidate);
+
+        IReadOnlyList<(string TimestampUtc, string Action, string IdempotencyKey)> eventsAfterFailure =
+            runner.ReadRecentEventRows(4000);
+        int failureEvents = CountEvents(eventsAfterFailure, "brightness_control_failed");
+        Assert.Equal(1, failureEvents);
+        ScenarioAssertions.AssertEventsDescendingByTimestamp(eventsAfterFailure);
+        AssertActionOrderContains(eventsAfterFailure, "overload_brightness_reduced", "brightness_control_failed");
+
+        int setLevelCallsAfterFailure = runner.BrightnessController.SetLevelCalls;
+        Assert.False(last.BrightnessStatus.ActionReady);
+        Assert.True(last.BrightnessStatus.Active);
+        Assert.True(last.BrightnessStatus.CurrentLevel > last.BrightnessStatus.TargetLevel);
+        Assert.Equal("brightness_set_failed", last.BrightnessStatus.LastError);
+        Assert.NotNull(last.BrightnessStatus.BackoffUntilUtc);
+        Assert.True(last.BrightnessStatus.BackoffUntilUtc > last.BucketEndUtc);
+
+        for (int i = 0; i < 40; i++)
+        {
+            runner.RunBucket(OverloadCandidate);
+        }
+
+        int failureEventsAfterHold = CountEvents(
+            runner.ReadRecentEventRows(4000),
+            "brightness_control_failed");
+        Assert.Equal(1, failureEventsAfterHold);
+        Assert.Equal(setLevelCallsAfterFailure, runner.BrightnessController.SetLevelCalls);
+        ScenarioAssertions.AssertTimestampsNonDecreasing(
+            runner.BrightnessController.Calls.Select(c => c.TimestampUtc));
+
+        LocalApiProjectionSnapshot projection = runner.ReadLocalApiProjection();
+        Assert.True(projection.Status.overload_active);
+        Assert.False(projection.Status.BrightnessActionReady);
+        Assert.Equal("brightness_set_failed", projection.Status.BrightnessError);
+        Assert.NotNull(projection.Status.BrightnessBackoffUntilUtc);
+
+        ScenarioAssertions.AssertRuntimeStateRowCount(
+            runner.DbPath,
+            PortaExecutionConstants.BrightnessAdjustment.RuntimeStateKey);
+        ScenarioAssertions.AssertLatestStateBucketJsonContracts(runner.DbPath);
+    }
+
     private static ScriptedBucketInput BuildWarmupBucket(int bucketIndex)
     {
         double phaseA = (bucketIndex % 17) / 16d;
@@ -241,6 +350,24 @@ public sealed class OverloadBrightnessScenarioTests
         string action)
     {
         return rows.Count(row => string.Equals(row.Action, action, StringComparison.Ordinal));
+    }
+
+    private static void AssertActionOrderContains(
+        IReadOnlyList<(string TimestampUtc, string Action, string IdempotencyKey)> rows,
+        string firstAction,
+        string secondAction)
+    {
+        List<(DateTimeOffset Ts, string Action)> chronological = rows
+            .Select(row => (Ts: DateTimeOffset.Parse(row.TimestampUtc), row.Action))
+            .OrderBy(item => item.Ts)
+            .ToList();
+
+        int firstIndex = chronological.FindIndex(item => string.Equals(item.Action, firstAction, StringComparison.Ordinal));
+        int secondIndex = chronological.FindIndex(item => string.Equals(item.Action, secondAction, StringComparison.Ordinal));
+
+        Assert.True(firstIndex >= 0, $"Missing action in timeline: {firstAction}");
+        Assert.True(secondIndex >= 0, $"Missing action in timeline: {secondAction}");
+        Assert.True(firstIndex < secondIndex, $"Expected {firstAction} before {secondAction}.");
     }
 
     private static OverloadActivationOutcome ActivateOverload(DeterministicFinalizerScenarioRunner runner)

@@ -259,6 +259,60 @@ public sealed class DeepWorkSuppressionScenarioTests
         Assert.Equal(1, restoredEvents);
     }
 
+    [Fact]
+    public void Scenario_NotificationApplyFailure_SetsBackoffLogsFailureAndDoesNotRetryAggressively()
+    {
+        using var runner = new DeterministicFinalizerScenarioRunner(
+            startUtc: DateTimeOffset.Parse("2026-03-06T09:00:00.000+00:00"),
+            seed: 51023);
+        runner.NotificationController.FailNextApply = true;
+
+        ActivationOutcome activation = ActivateDeepWork(runner);
+        FinalizerTickObservation last = activation.LastObservation;
+        Assert.True(activation.IsActive, BuildDebugSummary(runner, activation.LastObservation, activation.ActivationCount, activation.SearchBuckets));
+
+        IReadOnlyList<(string TimestampUtc, string Action, string IdempotencyKey)> eventsAfterActivation =
+            runner.ReadRecentEventRows(4000);
+        int failureEvents = CountEvents(eventsAfterActivation, "notification_suppress_failed");
+        Assert.Equal(1, failureEvents);
+        ScenarioAssertions.AssertEventsDescendingByTimestamp(eventsAfterActivation);
+
+        Assert.Equal(1, runner.NotificationController.GetSnapshotCalls);
+        Assert.Equal(1, runner.NotificationController.ApplyCalls);
+        Assert.Equal(0, runner.NotificationController.RestoreCalls);
+        ScenarioAssertions.AssertTimestampsNonDecreasing(
+            runner.NotificationController.Calls.Select(c => c.TimestampUtc));
+
+        Assert.False(last.NotificationStatus.Ready);
+        Assert.Equal("suppression_apply_failed", last.NotificationStatus.LastError);
+        Assert.NotNull(last.NotificationStatus.BackoffUntilUtc);
+        Assert.True(last.NotificationStatus.BackoffUntilUtc > last.BucketEndUtc);
+
+        for (int i = 0; i < 24; i++)
+        {
+            last = runner.RunBucket(DeepWorkCandidate);
+            Assert.True(ReadDeepWorkActive(last.LatestState?.StateFlagsJson));
+        }
+
+        int failureEventsAfterHold = CountEvents(
+            runner.ReadRecentEventRows(4000),
+            "notification_suppress_failed");
+        Assert.Equal(1, failureEventsAfterHold);
+        Assert.Equal(1, runner.NotificationController.ApplyCalls);
+
+        LocalApiProjectionSnapshot projection = runner.ReadLocalApiProjection();
+        Assert.True(projection.Status.deep_work_active);
+        Assert.False(projection.Status.notifications_suppressed);
+        Assert.False(projection.Status.NotificationSuppressionReady);
+        Assert.Equal("suppression_apply_failed", projection.Status.NotificationSuppressionError);
+        Assert.NotNull(projection.Status.NotificationSuppressionBackoffUntilUtc);
+
+        ScenarioAssertions.AssertRuntimeStateRowCount(
+            runner.DbPath,
+            PortaExecutionConstants.NotificationSuppression.RuntimeStateKey);
+        ScenarioAssertions.AssertLatestStateBucketJsonContracts(runner.DbPath);
+    }
+
     private static bool ReadDeepWorkActive(string? stateFlagsJson)
     {
         if (string.IsNullOrWhiteSpace(stateFlagsJson))
