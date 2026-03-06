@@ -166,6 +166,17 @@ public sealed class BucketRecomputeRulesTests
                 EnableCooldownUntilUtc: null,
                 MinOnUntilUtc: null,
                 RestorePending: false);
+        public AgentBrightnessActionStatus ReadBrightnessActionStatus()
+            => new(
+                Supported: true,
+                Active: false,
+                RampDirection: "idle",
+                PreviousLevel: -1,
+                TargetLevel: -1,
+                CurrentLevel: -1,
+                LastError: null,
+                BackoffUntilUtc: null,
+                CooldownUntilUtc: null);
         public IReadOnlyList<AgentBrainSnapshot> ReadTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, int bucketSeconds = Time.bucketSeconds) => [];
         public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null) => [];
         public IReadOnlyList<AgentControlEvent> ReadEventsSinceId(long sinceIdExclusive, int limit = 200) => [];

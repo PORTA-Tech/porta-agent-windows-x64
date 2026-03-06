@@ -41,13 +41,13 @@ public sealed class NoOpBrightnessController : IBrightnessController
 
     public BrightnessControllerSetResult SetLevel(int level)
     {
-        _ = level;
+        int clampedLevel = Math.Clamp(level, 0, 100);
         return new BrightnessControllerSetResult(
             Succeeded: false,
             ErrorCode: "brightness_unsupported",
             ErrorDetail: "Brightness control is not available in no-op mode.",
             IsSupported: false,
             StateChanged: false,
-            AppliedLevel: 0);
+            AppliedLevel: clampedLevel);
     }
 }

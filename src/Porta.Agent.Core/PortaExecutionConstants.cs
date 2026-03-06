@@ -120,6 +120,6 @@ public static class PortaExecutionConstants
         public const int MinSafeBrightness = 20;
         public const int RampStepPerBucket = 1;
         public const int CooldownSeconds = 600;
-        public const int FailureBackoffSeconds = 300;
+        public const int FailureBackoffSeconds = 600;
     }
 }

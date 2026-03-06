@@ -136,18 +136,20 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
             return NoOp(state, "already_active");
         }
 
-        if (nowUtcMs < state.CooldownUntilUtcMs)
-        {
-            return NoOp(state, "cooldown_active");
-        }
-
-        if (nowUtcMs < state.BackoffUntilUtcMs)
-        {
-            return NoOp(state with { ActionState = "backoff_wait" }, "backoff_active");
-        }
-
         if (!_brightnessController.IsSupported())
         {
+            if (state.LoggedUnsupported)
+            {
+                BrightnessActionRuntimeState latchedUnsupportedState = state with
+                {
+                    BrightnessSupported = false,
+                    LastErrorCode = "brightness_unsupported",
+                    ActionState = "unsupported_latched",
+                    LastTransitionSourceBucketSeq = context.BucketSeq
+                };
+                return NoOp(latchedUnsupportedState, "unsupported_latched");
+            }
+
             return BuildFailure(
                 state with { LoggedUnsupported = true },
                 context,
@@ -159,6 +161,16 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
                 errorDetail: "Brightness controller reported unsupported device.",
                 actionState: "unsupported",
                 nowUtcMs: nowUtcMs);
+        }
+
+        if (nowUtcMs < state.CooldownUntilUtcMs)
+        {
+            return NoOp(state, "cooldown_active");
+        }
+
+        if (nowUtcMs < state.BackoffUntilUtcMs)
+        {
+            return NoOp(state with { ActionState = "backoff_wait" }, "backoff_active");
         }
 
         BrightnessControllerLevelResult levelResult = _brightnessController.GetLevel();
@@ -184,7 +196,6 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
         int targetLevel = Math.Max(
             prevLevel - PortaExecutionConstants.BrightnessAdjustment.ReductionDelta,
             PortaExecutionConstants.BrightnessAdjustment.MinSafeBrightness);
-        long cooldownUntilUtcMs = checked(nowUtcMs + (PortaExecutionConstants.BrightnessAdjustment.CooldownSeconds * 1000L));
         BrightnessActionRuntimeState activeState = state with
         {
             Active = targetLevel < prevLevel,
@@ -194,7 +205,7 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
             CurrentLevel = prevLevel,
             RampDirection = targetLevel < prevLevel ? "down" : "idle",
             LastChangeUtcMs = nowUtcMs,
-            CooldownUntilUtcMs = cooldownUntilUtcMs,
+            CooldownUntilUtcMs = Math.Max(0, state.CooldownUntilUtcMs),
             LastErrorCode = string.Empty,
             BackoffUntilUtcMs = 0,
             LastTransitionSourceBucketSeq = context.BucketSeq,
@@ -235,8 +246,27 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
 
         if (!_brightnessController.IsSupported())
         {
+            if (state.LoggedUnsupported)
+            {
+                BrightnessActionRuntimeState latchedUnsupportedState = state with
+                {
+                    Active = false,
+                    BrightnessSupported = false,
+                    RampDirection = "idle",
+                    LastErrorCode = "brightness_unsupported",
+                    ActionState = "unsupported_latched",
+                    LastTransitionSourceBucketSeq = context.BucketSeq
+                };
+                return NoOp(latchedUnsupportedState, "unsupported_latched");
+            }
+
             return BuildFailure(
-                state with { LoggedUnsupported = true },
+                state with
+                {
+                    LoggedUnsupported = true,
+                    Active = false,
+                    RampDirection = "idle"
+                },
                 context,
                 enteringTransition: enteringTransition,
                 exitingTransition: exitingTransition,
@@ -256,14 +286,18 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
 
         if (destination == currentLevel)
         {
+            BrightnessActionRuntimeState completedState = state with
+            {
+                CurrentLevel = destination,
+                ActionState = ResolveCompletedActionState(direction),
+                RampDirection = ResolveCompletedRampDirection(direction),
+                Active = ResolveCompletedActive(direction),
+                CooldownUntilUtcMs = string.Equals(direction, "up", StringComparison.Ordinal)
+                    ? checked(nowUtcMs + (PortaExecutionConstants.BrightnessAdjustment.CooldownSeconds * 1000L))
+                    : state.CooldownUntilUtcMs
+            };
             return FinalizeRampState(
-                state with
-                {
-                    CurrentLevel = destination,
-                    ActionState = ResolveCompletedActionState(direction),
-                    RampDirection = ResolveCompletedRampDirection(direction),
-                    Active = ResolveCompletedActive(direction)
-                },
+                completedState,
                 enteringTransition,
                 exitingTransition,
                 reduceAttempted: false,
@@ -313,7 +347,8 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
         {
             nextState = nextState with
             {
-                Active = false
+                Active = false,
+                CooldownUntilUtcMs = checked(nowUtcMs + (PortaExecutionConstants.BrightnessAdjustment.CooldownSeconds * 1000L))
             };
         }
 

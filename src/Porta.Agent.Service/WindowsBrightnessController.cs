@@ -1,3 +1,4 @@
+using System;
 using Porta.Agent.Core.Outputs;
 
 namespace Porta.Agent.Service;
@@ -21,13 +22,13 @@ internal sealed class WindowsBrightnessController : IBrightnessController
 
     public BrightnessControllerSetResult SetLevel(int level)
     {
-        _ = level;
+        int clampedLevel = Math.Clamp(level, 0, 100);
         return new BrightnessControllerSetResult(
             Succeeded: false,
             ErrorCode: "brightness_unsupported",
             ErrorDetail: "Windows brightness adapter is not enabled on this build/device yet.",
             IsSupported: false,
             StateChanged: false,
-            AppliedLevel: 0);
+            AppliedLevel: clampedLevel);
     }
 }

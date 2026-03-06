@@ -118,6 +118,7 @@ public sealed class AgentCoreController : IAgentCoreController
             TryAutoResumeLocked();
             UpdateRecalibrationStateLocked();
             AgentNotificationSuppressionStatus suppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
+            AgentBrightnessActionStatus brightnessStatus = _stateStore.ReadBrightnessActionStatus();
             string? effectiveLastError = ResolveEffectiveLastError(_lastError, _latestSnapshot.StateFlagsJson);
             AgentStatus status = effectiveLastError is null
                 ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
@@ -147,6 +148,10 @@ public sealed class AgentCoreController : IAgentCoreController
                 NotificationSuppressionReady: suppressionStatus.Ready,
                 NotificationSuppressionLastError: suppressionStatus.LastError,
                 NotificationSuppressionBackoffUntilUtc: suppressionStatus.BackoffUntilUtc,
+                BrightnessSupported: brightnessStatus.Supported,
+                BrightnessAdjusted: brightnessStatus.Active,
+                BrightnessLastError: brightnessStatus.LastError,
+                BrightnessBackoffUntilUtc: brightnessStatus.BackoffUntilUtc,
                 LastUpdatedUtc: DateTimeOffset.UtcNow);
         }
     }

@@ -149,6 +149,10 @@ public static class LocalApiEndpointMapping
                 status.NotificationSuppressionReady,
                 status.NotificationSuppressionLastError,
                 status.NotificationSuppressionBackoffUntilUtc,
+                status.BrightnessSupported,
+                status.BrightnessAdjusted,
+                status.BrightnessLastError,
+                status.BrightnessBackoffUntilUtc,
                 status.LastUpdatedUtc);
         });
 

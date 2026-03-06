@@ -26,4 +26,8 @@ public sealed record AgentServiceStatusSnapshot(
     bool NotificationSuppressionReady,
     string? NotificationSuppressionLastError,
     DateTimeOffset? NotificationSuppressionBackoffUntilUtc,
+    bool BrightnessSupported,
+    bool BrightnessAdjusted,
+    string? BrightnessLastError,
+    DateTimeOffset? BrightnessBackoffUntilUtc,
     DateTimeOffset LastUpdatedUtc);

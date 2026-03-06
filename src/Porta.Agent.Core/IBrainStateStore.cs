@@ -14,6 +14,7 @@ public interface IBrainStateStore
     AgentBrainSnapshot? ReadLatestSnapshot();
     AgentLatestStateDetails? ReadLatestStateDetails();
     AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus();
+    AgentBrightnessActionStatus ReadBrightnessActionStatus();
     IReadOnlyList<AgentBrainSnapshot> ReadTimeline(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,

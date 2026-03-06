@@ -67,6 +67,32 @@ public sealed class OverloadBrightnessActionCoordinatorTests
     }
 
     [Fact]
+    public void HandleOverloadTransition_UnsupportedLatched_DoesNotReEmitFailure()
+    {
+        var fake = new FakeBrightnessController
+        {
+            Supported = false
+        };
+        var coordinator = new OverloadBrightnessActionCoordinator(fake);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        OverloadBrightnessTransitionExecution first = coordinator.HandleOverloadTransition(
+            BuildContext(previousActive: false, currentActive: true, nowUtc: now),
+            BrightnessActionRuntimeState.CreateDefault());
+
+        OverloadBrightnessTransitionExecution second = coordinator.HandleOverloadTransition(
+            BuildContext(previousActive: false, currentActive: true, nowUtc: now.AddMinutes(20)),
+            first.RuntimeState);
+
+        Assert.False(first.Outcome.Succeeded);
+        Assert.Equal("brightness_unsupported", first.Outcome.ErrorCode);
+        Assert.True(second.Outcome.Succeeded);
+        Assert.Equal("unsupported_latched", second.Outcome.OutcomeReason);
+        Assert.False(second.RuntimeState.BrightnessSupported);
+        Assert.True(second.RuntimeState.LoggedUnsupported);
+    }
+
+    [Fact]
     public void HandleOverloadTransition_UsesPinnedMinSafeBrightness()
     {
         var fake = new FakeBrightnessController
@@ -117,6 +143,67 @@ public sealed class OverloadBrightnessActionCoordinatorTests
     }
 
     [Fact]
+    public void HandleOverloadTransition_RestoreCompletion_SetsSessionCooldown()
+    {
+        var fake = new FakeBrightnessController
+        {
+            Supported = true,
+            CurrentLevel = 71
+        };
+        var coordinator = new OverloadBrightnessActionCoordinator(fake);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        BrightnessActionRuntimeState state = BrightnessActionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            PreviousLevel = 72,
+            TargetLevel = 67,
+            CurrentLevel = 71,
+            RampDirection = "up"
+        };
+
+        OverloadBrightnessTransitionExecution execution = coordinator.HandleOverloadTransition(
+            BuildContext(previousActive: true, currentActive: false, nowUtc: now),
+            state);
+
+        Assert.True(execution.Outcome.Succeeded);
+        Assert.Equal("restored", execution.Outcome.OutcomeReason);
+        Assert.False(execution.RuntimeState.Active);
+        Assert.Equal("idle", execution.RuntimeState.RampDirection);
+        Assert.True(execution.RuntimeState.CooldownUntilUtcMs >= now.ToUnixTimeMilliseconds() + 600_000 - 1);
+    }
+
+    [Fact]
+    public void HandleOverloadTransition_SetFailure_UsesFixedTenMinuteBackoff()
+    {
+        var fake = new FakeBrightnessController
+        {
+            Supported = true,
+            CurrentLevel = 70,
+            FailSetLevel = true,
+            SetLevelErrorCode = "SET_FAIL"
+        };
+        var coordinator = new OverloadBrightnessActionCoordinator(fake);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        BrightnessActionRuntimeState state = BrightnessActionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            PreviousLevel = 72,
+            TargetLevel = 67,
+            CurrentLevel = 70,
+            RampDirection = "down"
+        };
+
+        OverloadBrightnessTransitionExecution execution = coordinator.HandleOverloadTransition(
+            BuildContext(previousActive: true, currentActive: true, nowUtc: now),
+            state);
+
+        Assert.False(execution.Outcome.Succeeded);
+        Assert.Equal("SET_FAIL", execution.Outcome.ErrorCode);
+        Assert.True(execution.RuntimeState.BrightnessSupported);
+        Assert.True(execution.RuntimeState.BackoffUntilUtcMs >= now.ToUnixTimeMilliseconds() + 600_000 - 1);
+    }
+
+    [Fact]
     public void HandleOverloadTransition_ClampsOutgoingSetLevelTo_0_100()
     {
         var fake = new FakeBrightnessController
@@ -142,11 +229,11 @@ public sealed class OverloadBrightnessActionCoordinatorTests
         Assert.InRange(fake.LastSetLevel, 0, 100);
     }
 
-    private static OverloadTransitionContext BuildContext(bool previousActive, bool currentActive)
+    private static OverloadTransitionContext BuildContext(bool previousActive, bool currentActive, DateTimeOffset? nowUtc = null)
     {
         return new OverloadTransitionContext(
             BucketSeq: 123,
-            BucketEndUtc: DateTimeOffset.UtcNow,
+            BucketEndUtc: nowUtc ?? DateTimeOffset.UtcNow,
             PreviousOverloadActive: previousActive,
             CurrentOverloadActive: currentActive,
             LowQualityPaused: false,
@@ -162,6 +249,9 @@ public sealed class OverloadBrightnessActionCoordinatorTests
         public int IsSupportedCalls { get; private set; }
         public int GetLevelCalls { get; private set; }
         public int SetLevelCalls { get; private set; }
+        public bool FailGetLevel { get; init; }
+        public bool FailSetLevel { get; init; }
+        public string SetLevelErrorCode { get; init; } = "brightness_set_failed";
 
         public bool IsSupported()
         {
@@ -172,6 +262,15 @@ public sealed class OverloadBrightnessActionCoordinatorTests
         public BrightnessControllerLevelResult GetLevel()
         {
             GetLevelCalls++;
+            if (FailGetLevel)
+            {
+                return new BrightnessControllerLevelResult(
+                    Succeeded: false,
+                    ErrorCode: "brightness_get_failed",
+                    ErrorDetail: "simulated get failure",
+                    IsSupported: true,
+                    Level: CurrentLevel);
+            }
             return new BrightnessControllerLevelResult(
                 Succeeded: Supported,
                 ErrorCode: Supported ? string.Empty : "brightness_unsupported",
@@ -191,6 +290,17 @@ public sealed class OverloadBrightnessActionCoordinatorTests
                     ErrorCode: "brightness_unsupported",
                     ErrorDetail: "not supported",
                     IsSupported: false,
+                    StateChanged: false,
+                    AppliedLevel: CurrentLevel);
+            }
+
+            if (FailSetLevel)
+            {
+                return new BrightnessControllerSetResult(
+                    Succeeded: false,
+                    ErrorCode: SetLevelErrorCode,
+                    ErrorDetail: "simulated set failure",
+                    IsSupported: true,
                     StateChanged: false,
                     AppliedLevel: CurrentLevel);
             }
