@@ -114,6 +114,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     mapped,
                     overloadInference,
                     previousOverloadStabilization);
+                DeepWorkStabilizationRuntimeState previousDeepWorkStabilization = ReadDeepWorkStabilizationRuntimeState(connection, tx);
+                DeepWorkStabilizationResult deepWorkStabilization = DeepWorkStabilizationComputer.ComputeForFinalizedBucket(
+                    mapped,
+                    overloadInference,
+                    derivedSession,
+                    gating,
+                    previousDeepWorkStabilization);
                 long finalizeTsMs = Time.bucketStartEnd(mapped.BucketSeq).endUtcMs;
                 BreakSuggestionDecision breakSuggestionDecision = BreakSuggestionPolicy.ShouldTriggerBreak(
                     gating,
@@ -131,7 +138,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     gating,
                     derivedSession,
                     overloadInference,
-                    overloadStabilization);
+                    overloadStabilization,
+                    deepWorkStabilization);
                 UpsertPrimitiveBucket(connection, tx, primitiveRow);
                 UpsertStateBucket(connection, tx, stateRow);
                 InsertLegacySnapshot(connection, tx, inferredSnapshot);
@@ -156,7 +164,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     primitive,
                     derivedSession,
                     overloadInference,
-                    overloadStabilization);
+                    overloadStabilization,
+                    deepWorkStabilization);
                 PrimitiveComputer.PersistSPrevForFinalizedBucket(
                     connection,
                     tx,
@@ -1327,7 +1336,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         PrimitiveComputationResult primitive,
         DerivedSessionMetricsResult derivedSession,
         OverloadInferenceResult overloadInference,
-        OverloadStabilizationResult overloadStabilization)
+        OverloadStabilizationResult overloadStabilization,
+        DeepWorkStabilizationResult deepWorkStabilization)
     {
         string valueJson = JsonSerializer.Serialize(new
         {
@@ -1339,6 +1349,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             overload_likelihood = overloadInference.OverloadLikelihood,
             confidence = overloadInference.Confidence,
             overload_active = overloadStabilization.OverloadActive,
+            deep_work_active = deepWorkStabilization.DeepWorkActive,
             typing_burst_intensity_raw = primitive.TypingRaw,
             scroll_velocity_index_raw = primitive.ScrollRaw,
             focus_switch_rate_raw = primitive.FocusRaw,
@@ -1392,6 +1403,34 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 last_bucket_seq = overloadStabilization.RuntimeState.LastBucketSeq,
                 last_transition_ts_ms = overloadStabilization.RuntimeState.LastTransitionTsMs
             },
+            deep_work_stabilization = new
+            {
+                contract_ver = PortaExecutionConstants.DeepWorkDetection.ContractVersion,
+                deep_work_active = deepWorkStabilization.DeepWorkActive,
+                debug_mode = deepWorkStabilization.DebugMode,
+                transition = deepWorkStabilization.Transition,
+                transitioned = deepWorkStabilization.Transitioned,
+                previous_deep_work_active = deepWorkStabilization.PreviousDeepWorkActive,
+                gap_exceeded = deepWorkStabilization.GapExceeded,
+                low_quality_paused = deepWorkStabilization.LowQualityPaused,
+                baseline_ready_gate = deepWorkStabilization.BaselineReadyGate,
+                deep_work_candidate = deepWorkStabilization.DeepWorkCandidate,
+                deep_work_exit_candidate = deepWorkStabilization.DeepWorkExitCandidate,
+                on_signal = deepWorkStabilization.OnSignal,
+                off_signal = deepWorkStabilization.OffSignal,
+                intensity_in_range = deepWorkStabilization.IntensityInRange,
+                gap_ms = deepWorkStabilization.GapMs,
+                on_dwell_ms = deepWorkStabilization.RuntimeState.OnDwellMs,
+                off_dwell_ms = deepWorkStabilization.RuntimeState.OffDwellMs,
+                last_good_ts_ms = deepWorkStabilization.RuntimeState.LastGoodTsMs,
+                last_bucket_seq = deepWorkStabilization.RuntimeState.LastBucketSeq,
+                last_transition_ts_ms = deepWorkStabilization.RuntimeState.LastTransitionTsMs,
+                confidence = deepWorkStabilization.Confidence,
+                f_component = deepWorkStabilization.FComponent,
+                i_component = deepWorkStabilization.IComponent,
+                v_component = deepWorkStabilization.VComponent,
+                sustained_attention_duration_sec = deepWorkStabilization.SustainedAttentionDurationSec
+            },
             cooldown_end_timestamp_utc = snapshot.CooldownEndTimestampUtc?.ToString("O") ?? string.Empty
         });
 
@@ -1437,6 +1476,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             tx,
             PortaExecutionConstants.OverloadStabilization.RuntimeStateKey,
             BuildOverloadStabilizationRuntimeStateJson(mapped, overloadStabilization),
+            mapped.TimestampUtc);
+        UpsertRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.DeepWorkDetection.ActiveRuntimeStateKey,
+            BuildDeepWorkActiveRuntimeStateJson(mapped, deepWorkStabilization),
+            mapped.TimestampUtc);
+        UpsertRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.DeepWorkDetection.RuntimeStateKey,
+            BuildDeepWorkStabilizationRuntimeStateJson(mapped, deepWorkStabilization),
             mapped.TimestampUtc);
     }
 
@@ -1507,6 +1558,95 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             confidence = overloadStabilization.Confidence,
             quality_score = overloadStabilization.QualityScore
         });
+    }
+
+    private static string BuildDeepWorkActiveRuntimeStateJson(
+        InputBucketRow mapped,
+        DeepWorkStabilizationResult deepWorkStabilization)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            contract_ver = PortaExecutionConstants.DeepWorkDetection.ContractVersion,
+            value = deepWorkStabilization.DeepWorkActive,
+            deep_work_active = deepWorkStabilization.DeepWorkActive,
+            bucket_seq = mapped.BucketSeq,
+            updated_utc = mapped.TimestampUtc
+        });
+    }
+
+    private static string BuildDeepWorkStabilizationRuntimeStateJson(
+        InputBucketRow mapped,
+        DeepWorkStabilizationResult deepWorkStabilization)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            contract_ver = PortaExecutionConstants.DeepWorkDetection.ContractVersion,
+            deep_work_active = deepWorkStabilization.DeepWorkActive,
+            dw_on_dwell_ms = deepWorkStabilization.RuntimeState.OnDwellMs,
+            dw_off_dwell_ms = deepWorkStabilization.RuntimeState.OffDwellMs,
+            dw_last_good_ts_ms = deepWorkStabilization.RuntimeState.LastGoodTsMs,
+            last_bucket_seq = deepWorkStabilization.RuntimeState.LastBucketSeq,
+            dw_last_transition_ts_ms = deepWorkStabilization.RuntimeState.LastTransitionTsMs,
+            debug_mode = deepWorkStabilization.DebugMode,
+            transition = deepWorkStabilization.Transition,
+            transitioned = deepWorkStabilization.Transitioned,
+            previous_deep_work_active = deepWorkStabilization.PreviousDeepWorkActive,
+            gap_exceeded = deepWorkStabilization.GapExceeded,
+            low_quality_paused = deepWorkStabilization.LowQualityPaused,
+            baseline_ready_gate = deepWorkStabilization.BaselineReadyGate,
+            deep_work_candidate = deepWorkStabilization.DeepWorkCandidate,
+            deep_work_exit_candidate = deepWorkStabilization.DeepWorkExitCandidate,
+            on_signal = deepWorkStabilization.OnSignal,
+            off_signal = deepWorkStabilization.OffSignal,
+            intensity_in_range = deepWorkStabilization.IntensityInRange,
+            gap_ms = deepWorkStabilization.GapMs,
+            confidence = deepWorkStabilization.Confidence,
+            f_component = deepWorkStabilization.FComponent,
+            i_component = deepWorkStabilization.IComponent,
+            v_component = deepWorkStabilization.VComponent,
+            sustained_attention_duration_sec = deepWorkStabilization.SustainedAttentionDurationSec
+        });
+    }
+
+    private static DeepWorkStabilizationRuntimeState ReadDeepWorkStabilizationRuntimeState(
+        SqliteConnection connection,
+        SqliteTransaction tx)
+    {
+        string? currentJson = ReadRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.DeepWorkDetection.RuntimeStateKey);
+        if (!string.IsNullOrWhiteSpace(currentJson)
+            && TryParseDeepWorkStabilizationRuntimeState(currentJson, out DeepWorkStabilizationRuntimeState parsedCurrent))
+        {
+            return parsedCurrent;
+        }
+
+        string? activeJson = ReadRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.DeepWorkDetection.ActiveRuntimeStateKey);
+        if (!string.IsNullOrWhiteSpace(activeJson)
+            && TryParseDeepWorkActiveValue(activeJson, out bool active))
+        {
+            return new DeepWorkStabilizationRuntimeState(
+                DeepWorkActive: active,
+                OnDwellMs: 0,
+                OffDwellMs: 0,
+                LastGoodTsMs: 0,
+                LastBucketSeq: 0,
+                LastTransitionTsMs: 0);
+        }
+
+        return new DeepWorkStabilizationRuntimeState(
+            DeepWorkActive: false,
+            OnDwellMs: 0,
+            OffDwellMs: 0,
+            LastGoodTsMs: 0,
+            LastBucketSeq: 0,
+            LastTransitionTsMs: 0);
     }
 
     private static OverloadStabilizationRuntimeState ReadOverloadStabilizationRuntimeState(
@@ -1609,6 +1749,43 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
     }
 
+    private static bool TryParseDeepWorkStabilizationRuntimeState(
+        string json,
+        out DeepWorkStabilizationRuntimeState state)
+    {
+        state = default;
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            bool active = TryReadBool(root, out bool value)
+                ? value
+                : TryReadBoolProperty(root, "deep_work_active", out bool activeProp) && activeProp;
+            long lastBucketSeq = ReadInt64Property(root, "last_bucket_seq", "bucket_seq");
+            long onDwellMs = ReadInt64Property(root, "dw_on_dwell_ms", "on_dwell_ms", "dwell_on_ms");
+            long offDwellMs = ReadInt64Property(root, "dw_off_dwell_ms", "off_dwell_ms", "dwell_off_ms");
+            long lastGoodTsMs = ReadInt64Property(root, "dw_last_good_ts_ms", "last_good_ts_ms", "last_updated_utc_ms");
+            long lastTransitionTsMs = ReadInt64Property(root, "dw_last_transition_ts_ms", "last_transition_ts_ms");
+            state = new DeepWorkStabilizationRuntimeState(
+                DeepWorkActive: active,
+                OnDwellMs: Math.Max(0, onDwellMs),
+                OffDwellMs: Math.Max(0, offDwellMs),
+                LastGoodTsMs: Math.Max(0, lastGoodTsMs),
+                LastBucketSeq: Math.Max(0, lastBucketSeq),
+                LastTransitionTsMs: Math.Max(0, lastTransitionTsMs));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static bool TryParseOverloadActiveValue(string json, out bool overloadActive)
     {
         overloadActive = false;
@@ -1633,6 +1810,42 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 if (TryReadBoolProperty(root, "overload_active", out bool activeProp))
                 {
                     overloadActive = activeProp;
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private static bool TryParseDeepWorkActiveValue(string json, out bool deepWorkActive)
+    {
+        deepWorkActive = false;
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (TryReadBool(root, out bool value))
+            {
+                deepWorkActive = value;
+                return true;
+            }
+
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                if (TryReadBoolProperty(root, "value", out bool valueProp))
+                {
+                    deepWorkActive = valueProp;
+                    return true;
+                }
+
+                if (TryReadBoolProperty(root, "deep_work_active", out bool activeProp))
+                {
+                    deepWorkActive = activeProp;
                     return true;
                 }
             }
@@ -1895,7 +2108,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         BaselineGatingResult gating,
         DerivedSessionMetricsResult derivedSession,
         OverloadInferenceResult overloadInference,
-        OverloadStabilizationResult overloadStabilization)
+        OverloadStabilizationResult overloadStabilization,
+        DeepWorkStabilizationResult deepWorkStabilization)
     {
         _ = robust;
         string contributorsJson = BuildOverloadContributorsJson(snapshot.Contributors, overloadInference);
@@ -1909,6 +2123,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             dwellOnMs: overloadStabilization.RuntimeState.OnDwellMs,
             dwellOffMs: overloadStabilization.RuntimeState.OffDwellMs,
             gapMs: overloadStabilization.GapMs,
+            deepWorkActive: deepWorkStabilization.DeepWorkActive,
+            deepWorkDwellOnMs: deepWorkStabilization.RuntimeState.OnDwellMs,
+            deepWorkDwellOffMs: deepWorkStabilization.RuntimeState.OffDwellMs,
+            deepWorkGapMs: deepWorkStabilization.GapMs,
+            deepWorkCandidate: deepWorkStabilization.DeepWorkCandidate,
+            deepWorkExitCandidate: deepWorkStabilization.DeepWorkExitCandidate,
+            deepWorkLowQualityPaused: deepWorkStabilization.LowQualityPaused,
             overloadStateDebug: new
             {
                 mode = overloadStabilization.DebugMode,
@@ -1927,6 +2148,29 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 quality_score = overloadStabilization.QualityScore,
                 on_dwell_ms = overloadStabilization.RuntimeState.OnDwellMs,
                 off_dwell_ms = overloadStabilization.RuntimeState.OffDwellMs
+            },
+            deepWorkStateDebug: new
+            {
+                mode = deepWorkStabilization.DebugMode,
+                transition = deepWorkStabilization.Transition,
+                transitioned = deepWorkStabilization.Transitioned,
+                previous_deep_work_active = deepWorkStabilization.PreviousDeepWorkActive,
+                gap_exceeded = deepWorkStabilization.GapExceeded,
+                low_quality_paused = deepWorkStabilization.LowQualityPaused,
+                baseline_ready_gate = deepWorkStabilization.BaselineReadyGate,
+                deep_work_candidate = deepWorkStabilization.DeepWorkCandidate,
+                deep_work_exit_candidate = deepWorkStabilization.DeepWorkExitCandidate,
+                on_signal = deepWorkStabilization.OnSignal,
+                off_signal = deepWorkStabilization.OffSignal,
+                intensity_in_range = deepWorkStabilization.IntensityInRange,
+                gap_ms = deepWorkStabilization.GapMs,
+                confidence = deepWorkStabilization.Confidence,
+                f_component = deepWorkStabilization.FComponent,
+                i_component = deepWorkStabilization.IComponent,
+                v_component = deepWorkStabilization.VComponent,
+                sustained_attention_duration_sec = deepWorkStabilization.SustainedAttentionDurationSec,
+                on_dwell_ms = deepWorkStabilization.RuntimeState.OnDwellMs,
+                off_dwell_ms = deepWorkStabilization.RuntimeState.OffDwellMs
             });
 
         return new StateBucketWriteModel(
@@ -2012,7 +2256,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         long dwellOnMs,
         long dwellOffMs,
         long gapMs,
-        object? overloadStateDebug = null)
+        bool deepWorkActive,
+        long deepWorkDwellOnMs,
+        long deepWorkDwellOffMs,
+        long deepWorkGapMs,
+        bool deepWorkCandidate,
+        bool deepWorkExitCandidate,
+        bool deepWorkLowQualityPaused,
+        object? overloadStateDebug = null,
+        object? deepWorkStateDebug = null)
     {
         return JsonSerializer.Serialize(new
         {
@@ -2026,7 +2278,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             dwell_on_ms = Math.Max(0, dwellOnMs),
             dwell_off_ms = Math.Max(0, dwellOffMs),
             gap_s = Math.Max(0d, gapMs / 1000d),
-            overload_state_debug = overloadStateDebug
+            overload_state_debug = overloadStateDebug,
+            deep_work_active = deepWorkActive,
+            deep_work_dwell_on_ms = Math.Max(0, deepWorkDwellOnMs),
+            deep_work_dwell_off_ms = Math.Max(0, deepWorkDwellOffMs),
+            deep_work_gap_s = Math.Max(0d, deepWorkGapMs / 1000d),
+            dw_on_dwell_ms = Math.Max(0, deepWorkDwellOnMs),
+            dw_off_dwell_ms = Math.Max(0, deepWorkDwellOffMs),
+            dw_candidate = deepWorkCandidate ? 1 : 0,
+            dw_exit = deepWorkExitCandidate ? 1 : 0,
+            dw_low_quality = deepWorkLowQualityPaused ? 1 : 0,
+            deep_work_state_debug = deepWorkStateDebug
         });
     }
 

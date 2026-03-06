@@ -64,10 +64,21 @@ public sealed class StateBucketJsonContractsTests
             dwellOnMs: 15000,
             dwellOffMs: 5000,
             gapMs: 10000,
+            deepWorkActive: true,
+            deepWorkDwellOnMs: 10000,
+            deepWorkDwellOffMs: 5000,
+            deepWorkGapMs: 5000,
+            deepWorkCandidate: true,
+            deepWorkExitCandidate: false,
+            deepWorkLowQualityPaused: true,
             overloadStateDebug: new
             {
                 mode = "stable_hold",
                 previous_overload_active = false
+            },
+            deepWorkStateDebug: new
+            {
+                mode = "active_hold"
             });
         using JsonDocument doc = JsonDocument.Parse(json);
         JsonElement root = doc.RootElement;
@@ -82,5 +93,15 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal(5000, root.GetProperty("dwell_off_ms").GetInt64());
         Assert.Equal(10d, root.GetProperty("gap_s").GetDouble(), precision: 6);
         Assert.Equal("stable_hold", root.GetProperty("overload_state_debug").GetProperty("mode").GetString());
+        Assert.True(root.GetProperty("deep_work_active").GetBoolean());
+        Assert.Equal(10000, root.GetProperty("deep_work_dwell_on_ms").GetInt64());
+        Assert.Equal(5000, root.GetProperty("deep_work_dwell_off_ms").GetInt64());
+        Assert.Equal(5d, root.GetProperty("deep_work_gap_s").GetDouble(), precision: 6);
+        Assert.Equal(10000, root.GetProperty("dw_on_dwell_ms").GetInt64());
+        Assert.Equal(5000, root.GetProperty("dw_off_dwell_ms").GetInt64());
+        Assert.Equal(1, root.GetProperty("dw_candidate").GetInt32());
+        Assert.Equal(0, root.GetProperty("dw_exit").GetInt32());
+        Assert.Equal(1, root.GetProperty("dw_low_quality").GetInt32());
+        Assert.Equal("active_hold", root.GetProperty("deep_work_state_debug").GetProperty("mode").GetString());
     }
 }

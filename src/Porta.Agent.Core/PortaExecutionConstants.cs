@@ -91,5 +91,15 @@ public static class PortaExecutionConstants
     {
         public const int SustainedAttentionSeconds = 900;
         public const double ConfidenceMin = 0.65;
+        public const double FragmentationMax = 0.45;
+        public const double VolatilityMax = 0.50;
+        public const double IntensityMin = 0.40;
+        public const double IntensityMax = 0.75;
+        public const int DwellOnSeconds = 120;
+        public const int DwellOffSeconds = 60;
+        public const int GapAllowSeconds = 10;
+        public const string RuntimeStateKey = "deep_work_stabilization:current";
+        public const string ActiveRuntimeStateKey = "deep_work_active";
+        public const string ContractVersion = "v1";
     }
 }
