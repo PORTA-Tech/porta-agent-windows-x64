@@ -5,6 +5,27 @@ namespace Porta.Agent.Core.Tests;
 
 public sealed class DeepWorkSuppressionScenarioTests
 {
+    private const int WarmupBuckets = 220;
+    private static readonly ScriptedBucketInput DeepWorkCandidate = new(
+        TypingBurstIntensity: 0.86d,
+        ScrollVelocityIndex: 0.14d,
+        FocusSwitchRate: 0.10d,
+        AppHash: "app_focus",
+        KeyboardKeydowns: 4,
+        MouseMoves: 3,
+        MouseWheels: 1,
+        IdleSeconds: 0d);
+
+    private static readonly ScriptedBucketInput DeepWorkExit = new(
+        TypingBurstIntensity: 0.92d,
+        ScrollVelocityIndex: 0.95d,
+        FocusSwitchRate: 0.95d,
+        AppHash: "app_disrupt",
+        KeyboardKeydowns: 10,
+        MouseMoves: 9,
+        MouseWheels: 7,
+        IdleSeconds: 0d);
+
     [Fact]
     public void Scenario_DeepWorkSustained_SuppressionTogglesExactlyOnce()
     {
@@ -12,59 +33,11 @@ public sealed class DeepWorkSuppressionScenarioTests
             startUtc: DateTimeOffset.Parse("2026-03-06T00:00:00.000+00:00"),
             seed: 51019);
 
-        var candidate = new ScriptedBucketInput(
-            TypingBurstIntensity: 0.86d,
-            ScrollVelocityIndex: 0.14d,
-            FocusSwitchRate: 0.10d,
-            AppHash: "app_focus",
-            KeyboardKeydowns: 4,
-            MouseMoves: 3,
-            MouseWheels: 1,
-            IdleSeconds: 0d);
+        ActivationOutcome activation = ActivateDeepWork(runner);
+        FinalizerTickObservation lastObservation = activation.LastObservation;
 
-        bool previousDeepWorkActive = false;
-        int deepWorkActivations = 0;
-        FinalizerTickObservation lastObservation = default;
-        const int warmupBuckets = 220;
-        for (int i = 0; i < warmupBuckets; i++)
-        {
-            // Deterministic broad warmup profile so robust bounds are not degenerate.
-            double typing = 0.30d + (0.60d * runner.Random.NextDouble());
-            double scroll = 0.15d + (0.70d * runner.Random.NextDouble());
-            double focus = 0.15d + (0.70d * runner.Random.NextDouble());
-            var warmup = new ScriptedBucketInput(
-                TypingBurstIntensity: typing,
-                ScrollVelocityIndex: scroll,
-                FocusSwitchRate: focus,
-                AppHash: "app_focus",
-                KeyboardKeydowns: 4,
-                MouseMoves: 3,
-                MouseWheels: 1,
-                IdleSeconds: 0d);
-
-            lastObservation = runner.RunBucket(warmup);
-            previousDeepWorkActive = ReadDeepWorkActive(lastObservation.LatestState?.StateFlagsJson);
-        }
-
-        const int maxBuckets = 180;
-        for (int i = 0; i < maxBuckets; i++)
-        {
-            lastObservation = runner.RunBucket(candidate);
-            bool deepWorkActive = ReadDeepWorkActive(lastObservation.LatestState?.StateFlagsJson);
-            if (!previousDeepWorkActive && deepWorkActive)
-            {
-                deepWorkActivations++;
-            }
-
-            previousDeepWorkActive = deepWorkActive;
-            if (deepWorkActive)
-            {
-                break;
-            }
-        }
-
-        string debug = BuildDebugSummary(runner, lastObservation, deepWorkActivations, maxBuckets);
-        Assert.True(deepWorkActivations == 1, debug);
+        string debug = BuildDebugSummary(runner, lastObservation, activation.ActivationCount, activation.SearchBuckets);
+        Assert.True(activation.ActivationCount == 1, debug);
         Assert.NotNull(lastObservation.LatestState);
         Assert.True(ReadDeepWorkActive(lastObservation.LatestState!.StateFlagsJson));
         Assert.True(lastObservation.LatestState.BaselineReady ?? false);
@@ -90,7 +63,7 @@ public sealed class DeepWorkSuppressionScenarioTests
 
         for (int i = 0; i < 30; i++)
         {
-            lastObservation = runner.RunBucket(candidate);
+            lastObservation = runner.RunBucket(DeepWorkCandidate);
             Assert.True(ReadDeepWorkActive(lastObservation.LatestState?.StateFlagsJson));
         }
 
@@ -105,6 +78,185 @@ public sealed class DeepWorkSuppressionScenarioTests
         Assert.True(projection.Status.notifications_suppressed);
         Assert.True(projection.Snapshot.deep_work_active);
         Assert.True(projection.Snapshot.notifications_suppressed);
+    }
+
+    [Fact]
+    public void Scenario_DeepWorkExitAfterMinOn_RestoresExactlyOnce()
+    {
+        using var runner = new DeterministicFinalizerScenarioRunner(
+            startUtc: DateTimeOffset.Parse("2026-03-06T02:00:00.000+00:00"),
+            seed: 51020);
+
+        ActivationOutcome activation = ActivateDeepWork(runner);
+        Assert.True(activation.IsActive, BuildDebugSummary(runner, activation.LastObservation, activation.ActivationCount, activation.SearchBuckets));
+
+        // Keep deep work active for >= min-on (120s) to allow immediate restore once exit stabilization triggers.
+        for (int i = 0; i < 24; i++)
+        {
+            FinalizerTickObservation hold = runner.RunBucket(DeepWorkCandidate);
+            Assert.True(ReadDeepWorkActive(hold.LatestState?.StateFlagsJson));
+        }
+
+        int deactivations = 0;
+        bool previousDeepWorkActive = true;
+        FinalizerTickObservation last = default;
+        for (int i = 0; i < 40; i++)
+        {
+            last = runner.RunBucket(DeepWorkExit);
+            bool deepWorkActive = ReadDeepWorkActive(last.LatestState?.StateFlagsJson);
+            if (previousDeepWorkActive && !deepWorkActive)
+            {
+                deactivations++;
+            }
+
+            previousDeepWorkActive = deepWorkActive;
+            if (!deepWorkActive && !last.NotificationStatus.Active)
+            {
+                break;
+            }
+        }
+
+        Assert.Equal(1, deactivations);
+        Assert.Equal(1, runner.NotificationController.RestoreCalls);
+        Assert.False(runner.NotificationController.IsSuppressed);
+
+        int restoredEvents = CountEvents(
+            runner.ReadRecentEventRows(2000),
+            "deep_work_notifications_restored");
+        Assert.Equal(1, restoredEvents);
+
+        string? runtimeStateJson = runner.ReadRuntimeStateValue(PortaExecutionConstants.NotificationSuppression.RuntimeStateKey);
+        Assert.False(string.IsNullOrWhiteSpace(runtimeStateJson));
+        using JsonDocument runtimeDoc = JsonDocument.Parse(runtimeStateJson!);
+        JsonElement root = runtimeDoc.RootElement;
+        Assert.False(root.GetProperty("active").GetBoolean());
+        Assert.True(root.TryGetProperty("snapshot", out JsonElement snapshotNode));
+        Assert.Equal(JsonValueKind.Null, snapshotNode.ValueKind);
+    }
+
+    [Fact]
+    public void Scenario_DeepWorkExitBeforeMinOn_DelaysRestoreUntilMinOnExpires()
+    {
+        using var runner = new DeterministicFinalizerScenarioRunner(
+            startUtc: DateTimeOffset.Parse("2026-03-06T04:00:00.000+00:00"),
+            seed: 51021);
+
+        ActivationOutcome activation = ActivateDeepWork(runner);
+        Assert.True(activation.IsActive, BuildDebugSummary(runner, activation.LastObservation, activation.ActivationCount, activation.SearchBuckets));
+
+        int deactivations = 0;
+        bool previousDeepWorkActive = true;
+        FinalizerTickObservation last = default;
+        for (int i = 0; i < 12; i++)
+        {
+            // Exactly 60s of exit-dwell: deep_work_active should turn off, but restore should still be blocked by min-on.
+            last = runner.RunBucket(DeepWorkExit);
+            bool deepWorkActive = ReadDeepWorkActive(last.LatestState?.StateFlagsJson);
+            if (previousDeepWorkActive && !deepWorkActive)
+            {
+                deactivations++;
+            }
+
+            previousDeepWorkActive = deepWorkActive;
+        }
+
+        Assert.Equal(1, deactivations);
+        Assert.Equal(0, runner.NotificationController.RestoreCalls);
+        Assert.True(last.NotificationStatus.Active);
+        Assert.True(last.NotificationStatus.RestorePending);
+
+        for (int i = 0; i < 40; i++)
+        {
+            last = runner.RunBucket(DeepWorkExit);
+            if (runner.NotificationController.RestoreCalls > 0)
+            {
+                break;
+            }
+        }
+
+        Assert.Equal(1, runner.NotificationController.RestoreCalls);
+        Assert.False(last.NotificationStatus.Active);
+        Assert.False(last.NotificationStatus.RestorePending);
+
+        int restoredEvents = CountEvents(
+            runner.ReadRecentEventRows(2000),
+            "deep_work_notifications_restored");
+        Assert.Equal(1, restoredEvents);
+    }
+
+    [Fact]
+    public void Scenario_RestartDuringNotificationSuppression_ReconcilesWithoutDuplicateAndRestoresOnExit()
+    {
+        using var runner = new DeterministicFinalizerScenarioRunner(
+            startUtc: DateTimeOffset.Parse("2026-03-06T06:00:00.000+00:00"),
+            seed: 51022);
+
+        ActivationOutcome activation = ActivateDeepWork(runner);
+        FinalizerTickObservation last = activation.LastObservation;
+        Assert.True(activation.IsActive, BuildDebugSummary(runner, activation.LastObservation, activation.ActivationCount, activation.SearchBuckets));
+
+        for (int i = 0; i < 10; i++)
+        {
+            last = runner.RunBucket(DeepWorkCandidate);
+            Assert.True(ReadDeepWorkActive(last.LatestState?.StateFlagsJson));
+        }
+
+        int suppressedEventsBeforeRestart = CountEvents(
+            runner.ReadRecentEventRows(2000),
+            "deep_work_notifications_suppressed");
+        int applyCallsBeforeRestart = runner.NotificationController.ApplyCalls;
+        Assert.True(last.NotificationStatus.Active);
+        Assert.True(ReadRuntimeBool(
+            runner.ReadRuntimeStateValue(PortaExecutionConstants.NotificationSuppression.RuntimeStateKey),
+            "active"));
+        Assert.True(HasRuntimeSnapshot(
+            runner.ReadRuntimeStateValue(PortaExecutionConstants.NotificationSuppression.RuntimeStateKey)));
+
+        runner.Restart();
+
+        Assert.Equal(applyCallsBeforeRestart, runner.NotificationController.ApplyCalls);
+        int suppressedEventsAfterRestart = CountEvents(
+            runner.ReadRecentEventRows(2000),
+            "deep_work_notifications_suppressed");
+        Assert.Equal(suppressedEventsBeforeRestart, suppressedEventsAfterRestart);
+        Assert.True(ReadRuntimeBool(
+            runner.ReadRuntimeStateValue(PortaExecutionConstants.NotificationSuppression.RuntimeStateKey),
+            "active"));
+
+        // Ensure min-on window elapsed before exit path.
+        for (int i = 0; i < 24; i++)
+        {
+            last = runner.RunBucket(DeepWorkCandidate);
+            Assert.True(ReadDeepWorkActive(last.LatestState?.StateFlagsJson));
+        }
+
+        int deactivations = 0;
+        bool previousDeepWorkActive = true;
+        for (int i = 0; i < 50; i++)
+        {
+            last = runner.RunBucket(DeepWorkExit);
+            bool deepWorkActive = ReadDeepWorkActive(last.LatestState?.StateFlagsJson);
+            if (previousDeepWorkActive && !deepWorkActive)
+            {
+                deactivations++;
+            }
+
+            previousDeepWorkActive = deepWorkActive;
+            if (!deepWorkActive && !last.NotificationStatus.Active)
+            {
+                break;
+            }
+        }
+
+        Assert.Equal(1, deactivations);
+        Assert.Equal(1, runner.NotificationController.RestoreCalls);
+        Assert.False(last.NotificationStatus.Active);
+        Assert.False(last.NotificationStatus.RestorePending);
+
+        int restoredEvents = CountEvents(
+            runner.ReadRecentEventRows(2000),
+            "deep_work_notifications_restored");
+        Assert.Equal(1, restoredEvents);
     }
 
     private static bool ReadDeepWorkActive(string? stateFlagsJson)
@@ -162,4 +314,107 @@ public sealed class DeepWorkSuppressionScenarioTests
             $"latestState.flags={lastObservation.LatestState?.StateFlagsJson}, " +
             $"dwRuntime={deepWorkRuntime}, notifRuntime={notificationRuntime}, seed={runner.Seed}";
     }
+
+    private static bool ReadRuntimeBool(string? valueJson, string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(valueJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(valueJson);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty(propertyName, out JsonElement node)
+                && (node.ValueKind == JsonValueKind.True || node.ValueKind == JsonValueKind.False))
+            {
+                return node.GetBoolean();
+            }
+        }
+        catch
+        {
+        }
+
+        return false;
+    }
+
+    private static bool HasRuntimeSnapshot(string? valueJson)
+    {
+        if (string.IsNullOrWhiteSpace(valueJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(valueJson);
+            JsonElement root = doc.RootElement;
+            return root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("snapshot", out JsonElement node)
+                && node.ValueKind == JsonValueKind.Object;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static ActivationOutcome ActivateDeepWork(DeterministicFinalizerScenarioRunner runner)
+    {
+        FinalizerTickObservation last = default;
+        bool previousDeepWorkActive = false;
+        for (int i = 0; i < WarmupBuckets; i++)
+        {
+            last = runner.RunBucket(BuildWarmupBucket(runner));
+            previousDeepWorkActive = ReadDeepWorkActive(last.LatestState?.StateFlagsJson);
+        }
+
+        int activations = 0;
+        const int searchBuckets = 320;
+        for (int i = 0; i < searchBuckets; i++)
+        {
+            last = runner.RunBucket(DeepWorkCandidate);
+            bool deepWorkActive = ReadDeepWorkActive(last.LatestState?.StateFlagsJson);
+            if (!previousDeepWorkActive && deepWorkActive)
+            {
+                activations++;
+            }
+
+            previousDeepWorkActive = deepWorkActive;
+            if (deepWorkActive)
+            {
+                break;
+            }
+        }
+
+        return new ActivationOutcome(
+            IsActive: ReadDeepWorkActive(last.LatestState?.StateFlagsJson),
+            ActivationCount: activations,
+            LastObservation: last,
+            SearchBuckets: searchBuckets);
+    }
+
+    private static ScriptedBucketInput BuildWarmupBucket(DeterministicFinalizerScenarioRunner runner)
+    {
+        double typing = 0.30d + (0.60d * runner.Random.NextDouble());
+        double scroll = 0.15d + (0.70d * runner.Random.NextDouble());
+        double focus = 0.15d + (0.70d * runner.Random.NextDouble());
+        return new ScriptedBucketInput(
+            TypingBurstIntensity: typing,
+            ScrollVelocityIndex: scroll,
+            FocusSwitchRate: focus,
+            AppHash: "app_focus",
+            KeyboardKeydowns: 4,
+            MouseMoves: 3,
+            MouseWheels: 1,
+            IdleSeconds: 0d);
+    }
+
+    private readonly record struct ActivationOutcome(
+        bool IsActive,
+        int ActivationCount,
+        FinalizerTickObservation LastObservation,
+        int SearchBuckets);
 }

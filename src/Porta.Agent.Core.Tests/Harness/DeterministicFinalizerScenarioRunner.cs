@@ -31,9 +31,9 @@ public readonly record struct LocalApiProjectionSnapshot(
 
 public sealed class DeterministicFinalizerScenarioRunner : IDisposable
 {
-    private readonly SqliteBrainStateStore _innerStore;
-    private readonly BucketFinalizerStateStore _stateStore;
-    private readonly AgentCoreController _controller;
+    private SqliteBrainStateStore _innerStore;
+    private BucketFinalizerStateStore _stateStore;
+    private AgentCoreController _controller;
     private readonly string _dbPath;
     private bool _disposed;
     private long _nextBucketSeq;
@@ -81,6 +81,21 @@ public sealed class DeterministicFinalizerScenarioRunner : IDisposable
 
     public string DbPath => _dbPath;
 
+    public void Restart()
+    {
+        EnsureNotDisposed();
+
+        // Recreate store/controller against the same persisted DB path to exercise
+        // startup reconciliation logic deterministically.
+        _innerStore = new SqliteBrainStateStore(
+            new DeepWorkOutputActionCoordinator(NotificationController),
+            new OverloadBrightnessActionCoordinator(BrightnessController),
+            dbPathOverride: _dbPath);
+        _stateStore = new BucketFinalizerStateStore(_innerStore, () => Clock.UtcNow);
+        _controller = new AgentCoreController(_stateStore);
+        _nextBucketSeq = Time.bucketSeqFromEventTs(Clock.UtcNow.ToUnixTimeMilliseconds());
+    }
+
     public FinalizerTickObservation RunBucket(ScriptedBucketInput input)
     {
         EnsureNotDisposed();
@@ -98,22 +113,11 @@ public sealed class DeterministicFinalizerScenarioRunner : IDisposable
             focus: input.FocusSwitchRate,
             contributors: [$"foreground_app:{NormalizeAppHash(input.AppHash)}"]);
 
-        for (int i = 0; i < Math.Max(0, input.KeyboardKeydowns); i++)
-        {
-            WriteRawContributor(startUtc.AddMilliseconds(200 + (i * 30)), RawInputContributors.KeyboardKeydown(isBackspace: false));
-        }
-
-        for (int i = 0; i < Math.Max(0, input.MouseMoves); i++)
-        {
-            WriteRawContributor(startUtc.AddMilliseconds(500 + (i * 30)), RawInputContributors.MouseMove(dx: 8, dy: 2));
-        }
-
-        for (int i = 0; i < Math.Max(0, input.MouseWheels); i++)
-        {
-            WriteRawContributor(startUtc.AddMilliseconds(800 + (i * 40)), RawInputContributors.MouseWheel(delta: 1));
-        }
-
-        WriteRawContributor(startUtc.AddMilliseconds(900), RawInputContributors.Idle(input.IdleSeconds));
+        EmitRawKeyboardEvents(input, startUtc, endUtc);
+        EmitRawMouseMoveEvents(input, startUtc, endUtc);
+        EmitRawMouseWheelEvents(input, startUtc, endUtc);
+        EmitRawFocusEvents(input, startUtc, endUtc);
+        EmitRawIdleSamples(input, startUtc, endUtc);
 
         // Deterministic finalize tick at bucket_end + finalize_delay.
         DateTimeOffset finalizeAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(endMs + Time.finalizeDelayMs);
@@ -279,5 +283,155 @@ public sealed class DeterministicFinalizerScenarioRunner : IDisposable
         {
             throw new ObjectDisposedException(nameof(DeterministicFinalizerScenarioRunner));
         }
+    }
+
+    private void EmitRawKeyboardEvents(ScriptedBucketInput input, DateTimeOffset startUtc, DateTimeOffset endUtc)
+    {
+        int keydowns = Math.Max(2, input.KeyboardKeydowns);
+        double intensity = Clamp01(input.TypingBurstIntensity);
+        int intervalMs = (int)Math.Round(Lerp(220d, 25d, intensity), MidpointRounding.AwayFromZero);
+        int jitterMs = Math.Max(1, (int)Math.Round(intervalMs * (keydowns >= 8 ? 0.45d : 0.10d), MidpointRounding.AwayFromZero));
+        int offsetMs = 200;
+        for (int i = 0; i < keydowns; i++)
+        {
+            DateTimeOffset ts = ClampToBucket(startUtc, endUtc, offsetMs);
+            bool isBackspace = keydowns >= 8 && (i % 5 == 4);
+            WriteRawContributor(ts, RawInputContributors.KeyboardKeydown(isBackspace));
+            if (i >= keydowns - 1)
+            {
+                continue;
+            }
+
+            if (keydowns >= 8)
+            {
+                int shortInterval = Math.Max(15, intervalMs / 4);
+                int longInterval = Math.Max(shortInterval + 10, intervalMs * 3);
+                offsetMs += (i % 2 == 0) ? shortInterval : longInterval;
+            }
+            else
+            {
+                int jitterSign = (i % 4) switch
+                {
+                    0 => -1,
+                    1 => 1,
+                    2 => 0,
+                    _ => -1
+                };
+                offsetMs += intervalMs + (jitterSign * jitterMs);
+            }
+        }
+    }
+
+    private void EmitRawMouseMoveEvents(ScriptedBucketInput input, DateTimeOffset startUtc, DateTimeOffset endUtc)
+    {
+        int moves = Math.Max(1, input.MouseMoves);
+        double intensity = Clamp01(input.ScrollVelocityIndex);
+        int intervalMs = (int)Math.Round(Lerp(220d, 30d, intensity), MidpointRounding.AwayFromZero);
+        int baseDx = (int)Math.Round(Lerp(2d, 220d, intensity), MidpointRounding.AwayFromZero);
+        int baseDy = (int)Math.Round(Lerp(1d, 120d, intensity), MidpointRounding.AwayFromZero);
+        for (int i = 0; i < moves; i++)
+        {
+            int offsetMs = 700 + (i * intervalMs);
+            DateTimeOffset ts = ClampToBucket(startUtc, endUtc, offsetMs);
+            double factor = intensity >= 0.75d
+                ? (i % 2 == 0 ? 0.25d : 1.90d)
+                : intensity >= 0.35d
+                    ? (i % 3 == 0 ? 0.70d : 1.25d)
+                    : 1.0d;
+            int dx = Math.Max(1, (int)Math.Round(baseDx * factor, MidpointRounding.AwayFromZero));
+            int dy = Math.Max(1, (int)Math.Round(baseDy * factor, MidpointRounding.AwayFromZero));
+            WriteRawContributor(ts, RawInputContributors.MouseMove(dx, dy));
+        }
+    }
+
+    private void EmitRawMouseWheelEvents(ScriptedBucketInput input, DateTimeOffset startUtc, DateTimeOffset endUtc)
+    {
+        int wheels = Math.Max(0, input.MouseWheels);
+        double intensity = Clamp01(input.ScrollVelocityIndex);
+        int intervalMs = (int)Math.Round(Lerp(260d, 45d, intensity), MidpointRounding.AwayFromZero);
+        int delta = Math.Max(1, (int)Math.Round(Lerp(1d, 160d, intensity), MidpointRounding.AwayFromZero));
+        for (int i = 0; i < wheels; i++)
+        {
+            int offsetMs = 1100 + (i * intervalMs);
+            DateTimeOffset ts = ClampToBucket(startUtc, endUtc, offsetMs);
+            WriteRawContributor(ts, RawInputContributors.MouseWheel(delta));
+        }
+    }
+
+    private void EmitRawFocusEvents(ScriptedBucketInput input, DateTimeOffset startUtc, DateTimeOffset endUtc)
+    {
+        double focusIntensity = Clamp01(input.FocusSwitchRate);
+        int focusEvents;
+        int intervalMs;
+        if (focusIntensity < 0.15d)
+        {
+            focusEvents = 1;
+            intervalMs = 1100;
+        }
+        else if (focusIntensity >= 0.75d)
+        {
+            // Keep intervals above FocusRawAggregates.MinFocusIntervalMs (800ms) so switch/entropy metrics are retained.
+            focusEvents = 5;
+            intervalMs = 900;
+        }
+        else
+        {
+            focusEvents = 3;
+            intervalMs = 1200;
+        }
+
+        string baseHash = NormalizeAppHash(input.AppHash);
+        string altHash = $"{baseHash}_alt";
+        for (int i = 0; i < focusEvents; i++)
+        {
+            int offsetMs = 400 + (i * intervalMs);
+            DateTimeOffset ts = ClampToBucket(startUtc, endUtc, offsetMs);
+            string appHash = focusEvents <= 1
+                ? baseHash
+                : focusIntensity >= 0.75d
+                    ? $"{baseHash}_{i}"
+                    : (i % 2 == 0 ? baseHash : altHash);
+            WriteRawContributor(ts, RawInputContributors.Focus(appHash));
+        }
+    }
+
+    private void EmitRawIdleSamples(ScriptedBucketInput input, DateTimeOffset startUtc, DateTimeOffset endUtc)
+    {
+        // Two samples per bucket so idle-derived metrics can be computed deterministically.
+        WriteRawContributor(ClampToBucket(startUtc, endUtc, 900), RawInputContributors.Idle(input.IdleSeconds));
+        WriteRawContributor(ClampToBucket(startUtc, endUtc, 4900), RawInputContributors.Idle(input.IdleSeconds));
+    }
+
+    private static DateTimeOffset ClampToBucket(DateTimeOffset startUtc, DateTimeOffset endUtc, int offsetMs)
+    {
+        DateTimeOffset raw = startUtc.AddMilliseconds(offsetMs);
+        DateTimeOffset min = startUtc.AddMilliseconds(1);
+        DateTimeOffset max = endUtc.AddMilliseconds(-1);
+        if (raw < min)
+        {
+            return min;
+        }
+
+        if (raw > max)
+        {
+            return max;
+        }
+
+        return raw;
+    }
+
+    private static double Clamp01(double value)
+    {
+        if (!double.IsFinite(value))
+        {
+            return 0d;
+        }
+
+        return Math.Clamp(value, 0d, 1d);
+    }
+
+    private static double Lerp(double from, double to, double t)
+    {
+        return from + ((to - from) * Clamp01(t));
     }
 }
