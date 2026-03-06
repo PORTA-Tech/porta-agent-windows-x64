@@ -58,11 +58,23 @@ public readonly record struct DeepWorkTransitionExecution(
     DeepWorkActionOutcome Outcome,
     NotificationSuppressionRuntimeState RuntimeState);
 
+public readonly record struct NotificationSuppressionStartupReconciliation(
+    NotificationSuppressionRuntimeState RuntimeState,
+    bool ShouldLogDiagnosticEvent,
+    string DiagnosticEventAction,
+    string ErrorCode,
+    string ErrorDetail,
+    string OutcomeReason);
+
 public interface IDeepWorkOutputActionCoordinator
 {
     DeepWorkTransitionExecution HandleDeepWorkTransition(
         DeepWorkTransitionContext context,
         NotificationSuppressionRuntimeState runtimeState);
+
+    NotificationSuppressionStartupReconciliation ReconcileOnStartup(
+        NotificationSuppressionRuntimeState runtimeState,
+        DateTimeOffset nowUtc);
 }
 
 public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoordinator
@@ -349,5 +361,133 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
                 StateChanged: false,
                 OutcomeReason: "failure"),
             RuntimeState: failedState);
+    }
+
+    public NotificationSuppressionStartupReconciliation ReconcileOnStartup(
+        NotificationSuppressionRuntimeState runtimeState,
+        DateTimeOffset nowUtc)
+    {
+        NotificationSuppressionRuntimeState state = NormalizeRuntimeState(runtimeState);
+        if (!state.Active)
+        {
+            return new NotificationSuppressionStartupReconciliation(
+                RuntimeState: state with
+                {
+                    RestorePending = false,
+                    ActionState = "inactive"
+                },
+                ShouldLogDiagnosticEvent: false,
+                DiagnosticEventAction: string.Empty,
+                ErrorCode: string.Empty,
+                ErrorDetail: string.Empty,
+                OutcomeReason: "startup_inactive");
+        }
+
+        if (!state.Snapshot.HasValue || !state.Snapshot.Value.IsValid)
+        {
+            NotificationSuppressionRuntimeState corrupted = state with
+            {
+                LastErrorCode = "startup_snapshot_missing_or_invalid",
+                ActionState = "active_with_restore_error",
+                RestorePending = true,
+                BackoffUntilUtcMs = Math.Max(
+                    state.BackoffUntilUtcMs,
+                    checked(nowUtc.ToUnixTimeMilliseconds() + (PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds * 1000L)))
+            };
+            return new NotificationSuppressionStartupReconciliation(
+                RuntimeState: corrupted,
+                ShouldLogDiagnosticEvent: true,
+                DiagnosticEventAction: "notification_suppress_state_corrupt",
+                ErrorCode: corrupted.LastErrorCode,
+                ErrorDetail: "runtime_state.active=true but snapshot is missing/corrupt; restore cannot be attempted safely.",
+                OutcomeReason: "startup_corrupt_state");
+        }
+
+        NotificationControllerSnapshotResult currentSnapshotResult = _notificationController.GetSnapshot();
+        if (!currentSnapshotResult.Succeeded)
+        {
+            NotificationSuppressionRuntimeState degraded = state with
+            {
+                LastErrorCode = string.IsNullOrWhiteSpace(currentSnapshotResult.ErrorCode)
+                    ? "startup_reconcile_snapshot_failed"
+                    : currentSnapshotResult.ErrorCode,
+                ActionState = "startup_reconcile_failed",
+                RestorePending = state.RestorePending,
+                BackoffUntilUtcMs = Math.Max(
+                    state.BackoffUntilUtcMs,
+                    checked(nowUtc.ToUnixTimeMilliseconds() + (PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds * 1000L)))
+            };
+            return new NotificationSuppressionStartupReconciliation(
+                RuntimeState: degraded,
+                ShouldLogDiagnosticEvent: true,
+                DiagnosticEventAction: "notification_suppress_state_reconcile_failed",
+                ErrorCode: degraded.LastErrorCode,
+                ErrorDetail: currentSnapshotResult.ErrorDetail,
+                OutcomeReason: "startup_snapshot_query_failed");
+        }
+
+        bool osSuppressed = IsSuppressed(currentSnapshotResult.Snapshot);
+        if (osSuppressed)
+        {
+            NotificationSuppressionRuntimeState confirmed = state with
+            {
+                LastErrorCode = string.Empty,
+                BackoffUntilUtcMs = 0,
+                ActionState = "active"
+            };
+            return new NotificationSuppressionStartupReconciliation(
+                RuntimeState: confirmed,
+                ShouldLogDiagnosticEvent: false,
+                DiagnosticEventAction: string.Empty,
+                ErrorCode: string.Empty,
+                ErrorDetail: string.Empty,
+                OutcomeReason: "startup_active_confirmed");
+        }
+
+        NotificationSuppressionRuntimeState discrepancy = state with
+        {
+            Active = false,
+            RestorePending = false,
+            ActionState = "startup_discrepancy_cleared",
+            LastErrorCode = "startup_discrepancy_os_not_suppressed",
+            BackoffUntilUtcMs = Math.Max(
+                state.BackoffUntilUtcMs,
+                checked(nowUtc.ToUnixTimeMilliseconds() + (PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds * 1000L))),
+            RestoredAtUtc = nowUtc.ToString("O")
+        };
+        return new NotificationSuppressionStartupReconciliation(
+            RuntimeState: discrepancy,
+            ShouldLogDiagnosticEvent: true,
+            DiagnosticEventAction: "notification_suppress_state_discrepancy",
+            ErrorCode: discrepancy.LastErrorCode,
+            ErrorDetail: "runtime_state indicated suppressed, but OS state is currently not suppressed.",
+            OutcomeReason: "startup_discrepancy_cleared");
+    }
+
+    private static bool IsSuppressed(NotificationControllerSnapshot snapshot)
+    {
+        if (!snapshot.IsValid)
+        {
+            return false;
+        }
+
+        if (snapshot.QuietHoursEnabled)
+        {
+            return true;
+        }
+
+        if (!snapshot.ToastBannersEnabled)
+        {
+            return true;
+        }
+
+        string mode = (snapshot.FocusAssistMode ?? string.Empty).Trim().ToLowerInvariant();
+        return mode switch
+        {
+            "priority_only" => true,
+            "alarms_only" => true,
+            "on" => true,
+            _ => false
+        };
     }
 }

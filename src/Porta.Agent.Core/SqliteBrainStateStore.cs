@@ -49,6 +49,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         _dbPath = DbPaths.GetCoreStateDbPath();
         _connectionString = DbOpen.BuildConnectionString(_dbPath);
         EnsureSchema();
+        TryReconcileNotificationSuppressionOnStartup();
     }
 
     public void WriteSnapshot(AgentBrainSnapshot snapshot)
@@ -66,6 +67,56 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         using IDisposable _ = BucketFinalizerWriteGuard.Enter();
         WriteSnapshotCore(snapshot, inputBucketRow);
+    }
+
+    private void TryReconcileNotificationSuppressionOnStartup()
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            try
+            {
+                DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+                NotificationSuppressionRuntimeState existingState = ReadNotificationSuppressionRuntimeState(connection, tx);
+                NotificationSuppressionStartupReconciliation reconciliation =
+                    _deepWorkOutputActionCoordinator.ReconcileOnStartup(existingState, nowUtc);
+
+                bool stateChanged = !existingState.Equals(reconciliation.RuntimeState);
+                if (stateChanged || reconciliation.ShouldLogDiagnosticEvent)
+                {
+                    long bucketSeq = Math.Max(
+                        existingState.LastTransitionSourceBucketSeq,
+                        reconciliation.RuntimeState.LastTransitionSourceBucketSeq);
+                    string updatedUtc = nowUtc.ToString("O");
+                    UpsertRuntimeStateValue(
+                        connection,
+                        tx,
+                        PortaExecutionConstants.NotificationSuppression.RuntimeStateKey,
+                        BuildNotificationSuppressionRuntimeStateJson(
+                            bucketSeq,
+                            updatedUtc,
+                            reconciliation.RuntimeState),
+                        updatedUtc);
+                }
+
+                if (reconciliation.ShouldLogDiagnosticEvent)
+                {
+                    InsertStartupNotificationSuppressionDiagnosticEvent(
+                        connection,
+                        tx,
+                        nowUtc,
+                        reconciliation);
+                }
+
+                tx.Commit();
+            }
+            catch (Exception ex)
+            {
+                TryRollback(tx);
+                Console.WriteLine($"startup_notification_reconcile_failed error={ex.GetType().Name}:{ex.Message}");
+            }
+        }
     }
 
     private void WriteSnapshotCore(AgentBrainSnapshot snapshot, InputBucketRow? inputBucketRow)
@@ -1651,6 +1702,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         InputBucketRow mapped,
         NotificationSuppressionRuntimeState notificationSuppressionRuntimeState)
     {
+        return BuildNotificationSuppressionRuntimeStateJson(
+            mapped.BucketSeq,
+            mapped.TimestampUtc,
+            notificationSuppressionRuntimeState);
+    }
+
+    private static string BuildNotificationSuppressionRuntimeStateJson(
+        long bucketSeq,
+        string updatedUtc,
+        NotificationSuppressionRuntimeState notificationSuppressionRuntimeState)
+    {
         object? snapshotPayload = null;
         if (notificationSuppressionRuntimeState.Snapshot is NotificationControllerSnapshot snapshot)
         {
@@ -1684,8 +1746,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             last_transition_source_bucket_seq = Math.Max(0, notificationSuppressionRuntimeState.LastTransitionSourceBucketSeq),
             restore_pending = notificationSuppressionRuntimeState.RestorePending ? 1 : 0,
             action_state = notificationSuppressionRuntimeState.ActionState ?? string.Empty,
-            bucket_seq = mapped.BucketSeq,
-            updated_utc = mapped.TimestampUtc
+            bucket_seq = Math.Max(0, bucketSeq),
+            updated_utc = updatedUtc
         });
     }
 
@@ -3138,6 +3200,71 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         catch (SqliteException ex) when (IsUniqueConstraintViolation(ex))
         {
             // idempotency key already inserted for this finalized bucket.
+        }
+    }
+
+    private static void InsertStartupNotificationSuppressionDiagnosticEvent(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        DateTimeOffset nowUtc,
+        NotificationSuppressionStartupReconciliation reconciliation)
+    {
+        if (string.IsNullOrWhiteSpace(reconciliation.DiagnosticEventAction))
+        {
+            return;
+        }
+
+        string interventionId = $"startup_notify_diag:{reconciliation.DiagnosticEventAction}:{nowUtc.ToUnixTimeMilliseconds()}";
+        string whyJson = JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            policy = "deep_work_notifications_startup_reconcile_v1",
+            outcome_reason = reconciliation.OutcomeReason,
+            error_code = reconciliation.ErrorCode,
+            error_detail = reconciliation.ErrorDetail,
+            notification_suppression = new
+            {
+                active = reconciliation.RuntimeState.Active,
+                action_state = reconciliation.RuntimeState.ActionState,
+                restore_pending = reconciliation.RuntimeState.RestorePending,
+                backoff_until_utc_ms = reconciliation.RuntimeState.BackoffUntilUtcMs,
+                min_on_until_utc_ms = reconciliation.RuntimeState.MinOnUntilUtcMs,
+                enable_cooldown_until_utc_ms = reconciliation.RuntimeState.EnableCooldownUntilUtcMs
+            }
+        });
+
+        var ev = new AgentControlEvent(
+            TimestampUtc: nowUtc,
+            Action: reconciliation.DiagnosticEventAction,
+            TriggerState: "startup_reconcile",
+            TriggerValue: 0d,
+            Confidence: 0d,
+            DurationSeconds: null,
+            EscalationLevel: "Error",
+            Reversible: false,
+            Reason: string.IsNullOrWhiteSpace(reconciliation.ErrorCode)
+                ? reconciliation.OutcomeReason
+                : reconciliation.ErrorCode,
+            Contributors: Array.Empty<string>(),
+            InterventionId: interventionId,
+            PolicyId: "deep_work_notifications_startup_reconcile_v1",
+            Domain: "output_action",
+            PlannedEndTimestampUtc: null,
+            ActualEndTimestampUtc: null,
+            PreviousSystemStateJson: "{}",
+            WhatChanged: "Startup reconciliation detected notification suppression state issue.",
+            HowToUndo: "No direct undo. Runtime state will self-heal after reconciliation.",
+            ReversalApplied: false,
+            CooldownEndTimestampUtc: null,
+            LifecycleState: "failed",
+            WhyJsonOverride: whyJson);
+
+        try
+        {
+            InsertInterventionEvent(connection, tx, ev);
+        }
+        catch (SqliteException ex) when (IsUniqueConstraintViolation(ex))
+        {
         }
     }
 

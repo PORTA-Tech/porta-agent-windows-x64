@@ -204,6 +204,123 @@ public sealed class DeepWorkOutputActionCoordinatorTests
         Assert.True(execution.RuntimeState.BackoffUntilUtcMs > 0);
     }
 
+    [Fact]
+    public void ReconcileOnStartup_InactiveState_NoActionNeeded()
+    {
+        var fake = new FakeNotificationController();
+        var coordinator = new DeepWorkOutputActionCoordinator(fake);
+
+        NotificationSuppressionStartupReconciliation reconciliation = coordinator.ReconcileOnStartup(
+            NotificationSuppressionRuntimeState.CreateDefault(),
+            DateTimeOffset.UtcNow);
+
+        Assert.False(reconciliation.ShouldLogDiagnosticEvent);
+        Assert.Equal("startup_inactive", reconciliation.OutcomeReason);
+        Assert.False(reconciliation.RuntimeState.Active);
+        Assert.Equal(0, fake.GetSnapshotCalls);
+    }
+
+    [Fact]
+    public void ReconcileOnStartup_ActiveWithValidSnapshotAndSuppressedOs_KeepsActive()
+    {
+        NotificationControllerSnapshot osSuppressedSnapshot = new(
+            SchemaVer: 1,
+            ContractVersion: "v1",
+            CapturedAtUtc: DateTimeOffset.UtcNow,
+            IsValid: true,
+            Provider: "fake",
+            FocusAssistMode: "priority_only",
+            QuietHoursEnabled: true,
+            ToastBannersEnabled: false,
+            RawStateJson: "{}");
+        var fake = new FakeNotificationController
+        {
+            SnapshotResultOverride = new NotificationControllerSnapshotResult(
+                Succeeded: true,
+                ErrorCode: string.Empty,
+                ErrorDetail: string.Empty,
+                Snapshot: osSuppressedSnapshot)
+        };
+        var coordinator = new DeepWorkOutputActionCoordinator(fake);
+        NotificationControllerSnapshot persistedSnapshot = fake.BuildValidSnapshot();
+        NotificationSuppressionRuntimeState state = NotificationSuppressionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            Snapshot = persistedSnapshot
+        };
+
+        NotificationSuppressionStartupReconciliation reconciliation = coordinator.ReconcileOnStartup(
+            state,
+            DateTimeOffset.UtcNow);
+
+        Assert.False(reconciliation.ShouldLogDiagnosticEvent);
+        Assert.Equal("startup_active_confirmed", reconciliation.OutcomeReason);
+        Assert.True(reconciliation.RuntimeState.Active);
+        Assert.Equal(1, fake.GetSnapshotCalls);
+    }
+
+    [Fact]
+    public void ReconcileOnStartup_ActiveWithMissingSnapshot_FlagsCorruption()
+    {
+        var fake = new FakeNotificationController();
+        var coordinator = new DeepWorkOutputActionCoordinator(fake);
+        NotificationSuppressionRuntimeState state = NotificationSuppressionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            Snapshot = null
+        };
+
+        NotificationSuppressionStartupReconciliation reconciliation = coordinator.ReconcileOnStartup(
+            state,
+            DateTimeOffset.UtcNow);
+
+        Assert.True(reconciliation.ShouldLogDiagnosticEvent);
+        Assert.Equal("notification_suppress_state_corrupt", reconciliation.DiagnosticEventAction);
+        Assert.Equal("startup_snapshot_missing_or_invalid", reconciliation.ErrorCode);
+        Assert.True(reconciliation.RuntimeState.Active);
+        Assert.True(reconciliation.RuntimeState.RestorePending);
+    }
+
+    [Fact]
+    public void ReconcileOnStartup_ActiveSnapshotButOsNotSuppressed_ClearsActiveSafely()
+    {
+        NotificationControllerSnapshot osNotSuppressedSnapshot = new(
+            SchemaVer: 1,
+            ContractVersion: "v1",
+            CapturedAtUtc: DateTimeOffset.UtcNow,
+            IsValid: true,
+            Provider: "fake",
+            FocusAssistMode: "off",
+            QuietHoursEnabled: false,
+            ToastBannersEnabled: true,
+            RawStateJson: "{}");
+        var fake = new FakeNotificationController
+        {
+            SnapshotResultOverride = new NotificationControllerSnapshotResult(
+                Succeeded: true,
+                ErrorCode: string.Empty,
+                ErrorDetail: string.Empty,
+                Snapshot: osNotSuppressedSnapshot)
+        };
+        var coordinator = new DeepWorkOutputActionCoordinator(fake);
+        NotificationControllerSnapshot persistedSnapshot = fake.BuildValidSnapshot();
+        NotificationSuppressionRuntimeState state = NotificationSuppressionRuntimeState.CreateDefault() with
+        {
+            Active = true,
+            Snapshot = persistedSnapshot
+        };
+
+        NotificationSuppressionStartupReconciliation reconciliation = coordinator.ReconcileOnStartup(
+            state,
+            DateTimeOffset.UtcNow);
+
+        Assert.True(reconciliation.ShouldLogDiagnosticEvent);
+        Assert.Equal("notification_suppress_state_discrepancy", reconciliation.DiagnosticEventAction);
+        Assert.Equal("startup_discrepancy_os_not_suppressed", reconciliation.ErrorCode);
+        Assert.False(reconciliation.RuntimeState.Active);
+        Assert.Equal("startup_discrepancy_cleared", reconciliation.RuntimeState.ActionState);
+    }
+
     private static DeepWorkTransitionContext BuildContext(bool previousActive, bool currentActive)
     {
         return new DeepWorkTransitionContext(
@@ -222,6 +339,7 @@ public sealed class DeepWorkOutputActionCoordinatorTests
         public int ApplyCalls { get; private set; }
         public int RestoreCalls { get; private set; }
         public NotificationControllerSnapshot? SnapshotOverride { get; init; }
+        public NotificationControllerSnapshotResult? SnapshotResultOverride { get; init; }
         public NotificationControllerActionResult ApplyResult { get; init; } = new(
             Succeeded: true,
             ErrorCode: string.Empty,
@@ -250,6 +368,11 @@ public sealed class DeepWorkOutputActionCoordinatorTests
         public NotificationControllerSnapshotResult GetSnapshot()
         {
             GetSnapshotCalls++;
+            if (SnapshotResultOverride.HasValue)
+            {
+                return SnapshotResultOverride.Value;
+            }
+
             NotificationControllerSnapshot snapshot = SnapshotOverride ?? BuildValidSnapshot();
             return new NotificationControllerSnapshotResult(
                 Succeeded: true,
