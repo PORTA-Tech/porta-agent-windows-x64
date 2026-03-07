@@ -295,6 +295,7 @@ public partial class MainWindow : Window
             QuickPauseResumeButton.IsEnabled = false;
             ConsentOverlay.Visibility = Visibility.Collapsed;
             UpdateTopBar(serviceProbe, runtimeSettings, null, nowTruth, _latestVisualState);
+            UpdateCaptureHealthCards(null, statusFresh: false);
             PopulateOverview(nowTruth, null, [], previousSnapshot);
             PopulateInputs(null, null, null);
             PopulateInterventions([], null);
@@ -353,6 +354,7 @@ public partial class MainWindow : Window
         QuickPauseResumeButton.IsEnabled = true;
         ConsentOverlay.Visibility = consentMissing ? Visibility.Visible : Visibility.Collapsed;
         UpdateTopBar(serviceProbe, runtimeSettings, _latestStatus, nowTruth, _latestVisualState);
+        UpdateCaptureHealthCards(_latestStatus, statusFresh);
 
         PopulateOverview(nowTruth, inputSummary, _recentEvents, previousSnapshot);
         PopulateInputs(inputSummary, _retention, truthSnapshot);
@@ -1258,6 +1260,120 @@ public partial class MainWindow : Window
         };
     }
 
+    private static string FormatCaptureContextLabel(string? captureContext)
+    {
+        return captureContext switch
+        {
+            "UserSession" => "User session",
+            "ServiceSession" => "Service session",
+            "Unknown" => "Unknown",
+            _ => NotAvailableText
+        };
+    }
+
+    private static string FormatCaptureSignalLabel(bool signalActive, bool captureContextValid, bool statusFresh)
+    {
+        if (!statusFresh)
+        {
+            return "Stale";
+        }
+
+        if (!captureContextValid)
+        {
+            return "Unavailable";
+        }
+
+        return signalActive ? "Active" : "No recent signal";
+    }
+
+    private static string FormatCaptureLastInputLabel(DateTimeOffset? lastInputUtc)
+    {
+        return lastInputUtc.HasValue
+            ? lastInputUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
+            : NotAvailableText;
+    }
+
+    private static CaptureHealthView BuildCaptureHealthView(LocalApiStatusResponse? status, bool statusFresh)
+    {
+        if (status == null)
+        {
+            return new CaptureHealthView(
+                StatusLabel: "Unavailable",
+                ContextLabel: NotAvailableText,
+                KeyboardSignalLabel: NotAvailableText,
+                MouseSignalLabel: NotAvailableText,
+                LastInputLabel: NotAvailableText,
+                WarningText: "Capture status unavailable because the local API is not reachable.",
+                StatusColor: Color.FromRgb(248, 113, 113),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        string? captureFailureDetail = DescribeCaptureFailureReason(status.CaptureFailureReason);
+        bool captureContextValid = string.Equals(status.CaptureContext, "UserSession", StringComparison.Ordinal);
+        bool keyboardSignalActive = statusFresh && captureContextValid && status.KeyboardSignalActive;
+        bool mouseSignalActive = statusFresh && captureContextValid && status.MouseSignalActive;
+
+        if (!statusFresh)
+        {
+            return new CaptureHealthView(
+                StatusLabel: "Stale",
+                ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
+                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, captureContextValid, statusFresh),
+                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, captureContextValid, statusFresh),
+                LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
+                WarningText: "Capture status is stale. Refresh or restore the local API before trusting these values.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!string.IsNullOrWhiteSpace(captureFailureDetail))
+        {
+            return new CaptureHealthView(
+                StatusLabel: "Warning",
+                ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
+                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, captureContextValid, statusFresh),
+                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, captureContextValid, statusFresh),
+                LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
+                WarningText: $"Live capture is not trusted: {captureFailureDetail}. Start or restart Porta.UserAgent in the interactive session.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!keyboardSignalActive || !mouseSignalActive)
+        {
+            string missingSignals = BuildMissingSignalList(keyboardSignalActive, mouseSignalActive);
+            return new CaptureHealthView(
+                StatusLabel: "Watching",
+                ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
+                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, captureContextValid, statusFresh),
+                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, captureContextValid, statusFresh),
+                LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
+                WarningText: $"Waiting for fresh {missingSignals} activity from the current user session.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        return new CaptureHealthView(
+            StatusLabel: "Healthy",
+            ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
+            KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, captureContextValid, statusFresh),
+            MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, captureContextValid, statusFresh),
+            LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
+            WarningText: "Signals are coming from the interactive user session.",
+            StatusColor: Color.FromRgb(74, 222, 128),
+            DetailColor: Color.FromRgb(148, 163, 184));
+    }
+
+    private static string BuildMissingSignalList(bool keyboardSignalActive, bool mouseSignalActive)
+    {
+        if (!keyboardSignalActive && !mouseSignalActive)
+        {
+            return "keyboard and mouse";
+        }
+
+        return keyboardSignalActive ? "mouse" : "keyboard";
+    }
+
     private static string ToActionTitle(LocalApiEventResponse actionEvent)
     {
         if (string.Equals(actionEvent.Type, "BREAK_SUGGESTION", StringComparison.OrdinalIgnoreCase)
@@ -1291,6 +1407,12 @@ public partial class MainWindow : Window
             return "Waiting for consent before collecting.";
         }
 
+        string? captureFailureDetail = DescribeCaptureFailureReason(_latestStatus?.CaptureFailureReason);
+        if (!string.IsNullOrWhiteSpace(captureFailureDetail))
+        {
+            return $"Waiting for valid capture: {captureFailureDetail}.";
+        }
+
         if (_effectiveSettings != null
             && !_effectiveSettings.NotificationReductionEnabled
             && !_effectiveSettings.FocusModeEnabled
@@ -1306,6 +1428,31 @@ public partial class MainWindow : Window
         }
 
         return "Ready to suggest breaks when needed";
+    }
+
+    private void UpdateCaptureHealthCards(LocalApiStatusResponse? status, bool statusFresh)
+    {
+        CaptureHealthView view = BuildCaptureHealthView(status, statusFresh);
+        var statusBrush = new SolidColorBrush(view.StatusColor);
+        var detailBrush = new SolidColorBrush(view.DetailColor);
+
+        NowCaptureStatusText.Text = $"Status: {view.StatusLabel}";
+        NowCaptureStatusText.Foreground = statusBrush;
+        NowCaptureContextText.Text = $"Context: {view.ContextLabel}";
+        NowCaptureKeyboardText.Text = $"Keyboard signal: {view.KeyboardSignalLabel}";
+        NowCaptureMouseText.Text = $"Mouse signal: {view.MouseSignalLabel}";
+        NowCaptureLastInputText.Text = $"Last input: {view.LastInputLabel}";
+        NowCaptureWarningText.Text = view.WarningText;
+        NowCaptureWarningText.Foreground = detailBrush;
+
+        HealthCaptureStatusValue.Text = view.StatusLabel;
+        HealthCaptureStatusValue.Foreground = statusBrush;
+        HealthCaptureContextValue.Text = view.ContextLabel;
+        HealthKeyboardSignalValue.Text = view.KeyboardSignalLabel;
+        HealthMouseSignalValue.Text = view.MouseSignalLabel;
+        HealthLastInputValue.Text = view.LastInputLabel;
+        HealthCaptureWarningValue.Text = view.WarningText;
+        HealthCaptureWarningValue.Foreground = detailBrush;
     }
 
     private static OverloadExplainView ParseOverloadExplain(string? contributorsJson)
@@ -3860,6 +4007,15 @@ public partial class MainWindow : Window
 
     private sealed record ServiceProbeResult(bool Exists, bool Running, string StatusText, string? ErrorText);
     private sealed record RestartResult(bool Success, string Message);
+    private sealed record CaptureHealthView(
+        string StatusLabel,
+        string ContextLabel,
+        string KeyboardSignalLabel,
+        string MouseSignalLabel,
+        string LastInputLabel,
+        string WarningText,
+        Color StatusColor,
+        Color DetailColor);
     private sealed record NowTruth(
         // Source: GET /v1/snapshot/current -> full snapshot payload (null if service/auth/freshness checks fail)
         LocalApiCurrentSnapshotResponse? Snapshot,

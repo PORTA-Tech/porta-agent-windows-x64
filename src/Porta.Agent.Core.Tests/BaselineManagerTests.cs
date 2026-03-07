@@ -82,6 +82,54 @@ public sealed class BaselineManagerTests
     }
 
     [Fact]
+    public void UpdateForFinalizedBucket_RecoversFromPartialBuckets_AndUnlocksTrustAtReadyThreshold()
+    {
+        using var connection = OpenInMemoryDb();
+        long startMs = Time.epoch_anchor_ms;
+
+        for (int i = 0; i < 5; i++)
+        {
+            using SqliteTransaction tx = connection.BeginTransaction();
+            long bucketStartMs = startMs + (i * Time.bucket_ms);
+            string startUtc = Time.toIsoUtcMsString(bucketStartMs);
+            InputBucketRow partialRow = BuildRow(bucketSeq: i, startUtc: startUtc, quality: 0.95) with
+            {
+                Partial = 1
+            };
+
+            InsertInputBucketRow(connection, tx, partialRow);
+            BaselineManager.UpdateForFinalizedBucket(connection, tx, partialRow);
+            tx.Commit();
+        }
+
+        Assert.Equal(0, ReadInt(connection, "SELECT COUNT(*) FROM baseline_stats;"));
+
+        BaselineGatingResult? lastGating = null;
+        for (int i = 0; i < PortaExecutionConstants.BaselineMinSamples; i++)
+        {
+            using SqliteTransaction tx = connection.BeginTransaction();
+            long bucketSeq = 100 + i;
+            long bucketStartMs = startMs + (bucketSeq * Time.bucket_ms);
+            string startUtc = Time.toIsoUtcMsString(bucketStartMs);
+            InputBucketRow recoveredRow = BuildRow(bucketSeq, startUtc, quality: 0.95);
+
+            InsertInputBucketRow(connection, tx, recoveredRow);
+            lastGating = BaselineManager.UpdateForFinalizedBucket(connection, tx, recoveredRow);
+            tx.Commit();
+        }
+
+        Assert.True(lastGating.HasValue);
+        Assert.True(lastGating.Value.BaselineReady);
+        Assert.False(lastGating.Value.ColdStart);
+        Assert.Equal(1.0d, lastGating.Value.ConfidenceCap, precision: 6);
+        Assert.True(lastGating.Value.PoliciesEnabled);
+        Assert.Equal(PortaExecutionConstants.BaselineMinSamples, ReadInt(connection, "SELECT sample_count FROM baseline_stats WHERE metric_key='keyboard_iki_mean';"));
+        Assert.True(ReadRuntimeStateBool(connection, "baseline_ready"));
+        Assert.False(ReadRuntimeStateBool(connection, "cold_start"));
+        Assert.Equal(1.0d, ReadRuntimeStateDouble(connection, "confidence_cap"), precision: 6);
+    }
+
+    [Fact]
     public void UpdateForFinalizedBucket_SkipsBaseline_WhenQualityTooLow()
     {
         using var connection = OpenInMemoryDb();
