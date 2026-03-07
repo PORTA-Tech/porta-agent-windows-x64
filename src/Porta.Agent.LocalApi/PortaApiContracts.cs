@@ -20,10 +20,18 @@ public sealed record LocalApiStatusResponse(
     string SchemaVersion,
     string PolicyVersion,
     DateTimeOffset? LastEventTimestampUtc,
+    string BackendInstanceId,
+    int BackendProcessId,
     string CaptureContext,
+    string? UserAgentInstanceId,
+    int? UserAgentProcessId,
+    string? UserAgentSessionId,
     bool KeyboardSignalActive,
     bool MouseSignalActive,
     DateTimeOffset? LastInputEventUtc,
+    string? LastInputAgentInstanceId,
+    string? LastInputSessionId,
+    string? OwnershipWarning,
     string? CaptureFailureReason,
     string? LastError,
     bool LocalApiAuthReady,
@@ -62,10 +70,18 @@ public sealed record LocalApiStatusResponse(
     public bool brightness_adjusted => BrightnessAdjusted;
     public bool brightness_supported => BrightnessSupported;
     public bool db_migration_failed => DbMigrationFailed;
+    public string backend_instance_id => BackendInstanceId;
+    public int backend_process_id => BackendProcessId;
     public string capture_context => CaptureContext;
+    public string? user_agent_instance_id => UserAgentInstanceId;
+    public int? user_agent_process_id => UserAgentProcessId;
+    public string? user_agent_session_id => UserAgentSessionId;
     public bool keyboard_signal_active => KeyboardSignalActive;
     public bool mouse_signal_active => MouseSignalActive;
     public string? last_input_event_utc => ToUtcMsStringOrNull(LastInputEventUtc);
+    public string? last_input_agent_instance_id => LastInputAgentInstanceId;
+    public string? last_input_session_id => LastInputSessionId;
+    public string? ownership_warning => OwnershipWarning;
     public string? capture_failure_reason => CaptureFailureReason;
     public int deep_work_streak_sec => DeepWorkStreakSeconds;
     public string last_updated_utc => ToUtcMsString(LastUpdatedUtc);

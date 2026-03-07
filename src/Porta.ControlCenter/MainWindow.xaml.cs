@@ -304,7 +304,7 @@ public partial class MainWindow : Window
             PopulateTimeline(null);
             PopulateWhyDrawer(nowTruth, [], _latestVisualState);
             UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
-            UpdateHealthChecklist(serviceProbe, apiReachable);
+            UpdateEngineHealthCards(serviceProbe, apiReachable, snapshot: null, statusFresh: false);
             return;
         }
 
@@ -364,7 +364,7 @@ public partial class MainWindow : Window
         PopulateTimeline(GetSelectedHistoryTimeline());
         PopulateWhyDrawer(nowTruth, _allRecentEvents, _latestVisualState);
         UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
-        UpdateHealthChecklist(serviceProbe, apiReachable);
+        UpdateEngineHealthCards(serviceProbe, apiReachable, truthSnapshot, statusFresh);
     }
 
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)
@@ -1271,16 +1271,11 @@ public partial class MainWindow : Window
         };
     }
 
-    private static string FormatCaptureSignalLabel(bool signalActive, bool captureContextValid, bool statusFresh)
+    private static string FormatCaptureSignalLabel(bool signalActive, bool statusFresh)
     {
         if (!statusFresh)
         {
             return "Stale";
-        }
-
-        if (!captureContextValid)
-        {
-            return "Unavailable";
         }
 
         return signalActive ? "Active" : "No recent signal";
@@ -1291,6 +1286,117 @@ public partial class MainWindow : Window
         return lastInputUtc.HasValue
             ? lastInputUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
             : NotAvailableText;
+    }
+
+    private static EngineHealthView BuildEngineHealthView(
+        ServiceProbeResult serviceProbe,
+        bool apiReachable,
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        bool statusFresh)
+    {
+        string serviceLabel = BuildEngineServiceLabel(serviceProbe, status, apiReachable);
+        string databaseLabel = BuildEngineDatabaseLabel(status);
+        string snapshotLabel = BuildEngineSnapshotLabel(snapshot, statusFresh);
+        string policyLabel = BuildEnginePolicyLabel(status);
+        string apiLabel = apiReachable ? "Yes" : "No";
+        string lastUpdateLabel = status == null
+            ? NotAvailableText
+            : status.LastUpdatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        string lastErrorLabel = string.IsNullOrWhiteSpace(status?.LastError) ? "None" : status.LastError!;
+
+        if (status == null)
+        {
+            return new EngineHealthView(
+                StatusLabel: "Unavailable",
+                ServiceLabel: serviceLabel,
+                DatabaseLabel: databaseLabel,
+                SnapshotLabel: snapshotLabel,
+                PolicyLabel: policyLabel,
+                ApiLabel: apiLabel,
+                LastUpdateLabel: lastUpdateLabel,
+                LastErrorLabel: lastErrorLabel,
+                WarningText: "Engine status unavailable because the local API is not reachable.",
+                StatusColor: Color.FromRgb(248, 113, 113),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!statusFresh)
+        {
+            return new EngineHealthView(
+                StatusLabel: "Stale",
+                ServiceLabel: serviceLabel,
+                DatabaseLabel: databaseLabel,
+                SnapshotLabel: snapshotLabel,
+                PolicyLabel: policyLabel,
+                ApiLabel: apiLabel,
+                LastUpdateLabel: lastUpdateLabel,
+                LastErrorLabel: lastErrorLabel,
+                WarningText: "Engine status is stale. Refresh or restore the local API before trusting backend state.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (status.DbMigrationFailed)
+        {
+            return new EngineHealthView(
+                StatusLabel: "Warning",
+                ServiceLabel: serviceLabel,
+                DatabaseLabel: databaseLabel,
+                SnapshotLabel: snapshotLabel,
+                PolicyLabel: policyLabel,
+                ApiLabel: apiLabel,
+                LastUpdateLabel: lastUpdateLabel,
+                LastErrorLabel: lastErrorLabel,
+                WarningText: "Database startup or migration failed. Engine state is not trustworthy until storage is healthy.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (snapshot == null)
+        {
+            return new EngineHealthView(
+                StatusLabel: "Watching",
+                ServiceLabel: serviceLabel,
+                DatabaseLabel: databaseLabel,
+                SnapshotLabel: snapshotLabel,
+                PolicyLabel: policyLabel,
+                ApiLabel: apiLabel,
+                LastUpdateLabel: lastUpdateLabel,
+                LastErrorLabel: lastErrorLabel,
+                WarningText: "Backend is reachable, but there is no current snapshot yet.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!status.ConsentActive)
+        {
+            return new EngineHealthView(
+                StatusLabel: "Watching",
+                ServiceLabel: serviceLabel,
+                DatabaseLabel: databaseLabel,
+                SnapshotLabel: snapshotLabel,
+                PolicyLabel: policyLabel,
+                ApiLabel: apiLabel,
+                LastUpdateLabel: lastUpdateLabel,
+                LastErrorLabel: lastErrorLabel,
+                WarningText: "Engine is running, but policy execution is blocked until consent is granted.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        return new EngineHealthView(
+            StatusLabel: "Healthy",
+            ServiceLabel: serviceLabel,
+            DatabaseLabel: databaseLabel,
+            SnapshotLabel: snapshotLabel,
+            PolicyLabel: policyLabel,
+            ApiLabel: apiLabel,
+            LastUpdateLabel: lastUpdateLabel,
+            LastErrorLabel: lastErrorLabel,
+            WarningText: "Engine state is live and policy evaluation is available.",
+            StatusColor: Color.FromRgb(74, 222, 128),
+            DetailColor: Color.FromRgb(148, 163, 184));
     }
 
     private static CaptureHealthView BuildCaptureHealthView(LocalApiStatusResponse? status, bool statusFresh)
@@ -1309,19 +1415,32 @@ public partial class MainWindow : Window
         }
 
         string? captureFailureDetail = DescribeCaptureFailureReason(status.CaptureFailureReason);
-        bool captureContextValid = string.Equals(status.CaptureContext, "UserSession", StringComparison.Ordinal);
-        bool keyboardSignalActive = statusFresh && captureContextValid && status.KeyboardSignalActive;
-        bool mouseSignalActive = statusFresh && captureContextValid && status.MouseSignalActive;
+        string? ownershipDetail = DescribeOwnershipWarning(status);
+        bool keyboardSignalActive = statusFresh && status.KeyboardSignalActive;
+        bool mouseSignalActive = statusFresh && status.MouseSignalActive;
 
         if (!statusFresh)
         {
             return new CaptureHealthView(
                 StatusLabel: "Stale",
                 ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
-                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, captureContextValid, statusFresh),
-                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, captureContextValid, statusFresh),
+                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
+                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
                 LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
                 WarningText: "Capture status is stale. Refresh or restore the local API before trusting these values.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!string.IsNullOrWhiteSpace(ownershipDetail))
+        {
+            return new CaptureHealthView(
+                StatusLabel: "Warning",
+                ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
+                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
+                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
+                LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
+                WarningText: $"Ownership mismatch detected: {ownershipDetail}.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -1331,8 +1450,8 @@ public partial class MainWindow : Window
             return new CaptureHealthView(
                 StatusLabel: "Warning",
                 ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
-                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, captureContextValid, statusFresh),
-                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, captureContextValid, statusFresh),
+                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
+                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
                 LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
                 WarningText: $"Live capture is not trusted: {captureFailureDetail}. Start or restart Porta.UserAgent in the interactive session.",
                 StatusColor: Color.FromRgb(251, 191, 36),
@@ -1345,8 +1464,8 @@ public partial class MainWindow : Window
             return new CaptureHealthView(
                 StatusLabel: "Watching",
                 ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
-                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, captureContextValid, statusFresh),
-                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, captureContextValid, statusFresh),
+                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
+                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
                 LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
                 WarningText: $"Waiting for fresh {missingSignals} activity from the current user session.",
                 StatusColor: Color.FromRgb(251, 191, 36),
@@ -1356,8 +1475,8 @@ public partial class MainWindow : Window
         return new CaptureHealthView(
             StatusLabel: "Healthy",
             ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
-            KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, captureContextValid, statusFresh),
-            MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, captureContextValid, statusFresh),
+            KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
+            MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
             LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
             WarningText: "Signals are coming from the interactive user session.",
             StatusColor: Color.FromRgb(74, 222, 128),
@@ -1372,6 +1491,87 @@ public partial class MainWindow : Window
         }
 
         return keyboardSignalActive ? "mouse" : "keyboard";
+    }
+
+    private static string BuildEngineServiceLabel(
+        ServiceProbeResult serviceProbe,
+        LocalApiStatusResponse? status,
+        bool apiReachable)
+    {
+        if (serviceProbe.Running)
+        {
+            return "Running";
+        }
+
+        if (status?.ServiceRunning == true && apiReachable)
+        {
+            return "Running (manual host)";
+        }
+
+        return serviceProbe.Exists
+            ? $"Stopped ({serviceProbe.StatusText})"
+            : "Not installed";
+    }
+
+    private static string BuildEngineDatabaseLabel(LocalApiStatusResponse? status)
+    {
+        if (status == null)
+        {
+            return NotAvailableText;
+        }
+
+        if (status.DbMigrationFailed)
+        {
+            return "Error (migration/startup)";
+        }
+
+        bool schemaKnown = !string.IsNullOrWhiteSpace(status.SchemaVersion)
+            && !status.SchemaVersion.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
+        return schemaKnown
+            ? $"Ready (schema {status.SchemaVersion})"
+            : NotAvailableText;
+    }
+
+    private static string BuildEngineSnapshotLabel(LocalApiCurrentSnapshotResponse? snapshot, bool statusFresh)
+    {
+        if (!statusFresh)
+        {
+            return "Stale";
+        }
+
+        if (snapshot == null)
+        {
+            return "Unavailable";
+        }
+
+        return $"Live ({(snapshot.Confidence * 100d):F0}% confidence)";
+    }
+
+    private static string BuildEnginePolicyLabel(LocalApiStatusResponse? status)
+    {
+        if (status == null)
+        {
+            return NotAvailableText;
+        }
+
+        if (!status.ConsentActive)
+        {
+            return "Blocked (consent needed)";
+        }
+
+        if (status.Paused)
+        {
+            if (status.PauseUntilUtc.HasValue && status.PauseUntilUtc.Value > DateTimeOffset.UtcNow)
+            {
+                return $"Paused until {status.PauseUntilUtc.Value.ToLocalTime():h:mm tt}";
+            }
+
+            return "Paused";
+        }
+
+        return string.IsNullOrWhiteSpace(status.PolicyVersion)
+            ? "Active"
+            : $"Active ({status.PolicyVersion})";
     }
 
     private static string ToActionTitle(LocalApiEventResponse actionEvent)
@@ -1411,6 +1611,12 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(captureFailureDetail))
         {
             return $"Waiting for valid capture: {captureFailureDetail}.";
+        }
+
+        string? signalWaitDetail = BuildMissingSignalHint(_latestStatus);
+        if (!string.IsNullOrWhiteSpace(signalWaitDetail))
+        {
+            return $"Waiting for live capture: {signalWaitDetail}.";
         }
 
         if (_effectiveSettings != null
@@ -3563,57 +3769,35 @@ public partial class MainWindow : Window
             : NotAvailableText;
     }
 
-    private void UpdateHealthChecklist(ServiceProbeResult serviceProbe, bool apiReachable)
+    private void UpdateEngineHealthCards(
+        ServiceProbeResult serviceProbe,
+        bool apiReachable,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        bool statusFresh)
     {
-        string lastError = LastErrorValue.Text;
-        string lastUpdate = UpdatedValue.Text.Replace("Last refresh:", string.Empty, StringComparison.OrdinalIgnoreCase).Trim();
+        EngineHealthView view = BuildEngineHealthView(serviceProbe, apiReachable, _latestStatus, snapshot, statusFresh);
+        var statusBrush = new SolidColorBrush(view.StatusColor);
+        var detailBrush = new SolidColorBrush(view.DetailColor);
 
-        HealthServiceValue.Text = serviceProbe.Running
-            ? "Yes"
-            : $"No ({serviceProbe.StatusText})";
+        NowEngineStatusText.Text = $"Status: {view.StatusLabel}";
+        NowEngineStatusText.Foreground = statusBrush;
+        NowEngineServiceText.Text = $"Service: {view.ServiceLabel}";
+        NowEngineDatabaseText.Text = $"Database: {view.DatabaseLabel}";
+        NowEngineSnapshotText.Text = $"Snapshot: {view.SnapshotLabel}";
+        NowEnginePolicyText.Text = $"Policy: {view.PolicyLabel}";
+        NowEngineWarningText.Text = view.WarningText;
+        NowEngineWarningText.Foreground = detailBrush;
 
-        HealthApiValue.Text = apiReachable
-            ? "Yes"
-            : "No";
-
-        if (_latestStatus == null)
-        {
-            HealthAuthValue.Text = $"No ({NotAvailableText})";
-            HealthConsentValue.Text = NotAvailableText;
-            HealthDatabaseValue.Text = NotAvailableText;
-            HealthLastUpdateValue.Text = string.IsNullOrWhiteSpace(lastUpdate) ? NotAvailableText : lastUpdate;
-            HealthLastErrorValue.Text = string.IsNullOrWhiteSpace(lastError) ? "None" : lastError;
-            return;
-        }
-
-        HealthAuthValue.Text = _latestStatus.LocalApiAuthReady
-            ? "Yes"
-            : $"No ({_latestStatus.LocalApiAuthError ?? "TOKEN_READ_FAILED"})";
-
-        HealthConsentValue.Text = _latestStatus.ConsentActive
-            ? "Yes"
-            : "No";
-
-        bool migrationFailure =
-            (!string.IsNullOrWhiteSpace(_latestStatus.LastError)
-                && (_latestStatus.LastError.Contains("migration", StringComparison.OrdinalIgnoreCase)
-                    || _latestStatus.LastError.Contains("readonly database", StringComparison.OrdinalIgnoreCase)
-                    || _latestStatus.LastError.Contains("sqlite error", StringComparison.OrdinalIgnoreCase)
-                    || _latestStatus.LastError.Contains("db startup failed", StringComparison.OrdinalIgnoreCase)))
-            || (lastError.Contains("migration", StringComparison.OrdinalIgnoreCase)
-                || lastError.Contains("readonly database", StringComparison.OrdinalIgnoreCase)
-                || lastError.Contains("sqlite error", StringComparison.OrdinalIgnoreCase)
-                || lastError.Contains("db startup failed", StringComparison.OrdinalIgnoreCase));
-        bool schemaKnown = !string.IsNullOrWhiteSpace(_latestStatus.SchemaVersion) && !_latestStatus.SchemaVersion.Equals("Unknown", StringComparison.OrdinalIgnoreCase);
-        bool databaseOk = schemaKnown && !migrationFailure;
-        HealthDatabaseValue.Text = databaseOk
-            ? $"Yes (schema {_latestStatus.SchemaVersion})"
-            : migrationFailure
-                ? "No (migration/startup error)"
-                : $"No ({NotAvailableText})";
-
-        HealthLastUpdateValue.Text = string.IsNullOrWhiteSpace(lastUpdate) ? NotAvailableText : lastUpdate;
-        HealthLastErrorValue.Text = string.IsNullOrWhiteSpace(lastError) ? "None" : lastError;
+        HealthEngineStatusValue.Text = view.StatusLabel;
+        HealthEngineStatusValue.Foreground = statusBrush;
+        HealthServiceValue.Text = view.ServiceLabel;
+        HealthDatabaseValue.Text = view.DatabaseLabel;
+        HealthSnapshotValue.Text = view.SnapshotLabel;
+        HealthPolicyStateValue.Text = view.PolicyLabel;
+        HealthApiValue.Text = view.ApiLabel;
+        HealthLastUpdateValue.Text = view.LastUpdateLabel;
+        HealthLastErrorValue.Text = view.LastErrorLabel;
+        HealthLastErrorValue.Foreground = detailBrush;
     }
 
     private static string FormatBytes(long bytes)
@@ -3901,10 +4085,22 @@ public partial class MainWindow : Window
 
     private static string? BuildCaptureContextHint(LocalApiStatusResponse status)
     {
+        string? ownershipDetail = DescribeOwnershipWarning(status);
+        if (!string.IsNullOrWhiteSpace(ownershipDetail))
+        {
+            return $"Ownership mismatch: {ownershipDetail}";
+        }
+
         string? detail = DescribeCaptureFailureReason(status.CaptureFailureReason);
-        return string.IsNullOrWhiteSpace(detail)
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            return $"Not collecting: {detail}";
+        }
+
+        string? signalWaitDetail = BuildMissingSignalHint(status);
+        return string.IsNullOrWhiteSpace(signalWaitDetail)
             ? null
-            : $"Not collecting: {detail}";
+            : $"Waiting for live capture: {signalWaitDetail}";
     }
 
     private static string? DescribeCaptureFailureReason(string? captureFailureReason)
@@ -3915,6 +4111,47 @@ public partial class MainWindow : Window
             "CAPTURE_CONTEXT_UNKNOWN" => "user-session capture is not available",
             _ => null
         };
+    }
+
+    private static string? DescribeOwnershipWarning(LocalApiStatusResponse? status)
+    {
+        if (status == null || string.IsNullOrWhiteSpace(status.OwnershipWarning))
+        {
+            return null;
+        }
+
+        return status.OwnershipWarning switch
+        {
+            "USER_AGENT_HEARTBEAT_MISSING" =>
+                $"last input owner {status.LastInputAgentInstanceId ?? "unknown"} ({status.LastInputSessionId ?? "unknown session"}) has no fresh user-agent heartbeat",
+            "USER_AGENT_INSTANCE_MISMATCH" =>
+                $"heartbeat owner {status.UserAgentInstanceId ?? "unknown"} does not match last input owner {status.LastInputAgentInstanceId ?? "unknown"}",
+            "USER_AGENT_SESSION_MISMATCH" =>
+                $"heartbeat session {status.UserAgentSessionId ?? "unknown"} does not match last input session {status.LastInputSessionId ?? "unknown"}",
+            _ => null
+        };
+    }
+
+    private static string? BuildMissingSignalHint(LocalApiStatusResponse? status)
+    {
+        if (status == null
+            || !string.Equals(status.CaptureContext, "UserSession", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        bool keyboardActive = status.KeyboardSignalActive;
+        bool mouseActive = status.MouseSignalActive;
+
+        if (keyboardActive && mouseActive)
+        {
+            return null;
+        }
+
+        string missingSignals = BuildMissingSignalList(keyboardActive, mouseActive);
+        return status.LastInputEventUtc is null
+            ? $"waiting for first {missingSignals} signal"
+            : $"no recent {missingSignals} signal";
     }
 
     private void UpdateDebugFooter(NowTruth nowTruth, bool statusFresh)
@@ -3980,10 +4217,14 @@ public partial class MainWindow : Window
         var sb = new StringBuilder();
         sb.AppendLine("PORTA Diagnostics Summary");
         sb.AppendLine($"Generated: {DateTimeOffset.UtcNow:O}");
+        sb.AppendLine($"Engine status: {HealthEngineStatusValue.Text}");
         sb.AppendLine($"Service running: {ServiceRunningValue.Text}");
         sb.AppendLine($"Tray running: {TrayRunningValue.Text}");
         sb.AppendLine($"Consent active: {ConsentActiveValue.Text}");
         sb.AppendLine($"Backend connected: {BackendConnectedValue.Text}");
+        sb.AppendLine($"Database: {HealthDatabaseValue.Text}");
+        sb.AppendLine($"Snapshot state: {HealthSnapshotValue.Text}");
+        sb.AppendLine($"Policy state: {HealthPolicyStateValue.Text}");
         sb.AppendLine($"Last event: {LastEventValue.Text}");
         sb.AppendLine($"Policy version: {PolicyVersionValue.Text}");
         sb.AppendLine($"Schema version: {SchemaVersionValue.Text}");
@@ -3993,8 +4234,19 @@ public partial class MainWindow : Window
         sb.AppendLine($"Idle fragmentation index: {IdleFragmentationValue.Text}");
         if (_latestStatus != null)
         {
+            sb.AppendLine($"Backend instance: {_latestStatus.BackendInstanceId}");
+            sb.AppendLine($"Backend process: {_latestStatus.BackendProcessId}");
             sb.AppendLine($"Capture context: {_latestStatus.CaptureContext}");
+            sb.AppendLine($"UserAgent instance: {_latestStatus.UserAgentInstanceId ?? "None"}");
+            sb.AppendLine($"UserAgent process: {_latestStatus.UserAgentProcessId?.ToString(CultureInfo.InvariantCulture) ?? "None"}");
+            sb.AppendLine($"UserAgent session: {_latestStatus.UserAgentSessionId ?? "None"}");
             sb.AppendLine($"Capture failure: {DescribeCaptureFailureReason(_latestStatus.CaptureFailureReason) ?? "None"}");
+            sb.AppendLine($"Keyboard signal: {( _latestStatus.KeyboardSignalActive ? "Active" : "No recent signal")}");
+            sb.AppendLine($"Mouse signal: {( _latestStatus.MouseSignalActive ? "Active" : "No recent signal")}");
+            sb.AppendLine($"Last input: {_latestStatus.LastInputEventUtc?.ToString("O") ?? "None"}");
+            sb.AppendLine($"Last input owner: {_latestStatus.LastInputAgentInstanceId ?? "None"}");
+            sb.AppendLine($"Last input session: {_latestStatus.LastInputSessionId ?? "None"}");
+            sb.AppendLine($"Ownership warning: {DescribeOwnershipWarning(_latestStatus) ?? "None"}");
         }
         sb.AppendLine($"Agent version: {AgentVersionValue.Text}");
         sb.AppendLine($"Local API reachable: {ApiReachableValue.Text}");
@@ -4007,6 +4259,18 @@ public partial class MainWindow : Window
 
     private sealed record ServiceProbeResult(bool Exists, bool Running, string StatusText, string? ErrorText);
     private sealed record RestartResult(bool Success, string Message);
+    private sealed record EngineHealthView(
+        string StatusLabel,
+        string ServiceLabel,
+        string DatabaseLabel,
+        string SnapshotLabel,
+        string PolicyLabel,
+        string ApiLabel,
+        string LastUpdateLabel,
+        string LastErrorLabel,
+        string WarningText,
+        Color StatusColor,
+        Color DetailColor);
     private sealed record CaptureHealthView(
         string StatusLabel,
         string ContextLabel,

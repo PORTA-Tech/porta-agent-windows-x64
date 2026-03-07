@@ -222,6 +222,13 @@ public static class LocalApiEndpointMapping
                     Message: ex.Message,
                     TimestampUtc: DateTimeOffset.UtcNow));
             }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new LocalApiAckResponse(
+                    Success: false,
+                    Message: ex.Message,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
             catch (Exception)
             {
                 return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);

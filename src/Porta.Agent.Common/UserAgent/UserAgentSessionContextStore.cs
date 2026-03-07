@@ -14,7 +14,8 @@ public sealed record UserAgentSessionContextSnapshot(
     string CaptureContext,
     int ProcessId,
     int SessionId,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string? AgentInstanceId = null);
 
 public interface IUserAgentSessionContextStore
 {
@@ -58,7 +59,8 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
             return snapshot with
             {
                 CaptureContext = NormalizeCaptureContext(snapshot.CaptureContext),
-                UpdatedAtUtc = snapshot.UpdatedAtUtc.ToUniversalTime()
+                UpdatedAtUtc = snapshot.UpdatedAtUtc.ToUniversalTime(),
+                AgentInstanceId = NormalizeIdentifier(snapshot.AgentInstanceId)
             };
         }
         catch
@@ -80,7 +82,8 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
         {
             SchemaVersion = CurrentSchemaVersion,
             CaptureContext = NormalizeCaptureContext(snapshot.CaptureContext),
-            UpdatedAtUtc = snapshot.UpdatedAtUtc.ToUniversalTime()
+            UpdatedAtUtc = snapshot.UpdatedAtUtc.ToUniversalTime(),
+            AgentInstanceId = NormalizeIdentifier(snapshot.AgentInstanceId)
         };
 
         string json = JsonSerializer.Serialize(normalized, new JsonSerializerOptions
@@ -115,5 +118,15 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
             UserAgentCaptureContexts.ServiceSession => UserAgentCaptureContexts.ServiceSession,
             _ => UserAgentCaptureContexts.Unknown
         };
+    }
+
+    private static string? NormalizeIdentifier(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Trim();
     }
 }

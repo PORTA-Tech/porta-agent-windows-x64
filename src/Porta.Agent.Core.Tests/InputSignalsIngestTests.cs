@@ -1,3 +1,4 @@
+using Porta.Agent.Common.UserAgent;
 using Porta.Agent.Core;
 
 namespace Porta.Agent.Core.Tests;
@@ -8,7 +9,7 @@ public sealed class InputSignalsIngestTests
     public void IngestInputSignals_RoutesPrivacySafePacketIntoBucketIngress()
     {
         var store = new LocalApiContractFakeStore();
-        var controller = new AgentCoreController(store);
+        var controller = CreateController(store);
         DateTimeOffset windowStart = new DateTimeOffset(2026, 03, 07, 10, 0, 0, TimeSpan.FromHours(3));
         DateTimeOffset windowEnd = windowStart.AddSeconds(8);
         DateTimeOffset lastInput = windowEnd.AddSeconds(2);
@@ -51,7 +52,7 @@ public sealed class InputSignalsIngestTests
     public void IngestInputSignals_RejectsUnsupportedSchema()
     {
         var store = new LocalApiContractFakeStore();
-        var controller = new AgentCoreController(store);
+        var controller = CreateController(store);
 
         var ex = Assert.Throws<ArgumentException>(() => controller.IngestInputSignals(new InputSignalsPacket(
             SchemaVer: 99,
@@ -78,7 +79,7 @@ public sealed class InputSignalsIngestTests
     public void IngestInputSignals_RejectsMissingIdentifiers()
     {
         var store = new LocalApiContractFakeStore();
-        var controller = new AgentCoreController(store);
+        var controller = CreateController(store);
 
         var ex1 = Assert.Throws<ArgumentException>(() => controller.IngestInputSignals(new InputSignalsPacket(
             SchemaVer: 1,
@@ -124,7 +125,7 @@ public sealed class InputSignalsIngestTests
     public void IngestInputSignals_RejectsInvalidIdentifiersOrHash()
     {
         var store = new LocalApiContractFakeStore();
-        var controller = new AgentCoreController(store);
+        var controller = CreateController(store);
 
         var invalidId = new string('x', 300);
         var ex1 = Assert.Throws<ArgumentException>(() => controller.IngestInputSignals(new InputSignalsPacket(
@@ -179,5 +180,147 @@ public sealed class InputSignalsIngestTests
         Assert.StartsWith("invalid_focus_app_hash", ex3.Message, StringComparison.Ordinal);
         Assert.Equal("FocusAppHash", ex3.ParamName);
         Assert.Equal(0, store.InputSignalsIngestCount);
+    }
+
+    [Fact]
+    public void IngestInputSignals_RejectsPacketsWithoutFreshUserAgentHeartbeat()
+    {
+        var store = new LocalApiContractFakeStore();
+        var controller = new AgentCoreController(store, new FakeUserAgentSessionContextStore(null));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "agent-1",
+            SessionId: "session-1",
+            WindowStartUtc: null,
+            WindowEndUtc: null,
+            KeyboardKeydownCount: 1,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0,
+            MouseMoveDy: 0,
+            FocusAppHash: null,
+            IdleSeconds: 0,
+            LastInputEventUtc: DateTimeOffset.UtcNow)));
+
+        Assert.Equal("input_signals_source_heartbeat_missing", ex.Message);
+        Assert.Equal(0, store.InputSignalsIngestCount);
+    }
+
+    [Fact]
+    public void IngestInputSignals_RejectsPacketsFromNonUserSessionHeartbeat()
+    {
+        var store = new LocalApiContractFakeStore();
+        var controller = new AgentCoreController(
+            store,
+            new FakeUserAgentSessionContextStore(new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.ServiceSession,
+                ProcessId: 4567,
+                SessionId: 0,
+                UpdatedAtUtc: DateTimeOffset.UtcNow,
+                AgentInstanceId: "agent-1")));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "agent-1",
+            SessionId: "session-0",
+            WindowStartUtc: null,
+            WindowEndUtc: null,
+            KeyboardKeydownCount: 1,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0,
+            MouseMoveDy: 0,
+            FocusAppHash: null,
+            IdleSeconds: 0,
+            LastInputEventUtc: DateTimeOffset.UtcNow)));
+
+        Assert.Equal("input_signals_source_invalid_context", ex.Message);
+        Assert.Equal(0, store.InputSignalsIngestCount);
+    }
+
+    [Fact]
+    public void IngestInputSignals_RejectsPacketsWithHeartbeatIdentityMismatch()
+    {
+        var store = new LocalApiContractFakeStore();
+        var controller = new AgentCoreController(
+            store,
+            new FakeUserAgentSessionContextStore(new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 4567,
+                SessionId: 2,
+                UpdatedAtUtc: DateTimeOffset.UtcNow,
+                AgentInstanceId: "heartbeat-agent")));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "packet-agent",
+            SessionId: "session-2",
+            WindowStartUtc: null,
+            WindowEndUtc: null,
+            KeyboardKeydownCount: 1,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0,
+            MouseMoveDy: 0,
+            FocusAppHash: null,
+            IdleSeconds: 0,
+            LastInputEventUtc: DateTimeOffset.UtcNow)));
+
+        Assert.Equal("input_signals_source_agent_mismatch", ex.Message);
+        Assert.Equal(0, store.InputSignalsIngestCount);
+
+        ex = Assert.Throws<InvalidOperationException>(() => controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "heartbeat-agent",
+            SessionId: "session-9",
+            WindowStartUtc: null,
+            WindowEndUtc: null,
+            KeyboardKeydownCount: 1,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0,
+            MouseMoveDy: 0,
+            FocusAppHash: null,
+            IdleSeconds: 0,
+            LastInputEventUtc: DateTimeOffset.UtcNow)));
+
+        Assert.Equal("input_signals_source_session_mismatch", ex.Message);
+        Assert.Equal(0, store.InputSignalsIngestCount);
+    }
+
+    private static AgentCoreController CreateController(LocalApiContractFakeStore store)
+    {
+        return new AgentCoreController(
+            store,
+            new FakeUserAgentSessionContextStore(new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 1234,
+                SessionId: 1,
+                UpdatedAtUtc: DateTimeOffset.UtcNow,
+                AgentInstanceId: "agent-1")));
+    }
+
+    private sealed class FakeUserAgentSessionContextStore : IUserAgentSessionContextStore
+    {
+        private UserAgentSessionContextSnapshot? _snapshot;
+
+        public FakeUserAgentSessionContextStore(UserAgentSessionContextSnapshot? snapshot)
+        {
+            _snapshot = snapshot;
+        }
+
+        public UserAgentSessionContextSnapshot? ReadCurrent()
+        {
+            return _snapshot;
+        }
+
+        public void WriteCurrent(UserAgentSessionContextSnapshot snapshot)
+        {
+            _snapshot = snapshot;
+        }
     }
 }

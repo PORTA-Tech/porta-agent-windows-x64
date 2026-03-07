@@ -145,15 +145,16 @@ public sealed class LocalApiClient : IDisposable
             RefreshEndpointBinding();
             using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
             using HttpResponseMessage response = await _httpClient.PostAsync("/v1/input/signals", content, token).ConfigureAwait(false);
+            LocalApiAckResponse? payload = await response.Content.ReadFromJsonAsync<LocalApiAckResponse>(cancellationToken: token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                return new LocalApiAckResponse(
+                return payload ?? new LocalApiAckResponse(
                     Success: false,
                     Message: $"http_{(int)response.StatusCode}",
                     TimestampUtc: DateTimeOffset.UtcNow);
             }
 
-            return await response.Content.ReadFromJsonAsync<LocalApiAckResponse>(cancellationToken: token).ConfigureAwait(false);
+            return payload;
         }
         catch
         {

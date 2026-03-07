@@ -65,7 +65,16 @@ public sealed class LocalApiStatusAcceptanceTests
             ]
         };
 
-        var controller = new AgentCoreController(store);
+        var controller = new AgentCoreController(
+            store,
+            new FakeUserAgentSessionContextStore(
+                new UserAgentSessionContextSnapshot(
+                    SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                    CaptureContext: UserAgentCaptureContexts.UserSession,
+                    ProcessId: 9876,
+                    SessionId: 1,
+                    UpdatedAtUtc: DateTimeOffset.UtcNow,
+                    AgentInstanceId: "agent-1")));
         DateTimeOffset lastInputUtc = DateTimeOffset.UtcNow;
         controller.IngestInputSignals(new InputSignalsPacket(
             SchemaVer: 1,
@@ -96,11 +105,21 @@ public sealed class LocalApiStatusAcceptanceTests
         Assert.False(dto.auth.ready);
         Assert.Equal("TOKEN_READ_FAILED", dto.auth.error);
         Assert.False(dto.db_migration_failed);
+        Assert.False(string.IsNullOrWhiteSpace(dto.BackendInstanceId));
+        Assert.True(dto.BackendProcessId > 0);
         Assert.Equal("UserSession", dto.capture_context);
+        Assert.Equal("agent-1", dto.UserAgentInstanceId);
+        Assert.Equal(9876, dto.UserAgentProcessId);
+        Assert.Equal("session-1", dto.UserAgentSessionId);
         Assert.True(dto.keyboard_signal_active);
         Assert.True(dto.mouse_signal_active);
         Assert.NotNull(dto.LastInputEventUtc);
         Assert.NotNull(dto.last_input_event_utc);
+        Assert.Equal("agent-1", dto.LastInputAgentInstanceId);
+        Assert.Equal("session-1", dto.LastInputSessionId);
+        Assert.Null(dto.OwnershipWarning);
+        Assert.Equal(dto.BackendInstanceId, dto.backend_instance_id);
+        Assert.Equal(dto.LastInputAgentInstanceId, dto.last_input_agent_instance_id);
         Assert.Null(dto.CaptureFailureReason);
         Assert.Null(dto.capture_failure_reason);
     }
@@ -131,7 +150,7 @@ public sealed class LocalApiStatusAcceptanceTests
             DbMigrationFailed = true
         };
 
-        var controller = new AgentCoreController(store);
+        var controller = new AgentCoreController(store, new FakeUserAgentSessionContextStore(null));
         AgentServiceStatusSnapshot status = controller.GetStatus();
         var dto = StatusMapper.Map(status, localApiAuthReady: true, localApiAuthError: null);
 
@@ -192,7 +211,55 @@ public sealed class LocalApiStatusAcceptanceTests
     }
 
     [Fact]
-    public void Status_DisablesSignalFlags_WhenHeartbeatReportsServiceSession_EvenIfRecentInputExists()
+    public void Status_UsesFreshUserSessionHeartbeat_ButKeepsSignalsInactive_UntilPacketsArrive()
+    {
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.10d, confidence: 0.39d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: DateTimeOffset.UtcNow,
+                OverloadLikelihood: 0.10d,
+                Confidence: 0.39d,
+                SustainedAttentionDurationSec: 0d,
+                IdleFragmentationIndex: 0d,
+                FocusAppEntropy: 0d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: false,
+                BaselineReadyPct: 0.05d,
+                AvgQuality2m: 0.18d,
+                ColdStart: true,
+                CurrentQualityScore: 0.24d,
+                PartialData: true,
+                MissingMajorChannels: ["keyboard", "mouse"]),
+        };
+
+        var sessionContextStore = new FakeUserAgentSessionContextStore(
+            new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 5555,
+                SessionId: 4,
+                UpdatedAtUtc: DateTimeOffset.UtcNow,
+                AgentInstanceId: "useragent-4"));
+
+        var controller = new AgentCoreController(store, sessionContextStore);
+        AgentServiceStatusSnapshot status = controller.GetStatus();
+        var dto = StatusMapper.Map(status, localApiAuthReady: true, localApiAuthError: null);
+
+        Assert.Equal("UserSession", dto.capture_context);
+        Assert.Equal("useragent-4", dto.UserAgentInstanceId);
+        Assert.Equal("session-4", dto.UserAgentSessionId);
+        Assert.False(dto.keyboard_signal_active);
+        Assert.False(dto.mouse_signal_active);
+        Assert.Null(dto.LastInputEventUtc);
+        Assert.Null(dto.CaptureFailureReason);
+        Assert.Null(dto.OwnershipWarning);
+    }
+
+    [Fact]
+    public void Status_RejectsPackets_WhenHeartbeatReportsServiceSession()
     {
         var store = new LocalApiContractFakeStore
         {
@@ -226,7 +293,7 @@ public sealed class LocalApiStatusAcceptanceTests
 
         var controller = new AgentCoreController(store, sessionContextStore);
         DateTimeOffset lastInputUtc = DateTimeOffset.UtcNow;
-        controller.IngestInputSignals(new InputSignalsPacket(
+        InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() => controller.IngestInputSignals(new InputSignalsPacket(
             SchemaVer: 1,
             AgentInstanceId: "agent-1",
             SessionId: "session-1",
@@ -239,16 +306,83 @@ public sealed class LocalApiStatusAcceptanceTests
             MouseMoveDy: 4d,
             FocusAppHash: "a1b2c3d4",
             IdleSeconds: 0.1d,
-            LastInputEventUtc: lastInputUtc));
+            LastInputEventUtc: lastInputUtc)));
 
         AgentServiceStatusSnapshot status = controller.GetStatus();
         var dto = StatusMapper.Map(status, localApiAuthReady: true, localApiAuthError: null);
 
+        Assert.Equal("input_signals_source_invalid_context", ex.Message);
         Assert.Equal("ServiceSession", dto.capture_context);
         Assert.False(dto.keyboard_signal_active);
         Assert.False(dto.mouse_signal_active);
-        Assert.NotNull(dto.LastInputEventUtc);
+        Assert.Null(dto.LastInputEventUtc);
         Assert.Equal("CAPTURE_CONTEXT_SERVICE_SESSION", dto.CaptureFailureReason);
+    }
+
+    [Fact]
+    public void Status_ExposesOwnershipMismatch_WhenHeartbeatOwnerDiffersFromPacketOwner()
+    {
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.12d, confidence: 0.61d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: DateTimeOffset.UtcNow,
+                OverloadLikelihood: 0.12d,
+                Confidence: 0.61d,
+                SustainedAttentionDurationSec: 120d,
+                IdleFragmentationIndex: 0.09d,
+                FocusAppEntropy: 0.03d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: true,
+                BaselineReadyPct: 0.94d,
+                AvgQuality2m: 0.87d,
+                ColdStart: false,
+                CurrentQualityScore: 0.9d,
+                PartialData: false,
+                MissingMajorChannels: []),
+        };
+
+        var controller = new AgentCoreController(
+            store,
+            new FakeUserAgentSessionContextStore(
+                new UserAgentSessionContextSnapshot(
+                    SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                    CaptureContext: UserAgentCaptureContexts.UserSession,
+                    ProcessId: 6543,
+                    SessionId: 3,
+                    UpdatedAtUtc: DateTimeOffset.UtcNow,
+                    AgentInstanceId: "heartbeat-agent")));
+        DateTimeOffset lastInputUtc = DateTimeOffset.UtcNow;
+        InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() => controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "packet-agent",
+            SessionId: "session-3",
+            WindowStartUtc: lastInputUtc.AddSeconds(-5),
+            WindowEndUtc: lastInputUtc,
+            KeyboardKeydownCount: 3,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 120,
+            MouseMoveDx: 8d,
+            MouseMoveDy: 2d,
+            FocusAppHash: "a1b2c3d4",
+            IdleSeconds: 0.1d,
+            LastInputEventUtc: lastInputUtc)));
+
+        AgentServiceStatusSnapshot status = controller.GetStatus();
+        var dto = StatusMapper.Map(status, localApiAuthReady: true, localApiAuthError: null);
+
+        Assert.Equal("input_signals_source_agent_mismatch", ex.Message);
+        Assert.Equal("heartbeat-agent", dto.UserAgentInstanceId);
+        Assert.Equal("packet-agent", dto.LastInputAgentInstanceId);
+        Assert.Equal("session-3", dto.UserAgentSessionId);
+        Assert.Equal("session-3", dto.LastInputSessionId);
+        Assert.Equal("USER_AGENT_INSTANCE_MISMATCH", dto.OwnershipWarning);
+        Assert.Equal("USER_AGENT_INSTANCE_MISMATCH", dto.ownership_warning);
+        Assert.False(dto.keyboard_signal_active);
+        Assert.False(dto.mouse_signal_active);
+        Assert.Null(dto.LastInputEventUtc);
     }
 
     private static AgentBrainSnapshot CreateSnapshot(double overload, double confidence)

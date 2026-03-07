@@ -255,6 +255,21 @@
                             </Grid.ColumnDefinitions>
                             <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,8,0">
                                 <StackPanel>
+                                    <TextBlock Text="Engine health" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowEngineStatusText" Text="Status: Not available" FontSize="20" FontWeight="Bold" />
+                                    <TextBlock x:Name="NowEngineServiceText" Text="Service: Not available" Margin="0,6,0,0" />
+                                    <TextBlock x:Name="NowEngineDatabaseText" Text="Database: Not available" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="NowEngineSnapshotText" Text="Snapshot: Not available" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="NowEnginePolicyText" Text="Policy: Not available" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="NowEngineWarningText"
+                                               Text="Engine status unavailable."
+                                               Margin="0,8,0,0"
+                                               Foreground="#F59E0B"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="8,0,0,0">
+                                <StackPanel>
                                     <TextBlock Text="Capture health" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock x:Name="NowCaptureStatusText" Text="Status: Not available" FontSize="20" FontWeight="Bold" />
                                     <TextBlock x:Name="NowCaptureContextText" Text="Context: Not available" Margin="0,6,0,0" />
@@ -268,15 +283,15 @@
                                                TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="8,0,0,0">
-                                <StackPanel>
-                                    <TextBlock Text="Last action" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowLastActionTitleText" Text="No actions recently" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowLastActionTimeText" Text="Time: Not available" Margin="0,6,0,8" />
-                                    <Button x:Name="NowOpenActionsButton" Content="Open Actions" Padding="10,6" Width="130" Click="NowOpenActionsButton_Click" />
-                                </StackPanel>
-                            </Border>
                         </Grid>
+                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Last action" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBlock x:Name="NowLastActionTitleText" Text="No actions recently" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
+                                <TextBlock x:Name="NowLastActionTimeText" Text="Time: Not available" Margin="0,6,0,8" />
+                                <Button x:Name="NowOpenActionsButton" Content="Open Actions" Padding="10,6" Width="130" Click="NowOpenActionsButton_Click" />
+                            </StackPanel>
+                        </Border>
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
                                 <TextBlock Text="What PORTA is doing" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
@@ -973,10 +988,13 @@
                 <ScrollViewer x:Name="DiagnosticsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
                         <TextBlock Text="Health" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                        <TextBlock Text="Why isn't it working?" Foreground="#CBD5E1" Margin="0,0,0,12" />
+                        <TextBlock Text="Engine and capture health are shown separately so backend state never looks like live input." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
-                            <Grid>
+                            <StackPanel>
+                                <TextBlock Text="Engine health" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                <TextBlock Text="Is the backend healthy enough to produce trustworthy state?" Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="260" />
                                     <ColumnDefinition Width="*" />
@@ -989,29 +1007,35 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Service running" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthServiceValue" Grid.Row="0" Grid.Column="1" Text="Not available" />
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Status" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthEngineStatusValue" Grid.Row="0" Grid.Column="1" Text="Not available" />
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Local API reachable" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthApiValue" Grid.Row="1" Grid.Column="1" Text="Not available" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Service running" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthServiceValue" Grid.Row="1" Grid.Column="1" Text="Not available" />
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Auth ready" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthAuthValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Database" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthDatabaseValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Consent active" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthConsentValue" Grid.Row="3" Grid.Column="1" Text="Not available" />
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Snapshot state" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthSnapshotValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Database OK" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthDatabaseValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Policy state" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthPolicyStateValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                <TextBlock Grid.Row="5" Grid.Column="0" Text="Last update time" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthLastUpdateValue" Grid.Row="5" Grid.Column="1" Text="Not available" />
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="Local API reachable" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthApiValue" Grid.Row="5" Grid.Column="1" Text="Not available" />
 
-                                <TextBlock Grid.Row="6" Grid.Column="0" Text="Last error" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthLastErrorValue" Grid.Row="6" Grid.Column="1" Text="None" TextWrapping="Wrap" />
-                            </Grid>
+                                <TextBlock Grid.Row="6" Grid.Column="0" Text="Last update time" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthLastUpdateValue" Grid.Row="6" Grid.Column="1" Text="Not available" />
+
+                                <TextBlock Grid.Row="7" Grid.Column="0" Text="Last error" Foreground="#CBD5E1" />
+                                <TextBlock x:Name="HealthLastErrorValue" Grid.Row="7" Grid.Column="1" Text="None" TextWrapping="Wrap" />
+                                </Grid>
+                            </StackPanel>
                         </Border>
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">

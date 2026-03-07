@@ -6,6 +6,57 @@ namespace Porta.Agent.Core.Tests;
 public sealed class CaptureTrustRegressionTests
 {
     [Fact]
+    public void UserSessionHeartbeatOnly_RemainsPartial_AndSignalsStayInactive()
+    {
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.07d, confidence: 0.18d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: DateTimeOffset.UtcNow,
+                OverloadLikelihood: 0.10d,
+                Confidence: 0.33d,
+                SustainedAttentionDurationSec: 0d,
+                IdleFragmentationIndex: 0.02d,
+                FocusAppEntropy: 0.01d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: false,
+                BaselineReadyPct: 0.06d,
+                AvgQuality2m: 0.22d,
+                ColdStart: true,
+                CurrentQualityScore: 0.30d,
+                PartialData: true,
+                MissingMajorChannels: ["keyboard", "mouse"]),
+        };
+
+        var controller = new AgentCoreController(
+            store,
+            new FakeUserAgentSessionContextStore(
+                new UserAgentSessionContextSnapshot(
+                    SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                    CaptureContext: UserAgentCaptureContexts.UserSession,
+                    ProcessId: 6789,
+                    SessionId: 2,
+                    UpdatedAtUtc: DateTimeOffset.UtcNow,
+                    AgentInstanceId: "agent-2")));
+
+        var statusDto = StatusMapper.Map(controller.GetStatus(), localApiAuthReady: true, localApiAuthError: null);
+        var snapshotDto = SnapshotMapper.Map(controller.GetCurrentSnapshot(), controller.GetLatestStateDetails());
+
+        Assert.Equal("UserSession", statusDto.capture_context);
+        Assert.False(statusDto.keyboard_signal_active);
+        Assert.False(statusDto.mouse_signal_active);
+        Assert.Null(statusDto.last_input_event_utc);
+
+        Assert.True(snapshotDto.PartialData ?? false);
+        Assert.Equal(["keyboard", "mouse"], snapshotDto.MissingMajorChannels);
+        Assert.False(snapshotDto.BaselineReady ?? true);
+        Assert.True(snapshotDto.ColdStart ?? false);
+        Assert.InRange(snapshotDto.Confidence, 0d, 0.45d);
+    }
+
+    [Fact]
     public void ServiceSessionCapture_RemainsPartial_AndKeepsTrustCapped()
     {
         var store = new LocalApiContractFakeStore
@@ -79,7 +130,16 @@ public sealed class CaptureTrustRegressionTests
                 MissingMajorChannels: []),
         };
 
-        var controller = new AgentCoreController(store);
+        var controller = new AgentCoreController(
+            store,
+            new FakeUserAgentSessionContextStore(
+                new UserAgentSessionContextSnapshot(
+                    SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                    CaptureContext: UserAgentCaptureContexts.UserSession,
+                    ProcessId: 7788,
+                    SessionId: 1,
+                    UpdatedAtUtc: DateTimeOffset.UtcNow,
+                    AgentInstanceId: "agent-1")));
         DateTimeOffset lastInputUtc = DateTimeOffset.UtcNow;
         controller.IngestInputSignals(new InputSignalsPacket(
             SchemaVer: 1,
