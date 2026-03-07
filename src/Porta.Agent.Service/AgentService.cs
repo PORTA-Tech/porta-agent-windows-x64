@@ -59,7 +59,7 @@ internal sealed class AgentService : IHostedService, IDisposable
         builder.Services.AddSingleton<IPolicyEnvelopeProvider, FilePolicyEnvelopeProvider>();
         builder.Services.AddSingleton<IRegulationStage, DefaultRegulationStage>();
         builder.Services.AddSingleton<IBackendConnectivityProbe, HttpBackendConnectivityProbe>();
-        builder.Services.AddHostedService<RuntimeSignalIngestionWorker>();
+        // Capture ingestion is now user-session bound and will be implemented via POST /v1/input/signals.
         builder.Services.AddHostedService<BucketFinalizerWorker>();
         builder.Services.AddHostedService<AgentBrainWorker>();
 
