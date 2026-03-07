@@ -11,14 +11,16 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $serviceProject = Join-Path $repoRoot "src/Porta.Agent.Service/Porta.Agent.Service.csproj"
+$userAgentProject = Join-Path $repoRoot "src/Porta.UserAgent/Porta.UserAgent.csproj"
 $publishDir = Join-Path $repoRoot "src/Porta.Agent.Service/bin/$Configuration/net8.0-windows/$Runtime/publish"
+$userAgentPublishDir = Join-Path $repoRoot "src/Porta.UserAgent/bin/$Configuration/net8.0-windows/$Runtime/publish"
 $ariExe = Join-Path $publishDir "ari.exe"
-$trayExe = Join-Path $repoRoot "src/Porta.Tray/bin/$Configuration/net8.0-windows/Porta.Tray.exe"
+$userAgentExe = Join-Path $userAgentPublishDir "Porta.UserAgent.exe"
 $controlCenterExe = Join-Path $repoRoot "src/Porta.ControlCenter/bin/$Configuration/net8.0-windows/Porta.ControlCenter.exe"
 $installerProject = Join-Path $repoRoot "installer/AriAgent.Installer.wixproj"
 $payloadDir = Join-Path $repoRoot "installer/payload"
 $payloadExe = Join-Path $payloadDir "ari.exe"
-$payloadTrayExe = Join-Path $payloadDir "AriTray.exe"
+$payloadUserAgentExe = Join-Path $payloadDir "Porta.UserAgent.exe"
 $payloadControlCenterExe = Join-Path $payloadDir "Porta.ControlCenter.exe"
 
 Write-Host "Publishing ari.exe ($Configuration, $Runtime)..."
@@ -31,8 +33,14 @@ if (-not (Test-Path $ariExe)) {
     throw "Published binary not found at '$ariExe'."
 }
 
-if (-not (Test-Path $trayExe)) {
-    throw "Tray binary not found at '$trayExe'. Build Porta.Tray first."
+Write-Host "Publishing Porta.UserAgent.exe ($Configuration, $Runtime)..."
+dotnet publish $userAgentProject -c $Configuration -r $Runtime --self-contained true /p:PublishSingleFile=true
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet publish for Porta.UserAgent failed with exit code $LASTEXITCODE."
+}
+
+if (-not (Test-Path $userAgentExe)) {
+    throw "Published user agent binary not found at '$userAgentExe'."
 }
 
 if (-not (Test-Path $controlCenterExe)) {
@@ -44,10 +52,10 @@ if (-not (Test-Path $payloadDir)) {
 }
 
 Copy-Item $ariExe $payloadExe -Force
-Copy-Item $trayExe $payloadTrayExe -Force
+Copy-Item $userAgentExe $payloadUserAgentExe -Force
 Copy-Item $controlCenterExe $payloadControlCenterExe -Force
 Write-Host "Payload prepared: $payloadExe"
-Write-Host "Payload prepared: $payloadTrayExe"
+Write-Host "Payload prepared: $payloadUserAgentExe"
 Write-Host "Payload prepared: $payloadControlCenterExe"
 
 Write-Host "Building MSI..."
@@ -55,7 +63,7 @@ dotnet build $installerProject -c $Configuration `
     /p:ProductVersion=$Version `
     /p:AriBackendUrlDefault=$BackendUrl `
     /p:AriExeSource=$payloadExe `
-    /p:AriTrayExeSource=$payloadTrayExe `
+    /p:UserAgentExeSource=$payloadUserAgentExe `
     /p:ControlCenterExeSource=$payloadControlCenterExe
 if ($LASTEXITCODE -ne 0) {
     throw "MSI build failed with exit code $LASTEXITCODE."

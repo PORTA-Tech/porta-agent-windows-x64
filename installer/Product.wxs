@@ -62,12 +62,21 @@
                               ResetPeriodInDays="1" />
         </Component>
 
-        <Component Id="AriTrayExeComponent" Guid="39fe7047-c950-42cb-9816-4d24d698fa34">
-          <File Id="AriTrayExeFile"
-                Name="AriTray.exe"
-                Source="$(var.AriTrayExeSource)"
+        <Component Id="UserAgentExeComponent" Guid="1a2578a3-148d-4e63-bb5d-4042d3f6db8b">
+          <File Id="UserAgentExeFile"
+                Name="Porta.UserAgent.exe"
+                Source="$(var.UserAgentExeSource)"
                 KeyPath="yes"
                 Checksum="yes" />
+        </Component>
+
+        <Component Id="UserAgentStartupEntryComponent" Guid="48f29402-8a6c-4bde-a4c6-30e1f4d9a453">
+          <RegistryValue Root="HKLM"
+                         Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                         Name="PORTA User Agent"
+                         Type="string"
+                         Value="&quot;[INSTALLFOLDER]Porta.UserAgent.exe&quot;"
+                         KeyPath="yes" />
         </Component>
 
         <Component Id="ControlCenterExeComponent" Guid="6e130eaf-0f3a-4ca3-89f3-a4ea63f2b383">
@@ -88,13 +97,8 @@
                     Description="Open PORTA Control Center"
                     Target="[INSTALLFOLDER]Porta.ControlCenter.exe"
                     WorkingDirectory="INSTALLFOLDER" />
-          <Shortcut Id="TrayShortcut"
-                    Name="PORTA Tray"
-                    Description="Open PORTA Tray"
-                    Target="[INSTALLFOLDER]AriTray.exe"
-                    WorkingDirectory="INSTALLFOLDER" />
           <RemoveFolder Id="RemoveAriProgramMenuFolder" On="uninstall" />
-          <RegistryValue Root="HKLM"
+          <RegistryValue Root="HKCU"
                          Key="Software\PORTA\AriAgent"
                          Name="MenuShortcutsInstalled"
                          Type="integer"
@@ -106,7 +110,8 @@
 
     <Feature Id="MainFeature" Title="Ari Agent" Level="1">
       <ComponentRef Id="AriExeComponent" />
-      <ComponentRef Id="AriTrayExeComponent" />
+      <ComponentRef Id="UserAgentExeComponent" />
+      <ComponentRef Id="UserAgentStartupEntryComponent" />
       <ComponentRef Id="ControlCenterExeComponent" />
       <ComponentRef Id="ControlCenterShortcutComponent" />
     </Feature>

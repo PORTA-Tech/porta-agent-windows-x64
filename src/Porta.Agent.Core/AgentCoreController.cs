@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Porta.Agent.Common.Contracts;
+using Porta.Agent.Common.UserAgent;
 
 namespace Porta.Agent.Core;
 
@@ -26,12 +27,18 @@ public sealed class AgentCoreController : IAgentCoreController
     private const string DefaultPolicyVersion = "1.0.0";
     private const int MaxSignalIdLength = 128;
     private const int MaxFocusHashLength = 128;
+    private const string CaptureContextUnknown = UserAgentCaptureContexts.Unknown;
+    private const string CaptureContextUserSession = UserAgentCaptureContexts.UserSession;
+    private const string CaptureContextServiceSession = UserAgentCaptureContexts.ServiceSession;
+    private static readonly TimeSpan SignalHealthActiveWindow = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan CaptureContextFreshnessWindow = TimeSpan.FromSeconds(30);
     private static readonly string ConsentDisclosureHash = ComputeSha256Hex(ConsentDisclosureText);
     private static readonly Regex IdPattern = new(@"^[A-Za-z0-9._-]+$", RegexOptions.Compiled);
     private static readonly Regex FocusHashPattern = new(@"^[a-fA-F0-9-_.:]+$", RegexOptions.Compiled);
 
     private readonly object _gate = new();
     private readonly IBrainStateStore _stateStore;
+    private readonly IUserAgentSessionContextStore _userAgentSessionContextStore;
     private readonly string _consentPath = BuildConsentPath();
     private readonly string _settingsPath = BuildSettingsPath();
     private readonly string _logPath = BuildLogPath();
@@ -41,6 +48,10 @@ public sealed class AgentCoreController : IAgentCoreController
     private bool _consentActive;
     private DateTimeOffset? _pauseUntilUtc;
     private DateTimeOffset? _lastEventTimestampUtc;
+    private string _captureContext = CaptureContextUnknown;
+    private DateTimeOffset? _lastKeyboardSignalUtc;
+    private DateTimeOffset? _lastMouseSignalUtc;
+    private DateTimeOffset? _lastInputEventUtc;
     private string? _lastError;
     private bool _localApiAuthReady = true;
     private string? _localApiAuthError;
@@ -72,13 +83,18 @@ public sealed class AgentCoreController : IAgentCoreController
     private SettingsStateRecord _settingsState = CreateDefaultSettingsState();
 
     public AgentCoreController()
-        : this(new BucketFinalizerStateStore(new SqliteBrainStateStore()))
+        : this(
+            new BucketFinalizerStateStore(new SqliteBrainStateStore()),
+            new UserAgentSessionContextStore())
     {
     }
 
-    public AgentCoreController(IBrainStateStore stateStore)
+    public AgentCoreController(
+        IBrainStateStore stateStore,
+        IUserAgentSessionContextStore? userAgentSessionContextStore = null)
     {
         _stateStore = stateStore;
+        _userAgentSessionContextStore = userAgentSessionContextStore ?? new UserAgentSessionContextStore();
         AgentConsentRecord? consentFromStore = _stateStore.ReadLatestConsent();
         _consentState = consentFromStore != null
             ? new ConsentStateRecord(
@@ -146,6 +162,10 @@ public sealed class AgentCoreController : IAgentCoreController
             bool dbMigrationFailedFromStore = _stateStore.ReadDbMigrationFailed();
             bool dbMigrationFailed = IsDbMigrationFailure(effectiveLastError);
             dbMigrationFailed = dbMigrationFailed || dbMigrationFailedFromStore;
+            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+            string captureContext = ResolveCaptureContextLocked(nowUtc);
+            bool keyboardSignalActive = IsSignalActive(_lastKeyboardSignalUtc, nowUtc);
+            bool mouseSignalActive = IsSignalActive(_lastMouseSignalUtc, nowUtc);
             AgentStatus status = effectiveLastError is null
                 ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
                 : AgentStatus.Degraded;
@@ -167,6 +187,10 @@ public sealed class AgentCoreController : IAgentCoreController
                 SchemaVersion: DefaultSchemaVersion,
                 PolicyVersion: DefaultPolicyVersion,
                 LastEventTimestampUtc: _lastEventTimestampUtc,
+                CaptureContext: captureContext,
+                KeyboardSignalActive: keyboardSignalActive,
+                MouseSignalActive: mouseSignalActive,
+                LastInputEventUtc: _lastInputEventUtc,
                 LastError: effectiveLastError,
                 LocalApiAuthReady: _localApiAuthReady,
                 LocalApiAuthError: _localApiAuthError,
@@ -195,7 +219,7 @@ public sealed class AgentCoreController : IAgentCoreController
                 VisualMode: PresentedVisualModeMapper.ToToken(visualMode),
                 LatestContributorsJson: latestContributorsJson,
                 LatestWhyJson: latestWhyJson,
-                LastUpdatedUtc: DateTimeOffset.UtcNow);
+                LastUpdatedUtc: nowUtc);
         }
     }
 
@@ -391,6 +415,17 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             TryAutoResumeLocked();
+            _captureContext = CaptureContextUserSession;
+            _lastInputEventUtc = packet.LastInputEventUtc?.ToUniversalTime() ?? fallbackEventUtc;
+            if (keyboardKeydownCount > 0 || keyboardBackspaceCount > 0)
+            {
+                _lastKeyboardSignalUtc = _lastInputEventUtc;
+            }
+
+            if (mouseWheelDelta != 0 || mouseMoveDx is not 0d || mouseMoveDy is not 0d)
+            {
+                _lastMouseSignalUtc = _lastInputEventUtc;
+            }
 
             if (_paused || !_consentActive)
             {
@@ -1833,6 +1868,38 @@ public sealed class AgentCoreController : IAgentCoreController
         DateTimeOffset? BaselineRecalibrationUntilUtc,
         DateTimeOffset UpdatedAtUtc);
 
+    private static bool IsSignalActive(DateTimeOffset? signalUtc, DateTimeOffset nowUtc)
+    {
+        return signalUtc.HasValue
+            && (nowUtc - signalUtc.Value.ToUniversalTime()) <= SignalHealthActiveWindow;
+    }
+
+    private string ResolveCaptureContextLocked(DateTimeOffset nowUtc)
+    {
+        UserAgentSessionContextSnapshot? snapshot = _userAgentSessionContextStore.ReadCurrent();
+        if (snapshot is not null)
+        {
+            DateTimeOffset updatedAtUtc = snapshot.UpdatedAtUtc.ToUniversalTime();
+            if (updatedAtUtc <= nowUtc && nowUtc - updatedAtUtc <= CaptureContextFreshnessWindow)
+            {
+                _captureContext = NormalizeCaptureContext(snapshot.CaptureContext);
+                return _captureContext;
+            }
+        }
+
+        return _lastInputEventUtc is not null ? CaptureContextUserSession : CaptureContextUnknown;
+    }
+
+    private static string NormalizeCaptureContext(string? captureContext)
+    {
+        return captureContext?.Trim() switch
+        {
+            CaptureContextUserSession => CaptureContextUserSession,
+            CaptureContextServiceSession => CaptureContextServiceSession,
+            _ => CaptureContextUnknown
+        };
+    }
+
     private string BuildDiagnosticsSummaryJson()
     {
         AgentNotificationSuppressionStatus suppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
@@ -1840,16 +1907,22 @@ public sealed class AgentCoreController : IAgentCoreController
         AgentStatus status = effectiveLastError is null
             ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
             : AgentStatus.Degraded;
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        string captureContext = ResolveCaptureContextLocked(nowUtc);
 
         var payload = new
         {
-            generated_at_utc = DateTimeOffset.UtcNow,
+            generated_at_utc = nowUtc,
             service_running = true,
             status = status.ToString(),
             paused = _paused,
             consent_active = _consentActive,
             backend_connected = _backendConnected,
             last_event_timestamp_utc = _lastEventTimestampUtc,
+            capture_context = captureContext,
+            keyboard_signal_active = IsSignalActive(_lastKeyboardSignalUtc, nowUtc),
+            mouse_signal_active = IsSignalActive(_lastMouseSignalUtc, nowUtc),
+            last_input_event_utc = _lastInputEventUtc,
             last_backend_ok_utc = _lastBackendOkUtc,
             last_error = effectiveLastError,
             local_api_auth_ready = _localApiAuthReady,
@@ -2072,8 +2145,14 @@ public sealed class AgentCoreController : IAgentCoreController
     {
         try
         {
-            string path = Path.Combine(AppContext.BaseDirectory, "AriTray.exe");
-            if (!File.Exists(path))
+            string[] candidatePaths =
+            [
+                Path.Combine(AppContext.BaseDirectory, "Porta.UserAgent.exe"),
+                Path.Combine(AppContext.BaseDirectory, "AriTray.exe")
+            ];
+
+            string? path = candidatePaths.FirstOrDefault(File.Exists);
+            if (path == null)
             {
                 return "unknown";
             }

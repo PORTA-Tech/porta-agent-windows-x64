@@ -83,6 +83,8 @@ dotnet run --project src/Porta.ControlCenter/Porta.ControlCenter.csproj
 .\scripts\install-service.ps1 -StartAfterInstall
 ```
 
+The MSI now packages `Porta.UserAgent.exe` separately from the machine service and installs a user-logon startup entry for it, so session-bound capture starts in the desktop session instead of inside the Windows service.
+
 ### Uninstall service
 
 ```powershell

@@ -16,6 +16,8 @@ This document pins the intended ownership split before signal-ingest cutover wor
   - Interactive user-session process boundary.
   - Reserved for tray UX and all session-bound input capture and forwarding.
   - Must not become a second inference or persistence kernel.
+  - Installed with the machine MSI but started through a user-logon startup entry, not as a Windows service.
+  - Publishes a local capture-context heartbeat so the service can report `UserSession` vs `ServiceSession` truthfully.
 
 - `src/Porta.ControlCenter`
   - WPF control surface.
@@ -51,3 +53,4 @@ This document pins the intended ownership split before signal-ingest cutover wor
 - `src/Porta.Tray`
   - Not part of the active solution.
   - Treat as residual/stale repo content until tray responsibilities are fully represented by `Porta.UserAgent`.
+  - MSI packaging should no longer depend on this residual project.

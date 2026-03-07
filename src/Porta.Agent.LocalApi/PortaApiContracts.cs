@@ -20,6 +20,10 @@ public sealed record LocalApiStatusResponse(
     string SchemaVersion,
     string PolicyVersion,
     DateTimeOffset? LastEventTimestampUtc,
+    string CaptureContext,
+    bool KeyboardSignalActive,
+    bool MouseSignalActive,
+    DateTimeOffset? LastInputEventUtc,
     string? LastError,
     bool LocalApiAuthReady,
     string? LocalApiAuthError,
@@ -57,6 +61,10 @@ public sealed record LocalApiStatusResponse(
     public bool brightness_adjusted => BrightnessAdjusted;
     public bool brightness_supported => BrightnessSupported;
     public bool db_migration_failed => DbMigrationFailed;
+    public string capture_context => CaptureContext;
+    public bool keyboard_signal_active => KeyboardSignalActive;
+    public bool mouse_signal_active => MouseSignalActive;
+    public string? last_input_event_utc => ToUtcMsStringOrNull(LastInputEventUtc);
     public int deep_work_streak_sec => DeepWorkStreakSeconds;
     public string last_updated_utc => ToUtcMsString(LastUpdatedUtc);
 

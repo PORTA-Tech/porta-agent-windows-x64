@@ -632,7 +632,8 @@ public partial class MainWindow : Window
     private static bool IsTrayRunning()
     {
         return Process.GetProcessesByName("AriTray").Length > 0
-            || Process.GetProcessesByName("Porta.Tray").Length > 0;
+            || Process.GetProcessesByName("Porta.Tray").Length > 0
+            || Process.GetProcessesByName("Porta.UserAgent").Length > 0;
     }
 
     private void ShowSection(UiSection section)
