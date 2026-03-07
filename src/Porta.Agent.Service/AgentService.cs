@@ -9,13 +9,11 @@ using Porta.Agent.Core;
 using Porta.Agent.Core.Db;
 using Porta.Agent.Core.Outputs;
 using Porta.Agent.LocalApi;
-using Porta.Agent.Runtime.Layer1;
 
 namespace Porta.Agent.Service;
 
 internal sealed class AgentService : IHostedService, IDisposable
 {
-    private readonly Layer1AgentHost _agentHost = new();
     private readonly WebApplication _localApiApp;
     private int _started;
     private int _localApiStarted;
@@ -59,7 +57,6 @@ internal sealed class AgentService : IHostedService, IDisposable
         builder.Services.AddSingleton<IPolicyEnvelopeProvider, FilePolicyEnvelopeProvider>();
         builder.Services.AddSingleton<IRegulationStage, DefaultRegulationStage>();
         builder.Services.AddSingleton<IBackendConnectivityProbe, HttpBackendConnectivityProbe>();
-        // Capture ingestion is now user-session bound and will be implemented via POST /v1/input/signals.
         builder.Services.AddHostedService<BucketFinalizerWorker>();
         builder.Services.AddHostedService<AgentBrainWorker>();
 
@@ -87,8 +84,6 @@ internal sealed class AgentService : IHostedService, IDisposable
             throw;
         }
 
-        await _agentHost.StartAsync(cancellationToken).ConfigureAwait(false);
-
         try
         {
             await _localApiApp.StartAsync(cancellationToken).ConfigureAwait(false);
@@ -113,12 +108,10 @@ internal sealed class AgentService : IHostedService, IDisposable
             await _localApiApp.StopAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        await _agentHost.StopAsync().ConfigureAwait(false);
     }
 
     public void Dispose()
     {
         _localApiApp.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _agentHost.Dispose();
     }
 }
