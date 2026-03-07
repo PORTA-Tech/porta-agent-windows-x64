@@ -4,6 +4,10 @@ namespace Porta.Agent.Core.Tests;
 
 internal sealed class LocalApiContractFakeStore : IBrainStateStore
 {
+    private readonly List<AgentBrainSnapshot> _writtenSnapshots = [];
+    public IReadOnlyList<AgentBrainSnapshot> WrittenSnapshots => _writtenSnapshots.AsReadOnly();
+    public int SnapshotWriteCount => _writtenSnapshots.Count;
+
     public AgentBrainSnapshot? LatestSnapshot { get; set; }
     public AgentLatestStateDetails? LatestStateDetails { get; set; }
     public AgentNotificationSuppressionStatus NotificationStatus { get; set; } = new(
@@ -48,7 +52,11 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore
         BaselineRecalibrationStartedUtc: null,
         BaselineRecalibrationUntilUtc: null);
 
-    public void WriteSnapshot(AgentBrainSnapshot snapshot) => LatestSnapshot = snapshot;
+    public void WriteSnapshot(AgentBrainSnapshot snapshot)
+    {
+        _writtenSnapshots.Add(snapshot);
+        LatestSnapshot = snapshot;
+    }
     public void WriteControlEvent(AgentControlEvent controlEvent) { }
     public void WriteSystemChange(AgentSystemChange change) { }
     public void WriteDiagnostics(AgentDiagnosticsSnapshot diagnostics) { }

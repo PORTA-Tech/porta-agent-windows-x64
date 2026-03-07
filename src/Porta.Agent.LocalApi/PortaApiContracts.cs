@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Porta.Agent.Common.Contracts;
 
 namespace Porta.Agent.LocalApi;
@@ -311,6 +312,21 @@ public sealed record LocalApiPauseRequest(
 
 public sealed record LocalApiTestInterventionRequest(
     string Action);
+
+public sealed record LocalApiInputSignalsRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("agent_instance_id")] string? AgentInstanceId,
+    [property: JsonPropertyName("session_id")] string? SessionId,
+    [property: JsonPropertyName("window_start_utc")] DateTimeOffset? WindowStartUtc,
+    [property: JsonPropertyName("window_end_utc")] DateTimeOffset? WindowEndUtc,
+    [property: JsonPropertyName("keyboard_keydown_count")] int KeyboardKeydownCount,
+    [property: JsonPropertyName("keyboard_backspace_count")] int KeyboardBackspaceCount,
+    [property: JsonPropertyName("mouse_wheel_delta")] int MouseWheelDelta,
+    [property: JsonPropertyName("mouse_move_dx")] double MouseMoveDx,
+    [property: JsonPropertyName("mouse_move_dy")] double MouseMoveDy,
+    [property: JsonPropertyName("focus_app_hash")] string? FocusAppHash,
+    [property: JsonPropertyName("idle_seconds")] double IdleSeconds,
+    [property: JsonPropertyName("last_input_event_utc")] DateTimeOffset? LastInputEventUtc);
 
 public sealed record LocalApiAckResponse(
     bool Success,

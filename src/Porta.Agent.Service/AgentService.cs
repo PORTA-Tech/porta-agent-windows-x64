@@ -50,15 +50,7 @@ internal sealed class AgentService : IHostedService, IDisposable
             controller.SetLocalApiAuthState(settings.LocalApiAuthReady, settings.LocalApiAuthError);
             return controller;
         });
-        builder.Services.AddSingleton<ISignalAcquisitionStage, SystemSignalAcquisitionStage>();
-        builder.Services.AddSingleton<IPrimitiveNormalizationStage, DefaultPrimitiveNormalizationStage>();
-        builder.Services.AddSingleton<IInferenceStage, DefaultInferenceStage>();
-        builder.Services.AddSingleton<IStabilizationStage, EwmaStabilizationStage>();
-        builder.Services.AddSingleton<IPolicyEnvelopeProvider, FilePolicyEnvelopeProvider>();
-        builder.Services.AddSingleton<IRegulationStage, DefaultRegulationStage>();
-        builder.Services.AddSingleton<IBackendConnectivityProbe, HttpBackendConnectivityProbe>();
         builder.Services.AddHostedService<BucketFinalizerWorker>();
-        builder.Services.AddHostedService<AgentBrainWorker>();
 
         _localApiApp = builder.Build();
         _localApiApp.MapPortaLocalApi(settings);

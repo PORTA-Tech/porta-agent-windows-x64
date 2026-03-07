@@ -2,7 +2,13 @@
 
 Windows runtime for PORTA's closed loop on a single machine.
 
-It captures privacy-safe signals, transforms them into normalized primitives, computes local probabilistic state, stabilizes transitions, renders tray UX, and exchanges signed/typed events with the control-plane.
+The repo is in the middle of a boundary split:
+
+- `Porta.Agent.Service` is the machine service host and local deterministic engine host.
+- `Porta.UserAgent` is the user-session process boundary for tray UX and session-bound capture.
+- `Porta.ControlCenter` is the API-driven WPF control surface.
+
+Step `0A` defines that project ownership. Later steps move the actual capture path and ingest flow.
 
 ## What This Repository Owns
 
@@ -28,13 +34,17 @@ It captures privacy-safe signals, transforms them into normalized primitives, co
 
 ## Solution Layout
 
+- `src/Porta.Agent.Service`: Windows machine service host, local API host, deterministic engine composition
+- `src/Porta.UserAgent`: user-session process boundary for tray UX and session-bound capture
+- `src/Porta.ControlCenter`: WPF renderer of local API truth
+- `src/Porta.Agent.Core`: deterministic kernel implementation and persistence coordination
+- `src/Porta.Agent.LocalApi`: localhost contracts, client, endpoint mapping, runtime settings
 - `src/Porta.Agent.Common`: shared models/helpers
-- `src/Porta.Agent.Runtime`: interactive runtime + tray host
-- `src/Porta.Agent.Service`: Windows service host
+- `src/Porta.Agent.Runtime`: shared runtime helpers and legacy runtime components under reduction
 - `scripts/`: install/build/smoke scripts
-- `docs/`: architecture and step specifications
+- `docs/`: architecture and boundary specifications
 
-Dependency direction: `Service -> Runtime -> Common`.
+Current dependency direction is centered around the service host and shared libraries, with `ControlCenter` consuming only `Porta.Agent.LocalApi`.
 
 ## Quick Start
 
@@ -49,16 +59,22 @@ Dependency direction: `Service -> Runtime -> Common`.
 dotnet build PORTA.Windows.sln
 ```
 
-### Run interactive runtime (tray)
+### Run user-session agent
 
 ```powershell
-dotnet run --project src/Porta.Agent.Runtime/Porta.Agent.Runtime.csproj
+dotnet run --project src/Porta.UserAgent/Porta.UserAgent.csproj
 ```
 
 ### Run service host
 
 ```powershell
 dotnet run --project src/Porta.Agent.Service/Porta.Agent.Service.csproj
+```
+
+### Run control center
+
+```powershell
+dotnet run --project src/Porta.ControlCenter/Porta.ControlCenter.csproj
 ```
 
 ### Install service (admin)
@@ -104,6 +120,7 @@ dotnet run --project src/Porta.Agent.Service/Porta.Agent.Service.csproj
 ## Docs
 
 - `docs/architecture.md`
+- `docs/project-boundaries.md`
 - `docs/step14-tray-app-full-ux.md`
 - `docs/step15-observability-alerts.md`
 - `docs/step16-hardening-rollout.md`

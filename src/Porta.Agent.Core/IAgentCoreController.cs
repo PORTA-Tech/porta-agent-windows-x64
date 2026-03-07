@@ -13,6 +13,7 @@ public interface IAgentCoreController
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,
         int bucketSeconds = Time.bucketSeconds);
+    void IngestInputSignals(InputSignalsPacket packet);
     AgentSettingsState GetEffectiveSettings();
     AgentDataRetentionInfo GetDataRetention();
     void Pause(string? reason = null, DateTimeOffset? untilUtc = null);

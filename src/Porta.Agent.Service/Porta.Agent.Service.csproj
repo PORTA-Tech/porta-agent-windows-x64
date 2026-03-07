@@ -20,7 +20,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Porta.Agent.Core\Porta.Agent.Core.csproj" />
     <ProjectReference Include="..\Porta.Agent.LocalApi\Porta.Agent.LocalApi.csproj" />
-    <ProjectReference Include="..\Porta.Agent.Runtime\Porta.Agent.Runtime.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using System.Runtime.Versioning;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
@@ -16,6 +17,10 @@ public static class LocalApiEndpointMapping
 {
     private const string TokenHeader = "X-PORTA-TOKEN";
     private const string ApiLimiterPolicy = "porta_local_api";
+    private const int MaxIdLength = 128;
+    private const int MaxFocusHashLength = 128;
+    private static readonly Regex IdPattern = new(@"^[A-Za-z0-9._-]+$", RegexOptions.Compiled);
+    private static readonly Regex FocusHashPattern = new(@"^[a-fA-F0-9-_.:]+$", RegexOptions.Compiled);
 
     public static IServiceCollection AddPortaLocalApi(this IServiceCollection services)
     {
@@ -149,6 +154,78 @@ public static class LocalApiEndpointMapping
                 summary.FocusSwitchRate,
                 summary.IdleFragmentationIndex,
                 summary.NotificationLatencyIndex);
+        });
+
+        api.MapPost("/input/signals", (IAgentCoreController controller, LocalApiInputSignalsRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_payload_or_schema",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            string agentInstanceId = request.AgentInstanceId?.Trim() ?? string.Empty;
+            if (!IsValidIdentifier(agentInstanceId))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_agent_instance_id",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            string sessionId = request.SessionId?.Trim() ?? string.Empty;
+            if (!IsValidIdentifier(sessionId))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_session_id",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            string focusAppHash = request.FocusAppHash?.Trim() ?? string.Empty;
+            if (!IsValidFocusHash(focusAppHash))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_focus_app_hash",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            try
+            {
+                controller.IngestInputSignals(new InputSignalsPacket(
+                    SchemaVer: request.SchemaVer,
+                    AgentInstanceId: agentInstanceId,
+                    SessionId: sessionId,
+                    WindowStartUtc: request.WindowStartUtc,
+                    WindowEndUtc: request.WindowEndUtc,
+                    KeyboardKeydownCount: request.KeyboardKeydownCount,
+                    KeyboardBackspaceCount: request.KeyboardBackspaceCount,
+                    MouseWheelDelta: request.MouseWheelDelta,
+                    MouseMoveDx: request.MouseMoveDx,
+                    MouseMoveDy: request.MouseMoveDy,
+                    FocusAppHash: string.IsNullOrWhiteSpace(focusAppHash) ? null : focusAppHash,
+                    IdleSeconds: request.IdleSeconds,
+                    LastInputEventUtc: request.LastInputEventUtc));
+
+                return Results.Ok(new LocalApiAckResponse(
+                    Success: true,
+                    Message: "input_signals_accepted",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: ex.Message,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+            catch (Exception)
+            {
+                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            }
         });
 
         api.MapGet("/events/recent", (IAgentCoreController controller, int? limit, DateTimeOffset? since) =>
@@ -297,6 +374,28 @@ public static class LocalApiEndpointMapping
         });
 
         return app;
+    }
+
+    private static bool IsValidIdentifier(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+            && value.Length <= MaxIdLength
+            && IdPattern.IsMatch(value);
+    }
+
+    private static bool IsValidFocusHash(string focusHash)
+    {
+        if (string.IsNullOrWhiteSpace(focusHash))
+        {
+            return true;
+        }
+
+        if (focusHash.Length > MaxFocusHashLength)
+        {
+            return false;
+        }
+
+        return FocusHashPattern.IsMatch(focusHash);
     }
 
     private static LocalApiCurrentSnapshotResponse ToSnapshotResponse(

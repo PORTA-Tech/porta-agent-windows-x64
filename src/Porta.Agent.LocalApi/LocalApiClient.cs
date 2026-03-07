@@ -123,6 +123,44 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    public async Task<LocalApiAckResponse?> SendInputSignalsAsync(
+        LocalApiInputSignalsRequest request,
+        CancellationToken token = default)
+    {
+        if (_settings == null)
+        {
+            return null;
+        }
+
+        if (request.SchemaVer != 1)
+        {
+            return new LocalApiAckResponse(
+                Success: false,
+                Message: "invalid_schema_ver",
+                TimestampUtc: DateTimeOffset.UtcNow);
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/input/signals", content, token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return new LocalApiAckResponse(
+                    Success: false,
+                    Message: $"http_{(int)response.StatusCode}",
+                    TimestampUtc: DateTimeOffset.UtcNow);
+            }
+
+            return await response.Content.ReadFromJsonAsync<LocalApiAckResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<IReadOnlyList<LocalApiEventResponse>> GetRecentEventsAsync(int limit = 50, DateTimeOffset? sinceUtc = null, CancellationToken token = default)
     {
         if (_settings == null)

@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Porta.Agent.Common.Contracts;
 
 namespace Porta.Agent.Core;
@@ -23,7 +24,11 @@ public sealed class AgentCoreController : IAgentCoreController
     private const string UiLogFileName = "control-center.log";
     private const string DefaultSchemaVersion = "1.0.0";
     private const string DefaultPolicyVersion = "1.0.0";
+    private const int MaxSignalIdLength = 128;
+    private const int MaxFocusHashLength = 128;
     private static readonly string ConsentDisclosureHash = ComputeSha256Hex(ConsentDisclosureText);
+    private static readonly Regex IdPattern = new(@"^[A-Za-z0-9._-]+$", RegexOptions.Compiled);
+    private static readonly Regex FocusHashPattern = new(@"^[a-fA-F0-9-_.:]+$", RegexOptions.Compiled);
 
     private readonly object _gate = new();
     private readonly IBrainStateStore _stateStore;
@@ -325,6 +330,125 @@ public sealed class AgentCoreController : IAgentCoreController
             BucketSeconds: bucket,
             Snapshots: snapshots,
             Interventions: interventions);
+    }
+
+    public void IngestInputSignals(InputSignalsPacket packet)
+    {
+        if (packet is null)
+        {
+            throw new ArgumentNullException(nameof(packet));
+        }
+
+        int schemaVer = packet.SchemaVer;
+        if (schemaVer != 1)
+        {
+            throw new ArgumentException("unsupported_schema_ver", nameof(packet));
+        }
+
+        string agentInstanceId = packet.AgentInstanceId?.Trim() ?? string.Empty;
+        if (!IsValidIdentifier(agentInstanceId))
+        {
+            throw new ArgumentException("missing_agent_instance_id", nameof(packet.AgentInstanceId));
+        }
+
+        string sessionId = packet.SessionId?.Trim() ?? string.Empty;
+        if (!IsValidIdentifier(sessionId))
+        {
+            throw new ArgumentException("missing_session_id", nameof(packet.SessionId));
+        }
+
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        DateTimeOffset windowEndUtc = packet.WindowEndUtc.GetValueOrDefault(nowUtc).ToUniversalTime();
+        DateTimeOffset windowStartUtc = (packet.WindowStartUtc ?? windowEndUtc).ToUniversalTime();
+        if (windowEndUtc < windowStartUtc)
+        {
+            (windowEndUtc, windowStartUtc) = (windowStartUtc, windowEndUtc);
+        }
+
+        if ((windowEndUtc - windowStartUtc).Duration() > TimeSpan.FromMinutes(10))
+        {
+            windowEndUtc = windowStartUtc.AddMinutes(10);
+        }
+
+        DateTimeOffset fallbackEventUtc = windowEndUtc;
+        if (packet.LastInputEventUtc is not null && packet.LastInputEventUtc.Value.ToUniversalTime() > fallbackEventUtc)
+        {
+            fallbackEventUtc = packet.LastInputEventUtc.Value.ToUniversalTime();
+        }
+
+        string focusAppHash = NormalizeFocusHash(packet.FocusAppHash);
+        if (!IsValidFocusHash(focusAppHash))
+        {
+            throw new ArgumentException("invalid_focus_app_hash", nameof(packet.FocusAppHash));
+        }
+        int keyboardKeydownCount = ClampNonNegativeInt(packet.KeyboardKeydownCount, 200);
+        int keyboardBackspaceCount = ClampNonNegativeInt(packet.KeyboardBackspaceCount, 200);
+        int mouseWheelDelta = ClampFiniteInt(packet.MouseWheelDelta, -2000, 2000);
+        double mouseMoveDx = ClampFiniteDouble(packet.MouseMoveDx, -8192d, 8192d);
+        double mouseMoveDy = ClampFiniteDouble(packet.MouseMoveDy, -8192d, 8192d);
+        double idleSeconds = ClampNonNegativeDouble(packet.IdleSeconds, 1800d);
+
+        lock (_gate)
+        {
+            TryAutoResumeLocked();
+
+            if (_paused || !_consentActive)
+            {
+                _lastEventTimestampUtc = fallbackEventUtc;
+                return;
+            }
+
+            if (keyboardKeydownCount > 0)
+            {
+                WriteRepeatedRawInputSamples(
+                    fallbackEventUtc,
+                    keyboardKeydownCount,
+                    RawInputContributors.KeyboardKeydown(isBackspace: false));
+            }
+
+            if (keyboardBackspaceCount > 0)
+            {
+                WriteRepeatedRawInputSamples(
+                    fallbackEventUtc,
+                    keyboardBackspaceCount,
+                    RawInputContributors.KeyboardKeydown(isBackspace: true));
+            }
+
+            if (mouseMoveDx is not 0d || mouseMoveDy is not 0d)
+            {
+                int clampedDx = (int)Math.Round(mouseMoveDx);
+                int clampedDy = (int)Math.Round(mouseMoveDy);
+                string contributor = RawInputContributors.MouseMove(clampedDx, clampedDy);
+                _stateStore.WriteSnapshot(BuildRawInputSnapshot(fallbackEventUtc, contributor));
+            }
+
+            if (mouseWheelDelta != 0)
+            {
+                string contributor = RawInputContributors.MouseWheel(mouseWheelDelta);
+                _stateStore.WriteSnapshot(BuildRawInputSnapshot(fallbackEventUtc, contributor));
+            }
+
+            if (!string.IsNullOrWhiteSpace(focusAppHash))
+            {
+                string contributor = RawInputContributors.Focus(focusAppHash);
+                _stateStore.WriteSnapshot(BuildRawInputSnapshot(fallbackEventUtc, contributor));
+            }
+
+            if (idleSeconds > 0d)
+            {
+                string contributor = RawInputContributors.Idle(idleSeconds);
+                _stateStore.WriteSnapshot(BuildRawInputSnapshot(fallbackEventUtc, contributor));
+            }
+
+            if (packet.LastInputEventUtc is DateTimeOffset lastInputEventUtc)
+            {
+                _lastEventTimestampUtc = lastInputEventUtc;
+            }
+            else
+            {
+                _lastEventTimestampUtc = fallbackEventUtc;
+            }
+        }
     }
 
     public AgentSettingsState GetEffectiveSettings()
@@ -1499,6 +1623,128 @@ public sealed class AgentCoreController : IAgentCoreController
         }
 
         return 0;
+    }
+
+    private static bool IsValidIdentifier(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+            && value.Length <= MaxSignalIdLength
+            && IdPattern.IsMatch(value);
+    }
+
+    private static bool IsValidFocusHash(string focusHash)
+    {
+        if (string.IsNullOrWhiteSpace(focusHash))
+        {
+            return true;
+        }
+
+        if (focusHash.Length > MaxFocusHashLength)
+        {
+            return false;
+        }
+
+        return FocusHashPattern.IsMatch(focusHash);
+    }
+
+    private void WriteRepeatedRawInputSamples(DateTimeOffset timestampUtc, int repeatCount, string contributor)
+    {
+        if (repeatCount <= 0 || string.IsNullOrWhiteSpace(contributor))
+        {
+            return;
+        }
+
+        for (int i = 0; i < repeatCount; i++)
+        {
+            _stateStore.WriteSnapshot(BuildRawInputSnapshot(timestampUtc, contributor));
+        }
+    }
+
+    private static AgentBrainSnapshot BuildRawInputSnapshot(DateTimeOffset timestampUtc, string contributor)
+    {
+        return new AgentBrainSnapshot(
+            TimestampUtc: timestampUtc,
+            TypingBurstIntensity: 0d,
+            ScrollVelocityIndex: 0d,
+            FocusSwitchRate: 0d,
+            SmoothedTypingBurstIntensity: 0d,
+            SmoothedScrollVelocityIndex: 0d,
+            SmoothedFocusSwitchRate: 0d,
+            FocusStrength: 0d,
+            OverloadLikelihood: 0d,
+            FatigueProbability: 0d,
+            CognitiveStability: 0d,
+            DominantStateValue: 0d,
+            DominantStateName: "focus",
+            Confidence: 0d,
+            LastAction: "input_signals_ingest",
+            ActivationWindowTriggered: false,
+            CooldownTriggered: false,
+            ActivationWindowOpen: false,
+            Contributors: [contributor],
+            PolicyId: "input-signals",
+            Domain: "input",
+            EscalationLevel: "Inform");
+    }
+
+    private static int ClampNonNegativeInt(int value, int max)
+    {
+        if (value < 0)
+        {
+            return 0;
+        }
+
+        if (value > max)
+        {
+            return max;
+        }
+
+        return value;
+    }
+
+    private static int ClampFiniteInt(int value, int min, int max)
+    {
+        if (value < min)
+        {
+            return min;
+        }
+
+        return value > max ? max : value;
+    }
+
+    private static double ClampFiniteDouble(double value, double min, double max)
+    {
+        if (!double.IsFinite(value))
+        {
+            return 0d;
+        }
+
+        return Math.Clamp(value, min, max);
+    }
+
+    private static double ClampNonNegativeDouble(double value, double max)
+    {
+        if (!double.IsFinite(value))
+        {
+            return 0d;
+        }
+
+        if (value < 0d)
+        {
+            return 0d;
+        }
+
+        return Math.Min(value, max);
+    }
+
+    private static string NormalizeFocusHash(string? focusAppHash)
+    {
+        if (string.IsNullOrWhiteSpace(focusAppHash))
+        {
+            return string.Empty;
+        }
+
+        return focusAppHash.Trim().ToLowerInvariant();
     }
 
     private static string ComputeSha256Hex(string value)
