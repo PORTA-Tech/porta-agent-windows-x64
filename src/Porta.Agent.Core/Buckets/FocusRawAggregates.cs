@@ -6,11 +6,14 @@ internal sealed class FocusRawAggregates
     private const long FlapCollapseMaxMs = 2000;
     private const long SameAppStormDedupeWindowMs = 250;
     private readonly List<FocusEventSample> _focusEvents = [];
+    private readonly List<FocusInterval> _observedIntervals = [];
     private readonly Dictionary<string, double> _dwellByAppSeconds = new(StringComparer.Ordinal);
     private readonly HashSet<FocusEventSample> _seenSamples = [];
+    private readonly HashSet<FocusInterval> _seenObservedIntervals = [];
     private FocusEventSample? _lastAcceptedSample;
 
     public IReadOnlyList<FocusEventSample> FocusEvents => _focusEvents;
+    public int ObservedIntervalCount => _observedIntervals.Count;
     public IReadOnlyDictionary<string, double> DwellByAppSeconds => _dwellByAppSeconds;
     public int FocusSwitchesCount { get; private set; }
     public int ActiveAppCount { get; private set; }
@@ -40,6 +43,23 @@ internal sealed class FocusRawAggregates
         _lastAcceptedSample = sample;
     }
 
+    public void RecordObservedInterval(long startUtcMs, long endUtcMs, string appHash)
+    {
+        string normalized = string.IsNullOrWhiteSpace(appHash) ? "unknown" : appHash.Trim().ToLowerInvariant();
+        long safeStartUtcMs = Math.Min(startUtcMs, endUtcMs);
+        long safeEndUtcMs = Math.Max(startUtcMs, endUtcMs);
+        if (safeEndUtcMs <= safeStartUtcMs)
+        {
+            return;
+        }
+
+        var interval = new FocusInterval(normalized, safeStartUtcMs, safeEndUtcMs);
+        if (_seenObservedIntervals.Add(interval))
+        {
+            _observedIntervals.Add(interval);
+        }
+    }
+
     public void RecomputeDerivedMetrics(long bucketStartUtcMs, long bucketEndUtcMs)
     {
         FocusSwitchesCount = 0;
@@ -48,7 +68,7 @@ internal sealed class FocusRawAggregates
         DominantAppHash = string.Empty;
         _dwellByAppSeconds.Clear();
 
-        if (bucketEndUtcMs <= bucketStartUtcMs || _focusEvents.Count == 0)
+        if (bucketEndUtcMs <= bucketStartUtcMs || (_focusEvents.Count == 0 && _observedIntervals.Count == 0))
         {
             return;
         }
@@ -56,9 +76,17 @@ internal sealed class FocusRawAggregates
         FocusEventSample[] ordered = _focusEvents
             .OrderBy(static e => e.TimestampUtcMs)
             .ToArray();
-        List<FocusInterval> rawIntervals = BuildRawIntervals(ordered, bucketEndUtcMs);
-        List<FocusInterval> minDurationIntervals = rawIntervals
+        List<FocusInterval> rawIntervals = ordered.Length == 0
+            ? []
+            : BuildRawIntervals(ordered, bucketEndUtcMs);
+        List<FocusInterval> combinedIntervals = rawIntervals
+            .Concat(_observedIntervals)
+            .ToList();
+        List<FocusInterval> minDurationIntervals = combinedIntervals
             .Where(static interval => interval.DurationMs >= MinFocusIntervalMs)
+            .OrderBy(static interval => interval.StartUtcMs)
+            .ThenBy(static interval => interval.EndUtcMs)
+            .ThenBy(static interval => interval.AppHash, StringComparer.Ordinal)
             .ToList();
         List<FocusInterval> suppressed = CollapseFlaps(minDurationIntervals);
 

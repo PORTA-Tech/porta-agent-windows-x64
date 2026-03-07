@@ -24,6 +24,7 @@ public sealed record LocalApiStatusResponse(
     bool KeyboardSignalActive,
     bool MouseSignalActive,
     DateTimeOffset? LastInputEventUtc,
+    string? CaptureFailureReason,
     string? LastError,
     bool LocalApiAuthReady,
     string? LocalApiAuthError,
@@ -65,6 +66,7 @@ public sealed record LocalApiStatusResponse(
     public bool keyboard_signal_active => KeyboardSignalActive;
     public bool mouse_signal_active => MouseSignalActive;
     public string? last_input_event_utc => ToUtcMsStringOrNull(LastInputEventUtc);
+    public string? capture_failure_reason => CaptureFailureReason;
     public int deep_work_streak_sec => DeepWorkStreakSeconds;
     public string last_updated_utc => ToUtcMsString(LastUpdatedUtc);
 

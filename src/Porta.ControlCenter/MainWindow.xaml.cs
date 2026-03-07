@@ -2866,6 +2866,12 @@ public partial class MainWindow : Window
             signalBlockers.Add("local API auth not ready");
         }
 
+        string? captureFailureDetail = DescribeCaptureFailureReason(_latestStatus?.CaptureFailureReason);
+        if (!string.IsNullOrWhiteSpace(captureFailureDetail))
+        {
+            signalBlockers.Add(captureFailureDetail);
+        }
+
         if (missingChannels.Count > 0)
         {
             signalBlockers.Add($"missing channels ({string.Join("/", missingChannels)})");
@@ -3686,6 +3692,12 @@ public partial class MainWindow : Window
             return "Not updating: Database migration failed";
         }
 
+        string? captureHint = BuildCaptureContextHint(status);
+        if (!string.IsNullOrWhiteSpace(captureHint))
+        {
+            return captureHint;
+        }
+
         return null;
     }
 
@@ -3734,9 +3746,28 @@ public partial class MainWindow : Window
                 Explanation: "Not updating: Snapshot unavailable");
         }
 
+        string? captureHint = BuildCaptureContextHint(status);
         return new NowTruth(
             Snapshot: snapshot,
-            Explanation: string.Empty);
+            Explanation: captureHint ?? string.Empty);
+    }
+
+    private static string? BuildCaptureContextHint(LocalApiStatusResponse status)
+    {
+        string? detail = DescribeCaptureFailureReason(status.CaptureFailureReason);
+        return string.IsNullOrWhiteSpace(detail)
+            ? null
+            : $"Not collecting: {detail}";
+    }
+
+    private static string? DescribeCaptureFailureReason(string? captureFailureReason)
+    {
+        return captureFailureReason switch
+        {
+            "CAPTURE_CONTEXT_SERVICE_SESSION" => "capture is running in a service session",
+            "CAPTURE_CONTEXT_UNKNOWN" => "user-session capture is not available",
+            _ => null
+        };
     }
 
     private void UpdateDebugFooter(NowTruth nowTruth, bool statusFresh)
@@ -3813,6 +3844,11 @@ public partial class MainWindow : Window
         sb.AppendLine($"Overload active: {OverloadActiveValue.Text}");
         sb.AppendLine($"Sustained attention (s): {SustainedAttentionValue.Text}");
         sb.AppendLine($"Idle fragmentation index: {IdleFragmentationValue.Text}");
+        if (_latestStatus != null)
+        {
+            sb.AppendLine($"Capture context: {_latestStatus.CaptureContext}");
+            sb.AppendLine($"Capture failure: {DescribeCaptureFailureReason(_latestStatus.CaptureFailureReason) ?? "None"}");
+        }
         sb.AppendLine($"Agent version: {AgentVersionValue.Text}");
         sb.AppendLine($"Local API reachable: {ApiReachableValue.Text}");
         sb.AppendLine($"Local API port: {ApiPortValue.Text}");

@@ -5,7 +5,7 @@ namespace Porta.Agent.Core.Tests;
 public sealed class InputSignalsIngestTests
 {
     [Fact]
-    public void IngestInputSignals_StoresPrivacySafeAggregatesAsRawContributors()
+    public void IngestInputSignals_RoutesPrivacySafePacketIntoBucketIngress()
     {
         var store = new LocalApiContractFakeStore();
         var controller = new AgentCoreController(store);
@@ -28,21 +28,23 @@ public sealed class InputSignalsIngestTests
             IdleSeconds: 0.75d,
             LastInputEventUtc: lastInput));
 
-        Assert.Equal(9, store.SnapshotWriteCount);
-        Assert.All(store.WrittenSnapshots, snapshot =>
-        {
-            Assert.Equal("input_signals_ingest", snapshot.LastAction);
-            Assert.Equal("focus", snapshot.DominantStateName);
-        });
+        Assert.Equal(0, store.SnapshotWriteCount);
+        Assert.Equal(1, store.InputSignalsIngestCount);
 
-        Assert.Contains(store.WrittenSnapshots, s => s.Contributors.Contains("raw_input:keyboard:keydown"));
-        Assert.Contains(store.WrittenSnapshots, s => s.Contributors.Contains("raw_input:keyboard:backspace"));
-        Assert.Contains(store.WrittenSnapshots, s => s.Contributors[0].StartsWith("raw_input:mouse_move:"));
-        Assert.Contains(store.WrittenSnapshots, s => s.Contributors[0].StartsWith("raw_input:mouse_wheel:"));
-        Assert.Contains(store.WrittenSnapshots, s => s.Contributors[0].StartsWith("raw_input:focus:"));
-        Assert.Contains(store.WrittenSnapshots, s => s.Contributors[0].StartsWith("raw_input:idle:"));
-        Assert.Equal(TimeSpan.Zero, store.WrittenSnapshots[0].TimestampUtc.Offset);
-        Assert.Equal(lastInput.UtcDateTime, store.WrittenSnapshots[0].TimestampUtc.UtcDateTime);
+        InputSignalsPacket ingested = Assert.Single(store.IngestedInputSignals);
+        Assert.Equal(1, ingested.SchemaVer);
+        Assert.Equal("agent-1", ingested.AgentInstanceId);
+        Assert.Equal("session-1", ingested.SessionId);
+        Assert.Equal(windowStart.ToUniversalTime().UtcDateTime, ingested.WindowStartUtc!.Value.UtcDateTime);
+        Assert.Equal(windowEnd.ToUniversalTime().UtcDateTime, ingested.WindowEndUtc!.Value.UtcDateTime);
+        Assert.Equal(3, ingested.KeyboardKeydownCount);
+        Assert.Equal(2, ingested.KeyboardBackspaceCount);
+        Assert.Equal(120, ingested.MouseWheelDelta);
+        Assert.Equal(15d, ingested.MouseMoveDx);
+        Assert.Equal(-7d, ingested.MouseMoveDy);
+        Assert.Equal("a1b2c3d4", ingested.FocusAppHash);
+        Assert.Equal(0.75d, ingested.IdleSeconds, precision: 6);
+        Assert.Equal(lastInput.ToUniversalTime().UtcDateTime, ingested.LastInputEventUtc!.Value.UtcDateTime);
     }
 
     [Fact]
@@ -69,6 +71,7 @@ public sealed class InputSignalsIngestTests
         Assert.StartsWith("unsupported_schema_ver", ex.Message, StringComparison.Ordinal);
         Assert.Equal("packet", ex.ParamName);
         Assert.Equal(0, store.SnapshotWriteCount);
+        Assert.Equal(0, store.InputSignalsIngestCount);
     }
 
     [Fact]
@@ -95,6 +98,7 @@ public sealed class InputSignalsIngestTests
         Assert.StartsWith("missing_agent_instance_id", ex1.Message, StringComparison.Ordinal);
         Assert.Equal("AgentInstanceId", ex1.ParamName);
         Assert.Equal(0, store.SnapshotWriteCount);
+        Assert.Equal(0, store.InputSignalsIngestCount);
 
         var ex2 = Assert.Throws<ArgumentException>(() => controller.IngestInputSignals(new InputSignalsPacket(
             SchemaVer: 1,
@@ -113,6 +117,7 @@ public sealed class InputSignalsIngestTests
 
         Assert.StartsWith("missing_session_id", ex2.Message, StringComparison.Ordinal);
         Assert.Equal("SessionId", ex2.ParamName);
+        Assert.Equal(0, store.InputSignalsIngestCount);
     }
 
     [Fact]
@@ -173,5 +178,6 @@ public sealed class InputSignalsIngestTests
             LastInputEventUtc: null)));
         Assert.StartsWith("invalid_focus_app_hash", ex3.Message, StringComparison.Ordinal);
         Assert.Equal("FocusAppHash", ex3.ParamName);
+        Assert.Equal(0, store.InputSignalsIngestCount);
     }
 }

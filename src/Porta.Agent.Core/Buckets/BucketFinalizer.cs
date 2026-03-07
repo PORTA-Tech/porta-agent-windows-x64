@@ -100,6 +100,57 @@ internal sealed class BucketFinalizer
         }
     }
 
+    public void IngestInputSignals(InputSignalsPacket packet)
+    {
+        ArgumentNullException.ThrowIfNull(packet);
+
+        DateTimeOffset nowUtc = _nowProvider();
+        long nowUtcMs = nowUtc.ToUnixTimeMilliseconds();
+        DateTimeOffset referenceUtc = packet.LastInputEventUtc
+            ?? packet.WindowEndUtc
+            ?? packet.WindowStartUtc
+            ?? nowUtc;
+        long windowStartUtcMs = (packet.WindowStartUtc ?? referenceUtc).ToUniversalTime().ToUnixTimeMilliseconds();
+        long windowEndUtcMs = (packet.WindowEndUtc ?? referenceUtc).ToUniversalTime().ToUnixTimeMilliseconds();
+        if (windowEndUtcMs < windowStartUtcMs)
+        {
+            (windowStartUtcMs, windowEndUtcMs) = (windowEndUtcMs, windowStartUtcMs);
+        }
+
+        if (windowEndUtcMs <= windowStartUtcMs)
+        {
+            windowEndUtcMs = checked(windowStartUtcMs + 1);
+        }
+
+        IReadOnlyList<BucketWindowSlice> slices = BuildWindowSlices(windowStartUtcMs, windowEndUtcMs);
+        if (slices.Count == 0)
+        {
+            return;
+        }
+
+        int[] keydownsBySlice = DistributeNonNegativeInt(packet.KeyboardKeydownCount, slices);
+        int[] backspacesBySlice = DistributeNonNegativeInt(packet.KeyboardBackspaceCount, slices);
+        int[] mouseWheelBySlice = DistributeSignedInt(packet.MouseWheelDelta, slices);
+        int[] mouseMoveDxBySlice = DistributeSignedInt((int)Math.Round(packet.MouseMoveDx, MidpointRounding.AwayFromZero), slices);
+        int[] mouseMoveDyBySlice = DistributeSignedInt((int)Math.Round(packet.MouseMoveDy, MidpointRounding.AwayFromZero), slices);
+        double[] idleSecondsBySlice = DistributeNonNegativeDouble(packet.IdleSeconds, slices);
+        string? focusAppHash = string.IsNullOrWhiteSpace(packet.FocusAppHash) ? null : packet.FocusAppHash.Trim().ToLowerInvariant();
+
+        for (int i = 0; i < slices.Count; i++)
+        {
+            ApplyInputSignalsSlice(
+                slice: slices[i],
+                nowUtcMs: nowUtcMs,
+                keydownCount: keydownsBySlice[i],
+                backspaceCount: backspacesBySlice[i],
+                mouseWheelDelta: mouseWheelBySlice[i],
+                mouseMoveDx: mouseMoveDxBySlice[i],
+                mouseMoveDy: mouseMoveDyBySlice[i],
+                focusAppHash: focusAppHash,
+                idleSeconds: idleSecondsBySlice[i]);
+        }
+    }
+
     public void RunFinalizerTick(DateTimeOffset nowUtc)
     {
         long nowUtcMs = nowUtc.ToUnixTimeMilliseconds();
@@ -482,6 +533,216 @@ internal sealed class BucketFinalizer
         }
     }
 
+    private void ApplyInputSignalsSlice(
+        BucketWindowSlice slice,
+        long nowUtcMs,
+        int keydownCount,
+        int backspaceCount,
+        int mouseWheelDelta,
+        int mouseMoveDx,
+        int mouseMoveDy,
+        string? focusAppHash,
+        double idleSeconds)
+    {
+        bool hasMutation = keydownCount > 0
+            || backspaceCount > 0
+            || mouseWheelDelta != 0
+            || mouseMoveDx != 0
+            || mouseMoveDy != 0
+            || !string.IsNullOrWhiteSpace(focusAppHash)
+            || idleSeconds > 0d;
+        if (!hasMutation)
+        {
+            return;
+        }
+
+        BucketLifecycleState initialBucketState = IsFinalBucket(slice.BucketSeq)
+            ? BucketLifecycleState.FINAL
+            : BucketLifecycleState.OPEN;
+        EventTimestampValidation timestampValidation = ShouldDropEvent(
+            slice.RepresentativeEventUtcMs,
+            initialBucketState,
+            nowUtcMs);
+        if (timestampValidation.ShouldDrop)
+        {
+            LogTimestampDrop(timestampValidation.DropReason, slice.BucketSeq, slice.RepresentativeEventUtcMs, nowUtcMs);
+            return;
+        }
+
+        BucketBuffer bucket = _buffers.GetOrCreate(slice.BucketSeq);
+        EventTimestampDropReason dropReason = EventTimestampDropReason.None;
+
+        lock (bucket.Gate)
+        {
+            BucketLifecycleState effectiveBucketState = (bucket.State == BucketLifecycleState.FINAL || IsFinalBucket(slice.BucketSeq))
+                ? BucketLifecycleState.FINAL
+                : bucket.State;
+            EventTimestampValidation lockedValidation = ShouldDropEvent(
+                slice.RepresentativeEventUtcMs,
+                effectiveBucketState,
+                nowUtcMs);
+            if (lockedValidation.ShouldDrop)
+            {
+                dropReason = lockedValidation.DropReason;
+            }
+            else
+            {
+                bool wasPendingFinalize = bucket.State == BucketLifecycleState.PENDING_FINALIZE;
+                BucketAggregators.ApplyInputSignalsSliceToBucket(
+                    bucket,
+                    slice.StartUtcMs,
+                    slice.EndUtcMs,
+                    keydownCount,
+                    backspaceCount,
+                    mouseMoveDx,
+                    mouseMoveDy,
+                    mouseWheelDelta,
+                    focusAppHash,
+                    idleSeconds);
+                if (wasPendingFinalize)
+                {
+                    bucket.Dirty = true;
+                    bucket.PendingMutationCount++;
+                }
+            }
+        }
+
+        if (dropReason != EventTimestampDropReason.None)
+        {
+            if (dropReason == EventTimestampDropReason.LateFinal)
+            {
+                _buffers.Remove(slice.BucketSeq);
+            }
+
+            LogTimestampDrop(dropReason, slice.BucketSeq, slice.RepresentativeEventUtcMs, nowUtcMs);
+        }
+    }
+
+    private static IReadOnlyList<BucketWindowSlice> BuildWindowSlices(long windowStartUtcMs, long windowEndUtcMs)
+    {
+        long safeStartUtcMs = Math.Min(windowStartUtcMs, windowEndUtcMs);
+        long safeEndUtcMs = Math.Max(safeStartUtcMs + 1, windowEndUtcMs);
+        long startBucketSeq = Time.bucketSeqFromEventTs(safeStartUtcMs);
+        long endBucketSeq = Time.bucketSeqFromEventTs(safeEndUtcMs - 1);
+        var slices = new List<BucketWindowSlice>(checked((int)Math.Max(1L, endBucketSeq - startBucketSeq + 1)));
+
+        for (long bucketSeq = startBucketSeq; bucketSeq <= endBucketSeq; bucketSeq++)
+        {
+            (long bucketStartUtcMs, long bucketEndUtcMs) = Time.bucketStartEnd(bucketSeq);
+            long sliceStartUtcMs = Math.Max(safeStartUtcMs, bucketStartUtcMs);
+            long sliceEndUtcMs = Math.Min(safeEndUtcMs, bucketEndUtcMs);
+            if (sliceEndUtcMs <= sliceStartUtcMs)
+            {
+                continue;
+            }
+
+            long representativeEventUtcMs = Math.Clamp(
+                sliceEndUtcMs - 1,
+                sliceStartUtcMs,
+                Math.Max(sliceStartUtcMs, sliceEndUtcMs - 1));
+            slices.Add(new BucketWindowSlice(bucketSeq, sliceStartUtcMs, sliceEndUtcMs, representativeEventUtcMs));
+        }
+
+        return slices;
+    }
+
+    private static int[] DistributeNonNegativeInt(int total, IReadOnlyList<BucketWindowSlice> slices)
+    {
+        if (total <= 0 || slices.Count == 0)
+        {
+            return new int[slices.Count];
+        }
+
+        double[] weights = slices.Select(static slice => (double)slice.DurationMs).ToArray();
+        return DistributeNonNegativeInt(total, weights);
+    }
+
+    private static int[] DistributeSignedInt(int total, IReadOnlyList<BucketWindowSlice> slices)
+    {
+        if (total == 0 || slices.Count == 0)
+        {
+            return new int[slices.Count];
+        }
+
+        int sign = Math.Sign(total);
+        int[] distributed = DistributeNonNegativeInt(Math.Abs(total), slices);
+        for (int i = 0; i < distributed.Length; i++)
+        {
+            distributed[i] *= sign;
+        }
+
+        return distributed;
+    }
+
+    private static int[] DistributeNonNegativeInt(int total, IReadOnlyList<double> weights)
+    {
+        var distributed = new int[weights.Count];
+        if (total <= 0 || weights.Count == 0)
+        {
+            return distributed;
+        }
+
+        double totalWeight = weights.Sum();
+        if (totalWeight <= 0d)
+        {
+            distributed[^1] = total;
+            return distributed;
+        }
+
+        var shares = new (int Index, int BaseValue, double Remainder)[weights.Count];
+        int assigned = 0;
+        for (int i = 0; i < weights.Count; i++)
+        {
+            double rawShare = total * (weights[i] / totalWeight);
+            int baseValue = (int)Math.Floor(rawShare);
+            shares[i] = (i, baseValue, rawShare - baseValue);
+            distributed[i] = baseValue;
+            assigned += baseValue;
+        }
+
+        int remaining = total - assigned;
+        foreach ((int index, _, _) in shares
+                     .OrderByDescending(static share => share.Remainder)
+                     .ThenBy(static share => share.Index)
+                     .Take(remaining))
+        {
+            distributed[index]++;
+        }
+
+        return distributed;
+    }
+
+    private static double[] DistributeNonNegativeDouble(double total, IReadOnlyList<BucketWindowSlice> slices)
+    {
+        var distributed = new double[slices.Count];
+        if (total <= 0d || slices.Count == 0)
+        {
+            return distributed;
+        }
+
+        double totalWeight = slices.Sum(static slice => (double)slice.DurationMs);
+        if (totalWeight <= 0d)
+        {
+            distributed[^1] = total;
+            return distributed;
+        }
+
+        double assigned = 0d;
+        for (int i = 0; i < slices.Count; i++)
+        {
+            if (i == slices.Count - 1)
+            {
+                distributed[i] = Math.Max(0d, total - assigned);
+                break;
+            }
+
+            distributed[i] = total * (slices[i].DurationMs / totalWeight);
+            assigned += distributed[i];
+        }
+
+        return distributed;
+    }
+
     private static void TransitionLocked(
         BucketBuffer bucket,
         BucketLifecycleState from,
@@ -521,5 +782,14 @@ internal sealed class BucketFinalizer
         }
 
         bucket.State = to;
+    }
+
+    private readonly record struct BucketWindowSlice(
+        long BucketSeq,
+        long StartUtcMs,
+        long EndUtcMs,
+        long RepresentativeEventUtcMs)
+    {
+        public long DurationMs => Math.Max(1, EndUtcMs - StartUtcMs);
     }
 }

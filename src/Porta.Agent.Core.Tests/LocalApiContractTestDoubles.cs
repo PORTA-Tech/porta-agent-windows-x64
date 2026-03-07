@@ -2,11 +2,14 @@ using Porta.Agent.Core;
 
 namespace Porta.Agent.Core.Tests;
 
-internal sealed class LocalApiContractFakeStore : IBrainStateStore
+internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignalsIngress
 {
     private readonly List<AgentBrainSnapshot> _writtenSnapshots = [];
+    private readonly List<InputSignalsPacket> _ingestedInputSignals = [];
     public IReadOnlyList<AgentBrainSnapshot> WrittenSnapshots => _writtenSnapshots.AsReadOnly();
     public int SnapshotWriteCount => _writtenSnapshots.Count;
+    public IReadOnlyList<InputSignalsPacket> IngestedInputSignals => _ingestedInputSignals.AsReadOnly();
+    public int InputSignalsIngestCount => _ingestedInputSignals.Count;
 
     public AgentBrainSnapshot? LatestSnapshot { get; set; }
     public AgentLatestStateDetails? LatestStateDetails { get; set; }
@@ -57,6 +60,7 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore
         _writtenSnapshots.Add(snapshot);
         LatestSnapshot = snapshot;
     }
+    public void IngestInputSignals(InputSignalsPacket packet) => _ingestedInputSignals.Add(packet);
     public void WriteControlEvent(AgentControlEvent controlEvent) { }
     public void WriteSystemChange(AgentSystemChange change) { }
     public void WriteDiagnostics(AgentDiagnosticsSnapshot diagnostics) { }

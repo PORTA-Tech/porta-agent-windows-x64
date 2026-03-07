@@ -5,7 +5,7 @@ namespace Porta.Agent.Core;
 /// <summary>
 /// IBrainStateStore adapter that routes all writes through BucketFinalizer single-writer flow.
 /// </summary>
-public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinalizerPump
+public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinalizerPump, IInputSignalsIngress
 {
     private readonly IBrainStateStore _inner;
     private readonly BucketFinalizer _finalizer;
@@ -28,6 +28,7 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
     }
 
     public void WriteSnapshot(AgentBrainSnapshot snapshot) => _finalizer.WriteSnapshot(snapshot);
+    public void IngestInputSignals(InputSignalsPacket packet) => _finalizer.IngestInputSignals(packet);
     public void RunFinalizerTick(DateTimeOffset nowUtc) => _finalizer.RunFinalizerTick(nowUtc);
     public void WriteControlEvent(AgentControlEvent controlEvent) => _finalizer.WriteControlEvent(controlEvent);
     public void WriteSystemChange(AgentSystemChange change) => _finalizer.WriteSystemChange(change);

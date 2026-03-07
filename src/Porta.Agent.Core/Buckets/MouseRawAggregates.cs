@@ -29,6 +29,16 @@ internal sealed class MouseRawAggregates
         _moveSamples.Add(sample);
     }
 
+    public void RecordAggregatedMove(long startUtcMs, long endUtcMs, int dx, int dy)
+    {
+        if (dx == 0 && dy == 0)
+        {
+            return;
+        }
+
+        RecordMove(ResolveRepresentativeTimestamp(startUtcMs, endUtcMs), dx, dy);
+    }
+
     public void RecordWheel(long tsUtcMs, int delta)
     {
         var sample = new MouseWheelDeltaSample(tsUtcMs, delta);
@@ -38,6 +48,16 @@ internal sealed class MouseRawAggregates
         }
 
         _wheelSamples.Add(sample);
+    }
+
+    public void RecordAggregatedWheel(long startUtcMs, long endUtcMs, int delta)
+    {
+        if (delta == 0)
+        {
+            return;
+        }
+
+        RecordWheel(ResolveRepresentativeTimestamp(startUtcMs, endUtcMs), delta);
     }
 
     public void RecomputeDerivedMetrics()
@@ -150,6 +170,14 @@ internal sealed class MouseRawAggregates
         int rank = (int)Math.Ceiling(p * ordered.Length);
         int index = Math.Clamp(rank - 1, 0, ordered.Length - 1);
         return ordered[index];
+    }
+
+    private static long ResolveRepresentativeTimestamp(long startUtcMs, long endUtcMs)
+    {
+        long safeStartUtcMs = Math.Min(startUtcMs, endUtcMs);
+        long safeEndUtcMs = Math.Max(safeStartUtcMs + 1, endUtcMs);
+        long midpoint = safeStartUtcMs + ((safeEndUtcMs - safeStartUtcMs) / 2);
+        return Math.Clamp(midpoint, safeStartUtcMs, safeEndUtcMs - 1);
     }
 }
 

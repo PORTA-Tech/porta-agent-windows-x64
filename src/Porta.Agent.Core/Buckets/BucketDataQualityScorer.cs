@@ -19,8 +19,10 @@ internal static class BucketDataQualityScorer
         bool keyboardAvailable = bucket.Keyboard.KeydownCount > 0;
         bool mouseAvailable = bucket.Mouse.MoveSampleCount > 0
             || bucket.Mouse.WheelSampleCount > 0;
-        bool focusAvailable = bucket.Focus.FocusEvents.Count > 0;
-        bool idleAvailable = bucket.Idle.Samples.Count > 0;
+        bool focusAvailable = bucket.Focus.FocusEvents.Count > 0
+            || bucket.Focus.ObservedIntervalCount > 0;
+        bool idleAvailable = bucket.Idle.Samples.Count > 0
+            || bucket.Idle.ObservedIntervalCount > 0;
 
         var missing = new List<string>(4);
         double score = 1d;

@@ -23,6 +23,7 @@ public sealed record AgentServiceStatusSnapshot(
     bool KeyboardSignalActive,
     bool MouseSignalActive,
     DateTimeOffset? LastInputEventUtc,
+    string? CaptureFailureReason,
     string? LastError,
     bool LocalApiAuthReady,
     string? LocalApiAuthError,

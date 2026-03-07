@@ -33,6 +33,28 @@ internal sealed class KeyboardRawAggregates
         _keydownTsUtcMs.Add(tsUtcMs);
     }
 
+    public void RecordAggregatedCounts(long startUtcMs, long endUtcMs, int keydownCount, int backspaceCount)
+    {
+        int nonBackspaceCount = Math.Max(0, keydownCount);
+        int backspaceOnlyCount = Math.Max(0, backspaceCount);
+        int totalCount = nonBackspaceCount + backspaceOnlyCount;
+        if (totalCount <= 0)
+        {
+            return;
+        }
+
+        long[] timestamps = BuildSampleTimestamps(startUtcMs, endUtcMs, totalCount);
+        for (int i = 0; i < nonBackspaceCount; i++)
+        {
+            RecordKeydown(timestamps[i], isBackspace: false);
+        }
+
+        for (int i = 0; i < backspaceOnlyCount; i++)
+        {
+            RecordKeydown(timestamps[nonBackspaceCount + i], isBackspace: true);
+        }
+    }
+
     public void RecomputeDerivedMetrics()
     {
         BackspaceRate = KeydownCount <= 0 ? 0d : Clamp01(BackspaceCount / (double)KeydownCount);
@@ -81,6 +103,24 @@ internal sealed class KeyboardRawAggregates
         }
 
         return Math.Clamp(value, 0d, 1d);
+    }
+
+    private static long[] BuildSampleTimestamps(long startUtcMs, long endUtcMs, int count)
+    {
+        var timestamps = new long[count];
+        long safeStartUtcMs = Math.Min(startUtcMs, endUtcMs);
+        long safeEndUtcMs = Math.Max(safeStartUtcMs + 1, endUtcMs);
+        long spanMs = Math.Max(1, safeEndUtcMs - safeStartUtcMs);
+
+        for (int i = 0; i < count; i++)
+        {
+            double fraction = (i + 1d) / (count + 1d);
+            long offset = (long)Math.Round(spanMs * fraction, MidpointRounding.AwayFromZero);
+            long clampedOffset = Math.Clamp(offset, 0L, Math.Max(0L, spanMs - 1L));
+            timestamps[i] = safeStartUtcMs + clampedOffset;
+        }
+
+        return timestamps;
     }
 }
 

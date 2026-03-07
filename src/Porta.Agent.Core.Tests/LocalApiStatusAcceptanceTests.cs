@@ -101,6 +101,8 @@ public sealed class LocalApiStatusAcceptanceTests
         Assert.True(dto.mouse_signal_active);
         Assert.NotNull(dto.LastInputEventUtc);
         Assert.NotNull(dto.last_input_event_utc);
+        Assert.Null(dto.CaptureFailureReason);
+        Assert.Null(dto.capture_failure_reason);
     }
 
     [Fact]
@@ -140,6 +142,8 @@ public sealed class LocalApiStatusAcceptanceTests
         Assert.False(dto.keyboard_signal_active);
         Assert.False(dto.mouse_signal_active);
         Assert.Null(dto.LastInputEventUtc);
+        Assert.Equal("CAPTURE_CONTEXT_UNKNOWN", dto.CaptureFailureReason);
+        Assert.Equal("CAPTURE_CONTEXT_UNKNOWN", dto.capture_failure_reason);
     }
 
     [Fact]
@@ -183,6 +187,68 @@ public sealed class LocalApiStatusAcceptanceTests
         Assert.False(dto.keyboard_signal_active);
         Assert.False(dto.mouse_signal_active);
         Assert.Null(dto.LastInputEventUtc);
+        Assert.Equal("CAPTURE_CONTEXT_SERVICE_SESSION", dto.CaptureFailureReason);
+        Assert.Equal("CAPTURE_CONTEXT_SERVICE_SESSION", dto.capture_failure_reason);
+    }
+
+    [Fact]
+    public void Status_DisablesSignalFlags_WhenHeartbeatReportsServiceSession_EvenIfRecentInputExists()
+    {
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.18d, confidence: 0.57d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: DateTimeOffset.UtcNow,
+                OverloadLikelihood: 0.18d,
+                Confidence: 0.57d,
+                SustainedAttentionDurationSec: 60d,
+                IdleFragmentationIndex: 0.12d,
+                FocusAppEntropy: 0.04d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: true,
+                BaselineReadyPct: 0.92d,
+                AvgQuality2m: 0.84d,
+                ColdStart: false,
+                CurrentQualityScore: 0.89d,
+                PartialData: false,
+                MissingMajorChannels: []),
+        };
+
+        var sessionContextStore = new FakeUserAgentSessionContextStore(
+            new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.ServiceSession,
+                ProcessId: 4321,
+                SessionId: 0,
+                UpdatedAtUtc: DateTimeOffset.UtcNow));
+
+        var controller = new AgentCoreController(store, sessionContextStore);
+        DateTimeOffset lastInputUtc = DateTimeOffset.UtcNow;
+        controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "agent-1",
+            SessionId: "session-1",
+            WindowStartUtc: lastInputUtc.AddSeconds(-5),
+            WindowEndUtc: lastInputUtc,
+            KeyboardKeydownCount: 6,
+            KeyboardBackspaceCount: 1,
+            MouseWheelDelta: 120,
+            MouseMoveDx: 10d,
+            MouseMoveDy: 4d,
+            FocusAppHash: "a1b2c3d4",
+            IdleSeconds: 0.1d,
+            LastInputEventUtc: lastInputUtc));
+
+        AgentServiceStatusSnapshot status = controller.GetStatus();
+        var dto = StatusMapper.Map(status, localApiAuthReady: true, localApiAuthError: null);
+
+        Assert.Equal("ServiceSession", dto.capture_context);
+        Assert.False(dto.keyboard_signal_active);
+        Assert.False(dto.mouse_signal_active);
+        Assert.NotNull(dto.LastInputEventUtc);
+        Assert.Equal("CAPTURE_CONTEXT_SERVICE_SESSION", dto.CaptureFailureReason);
     }
 
     private static AgentBrainSnapshot CreateSnapshot(double overload, double confidence)

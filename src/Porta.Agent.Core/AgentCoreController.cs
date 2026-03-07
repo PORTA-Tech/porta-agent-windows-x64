@@ -30,6 +30,8 @@ public sealed class AgentCoreController : IAgentCoreController
     private const string CaptureContextUnknown = UserAgentCaptureContexts.Unknown;
     private const string CaptureContextUserSession = UserAgentCaptureContexts.UserSession;
     private const string CaptureContextServiceSession = UserAgentCaptureContexts.ServiceSession;
+    private const string CaptureFailureReasonUnknown = "CAPTURE_CONTEXT_UNKNOWN";
+    private const string CaptureFailureReasonServiceSession = "CAPTURE_CONTEXT_SERVICE_SESSION";
     private static readonly TimeSpan SignalHealthActiveWindow = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CaptureContextFreshnessWindow = TimeSpan.FromSeconds(30);
     private static readonly string ConsentDisclosureHash = ComputeSha256Hex(ConsentDisclosureText);
@@ -38,6 +40,7 @@ public sealed class AgentCoreController : IAgentCoreController
 
     private readonly object _gate = new();
     private readonly IBrainStateStore _stateStore;
+    private readonly IInputSignalsIngress? _inputSignalsIngress;
     private readonly IUserAgentSessionContextStore _userAgentSessionContextStore;
     private readonly string _consentPath = BuildConsentPath();
     private readonly string _settingsPath = BuildSettingsPath();
@@ -94,6 +97,7 @@ public sealed class AgentCoreController : IAgentCoreController
         IUserAgentSessionContextStore? userAgentSessionContextStore = null)
     {
         _stateStore = stateStore;
+        _inputSignalsIngress = stateStore as IInputSignalsIngress;
         _userAgentSessionContextStore = userAgentSessionContextStore ?? new UserAgentSessionContextStore();
         AgentConsentRecord? consentFromStore = _stateStore.ReadLatestConsent();
         _consentState = consentFromStore != null
@@ -164,8 +168,10 @@ public sealed class AgentCoreController : IAgentCoreController
             dbMigrationFailed = dbMigrationFailed || dbMigrationFailedFromStore;
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
             string captureContext = ResolveCaptureContextLocked(nowUtc);
-            bool keyboardSignalActive = IsSignalActive(_lastKeyboardSignalUtc, nowUtc);
-            bool mouseSignalActive = IsSignalActive(_lastMouseSignalUtc, nowUtc);
+            bool captureContextValid = IsCaptureContextValid(captureContext);
+            bool keyboardSignalActive = captureContextValid && IsSignalActive(_lastKeyboardSignalUtc, nowUtc);
+            bool mouseSignalActive = captureContextValid && IsSignalActive(_lastMouseSignalUtc, nowUtc);
+            string? captureFailureReason = ResolveCaptureFailureReason(captureContext);
             AgentStatus status = effectiveLastError is null
                 ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
                 : AgentStatus.Degraded;
@@ -191,6 +197,7 @@ public sealed class AgentCoreController : IAgentCoreController
                 KeyboardSignalActive: keyboardSignalActive,
                 MouseSignalActive: mouseSignalActive,
                 LastInputEventUtc: _lastInputEventUtc,
+                CaptureFailureReason: captureFailureReason,
                 LastError: effectiveLastError,
                 LocalApiAuthReady: _localApiAuthReady,
                 LocalApiAuthError: _localApiAuthError,
@@ -433,47 +440,25 @@ public sealed class AgentCoreController : IAgentCoreController
                 return;
             }
 
-            if (keyboardKeydownCount > 0)
+            if (_inputSignalsIngress is null)
             {
-                WriteRepeatedRawInputSamples(
-                    fallbackEventUtc,
-                    keyboardKeydownCount,
-                    RawInputContributors.KeyboardKeydown(isBackspace: false));
+                throw new InvalidOperationException("input_signals_ingress_unavailable");
             }
 
-            if (keyboardBackspaceCount > 0)
-            {
-                WriteRepeatedRawInputSamples(
-                    fallbackEventUtc,
-                    keyboardBackspaceCount,
-                    RawInputContributors.KeyboardKeydown(isBackspace: true));
-            }
-
-            if (mouseMoveDx is not 0d || mouseMoveDy is not 0d)
-            {
-                int clampedDx = (int)Math.Round(mouseMoveDx);
-                int clampedDy = (int)Math.Round(mouseMoveDy);
-                string contributor = RawInputContributors.MouseMove(clampedDx, clampedDy);
-                _stateStore.WriteSnapshot(BuildRawInputSnapshot(fallbackEventUtc, contributor));
-            }
-
-            if (mouseWheelDelta != 0)
-            {
-                string contributor = RawInputContributors.MouseWheel(mouseWheelDelta);
-                _stateStore.WriteSnapshot(BuildRawInputSnapshot(fallbackEventUtc, contributor));
-            }
-
-            if (!string.IsNullOrWhiteSpace(focusAppHash))
-            {
-                string contributor = RawInputContributors.Focus(focusAppHash);
-                _stateStore.WriteSnapshot(BuildRawInputSnapshot(fallbackEventUtc, contributor));
-            }
-
-            if (idleSeconds > 0d)
-            {
-                string contributor = RawInputContributors.Idle(idleSeconds);
-                _stateStore.WriteSnapshot(BuildRawInputSnapshot(fallbackEventUtc, contributor));
-            }
+            _inputSignalsIngress.IngestInputSignals(new InputSignalsPacket(
+                SchemaVer: schemaVer,
+                AgentInstanceId: agentInstanceId,
+                SessionId: sessionId,
+                WindowStartUtc: windowStartUtc,
+                WindowEndUtc: windowEndUtc,
+                KeyboardKeydownCount: keyboardKeydownCount,
+                KeyboardBackspaceCount: keyboardBackspaceCount,
+                MouseWheelDelta: mouseWheelDelta,
+                MouseMoveDx: mouseMoveDx,
+                MouseMoveDy: mouseMoveDy,
+                FocusAppHash: string.IsNullOrWhiteSpace(focusAppHash) ? null : focusAppHash,
+                IdleSeconds: idleSeconds,
+                LastInputEventUtc: packet.LastInputEventUtc?.ToUniversalTime() ?? fallbackEventUtc));
 
             if (packet.LastInputEventUtc is DateTimeOffset lastInputEventUtc)
             {
@@ -1682,46 +1667,6 @@ public sealed class AgentCoreController : IAgentCoreController
         return FocusHashPattern.IsMatch(focusHash);
     }
 
-    private void WriteRepeatedRawInputSamples(DateTimeOffset timestampUtc, int repeatCount, string contributor)
-    {
-        if (repeatCount <= 0 || string.IsNullOrWhiteSpace(contributor))
-        {
-            return;
-        }
-
-        for (int i = 0; i < repeatCount; i++)
-        {
-            _stateStore.WriteSnapshot(BuildRawInputSnapshot(timestampUtc, contributor));
-        }
-    }
-
-    private static AgentBrainSnapshot BuildRawInputSnapshot(DateTimeOffset timestampUtc, string contributor)
-    {
-        return new AgentBrainSnapshot(
-            TimestampUtc: timestampUtc,
-            TypingBurstIntensity: 0d,
-            ScrollVelocityIndex: 0d,
-            FocusSwitchRate: 0d,
-            SmoothedTypingBurstIntensity: 0d,
-            SmoothedScrollVelocityIndex: 0d,
-            SmoothedFocusSwitchRate: 0d,
-            FocusStrength: 0d,
-            OverloadLikelihood: 0d,
-            FatigueProbability: 0d,
-            CognitiveStability: 0d,
-            DominantStateValue: 0d,
-            DominantStateName: "focus",
-            Confidence: 0d,
-            LastAction: "input_signals_ingest",
-            ActivationWindowTriggered: false,
-            CooldownTriggered: false,
-            ActivationWindowOpen: false,
-            Contributors: [contributor],
-            PolicyId: "input-signals",
-            Domain: "input",
-            EscalationLevel: "Inform");
-    }
-
     private static int ClampNonNegativeInt(int value, int max)
     {
         if (value < 0)
@@ -1874,6 +1819,21 @@ public sealed class AgentCoreController : IAgentCoreController
             && (nowUtc - signalUtc.Value.ToUniversalTime()) <= SignalHealthActiveWindow;
     }
 
+    private static bool IsCaptureContextValid(string captureContext)
+    {
+        return string.Equals(captureContext, CaptureContextUserSession, StringComparison.Ordinal);
+    }
+
+    private static string? ResolveCaptureFailureReason(string captureContext)
+    {
+        return captureContext switch
+        {
+            CaptureContextServiceSession => CaptureFailureReasonServiceSession,
+            CaptureContextUnknown => CaptureFailureReasonUnknown,
+            _ => null
+        };
+    }
+
     private string ResolveCaptureContextLocked(DateTimeOffset nowUtc)
     {
         UserAgentSessionContextSnapshot? snapshot = _userAgentSessionContextStore.ReadCurrent();
@@ -1909,6 +1869,8 @@ public sealed class AgentCoreController : IAgentCoreController
             : AgentStatus.Degraded;
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         string captureContext = ResolveCaptureContextLocked(nowUtc);
+        bool captureContextValid = IsCaptureContextValid(captureContext);
+        string? captureFailureReason = ResolveCaptureFailureReason(captureContext);
 
         var payload = new
         {
@@ -1920,8 +1882,9 @@ public sealed class AgentCoreController : IAgentCoreController
             backend_connected = _backendConnected,
             last_event_timestamp_utc = _lastEventTimestampUtc,
             capture_context = captureContext,
-            keyboard_signal_active = IsSignalActive(_lastKeyboardSignalUtc, nowUtc),
-            mouse_signal_active = IsSignalActive(_lastMouseSignalUtc, nowUtc),
+            capture_failure_reason = captureFailureReason,
+            keyboard_signal_active = captureContextValid && IsSignalActive(_lastKeyboardSignalUtc, nowUtc),
+            mouse_signal_active = captureContextValid && IsSignalActive(_lastMouseSignalUtc, nowUtc),
             last_input_event_utc = _lastInputEventUtc,
             last_backend_ok_utc = _lastBackendOkUtc,
             last_error = effectiveLastError,

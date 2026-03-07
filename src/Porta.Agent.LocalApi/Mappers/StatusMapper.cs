@@ -30,6 +30,7 @@ internal static class StatusMapper
             status.KeyboardSignalActive,
             status.MouseSignalActive,
             status.LastInputEventUtc,
+            status.CaptureFailureReason,
             status.LastError,
             localApiAuthReady,
             localApiAuthError,

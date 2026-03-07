@@ -89,6 +89,47 @@ internal static class BucketAggregators
         bucket.Idle.RecordSample(tsUtcMs, idleSeconds);
     }
 
+    internal static void ApplyInputSignalsSliceToBucket(
+        BucketBuffer bucket,
+        long sliceStartUtcMs,
+        long sliceEndUtcMs,
+        int keydownCount,
+        int backspaceCount,
+        int mouseMoveDx,
+        int mouseMoveDy,
+        int mouseWheelDelta,
+        string? focusAppHash,
+        double idleSeconds)
+    {
+        if (keydownCount > 0 || backspaceCount > 0)
+        {
+            bucket.Keyboard.RecordAggregatedCounts(sliceStartUtcMs, sliceEndUtcMs, keydownCount, backspaceCount);
+        }
+
+        if (mouseMoveDx != 0 || mouseMoveDy != 0)
+        {
+            bucket.Mouse.RecordAggregatedMove(sliceStartUtcMs, sliceEndUtcMs, mouseMoveDx, mouseMoveDy);
+        }
+
+        if (mouseWheelDelta != 0)
+        {
+            bucket.Mouse.RecordAggregatedWheel(sliceStartUtcMs, sliceEndUtcMs, mouseWheelDelta);
+        }
+
+        if (!string.IsNullOrWhiteSpace(focusAppHash))
+        {
+            bucket.Focus.RecordObservedInterval(sliceStartUtcMs, sliceEndUtcMs, focusAppHash);
+        }
+
+        if (idleSeconds > 0d)
+        {
+            bucket.Idle.RecordObservedInterval(sliceStartUtcMs, sliceEndUtcMs, idleSeconds);
+        }
+
+        bucket.WhyStage["input_source"] = "user_session_ingest";
+        bucket.StateFlagsStage["user_session_ingest"] = "1";
+    }
+
     internal static AgentBrainSnapshot? BuildFinalizedSnapshot(BucketBuffer bucket)
     {
         AgentBrainSnapshot? latest = bucket.LatestSnapshot;
