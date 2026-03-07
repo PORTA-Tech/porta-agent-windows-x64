@@ -12,11 +12,13 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $serviceProject = Join-Path $repoRoot "src/Porta.Agent.Service/Porta.Agent.Service.csproj"
 $userAgentProject = Join-Path $repoRoot "src/Porta.UserAgent/Porta.UserAgent.csproj"
+$controlCenterProject = Join-Path $repoRoot "src/Porta.ControlCenter/Porta.ControlCenter.csproj"
 $publishDir = Join-Path $repoRoot "src/Porta.Agent.Service/bin/$Configuration/net8.0-windows/$Runtime/publish"
 $userAgentPublishDir = Join-Path $repoRoot "src/Porta.UserAgent/bin/$Configuration/net8.0-windows/$Runtime/publish"
+$controlCenterPublishDir = Join-Path $repoRoot "src/Porta.ControlCenter/bin/$Configuration/net8.0-windows/$Runtime/publish"
 $ariExe = Join-Path $publishDir "ari.exe"
 $userAgentExe = Join-Path $userAgentPublishDir "Porta.UserAgent.exe"
-$controlCenterExe = Join-Path $repoRoot "src/Porta.ControlCenter/bin/$Configuration/net8.0-windows/Porta.ControlCenter.exe"
+$controlCenterExe = Join-Path $controlCenterPublishDir "Porta.ControlCenter.exe"
 $installerProject = Join-Path $repoRoot "installer/AriAgent.Installer.wixproj"
 $payloadDir = Join-Path $repoRoot "installer/payload"
 $payloadExe = Join-Path $payloadDir "ari.exe"
@@ -41,6 +43,12 @@ if ($LASTEXITCODE -ne 0) {
 
 if (-not (Test-Path $userAgentExe)) {
     throw "Published user agent binary not found at '$userAgentExe'."
+}
+
+Write-Host "Publishing Porta.ControlCenter.exe ($Configuration, $Runtime)..."
+dotnet publish $controlCenterProject -c $Configuration -r $Runtime --self-contained true /p:PublishSingleFile=true
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet publish for Porta.ControlCenter failed with exit code $LASTEXITCODE."
 }
 
 if (-not (Test-Path $controlCenterExe)) {
