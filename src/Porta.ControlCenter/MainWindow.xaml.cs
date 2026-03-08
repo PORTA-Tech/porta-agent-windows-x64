@@ -2377,7 +2377,9 @@ public partial class MainWindow : Window
                 BuildSuggestionTitle(e.Action),
                 e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                 BuildSuggestionShortWhy(e),
-                BuildDecisionExecutionSummary(e),
+                BuildActionClassificationText(e),
+                BuildDecisionStateBadge(e),
+                BuildExecutionStateBadge(e),
                 e))
             .ToList();
 
@@ -2388,7 +2390,9 @@ public partial class MainWindow : Window
                 When: e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                 Why: BuildChangeShortWhy(e),
                 Undo: BuildUndoBadge(e),
-                Status: BuildDecisionExecutionSummary(e),
+                Classification: BuildActionClassificationText(e),
+                Decision: BuildDecisionStateBadge(e),
+                Execution: BuildExecutionStateBadge(e),
                 Source: e))
             .ToList();
 
@@ -2484,6 +2488,7 @@ public partial class MainWindow : Window
         {
             ActionDrawerTitle.Text = "Select an action event";
             ActionDrawerWhen.Text = $"When: {NotAvailableText}";
+            ActionDrawerClassification.Text = $"Type: {NotAvailableText}";
             ActionDrawerDecisionState.Text = $"Decision: {NotAvailableText}";
             ActionDrawerExecutionState.Text = $"Execution: {NotAvailableText}";
             ActionDrawerShortWhy.Text = $"Why: {NotAvailableText}";
@@ -2502,6 +2507,7 @@ public partial class MainWindow : Window
             ? BuildSuggestionTitle(item.Action)
             : (string.IsNullOrWhiteSpace(item.WhatChanged) ? HumanizeActionName(item.Action) : item.WhatChanged);
         ActionDrawerWhen.Text = $"When: {item.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
+        ActionDrawerClassification.Text = BuildActionClassificationText(item);
         ActionDrawerDecisionState.Text = BuildDecisionStateText(item);
         ActionDrawerExecutionState.Text = BuildExecutionStateText(item);
         ActionDrawerShortWhy.Text = $"Why: {(isSuggestion ? BuildSuggestionShortWhy(item) : BuildChangeShortWhy(item))}";
@@ -2634,11 +2640,24 @@ public partial class MainWindow : Window
             return reasonFromWhyJson;
         }
 
+        if (IsPolicyIntentAction(ev.Action))
+        {
+            return "Policy intent only. No desktop executor is implemented for this action yet.";
+        }
+
+        if (IsUnsupportedAction(ev.Action))
+        {
+            return "Unsupported on this device/build. No desktop change was applied.";
+        }
+
         return "Applied according to current regulation policy.";
     }
 
     private static string BuildDecisionExecutionSummary(LocalApiEventResponse ev) =>
-        $"{BuildDecisionStateBadge(ev)} | {BuildExecutionStateBadge(ev)}";
+        $"{BuildActionClassificationText(ev)} | {BuildDecisionStateBadge(ev)} | {BuildExecutionStateBadge(ev)}";
+
+    private static string BuildActionClassificationText(LocalApiEventResponse ev) =>
+        $"Type: {ClassifyAction(ev)}";
 
     private static string BuildDecisionStateText(LocalApiEventResponse ev)
     {
@@ -2648,6 +2667,16 @@ public partial class MainWindow : Window
 
     private static string BuildExecutionStateText(LocalApiEventResponse ev)
     {
+        if (IsPolicyIntentAction(ev.Action))
+        {
+            return "Execution: Policy intent only (no desktop executor)";
+        }
+
+        if (IsUnsupportedAction(ev.Action))
+        {
+            return "Execution: Unsupported on this device/build";
+        }
+
         string executionState = NormalizeExecutionState(ev.ExecutionState);
         return executionState switch
         {
@@ -2670,6 +2699,16 @@ public partial class MainWindow : Window
 
     private static string BuildExecutionStateBadge(LocalApiEventResponse ev)
     {
+        if (IsPolicyIntentAction(ev.Action))
+        {
+            return "Execution: Policy Intent";
+        }
+
+        if (IsUnsupportedAction(ev.Action))
+        {
+            return "Execution: Unsupported";
+        }
+
         string executionState = NormalizeExecutionState(ev.ExecutionState);
         return executionState switch
         {
@@ -2698,6 +2737,58 @@ public partial class MainWindow : Window
         }
 
         return errorCode.Trim().Replace('_', ' ').ToLowerInvariant();
+    }
+
+    private static string ClassifyAction(LocalApiEventResponse ev)
+    {
+        if (IsPolicyIntentAction(ev.Action))
+        {
+            return "Policy Intent";
+        }
+
+        if (IsUnsupportedAction(ev.Action))
+        {
+            return "Unsupported";
+        }
+
+        if (IsRealDesktopAction(ev))
+        {
+            return "Real Action";
+        }
+
+        return "Decision Record";
+    }
+
+    private static bool IsRealDesktopAction(LocalApiEventResponse ev)
+    {
+        string normalized = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (normalized is "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion"
+            or "deep_work_notifications_suppressed" or "deep_work_notifications_restored")
+        {
+            return true;
+        }
+
+        if (normalized is "notification_snapshot_failed" or "notification_suppress_failed" or "notification_restore_failed")
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(ev.CommandType);
+    }
+
+    private static bool IsPolicyIntentAction(string? action)
+    {
+        string normalized = action?.Trim().ToLowerInvariant() ?? string.Empty;
+        return normalized is "focus_mode_enabled"
+            or "focus_assist_enabled"
+            or "fatigue_relief_enabled"
+            or "temporary_app_restriction_enabled";
+    }
+
+    private static bool IsUnsupportedAction(string? action)
+    {
+        string normalized = action?.Trim().ToLowerInvariant() ?? string.Empty;
+        return normalized.Contains("brightness", StringComparison.Ordinal);
     }
 
     private static string BuildUndoBadge(LocalApiEventResponse ev)
@@ -3667,6 +3758,7 @@ public partial class MainWindow : Window
             TimelineDetailOverload.Text = $"Overload: {NotAvailableText}";
             TimelineDetailTrust.Text = $"Trust level: {NotAvailableText}";
             TimelineDetailFocus.Text = $"Focus streak: {NotAvailableText}";
+            TimelineDetailClassification.Text = $"Type: {NotAvailableText}";
             TimelineDetailExecution.Text = $"Decision/Execution: {NotAvailableText}";
             TimelineDetailWhyHeader.Text = $"Why: {NotAvailableText}";
             TimelineDetailWhyFiv.Text = $"Clarity/Pressure/Jitter: {NotAvailableText}";
@@ -3689,6 +3781,7 @@ public partial class MainWindow : Window
             TimelineDetailOverload.Text = $"Overload: {(snapshot.OverloadLikelihood * 100d):F0}% | Active: {(overloadActive ? "Yes" : "No")}";
             TimelineDetailTrust.Text = $"Trust level: {(snapshot.Confidence * 100d):F0}%";
             TimelineDetailFocus.Text = $"Focus streak: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
+            TimelineDetailClassification.Text = $"Type: {NotAvailableText}";
             TimelineDetailExecution.Text = $"Decision/Execution: {NotAvailableText}";
             TimelineDetailWhyHeader.Text = _historyExplainMode
                 ? "Why? (Detailed)"
@@ -3710,7 +3803,8 @@ public partial class MainWindow : Window
         TimelineDetailOverload.Text = $"Action trigger: {intervention.TriggerState}={intervention.TriggerValue:F2}";
         TimelineDetailTrust.Text = $"Trust level: {(intervention.Confidence * 100d):F0}%";
         TimelineDetailFocus.Text = $"Focus streak: {NotAvailableText} (event marker)";
-        TimelineDetailExecution.Text = BuildDecisionExecutionSummary(intervention);
+        TimelineDetailClassification.Text = BuildActionClassificationText(intervention);
+        TimelineDetailExecution.Text = $"{BuildDecisionStateText(intervention)}{Environment.NewLine}{BuildExecutionStateText(intervention)}";
         TimelineDetailWhyHeader.Text = _historyExplainMode
             ? "Why? (Detailed)"
             : "Why?";
@@ -4383,7 +4477,9 @@ public partial class MainWindow : Window
         string Title,
         string Time,
         string Why,
-        string Status,
+        string Classification,
+        string Decision,
+        string Execution,
         LocalApiEventResponse Source);
 
     private sealed record ChangeRow(
@@ -4391,7 +4487,9 @@ public partial class MainWindow : Window
         string When,
         string Why,
         string Undo,
-        string Status,
+        string Classification,
+        string Decision,
+        string Execution,
         LocalApiEventResponse Source);
 }
 
