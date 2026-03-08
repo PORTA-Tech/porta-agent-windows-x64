@@ -26,6 +26,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private readonly MouseHook _mouseHook = new();
     private readonly string _agentInstanceId = BuildAgentInstanceId();
     private DateTimeOffset _windowStartUtc = DateTimeOffset.UtcNow;
+    private long _lastRecoveryEventId;
+    private UserInterventionToastRenderer.UserTrayVisualState? _lastTrayState;
     private bool _hooksInstalled;
     private bool _localApiUnavailableLogged;
     private int _sessionId;
@@ -67,6 +69,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             StartCaptureHooks();
         }
 
+        UpdateTrayState(new(
+            UserInterventionToastRenderer.UserTrayMode.Normal,
+            "PORTA | Starting"));
+
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(Time.bucketSeconds));
 
         while (!stoppingToken.IsCancellationRequested)
@@ -77,6 +83,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             {
                 await FlushSignalsAsync(stoppingToken).ConfigureAwait(false);
                 await PollPendingInterventionsAsync(stoppingToken).ConfigureAwait(false);
+                await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
             }
 
             try
@@ -108,6 +115,53 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         _toastRenderer.Dispose();
         _localApiClient.Dispose();
         base.Dispose();
+    }
+
+    private async Task RefreshLocalUiSignalsAsync(CancellationToken token)
+    {
+        if (!_localApiClient.IsConfigured)
+        {
+            UpdateTrayState(new(
+                UserInterventionToastRenderer.UserTrayMode.Unavailable,
+                "PORTA | Waiting for core service"));
+            return;
+        }
+
+        LocalApiStatusResponse? status = await _localApiClient.GetStatusAsync(token).ConfigureAwait(false);
+        LocalApiCurrentSnapshotResponse? snapshot = await _localApiClient.GetCurrentSnapshotAsync(token).ConfigureAwait(false);
+        IReadOnlyList<LocalApiEventResponse> recentEvents = await _localApiClient
+            .GetRecentEventsAsync(limit: 12, sinceUtc: DateTimeOffset.UtcNow - TimeSpan.FromMinutes(3), token)
+            .ConfigureAwait(false);
+
+        UserAgentVisualSignals signals = UserAgentVisualSignalsAdapter.Build(
+            status,
+            snapshot,
+            recentEvents,
+            DateTimeOffset.UtcNow,
+            _lastRecoveryEventId);
+
+        UpdateTrayState(new(
+            MapTrayMode(signals.Mode),
+            signals.TooltipText));
+
+        if (!signals.ShowRecoveryToast || signals.RecoveryEventId <= 0)
+        {
+            return;
+        }
+
+        _lastRecoveryEventId = signals.RecoveryEventId;
+        if (!UserSessionNativeSignals.IsInterventionPresentationAvailable(out _))
+        {
+            return;
+        }
+
+        if (!_toastRenderer.TryShow("PORTA", signals.RecoveryMessage, out string errorCode))
+        {
+            _logger.LogDebug(
+                "Failed to present overload recovery message for event {EventId}. Error={ErrorCode}",
+                signals.RecoveryEventId,
+                errorCode);
+        }
     }
 
     private async Task FlushSignalsAsync(CancellationToken token)
@@ -413,6 +467,22 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         _signalAggregator.RecordMouseWheel(delta, DateTimeOffset.UtcNow);
     }
 
+    private void UpdateTrayState(UserInterventionToastRenderer.UserTrayVisualState state)
+    {
+        if (_lastTrayState.HasValue && _lastTrayState.Value.Equals(state))
+        {
+            return;
+        }
+
+        if (_toastRenderer.TryUpdateTrayState(state, out string errorCode))
+        {
+            _lastTrayState = state;
+            return;
+        }
+
+        _logger.LogDebug("Failed to update PORTA tray state. Error={ErrorCode}", errorCode);
+    }
+
     private static bool IsInteractiveUserSession(int sessionId)
     {
         return Environment.UserInteractive && sessionId > 0;
@@ -486,5 +556,16 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         }
 
         return errorCode.Trim().ToLowerInvariant();
+    }
+
+    private static UserInterventionToastRenderer.UserTrayMode MapTrayMode(UserAgentVisualMode mode)
+    {
+        return mode switch
+        {
+            UserAgentVisualMode.DeepWork => UserInterventionToastRenderer.UserTrayMode.DeepWork,
+            UserAgentVisualMode.Overload => UserInterventionToastRenderer.UserTrayMode.Overload,
+            UserAgentVisualMode.Unavailable => UserInterventionToastRenderer.UserTrayMode.Unavailable,
+            _ => UserInterventionToastRenderer.UserTrayMode.Normal
+        };
     }
 }
