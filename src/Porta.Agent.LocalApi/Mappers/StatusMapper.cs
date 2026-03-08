@@ -67,6 +67,9 @@ internal static class StatusMapper
             status.VisualMode,
             status.LatestContributorsJson,
             status.LatestWhyJson,
-            status.LastUpdatedUtc);
+            status.LastUpdatedUtc,
+            status.CalibrationStage,
+            status.SystemActionsEnabled,
+            status.TrustTier);
     }
 }

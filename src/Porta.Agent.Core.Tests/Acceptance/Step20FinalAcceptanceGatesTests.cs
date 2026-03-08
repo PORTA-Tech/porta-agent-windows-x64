@@ -152,9 +152,13 @@ public sealed class Step20FinalAcceptanceGatesTests
             }
             else if (string.Equals(caseName, "during_pending_restore", StringComparison.Ordinal))
             {
-                for (int b = 0; b < 12; b++)
+                for (int b = 0; b < 40; b++)
                 {
                     last = runner.RunBucket(InterruptedWork);
+                    if (last.NotificationStatus.RestorePending)
+                    {
+                        break;
+                    }
                 }
 
                 Assert.True(last.NotificationStatus.RestorePending, $"Expected restore-pending before restart in case={caseName}.");
@@ -585,12 +589,20 @@ public sealed class Step20FinalAcceptanceGatesTests
 
     private static void ActivateDeepWork(DeterministicFinalizerScenarioRunner runner)
     {
+        EnsureDeepWorkInactive(runner);
+
         bool previousActive = false;
+        bool sawActivation = false;
         for (int i = 0; i < 320; i++)
         {
             FinalizerTickObservation observation = runner.RunBucket(FocusedWork);
             bool active = ReadDeepWorkActive(observation.LatestState?.StateFlagsJson);
             if (!previousActive && active)
+            {
+                sawActivation = true;
+            }
+
+            if (sawActivation && active && observation.NotificationStatus.Active)
             {
                 return;
             }
@@ -599,6 +611,20 @@ public sealed class Step20FinalAcceptanceGatesTests
         }
 
         throw new Xunit.Sdk.XunitException($"Deep work did not activate in deterministic search window (seed={runner.Seed}).");
+    }
+
+    private static void EnsureDeepWorkInactive(DeterministicFinalizerScenarioRunner runner)
+    {
+        for (int i = 0; i < 240; i++)
+        {
+            FinalizerTickObservation observation = runner.RunBucket(InterruptedWork);
+            if (!ReadDeepWorkActive(observation.LatestState?.StateFlagsJson)
+                && !observation.NotificationStatus.Active
+                && !observation.NotificationStatus.RestorePending)
+            {
+                return;
+            }
+        }
     }
 
     private static OverloadActivationOutcome ActivateOverload(DeterministicFinalizerScenarioRunner runner)

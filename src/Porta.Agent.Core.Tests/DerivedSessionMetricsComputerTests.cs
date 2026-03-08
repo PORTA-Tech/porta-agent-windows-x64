@@ -174,7 +174,7 @@ public sealed class DerivedSessionMetricsComputerTests
     }
 
     [Fact]
-    public void ComputeForFinalizedBucket_ContextChanged_DoesNotAccumulate()
+    public void ComputeForFinalizedBucket_ContextChanged_HoldsDuringGraceWindow()
     {
         using var connection = OpenInMemoryDb();
         using SqliteTransaction tx = connection.BeginTransaction();
@@ -198,9 +198,9 @@ public sealed class DerivedSessionMetricsComputerTests
             primitive,
             BaselineGatingResult.Warm);
 
-        Assert.Equal(0d, result.SustainedAttentionDurationSec, precision: 6);
-        Assert.Equal("context_changed", result.SaFreezeReason);
-        Assert.Equal("app_hash_work", result.DominantAppHash);
+        Assert.Equal(20d, result.SustainedAttentionDurationSec, precision: 6);
+        Assert.Equal("context_shift_hold", result.SaFreezeReason);
+        Assert.Equal("app_hash_other", result.DominantAppHash);
         Assert.False(result.SaUntrusted);
     }
 
@@ -219,7 +219,7 @@ public sealed class DerivedSessionMetricsComputerTests
 
         InputBucketRow row = BuildStableRow() with
         {
-            FocusAppEntropy = 2.10d
+            FocusAppEntropy = 2.60d
         };
         PrimitiveComputationResult primitive = BuildPrimitive(focusAvailable: true);
         DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
@@ -229,7 +229,7 @@ public sealed class DerivedSessionMetricsComputerTests
             primitive,
             BaselineGatingResult.Warm);
 
-        Assert.Equal(0d, result.SustainedAttentionDurationSec, precision: 6);
+        Assert.Equal(15d, result.SustainedAttentionDurationSec, precision: 6);
         Assert.Equal("entropy_spike", result.SaFreezeReason);
     }
 
@@ -248,7 +248,7 @@ public sealed class DerivedSessionMetricsComputerTests
 
         InputBucketRow row = BuildStableRow() with
         {
-            FocusSwitchCount = 3
+            FocusSwitchCount = 5
         };
         PrimitiveComputationResult primitive = BuildPrimitive(focusAvailable: true);
         DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
@@ -258,7 +258,7 @@ public sealed class DerivedSessionMetricsComputerTests
             primitive,
             BaselineGatingResult.Warm);
 
-        Assert.Equal(0d, result.SustainedAttentionDurationSec, precision: 6);
+        Assert.Equal(15d, result.SustainedAttentionDurationSec, precision: 6);
         Assert.Equal("focus_switch_spike", result.SaFreezeReason);
     }
 
@@ -277,7 +277,7 @@ public sealed class DerivedSessionMetricsComputerTests
 
         InputBucketRow row = BuildStableRow() with
         {
-            QualityScore = 0.6d
+            QualityScore = 0.55d
         };
         PrimitiveComputationResult primitive = BuildPrimitive(focusAvailable: true);
         DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
@@ -330,7 +330,7 @@ public sealed class DerivedSessionMetricsComputerTests
     }
 
     [Fact]
-    public void Acceptance_TrueBreakBucket_ResetsSustainedAttention()
+    public void Acceptance_LongBreakBucket_ResetsSustainedAttention()
     {
         using var connection = OpenInMemoryDb();
         using SqliteTransaction tx = connection.BeginTransaction();
@@ -345,7 +345,8 @@ public sealed class DerivedSessionMetricsComputerTests
         InputBucketRow row = BuildStableRow() with
         {
             TrueBreakFlag = 1,
-            TrueBreakSeconds = 130d
+            TrueBreakSeconds = 305d,
+            IdleSeconds = 305d
         };
         PrimitiveComputationResult primitive = BuildPrimitive(focusAvailable: true);
         DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
@@ -356,7 +357,7 @@ public sealed class DerivedSessionMetricsComputerTests
             BaselineGatingResult.Warm);
 
         Assert.Equal(0d, result.SustainedAttentionDurationSec, precision: 6);
-        Assert.Equal("true_break", result.SaFreezeReason);
+        Assert.Equal("long_break", result.SaFreezeReason);
     }
 
     [Fact]
@@ -485,6 +486,8 @@ public sealed class DerivedSessionMetricsComputerTests
             sa_context_app_hash = saContextAppHash,
             sa_last_update_bucket_seq = saLastUpdateBucketSeq,
             sa_freeze_reason = saFreezeReason,
+            sa_idle_pause_seconds = 0d,
+            sa_context_switch_seconds = 0d,
             sustained_attention_duration_sec = sustainedAttentionDurationSec,
             idle_fragmentation_index = idleFragmentationIndex,
             dominant_app_hash = saContextAppHash,

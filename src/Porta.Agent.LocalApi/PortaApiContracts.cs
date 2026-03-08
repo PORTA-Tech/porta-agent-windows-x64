@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Porta.Agent.Common.Contracts;
+using Porta.Agent.Core;
 
 namespace Porta.Agent.LocalApi;
 
@@ -61,7 +62,10 @@ public sealed record LocalApiStatusResponse(
     string VisualMode,
     string? LatestContributorsJson,
     string? LatestWhyJson,
-    DateTimeOffset LastUpdatedUtc)
+    DateTimeOffset LastUpdatedUtc,
+    string CalibrationStage = CalibrationTruth.StageCold,
+    bool SystemActionsEnabled = false,
+    string TrustTier = CalibrationTruth.TrustLow)
 {
     // Step 18 pinned snake_case aliases for operational truth consumers.
     public bool overload_active => OverloadActive;
@@ -70,6 +74,9 @@ public sealed record LocalApiStatusResponse(
     public bool brightness_adjusted => BrightnessAdjusted;
     public bool brightness_supported => BrightnessSupported;
     public bool db_migration_failed => DbMigrationFailed;
+    public string calibration_stage => CalibrationStage;
+    public bool system_actions_enabled => SystemActionsEnabled;
+    public string trust_tier => TrustTier;
     public string backend_instance_id => BackendInstanceId;
     public int backend_process_id => BackendProcessId;
     public string capture_context => CaptureContext;
@@ -154,6 +161,9 @@ public sealed record LocalApiCurrentSnapshotResponse(
     double? BaselineReadyPct = null,
     double? AvgQuality2m = null,
     bool? ColdStart = null,
+    string? CalibrationStage = null,
+    bool? SystemActionsEnabled = null,
+    string? TrustTier = null,
     double? CurrentQualityScore = null,
     bool? PartialData = null,
     IReadOnlyList<string>? MissingMajorChannels = null,
@@ -175,6 +185,9 @@ public sealed record LocalApiCurrentSnapshotResponse(
     public bool deep_work_active => DeepWorkActive;
     public bool notifications_suppressed => NotificationsSuppressed;
     public bool brightness_adjusted => BrightnessAdjusted;
+    public string? calibration_stage => CalibrationStage;
+    public bool? system_actions_enabled => SystemActionsEnabled;
+    public string? trust_tier => TrustTier;
     public double? F => FComponent;
     public double? I => IComponent;
     public double? V => VComponent;

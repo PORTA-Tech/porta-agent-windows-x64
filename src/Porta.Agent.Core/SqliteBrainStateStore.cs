@@ -755,6 +755,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             double? baselineReadyPct = null;
             double? avgQuality2m = null;
             bool? coldStart = null;
+            string? calibrationStage = null;
+            bool? systemActionsEnabled = null;
             double? currentQualityScore = null;
             bool? partialData = null;
             double? focusAppEntropy = null;
@@ -797,6 +799,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                             if (TryReadBoolProperty(baselineRoot, "cold_start", out bool coldStartParsed))
                             {
                                 coldStart = coldStartParsed;
+                            }
+
+                            if (TryReadStringProperty(baselineRoot, "calibration_stage", out string? calibrationStageParsed)
+                                && !string.IsNullOrWhiteSpace(calibrationStageParsed))
+                            {
+                                calibrationStage = CalibrationTruth.NormalizeStage(calibrationStageParsed);
+                            }
+
+                            if (TryReadBoolProperty(baselineRoot, "system_actions_enabled", out bool systemActionsEnabledParsed))
+                            {
+                                systemActionsEnabled = systemActionsEnabledParsed;
                             }
                         }
                         catch
@@ -893,10 +906,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 overloadActive = false;
             }
 
+            string effectiveCalibrationStage = CalibrationTruth.NormalizeStage(
+                calibrationStage ?? (baselineReady == true
+                    ? CalibrationTruth.StageCalibrated
+                    : (coldStart == true ? CalibrationTruth.StageCold : CalibrationTruth.StageProvisional)));
+            bool effectiveSystemActionsEnabled = systemActionsEnabled ?? CalibrationTruth.AllowsSystemActions(effectiveCalibrationStage);
+            double confidence = ReadDoubleOrFallback(reader, 2, 0d);
+
             return new AgentLatestStateDetails(
                 TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
                 OverloadLikelihood: ReadDoubleOrFallback(reader, 1, 0d),
-                Confidence: ReadDoubleOrFallback(reader, 2, 0d),
+                Confidence: confidence,
                 SustainedAttentionDurationSec: ReadDoubleOrFallback(reader, 3, 0d),
                 IdleFragmentationIndex: ReadDoubleOrFallback(reader, 4, 0d),
                 FocusAppEntropy: focusAppEntropy ?? 0d,
@@ -907,6 +927,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 BaselineReadyPct: baselineReadyPct,
                 AvgQuality2m: avgQuality2m,
                 ColdStart: coldStart,
+                CalibrationStage: effectiveCalibrationStage,
+                SystemActionsEnabled: effectiveSystemActionsEnabled,
+                TrustTier: CalibrationTruth.ResolveTrustTier(effectiveCalibrationStage, confidence),
                 CurrentQualityScore: currentQualityScore,
                 PartialData: partialData,
                 MissingMajorChannels: missingMajorChannels);
@@ -1840,6 +1863,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             sa_seconds = derivedSession.SustainedAttentionDurationSec,
             sa_context_app_hash = derivedSession.DominantAppHash,
             sa_last_update_bucket_seq = mapped.BucketSeq,
+            sa_idle_pause_seconds = derivedSession.SaIdlePauseSeconds,
+            sa_context_switch_seconds = derivedSession.SaContextSwitchSeconds,
             sa_freeze_reason = derivedSession.SaFreezeReason,
             sa_untrusted = derivedSession.SaUntrusted,
             sustained_attention_duration_sec = derivedSession.SustainedAttentionDurationSec,
@@ -2811,6 +2836,20 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return string.Empty;
     }
 
+    private static bool TryReadStringProperty(JsonElement root, string propertyName, out string? parsed)
+    {
+        parsed = null;
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty(propertyName, out JsonElement property)
+            || property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        parsed = property.GetString();
+        return true;
+    }
+
     private static bool TryReadDoubleProperty(JsonElement root, string propertyName, out double parsed)
     {
         parsed = 0d;
@@ -3043,11 +3082,16 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         _ = robust;
         string contributorsJson = BuildOverloadContributorsJson(snapshot.Contributors, overloadInference);
+        string trustTier = CalibrationTruth.ResolveTrustTier(gating.CalibrationStage, overloadInference.Confidence);
         string stateFlagsJson = BuildStateBucketStateFlagsJson(
             coldStart: gating.ColdStart,
             partial: mapped.Partial == 1 || derivedSession.Partial,
             saResetReason: derivedSession.SaFreezeReason,
             overloadInferenceSource: overloadInference.Source,
+            calibrationStage: gating.CalibrationStage,
+            trustTier: trustTier,
+            policiesEnabled: gating.PoliciesEnabled,
+            systemActionsEnabled: gating.SystemActionsEnabled,
             overloadActive: overloadStabilization.OverloadActive,
             lowQuality: overloadStabilization.LowQualityPaused,
             dwellOnMs: overloadStabilization.RuntimeState.OnDwellMs,
@@ -3195,6 +3239,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         bool partial,
         string saResetReason,
         string overloadInferenceSource,
+        string calibrationStage,
+        string trustTier,
+        bool policiesEnabled,
+        bool systemActionsEnabled,
         bool overloadActive,
         bool lowQuality,
         long dwellOnMs,
@@ -3231,6 +3279,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             partial = partial ? 1 : 0,
             sa_reset_reason = saResetReason ?? string.Empty,
             overload_inference_source = overloadInferenceSource ?? string.Empty,
+            calibration_stage = CalibrationTruth.NormalizeStage(calibrationStage),
+            trust_tier = string.IsNullOrWhiteSpace(trustTier) ? CalibrationTruth.TrustLow : trustTier.Trim().ToLowerInvariant(),
+            policies_enabled = policiesEnabled ? 1 : 0,
+            system_actions_enabled = systemActionsEnabled ? 1 : 0,
             overload_active = overloadActive,
             low_quality = lowQuality,
             dwell_on_ms = Math.Max(0, dwellOnMs),
@@ -3776,6 +3828,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             reasons = new
             {
                 baseline_ready = gating.BaselineReady,
+                suggestions_enabled = gating.PoliciesEnabled,
+                calibration_stage = gating.CalibrationStage,
                 overload_active = overloadStabilization.OverloadActive,
                 confidence = overloadInference.Confidence,
                 sustained_attention_s = derivedSession.SustainedAttentionDurationSec,

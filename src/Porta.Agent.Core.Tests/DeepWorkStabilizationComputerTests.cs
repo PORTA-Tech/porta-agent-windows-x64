@@ -116,14 +116,14 @@ public sealed class DeepWorkStabilizationComputerTests
             DeepWorkStartedAtUtcMs: 0);
 
         DeepWorkStabilizationResult result = DeepWorkStabilizationComputer.ComputeForFinalizedBucket(
-            BuildBucket(bucketSeq: 14),
+            BuildBucket(bucketSeq: 15),
             BuildInference(confidence: 0.80d, f: 0.90d, i: 0.55d, v: 0.90d),
             BuildDerivedSession(sustainedAttentionSeconds: 1200d),
             BaselineGatingResult.Warm,
             previous);
 
         Assert.True(result.GapExceeded);
-        Assert.Equal(20_000, result.GapMs);
+        Assert.Equal(25_000, result.GapMs);
         Assert.Equal(0, result.RuntimeState.OnDwellMs);
         Assert.Equal(0, result.RuntimeState.OffDwellMs);
     }
@@ -133,7 +133,7 @@ public sealed class DeepWorkStabilizationComputerTests
     {
         DeepWorkStabilizationResult result = DeepWorkStabilizationComputer.ComputeForFinalizedBucket(
             BuildBucket(bucketSeq: 1),
-            BuildInference(confidence: 0.80d, f: 0.20d, i: 0.30d, v: 0.20d),
+            BuildInference(confidence: 0.80d, f: 0.20d, i: 0.20d, v: 0.20d),
             BuildDerivedSession(sustainedAttentionSeconds: 1200d),
             BaselineGatingResult.Warm,
             default);
@@ -186,7 +186,7 @@ public sealed class DeepWorkStabilizationComputerTests
     }
 
     [Fact]
-    public void ComputeForFinalizedBucket_ActiveMode_DoesNotRefreshGapTimerFromCandidateSignal()
+    public void ComputeForFinalizedBucket_ActiveMode_RefreshesGapTimerFromCandidateSignal()
     {
         var state = new DeepWorkStabilizationRuntimeState(
             DeepWorkActive: true,
@@ -214,7 +214,7 @@ public sealed class DeepWorkStabilizationComputerTests
             BuildDerivedSession(sustainedAttentionSeconds: 1500d),
             BaselineGatingResult.Warm,
             b101.RuntimeState);
-        Assert.False(b102.GapExceeded); // exactly 10s is allowed
+        Assert.False(b102.GapExceeded);
         Assert.Equal(5_000, b102.RuntimeState.OffDwellMs);
 
         DeepWorkStabilizationResult b103 = DeepWorkStabilizationComputer.ComputeForFinalizedBucket(
@@ -223,8 +223,8 @@ public sealed class DeepWorkStabilizationComputerTests
             BuildDerivedSession(sustainedAttentionSeconds: 1500d),
             BaselineGatingResult.Warm,
             b102.RuntimeState);
-        Assert.True(b103.GapExceeded); // 15s > 10s, off dwell is reset
-        Assert.Equal(0, b103.RuntimeState.OffDwellMs);
+        Assert.False(b103.GapExceeded);
+        Assert.Equal(5_000, b103.RuntimeState.OffDwellMs);
     }
 
     [Fact]
@@ -375,6 +375,8 @@ public sealed class DeepWorkStabilizationComputerTests
             IdleFragmentationIndex: 0.05d,
             Partial: partial,
             DominantAppHash: "app",
+            SaIdlePauseSeconds: 0d,
+            SaContextSwitchSeconds: 0d,
             SaFreezeReason: string.Empty,
             SaUntrusted: false);
     }

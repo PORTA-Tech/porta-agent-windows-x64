@@ -4,16 +4,15 @@ internal static class SessionConstants
 {
     internal static class SustainedAttention
     {
-        // C3 pinned threshold: "focus switches low" when focus_switch_count <= 1 per bucket.
-        public const int FocusSwitchesLowMax = 1;
-        public const int FocusSwitchesSpikeMin = 3;
+        // Real desktop work often includes small navigation bursts and brief context peeks.
+        public const int FocusSwitchesLowMax = 2;
+        public const int FocusSwitchesSpikeMin = 5;
 
-        // C4 pinned thresholds (absolute entropy in v1).
-        public const double EntropyStableMax = 1.50;
-        public const double EntropySpikeMin = 2.00;
+        // Entropy thresholds are intentionally wider so short tab/window checks do not kill continuity.
+        public const double EntropyStableMax = 1.80;
+        public const double EntropySpikeMin = 2.50;
 
-        // C5 pinned threshold: quality is "decent" for SA increment fallback during cold start.
-        public const double QualityDecentMin = 0.70;
+        public const double QualityDecentMin = 0.60;
     }
 
     internal static class IdleFragmentation

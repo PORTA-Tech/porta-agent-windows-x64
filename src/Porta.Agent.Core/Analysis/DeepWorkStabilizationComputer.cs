@@ -55,7 +55,7 @@ internal static class DeepWorkStabilizationComputer
         long gapAllowMs = PortaExecutionConstants.DeepWorkDetection.GapAllowSeconds * 1000L;
         bool gapExceeded = gapMs > gapAllowMs;
 
-        bool baselineReadyGate = gating.BaselineReady;
+        bool baselineReadyGate = gating.SystemActionsEnabled;
         bool lowQualityPaused = quality < PortaExecutionConstants.OverloadStabilization.LowQualityPauseThreshold
             || bucket.Partial == 1
             || derivedSession.Partial;
@@ -82,6 +82,7 @@ internal static class DeepWorkStabilizationComputer
         string transition = string.Empty;
         bool transitioned = false;
         bool dwellAccumulated = false;
+        bool keepAlive = false;
 
         if (lowQualityPaused)
         {
@@ -142,6 +143,13 @@ internal static class DeepWorkStabilizationComputer
                     debugMode = "deactivated";
                 }
             }
+            else if (onSignal)
+            {
+                gapMs = 0;
+                gapExceeded = false;
+                keepAlive = true;
+                debugMode = "active_hold";
+            }
             else if (gapExceeded)
             {
                 onDwellMs = 0;
@@ -171,7 +179,7 @@ internal static class DeepWorkStabilizationComputer
             // Backfill if older runtime state did not carry a start timestamp.
             deepWorkStartedAtUtcMs = currentBucketEndUtcMs;
         }
-        long lastGoodTsMs = dwellAccumulated
+        long lastGoodTsMs = (dwellAccumulated || keepAlive)
             ? currentBucketEndUtcMs
             : previous.LastGoodTsMs;
         DeepWorkStabilizationRuntimeState nextState = new(

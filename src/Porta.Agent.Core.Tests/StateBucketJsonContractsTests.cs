@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Porta.Agent.Core;
 using Porta.Agent.Core.Analysis;
 
 namespace Porta.Agent.Core.Tests;
@@ -59,6 +60,10 @@ public sealed class StateBucketJsonContractsTests
             partial: true,
             saResetReason: "context_changed",
             overloadInferenceSource: "bucket_finalizer",
+            calibrationStage: CalibrationTruth.StageProvisional,
+            trustTier: CalibrationTruth.TrustMedium,
+            policiesEnabled: true,
+            systemActionsEnabled: false,
             overloadActive: true,
             lowQuality: true,
             dwellOnMs: 15000,
@@ -101,6 +106,10 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal(1, root.GetProperty("cold_start").GetInt32());
         Assert.Equal(1, root.GetProperty("partial").GetInt32());
         Assert.Equal("context_changed", root.GetProperty("sa_reset_reason").GetString());
+        Assert.Equal(CalibrationTruth.StageProvisional, root.GetProperty("calibration_stage").GetString());
+        Assert.Equal(CalibrationTruth.TrustMedium, root.GetProperty("trust_tier").GetString());
+        Assert.Equal(1, root.GetProperty("policies_enabled").GetInt32());
+        Assert.Equal(0, root.GetProperty("system_actions_enabled").GetInt32());
         Assert.True(root.GetProperty("overload_active").GetBoolean());
         Assert.True(root.GetProperty("low_quality").GetBoolean());
         Assert.Equal(15000, root.GetProperty("dwell_on_ms").GetInt64());
@@ -142,10 +151,10 @@ public sealed class StateBucketJsonContractsTests
             baseMs + 5_000);
         string onKeyB = SqliteBrainStateStore.BuildDeepWorkNotificationIdempotencyKey(
             "deep_work_notifications_suppressed",
-            baseMs + 90_000);
+            baseMs + 55_000);
         string offKey = SqliteBrainStateStore.BuildDeepWorkNotificationIdempotencyKey(
             "deep_work_notifications_restored",
-            baseMs + 60_000);
+            baseMs + 30_000);
 
         Assert.Equal(onKeyA, onKeyB);
         Assert.StartsWith("dw_notify_on:v1:", onKeyA);
@@ -162,10 +171,10 @@ public sealed class StateBucketJsonContractsTests
             baseMs + 5_000);
         string onKeyB = SqliteBrainStateStore.BuildOverloadBrightnessIdempotencyKey(
             "overload_brightness_reduced",
-            baseMs + 90_000);
+            baseMs + 55_000);
         string offKey = SqliteBrainStateStore.BuildOverloadBrightnessIdempotencyKey(
             "overload_brightness_restored",
-            baseMs + 60_000);
+            baseMs + 30_000);
 
         Assert.Equal(onKeyA, onKeyB);
         Assert.StartsWith("brightness_on:v1:", onKeyA);

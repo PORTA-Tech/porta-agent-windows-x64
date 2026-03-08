@@ -9,19 +9,33 @@ internal readonly record struct BaselineGatingResult(
     bool BaselineReady,
     bool ColdStart,
     double ConfidenceCap,
-    bool PoliciesEnabled)
+    bool PoliciesEnabled,
+    bool SystemActionsEnabled,
+    string CalibrationStage)
 {
     internal static BaselineGatingResult Warm => new(
         BaselineReady: true,
         ColdStart: false,
         ConfidenceCap: 1.0d,
-        PoliciesEnabled: true);
+        PoliciesEnabled: true,
+        SystemActionsEnabled: true,
+        CalibrationStage: CalibrationTruth.StageCalibrated);
+
+    internal static BaselineGatingResult Provisional => new(
+        BaselineReady: false,
+        ColdStart: false,
+        ConfidenceCap: PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCap,
+        PoliciesEnabled: true,
+        SystemActionsEnabled: false,
+        CalibrationStage: CalibrationTruth.StageProvisional);
 
     internal static BaselineGatingResult Cold => new(
         BaselineReady: false,
         ColdStart: true,
         ConfidenceCap: PortaExecutionConstants.BaselineReadiness.ColdStartConfidenceCap,
-        PoliciesEnabled: false);
+        PoliciesEnabled: false,
+        SystemActionsEnabled: false,
+        CalibrationStage: CalibrationTruth.StageCold);
 }
 
 internal readonly record struct MetricNormalizationValue(
@@ -72,24 +86,40 @@ internal static class BaselineManager
         }
 
         int readyMetricCount = CountReadyMetrics(connection, tx, PortaExecutionConstants.BaselineMinSamples);
+        int provisionalMetricCount = CountReadyMetrics(connection, tx, PortaExecutionConstants.BaselineReadiness.ProvisionalMetricMinSamples);
         int totalMetricCount = BaselineMetricRegistry.Metrics.Count;
         double baselineReadyPct = totalMetricCount <= 0 ? 0d : readyMetricCount / (double)totalMetricCount;
+        double provisionalReadyPct = totalMetricCount <= 0 ? 0d : provisionalMetricCount / (double)totalMetricCount;
         QualityWindowStats qualityWindow = ReadRecentQualityWindow(
             connection,
             tx,
             inputBucketRow.BucketSeq,
             PortaExecutionConstants.BaselineReadiness.RecentQualityBuckets);
+        QualityWindowStats provisionalQualityWindow = ReadRecentQualityWindow(
+            connection,
+            tx,
+            inputBucketRow.BucketSeq,
+            PortaExecutionConstants.BaselineReadiness.ProvisionalRecentQualityBuckets);
         bool hasFullQualityWindow = qualityWindow.BucketCount >= PortaExecutionConstants.BaselineReadiness.RecentQualityBuckets;
+        bool hasProvisionalQualityWindow = provisionalQualityWindow.BucketCount >= PortaExecutionConstants.BaselineReadiness.ProvisionalRecentQualityBuckets;
         bool baselineReady = baselineReadyPct >= PortaExecutionConstants.BaselineReadiness.ReadyCoverageThreshold
             && hasFullQualityWindow
             && qualityWindow.AverageQuality >= PortaExecutionConstants.BaselineReadiness.RecentQualityThreshold;
-        BaselineGatingResult gating = baselineReady ? BaselineGatingResult.Warm : BaselineGatingResult.Cold;
+        bool provisionalReady = provisionalReadyPct >= PortaExecutionConstants.BaselineReadiness.ProvisionalCoverageThreshold
+            && hasProvisionalQualityWindow
+            && provisionalQualityWindow.AverageQuality >= PortaExecutionConstants.BaselineReadiness.ProvisionalRecentQualityThreshold;
+        BaselineGatingResult gating = baselineReady
+            ? BaselineGatingResult.Warm
+            : (provisionalReady ? BaselineGatingResult.Provisional : BaselineGatingResult.Cold);
 
         UpsertRuntimeStateScalar(connection, tx, "baseline_ready", gating.BaselineReady, inputBucketRow.StartUtc);
         UpsertRuntimeStateScalar(connection, tx, "cold_start", gating.ColdStart, inputBucketRow.StartUtc);
         UpsertRuntimeStateScalar(connection, tx, "confidence_cap", gating.ConfidenceCap, inputBucketRow.StartUtc);
         UpsertRuntimeStateScalar(connection, tx, "policies_enabled", gating.PoliciesEnabled, inputBucketRow.StartUtc);
+        UpsertRuntimeStateScalar(connection, tx, "system_actions_enabled", gating.SystemActionsEnabled, inputBucketRow.StartUtc);
+        UpsertRuntimeStateScalar(connection, tx, "calibration_stage", gating.CalibrationStage, inputBucketRow.StartUtc);
         UpsertRuntimeStateScalar(connection, tx, "baseline_ready_pct", baselineReadyPct, inputBucketRow.StartUtc);
+        UpsertRuntimeStateScalar(connection, tx, "provisional_ready_pct", provisionalReadyPct, inputBucketRow.StartUtc);
         UpsertRuntimeStateScalar(connection, tx, "avg_quality_2m", qualityWindow.AverageQuality, inputBucketRow.StartUtc);
         UpsertRuntimeStateObject(
             connection,
@@ -102,13 +132,21 @@ internal static class BaselineManager
                 cold_start = gating.ColdStart,
                 confidence_cap = gating.ConfidenceCap,
                 policies_enabled = gating.PoliciesEnabled,
+                system_actions_enabled = gating.SystemActionsEnabled,
+                calibration_stage = gating.CalibrationStage,
                 baseline_ready_pct = baselineReadyPct,
+                provisional_ready_pct = provisionalReadyPct,
                 avg_quality_2m = qualityWindow.AverageQuality,
                 quality_window_bucket_count = qualityWindow.BucketCount,
                 quality_window_required_buckets = PortaExecutionConstants.BaselineReadiness.RecentQualityBuckets,
+                provisional_avg_quality = provisionalQualityWindow.AverageQuality,
+                provisional_quality_window_bucket_count = provisionalQualityWindow.BucketCount,
+                provisional_quality_window_required_buckets = PortaExecutionConstants.BaselineReadiness.ProvisionalRecentQualityBuckets,
                 metric_count_ready = readyMetricCount,
+                provisional_metric_count_ready = provisionalMetricCount,
                 metric_count_total = totalMetricCount,
                 baseline_min_samples = PortaExecutionConstants.BaselineMinSamples,
+                provisional_min_samples = PortaExecutionConstants.BaselineReadiness.ProvisionalMetricMinSamples,
                 metric_registry_ver = BaselineMetricRegistry.RegistryVersion,
                 std_convention = PortaExecutionConstants.BaselineUpdateGating.StdConvention,
                 std_epsilon = PortaExecutionConstants.BaselineUpdateGating.StdEpsilon,

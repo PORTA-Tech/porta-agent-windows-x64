@@ -41,6 +41,12 @@ internal sealed record PortaVisualState(
 
 internal static class VisualStateAdapter
 {
+    private const string CalibrationStageCold = "cold";
+    private const string CalibrationStageProvisional = "provisional";
+    private const string CalibrationStageCalibrated = "calibrated";
+    private const string TrustTierLow = "low";
+    private const string TrustTierMedium = "medium";
+    private const string TrustTierHigh = "high";
     private const string NotAvailableText = "Not available";
     private const string WaitingForServiceDataText = "Waiting for service data";
     private static readonly TimeSpan RecoveryBannerWindow = TimeSpan.FromSeconds(90);
@@ -127,7 +133,7 @@ internal static class VisualStateAdapter
             Mode: mode,
             Theme: theme,
             ModeLabel: ToModeLabel(mode),
-            TrustLabel: MapTrustLabel(snapshot.Confidence),
+            TrustLabel: ResolveTrustLabel(snapshot.TrustTier, snapshot.Confidence),
             FocusStreakText: $"Focused time: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}",
             FocusStatusText: focusStatus,
             OperatingSentence: operatingSentence,
@@ -172,9 +178,15 @@ internal static class VisualStateAdapter
             return "Overload regulation is active.";
         }
 
-        if (snapshot.BaselineReady == false)
+        string calibrationStage = NormalizeCalibrationStage(snapshot.CalibrationStage, snapshot.BaselineReady, snapshot.ColdStart);
+        if (string.Equals(calibrationStage, CalibrationStageCold, StringComparison.Ordinal))
         {
             return "Calibrating before suggesting actions.";
+        }
+
+        if (string.Equals(calibrationStage, CalibrationStageProvisional, StringComparison.Ordinal))
+        {
+            return "Calibration is progressing: suggestions are active while stronger actions stay gated.";
         }
 
         if (!string.IsNullOrWhiteSpace(fallbackExplanation))
@@ -430,14 +442,50 @@ internal static class VisualStateAdapter
         };
     }
 
+    private static string ResolveTrustLabel(string? trustTier, double confidence)
+    {
+        if (!string.IsNullOrWhiteSpace(trustTier))
+        {
+            return trustTier.Trim().ToLowerInvariant() switch
+            {
+                TrustTierHigh => "High",
+                TrustTierMedium => "Medium",
+                _ => "Low"
+            };
+        }
+
+        return MapTrustLabel(confidence);
+    }
+
+    private static string NormalizeCalibrationStage(string? calibrationStage, bool? baselineReady, bool? coldStart)
+    {
+        if (!string.IsNullOrWhiteSpace(calibrationStage))
+        {
+            string normalized = calibrationStage.Trim().ToLowerInvariant();
+            return normalized switch
+            {
+                CalibrationStageCalibrated => CalibrationStageCalibrated,
+                CalibrationStageProvisional => CalibrationStageProvisional,
+                _ => CalibrationStageCold
+            };
+        }
+
+        if (baselineReady == true)
+        {
+            return CalibrationStageCalibrated;
+        }
+
+        return coldStart == true ? CalibrationStageCold : CalibrationStageProvisional;
+    }
+
     private static string MapTrustLabel(double confidence)
     {
-        if (confidence >= 0.85d)
+        if (confidence >= 0.82d)
         {
             return "High";
         }
 
-        return confidence >= 0.65d ? "Medium" : "Low";
+        return confidence >= 0.55d ? "Medium" : "Low";
     }
 
     private static string FormatFocusedTime(double sustainedAttentionSeconds)

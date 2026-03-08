@@ -39,6 +39,12 @@ internal static class SnapshotMapper
         // with safe defaults and explicit cold-start semantics.
         bool baselineReady = latestState?.BaselineReady ?? false;
         bool coldStart = latestState?.ColdStart ?? !baselineReady;
+        string calibrationStage = CalibrationTruth.NormalizeStage(
+            latestState?.CalibrationStage ?? (baselineReady
+                ? CalibrationTruth.StageCalibrated
+                : (coldStart ? CalibrationTruth.StageCold : CalibrationTruth.StageProvisional)));
+        bool systemActionsEnabled = latestState?.SystemActionsEnabled ?? CalibrationTruth.AllowsSystemActions(calibrationStage);
+        string trustTier = latestState?.TrustTier ?? CalibrationTruth.ResolveTrustTier(calibrationStage, confidence);
 
         return new LocalApiCurrentSnapshotResponse(
             snapshot.TimestampUtc,
@@ -70,6 +76,9 @@ internal static class SnapshotMapper
             latestState?.BaselineReadyPct,
             latestState?.AvgQuality2m,
             coldStart,
+            calibrationStage,
+            systemActionsEnabled,
+            trustTier,
             latestState?.CurrentQualityScore,
             latestState?.PartialData,
             latestState?.MissingMajorChannels,

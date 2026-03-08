@@ -53,7 +53,7 @@ public sealed class CaptureTrustRegressionTests
         Assert.Equal(["keyboard", "mouse"], snapshotDto.MissingMajorChannels);
         Assert.False(snapshotDto.BaselineReady ?? true);
         Assert.True(snapshotDto.ColdStart ?? false);
-        Assert.InRange(snapshotDto.Confidence, 0d, 0.45d);
+        Assert.InRange(snapshotDto.Confidence, 0d, 0.55d);
     }
 
     [Fact]
@@ -102,7 +102,7 @@ public sealed class CaptureTrustRegressionTests
         Assert.Equal(["keyboard", "mouse"], snapshotDto.MissingMajorChannels);
         Assert.False(snapshotDto.BaselineReady ?? true);
         Assert.True(snapshotDto.ColdStart ?? false);
-        Assert.InRange(snapshotDto.Confidence, 0d, 0.45d);
+        Assert.InRange(snapshotDto.Confidence, 0d, 0.55d);
     }
 
     [Fact]

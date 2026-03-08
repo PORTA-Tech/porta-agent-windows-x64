@@ -173,6 +173,10 @@ public sealed class AgentCoreController : IAgentCoreController
             string? effectiveLastError = ResolveEffectiveLastError(_lastError, _latestSnapshot.StateFlagsJson);
             bool baselineReady = latestState?.BaselineReady ?? false;
             bool coldStart = latestState?.ColdStart ?? false;
+            string calibrationStage = latestState?.CalibrationStage
+                ?? (baselineReady ? CalibrationTruth.StageCalibrated : (coldStart ? CalibrationTruth.StageCold : CalibrationTruth.StageProvisional));
+            bool systemActionsEnabled = latestState?.SystemActionsEnabled ?? CalibrationTruth.AllowsSystemActions(calibrationStage);
+            string trustTier = latestState?.TrustTier ?? CalibrationTruth.ResolveTrustTier(calibrationStage, latestState?.Confidence ?? _latestSnapshot.Confidence);
             bool dbMigrationFailedFromStore = _stateStore.ReadDbMigrationFailed();
             bool dbMigrationFailed = IsDbMigrationFailure(effectiveLastError);
             dbMigrationFailed = dbMigrationFailed || dbMigrationFailedFromStore;
@@ -243,6 +247,9 @@ public sealed class AgentCoreController : IAgentCoreController
                 DbMigrationFailed: dbMigrationFailed,
                 BaselineReady: baselineReady,
                 ColdStart: coldStart,
+                CalibrationStage: calibrationStage,
+                SystemActionsEnabled: systemActionsEnabled,
+                TrustTier: trustTier,
                 OverloadActive: overloadActive,
                 DeepWorkActive: deepWorkActive,
                 DeepWorkStreakSeconds: deepWorkStreakSeconds,

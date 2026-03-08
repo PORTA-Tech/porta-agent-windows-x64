@@ -20,6 +20,15 @@ public partial class MainWindow : Window
     private const string AgentServiceName = "AriAgent";
     private const string NotAvailableText = "Not available";
     private const string WaitingForServiceDataText = "Waiting for service data";
+    private const string CalibrationStageCold = "cold";
+    private const string CalibrationStageProvisional = "provisional";
+    private const string CalibrationStageCalibrated = "calibrated";
+    private const string TrustTierLow = "low";
+    private const string TrustTierMedium = "medium";
+    private const string TrustTierHigh = "high";
+    private const double UiCalibrationQualityFloor = 0.55d;
+    private const double UiDecisionOverloadThreshold = 0.72d;
+    private const double UiBreakFocusThresholdSeconds = 1800d;
     private static readonly TimeSpan SlowRefreshInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ManualRefreshThrottle = TimeSpan.FromMilliseconds(700);
     private static readonly TimeSpan StatusFreshnessWindow = TimeSpan.FromSeconds(12);
@@ -800,10 +809,10 @@ public partial class MainWindow : Window
             NowOverloadTopReasonsText.Text = $"Top reasons: {visualState.WhySummary}";
             NowOverloadQualityAgreementText.Text = $"Quality: {NotAvailableText} | Agreement: {NotAvailableText}";
 
-            NowCalibrationStatusText.Text = "Calibrating...";
+            NowCalibrationStatusText.Text = "Bootstrapping";
             NowCalibrationProgressText.Text = $"Progress: {NotAvailableText}";
             NowCalibrationQualityText.Text = $"Recent data quality: {NotAvailableText} (last 2 min)";
-            NowCalibrationColdStartText.Text = $"Cold start: {NotAvailableText}";
+            NowCalibrationColdStartText.Text = $"Stage: {NotAvailableText}";
             NowCalibrationTrustCapText.Visibility = Visibility.Visible;
 
             NowDataQualityScoreText.Text = $"Quality score: {NotAvailableText}";
@@ -851,7 +860,7 @@ public partial class MainWindow : Window
         }
         // Source: GET /v1/snapshot/current -> idle_fragmentation_index
         NowFocusChoppinessText.Text = $"Choppiness: {MapChoppiness(snapshot.IdleFragmentationIndex)} ({snapshot.IdleFragmentationIndex:F2})";
-        NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
+        NowFocusFootnoteText.Text = "Short pauses and quick app checks do not break the streak.";
         string focusStatus = visualState.FocusStatusText;
         NowFocusStatusText.Text = focusStatus;
         NowFocusStatusText.Visibility = string.IsNullOrWhiteSpace(focusStatus)
@@ -865,8 +874,9 @@ public partial class MainWindow : Window
         NowOverloadQualityAgreementText.Text = $"Quality: {explain.Quality} | Agreement: {explain.Agreement}";
 
         // Source: GET /v1/snapshot/current -> baseline_ready
-        bool calibrationReady = snapshot.BaselineReady == true;
-        NowCalibrationStatusText.Text = calibrationReady ? "Ready" : "Calibrating...";
+        string calibrationStage = NormalizeCalibrationStage(snapshot.CalibrationStage, snapshot.BaselineReady, snapshot.ColdStart);
+        bool calibrationReady = string.Equals(calibrationStage, CalibrationStageCalibrated, StringComparison.Ordinal);
+        NowCalibrationStatusText.Text = ToCalibrationStageLabel(calibrationStage);
         // Source: GET /v1/snapshot/current -> baseline_ready_pct
         NowCalibrationProgressText.Text = snapshot.BaselineReadyPct.HasValue
             ? $"Progress: {(snapshot.BaselineReadyPct.Value * 100d):F0}% metrics ready"
@@ -876,7 +886,10 @@ public partial class MainWindow : Window
             ? $"Recent data quality: {snapshot.AvgQuality2m.Value:F2} (last 2 min)"
             : $"Recent data quality: {NotAvailableText} (last 2 min)";
         // Source: GET /v1/snapshot/current -> cold_start
-        NowCalibrationColdStartText.Text = $"Cold start: {MapOnOff(snapshot.ColdStart)}";
+        NowCalibrationColdStartText.Text = $"Stage: {ToCalibrationStageLabel(calibrationStage)} | Cold start: {MapOnOff(snapshot.ColdStart)}";
+        NowCalibrationTrustCapText.Text = string.Equals(calibrationStage, CalibrationStageProvisional, StringComparison.Ordinal)
+            ? "Suggestions are active while stronger system actions remain gated."
+            : "Trust is capped until enough baseline data accumulates.";
         NowCalibrationTrustCapText.Visibility = calibrationReady ? Visibility.Collapsed : Visibility.Visible;
 
         // Source: GET /v1/snapshot/current -> current_quality_score
@@ -1628,12 +1641,18 @@ public partial class MainWindow : Window
             return "Watching only (no actions enabled)";
         }
 
-        if (snapshot.BaselineReady == false)
+        string calibrationStage = NormalizeCalibrationStage(snapshot.CalibrationStage, snapshot.BaselineReady, snapshot.ColdStart);
+        if (string.Equals(calibrationStage, CalibrationStageCold, StringComparison.Ordinal))
         {
             return "Calibrating before suggesting actions.";
         }
 
-        return "Ready to suggest breaks when needed";
+        if (string.Equals(calibrationStage, CalibrationStageProvisional, StringComparison.Ordinal))
+        {
+            return "Suggestions are active while calibration continues.";
+        }
+
+        return "Ready to regulate in real time.";
     }
 
     private void UpdateCaptureHealthCards(LocalApiStatusResponse? status, bool statusFresh)
@@ -3403,14 +3422,16 @@ public partial class MainWindow : Window
             : $"What can block it: {string.Join(" / ", signalBlockers)}.";
         SignalsCurrentText.Text = $"Current status: keyboard {ChannelAvailabilityLabel(missingChannels, "keyboard")}, mouse {ChannelAvailabilityLabel(missingChannels, "mouse")}, focus {ChannelAvailabilityLabel(missingChannels, "focus")}, idle {ChannelAvailabilityLabel(missingChannels, "idle")}.";
 
-        bool baselineReady = snapshot.BaselineReady == true;
+        string calibrationStage = NormalizeCalibrationStage(snapshot.CalibrationStage, snapshot.BaselineReady, snapshot.ColdStart);
+        bool baselineReady = string.Equals(calibrationStage, CalibrationStageCalibrated, StringComparison.Ordinal);
+        bool provisional = string.Equals(calibrationStage, CalibrationStageProvisional, StringComparison.Ordinal);
         bool coldStart = snapshot.ColdStart == true;
         bool overloadActive = snapshot.OverloadActive;
         double quality = snapshot.CurrentQualityScore ?? 0d;
         var calibrationBlockers = new List<string>();
         if (!baselineReady)
         {
-            if (quality > 0d && quality < 0.65d)
+            if (quality > 0d && quality < UiCalibrationQualityFloor)
             {
                 calibrationBlockers.Add("low quality");
             }
@@ -3425,32 +3446,34 @@ public partial class MainWindow : Window
                 calibrationBlockers.Add("partial buckets");
             }
 
-            if (coldStart)
+            if (coldStart && !provisional)
             {
                 calibrationBlockers.Add("cold start");
             }
 
             if (calibrationBlockers.Count == 0)
             {
-                calibrationBlockers.Add("collecting enough baseline data");
+                calibrationBlockers.Add(provisional ? "finishing full calibration" : "collecting enough baseline data");
             }
         }
 
         FlowStepState calibrationState = baselineReady
             ? FlowStepState.Ready
-            : FlowStepState.Warning;
+            : provisional
+                ? FlowStepState.Warning
+                : FlowStepState.Blocked;
         SetFlowStepState(
             CalibrationStatusPill,
             CalibrationStatusText,
             calibrationState,
-            baselineReady ? "Ready" : "Calibrating");
+            ToCalibrationStageLabel(calibrationStage));
         CalibrationBlockersText.Text = calibrationBlockers.Count == 0
             ? "What can block it: none detected."
             : $"What can block it: {string.Join(" / ", calibrationBlockers)}.";
         string baselinePctText = snapshot.BaselineReadyPct.HasValue
             ? $"{Math.Clamp(snapshot.BaselineReadyPct.Value * 100d, 0d, 100d):F0}% metrics ready"
             : "progress unavailable";
-        CalibrationCurrentText.Text = $"Current status: {(baselineReady ? "baseline ready" : "calibrating")} ({baselinePctText}), quality {(snapshot.CurrentQualityScore?.ToString("F2", CultureInfo.InvariantCulture) ?? NotAvailableText)}, cold start {(coldStart ? "on" : "off")}.";
+        CalibrationCurrentText.Text = $"Current status: {ToCalibrationStageSentence(calibrationStage)} ({baselinePctText}), quality {(snapshot.CurrentQualityScore?.ToString("F2", CultureInfo.InvariantCulture) ?? NotAvailableText)}, cold start {(coldStart ? "on" : "off")}.";
 
         bool smoothingHasValues =
             snapshot.SmoothedTypingBurstIntensity > 0d
@@ -3481,10 +3504,18 @@ public partial class MainWindow : Window
         SmoothingCurrentText.Text = $"Current status: smoothed keyboard {snapshot.SmoothedTypingBurstIntensity:F2}, smoothed mouse {snapshot.SmoothedScrollVelocityIndex:F2}, smoothed switches {snapshot.SmoothedFocusSwitchRate:F2}.";
 
         double trust = Math.Clamp(snapshot.Confidence, 0d, 1d);
+        string trustTier = NormalizeTrustTier(snapshot.TrustTier, snapshot.Confidence);
         double overload = Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d);
         double focusedMinutes = Math.Max(0d, snapshot.SustainedAttentionDurationSec / 60d);
+        bool suggestionsEnabled = !string.Equals(calibrationStage, CalibrationStageCold, StringComparison.Ordinal);
+        bool systemActionsEnabled = snapshot.SystemActionsEnabled == true || string.Equals(calibrationStage, CalibrationStageCalibrated, StringComparison.Ordinal);
         var decisionBlockers = new List<string>();
-        if (trust < 0.60d)
+        if (!suggestionsEnabled)
+        {
+            decisionBlockers.Add("still calibrating");
+        }
+
+        if (string.Equals(trustTier, TrustTierLow, StringComparison.Ordinal))
         {
             decisionBlockers.Add("low trust");
         }
@@ -3494,14 +3525,14 @@ public partial class MainWindow : Window
             decisionBlockers.Add("cooldown active");
         }
 
-        if (snapshot.SustainedAttentionDurationSec < 600d)
+        if (snapshot.SustainedAttentionDurationSec < UiBreakFocusThresholdSeconds)
         {
-            decisionBlockers.Add("not enough focus streak");
+            decisionBlockers.Add("building task continuity");
         }
 
-        if (overload < 0.80d)
+        if (!snapshot.OverloadActive && overload < UiDecisionOverloadThreshold)
         {
-            decisionBlockers.Add("overload below action threshold");
+            decisionBlockers.Add("overload not sustained");
         }
 
         FlowStepState decisionsState = decisionBlockers.Count == 0
@@ -3509,14 +3540,16 @@ public partial class MainWindow : Window
             : FlowStepState.Warning;
         string decisionLabel = decisionsState == FlowStepState.Ready
             ? "Ready"
-            : snapshot.OverloadActive
+            : systemActionsEnabled
                 ? "Monitoring"
-                : "Holding";
+                : suggestionsEnabled
+                    ? "Suggestions only"
+                    : "Calibrating";
         SetFlowStepState(DecisionsStatusPill, DecisionsStatusText, decisionsState, decisionLabel);
         DecisionsBlockersText.Text = decisionBlockers.Count == 0
             ? "What can block it: none detected."
             : $"What can block it: {string.Join(" / ", decisionBlockers)}.";
-        DecisionsCurrentText.Text = $"Current status: overload {(overload * 100d):F0}%, trust {(trust * 100d):F0}%, focus streak {focusedMinutes:F0} min, overload active {(snapshot.OverloadActive ? "yes" : "no")}.";
+        DecisionsCurrentText.Text = $"Current status: overload {(overload * 100d):F0}%, trust {ToTrustLabel(trustTier)} ({(trust * 100d):F0}%), focus streak {focusedMinutes:F0} min, suggestions {(suggestionsEnabled ? "enabled" : "gated")}, system actions {(systemActionsEnabled ? "enabled" : "gated")}.";
     }
 
     private static string ChannelAvailabilityLabel(IReadOnlyList<string> missingChannels, string channel)
@@ -4061,10 +4094,12 @@ public partial class MainWindow : Window
         ConsentBadgeText.Text = $"Consent: {(consentOn ? "On" : "Needed")}";
         SetBadgeVisual(ConsentBadgeBorder, isPositive: consentOn);
 
-        bool calibrationReady = nowTruth.Snapshot?.BaselineReady
-            ?? (status != null && (_effectiveSettings?.BaselineRecalibrationActive != true));
-        CalibrationBadgeText.Text = $"Calibration: {(calibrationReady ? "Ready" : "Calibrating")}";
-        SetBadgeVisual(CalibrationBadgeBorder, isPositive: calibrationReady);
+        string calibrationStage = NormalizeCalibrationStage(
+            nowTruth.Snapshot?.CalibrationStage ?? status?.CalibrationStage,
+            nowTruth.Snapshot?.BaselineReady,
+            nowTruth.Snapshot?.ColdStart);
+        CalibrationBadgeText.Text = $"Calibration: {ToCalibrationStageLabel(calibrationStage)}";
+        SetCalibrationBadgeVisual(calibrationStage);
 
         string trustLabel = visualState.TrustLabel;
         TrustBadgeText.Text = $"Trust: {trustLabel}";
@@ -4136,19 +4171,89 @@ public partial class MainWindow : Window
         };
     }
 
-    private static string MapTrustLabel(double? confidence)
+    private void SetCalibrationBadgeVisual(string calibrationStage)
     {
+        CalibrationBadgeBorder.Background = calibrationStage switch
+        {
+            CalibrationStageCalibrated => new SolidColorBrush(Color.FromRgb(6, 95, 70)),
+            CalibrationStageProvisional => new SolidColorBrush(Color.FromRgb(146, 64, 14)),
+            _ => new SolidColorBrush(Color.FromRgb(51, 65, 85))
+        };
+    }
+
+    private static string NormalizeCalibrationStage(string? calibrationStage, bool? baselineReady, bool? coldStart)
+    {
+        if (!string.IsNullOrWhiteSpace(calibrationStage))
+        {
+            return calibrationStage.Trim().ToLowerInvariant() switch
+            {
+                CalibrationStageCalibrated => CalibrationStageCalibrated,
+                CalibrationStageProvisional => CalibrationStageProvisional,
+                _ => CalibrationStageCold
+            };
+        }
+
+        if (baselineReady == true)
+        {
+            return CalibrationStageCalibrated;
+        }
+
+        return coldStart == true ? CalibrationStageCold : CalibrationStageProvisional;
+    }
+
+    private static string NormalizeTrustTier(string? trustTier, double? confidence)
+    {
+        if (!string.IsNullOrWhiteSpace(trustTier))
+        {
+            return trustTier.Trim().ToLowerInvariant() switch
+            {
+                TrustTierHigh => TrustTierHigh,
+                TrustTierMedium => TrustTierMedium,
+                _ => TrustTierLow
+            };
+        }
+
         if (!confidence.HasValue)
         {
-            return NotAvailableText;
+            return TrustTierLow;
         }
 
-        if (confidence.Value >= 0.85d)
+        if (confidence.Value >= 0.82d)
         {
-            return "High";
+            return TrustTierHigh;
         }
 
-        return confidence.Value >= 0.65d ? "Medium" : "Low";
+        return confidence.Value >= 0.55d ? TrustTierMedium : TrustTierLow;
+    }
+
+    private static string ToTrustLabel(string trustTier)
+    {
+        return NormalizeTrustTier(trustTier, null) switch
+        {
+            TrustTierHigh => "High",
+            TrustTierMedium => "Medium",
+            _ => "Low"
+        };
+    }
+
+    private static string ToCalibrationStageLabel(string calibrationStage)
+    {
+        return NormalizeCalibrationStage(calibrationStage, null, null) switch
+        {
+            CalibrationStageCalibrated => "Ready",
+            CalibrationStageProvisional => "Provisional",
+            _ => "Bootstrapping"
+        };
+    }
+
+    private static string ToCalibrationStageSentence(string calibrationStage)
+    {
+        return NormalizeCalibrationStage(calibrationStage, null, null) switch
+        {
+            CalibrationStageCalibrated => "fully calibrated",
+            CalibrationStageProvisional => "provisional calibration",
+            _ => "bootstrapping calibration"
+        };
     }
 
     private static string? BuildTopBarHint(

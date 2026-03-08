@@ -23,15 +23,15 @@ internal static class BreakSuggestionPolicy
         Func<BreakPolicyCooldownSnapshot> resolveCooldown)
     {
         // Step 13B preconditions in pinned order:
-        // 1) baseline_ready
+        // 1) suggestion policy enabled
         // 2) overload_active
-        // 3) confidence >= 0.60
-        // 4) sustained_attention >= 3600s
+        // 3) confidence >= threshold
+        // 4) sustained_attention >= threshold
         // 5) cooldown_expired
         // Cooldown lookup is deferred so failing early preconditions do not cause extra DB reads.
-        if (!gating.BaselineReady)
+        if (!gating.PoliciesEnabled)
         {
-            return Fail("baseline_not_ready");
+            return Fail("suggestions_not_enabled");
         }
 
         if (!overloadStabilization.OverloadActive)

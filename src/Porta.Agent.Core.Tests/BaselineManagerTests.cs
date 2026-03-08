@@ -25,11 +25,11 @@ public sealed class BaselineManagerTests
         Assert.Equal(1, ReadInt(connection, "SELECT sample_count FROM baseline_stats WHERE metric_key='keyboard_iki_mean';"));
         Assert.False(gating.BaselineReady);
         Assert.True(gating.ColdStart);
-        Assert.Equal(0.45d, gating.ConfidenceCap, precision: 6);
+        Assert.Equal(0.55d, gating.ConfidenceCap, precision: 6);
         Assert.False(gating.PoliciesEnabled);
         Assert.False(ReadRuntimeStateBool(connection, "baseline_ready"));
         Assert.True(ReadRuntimeStateBool(connection, "cold_start"));
-        Assert.Equal(0.45d, ReadRuntimeStateDouble(connection, "confidence_cap"), precision: 6);
+        Assert.Equal(0.55d, ReadRuntimeStateDouble(connection, "confidence_cap"), precision: 6);
         Assert.False(ReadRuntimeStateBool(connection, "policies_enabled"));
     }
 
@@ -252,7 +252,7 @@ public sealed class BaselineManagerTests
 
         Assert.False(gating.BaselineReady);
         Assert.True(gating.ColdStart);
-        Assert.Equal(0.45d, gating.ConfidenceCap, precision: 6);
+        Assert.Equal(0.55d, gating.ConfidenceCap, precision: 6);
         Assert.False(gating.PoliciesEnabled);
         Assert.False(ReadRuntimeStateBool(connection, "baseline_ready"));
         Assert.True(ReadRuntimeStateBool(connection, "cold_start"));

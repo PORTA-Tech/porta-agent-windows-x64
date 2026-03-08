@@ -10,6 +10,8 @@ internal readonly record struct DerivedSessionMetricsResult(
     double IdleFragmentationIndex,
     bool Partial,
     string DominantAppHash,
+    double SaIdlePauseSeconds,
+    double SaContextSwitchSeconds,
     string SaFreezeReason,
     bool SaUntrusted);
 
@@ -33,36 +35,29 @@ internal static class DerivedSessionMetricsComputer
         double sustainedAttention;
         string contextAppHash;
         string freezeReason;
+        double idlePauseSeconds;
+        double contextSwitchSeconds;
         if (missingData)
         {
             // Step 10B contract: partial/missing data decays instead of hard reset.
             sustainedAttention = ClampNonNegativeFinite(
                 previous.SustainedAttentionDurationSec * SessionConstants.IdleFragmentation.MissingDecay);
             contextAppHash = previous.SaContextAppHash;
+            idlePauseSeconds = previous.SaIdlePauseSeconds;
+            contextSwitchSeconds = previous.SaContextSwitchSeconds;
             freezeReason = "partial_or_missing";
         }
         else
         {
-            contextAppHash = bucket.DominantAppHash;
             SustainedAttentionDecision decision = EvaluateSustainedAttentionGate(
                 bucket,
                 gating,
-                previous.SaContextAppHash);
-            if (decision.Accumulate)
-            {
-                sustainedAttention = previous.SustainedAttentionDurationSec + Time.bucketSeconds;
-                freezeReason = string.Empty;
-            }
-            else if (decision.Reset)
-            {
-                sustainedAttention = 0d;
-                freezeReason = decision.FreezeReason;
-            }
-            else
-            {
-                sustainedAttention = previous.SustainedAttentionDurationSec;
-                freezeReason = decision.FreezeReason;
-            }
+                previous);
+            sustainedAttention = decision.SustainedAttentionDurationSec;
+            contextAppHash = decision.ContextAppHash;
+            idlePauseSeconds = decision.IdlePauseSeconds;
+            contextSwitchSeconds = decision.ContextSwitchSeconds;
+            freezeReason = decision.FreezeReason;
         }
 
         double idleFragmentation = ComputeIdleFragmentationIndex(bucket, previous.IdleFragmentationIndex, idleChannelMissing);
@@ -71,6 +66,8 @@ internal static class DerivedSessionMetricsComputer
             IdleFragmentationIndex: Clamp01(idleFragmentation),
             Partial: missingData || idleChannelMissing,
             DominantAppHash: contextAppHash,
+            SaIdlePauseSeconds: ClampNonNegativeFinite(idlePauseSeconds),
+            SaContextSwitchSeconds: ClampNonNegativeFinite(contextSwitchSeconds),
             SaFreezeReason: freezeReason,
             SaUntrusted: saUntrusted);
     }
@@ -93,52 +90,187 @@ internal static class DerivedSessionMetricsComputer
     private static SustainedAttentionDecision EvaluateSustainedAttentionGate(
         InputBucketRow bucket,
         BaselineGatingResult gating,
-        string previousContextAppHash)
+        DerivedSessionRuntimeState previous)
     {
-        if (bucket.TrueBreakFlag == 1 || bucket.TrueBreakSeconds > 0d)
+        double previousSustained = ClampNonNegativeFinite(previous.SustainedAttentionDurationSec);
+        string currentContextAppHash = string.IsNullOrWhiteSpace(bucket.DominantAppHash)
+            ? previous.SaContextAppHash
+            : bucket.DominantAppHash;
+        double idlePauseSeconds = ResolveIdlePauseSeconds(previous, bucket);
+        bool contextChanged = !string.IsNullOrWhiteSpace(previous.SaContextAppHash)
+            && !string.IsNullOrWhiteSpace(bucket.DominantAppHash)
+            && !string.Equals(previous.SaContextAppHash, bucket.DominantAppHash, StringComparison.Ordinal);
+        double contextSwitchSeconds = contextChanged
+            ? ClampNonNegativeFinite(previous.SaContextSwitchSeconds + Time.bucketSeconds)
+            : 0d;
+
+        if (bucket.TrueBreakSeconds >= PortaExecutionConstants.DerivedSessionMetrics.IdleResetSeconds
+            || idlePauseSeconds >= PortaExecutionConstants.DerivedSessionMetrics.IdleResetSeconds)
         {
-            return new SustainedAttentionDecision(Accumulate: false, Reset: true, FreezeReason: "true_break");
+            return Reset(currentContextAppHash, idlePauseSeconds, 0d, "long_break");
         }
 
         if (bucket.FocusSwitchCount >= SessionConstants.SustainedAttention.FocusSwitchesSpikeMin)
         {
-            return new SustainedAttentionDecision(Accumulate: false, Reset: true, FreezeReason: "focus_switch_spike");
+            return contextSwitchSeconds >= PortaExecutionConstants.DerivedSessionMetrics.ContextShiftResetSeconds
+                ? Reset(currentContextAppHash, idlePauseSeconds, 0d, "focus_switch_spike")
+                : Decay(
+                    previousSustained,
+                    Time.bucketSeconds,
+                    previous.SaContextAppHash,
+                    idlePauseSeconds,
+                    contextSwitchSeconds,
+                    "focus_switch_spike");
         }
 
         if (bucket.FocusAppEntropy >= SessionConstants.SustainedAttention.EntropySpikeMin)
         {
-            return new SustainedAttentionDecision(Accumulate: false, Reset: true, FreezeReason: "entropy_spike");
+            return contextSwitchSeconds >= PortaExecutionConstants.DerivedSessionMetrics.ContextShiftResetSeconds
+                ? Reset(currentContextAppHash, idlePauseSeconds, 0d, "entropy_spike")
+                : Decay(
+                    previousSustained,
+                    Time.bucketSeconds,
+                    previous.SaContextAppHash,
+                    idlePauseSeconds,
+                    contextSwitchSeconds,
+                    "entropy_spike");
         }
 
-        if (!string.IsNullOrWhiteSpace(previousContextAppHash)
-            && !string.Equals(previousContextAppHash, bucket.DominantAppHash, StringComparison.Ordinal))
+        if (contextChanged)
         {
-            // Step 10C context-stable contract: strict dominant app hash equality.
-            return new SustainedAttentionDecision(Accumulate: false, Reset: true, FreezeReason: "context_changed");
+            if (contextSwitchSeconds <= PortaExecutionConstants.DerivedSessionMetrics.ContextShiftGraceSeconds)
+            {
+                return Hold(
+                    previousSustained,
+                    previous.SaContextAppHash,
+                    idlePauseSeconds,
+                    contextSwitchSeconds,
+                    "context_shift_hold");
+            }
+
+            if (contextSwitchSeconds >= PortaExecutionConstants.DerivedSessionMetrics.ContextShiftResetSeconds)
+            {
+                return Reset(currentContextAppHash, idlePauseSeconds, 0d, "context_changed");
+            }
+
+            return Decay(
+                previousSustained,
+                PortaExecutionConstants.DerivedSessionMetrics.ContextShiftDecayPerBucketSeconds,
+                previous.SaContextAppHash,
+                idlePauseSeconds,
+                contextSwitchSeconds,
+                "context_shift_decay");
         }
 
         bool qualityDecent = bucket.QualityScore >= SessionConstants.SustainedAttention.QualityDecentMin;
         if (!gating.PoliciesEnabled && !qualityDecent)
         {
-            return new SustainedAttentionDecision(Accumulate: false, Reset: false, FreezeReason: "quality_low");
+            return Hold(previousSustained, currentContextAppHash, idlePauseSeconds, 0d, "quality_low");
+        }
+
+        if (idlePauseSeconds > PortaExecutionConstants.DerivedSessionMetrics.IdleDecayMaxSeconds)
+        {
+            return Decay(
+                previousSustained,
+                Time.bucketSeconds,
+                currentContextAppHash,
+                idlePauseSeconds,
+                0d,
+                "extended_pause");
+        }
+
+        if (idlePauseSeconds > PortaExecutionConstants.DerivedSessionMetrics.IdlePauseMaxSeconds)
+        {
+            return Decay(
+                previousSustained,
+                PortaExecutionConstants.DerivedSessionMetrics.IdleDecayPerBucketSeconds,
+                currentContextAppHash,
+                idlePauseSeconds,
+                0d,
+                "pause_decay");
+        }
+
+        if (idlePauseSeconds > PortaExecutionConstants.DerivedSessionMetrics.IdleAccumulateMaxSeconds)
+        {
+            return Hold(previousSustained, currentContextAppHash, idlePauseSeconds, 0d, "short_pause");
         }
 
         if (bucket.FocusSwitchCount > SessionConstants.SustainedAttention.FocusSwitchesLowMax)
         {
-            return new SustainedAttentionDecision(Accumulate: false, Reset: false, FreezeReason: "focus_switch_not_low");
+            return Hold(previousSustained, currentContextAppHash, idlePauseSeconds, 0d, "focus_switch_not_low");
         }
 
         if (bucket.FocusAppEntropy > SessionConstants.SustainedAttention.EntropyStableMax)
         {
-            return new SustainedAttentionDecision(Accumulate: false, Reset: false, FreezeReason: "entropy_unstable");
+            return Hold(previousSustained, currentContextAppHash, idlePauseSeconds, 0d, "entropy_unstable");
         }
 
         if (bucket.IdleSeconds > PortaExecutionConstants.DerivedSessionMetrics.IdleSecondsStableMax)
         {
-            return new SustainedAttentionDecision(Accumulate: false, Reset: false, FreezeReason: "idle_unstable");
+            return Hold(previousSustained, currentContextAppHash, idlePauseSeconds, 0d, "idle_unstable");
         }
 
-        return new SustainedAttentionDecision(Accumulate: true, Reset: false, FreezeReason: string.Empty);
+        return new SustainedAttentionDecision(
+            SustainedAttentionDurationSec: previousSustained + Time.bucketSeconds,
+            ContextAppHash: currentContextAppHash,
+            IdlePauseSeconds: 0d,
+            ContextSwitchSeconds: 0d,
+            FreezeReason: string.Empty);
+    }
+
+    private static double ResolveIdlePauseSeconds(DerivedSessionRuntimeState previous, InputBucketRow bucket)
+    {
+        if (bucket.IdleSeconds <= 0.25d)
+        {
+            return 0d;
+        }
+
+        return ClampNonNegativeFinite(previous.SaIdlePauseSeconds + bucket.IdleSeconds);
+    }
+
+    private static SustainedAttentionDecision Hold(
+        double sustainedAttentionDurationSec,
+        string contextAppHash,
+        double idlePauseSeconds,
+        double contextSwitchSeconds,
+        string freezeReason)
+    {
+        return new SustainedAttentionDecision(
+            SustainedAttentionDurationSec: ClampNonNegativeFinite(sustainedAttentionDurationSec),
+            ContextAppHash: contextAppHash,
+            IdlePauseSeconds: ClampNonNegativeFinite(idlePauseSeconds),
+            ContextSwitchSeconds: ClampNonNegativeFinite(contextSwitchSeconds),
+            FreezeReason: freezeReason);
+    }
+
+    private static SustainedAttentionDecision Decay(
+        double sustainedAttentionDurationSec,
+        double decaySeconds,
+        string contextAppHash,
+        double idlePauseSeconds,
+        double contextSwitchSeconds,
+        string freezeReason)
+    {
+        return new SustainedAttentionDecision(
+            SustainedAttentionDurationSec: ClampNonNegativeFinite(sustainedAttentionDurationSec - Math.Max(0d, decaySeconds)),
+            ContextAppHash: contextAppHash,
+            IdlePauseSeconds: ClampNonNegativeFinite(idlePauseSeconds),
+            ContextSwitchSeconds: ClampNonNegativeFinite(contextSwitchSeconds),
+            FreezeReason: freezeReason);
+    }
+
+    private static SustainedAttentionDecision Reset(
+        string contextAppHash,
+        double idlePauseSeconds,
+        double contextSwitchSeconds,
+        string freezeReason)
+    {
+        return new SustainedAttentionDecision(
+            SustainedAttentionDurationSec: 0d,
+            ContextAppHash: contextAppHash,
+            IdlePauseSeconds: ClampNonNegativeFinite(idlePauseSeconds),
+            ContextSwitchSeconds: ClampNonNegativeFinite(contextSwitchSeconds),
+            FreezeReason: freezeReason);
     }
 
     private static double ComputeIdleFragmentationIndex(
@@ -229,13 +361,13 @@ internal static class DerivedSessionMetricsComputer
         object? scalar = cmd.ExecuteScalar();
         if (scalar == null || scalar == DBNull.Value)
         {
-            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty);
+            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d);
         }
 
         string json = Convert.ToString(scalar, CultureInfo.InvariantCulture) ?? string.Empty;
         if (string.IsNullOrWhiteSpace(json))
         {
-            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty);
+            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d);
         }
 
         try
@@ -244,24 +376,28 @@ internal static class DerivedSessionMetricsComputer
             JsonElement root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty);
+                return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d);
             }
 
             double sustained = ReadNonNegativeDouble(root, "sa_seconds", "sustained_attention_duration_sec");
             double idleFragment = Clamp01(ReadNonNegativeDouble(root, "idle_fragmentation_index"));
             string contextHash = ReadString(root, "sa_context_app_hash", "dominant_app_hash");
             long lastUpdateBucketSeq = ReadNonNegativeInt64(root, "sa_last_update_bucket_seq", "bucket_seq");
+            double idlePauseSeconds = ReadNonNegativeDouble(root, "sa_idle_pause_seconds");
+            double contextSwitchSeconds = ReadNonNegativeDouble(root, "sa_context_switch_seconds");
             string freezeReason = ReadString(root, "sa_freeze_reason");
             return new DerivedSessionRuntimeState(
                 SustainedAttentionDurationSec: sustained,
                 IdleFragmentationIndex: idleFragment,
                 SaContextAppHash: contextHash,
                 SaLastUpdateBucketSeq: lastUpdateBucketSeq,
-                SaFreezeReason: freezeReason);
+                SaFreezeReason: freezeReason,
+                SaIdlePauseSeconds: idlePauseSeconds,
+                SaContextSwitchSeconds: contextSwitchSeconds);
         }
         catch
         {
-            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty);
+            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d);
         }
     }
 
@@ -354,10 +490,14 @@ internal static class DerivedSessionMetricsComputer
         double IdleFragmentationIndex,
         string SaContextAppHash,
         long SaLastUpdateBucketSeq,
-        string SaFreezeReason);
+        string SaFreezeReason,
+        double SaIdlePauseSeconds,
+        double SaContextSwitchSeconds);
 
     private readonly record struct SustainedAttentionDecision(
-        bool Accumulate,
-        bool Reset,
+        double SustainedAttentionDurationSec,
+        string ContextAppHash,
+        double IdlePauseSeconds,
+        double ContextSwitchSeconds,
         string FreezeReason);
 }

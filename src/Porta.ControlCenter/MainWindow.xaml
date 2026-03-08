@@ -158,7 +158,7 @@
                         <TextBlock x:Name="ConsentBadgeText" Text="Consent: Needed" />
                     </Border>
                     <Border x:Name="CalibrationBadgeBorder" CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0">
-                        <TextBlock x:Name="CalibrationBadgeText" Text="Calibration: Calibrating" />
+                        <TextBlock x:Name="CalibrationBadgeText" Text="Calibration: Bootstrapping" />
                     </Border>
                     <Border x:Name="TrustBadgeBorder" CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0">
                         <TextBlock x:Name="TrustBadgeText" Text="Trust: Low" />
@@ -202,7 +202,7 @@
                                                 <TextBlock x:Name="NowOverloadFivText" Text="Explain not available (backend field missing)." TextWrapping="Wrap" Foreground="#E2E8F0" />
                                                 <TextBlock x:Name="NowOverloadTopReasonsText" Text="Top reasons: Not available" TextWrapping="Wrap" Foreground="#CBD5E1" Margin="0,8,0,0" />
                                                 <TextBlock x:Name="NowOverloadQualityAgreementText" Text="Quality: Not available | Agreement: Not available" Foreground="#CBD5E1" Margin="0,8,0,0" />
-                                                <TextBlock Text="Turns ON after 2 min above 80%" Margin="0,8,0,0" Foreground="#93C5FD" TextWrapping="Wrap" />
+                                                <TextBlock Text="Turns ON after 60s above 72%" Margin="0,8,0,0" Foreground="#93C5FD" TextWrapping="Wrap" />
                                             </StackPanel>
                                         </Border>
                                     </Expander>
@@ -219,7 +219,7 @@
                                                FontWeight="SemiBold"
                                                Visibility="Collapsed" />
                                     <TextBlock x:Name="NowFocusChoppinessText" Text="Choppiness: Not available" Margin="0,8,0,0" />
-                                    <TextBlock x:Name="NowFocusFootnoteText" Text="Resets after 2+ minutes away." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowFocusFootnoteText" Text="Short pauses and quick app checks do not break the streak." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" />
                                     <TextBlock x:Name="NowFocusStatusText" Text="" Margin="0,6,0,0" Foreground="#F59E0B" TextWrapping="Wrap" Visibility="Collapsed" />
                                 </StackPanel>
                             </Border>
@@ -232,11 +232,11 @@
                             <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="Calibration" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowCalibrationStatusText" Text="Calibrating..." FontSize="20" FontWeight="Bold" />
+                                    <TextBlock x:Name="NowCalibrationStatusText" Text="Bootstrapping" FontSize="20" FontWeight="Bold" />
                                     <TextBlock x:Name="NowCalibrationProgressText" Text="Progress: Not available" Margin="0,6,0,0" />
                                     <TextBlock x:Name="NowCalibrationQualityText" Text="Recent data quality: Not available (last 2 min)" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="NowCalibrationColdStartText" Text="Cold start: Not available" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="NowCalibrationTrustCapText" Text="Trust is capped until calibration completes." Foreground="#FB923C" Margin="0,8,0,0" Visibility="Collapsed" />
+                                    <TextBlock x:Name="NowCalibrationColdStartText" Text="Stage: Not available" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="NowCalibrationTrustCapText" Text="Trust is capped until enough baseline data accumulates." Foreground="#FB923C" Margin="0,8,0,0" Visibility="Collapsed" />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="8,0,0,0">

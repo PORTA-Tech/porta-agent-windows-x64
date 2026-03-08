@@ -9,7 +9,7 @@ namespace Porta.Agent.Core.Tests;
 public sealed class BreakSuggestionPolicyTests
 {
     [Fact]
-    public void ShouldTriggerBreak_BaselineNotReady_FailsWithoutCooldownLookup()
+    public void ShouldTriggerBreak_SuggestionsNotEnabled_FailsWithoutCooldownLookup()
     {
         int cooldownReads = 0;
         BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
@@ -24,7 +24,7 @@ public sealed class BreakSuggestionPolicyTests
             });
 
         Assert.False(decision.ShouldEmit);
-        Assert.Equal("baseline_not_ready", decision.ReasonCode);
+        Assert.Equal("suggestions_not_enabled", decision.ReasonCode);
         Assert.Equal(0, cooldownReads);
         Assert.False(decision.CooldownChecked);
     }
@@ -36,7 +36,7 @@ public sealed class BreakSuggestionPolicyTests
         BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
             BaselineGatingResult.Warm,
             BuildStabilization(overloadActive: true),
-            BuildOverloadInference(confidence: 0.59d),
+            BuildOverloadInference(confidence: 0.54d),
             BuildSession(saSeconds: 7200d),
             resolveCooldown: () =>
             {
@@ -180,6 +180,8 @@ public sealed class BreakSuggestionPolicyTests
             IdleFragmentationIndex: 0.1d,
             Partial: false,
             DominantAppHash: "abcd1234hash",
+            SaIdlePauseSeconds: 0d,
+            SaContextSwitchSeconds: 0d,
             SaFreezeReason: string.Empty,
             SaUntrusted: false);
         BaselineGatingResult gating = BaselineGatingResult.Warm;
@@ -210,8 +212,8 @@ public sealed class BreakSuggestionPolicyTests
         Assert.Equal(3725d, reasons.GetProperty("sustained_attention_s").GetDouble(), precision: 6);
         Assert.True(reasons.GetProperty("cooldown_expired").GetBoolean());
         JsonElement thresholds = root.GetProperty("thresholds");
-        Assert.Equal(0.60d, thresholds.GetProperty("confidence_min").GetDouble(), precision: 6);
-        Assert.Equal(3600, thresholds.GetProperty("sustained_attention_min_s").GetInt32());
+        Assert.Equal(0.55d, thresholds.GetProperty("confidence_min").GetDouble(), precision: 6);
+        Assert.Equal(1800, thresholds.GetProperty("sustained_attention_min_s").GetInt32());
         Assert.Equal(1800, thresholds.GetProperty("cooldown_min_s").GetInt32());
         JsonElement context = root.GetProperty("context");
         Assert.Equal(123456, context.GetProperty("bucket_seq").GetInt64());
@@ -377,6 +379,8 @@ public sealed class BreakSuggestionPolicyTests
             IdleFragmentationIndex: 0.1d,
             Partial: false,
             DominantAppHash: "app",
+            SaIdlePauseSeconds: 0d,
+            SaContextSwitchSeconds: 0d,
             SaFreezeReason: string.Empty,
             SaUntrusted: false);
     }

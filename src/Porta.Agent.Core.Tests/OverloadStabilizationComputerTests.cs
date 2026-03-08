@@ -50,7 +50,7 @@ public sealed class OverloadStabilizationComputerTests
             long seq = 100 + i;
             result = OverloadStabilizationComputer.ComputeForFinalizedBucket(
                 BuildBucket(bucketSeq: seq, quality: 0.40d),
-                BuildInference(overload: 0.65d, confidence: 0.60d, quality: 0.40d),
+                BuildInference(overload: 0.58d, confidence: 0.60d, quality: 0.40d),
                 state);
             if (i < requiredBuckets)
             {
@@ -100,14 +100,14 @@ public sealed class OverloadStabilizationComputerTests
             LastGoodTsMs: Time.bucketStartEnd(10).endUtcMs,
             LastBucketSeq: 10,
             LastTransitionTsMs: 0);
-        // 3 missing buckets => gap 15s > gap_allow(10s)
+        // 4 missing buckets => gap 25s > gap_allow(20s)
         OverloadStabilizationResult result = OverloadStabilizationComputer.ComputeForFinalizedBucket(
-            BuildBucket(bucketSeq: 14, quality: 0.90d),
+            BuildBucket(bucketSeq: 15, quality: 0.90d),
             BuildInference(overload: 0.10d, confidence: 0.90d, quality: 0.90d),
             previous);
 
         Assert.True(result.GapExceeded);
-        Assert.Equal(20_000, result.GapMs);
+        Assert.Equal(25_000, result.GapMs);
         Assert.Equal(0, result.RuntimeState.OnDwellMs);
         Assert.Equal(0, result.RuntimeState.OffDwellMs);
     }
@@ -269,9 +269,16 @@ public sealed class OverloadStabilizationComputerTests
             BuildBucket(bucketSeq: 403, quality: 0.90d),
             BuildInference(overload: 0.95d, confidence: 0.50d, quality: 0.90d),
             b402.RuntimeState);
-        Assert.True(b403.GapExceeded); // 15s > 10s
-        Assert.Equal(0, b403.RuntimeState.OnDwellMs);
-        Assert.Equal(0, b403.RuntimeState.OffDwellMs);
+        Assert.False(b403.GapExceeded);
+        Assert.Equal(15_000, b403.RuntimeState.OnDwellMs);
+
+        OverloadStabilizationResult b405 = OverloadStabilizationComputer.ComputeForFinalizedBucket(
+            BuildBucket(bucketSeq: 405, quality: 0.90d),
+            BuildInference(overload: 0.95d, confidence: 0.50d, quality: 0.90d),
+            b403.RuntimeState);
+        Assert.True(b405.GapExceeded); // 25s > 20s
+        Assert.Equal(0, b405.RuntimeState.OnDwellMs);
+        Assert.Equal(0, b405.RuntimeState.OffDwellMs);
     }
 
     [Fact]

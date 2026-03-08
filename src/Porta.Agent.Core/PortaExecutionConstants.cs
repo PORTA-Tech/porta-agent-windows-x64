@@ -2,7 +2,7 @@ namespace Porta.Agent.Core;
 
 public static class PortaExecutionConstants
 {
-    public const int BaselineMinSamples = 120;
+    public const int BaselineMinSamples = 60;
     public static class BaselineUpdateGating
     {
         public const double MinQualityScore = 0.60;
@@ -15,10 +15,15 @@ public static class PortaExecutionConstants
 
     public static class BaselineReadiness
     {
-        public const double ReadyCoverageThreshold = 0.80;
+        public const double ReadyCoverageThreshold = 0.70;
         public const int RecentQualityBuckets = 24; // 2 minutes at 5s buckets.
-        public const double RecentQualityThreshold = 0.70;
-        public const double ColdStartConfidenceCap = 0.45;
+        public const double RecentQualityThreshold = 0.65;
+        public const int ProvisionalMetricMinSamples = 24;
+        public const double ProvisionalCoverageThreshold = 0.45;
+        public const int ProvisionalRecentQualityBuckets = 12; // 1 minute at 5s buckets.
+        public const double ProvisionalRecentQualityThreshold = 0.55;
+        public const double ColdStartConfidenceCap = 0.55;
+        public const double ProvisionalConfidenceCap = 0.75;
     }
 
     public static class RobustNormalization
@@ -51,18 +56,26 @@ public static class PortaExecutionConstants
     {
         public const string RuntimeStateKey = "derived_session:current";
         public const string ContractVersion = "v1";
-        public const double IdleSecondsStableMax = 1.0;
+        public const double IdleSecondsStableMax = 4.0;
+        public const double IdleAccumulateMaxSeconds = 10.0;
+        public const double IdlePauseMaxSeconds = 60.0;
+        public const double IdleDecayMaxSeconds = 180.0;
+        public const double IdleResetSeconds = 300.0;
+        public const double IdleDecayPerBucketSeconds = 2.5;
+        public const double ContextShiftGraceSeconds = 20.0;
+        public const double ContextShiftResetSeconds = 60.0;
+        public const double ContextShiftDecayPerBucketSeconds = 5.0;
     }
 
     public static class OverloadStabilization
     {
-        public const double ThresholdOn = 0.80;
-        public const double ThresholdOff = 0.65;
-        public const int DwellOnSeconds = 120;
-        public const int DwellOffSeconds = 60;
-        public const double ConfidenceMin = 0.60;
-        public const int GapAllowSeconds = 10;
-        public const double LowQualityPauseThreshold = 0.40;
+        public const double ThresholdOn = 0.72;
+        public const double ThresholdOff = 0.58;
+        public const int DwellOnSeconds = 60;
+        public const int DwellOffSeconds = 45;
+        public const double ConfidenceMin = 0.55;
+        public const int GapAllowSeconds = 20;
+        public const double LowQualityPauseThreshold = 0.35;
         public const int LowQualityDwellDecayMs = 5000;
         public const string RuntimeStateKey = "overload_stabilization:current";
         public const string ActiveRuntimeStateKey = "overload_active";
@@ -79,10 +92,10 @@ public static class PortaExecutionConstants
 
     public static class BreakPolicy
     {
-        public const int SustainedAttentionSeconds = 3600;
+        public const int SustainedAttentionSeconds = 1800;
         public const int CooldownSeconds = 1800;
         public const long CooldownWindowMs = CooldownSeconds * 1000L;
-        public const double ConfidenceMin = 0.60;
+        public const double ConfidenceMin = 0.55;
         public const string RuntimeStateKey = "break_policy:cooldown";
         public const string ContractVersion = "v1";
     }
@@ -91,7 +104,7 @@ public static class PortaExecutionConstants
     {
         public const int SustainedAttentionSeconds = 900;
         public const double ConfidenceMin = 0.65;
-        public const double FragmentationMax = 0.45;
+        public const double FragmentationMax = 0.50;
         public const double VolatilityMax = 0.50;
         public const double IntensityMin = 0.40;
         public const double IntensityMax = 0.75;

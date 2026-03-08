@@ -107,6 +107,9 @@ public sealed record AgentLatestStateDetails(
     double? BaselineReadyPct = null,
     double? AvgQuality2m = null,
     bool? ColdStart = null,
+    string? CalibrationStage = null,
+    bool? SystemActionsEnabled = null,
+    string? TrustTier = null,
     double? CurrentQualityScore = null,
     bool? PartialData = null,
     IReadOnlyList<string>? MissingMajorChannels = null);
