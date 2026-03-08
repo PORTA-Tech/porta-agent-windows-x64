@@ -177,7 +177,7 @@ internal static class BucketAggregators
             DominantStateValue: 0d,
             DominantStateName: "focus",
             Confidence: 0d,
-            LastAction: "none",
+            LastAction: "monitor_only",
             ActivationWindowTriggered: false,
             CooldownTriggered: false,
             ActivationWindowOpen: false,

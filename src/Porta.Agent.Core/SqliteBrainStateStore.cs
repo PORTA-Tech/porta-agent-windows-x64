@@ -370,6 +370,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         lock (_gate)
         {
+            if (IsNonInterventionAction(controlEvent.Action))
+            {
+                return;
+            }
+
             using var connection = DbOpen.OpenConnection(_connectionString);
             using SqliteTransaction tx = connection.BeginTransaction();
 
@@ -1067,6 +1072,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     (SELECT executor_agent_instance_id FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS executor_agent_instance_id
                 FROM events
                 WHERE ($since = '' OR ts_utc >= $since)
+                  AND action <> 'none'
+                  AND action <> 'monitor_only'
                 ORDER BY ts_utc DESC, id DESC
                 LIMIT $limit;
                 """;
@@ -1131,6 +1138,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     (SELECT executor_agent_instance_id FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS executor_agent_instance_id
                 FROM events
                 WHERE id > $since_id
+                  AND action <> 'none'
+                  AND action <> 'monitor_only'
                 ORDER BY id ASC
                 LIMIT $limit;
                 """;
@@ -1199,6 +1208,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     (SELECT executor_agent_instance_id FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS executor_agent_instance_id
                 FROM events
                 WHERE ts_utc >= $from AND ts_utc <= $to
+                  AND action <> 'none'
+                  AND action <> 'monitor_only'
                 ORDER BY ts_utc ASC, id ASC
                 LIMIT $limit;
                 """;
@@ -4482,7 +4493,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private static bool IsNonInterventionAction(string action)
     {
-        return string.Equals(action, "monitor_only", StringComparison.Ordinal)
+        return string.IsNullOrWhiteSpace(action)
+            || string.Equals(action, "none", StringComparison.Ordinal)
+            || string.Equals(action, "unknown", StringComparison.Ordinal)
+            || string.Equals(action, "monitor_only", StringComparison.Ordinal)
             || string.Equals(action, "paused_by_user", StringComparison.Ordinal)
             || string.Equals(action, "consent_required", StringComparison.Ordinal)
             || string.Equals(action, "maintain_focus", StringComparison.Ordinal)
