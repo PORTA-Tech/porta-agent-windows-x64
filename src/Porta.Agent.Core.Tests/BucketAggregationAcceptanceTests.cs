@@ -127,4 +127,44 @@ public sealed class BucketAggregationAcceptanceTests
         Assert.DoesNotContain("idle", quality.MissingMajorChannels);
         Assert.Equal(0.8d, quality.QualityScore, precision: 6);
     }
+
+    [Fact]
+    public void Quality_KeyboardOnlyBucket_IsNotPartial_WhenFocusAndIdleExist()
+    {
+        var bucket = new BucketBuffer(bucketSeq: 1);
+        bucket.Keyboard.RecordKeydown(bucket.StartUtcMs + 100, isBackspace: false);
+        bucket.Focus.RecordFocusEvent(bucket.StartUtcMs + 150, "app");
+        bucket.Idle.RecordSample(bucket.StartUtcMs + 200, 0.1);
+
+        BucketDataQualityScore quality = BucketDataQualityScorer.Compute(
+            bucket,
+            new BucketDropCountersDelta(FutureSkewDrops: 0, TooOldDrops: 0, LateFinalDrops: 0));
+
+        Assert.False(quality.Partial);
+        Assert.Contains("mouse", quality.MissingMajorChannels);
+        Assert.DoesNotContain("keyboard", quality.MissingMajorChannels);
+        Assert.DoesNotContain("focus", quality.MissingMajorChannels);
+        Assert.DoesNotContain("idle", quality.MissingMajorChannels);
+        Assert.Equal(0.8d, quality.QualityScore, precision: 6);
+    }
+
+    [Fact]
+    public void Quality_MouseOnlyBucket_IsNotPartial_WhenFocusAndIdleExist()
+    {
+        var bucket = new BucketBuffer(bucketSeq: 1);
+        bucket.Mouse.RecordMove(bucket.StartUtcMs + 100, 12, 4);
+        bucket.Focus.RecordFocusEvent(bucket.StartUtcMs + 150, "app");
+        bucket.Idle.RecordSample(bucket.StartUtcMs + 200, 0.1);
+
+        BucketDataQualityScore quality = BucketDataQualityScorer.Compute(
+            bucket,
+            new BucketDropCountersDelta(FutureSkewDrops: 0, TooOldDrops: 0, LateFinalDrops: 0));
+
+        Assert.False(quality.Partial);
+        Assert.Contains("keyboard", quality.MissingMajorChannels);
+        Assert.DoesNotContain("mouse", quality.MissingMajorChannels);
+        Assert.DoesNotContain("focus", quality.MissingMajorChannels);
+        Assert.DoesNotContain("idle", quality.MissingMajorChannels);
+        Assert.Equal(0.75d, quality.QualityScore, precision: 6);
+    }
 }

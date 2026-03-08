@@ -58,7 +58,11 @@ internal static class BucketDataQualityScorer
         score -= dropPenalty;
 
         double clamped = Clamp01(score);
-        bool partial = missing.Count > 0;
+        // Normal active use often alternates between keyboard-only and mouse-only windows.
+        // Treat those as valid interaction buckets; only mark partial when both interaction
+        // channels are absent or a non-interaction channel is missing.
+        bool interactionMissing = !keyboardAvailable && !mouseAvailable;
+        bool partial = interactionMissing || !focusAvailable || !idleAvailable;
         return new BucketDataQualityScore(clamped, partial, missing);
     }
 

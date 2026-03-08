@@ -117,9 +117,12 @@ internal sealed class UserKeyboardActivityPoller : IDisposable
     {
         foreach (int virtualKey in MonitoredVirtualKeys)
         {
-            bool currentDown = IsDown(_stateReader.GetAsyncKeyState(virtualKey));
+            short state = _stateReader.GetAsyncKeyState(virtualKey);
+            bool currentDown = IsDown(state);
             bool previousDown = _previousDown[virtualKey];
-            if (currentDown == previousDown)
+            bool shortTapDetected = WasPressedSinceLastPoll(state) && !currentDown && !previousDown;
+
+            if (currentDown == previousDown && !shortTapDetected)
             {
                 continue;
             }
@@ -127,7 +130,7 @@ internal sealed class UserKeyboardActivityPoller : IDisposable
             _previousDown[virtualKey] = currentDown;
             try
             {
-                KeyChanged(currentDown, virtualKey == VirtualKeyBackspace, false);
+                KeyChanged(shortTapDetected || currentDown, virtualKey == VirtualKeyBackspace, false);
             }
             catch (Exception ex)
             {
@@ -172,6 +175,11 @@ internal sealed class UserKeyboardActivityPoller : IDisposable
     private static bool IsDown(short state)
     {
         return (state & 0x8000) != 0;
+    }
+
+    private static bool WasPressedSinceLastPoll(short state)
+    {
+        return (state & 0x0001) != 0;
     }
 
     private static int[] BuildMonitoredVirtualKeys()
