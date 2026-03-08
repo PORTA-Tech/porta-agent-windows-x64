@@ -21,6 +21,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private readonly UserAgentNotificationSnapshotStore _notificationSnapshotStore = new();
     private readonly UserAgentInterventionExecutor _interventionExecutor;
     private readonly UserSessionSignalAggregator _signalAggregator = new();
+    private readonly KeyboardHook _keyboardHook = new();
     private readonly UserKeyboardActivityPoller _keyboardPoller = new();
     private readonly MouseHook _mouseHook = new();
     private readonly string _agentInstanceId = BuildAgentInstanceId();
@@ -43,6 +44,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             new UserSessionPresentationGate(),
             _notificationController,
             _notificationSnapshotStore);
+        _keyboardHook.KeyChanged += OnKeyboardChanged;
         _keyboardPoller.KeyChanged += OnKeyboardChanged;
         _mouseHook.MouseMoved += OnMouseMoved;
         _mouseHook.ScrollDeltaChanged += OnMouseWheelChanged;
@@ -114,6 +116,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     public override void Dispose()
     {
         StopCaptureHooks();
+        _keyboardHook.Dispose();
         _keyboardPoller.Dispose();
         _mouseHook.Dispose();
         _toastRenderer.Dispose();
@@ -290,13 +293,19 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
     private void StartCaptureHooks()
     {
-        bool keyboardInstalled = _keyboardPoller.Install();
+        bool keyboardInstalled = _keyboardHook.Install();
+        if (!keyboardInstalled)
+        {
+            _logger.LogWarning("Keyboard hook did not install. Falling back to keyboard polling.");
+            keyboardInstalled = _keyboardPoller.Install();
+        }
+
         bool mouseInstalled = _mouseHook.Install();
         _hooksInstalled = keyboardInstalled || mouseInstalled;
 
         if (!keyboardInstalled)
         {
-            _logger.LogWarning("Keyboard capture poller did not install. Keyboard capture will stay inactive.");
+            _logger.LogWarning("Keyboard capture is unavailable. Keyboard capture will stay inactive.");
         }
 
         if (!mouseInstalled)
@@ -320,6 +329,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             return;
         }
 
+        _keyboardHook.Uninstall();
         _keyboardPoller.Uninstall();
         _mouseHook.Uninstall();
         _hooksInstalled = false;
