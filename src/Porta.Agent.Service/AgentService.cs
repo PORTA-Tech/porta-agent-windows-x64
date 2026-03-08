@@ -35,9 +35,8 @@ internal sealed class AgentService : IHostedService, IDisposable
 
         builder.Services.AddPortaLocalApi();
         builder.Services.AddSingleton<IBrightnessController, WindowsBrightnessController>();
-        builder.Services.AddSingleton<INotificationController, WindowsNotificationController>();
         builder.Services.AddSingleton<IOverloadBrightnessActionCoordinator, OverloadBrightnessActionCoordinator>();
-        builder.Services.AddSingleton<IDeepWorkOutputActionCoordinator, DeepWorkOutputActionCoordinator>();
+        builder.Services.AddSingleton<IDeepWorkOutputActionCoordinator, QueuedDeepWorkOutputActionCoordinator>();
         builder.Services.AddSingleton<BucketFinalizerStateStore>(sp =>
             new BucketFinalizerStateStore(new SqliteBrainStateStore(
                 sp.GetRequiredService<IDeepWorkOutputActionCoordinator>(),

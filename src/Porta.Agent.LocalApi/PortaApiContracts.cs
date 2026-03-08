@@ -284,12 +284,22 @@ public sealed record LocalApiEventResponse(
     string HowToUndo,
     bool ReversalApplied,
     DateTimeOffset? CooldownEndTimestampUtc,
-    string LifecycleState)
+    string LifecycleState,
+    string CommandType = "",
+    string ExecutionState = "decision_only",
+    DateTimeOffset? DecidedAtUtc = null,
+    DateTimeOffset? AppliedAtUtc = null,
+    DateTimeOffset? AckedAtUtc = null,
+    string ExecutionErrorCode = "",
+    string ExecutorAgentInstanceId = "")
 {
     // Step 18E pinned proof-trail aliases for events/recent consumers.
     public DateTimeOffset ts_utc => TsUtc;
     public string why_json => WhyJson;
     public string? state_flags_json => StateFlagsJson;
+    public string command_type => CommandType;
+    public string execution_state => ExecutionState;
+    public string? execution_error_code => string.IsNullOrWhiteSpace(ExecutionErrorCode) ? null : ExecutionErrorCode;
 }
 
 public sealed record LocalApiTimelineResponse(

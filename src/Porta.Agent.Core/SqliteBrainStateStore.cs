@@ -1057,7 +1057,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     lifecycle_state,
                     idempotency_key,
                     why_json,
-                    state_flags_json
+                    state_flags_json,
+                    (SELECT command_type FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS command_type,
+                    (SELECT execution_state FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS execution_state,
+                    (SELECT decided_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS decided_at_utc,
+                    (SELECT applied_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS applied_at_utc,
+                    (SELECT acked_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS acked_at_utc,
+                    (SELECT error_code FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS error_code,
+                    (SELECT executor_agent_instance_id FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS executor_agent_instance_id
                 FROM events
                 WHERE ($since = '' OR ts_utc >= $since)
                 ORDER BY ts_utc DESC, id DESC
@@ -1069,32 +1076,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             using SqliteDataReader reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                rows.Add(new AgentControlEvent(
-                    TimestampUtc: ParseEventTsUtc(reader),
-                    Action: reader.GetString(3),
-                    TriggerState: reader.GetString(4),
-                    TriggerValue: reader.GetDouble(5),
-                    Confidence: reader.GetDouble(6),
-                    DurationSeconds: reader.IsDBNull(7) ? null : reader.GetInt32(7),
-                    EscalationLevel: reader.GetString(8),
-                    Reversible: reader.GetInt32(9) == 1,
-                    Reason: reader.GetString(10),
-                    Contributors: DeserializeContributors(reader.GetString(11)),
-                    InterventionId: ReadStringOrFallback(reader, 12, string.Empty),
-                    PolicyId: ReadStringOrFallback(reader, 13, "n/a"),
-                    Domain: ReadStringOrFallback(reader, 14, "control"),
-                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 15, string.Empty)),
-                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 16, string.Empty)),
-                    PreviousSystemStateJson: ReadStringOrFallback(reader, 17, "{}"),
-                    WhatChanged: ReadStringOrFallback(reader, 18, string.Empty),
-                    HowToUndo: ReadStringOrFallback(reader, 19, string.Empty),
-                    ReversalApplied: ReadBoolOrFallback(reader, 20, false),
-                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 21, string.Empty)),
-                    LifecycleState: ReadStringOrFallback(reader, 22, "activated"),
-                    EventId: reader.GetInt64(0),
-                    IdempotencyKey: ReadStringOrFallback(reader, 23, string.Empty),
-                    WhyJson: ReadStringOrFallback(reader, 24, "{\"schema_ver\":1}"),
-                    StateFlagsJson: ReadStringOrFallback(reader, 25, "{\"schema_ver\":1}")));
+                rows.Add(ReadControlEvent(reader));
             }
 
             return rows;
@@ -1139,7 +1121,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     lifecycle_state,
                     idempotency_key,
                     why_json,
-                    state_flags_json
+                    state_flags_json,
+                    (SELECT command_type FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS command_type,
+                    (SELECT execution_state FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS execution_state,
+                    (SELECT decided_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS decided_at_utc,
+                    (SELECT applied_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS applied_at_utc,
+                    (SELECT acked_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS acked_at_utc,
+                    (SELECT error_code FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS error_code,
+                    (SELECT executor_agent_instance_id FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS executor_agent_instance_id
                 FROM events
                 WHERE id > $since_id
                 ORDER BY id ASC
@@ -1151,32 +1140,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             using SqliteDataReader reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                rows.Add(new AgentControlEvent(
-                    TimestampUtc: ParseEventTsUtc(reader),
-                    Action: reader.GetString(3),
-                    TriggerState: reader.GetString(4),
-                    TriggerValue: reader.GetDouble(5),
-                    Confidence: reader.GetDouble(6),
-                    DurationSeconds: reader.IsDBNull(7) ? null : reader.GetInt32(7),
-                    EscalationLevel: reader.GetString(8),
-                    Reversible: reader.GetInt32(9) == 1,
-                    Reason: reader.GetString(10),
-                    Contributors: DeserializeContributors(reader.GetString(11)),
-                    InterventionId: ReadStringOrFallback(reader, 12, string.Empty),
-                    PolicyId: ReadStringOrFallback(reader, 13, "n/a"),
-                    Domain: ReadStringOrFallback(reader, 14, "control"),
-                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 15, string.Empty)),
-                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 16, string.Empty)),
-                    PreviousSystemStateJson: ReadStringOrFallback(reader, 17, "{}"),
-                    WhatChanged: ReadStringOrFallback(reader, 18, string.Empty),
-                    HowToUndo: ReadStringOrFallback(reader, 19, string.Empty),
-                    ReversalApplied: ReadBoolOrFallback(reader, 20, false),
-                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 21, string.Empty)),
-                    LifecycleState: ReadStringOrFallback(reader, 22, "activated"),
-                    EventId: reader.GetInt64(0),
-                    IdempotencyKey: ReadStringOrFallback(reader, 23, string.Empty),
-                    WhyJson: ReadStringOrFallback(reader, 24, "{\"schema_ver\":1}"),
-                    StateFlagsJson: ReadStringOrFallback(reader, 25, "{\"schema_ver\":1}")));
+                rows.Add(ReadControlEvent(reader));
             }
 
             return rows;
@@ -1225,7 +1189,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     lifecycle_state,
                     idempotency_key,
                     why_json,
-                    state_flags_json
+                    state_flags_json,
+                    (SELECT command_type FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS command_type,
+                    (SELECT execution_state FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS execution_state,
+                    (SELECT decided_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS decided_at_utc,
+                    (SELECT applied_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS applied_at_utc,
+                    (SELECT acked_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS acked_at_utc,
+                    (SELECT error_code FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS error_code,
+                    (SELECT executor_agent_instance_id FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS executor_agent_instance_id
                 FROM events
                 WHERE ts_utc >= $from AND ts_utc <= $to
                 ORDER BY ts_utc ASC, id ASC
@@ -1238,32 +1209,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             using SqliteDataReader reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                rows.Add(new AgentControlEvent(
-                    TimestampUtc: ParseEventTsUtc(reader),
-                    Action: reader.GetString(3),
-                    TriggerState: reader.GetString(4),
-                    TriggerValue: reader.GetDouble(5),
-                    Confidence: reader.GetDouble(6),
-                    DurationSeconds: reader.IsDBNull(7) ? null : reader.GetInt32(7),
-                    EscalationLevel: reader.GetString(8),
-                    Reversible: reader.GetInt32(9) == 1,
-                    Reason: reader.GetString(10),
-                    Contributors: DeserializeContributors(reader.GetString(11)),
-                    InterventionId: ReadStringOrFallback(reader, 12, string.Empty),
-                    PolicyId: ReadStringOrFallback(reader, 13, "n/a"),
-                    Domain: ReadStringOrFallback(reader, 14, "control"),
-                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 15, string.Empty)),
-                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 16, string.Empty)),
-                    PreviousSystemStateJson: ReadStringOrFallback(reader, 17, "{}"),
-                    WhatChanged: ReadStringOrFallback(reader, 18, string.Empty),
-                    HowToUndo: ReadStringOrFallback(reader, 19, string.Empty),
-                    ReversalApplied: ReadBoolOrFallback(reader, 20, false),
-                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 21, string.Empty)),
-                    LifecycleState: ReadStringOrFallback(reader, 22, "activated"),
-                    EventId: reader.GetInt64(0),
-                    IdempotencyKey: ReadStringOrFallback(reader, 23, string.Empty),
-                    WhyJson: ReadStringOrFallback(reader, 24, "{\"schema_ver\":1}"),
-                    StateFlagsJson: ReadStringOrFallback(reader, 25, "{\"schema_ver\":1}")));
+                rows.Add(ReadControlEvent(reader));
             }
 
             return rows;
@@ -1404,7 +1350,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     SELECT
                         id,
                         session_id,
-                        execution_state
+                        execution_state,
+                        action,
+                        command_type
                     FROM interventions
                     WHERE intervention_id = $intervention_id
                       AND command_type <> ''
@@ -1425,6 +1373,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 long rowId = reader.GetInt64(0);
                 string existingSessionId = ReadStringOrFallback(reader, 1, string.Empty);
                 string existingExecutionState = ReadStringOrFallback(reader, 2, "decided");
+                string action = ReadStringOrFallback(reader, 3, string.Empty);
+                string commandType = ReadStringOrFallback(reader, 4, string.Empty);
                 reader.Close();
 
                 if (string.Equals(existingExecutionState, normalizedResult, StringComparison.Ordinal))
@@ -1477,12 +1427,16 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 update.Parameters.AddWithValue("$session_id", sessionId);
                 update.Parameters.AddWithValue("$execution_state", normalizedResult);
                 update.Parameters.AddWithValue("$applied_at_utc", appliedAtUtc);
-                update.Parameters.AddWithValue("$error_code", normalizedResult == "failed"
+                    update.Parameters.AddWithValue("$error_code", normalizedResult == "failed"
                     ? (ack.ErrorCode?.Trim() ?? string.Empty)
                     : string.Empty);
                 update.Parameters.AddWithValue("$agent_instance_id", agentInstanceId);
                 update.Parameters.AddWithValue("$id", rowId);
                 bool updated = update.ExecuteNonQuery() == 1;
+                if (updated)
+                {
+                    ApplyInterventionAckSideEffects(connection, tx, action, commandType, ack with { Result = normalizedResult });
+                }
                 tx.Commit();
                 return updated;
             }
@@ -1947,6 +1901,100 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         cmd.Parameters.AddWithValue("$value_json", valueJson);
         cmd.Parameters.AddWithValue("$updated_utc", updatedUtc);
         cmd.ExecuteNonQuery();
+    }
+
+    private static void ApplyInterventionAckSideEffects(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        string action,
+        string commandType,
+        AgentInterventionAck ack)
+    {
+        string normalizedCommand = string.IsNullOrWhiteSpace(commandType)
+            ? string.Empty
+            : commandType.Trim().ToLowerInvariant();
+        if (normalizedCommand != "suppress_notifications"
+            && normalizedCommand != "restore_notifications")
+        {
+            return;
+        }
+
+        NotificationSuppressionRuntimeState currentState = ReadNotificationSuppressionRuntimeState(connection, tx);
+        long appliedAtUtcMs = ack.AppliedAtUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+        string appliedAtUtc = ack.AppliedAtUtc.ToUniversalTime().ToString("O");
+        string normalizedResult = NormalizeExecutionResult(ack.Result);
+        string errorCode = string.IsNullOrWhiteSpace(ack.ErrorCode)
+            ? "unknown_notification_error"
+            : ack.ErrorCode.Trim();
+        NotificationSuppressionRuntimeState updatedState = currentState;
+
+        if (normalizedCommand == "suppress_notifications")
+        {
+            updatedState = normalizedResult switch
+            {
+                "applied" => currentState with
+                {
+                    SchemaVer = 1,
+                    Active = true,
+                    Snapshot = null,
+                    SnapshotCapturedAtUtc = string.Empty,
+                    SuppressedAtUtc = appliedAtUtc,
+                    RestoredAtUtc = string.Empty,
+                    EnableCooldownUntilUtcMs = checked(appliedAtUtcMs + (PortaExecutionConstants.NotificationSuppression.EnableCooldownSeconds * 1000L)),
+                    MinOnUntilUtcMs = checked(appliedAtUtcMs + (PortaExecutionConstants.NotificationSuppression.MinOnSeconds * 1000L)),
+                    LastErrorCode = string.Empty,
+                    BackoffUntilUtcMs = 0,
+                    RestorePending = false,
+                    ActionState = "active"
+                },
+                "failed" => currentState with
+                {
+                    SchemaVer = 1,
+                    Active = false,
+                    LastErrorCode = errorCode,
+                    BackoffUntilUtcMs = checked(appliedAtUtcMs + (PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds * 1000L)),
+                    RestorePending = false,
+                    ActionState = "apply_failed"
+                },
+                _ => currentState
+            };
+        }
+        else if (normalizedCommand == "restore_notifications")
+        {
+            updatedState = normalizedResult switch
+            {
+                "applied" => currentState with
+                {
+                    SchemaVer = 1,
+                    Active = false,
+                    Snapshot = null,
+                    SnapshotCapturedAtUtc = currentState.SnapshotCapturedAtUtc,
+                    RestoredAtUtc = appliedAtUtc,
+                    MinOnUntilUtcMs = 0,
+                    LastErrorCode = string.Empty,
+                    BackoffUntilUtcMs = 0,
+                    RestorePending = false,
+                    ActionState = "inactive"
+                },
+                "failed" => currentState with
+                {
+                    SchemaVer = 1,
+                    Active = currentState.Active,
+                    LastErrorCode = errorCode,
+                    BackoffUntilUtcMs = checked(appliedAtUtcMs + (PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds * 1000L)),
+                    RestorePending = true,
+                    ActionState = "active_with_restore_error"
+                },
+                _ => currentState
+            };
+        }
+
+        UpsertRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.NotificationSuppression.RuntimeStateKey,
+            BuildNotificationSuppressionRuntimeStateJson(0, appliedAtUtc, updatedState),
+            appliedAtUtc);
     }
 
     private static string BuildOverloadActiveRuntimeStateJson(
@@ -4225,8 +4273,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         return action switch
         {
-            "deep_work_notifications_suppressed" => "System notifications suppressed for deep work protection.",
-            "deep_work_notifications_restored" => "System notifications restored to pre-deep-work snapshot.",
+            "deep_work_notifications_suppressed" => "Notification suppression requested for deep work protection.",
+            "deep_work_notifications_restored" => "Notification restore requested after deep work ended.",
             "notification_snapshot_failed" => "Failed to capture current notification state snapshot.",
             "notification_suppress_failed" => "Failed to suppress system notifications for deep work.",
             "notification_restore_failed" => "Failed to restore system notifications from persisted snapshot.",
@@ -4884,6 +4932,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             "break_suggestion" => "show_break_toast",
             "focus_lock_in_suggestion" => "show_focus_lock_in_toast",
             "stretch_break_suggestion" => "show_stretch_break_toast",
+            "deep_work_notifications_suppressed" => "suppress_notifications",
+            "deep_work_notifications_restored" => "restore_notifications",
             _ => string.Empty
         };
     }
@@ -4902,6 +4952,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             "break_suggestion" => "Take a short break.",
             "focus_lock_in_suggestion" => "Stay with this task and protect your focus.",
             "stretch_break_suggestion" => "Take a stretch break.",
+            "deep_work_notifications_suppressed" => "Suppress notifications for deep work.",
+            "deep_work_notifications_restored" => "Restore notifications after deep work.",
             _ => controlEvent.WhatChanged
         };
 
@@ -5302,6 +5354,43 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
 
         return DateTimeOffset.UnixEpoch;
+    }
+
+    private static AgentControlEvent ReadControlEvent(SqliteDataReader reader)
+    {
+        return new AgentControlEvent(
+            TimestampUtc: ParseEventTsUtc(reader),
+            Action: reader.GetString(3),
+            TriggerState: reader.GetString(4),
+            TriggerValue: reader.GetDouble(5),
+            Confidence: reader.GetDouble(6),
+            DurationSeconds: reader.IsDBNull(7) ? null : reader.GetInt32(7),
+            EscalationLevel: reader.GetString(8),
+            Reversible: reader.GetInt32(9) == 1,
+            Reason: reader.GetString(10),
+            Contributors: DeserializeContributors(reader.GetString(11)),
+            InterventionId: ReadStringOrFallback(reader, 12, string.Empty),
+            PolicyId: ReadStringOrFallback(reader, 13, "n/a"),
+            Domain: ReadStringOrFallback(reader, 14, "control"),
+            PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 15, string.Empty)),
+            ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 16, string.Empty)),
+            PreviousSystemStateJson: ReadStringOrFallback(reader, 17, "{}"),
+            WhatChanged: ReadStringOrFallback(reader, 18, string.Empty),
+            HowToUndo: ReadStringOrFallback(reader, 19, string.Empty),
+            ReversalApplied: ReadBoolOrFallback(reader, 20, false),
+            CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 21, string.Empty)),
+            LifecycleState: ReadStringOrFallback(reader, 22, "activated"),
+            EventId: reader.GetInt64(0),
+            IdempotencyKey: ReadStringOrFallback(reader, 23, string.Empty),
+            WhyJson: ReadStringOrFallback(reader, 24, "{\"schema_ver\":1}"),
+            StateFlagsJson: ReadStringOrFallback(reader, 25, "{\"schema_ver\":1}"),
+            CommandType: ReadStringOrFallback(reader, 26, string.Empty),
+            ExecutionState: ReadStringOrFallback(reader, 27, "decision_only"),
+            DecidedAtUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 28, string.Empty)),
+            AppliedAtUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 29, string.Empty)),
+            AckedAtUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 30, string.Empty)),
+            ExecutionErrorCode: ReadStringOrFallback(reader, 31, string.Empty),
+            ExecutorAgentInstanceId: ReadStringOrFallback(reader, 32, string.Empty));
     }
 
     private static string ResolveDominantStateName(double focusStrength, double overloadLikelihood, double fatigueProbability)

@@ -26,7 +26,14 @@ public sealed record AgentControlEvent(
     long EventId = 0,
     string IdempotencyKey = "",
     string WhyJson = "{\"schema_ver\":1}",
-    string StateFlagsJson = "{\"schema_ver\":1}");
+    string StateFlagsJson = "{\"schema_ver\":1}",
+    string CommandType = "",
+    string ExecutionState = "decision_only",
+    DateTimeOffset? DecidedAtUtc = null,
+    DateTimeOffset? AppliedAtUtc = null,
+    DateTimeOffset? AckedAtUtc = null,
+    string ExecutionErrorCode = "",
+    string ExecutorAgentInstanceId = "");
 
 public sealed record AgentPendingIntervention(
     long RowId,

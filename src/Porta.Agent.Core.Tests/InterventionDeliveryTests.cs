@@ -160,6 +160,107 @@ public sealed class InterventionDeliveryTests
             Assert.Equal("applied", reader.GetString(0));
             Assert.Equal("session-9", reader.GetString(1));
             Assert.Equal("agent-9", reader.GetString(2));
+
+            AgentControlEvent storedEvent = Assert.Single(store.ReadRecentEvents(10));
+            Assert.Equal("break-1", storedEvent.InterventionId);
+            Assert.Equal("show_break_toast", storedEvent.CommandType);
+            Assert.Equal("applied", storedEvent.ExecutionState);
+            Assert.Equal("agent-9", storedEvent.ExecutorAgentInstanceId);
+            Assert.NotNull(storedEvent.AppliedAtUtc);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(dbPath))
+                {
+                    File.Delete(dbPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void SqliteStore_QueuesNotificationSuppression_ForUserAgentAndTracksAckedState()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"porta-notify-interventions-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new SqliteBrainStateStore(
+                new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
+                new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+                dbPath);
+
+            DateTimeOffset eventUtc = DateTimeOffset.UtcNow;
+            store.WriteControlEvent(new AgentControlEvent(
+                TimestampUtc: eventUtc,
+                Action: "deep_work_notifications_suppressed",
+                TriggerState: "deep_work",
+                TriggerValue: 0.77d,
+                Confidence: 0.77d,
+                DurationSeconds: null,
+                EscalationLevel: "Auto",
+                Reversible: true,
+                Reason: "queued",
+                Contributors: [],
+                InterventionId: "dw-1",
+                PolicyId: "deep_work_notifications_v1",
+                Domain: "output_action",
+                WhatChanged: "Notification suppression requested for deep work protection.",
+                HowToUndo: "Automatically restored when deep work exits."));
+
+            AgentPendingIntervention pending = Assert.Single(store.ReadPendingInterventions("session-11", 10));
+            Assert.Equal("suppress_notifications", pending.CommandType);
+            Assert.Equal("decided", pending.ExecutionState);
+
+            bool suppressAcked = store.AcknowledgeIntervention(new AgentInterventionAck(
+                InterventionId: "dw-1",
+                SessionId: "session-11",
+                AgentInstanceId: "useragent-11",
+                Result: "applied",
+                ErrorCode: null,
+                AppliedAtUtc: eventUtc.AddSeconds(2)));
+            Assert.True(suppressAcked);
+
+            AgentNotificationSuppressionStatus activeStatus = store.ReadNotificationSuppressionStatus();
+            Assert.True(activeStatus.Active);
+            Assert.Equal("active", activeStatus.ActionState);
+
+            store.WriteControlEvent(new AgentControlEvent(
+                TimestampUtc: eventUtc.AddSeconds(30),
+                Action: "deep_work_notifications_restored",
+                TriggerState: "deep_work",
+                TriggerValue: 0.45d,
+                Confidence: 0.45d,
+                DurationSeconds: null,
+                EscalationLevel: "Auto",
+                Reversible: true,
+                Reason: "queued",
+                Contributors: [],
+                InterventionId: "dw-2",
+                PolicyId: "deep_work_notifications_v1",
+                Domain: "output_action",
+                WhatChanged: "Notification restore requested after deep work ended.",
+                HowToUndo: "No manual undo needed."));
+
+            AgentPendingIntervention restorePending = Assert.Single(store.ReadPendingInterventions("session-11", 10));
+            Assert.Equal("restore_notifications", restorePending.CommandType);
+
+            bool restoreAcked = store.AcknowledgeIntervention(new AgentInterventionAck(
+                InterventionId: "dw-2",
+                SessionId: "session-11",
+                AgentInstanceId: "useragent-11",
+                Result: "applied",
+                ErrorCode: null,
+                AppliedAtUtc: eventUtc.AddSeconds(35)));
+            Assert.True(restoreAcked);
+
+            AgentNotificationSuppressionStatus inactiveStatus = store.ReadNotificationSuppressionStatus();
+            Assert.False(inactiveStatus.Active);
+            Assert.Equal("inactive", inactiveStatus.ActionState);
         }
         finally
         {

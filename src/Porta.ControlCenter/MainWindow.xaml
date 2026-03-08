@@ -587,6 +587,7 @@
                                                                 </Border>
                                                             </Grid>
                                                             <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" />
+                                                            <TextBlock Text="{Binding Status}" Foreground="#93C5FD" TextWrapping="Wrap" FontSize="11" Margin="0,6,0,0" />
                                                         </StackPanel>
                                                     </Border>
                                                 </DataTemplate>
@@ -649,6 +650,7 @@
                                                                 </Border>
                                                             </Grid>
                                                             <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,6" />
+                                                            <TextBlock Text="{Binding Status}" Foreground="#93C5FD" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,6" />
                                                             <TextBlock Text="{Binding When}" Foreground="#94A3B8" FontSize="11" />
                                                         </StackPanel>
                                                     </Border>
@@ -711,6 +713,8 @@
                                     <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,10">
                                         <StackPanel>
                                             <TextBlock x:Name="ActionDrawerWhen" Text="When: Not available" Margin="0,0,0,6" Foreground="#CBD5E1" />
+                                            <TextBlock x:Name="ActionDrawerDecisionState" Text="Decision: Not available" Margin="0,0,0,6" Foreground="#93C5FD" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="ActionDrawerExecutionState" Text="Execution: Not available" Margin="0,0,0,6" Foreground="#93C5FD" TextWrapping="Wrap" />
                                             <TextBlock x:Name="ActionDrawerCooldown" Text="Cooldown remaining: Not available" Margin="0,0,0,6" Foreground="#CBD5E1" />
                                             <TextBlock x:Name="ActionDrawerUndo" Text="Undo: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#CBD5E1" />
                                             <TextBlock x:Name="ActionDrawerShortWhy" Text="Why: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" MaxHeight="58" />
@@ -975,7 +979,8 @@
                                 <TextBlock x:Name="TimelineDetailTimestamp" Text="Timestamp: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
                                 <TextBlock x:Name="TimelineDetailOverload" Text="Overload: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
                                 <TextBlock x:Name="TimelineDetailTrust" Text="Trust level: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailFocus" Text="Focus streak: Not available" Margin="0,0,0,10" Foreground="#F8FAFC" />
+                                <TextBlock x:Name="TimelineDetailFocus" Text="Focus streak: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                <TextBlock x:Name="TimelineDetailExecution" Text="Decision/Execution: Not available" TextWrapping="Wrap" Margin="0,0,0,10" Foreground="#93C5FD" />
                                 <TextBlock x:Name="TimelineDetailWhyHeader" Text="Why: Not available" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
                                 <TextBlock x:Name="TimelineDetailWhyFiv" Text="Clarity/Pressure/Jitter: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
                                 <TextBlock x:Name="TimelineDetailWhyReasons" Text="Top reasons: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Porta.Agent.Common.UserAgent;
 using Porta.Agent.Core;
+using Porta.Agent.Core.Outputs;
 using Porta.Agent.LocalApi;
 using Porta.Agent.Runtime.Input;
 using Porta.UserAgent.Interventions;
@@ -17,6 +18,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private readonly IUserAgentSessionContextStore _sessionContextStore;
     private readonly LocalApiClient _localApiClient = new();
     private readonly UserInterventionToastRenderer _toastRenderer = new();
+    private readonly UserSessionWindowsNotificationController _notificationController = new();
+    private readonly UserAgentNotificationSnapshotStore _notificationSnapshotStore = new();
     private readonly Dictionary<string, LocalApiInterventionAckRequest> _interventionAckCache = new(StringComparer.Ordinal);
     private readonly UserSessionSignalAggregator _signalAggregator = new();
     private readonly KeyboardHook _keyboardHook = new();
@@ -202,6 +205,14 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 ack = BuildToastAck(intervention);
                 break;
 
+            case "suppress_notifications":
+                ack = BuildNotificationSuppressAck(intervention);
+                break;
+
+            case "restore_notifications":
+                ack = BuildNotificationRestoreAck(intervention);
+                break;
+
             default:
                 ack = BuildAck(intervention, result: "failed", errorCode: "unsupported_command");
                 break;
@@ -229,6 +240,57 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         bool shown = _toastRenderer.TryShow(title, message, out string renderError);
         return BuildAck(intervention, shown ? "applied" : "failed", shown ? null : renderError);
+    }
+
+    private LocalApiInterventionAckRequest BuildNotificationSuppressAck(LocalApiInterventionPendingResponse intervention)
+    {
+        NotificationControllerSnapshotResult snapshotResult = _notificationController.GetSnapshot();
+        if (!snapshotResult.Succeeded)
+        {
+            return BuildAck(intervention, result: "failed", errorCode: NormalizeErrorCode(snapshotResult.ErrorCode, "snapshot_capture_failed"));
+        }
+
+        if (!snapshotResult.Snapshot.IsValid)
+        {
+            return BuildAck(intervention, result: "failed", errorCode: "snapshot_invalid");
+        }
+
+        try
+        {
+            _notificationSnapshotStore.Save(snapshotResult.Snapshot);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist notification snapshot for intervention {InterventionId}.", intervention.InterventionId);
+            return BuildAck(intervention, result: "failed", errorCode: "snapshot_persist_failed");
+        }
+
+        NotificationControllerActionResult applyResult = _notificationController.ApplySuppression(snapshotResult.Snapshot);
+        if (!applyResult.Succeeded)
+        {
+            _notificationSnapshotStore.Clear();
+            return BuildAck(intervention, result: "failed", errorCode: NormalizeErrorCode(applyResult.ErrorCode, "suppression_apply_failed"));
+        }
+
+        return BuildAck(intervention, result: "applied", errorCode: null);
+    }
+
+    private LocalApiInterventionAckRequest BuildNotificationRestoreAck(LocalApiInterventionPendingResponse intervention)
+    {
+        NotificationControllerSnapshot? snapshot = _notificationSnapshotStore.Load();
+        if (!snapshot.HasValue || !snapshot.Value.IsValid)
+        {
+            return BuildAck(intervention, result: "failed", errorCode: "snapshot_missing_or_invalid");
+        }
+
+        NotificationControllerActionResult restoreResult = _notificationController.Restore(snapshot.Value);
+        if (!restoreResult.Succeeded)
+        {
+            return BuildAck(intervention, result: "failed", errorCode: NormalizeErrorCode(restoreResult.ErrorCode, "suppression_restore_failed"));
+        }
+
+        _notificationSnapshotStore.Clear();
+        return BuildAck(intervention, result: "applied", errorCode: null);
     }
 
     private LocalApiInterventionAckRequest BuildAck(
@@ -414,5 +476,15 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             errorCode = "payload_parse_failed";
             return false;
         }
+    }
+
+    private static string NormalizeErrorCode(string? errorCode, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(errorCode))
+        {
+            return fallback;
+        }
+
+        return errorCode.Trim().ToLowerInvariant();
     }
 }

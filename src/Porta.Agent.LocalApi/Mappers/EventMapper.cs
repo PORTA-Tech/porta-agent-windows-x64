@@ -42,7 +42,14 @@ internal static class EventMapper
             ev.HowToUndo,
             ev.ReversalApplied,
             ev.CooldownEndTimestampUtc,
-            ev.LifecycleState);
+            ev.LifecycleState,
+            ev.CommandType,
+            ev.ExecutionState,
+            ev.DecidedAtUtc,
+            ev.AppliedAtUtc,
+            ev.AckedAtUtc,
+            ev.ExecutionErrorCode,
+            ev.ExecutorAgentInstanceId);
     }
 
     private static string ToEventType(string action)
