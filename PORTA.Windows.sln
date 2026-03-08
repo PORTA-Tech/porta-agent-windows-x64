@@ -1,4 +1,4 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
 VisualStudioVersion = 18.3.11505.172
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -21,6 +21,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Porta.Agent.ValidationRunner", "src\Porta.Agent.ValidationRunner\Porta.Agent.ValidationRunner.csproj", "{128F8138-227E-4951-8DA6-1834C79052F1}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Porta.Agent.Core.Tests", "src\Porta.Agent.Core.Tests\Porta.Agent.Core.Tests.csproj", "{468C3EB0-75C2-40BF-ADC2-D3D183D8D75A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Porta.UserAgent.Tests", "src\Porta.UserAgent.Tests\Porta.UserAgent.Tests.csproj", "{F6D6F3F2-C053-40EB-886E-1C91840BAF66}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -64,6 +66,10 @@ Global
 		{468C3EB0-75C2-40BF-ADC2-D3D183D8D75A}.Debug|x64.Build.0 = Debug|Any CPU
 		{468C3EB0-75C2-40BF-ADC2-D3D183D8D75A}.Release|x64.ActiveCfg = Release|Any CPU
 		{468C3EB0-75C2-40BF-ADC2-D3D183D8D75A}.Release|x64.Build.0 = Release|Any CPU
+		{F6D6F3F2-C053-40EB-886E-1C91840BAF66}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F6D6F3F2-C053-40EB-886E-1C91840BAF66}.Debug|x64.Build.0 = Debug|Any CPU
+		{F6D6F3F2-C053-40EB-886E-1C91840BAF66}.Release|x64.ActiveCfg = Release|Any CPU
+		{F6D6F3F2-C053-40EB-886E-1C91840BAF66}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -78,6 +84,7 @@ Global
 		{B1A0C0C8-A8EB-4B86-AF86-EEC7F9555B92} = {EFF5CA7A-74AE-48FE-A5FC-2827967A2509}
 		{128F8138-227E-4951-8DA6-1834C79052F1} = {EFF5CA7A-74AE-48FE-A5FC-2827967A2509}
 		{468C3EB0-75C2-40BF-ADC2-D3D183D8D75A} = {EFF5CA7A-74AE-48FE-A5FC-2827967A2509}
+		{F6D6F3F2-C053-40EB-886E-1C91840BAF66} = {EFF5CA7A-74AE-48FE-A5FC-2827967A2509}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {82734A63-F484-4A5C-8841-830BFE7A52B9}

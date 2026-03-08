@@ -5,7 +5,7 @@ using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
 
-internal sealed class UserInterventionToastRenderer : IDisposable
+internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter, IDisposable
 {
     private readonly BlockingCollection<RendererCommand> _queue = [];
     private readonly TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);

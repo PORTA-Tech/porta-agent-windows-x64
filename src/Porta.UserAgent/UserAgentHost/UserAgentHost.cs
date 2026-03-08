@@ -10,7 +10,6 @@ using Porta.Agent.Runtime.Input;
 using Porta.UserAgent.Interventions;
 using Porta.UserAgent.Input;
 using System.Diagnostics;
-using System.Text.Json;
 
 public sealed class UserAgentHost : BackgroundService, IDisposable
 {
@@ -20,7 +19,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private readonly UserInterventionToastRenderer _toastRenderer = new();
     private readonly UserSessionWindowsNotificationController _notificationController = new();
     private readonly UserAgentNotificationSnapshotStore _notificationSnapshotStore = new();
-    private readonly Dictionary<string, LocalApiInterventionAckRequest> _interventionAckCache = new(StringComparer.Ordinal);
+    private readonly UserAgentInterventionExecutor _interventionExecutor;
     private readonly UserSessionSignalAggregator _signalAggregator = new();
     private readonly KeyboardHook _keyboardHook = new();
     private readonly MouseHook _mouseHook = new();
@@ -39,6 +38,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     {
         _logger = logger;
         _sessionContextStore = sessionContextStore;
+        _interventionExecutor = new UserAgentInterventionExecutor(
+            _toastRenderer,
+            new UserSessionPresentationGate(),
+            _notificationController,
+            _notificationSnapshotStore);
         _keyboardHook.KeyChanged += OnKeyboardChanged;
         _mouseHook.MouseMoved += OnMouseMoved;
         _mouseHook.ScrollDeltaChanged += OnMouseWheelChanged;
@@ -244,122 +248,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
     private async Task ExecuteInterventionAsync(LocalApiInterventionPendingResponse intervention, CancellationToken token)
     {
-        if (_interventionAckCache.TryGetValue(intervention.InterventionId, out LocalApiInterventionAckRequest? cachedAck))
-        {
-            await SendInterventionAckAsync(cachedAck, token).ConfigureAwait(false);
-            return;
-        }
-
-        LocalApiInterventionAckRequest ack;
-        switch ((intervention.CommandType ?? string.Empty).Trim().ToLowerInvariant())
-        {
-            case "show_break_toast":
-            case "show_focus_lock_in_toast":
-            case "show_stretch_break_toast":
-                ack = BuildToastAck(intervention);
-                break;
-
-            case "suppress_notifications":
-                ack = BuildNotificationSuppressAck(intervention);
-                break;
-
-            case "restore_notifications":
-                ack = BuildNotificationRestoreAck(intervention);
-                break;
-
-            default:
-                ack = BuildAck(intervention, result: "failed", errorCode: "unsupported_command");
-                break;
-        }
-
-        RememberInterventionAck(intervention.InterventionId, ack);
+        LocalApiInterventionAckRequest ack = _interventionExecutor.ExecuteOrReplay(
+            intervention,
+            BuildSessionId(_sessionId),
+            _agentInstanceId);
         await SendInterventionAckAsync(ack, token).ConfigureAwait(false);
-    }
-
-    private LocalApiInterventionAckRequest BuildToastAck(LocalApiInterventionPendingResponse intervention)
-    {
-        if (!TryParseToastPayload(intervention.PayloadJson, out string title, out string message, out string errorCode))
-        {
-            return BuildAck(intervention, result: "failed", errorCode);
-        }
-
-        if (!UserSessionNativeSignals.IsInterventionPresentationAvailable(out string sessionError))
-        {
-            _logger.LogInformation(
-                "Skipping intervention {InterventionId} because the user session cannot present UI right now. Reason={Reason}",
-                intervention.InterventionId,
-                sessionError);
-            return BuildAck(intervention, result: "failed", sessionError);
-        }
-
-        bool shown = _toastRenderer.TryShow(title, message, out string renderError);
-        return BuildAck(intervention, shown ? "applied" : "failed", shown ? null : renderError);
-    }
-
-    private LocalApiInterventionAckRequest BuildNotificationSuppressAck(LocalApiInterventionPendingResponse intervention)
-    {
-        NotificationControllerSnapshotResult snapshotResult = _notificationController.GetSnapshot();
-        if (!snapshotResult.Succeeded)
-        {
-            return BuildAck(intervention, result: "failed", errorCode: NormalizeErrorCode(snapshotResult.ErrorCode, "snapshot_capture_failed"));
-        }
-
-        if (!snapshotResult.Snapshot.IsValid)
-        {
-            return BuildAck(intervention, result: "failed", errorCode: "snapshot_invalid");
-        }
-
-        try
-        {
-            _notificationSnapshotStore.Save(snapshotResult.Snapshot);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to persist notification snapshot for intervention {InterventionId}.", intervention.InterventionId);
-            return BuildAck(intervention, result: "failed", errorCode: "snapshot_persist_failed");
-        }
-
-        NotificationControllerActionResult applyResult = _notificationController.ApplySuppression(snapshotResult.Snapshot);
-        if (!applyResult.Succeeded)
-        {
-            _notificationSnapshotStore.Clear();
-            return BuildAck(intervention, result: "failed", errorCode: NormalizeErrorCode(applyResult.ErrorCode, "suppression_apply_failed"));
-        }
-
-        return BuildAck(intervention, result: "applied", errorCode: null);
-    }
-
-    private LocalApiInterventionAckRequest BuildNotificationRestoreAck(LocalApiInterventionPendingResponse intervention)
-    {
-        NotificationControllerSnapshot? snapshot = _notificationSnapshotStore.Load();
-        if (!snapshot.HasValue || !snapshot.Value.IsValid)
-        {
-            return BuildAck(intervention, result: "failed", errorCode: "snapshot_missing_or_invalid");
-        }
-
-        NotificationControllerActionResult restoreResult = _notificationController.Restore(snapshot.Value);
-        if (!restoreResult.Succeeded)
-        {
-            return BuildAck(intervention, result: "failed", errorCode: NormalizeErrorCode(restoreResult.ErrorCode, "suppression_restore_failed"));
-        }
-
-        _notificationSnapshotStore.Clear();
-        return BuildAck(intervention, result: "applied", errorCode: null);
-    }
-
-    private LocalApiInterventionAckRequest BuildAck(
-        LocalApiInterventionPendingResponse intervention,
-        string result,
-        string? errorCode)
-    {
-        return new LocalApiInterventionAckRequest(
-            SchemaVer: 1,
-            InterventionId: intervention.InterventionId,
-            SessionId: BuildSessionId(_sessionId),
-            AgentInstanceId: _agentInstanceId,
-            Result: result,
-            ErrorCode: errorCode,
-            AppliedAtUtc: DateTimeOffset.UtcNow);
     }
 
     private async Task SendInterventionAckAsync(LocalApiInterventionAckRequest ack, CancellationToken token)
@@ -375,21 +268,6 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             ack.InterventionId,
             ack.Result,
             response?.Message ?? "null");
-    }
-
-    private void RememberInterventionAck(string interventionId, LocalApiInterventionAckRequest ack)
-    {
-        if (string.IsNullOrWhiteSpace(interventionId))
-        {
-            return;
-        }
-
-        _interventionAckCache[interventionId] = ack;
-        while (_interventionAckCache.Count > 256)
-        {
-            string oldestKey = _interventionAckCache.Keys.First();
-            _interventionAckCache.Remove(oldestKey);
-        }
     }
 
     private void PublishSessionContext()
@@ -496,66 +374,6 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private static string BuildSessionId(int sessionId)
     {
         return $"session-{Math.Max(0, sessionId)}";
-    }
-
-    private static bool TryParseToastPayload(
-        string payloadJson,
-        out string title,
-        out string message,
-        out string errorCode)
-    {
-        title = "PORTA";
-        message = string.Empty;
-        errorCode = string.Empty;
-        if (string.IsNullOrWhiteSpace(payloadJson))
-        {
-            errorCode = "missing_payload";
-            return false;
-        }
-
-        try
-        {
-            using JsonDocument doc = JsonDocument.Parse(payloadJson);
-            JsonElement root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object)
-            {
-                errorCode = "invalid_payload";
-                return false;
-            }
-
-            if (root.TryGetProperty("title", out JsonElement titleNode) && titleNode.ValueKind == JsonValueKind.String)
-            {
-                title = titleNode.GetString() ?? "PORTA";
-            }
-
-            if (root.TryGetProperty("message", out JsonElement messageNode) && messageNode.ValueKind == JsonValueKind.String)
-            {
-                message = messageNode.GetString() ?? string.Empty;
-            }
-
-            if (string.IsNullOrWhiteSpace(message))
-            {
-                errorCode = "missing_toast_message";
-                return false;
-            }
-
-            return true;
-        }
-        catch
-        {
-            errorCode = "payload_parse_failed";
-            return false;
-        }
-    }
-
-    private static string NormalizeErrorCode(string? errorCode, string fallback)
-    {
-        if (string.IsNullOrWhiteSpace(errorCode))
-        {
-            return fallback;
-        }
-
-        return errorCode.Trim().ToLowerInvariant();
     }
 
     private static UserInterventionToastRenderer.UserTrayMode MapTrayMode(UserAgentVisualMode mode)

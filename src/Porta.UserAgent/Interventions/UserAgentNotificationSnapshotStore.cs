@@ -3,7 +3,7 @@ using Porta.Agent.Core.Outputs;
 
 namespace Porta.UserAgent.Interventions;
 
-internal sealed class UserAgentNotificationSnapshotStore
+internal sealed class UserAgentNotificationSnapshotStore : IUserAgentNotificationSnapshotStore
 {
     private const int CurrentSchemaVersion = 1;
     private readonly string _path;
