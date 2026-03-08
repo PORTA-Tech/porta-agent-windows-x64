@@ -9,6 +9,7 @@ public interface IAgentCoreController
     AgentInputSummary GetInputsSummary(int windowSeconds = 60);
     IReadOnlyList<AgentControlEvent> GetRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null);
     IReadOnlyList<AgentControlEvent> GetEventsSinceId(long sinceIdExclusive, int limit = 200);
+    IReadOnlyList<AgentPendingIntervention> GetPendingInterventions(string sessionId, int limit = 20);
     AgentTimelineData GetTimeline(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,
@@ -26,6 +27,7 @@ public interface IAgentCoreController
     void MarkError(string message);
     void MarkHealthyHeartbeat();
     void ApplyBrainSnapshot(AgentBrainSnapshot snapshot, bool backendConnected);
+    void AcknowledgeIntervention(AgentInterventionAck ack);
     void TriggerTestIntervention(string action);
     string ExportBundle();
 }

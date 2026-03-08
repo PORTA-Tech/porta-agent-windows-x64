@@ -339,6 +339,30 @@ public sealed record LocalApiPauseRequest(
 public sealed record LocalApiTestInterventionRequest(
     string Action);
 
+public sealed record LocalApiInterventionPendingResponse(
+    long Id,
+    [property: JsonPropertyName("intervention_id")] string InterventionId,
+    [property: JsonPropertyName("session_id")] string SessionId,
+    [property: JsonPropertyName("action")] string Action,
+    [property: JsonPropertyName("command_type")] string CommandType,
+    [property: JsonPropertyName("payload_json")] string PayloadJson,
+    [property: JsonPropertyName("decided_at_utc")] DateTimeOffset DecidedAtUtc,
+    [property: JsonPropertyName("execution_state")] string ExecutionState,
+    [property: JsonPropertyName("policy_id")] string PolicyId,
+    [property: JsonPropertyName("domain")] string Domain,
+    [property: JsonPropertyName("confidence")] double Confidence,
+    [property: JsonPropertyName("escalation_level")] string EscalationLevel,
+    [property: JsonPropertyName("what_changed")] string WhatChanged);
+
+public sealed record LocalApiInterventionAckRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("intervention_id")] string? InterventionId,
+    [property: JsonPropertyName("session_id")] string? SessionId,
+    [property: JsonPropertyName("agent_instance_id")] string? AgentInstanceId,
+    [property: JsonPropertyName("result")] string? Result,
+    [property: JsonPropertyName("error_code")] string? ErrorCode,
+    [property: JsonPropertyName("applied_at_utc")] DateTimeOffset? AppliedAtUtc);
+
 public sealed record LocalApiInputSignalsRequest(
     [property: JsonPropertyName("schema_ver")] int SchemaVer,
     [property: JsonPropertyName("agent_instance_id")] string? AgentInstanceId,

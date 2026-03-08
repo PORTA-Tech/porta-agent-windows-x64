@@ -37,6 +37,8 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
 
     public bool DbMigrationFailed { get; set; }
     public IReadOnlyList<AgentControlEvent> RecentEvents { get; set; } = [];
+    public IReadOnlyList<AgentPendingIntervention> PendingInterventions { get; set; } = [];
+    public List<AgentInterventionAck> AckedInterventions { get; } = [];
     public AgentConsentRecord? LatestConsent { get; set; } = new(
         TimestampUtc: DateTimeOffset.UtcNow,
         Active: true,
@@ -78,6 +80,16 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null) => RecentEvents.Take(limit).ToList();
     public IReadOnlyList<AgentControlEvent> ReadEventsSinceId(long sinceIdExclusive, int limit = 200) => [];
     public IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000) => [];
+    public IReadOnlyList<AgentPendingIntervention> ReadPendingInterventions(string sessionId, int limit = 20)
+        => PendingInterventions
+            .Where(i => string.Equals(i.SessionId, sessionId, StringComparison.Ordinal))
+            .Take(limit)
+            .ToList();
+    public bool AcknowledgeIntervention(AgentInterventionAck ack)
+    {
+        AckedInterventions.Add(ack);
+        return true;
+    }
     public AgentStorageInfo ReadStorageInfo() => new(RetentionDays: 90, DatabaseBytes: 0);
     public AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null) => new(
         DateUtc: dateUtc ?? DateOnly.FromDateTime(DateTime.UtcNow),

@@ -1270,6 +1270,230 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
     }
 
+    public IReadOnlyList<AgentPendingIntervention> ReadPendingInterventions(string sessionId, int limit = 20)
+    {
+        string normalizedSessionId = string.IsNullOrWhiteSpace(sessionId)
+            ? string.Empty
+            : sessionId.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedSessionId))
+        {
+            return [];
+        }
+
+        lock (_gate)
+        {
+            int boundedLimit = Math.Clamp(limit, 1, 100);
+            var rows = new List<(AgentPendingIntervention Pending, bool ClaimSession)>(boundedLimit);
+
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            try
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText =
+                    """
+                    SELECT
+                        id,
+                        intervention_id,
+                        session_id,
+                        action,
+                        command_type,
+                        payload_json,
+                        decided_at_utc,
+                        execution_state,
+                        policy_id,
+                        domain,
+                        confidence,
+                        escalation_level,
+                        what_changed
+                    FROM interventions
+                    WHERE command_type <> ''
+                      AND execution_state = 'decided'
+                      AND (session_id = '' OR session_id = $session_id)
+                    ORDER BY decided_at_utc ASC, id ASC
+                    LIMIT $limit;
+                    """;
+                cmd.Parameters.AddWithValue("$session_id", normalizedSessionId);
+                cmd.Parameters.AddWithValue("$limit", boundedLimit);
+
+                using SqliteDataReader reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    long rowId = reader.GetInt64(0);
+                    string storedSessionId = ReadStringOrFallback(reader, 2, string.Empty);
+                    bool claimSession = string.IsNullOrWhiteSpace(storedSessionId);
+                    string effectiveSessionId = claimSession ? normalizedSessionId : storedSessionId;
+                    DateTimeOffset decidedAtUtc = ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 6, string.Empty))
+                        ?? DateTimeOffset.UtcNow;
+                    rows.Add((
+                        new AgentPendingIntervention(
+                            RowId: rowId,
+                            InterventionId: ReadStringOrFallback(reader, 1, string.Empty),
+                            SessionId: effectiveSessionId,
+                            Action: reader.GetString(3),
+                            CommandType: reader.GetString(4),
+                            PayloadJson: ReadStringOrFallback(reader, 5, "{}"),
+                            DecidedAtUtc: decidedAtUtc,
+                            ExecutionState: reader.GetString(7),
+                            PolicyId: ReadStringOrFallback(reader, 8, "n/a"),
+                            Domain: ReadStringOrFallback(reader, 9, "control"),
+                            Confidence: reader.GetDouble(10),
+                            EscalationLevel: ReadStringOrFallback(reader, 11, "Inform"),
+                            WhatChanged: ReadStringOrFallback(reader, 12, string.Empty)),
+                        claimSession));
+                }
+
+                foreach ((AgentPendingIntervention pending, bool claimSession) in rows)
+                {
+                    if (!claimSession)
+                    {
+                        continue;
+                    }
+
+                    using var update = connection.CreateCommand();
+                    update.Transaction = tx;
+                    update.CommandText =
+                        """
+                        UPDATE interventions
+                        SET session_id = $session_id
+                        WHERE id = $id
+                          AND (session_id IS NULL OR session_id = '');
+                        """;
+                    update.Parameters.AddWithValue("$session_id", normalizedSessionId);
+                    update.Parameters.AddWithValue("$id", pending.RowId);
+                    update.ExecuteNonQuery();
+                }
+
+                tx.Commit();
+                return rows.Select(static row => row.Pending).ToList();
+            }
+            catch
+            {
+                TryRollback(tx);
+                throw;
+            }
+        }
+    }
+
+    public bool AcknowledgeIntervention(AgentInterventionAck ack)
+    {
+        ArgumentNullException.ThrowIfNull(ack);
+        string interventionId = (ack.InterventionId ?? string.Empty).Trim();
+        string sessionId = (ack.SessionId ?? string.Empty).Trim();
+        string agentInstanceId = (ack.AgentInstanceId ?? string.Empty).Trim();
+        string normalizedResult = NormalizeExecutionResult(ack.Result);
+        if (string.IsNullOrWhiteSpace(interventionId)
+            || string.IsNullOrWhiteSpace(sessionId)
+            || string.IsNullOrWhiteSpace(agentInstanceId)
+            || string.IsNullOrWhiteSpace(normalizedResult))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            try
+            {
+                using var read = connection.CreateCommand();
+                read.Transaction = tx;
+                read.CommandText =
+                    """
+                    SELECT
+                        id,
+                        session_id,
+                        execution_state
+                    FROM interventions
+                    WHERE intervention_id = $intervention_id
+                      AND command_type <> ''
+                      AND (session_id = '' OR session_id = $session_id)
+                    ORDER BY id DESC
+                    LIMIT 1;
+                    """;
+                read.Parameters.AddWithValue("$intervention_id", interventionId);
+                read.Parameters.AddWithValue("$session_id", sessionId);
+
+                using SqliteDataReader reader = read.ExecuteReader();
+                if (!reader.Read())
+                {
+                    TryRollback(tx);
+                    return false;
+                }
+
+                long rowId = reader.GetInt64(0);
+                string existingSessionId = ReadStringOrFallback(reader, 1, string.Empty);
+                string existingExecutionState = ReadStringOrFallback(reader, 2, "decided");
+                reader.Close();
+
+                if (string.Equals(existingExecutionState, normalizedResult, StringComparison.Ordinal))
+                {
+                    if (string.IsNullOrWhiteSpace(existingSessionId))
+                    {
+                        using var claim = connection.CreateCommand();
+                        claim.Transaction = tx;
+                        claim.CommandText =
+                            """
+                            UPDATE interventions
+                            SET session_id = $session_id
+                            WHERE id = $id
+                              AND (session_id IS NULL OR session_id = '');
+                            """;
+                        claim.Parameters.AddWithValue("$session_id", sessionId);
+                        claim.Parameters.AddWithValue("$id", rowId);
+                        claim.ExecuteNonQuery();
+                    }
+
+                    tx.Commit();
+                    return true;
+                }
+
+                string appliedAtUtc = ack.AppliedAtUtc.ToUniversalTime().ToString("O");
+                using var update = connection.CreateCommand();
+                update.Transaction = tx;
+                update.CommandText =
+                    """
+                    UPDATE interventions
+                    SET
+                        session_id = CASE
+                            WHEN session_id IS NULL OR session_id = '' THEN $session_id
+                            ELSE session_id
+                        END,
+                        execution_state = $execution_state,
+                        applied_at_utc = CASE
+                            WHEN $execution_state = 'applied' THEN $applied_at_utc
+                            ELSE applied_at_utc
+                        END,
+                        acked_at_utc = $applied_at_utc,
+                        error_code = $error_code,
+                        retry_count = CASE
+                            WHEN $execution_state = 'failed' THEN retry_count + 1
+                            ELSE retry_count
+                        END,
+                        executor_agent_instance_id = $agent_instance_id
+                    WHERE id = $id;
+                    """;
+                update.Parameters.AddWithValue("$session_id", sessionId);
+                update.Parameters.AddWithValue("$execution_state", normalizedResult);
+                update.Parameters.AddWithValue("$applied_at_utc", appliedAtUtc);
+                update.Parameters.AddWithValue("$error_code", normalizedResult == "failed"
+                    ? (ack.ErrorCode?.Trim() ?? string.Empty)
+                    : string.Empty);
+                update.Parameters.AddWithValue("$agent_instance_id", agentInstanceId);
+                update.Parameters.AddWithValue("$id", rowId);
+                bool updated = update.ExecuteNonQuery() == 1;
+                tx.Commit();
+                return updated;
+            }
+            catch
+            {
+                TryRollback(tx);
+                throw;
+            }
+        }
+    }
+
     public AgentStorageInfo ReadStorageInfo()
     {
         lock (_gate)
@@ -4515,6 +4739,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private static void InsertInterventionEvent(SqliteConnection connection, SqliteTransaction tx, AgentControlEvent controlEvent)
     {
+        string commandType = ResolveInterventionCommandType(controlEvent.Action);
+        string payloadJson = BuildInterventionPayloadJson(controlEvent, commandType);
+        string executionState = string.IsNullOrWhiteSpace(commandType) ? "decision_only" : "decided";
+        string decidedAtUtc = Time.toIsoUtcMsString(controlEvent.TimestampUtc.ToUnixTimeMilliseconds());
+
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText =
@@ -4571,11 +4800,22 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 how_to_undo,
                 reversal_applied,
                 cooldown_end_timestamp_utc,
-                lifecycle_state
+                lifecycle_state,
+                session_id,
+                command_type,
+                payload_json,
+                execution_state,
+                decided_at_utc,
+                applied_at_utc,
+                acked_at_utc,
+                error_code,
+                retry_count,
+                executor_agent_instance_id
             ) VALUES (
                 $ts, $action, $trigger_state, $trigger_value, $confidence, $duration,
                 $escalation, $reversible, $reason, $contributors,
-                $intervention_id, $policy_id, $domain, $planned_end, $actual_end, $previous_state, $what_changed, $how_to_undo, $reversal_applied, $cooldown_end, $lifecycle_state
+                $intervention_id, $policy_id, $domain, $planned_end, $actual_end, $previous_state, $what_changed, $how_to_undo, $reversal_applied, $cooldown_end, $lifecycle_state,
+                '', $command_type, $payload_json, $execution_state, $decided_at_utc, '', '', '', 0, ''
             );
             """;
         string eventTsUtc = Time.toIsoUtcMsString(controlEvent.TimestampUtc.ToUnixTimeMilliseconds());
@@ -4627,7 +4867,70 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         cmd.Parameters.AddWithValue("$reversal_applied", controlEvent.ReversalApplied ? 1 : 0);
         cmd.Parameters.AddWithValue("$cooldown_end", controlEvent.CooldownEndTimestampUtc?.ToString("O") ?? string.Empty);
         cmd.Parameters.AddWithValue("$lifecycle_state", controlEvent.LifecycleState);
+        cmd.Parameters.AddWithValue("$command_type", commandType);
+        cmd.Parameters.AddWithValue("$payload_json", payloadJson);
+        cmd.Parameters.AddWithValue("$execution_state", executionState);
+        cmd.Parameters.AddWithValue("$decided_at_utc", decidedAtUtc);
         cmd.ExecuteNonQuery();
+    }
+
+    private static string ResolveInterventionCommandType(string action)
+    {
+        string normalized = string.IsNullOrWhiteSpace(action)
+            ? string.Empty
+            : action.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "break_suggestion" => "show_break_toast",
+            "focus_lock_in_suggestion" => "show_focus_lock_in_toast",
+            "stretch_break_suggestion" => "show_stretch_break_toast",
+            _ => string.Empty
+        };
+    }
+
+    private static string BuildInterventionPayloadJson(AgentControlEvent controlEvent, string commandType)
+    {
+        if (string.IsNullOrWhiteSpace(commandType))
+        {
+            return "{}";
+        }
+
+        string action = controlEvent.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+        string title = "PORTA";
+        string message = action switch
+        {
+            "break_suggestion" => "Take a short break.",
+            "focus_lock_in_suggestion" => "Stay with this task and protect your focus.",
+            "stretch_break_suggestion" => "Take a stretch break.",
+            _ => controlEvent.WhatChanged
+        };
+
+        return JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            action,
+            command_type = commandType,
+            title,
+            message,
+            duration_seconds = controlEvent.DurationSeconds ?? 8,
+            confidence = controlEvent.Confidence,
+            policy_id = controlEvent.PolicyId,
+            domain = controlEvent.Domain,
+            intervention_id = controlEvent.InterventionId
+        });
+    }
+
+    private static string NormalizeExecutionResult(string result)
+    {
+        string normalized = string.IsNullOrWhiteSpace(result)
+            ? string.Empty
+            : result.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "applied" => "applied",
+            "failed" => "failed",
+            _ => string.Empty
+        };
     }
 
     private static bool IsUniqueConstraintViolation(SqliteException ex)

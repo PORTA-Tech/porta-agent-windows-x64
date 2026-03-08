@@ -363,6 +363,31 @@ public sealed class AgentCoreController : IAgentCoreController
         return _stateStore.ReadEventsSinceId(safeSinceId, boundedLimit);
     }
 
+    public IReadOnlyList<AgentPendingIntervention> GetPendingInterventions(string sessionId, int limit = 20)
+    {
+        string normalizedSessionId = sessionId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedSessionId))
+        {
+            throw new ArgumentException("missing_session_id", nameof(sessionId));
+        }
+
+        lock (_gate)
+        {
+            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+            UserAgentSessionContextSnapshot? sessionContext = ReadFreshUserAgentSessionContextLocked(nowUtc);
+            if (sessionContext is not null)
+            {
+                string heartbeatSessionId = BuildSessionOwnerId(sessionContext.SessionId);
+                if (!string.Equals(heartbeatSessionId, normalizedSessionId, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(InputSignalsSourceSessionMismatch);
+                }
+            }
+
+            return _stateStore.ReadPendingInterventions(normalizedSessionId, Math.Clamp(limit, 1, 50));
+        }
+    }
+
     public AgentTimelineData GetTimeline(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,
@@ -807,6 +832,40 @@ public sealed class AgentCoreController : IAgentCoreController
                 _lastEventTimestampUtc = DateTimeOffset.UtcNow;
             }
 
+            WriteDiagnosticsLocked(force: false);
+        }
+    }
+
+    public void AcknowledgeIntervention(AgentInterventionAck ack)
+    {
+        if (ack is null)
+        {
+            throw new ArgumentNullException(nameof(ack));
+        }
+
+        string sessionId = ack.SessionId?.Trim() ?? string.Empty;
+        string agentInstanceId = ack.AgentInstanceId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            throw new ArgumentException("missing_session_id", nameof(ack));
+        }
+
+        if (string.IsNullOrWhiteSpace(agentInstanceId))
+        {
+            throw new ArgumentException("missing_agent_instance_id", nameof(ack));
+        }
+
+        lock (_gate)
+        {
+            ValidateInputSignalSourceLocked(DateTimeOffset.UtcNow, agentInstanceId, sessionId);
+            bool acknowledged = _stateStore.AcknowledgeIntervention(ack);
+            if (!acknowledged)
+            {
+                throw new InvalidOperationException("intervention_not_found");
+            }
+
+            _lastError = null;
+            _lastEventTimestampUtc = ack.AppliedAtUtc;
             WriteDiagnosticsLocked(force: false);
         }
     }

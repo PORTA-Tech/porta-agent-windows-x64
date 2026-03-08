@@ -150,7 +150,17 @@ internal static class Schema
                 how_to_undo TEXT NOT NULL DEFAULT '',
                 reversal_applied INTEGER NOT NULL DEFAULT 0,
                 cooldown_end_timestamp_utc TEXT NOT NULL DEFAULT '',
-                lifecycle_state TEXT NOT NULL DEFAULT 'activated'
+                lifecycle_state TEXT NOT NULL DEFAULT 'activated',
+                session_id TEXT NOT NULL DEFAULT '',
+                command_type TEXT NOT NULL DEFAULT '',
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                execution_state TEXT NOT NULL DEFAULT 'decision_only',
+                decided_at_utc TEXT NOT NULL DEFAULT '',
+                applied_at_utc TEXT NOT NULL DEFAULT '',
+                acked_at_utc TEXT NOT NULL DEFAULT '',
+                error_code TEXT NOT NULL DEFAULT '',
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                executor_agent_instance_id TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS diagnostics_snapshots (
@@ -208,6 +218,8 @@ internal static class Schema
             CREATE INDEX IF NOT EXISTS ix_consent_ts ON consent(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_settings_ts ON settings(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_interventions_ts ON interventions(timestamp_utc);
+            CREATE INDEX IF NOT EXISTS ix_interventions_delivery_pending
+                ON interventions(session_id, execution_state, decided_at_utc, id);
             CREATE INDEX IF NOT EXISTS ix_diagnostics_ts ON diagnostics_snapshots(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_brain_snapshots_ts ON brain_snapshots(timestamp_utc);
             """;
@@ -266,6 +278,41 @@ internal static class Schema
         EnsureColumnExists(connection, "interventions", "reversal_applied", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(connection, "interventions", "cooldown_end_timestamp_utc", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(connection, "interventions", "lifecycle_state", "TEXT NOT NULL DEFAULT 'activated'");
+    }
+
+    internal static void ApplyInterventionsDeliveryContractV18(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "interventions", "session_id", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "interventions", "command_type", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "interventions", "payload_json", "TEXT NOT NULL DEFAULT '{}'");
+        EnsureColumnExists(connection, "interventions", "execution_state", "TEXT NOT NULL DEFAULT 'decision_only'");
+        EnsureColumnExists(connection, "interventions", "decided_at_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "interventions", "applied_at_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "interventions", "acked_at_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "interventions", "error_code", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "interventions", "retry_count", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "interventions", "executor_agent_instance_id", "TEXT NOT NULL DEFAULT ''");
+
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText =
+                """
+                UPDATE interventions
+                SET decided_at_utc = timestamp_utc
+                WHERE decided_at_utc IS NULL OR decided_at_utc = '';
+
+                UPDATE interventions
+                SET execution_state = CASE
+                    WHEN command_type IS NOT NULL AND command_type <> '' THEN 'decided'
+                    ELSE 'decision_only'
+                END
+                WHERE execution_state IS NULL OR execution_state = '';
+
+                CREATE INDEX IF NOT EXISTS ix_interventions_delivery_pending
+                    ON interventions(session_id, execution_state, decided_at_utc, id);
+                """;
+            cmd.ExecuteNonQuery();
+        }
     }
 
     internal static void ApplyContractSchemaV3(SqliteConnection connection)

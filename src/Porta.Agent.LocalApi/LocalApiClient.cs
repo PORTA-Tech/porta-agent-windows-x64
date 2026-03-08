@@ -432,6 +432,63 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    public async Task<IReadOnlyList<LocalApiInterventionPendingResponse>> GetPendingInterventionsAsync(
+        string sessionId,
+        int limit = 20,
+        CancellationToken token = default)
+    {
+        if (_settings == null || string.IsNullOrWhiteSpace(sessionId))
+        {
+            return [];
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            string path = $"/v1/interventions/pending?session_id={Uri.EscapeDataString(sessionId.Trim())}&limit={Math.Clamp(limit, 1, 50)}";
+            using HttpResponseMessage response = await _httpClient.GetAsync(path, token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return [];
+            }
+
+            IReadOnlyList<LocalApiInterventionPendingResponse>? payload =
+                await response.Content.ReadFromJsonAsync<IReadOnlyList<LocalApiInterventionPendingResponse>>(cancellationToken: token)
+                    .ConfigureAwait(false);
+            return payload ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public async Task<LocalApiAckResponse?> AcknowledgeInterventionAsync(
+        LocalApiInterventionAckRequest request,
+        CancellationToken token = default)
+    {
+        if (_settings == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/interventions/ack", content, token).ConfigureAwait(false);
+            LocalApiAckResponse? payload = await response.Content.ReadFromJsonAsync<LocalApiAckResponse>(cancellationToken: token).ConfigureAwait(false);
+            return payload ?? new LocalApiAckResponse(
+                Success: false,
+                Message: response.IsSuccessStatusCode ? "empty_response" : $"http_{(int)response.StatusCode}",
+                TimestampUtc: DateTimeOffset.UtcNow);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private async Task<bool> PostAsync(string path, object? payload, CancellationToken token)
     {
         if (_settings == null)

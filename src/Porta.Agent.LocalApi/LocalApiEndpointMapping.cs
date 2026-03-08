@@ -235,6 +235,108 @@ public static class LocalApiEndpointMapping
             }
         });
 
+        api.MapGet("/interventions/pending", (IAgentCoreController controller, string? session_id, int? limit) =>
+        {
+            string sessionId = session_id?.Trim() ?? string.Empty;
+            if (!IsValidIdentifier(sessionId))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_session_id",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            try
+            {
+                IReadOnlyList<AgentPendingIntervention> pending =
+                    controller.GetPendingInterventions(sessionId, limit ?? 20);
+                return Results.Ok(InterventionMapper.MapPendingOrdered(pending));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new LocalApiAckResponse(
+                    Success: false,
+                    Message: ex.Message,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+        });
+
+        api.MapPost("/interventions/ack", (IAgentCoreController controller, LocalApiInterventionAckRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_payload_or_schema",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            string interventionId = request.InterventionId?.Trim() ?? string.Empty;
+            if (!IsValidIdentifier(interventionId))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_intervention_id",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            string sessionId = request.SessionId?.Trim() ?? string.Empty;
+            if (!IsValidIdentifier(sessionId))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_session_id",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            string agentInstanceId = request.AgentInstanceId?.Trim() ?? string.Empty;
+            if (!IsValidIdentifier(agentInstanceId))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_agent_instance_id",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            string result = request.Result?.Trim().ToLowerInvariant() ?? string.Empty;
+            if (result is not "applied" and not "failed")
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_ack_result",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            try
+            {
+                controller.AcknowledgeIntervention(new AgentInterventionAck(
+                    InterventionId: interventionId,
+                    SessionId: sessionId,
+                    AgentInstanceId: agentInstanceId,
+                    Result: result,
+                    ErrorCode: request.ErrorCode?.Trim(),
+                    AppliedAtUtc: request.AppliedAtUtc ?? DateTimeOffset.UtcNow));
+                return Results.Ok(new LocalApiAckResponse(
+                    Success: true,
+                    Message: "intervention_acknowledged",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: ex.Message,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new LocalApiAckResponse(
+                    Success: false,
+                    Message: ex.Message,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+        });
+
         api.MapGet("/events/recent", (IAgentCoreController controller, int? limit, DateTimeOffset? since) =>
         {
             // Source order is pinned in SqliteBrainStateStore query:

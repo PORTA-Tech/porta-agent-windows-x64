@@ -23,6 +23,8 @@ public interface IBrainStateStore
     IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null);
     IReadOnlyList<AgentControlEvent> ReadEventsSinceId(long sinceIdExclusive, int limit = 200);
     IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000);
+    IReadOnlyList<AgentPendingIntervention> ReadPendingInterventions(string sessionId, int limit = 20);
+    bool AcknowledgeIntervention(AgentInterventionAck ack);
     AgentStorageInfo ReadStorageInfo();
     AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);
     string ExportBundle(

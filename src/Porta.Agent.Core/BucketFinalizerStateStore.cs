@@ -57,6 +57,10 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
 
     public IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000)
         => _inner.ReadEvents(fromUtc, toUtc, limit);
+    public IReadOnlyList<AgentPendingIntervention> ReadPendingInterventions(string sessionId, int limit = 20)
+        => _inner.ReadPendingInterventions(sessionId, limit);
+    public bool AcknowledgeIntervention(AgentInterventionAck ack)
+        => _inner.AcknowledgeIntervention(ack);
 
     public AgentStorageInfo ReadStorageInfo() => _inner.ReadStorageInfo();
     public AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null) => _inner.ReadTodaySummary(dateUtc);

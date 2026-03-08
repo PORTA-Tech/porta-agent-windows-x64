@@ -6,13 +6,18 @@ using Porta.Agent.Common.UserAgent;
 using Porta.Agent.Core;
 using Porta.Agent.LocalApi;
 using Porta.Agent.Runtime.Input;
+using Porta.UserAgent.Interventions;
 using Porta.UserAgent.Input;
 using System.Diagnostics;
+using System.Text.Json;
 
 public sealed class UserAgentHost : BackgroundService, IDisposable
 {
     private readonly ILogger<UserAgentHost> _logger;
     private readonly IUserAgentSessionContextStore _sessionContextStore;
+    private readonly LocalApiClient _localApiClient = new();
+    private readonly UserInterventionToastRenderer _toastRenderer = new();
+    private readonly Dictionary<string, LocalApiInterventionAckRequest> _interventionAckCache = new(StringComparer.Ordinal);
     private readonly UserSessionSignalAggregator _signalAggregator = new();
     private readonly KeyboardHook _keyboardHook = new();
     private readonly MouseHook _mouseHook = new();
@@ -68,6 +73,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             if (_captureContext == UserAgentCaptureContexts.UserSession)
             {
                 await FlushSignalsAsync(stoppingToken).ConfigureAwait(false);
+                await PollPendingInterventionsAsync(stoppingToken).ConfigureAwait(false);
             }
 
             try
@@ -96,6 +102,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         StopCaptureHooks();
         _keyboardHook.Dispose();
         _mouseHook.Dispose();
+        _toastRenderer.Dispose();
+        _localApiClient.Dispose();
         base.Dispose();
     }
 
@@ -128,8 +136,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             IdleSeconds: idleSeconds,
             LastInputEventUtc: snapshot.LastInputEventUtc);
 
-        using var client = new LocalApiClient();
-        if (!client.IsConfigured)
+        if (!_localApiClient.IsConfigured)
         {
             _signalAggregator.Requeue(snapshot);
             if (!_localApiUnavailableLogged)
@@ -141,7 +148,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             return;
         }
 
-        LocalApiAckResponse? ack = await client.SendInputSignalsAsync(request, token).ConfigureAwait(false);
+        LocalApiAckResponse? ack = await _localApiClient.SendInputSignalsAsync(request, token).ConfigureAwait(false);
         if (ack?.Success == true)
         {
             _windowStartUtc = windowEndUtc;
@@ -155,6 +162,118 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             windowStartUtc,
             windowEndUtc,
             ack?.Message ?? "null");
+    }
+
+    private async Task PollPendingInterventionsAsync(CancellationToken token)
+    {
+        if (!_localApiClient.IsConfigured)
+        {
+            return;
+        }
+
+        string sessionId = BuildSessionId(_sessionId);
+        IReadOnlyList<LocalApiInterventionPendingResponse> pending =
+            await _localApiClient.GetPendingInterventionsAsync(sessionId, limit: 12, token).ConfigureAwait(false);
+        if (pending.Count == 0)
+        {
+            return;
+        }
+
+        foreach (LocalApiInterventionPendingResponse intervention in pending)
+        {
+            await ExecuteInterventionAsync(intervention, token).ConfigureAwait(false);
+        }
+    }
+
+    private async Task ExecuteInterventionAsync(LocalApiInterventionPendingResponse intervention, CancellationToken token)
+    {
+        if (_interventionAckCache.TryGetValue(intervention.InterventionId, out LocalApiInterventionAckRequest? cachedAck))
+        {
+            await SendInterventionAckAsync(cachedAck, token).ConfigureAwait(false);
+            return;
+        }
+
+        LocalApiInterventionAckRequest ack;
+        switch ((intervention.CommandType ?? string.Empty).Trim().ToLowerInvariant())
+        {
+            case "show_break_toast":
+            case "show_focus_lock_in_toast":
+            case "show_stretch_break_toast":
+                ack = BuildToastAck(intervention);
+                break;
+
+            default:
+                ack = BuildAck(intervention, result: "failed", errorCode: "unsupported_command");
+                break;
+        }
+
+        RememberInterventionAck(intervention.InterventionId, ack);
+        await SendInterventionAckAsync(ack, token).ConfigureAwait(false);
+    }
+
+    private LocalApiInterventionAckRequest BuildToastAck(LocalApiInterventionPendingResponse intervention)
+    {
+        if (!TryParseToastPayload(intervention.PayloadJson, out string title, out string message, out string errorCode))
+        {
+            return BuildAck(intervention, result: "failed", errorCode);
+        }
+
+        if (!UserSessionNativeSignals.IsInterventionPresentationAvailable(out string sessionError))
+        {
+            _logger.LogInformation(
+                "Skipping intervention {InterventionId} because the user session cannot present UI right now. Reason={Reason}",
+                intervention.InterventionId,
+                sessionError);
+            return BuildAck(intervention, result: "failed", sessionError);
+        }
+
+        bool shown = _toastRenderer.TryShow(title, message, out string renderError);
+        return BuildAck(intervention, shown ? "applied" : "failed", shown ? null : renderError);
+    }
+
+    private LocalApiInterventionAckRequest BuildAck(
+        LocalApiInterventionPendingResponse intervention,
+        string result,
+        string? errorCode)
+    {
+        return new LocalApiInterventionAckRequest(
+            SchemaVer: 1,
+            InterventionId: intervention.InterventionId,
+            SessionId: BuildSessionId(_sessionId),
+            AgentInstanceId: _agentInstanceId,
+            Result: result,
+            ErrorCode: errorCode,
+            AppliedAtUtc: DateTimeOffset.UtcNow);
+    }
+
+    private async Task SendInterventionAckAsync(LocalApiInterventionAckRequest ack, CancellationToken token)
+    {
+        LocalApiAckResponse? response = await _localApiClient.AcknowledgeInterventionAsync(ack, token).ConfigureAwait(false);
+        if (response?.Success == true)
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            "Failed to acknowledge intervention {InterventionId}. Result={Result} Response={ResponseMessage}",
+            ack.InterventionId,
+            ack.Result,
+            response?.Message ?? "null");
+    }
+
+    private void RememberInterventionAck(string interventionId, LocalApiInterventionAckRequest ack)
+    {
+        if (string.IsNullOrWhiteSpace(interventionId))
+        {
+            return;
+        }
+
+        _interventionAckCache[interventionId] = ack;
+        while (_interventionAckCache.Count > 256)
+        {
+            string oldestKey = _interventionAckCache.Keys.First();
+            _interventionAckCache.Remove(oldestKey);
+        }
     }
 
     private void PublishSessionContext()
@@ -245,5 +364,55 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private static string BuildSessionId(int sessionId)
     {
         return $"session-{Math.Max(0, sessionId)}";
+    }
+
+    private static bool TryParseToastPayload(
+        string payloadJson,
+        out string title,
+        out string message,
+        out string errorCode)
+    {
+        title = "PORTA";
+        message = string.Empty;
+        errorCode = string.Empty;
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            errorCode = "missing_payload";
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(payloadJson);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                errorCode = "invalid_payload";
+                return false;
+            }
+
+            if (root.TryGetProperty("title", out JsonElement titleNode) && titleNode.ValueKind == JsonValueKind.String)
+            {
+                title = titleNode.GetString() ?? "PORTA";
+            }
+
+            if (root.TryGetProperty("message", out JsonElement messageNode) && messageNode.ValueKind == JsonValueKind.String)
+            {
+                message = messageNode.GetString() ?? string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                errorCode = "missing_toast_message";
+                return false;
+            }
+
+            return true;
+        }
+        catch
+        {
+            errorCode = "payload_parse_failed";
+            return false;
+        }
     }
 }

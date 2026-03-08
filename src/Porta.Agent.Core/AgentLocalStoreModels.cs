@@ -28,6 +28,29 @@ public sealed record AgentControlEvent(
     string WhyJson = "{\"schema_ver\":1}",
     string StateFlagsJson = "{\"schema_ver\":1}");
 
+public sealed record AgentPendingIntervention(
+    long RowId,
+    string InterventionId,
+    string SessionId,
+    string Action,
+    string CommandType,
+    string PayloadJson,
+    DateTimeOffset DecidedAtUtc,
+    string ExecutionState,
+    string PolicyId,
+    string Domain,
+    double Confidence,
+    string EscalationLevel,
+    string WhatChanged);
+
+public sealed record AgentInterventionAck(
+    string InterventionId,
+    string SessionId,
+    string AgentInstanceId,
+    string Result,
+    string? ErrorCode,
+    DateTimeOffset AppliedAtUtc);
+
 public sealed record AgentDiagnosticsSnapshot(
     DateTimeOffset TimestampUtc,
     bool BackendConnected,
