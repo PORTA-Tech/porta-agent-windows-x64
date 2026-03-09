@@ -1,6 +1,7 @@
 using Porta.Agent.Core.Analysis;
 using Porta.Agent.Core.Buckets;
 using Porta.Agent.Core.Db;
+using Porta.Agent.Core;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
@@ -50,6 +51,24 @@ public sealed class BreakSuggestionPolicyTests
         Assert.Equal("confidence_below_min", decision.ReasonCode);
         Assert.Equal(0, cooldownReads);
         Assert.False(decision.CooldownChecked);
+    }
+
+    [Fact]
+    public void ShouldTriggerBreak_UnstableQuality_FailsForLowTrust()
+    {
+        BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
+            BaselineGatingResult.Provisional(PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCap),
+            BuildStabilization(overloadActive: false),
+            BuildOverloadInference(confidence: 0.68d, quality: 0.40d),
+            BuildSession(saSeconds: 1800d),
+            BuildFocusWindow(
+                microbreakSeconds: PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload,
+                shortBreakSeconds: 2000d,
+                boundaryKind: "short_idle"),
+            resolveCooldown: () => new BreakPolicyCooldownSnapshot(true, 0, 0));
+
+        Assert.False(decision.ShouldEmit);
+        Assert.Equal("trust_below_suggestion_min", decision.ReasonCode);
     }
 
     [Fact]
@@ -260,6 +279,7 @@ public sealed class BreakSuggestionPolicyTests
             inputBucket,
             session,
             gating,
+            CalibrationTruth.TrustMedium,
             overload,
             stabilization,
             decision);
@@ -328,6 +348,7 @@ public sealed class BreakSuggestionPolicyTests
                 snapshotA,
                 bucketA,
                 gating,
+                CalibrationTruth.TrustHigh,
                 session,
                 overload,
                 stabilization,
@@ -338,6 +359,7 @@ public sealed class BreakSuggestionPolicyTests
                 snapshotB,
                 bucketB,
                 gating,
+                CalibrationTruth.TrustHigh,
                 session,
                 overload,
                 stabilization,
@@ -390,6 +412,7 @@ public sealed class BreakSuggestionPolicyTests
                 BuildMinimalSnapshot(bucketSeq: 1600, overload: overload.OverloadLikelihood, confidence: overload.Confidence),
                 BuildMinimalInputBucket(bucketSeq: 1600),
                 gating,
+                CalibrationTruth.TrustHigh,
                 session,
                 overload,
                 stabilization,
@@ -402,7 +425,7 @@ public sealed class BreakSuggestionPolicyTests
         Assert.Equal(0L, CountBreakEvents(connection));
     }
 
-    private static OverloadInferenceResult BuildOverloadInference(double confidence)
+    private static OverloadInferenceResult BuildOverloadInference(double confidence, double quality = 1d)
     {
         return new OverloadInferenceResult(
             OverloadLikelihood: 0.9d,
@@ -413,7 +436,7 @@ public sealed class BreakSuggestionPolicyTests
             FTopPrimitives: [],
             ITopPrimitives: [],
             VTopPrimitives: [],
-            Quality: 1d,
+            Quality: quality,
             Agreement: 1d,
             PrimitiveCoverage: 1d,
             MissingPrimitiveCount: 0,

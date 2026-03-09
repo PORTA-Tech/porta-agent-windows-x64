@@ -1,4 +1,5 @@
 using Porta.Agent.Common.Contracts;
+using Porta.Agent.Core;
 using Porta.Agent.LocalApi;
 
 namespace Porta.Agent.Core.Tests;
@@ -79,6 +80,40 @@ public sealed class UserAgentVisualSignalsAdapterTests
     }
 
     [Fact]
+    public void Build_LowTrust_DoesNotShowRecoveryToast()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-08T10:00:00Z");
+        LocalApiStatusResponse status = BuildStatus(
+            consentActive: true,
+            captureContext: "UserSession",
+            deepWorkActive: false,
+            overloadActive: false,
+            deepWorkStreakSeconds: 0,
+            visualMode: "NORMAL",
+            trustTier: CalibrationTruth.TrustLow);
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            sustainedAttentionSeconds: 0,
+            deepWorkActive: false,
+            overloadActive: false,
+            stateFlagsJson: null);
+        LocalApiEventResponse recovery = BuildEvent(
+            id: 52,
+            action: "overload_recovered",
+            type: "OVERLOAD_RECOVERED",
+            tsUtc: nowUtc.AddSeconds(-10),
+            whatChanged: "Recovery complete.");
+
+        UserAgentVisualSignals signals = UserAgentVisualSignalsAdapter.Build(
+            status,
+            snapshot,
+            [recovery],
+            nowUtc,
+            lastRecoveryEventId: 0);
+
+        Assert.False(signals.ShowRecoveryToast);
+    }
+
+    [Fact]
     public void Build_MarksTrayUnavailable_WhenServiceDataIsMissing()
     {
         UserAgentVisualSignals signals = UserAgentVisualSignalsAdapter.Build(
@@ -99,7 +134,8 @@ public sealed class UserAgentVisualSignalsAdapterTests
         bool deepWorkActive,
         bool overloadActive,
         int deepWorkStreakSeconds,
-        string visualMode)
+        string visualMode,
+        string trustTier = CalibrationTruth.TrustHigh)
     {
         return new LocalApiStatusResponse(
             Status: AgentStatus.Running,
@@ -159,7 +195,8 @@ public sealed class UserAgentVisualSignalsAdapterTests
             VisualMode: visualMode,
             LatestContributorsJson: null,
             LatestWhyJson: null,
-            LastUpdatedUtc: DateTimeOffset.Parse("2026-03-08T10:00:00Z"));
+            LastUpdatedUtc: DateTimeOffset.Parse("2026-03-08T10:00:00Z"),
+            TrustTier: trustTier);
     }
 
     private static LocalApiCurrentSnapshotResponse BuildSnapshot(

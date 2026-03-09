@@ -480,12 +480,12 @@ internal static class VisualStateAdapter
 
     private static string MapTrustLabel(double confidence)
     {
-        if (confidence >= 0.82d)
+        if (confidence >= 0.75d)
         {
             return "High";
         }
 
-        return confidence >= 0.55d ? "Medium" : "Low";
+        return confidence >= 0.50d ? "Medium" : "Low";
     }
 
     private static string FormatFocusedTime(double sustainedAttentionSeconds)

@@ -2,6 +2,7 @@ namespace Porta.Agent.LocalApi;
 
 using System.Text.Json;
 using Porta.Agent.Common.Contracts;
+using Porta.Agent.Core;
 
 public enum UserAgentVisualMode
 {
@@ -54,6 +55,7 @@ public static class UserAgentVisualSignalsAdapter
             snapshot.SustainedAttentionDurationSec,
             nowUtc);
         (bool showRecoveryToast, long recoveryEventId, string recoveryMessage) = BuildRecoveryToast(
+            status.TrustTier,
             mode,
             recentEvents,
             nowUtc,
@@ -141,11 +143,17 @@ public static class UserAgentVisualSignalsAdapter
     }
 
     private static (bool Show, long EventId, string Message) BuildRecoveryToast(
+        string? trustTier,
         UserAgentVisualMode mode,
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         DateTimeOffset nowUtc,
         long lastRecoveryEventId)
     {
+        if (!CalibrationTruth.AllowsSuggestionsForTrust(trustTier))
+        {
+            return (false, 0, string.Empty);
+        }
+
         if (mode == UserAgentVisualMode.Overload)
         {
             return (false, 0, string.Empty);

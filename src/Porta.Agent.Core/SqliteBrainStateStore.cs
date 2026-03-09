@@ -229,7 +229,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     SmoothedScrollVelocityIndex = primitive.ScrollSmoothed,
                     SmoothedFocusSwitchRate = primitive.FocusSmoothed
                 };
-                AgentBrainSnapshot gatedSnapshot = ApplyBaselineGating(primitiveSnapshot, gating);
+                AgentBrainSnapshot gatedSnapshot = ApplyBaselineGating(
+                    primitiveSnapshot,
+                    gating,
+                    mapped.QualityScore,
+                    mapped.Partial == 1);
                 DerivedSessionMetricsResult derivedSession = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
                     connection,
                     tx,
@@ -242,6 +246,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     primitive,
                     gating,
                     robust);
+                string trustTier = CalibrationTruth.ResolveTrustTier(
+                    gating.CalibrationStage,
+                    overloadInference.Confidence,
+                    overloadInference.Quality,
+                    mapped.Partial == 1 || derivedSession.Partial);
                 OverloadStabilizationRuntimeState previousOverloadStabilization = ReadOverloadStabilizationRuntimeState(connection, tx);
                 OverloadStabilizationResult overloadStabilization = OverloadStabilizationComputer.ComputeForFinalizedBucket(
                     mapped,
@@ -262,7 +271,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         BucketSeq: mapped.BucketSeq,
                         BucketEndUtc: DateTimeOffset.FromUnixTimeMilliseconds(Time.bucketStartEnd(mapped.BucketSeq).endUtcMs),
                         PreviousDeepWorkActive: previousDeepWorkStabilization.DeepWorkActive,
-                        CurrentDeepWorkActive: deepWorkStabilization.DeepWorkActive,
+                        CurrentDeepWorkActive: deepWorkStabilization.DeepWorkActive
+                            && gating.SystemActionsEnabled
+                            && CalibrationTruth.AllowsAutomaticActionsForTrust(trustTier),
                         BaselineReady: gating.BaselineReady,
                         LowQualityPaused: deepWorkStabilization.LowQualityPaused,
                         Confidence: overloadInference.Confidence),
@@ -273,7 +284,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         BucketSeq: mapped.BucketSeq,
                         BucketEndUtc: DateTimeOffset.FromUnixTimeMilliseconds(Time.bucketStartEnd(mapped.BucketSeq).endUtcMs),
                         PreviousOverloadActive: previousOverloadStabilization.OverloadActive,
-                        CurrentOverloadActive: overloadStabilization.OverloadActive,
+                        CurrentOverloadActive: overloadStabilization.OverloadActive
+                            && gating.SystemActionsEnabled
+                            && CalibrationTruth.AllowsAutomaticActionsForTrust(trustTier),
                         LowQualityPaused: overloadStabilization.LowQualityPaused,
                         OverloadLikelihood: overloadInference.OverloadLikelihood,
                         Confidence: overloadInference.Confidence),
@@ -301,6 +314,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     primitive,
                     robust,
                     gating,
+                    trustTier,
                     derivedSession,
                     overloadInference,
                     overloadStabilization,
@@ -336,6 +350,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     inferredSnapshot,
                     mapped,
                     gating,
+                    trustTier,
                     derivedSession,
                     overloadInference,
                     overloadStabilization,
@@ -354,6 +369,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     inferredSnapshot,
                     mapped,
                     gating,
+                    trustTier,
                     primitive,
                     derivedSession,
                     overloadInference,
@@ -943,7 +959,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 ColdStart: coldStart,
                 CalibrationStage: effectiveCalibrationStage,
                 SystemActionsEnabled: effectiveSystemActionsEnabled,
-                TrustTier: CalibrationTruth.ResolveTrustTier(effectiveCalibrationStage, confidence),
+                TrustTier: CalibrationTruth.ResolveTrustTier(
+                    effectiveCalibrationStage,
+                    confidence,
+                    currentQualityScore ?? 0d,
+                    partialData == true),
                 CurrentQualityScore: currentQualityScore,
                 PartialData: partialData,
                 MissingMajorChannels: missingMajorChannels);
@@ -1740,6 +1760,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         AgentBrainSnapshot snapshot,
         InputBucketRow mapped,
         BaselineGatingResult gating,
+        string trustTier,
         PrimitiveComputationResult primitive,
         DerivedSessionMetricsResult derivedSession,
         OverloadInferenceResult overloadInference,
@@ -1794,6 +1815,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             baseline_ready = gating.BaselineReady,
             cold_start = gating.ColdStart,
             confidence_cap = gating.ConfidenceCap,
+            guidance_enabled = gating.GuidanceEnabled,
+            suggestions_enabled = gating.SuggestionsEnabled,
             policies_enabled = gating.PoliciesEnabled,
             overload_stabilization = new
             {
@@ -1844,6 +1867,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 v_component = deepWorkStabilization.VComponent,
                 sustained_attention_duration_sec = deepWorkStabilization.SustainedAttentionDurationSec
             },
+            trust_tier = CalibrationTruth.NormalizeTrustTier(trustTier),
             overload_brightness_action = new
             {
                 contract_ver = PortaExecutionConstants.BrightnessAdjustment.ContractVersion,
@@ -2951,9 +2975,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return 0;
     }
 
-    private static AgentBrainSnapshot ApplyBaselineGating(AgentBrainSnapshot snapshot, BaselineGatingResult gating)
+    private static AgentBrainSnapshot ApplyBaselineGating(
+        AgentBrainSnapshot snapshot,
+        BaselineGatingResult gating,
+        double signalQualityScore,
+        bool partialData)
     {
         double cappedConfidence = Math.Clamp(Math.Min(snapshot.Confidence, gating.ConfidenceCap), 0d, 1d);
+        string trustTier = CalibrationTruth.ResolveTrustTier(
+            gating.CalibrationStage,
+            cappedConfidence,
+            signalQualityScore,
+            partialData);
         AgentBrainSnapshot gated = snapshot with
         {
             Confidence = cappedConfidence
@@ -2964,14 +2997,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             return gated;
         }
 
-        string gatedAction = ApplyCalibrationStageActionGate(gated.LastAction, gated.Domain, gating);
+        string gatedAction = ApplyCalibrationStageActionGate(gated.LastAction, gated.Domain, gating, trustTier);
         if (string.Equals(gatedAction, gated.LastAction, StringComparison.Ordinal))
         {
             return gated;
         }
 
         IReadOnlyList<string> contributors = gated.Contributors
-            .Concat([$"calibration_stage_gate:{CalibrationTruth.NormalizeStage(gating.CalibrationStage)}"])
+            .Concat([
+                $"calibration_stage_gate:{CalibrationTruth.NormalizeStage(gating.CalibrationStage)}",
+                $"trust_tier_gate:{CalibrationTruth.NormalizeTrustTier(trustTier)}"
+            ])
             .Distinct(StringComparer.Ordinal)
             .ToArray();
 
@@ -2996,7 +3032,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private static string ApplyCalibrationStageActionGate(
         string action,
         string domain,
-        BaselineGatingResult gating)
+        BaselineGatingResult gating,
+        string trustTier)
     {
         if (!IsPolicyDrivenAction(action))
         {
@@ -3005,35 +3042,43 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
         if (IsSystemAction(action))
         {
-            if (gating.SystemActionsEnabled)
+            if (gating.SystemActionsEnabled && CalibrationTruth.AllowsAutomaticActionsForTrust(trustTier))
             {
                 return action;
             }
 
-            if (gating.SuggestionsEnabled)
+            if (gating.SuggestionsEnabled && CalibrationTruth.AllowsSuggestionsForTrust(trustTier))
             {
                 return MapDomainToSuggestion(domain, action);
             }
 
-            return gating.GuidanceEnabled ? MapDomainToInform(domain, action) : "monitor_only";
+            return gating.GuidanceEnabled && CalibrationTruth.AllowsGuidanceForTrust(trustTier)
+                ? MapDomainToInform(domain, action)
+                : "monitor_only";
         }
 
         if (IsSuggestionAction(action))
         {
-            if (gating.SuggestionsEnabled)
+            if (gating.SuggestionsEnabled && CalibrationTruth.AllowsSuggestionsForTrust(trustTier))
             {
                 return action;
             }
 
-            return gating.GuidanceEnabled ? MapDomainToInform(domain, action) : "monitor_only";
+            return gating.GuidanceEnabled && CalibrationTruth.AllowsGuidanceForTrust(trustTier)
+                ? MapDomainToInform(domain, action)
+                : "monitor_only";
         }
 
         if (IsInformAction(action))
         {
-            return gating.GuidanceEnabled ? action : "monitor_only";
+            return gating.GuidanceEnabled && CalibrationTruth.AllowsGuidanceForTrust(trustTier)
+                ? action
+                : "monitor_only";
         }
 
-        return gating.GuidanceEnabled ? MapDomainToInform(domain, action) : "monitor_only";
+        return gating.GuidanceEnabled && CalibrationTruth.AllowsGuidanceForTrust(trustTier)
+            ? MapDomainToInform(domain, action)
+            : "monitor_only";
     }
 
     private static PrimitiveBucketWriteModel BuildPrimitiveBucketRow(
@@ -3140,6 +3185,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         PrimitiveComputationResult primitive,
         RobustNormalizationSnapshot? robust,
         BaselineGatingResult gating,
+        string trustTier,
         DerivedSessionMetricsResult derivedSession,
         OverloadInferenceResult overloadInference,
         OverloadStabilizationResult overloadStabilization,
@@ -3149,7 +3195,6 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         _ = robust;
         string contributorsJson = BuildOverloadContributorsJson(snapshot.Contributors, overloadInference);
-        string trustTier = CalibrationTruth.ResolveTrustTier(gating.CalibrationStage, overloadInference.Confidence);
         string stateFlagsJson = BuildStateBucketStateFlagsJson(
             coldStart: gating.ColdStart,
             partial: mapped.Partial == 1 || derivedSession.Partial,
@@ -3937,6 +3982,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         AgentBrainSnapshot snapshot,
         InputBucketRow inputBucket,
         BaselineGatingResult gating,
+        string trustTier,
         DerivedSessionMetricsResult derivedSession,
         OverloadInferenceResult overloadInference,
         OverloadStabilizationResult overloadStabilization,
@@ -3954,6 +4000,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             inputBucket,
             derivedSession,
             gating,
+            trustTier,
             overloadInference,
             overloadStabilization,
             decision);
@@ -3999,6 +4046,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         InputBucketRow inputBucket,
         DerivedSessionMetricsResult derivedSession,
         BaselineGatingResult gating,
+        string trustTier,
         OverloadInferenceResult overloadInference,
         OverloadStabilizationResult overloadStabilization,
         BreakSuggestionDecision decision)
@@ -4012,6 +4060,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 guidance_enabled = gating.GuidanceEnabled,
                 suggestions_enabled = gating.SuggestionsEnabled,
                 calibration_stage = gating.CalibrationStage,
+                trust_tier = CalibrationTruth.NormalizeTrustTier(trustTier),
                 overload_active = overloadStabilization.OverloadActive,
                 overload_likelihood = overloadInference.OverloadLikelihood,
                 overload_high = decision.HighOverloadPressure,

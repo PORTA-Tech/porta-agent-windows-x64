@@ -176,7 +176,11 @@ public sealed class AgentCoreController : IAgentCoreController
             string calibrationStage = latestState?.CalibrationStage
                 ?? (baselineReady ? CalibrationTruth.StageCalibrated : (coldStart ? CalibrationTruth.StageCold : CalibrationTruth.StageProvisional));
             bool systemActionsEnabled = latestState?.SystemActionsEnabled ?? CalibrationTruth.AllowsSystemActions(calibrationStage);
-            string trustTier = latestState?.TrustTier ?? CalibrationTruth.ResolveTrustTier(calibrationStage, latestState?.Confidence ?? _latestSnapshot.Confidence);
+            string trustTier = latestState?.TrustTier ?? CalibrationTruth.ResolveTrustTier(
+                calibrationStage,
+                latestState?.Confidence ?? _latestSnapshot.Confidence,
+                latestState?.CurrentQualityScore ?? 0d,
+                latestState?.PartialData == true);
             bool dbMigrationFailedFromStore = _stateStore.ReadDbMigrationFailed();
             bool dbMigrationFailed = IsDbMigrationFailure(effectiveLastError);
             dbMigrationFailed = dbMigrationFailed || dbMigrationFailedFromStore;

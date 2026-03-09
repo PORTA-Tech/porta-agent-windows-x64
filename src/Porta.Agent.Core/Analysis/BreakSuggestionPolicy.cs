@@ -46,6 +46,16 @@ internal static class BreakSuggestionPolicy
             return Fail("confidence_below_min");
         }
 
+        string trustTier = CalibrationTruth.ResolveTrustTier(
+            gating.CalibrationStage,
+            overloadInference.Confidence,
+            overloadInference.Quality,
+            derivedSession.Partial);
+        if (!CalibrationTruth.AllowsSuggestionsForTrust(trustTier))
+        {
+            return Fail("trust_below_suggestion_min");
+        }
+
         bool highOverloadPressure = focusWindow.HighOverloadPressure
             || overloadStabilization.OverloadActive
             || overloadInference.OverloadLikelihood >= PortaExecutionConstants.BreakPolicy.HighOverloadLikelihood;

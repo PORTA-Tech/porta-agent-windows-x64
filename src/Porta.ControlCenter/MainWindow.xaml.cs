@@ -4218,12 +4218,12 @@ public partial class MainWindow : Window
             return TrustTierLow;
         }
 
-        if (confidence.Value >= 0.82d)
+        if (confidence.Value >= 0.75d)
         {
             return TrustTierHigh;
         }
 
-        return confidence.Value >= 0.55d ? TrustTierMedium : TrustTierLow;
+        return confidence.Value >= 0.50d ? TrustTierMedium : TrustTierLow;
     }
 
     private static string ToTrustLabel(string trustTier)

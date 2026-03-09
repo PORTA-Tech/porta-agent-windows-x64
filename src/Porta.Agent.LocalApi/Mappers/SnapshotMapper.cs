@@ -56,7 +56,11 @@ internal static class SnapshotMapper
                 ? CalibrationTruth.StageCalibrated
                 : (coldStart ? CalibrationTruth.StageCold : CalibrationTruth.StageProvisional)));
         bool systemActionsEnabled = latestState?.SystemActionsEnabled ?? CalibrationTruth.AllowsSystemActions(calibrationStage);
-        string trustTier = latestState?.TrustTier ?? CalibrationTruth.ResolveTrustTier(calibrationStage, confidence);
+        string trustTier = latestState?.TrustTier ?? CalibrationTruth.ResolveTrustTier(
+            calibrationStage,
+            confidence,
+            latestState?.CurrentQualityScore ?? signalQualityScore,
+            latestState?.PartialData == true);
 
         return new LocalApiCurrentSnapshotResponse(
             snapshot.TimestampUtc,
