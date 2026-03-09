@@ -36,7 +36,7 @@ internal static class BreakSuggestionPolicy
         BreakFocusWindowSnapshot focusWindow,
         Func<BreakPolicyCooldownSnapshot> resolveCooldown)
     {
-        if (!gating.PoliciesEnabled)
+        if (!gating.SuggestionsEnabled)
         {
             return Fail("suggestions_not_enabled");
         }

@@ -26,10 +26,14 @@ public sealed class BaselineManagerTests
         Assert.False(gating.BaselineReady);
         Assert.True(gating.ColdStart);
         Assert.Equal(0.55d, gating.ConfidenceCap, precision: 6);
+        Assert.True(gating.GuidanceEnabled);
+        Assert.False(gating.SuggestionsEnabled);
         Assert.False(gating.PoliciesEnabled);
         Assert.False(ReadRuntimeStateBool(connection, "baseline_ready"));
         Assert.True(ReadRuntimeStateBool(connection, "cold_start"));
         Assert.Equal(0.55d, ReadRuntimeStateDouble(connection, "confidence_cap"), precision: 6);
+        Assert.True(ReadRuntimeStateBool(connection, "guidance_enabled"));
+        Assert.False(ReadRuntimeStateBool(connection, "suggestions_enabled"));
         Assert.False(ReadRuntimeStateBool(connection, "policies_enabled"));
     }
 
@@ -56,13 +60,72 @@ public sealed class BaselineManagerTests
         Assert.True(lastGating.Value.BaselineReady);
         Assert.False(lastGating.Value.ColdStart);
         Assert.Equal(1.0d, lastGating.Value.ConfidenceCap, precision: 6);
+        Assert.True(lastGating.Value.GuidanceEnabled);
+        Assert.True(lastGating.Value.SuggestionsEnabled);
         Assert.True(lastGating.Value.PoliciesEnabled);
         Assert.True(ReadRuntimeStateBool(connection, "baseline_ready"));
         Assert.False(ReadRuntimeStateBool(connection, "cold_start"));
         Assert.Equal(1.0d, ReadRuntimeStateDouble(connection, "confidence_cap"), precision: 6);
+        Assert.True(ReadRuntimeStateBool(connection, "guidance_enabled"));
+        Assert.True(ReadRuntimeStateBool(connection, "suggestions_enabled"));
         Assert.True(ReadRuntimeStateBool(connection, "policies_enabled"));
         Assert.Equal(1.0d, ReadRuntimeStateDouble(connection, "baseline_ready_pct"), precision: 6);
         Assert.InRange(ReadRuntimeStateDouble(connection, "avg_quality_2m"), 0.94d, 0.96d);
+    }
+
+    [Fact]
+    public void UpdateForFinalizedBucket_ColdStageAllowsGuidance_WhenEarlySignalQualityIsUsable()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+
+        long tsMs = Time.epoch_anchor_ms;
+        InputBucketRow row = BuildRow(bucketSeq: 0, startUtc: Time.toIsoUtcMsString(tsMs), quality: 0.50);
+        InsertInputBucketRow(connection, tx, row);
+
+        BaselineGatingResult gating = BaselineManager.UpdateForFinalizedBucket(connection, tx, row);
+        tx.Commit();
+
+        Assert.True(gating.ColdStart);
+        Assert.True(gating.GuidanceEnabled);
+        Assert.False(gating.SuggestionsEnabled);
+        Assert.False(gating.SystemActionsEnabled);
+        Assert.True(ReadRuntimeStateBool(connection, "guidance_enabled"));
+        Assert.False(ReadRuntimeStateBool(connection, "suggestions_enabled"));
+    }
+
+    [Fact]
+    public void UpdateForFinalizedBucket_ReachesProvisional_BeforeCalibratedAndRaisesConfidenceCapGradually()
+    {
+        using var connection = OpenInMemoryDb();
+        long startMs = Time.epoch_anchor_ms;
+
+        BaselineGatingResult? lastGating = null;
+        for (int i = 0; i < PortaExecutionConstants.BaselineReadiness.ProvisionalMetricMinSamples; i++)
+        {
+            using SqliteTransaction tx = connection.BeginTransaction();
+            long bucketSeq = i;
+            string startUtc = Time.toIsoUtcMsString(startMs + (bucketSeq * Time.bucket_ms));
+            InputBucketRow row = BuildRow(bucketSeq, startUtc, quality: 0.70);
+            InsertInputBucketRow(connection, tx, row);
+            lastGating = BaselineManager.UpdateForFinalizedBucket(connection, tx, row);
+            tx.Commit();
+        }
+
+        Assert.True(lastGating.HasValue);
+        Assert.False(lastGating.Value.BaselineReady);
+        Assert.False(lastGating.Value.ColdStart);
+        Assert.True(lastGating.Value.GuidanceEnabled);
+        Assert.True(lastGating.Value.SuggestionsEnabled);
+        Assert.False(lastGating.Value.SystemActionsEnabled);
+        Assert.Equal(CalibrationTruth.StageProvisional, lastGating.Value.CalibrationStage);
+        Assert.InRange(
+            lastGating.Value.ConfidenceCap,
+            PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCapMin,
+            PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCap);
+        Assert.True(ReadRuntimeStateBool(connection, "guidance_enabled"));
+        Assert.True(ReadRuntimeStateBool(connection, "suggestions_enabled"));
+        Assert.False(ReadRuntimeStateBool(connection, "system_actions_enabled"));
     }
 
     [Fact]
@@ -122,6 +185,8 @@ public sealed class BaselineManagerTests
         Assert.True(lastGating.Value.BaselineReady);
         Assert.False(lastGating.Value.ColdStart);
         Assert.Equal(1.0d, lastGating.Value.ConfidenceCap, precision: 6);
+        Assert.True(lastGating.Value.GuidanceEnabled);
+        Assert.True(lastGating.Value.SuggestionsEnabled);
         Assert.True(lastGating.Value.PoliciesEnabled);
         Assert.Equal(PortaExecutionConstants.BaselineMinSamples, ReadInt(connection, "SELECT sample_count FROM baseline_stats WHERE metric_key='keyboard_iki_mean';"));
         Assert.True(ReadRuntimeStateBool(connection, "baseline_ready"));
@@ -253,6 +318,8 @@ public sealed class BaselineManagerTests
         Assert.False(gating.BaselineReady);
         Assert.True(gating.ColdStart);
         Assert.Equal(0.55d, gating.ConfidenceCap, precision: 6);
+        Assert.True(gating.GuidanceEnabled);
+        Assert.False(gating.SuggestionsEnabled);
         Assert.False(gating.PoliciesEnabled);
         Assert.False(ReadRuntimeStateBool(connection, "baseline_ready"));
         Assert.True(ReadRuntimeStateBool(connection, "cold_start"));

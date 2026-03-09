@@ -92,7 +92,7 @@ public sealed class DeepWorkStabilizationComputerTests
             BuildBucket(bucketSeq: 1),
             BuildInference(confidence: 0.95d, f: 0.10d, i: 0.50d, v: 0.10d),
             BuildDerivedSession(sustainedAttentionSeconds: 2400d),
-            BaselineGatingResult.Cold,
+            BaselineGatingResult.Cold(guidanceEnabled: true),
             default);
 
         Assert.False(result.BaselineReadyGate);

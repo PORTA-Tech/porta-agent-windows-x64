@@ -22,7 +22,9 @@ public static class PortaExecutionConstants
         public const double ProvisionalCoverageThreshold = 0.45;
         public const int ProvisionalRecentQualityBuckets = 12; // 1 minute at 5s buckets.
         public const double ProvisionalRecentQualityThreshold = 0.55;
+        public const double BootstrappingGuidanceQualityFloor = 0.45;
         public const double ColdStartConfidenceCap = 0.55;
+        public const double ProvisionalConfidenceCapMin = 0.60;
         public const double ProvisionalConfidenceCap = 0.75;
     }
 

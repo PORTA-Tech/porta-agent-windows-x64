@@ -69,7 +69,8 @@ public sealed class StateBucketJsonContractsTests
             overloadInferenceSource: "bucket_finalizer",
             calibrationStage: CalibrationTruth.StageProvisional,
             trustTier: CalibrationTruth.TrustMedium,
-            policiesEnabled: true,
+            guidanceEnabled: true,
+            suggestionsEnabled: true,
             systemActionsEnabled: false,
             overloadActive: true,
             lowQuality: true,
@@ -123,6 +124,8 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal(0.91d, root.GetProperty("model_confidence").GetDouble(), precision: 6);
         Assert.Equal(CalibrationTruth.StageProvisional, root.GetProperty("calibration_stage").GetString());
         Assert.Equal(CalibrationTruth.TrustMedium, root.GetProperty("trust_tier").GetString());
+        Assert.Equal(1, root.GetProperty("guidance_enabled").GetInt32());
+        Assert.Equal(1, root.GetProperty("suggestions_enabled").GetInt32());
         Assert.Equal(1, root.GetProperty("policies_enabled").GetInt32());
         Assert.Equal(0, root.GetProperty("system_actions_enabled").GetInt32());
         Assert.True(root.GetProperty("overload_active").GetBoolean());

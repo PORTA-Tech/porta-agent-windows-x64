@@ -2959,41 +2959,81 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             Confidence = cappedConfidence
         };
 
-        if (gating.PoliciesEnabled)
+        if (!IsPolicyDrivenAction(gated.LastAction))
         {
             return gated;
         }
 
-        if (!IsPolicyDrivenAction(gated.LastAction))
+        string gatedAction = ApplyCalibrationStageActionGate(gated.LastAction, gated.Domain, gating);
+        if (string.Equals(gatedAction, gated.LastAction, StringComparison.Ordinal))
         {
-            return gated with
-            {
-                PolicyId = "cold-start-gate-v1",
-                Domain = "control",
-                EscalationLevel = "Inform",
-                PlannedEndTimestampUtc = null,
-                CooldownEndTimestampUtc = null
-            };
+            return gated;
         }
 
         IReadOnlyList<string> contributors = gated.Contributors
-            .Concat(["cold_start_policy_suppressed"])
+            .Concat([$"calibration_stage_gate:{CalibrationTruth.NormalizeStage(gating.CalibrationStage)}"])
             .Distinct(StringComparer.Ordinal)
             .ToArray();
 
         return gated with
         {
-            LastAction = "monitor_only",
-            ActivationWindowTriggered = false,
-            CooldownTriggered = false,
-            ActivationWindowOpen = false,
+            LastAction = gatedAction,
+            ActivationWindowTriggered = gated.ActivationWindowTriggered
+                && !string.Equals(gatedAction, "monitor_only", StringComparison.Ordinal),
+            CooldownTriggered = gated.CooldownTriggered
+                && !string.Equals(gatedAction, "monitor_only", StringComparison.Ordinal),
+            ActivationWindowOpen = gated.ActivationWindowOpen
+                && !string.Equals(gatedAction, "monitor_only", StringComparison.Ordinal),
             Contributors = contributors,
-            PolicyId = "cold-start-gate-v1",
-            Domain = "control",
-            EscalationLevel = "Inform",
+            PolicyId = "calibration-stage-gate-v2",
+            Domain = string.IsNullOrWhiteSpace(gated.Domain) ? ResolveDomainForCalibrationAction(gatedAction, gated.Domain) : gated.Domain,
+            EscalationLevel = ResolveEscalationLevel(gatedAction),
             PlannedEndTimestampUtc = null,
             CooldownEndTimestampUtc = null
         };
+    }
+
+    private static string ApplyCalibrationStageActionGate(
+        string action,
+        string domain,
+        BaselineGatingResult gating)
+    {
+        if (!IsPolicyDrivenAction(action))
+        {
+            return action;
+        }
+
+        if (IsSystemAction(action))
+        {
+            if (gating.SystemActionsEnabled)
+            {
+                return action;
+            }
+
+            if (gating.SuggestionsEnabled)
+            {
+                return MapDomainToSuggestion(domain, action);
+            }
+
+            return gating.GuidanceEnabled ? MapDomainToInform(domain, action) : "monitor_only";
+        }
+
+        if (IsSuggestionAction(action))
+        {
+            if (gating.SuggestionsEnabled)
+            {
+                return action;
+            }
+
+            return gating.GuidanceEnabled ? MapDomainToInform(domain, action) : "monitor_only";
+        }
+
+        if (IsInformAction(action))
+        {
+            return gating.GuidanceEnabled ? action : "monitor_only";
+        }
+
+        return gating.GuidanceEnabled ? MapDomainToInform(domain, action) : "monitor_only";
     }
 
     private static PrimitiveBucketWriteModel BuildPrimitiveBucketRow(
@@ -3124,7 +3164,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             overloadInferenceSource: overloadInference.Source,
             calibrationStage: gating.CalibrationStage,
             trustTier: trustTier,
-            policiesEnabled: gating.PoliciesEnabled,
+            guidanceEnabled: gating.GuidanceEnabled,
+            suggestionsEnabled: gating.SuggestionsEnabled,
             systemActionsEnabled: gating.SystemActionsEnabled,
             overloadActive: overloadStabilization.OverloadActive,
             lowQuality: overloadStabilization.LowQualityPaused,
@@ -3275,7 +3316,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string overloadInferenceSource,
         string calibrationStage,
         string trustTier,
-        bool policiesEnabled,
+        bool guidanceEnabled,
+        bool suggestionsEnabled,
         bool systemActionsEnabled,
         bool overloadActive,
         bool lowQuality,
@@ -3320,7 +3362,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             overloadInferenceSource,
             calibrationStage,
             trustTier,
-            policiesEnabled,
+            guidanceEnabled,
+            suggestionsEnabled,
             systemActionsEnabled,
             overloadActive,
             lowQuality,
@@ -3366,7 +3409,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string overloadInferenceSource,
         string calibrationStage,
         string trustTier,
-        bool policiesEnabled,
+        bool guidanceEnabled,
+        bool suggestionsEnabled,
         bool systemActionsEnabled,
         bool overloadActive,
         bool lowQuality,
@@ -3414,7 +3458,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             overload_inference_source = overloadInferenceSource ?? string.Empty,
             calibration_stage = CalibrationTruth.NormalizeStage(calibrationStage),
             trust_tier = string.IsNullOrWhiteSpace(trustTier) ? CalibrationTruth.TrustLow : trustTier.Trim().ToLowerInvariant(),
-            policies_enabled = policiesEnabled ? 1 : 0,
+            guidance_enabled = guidanceEnabled ? 1 : 0,
+            suggestions_enabled = suggestionsEnabled ? 1 : 0,
+            policies_enabled = suggestionsEnabled ? 1 : 0,
             system_actions_enabled = systemActionsEnabled ? 1 : 0,
             overload_active = overloadActive,
             low_quality = lowQuality,
@@ -3963,7 +4009,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             policy = "break_suggestion_v2",
             reasons = new
             {
-                suggestions_enabled = gating.PoliciesEnabled,
+                guidance_enabled = gating.GuidanceEnabled,
+                suggestions_enabled = gating.SuggestionsEnabled,
                 calibration_stage = gating.CalibrationStage,
                 overload_active = overloadStabilization.OverloadActive,
                 overload_likelihood = overloadInference.OverloadLikelihood,
@@ -4860,6 +4907,99 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         return !IsNonInterventionAction(action)
             && !string.IsNullOrWhiteSpace(action);
+    }
+
+    private static bool IsInformAction(string action)
+    {
+        return string.Equals(action, "inform_overload_risk", StringComparison.Ordinal)
+            || string.Equals(action, "inform_focus_protection", StringComparison.Ordinal)
+            || string.Equals(action, "inform_fatigue_prevention", StringComparison.Ordinal);
+    }
+
+    private static bool IsSuggestionAction(string action)
+    {
+        return string.Equals(action, "break_suggestion", StringComparison.Ordinal)
+            || string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal)
+            || string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal);
+    }
+
+    private static bool IsSystemAction(string action)
+    {
+        return string.Equals(action, "focus_mode_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "focus_assist_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "fatigue_relief_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "temporary_app_restriction_enabled", StringComparison.Ordinal);
+    }
+
+    private static string MapDomainToSuggestion(string domain, string fallbackAction)
+    {
+        return NormalizeDomain(domain) switch
+        {
+            "focus" => "focus_lock_in_suggestion",
+            "fatigue" => "stretch_break_suggestion",
+            "overload" => "break_suggestion",
+            _ when string.Equals(fallbackAction, "focus_assist_enabled", StringComparison.Ordinal) => "focus_lock_in_suggestion",
+            _ when string.Equals(fallbackAction, "fatigue_relief_enabled", StringComparison.Ordinal) => "stretch_break_suggestion",
+            _ => "break_suggestion"
+        };
+    }
+
+    private static string MapDomainToInform(string domain, string fallbackAction)
+    {
+        return NormalizeDomain(domain) switch
+        {
+            "focus" => "inform_focus_protection",
+            "fatigue" => "inform_fatigue_prevention",
+            "overload" => "inform_overload_risk",
+            _ when string.Equals(fallbackAction, "focus_lock_in_suggestion", StringComparison.Ordinal)
+                || string.Equals(fallbackAction, "focus_assist_enabled", StringComparison.Ordinal) => "inform_focus_protection",
+            _ when string.Equals(fallbackAction, "stretch_break_suggestion", StringComparison.Ordinal)
+                || string.Equals(fallbackAction, "fatigue_relief_enabled", StringComparison.Ordinal) => "inform_fatigue_prevention",
+            _ => "inform_overload_risk"
+        };
+    }
+
+    private static string ResolveDomainForCalibrationAction(string action, string fallbackDomain)
+    {
+        if (!string.IsNullOrWhiteSpace(fallbackDomain))
+        {
+            return NormalizeDomain(fallbackDomain);
+        }
+
+        if (string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal)
+            || string.Equals(action, "focus_assist_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "inform_focus_protection", StringComparison.Ordinal))
+        {
+            return "focus";
+        }
+
+        if (string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal)
+            || string.Equals(action, "fatigue_relief_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "inform_fatigue_prevention", StringComparison.Ordinal))
+        {
+            return "fatigue";
+        }
+
+        if (string.Equals(action, "break_suggestion", StringComparison.Ordinal)
+            || string.Equals(action, "focus_mode_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "temporary_app_restriction_enabled", StringComparison.Ordinal)
+            || string.Equals(action, "inform_overload_risk", StringComparison.Ordinal))
+        {
+            return "overload";
+        }
+
+        return "control";
+    }
+
+    private static string NormalizeDomain(string? domain)
+    {
+        if (string.IsNullOrWhiteSpace(domain))
+        {
+            return string.Empty;
+        }
+
+        string normalized = domain.Trim().ToLowerInvariant();
+        return normalized is "focus" or "fatigue" or "overload" ? normalized : string.Empty;
     }
 
     private static (string triggerState, double triggerValue) ResolveTrigger(AgentBrainSnapshot snapshot)

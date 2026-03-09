@@ -57,7 +57,7 @@ public sealed class DerivedSessionMetricsComputerTests
             tx,
             row,
             primitive,
-            BaselineGatingResult.Cold);
+            BaselineGatingResult.Cold(guidanceEnabled: true));
 
         Assert.Equal(30d, result.SustainedAttentionDurationSec, precision: 6);
         Assert.Equal("keep", result.ContinuityState);
@@ -294,7 +294,7 @@ public sealed class DerivedSessionMetricsComputerTests
             tx,
             row,
             primitive,
-            BaselineGatingResult.Cold);
+            BaselineGatingResult.Cold(guidanceEnabled: true));
 
         Assert.Equal(25d, result.SustainedAttentionDurationSec, precision: 6);
         Assert.Equal("keep", result.ContinuityState);

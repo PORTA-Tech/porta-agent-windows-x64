@@ -9,7 +9,8 @@ internal readonly record struct BaselineGatingResult(
     bool BaselineReady,
     bool ColdStart,
     double ConfidenceCap,
-    bool PoliciesEnabled,
+    bool GuidanceEnabled,
+    bool SuggestionsEnabled,
     bool SystemActionsEnabled,
     string CalibrationStage)
 {
@@ -17,25 +18,33 @@ internal readonly record struct BaselineGatingResult(
         BaselineReady: true,
         ColdStart: false,
         ConfidenceCap: 1.0d,
-        PoliciesEnabled: true,
+        GuidanceEnabled: true,
+        SuggestionsEnabled: true,
         SystemActionsEnabled: true,
         CalibrationStage: CalibrationTruth.StageCalibrated);
 
-    internal static BaselineGatingResult Provisional => new(
+    internal static BaselineGatingResult Provisional(double confidenceCap) => new(
         BaselineReady: false,
         ColdStart: false,
-        ConfidenceCap: PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCap,
-        PoliciesEnabled: true,
+        ConfidenceCap: Math.Clamp(
+            confidenceCap,
+            PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCapMin,
+            PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCap),
+        GuidanceEnabled: true,
+        SuggestionsEnabled: true,
         SystemActionsEnabled: false,
         CalibrationStage: CalibrationTruth.StageProvisional);
 
-    internal static BaselineGatingResult Cold => new(
+    internal static BaselineGatingResult Cold(bool guidanceEnabled) => new(
         BaselineReady: false,
         ColdStart: true,
         ConfidenceCap: PortaExecutionConstants.BaselineReadiness.ColdStartConfidenceCap,
-        PoliciesEnabled: false,
+        GuidanceEnabled: guidanceEnabled,
+        SuggestionsEnabled: false,
         SystemActionsEnabled: false,
         CalibrationStage: CalibrationTruth.StageCold);
+
+    internal bool PoliciesEnabled => SuggestionsEnabled;
 }
 
 internal readonly record struct MetricNormalizationValue(
@@ -108,13 +117,24 @@ internal static class BaselineManager
         bool provisionalReady = provisionalReadyPct >= PortaExecutionConstants.BaselineReadiness.ProvisionalCoverageThreshold
             && hasProvisionalQualityWindow
             && provisionalQualityWindow.AverageQuality >= PortaExecutionConstants.BaselineReadiness.ProvisionalRecentQualityThreshold;
+        double bootstrappingQuality = ResolveBootstrappingQuality(inputBucketRow, provisionalQualityWindow);
+        bool guidanceEnabled = bootstrappingQuality >= PortaExecutionConstants.BaselineReadiness.BootstrappingGuidanceQualityFloor
+            && HasEarlySignalEvidence(inputBucketRow);
         BaselineGatingResult gating = baselineReady
             ? BaselineGatingResult.Warm
-            : (provisionalReady ? BaselineGatingResult.Provisional : BaselineGatingResult.Cold);
+            : (provisionalReady
+                ? BaselineGatingResult.Provisional(
+                    ResolveProvisionalConfidenceCap(
+                        baselineReadyPct,
+                        qualityWindow,
+                        provisionalQualityWindow))
+                : BaselineGatingResult.Cold(guidanceEnabled));
 
         UpsertRuntimeStateScalar(connection, tx, "baseline_ready", gating.BaselineReady, inputBucketRow.StartUtc);
         UpsertRuntimeStateScalar(connection, tx, "cold_start", gating.ColdStart, inputBucketRow.StartUtc);
         UpsertRuntimeStateScalar(connection, tx, "confidence_cap", gating.ConfidenceCap, inputBucketRow.StartUtc);
+        UpsertRuntimeStateScalar(connection, tx, "guidance_enabled", gating.GuidanceEnabled, inputBucketRow.StartUtc);
+        UpsertRuntimeStateScalar(connection, tx, "suggestions_enabled", gating.SuggestionsEnabled, inputBucketRow.StartUtc);
         UpsertRuntimeStateScalar(connection, tx, "policies_enabled", gating.PoliciesEnabled, inputBucketRow.StartUtc);
         UpsertRuntimeStateScalar(connection, tx, "system_actions_enabled", gating.SystemActionsEnabled, inputBucketRow.StartUtc);
         UpsertRuntimeStateScalar(connection, tx, "calibration_stage", gating.CalibrationStage, inputBucketRow.StartUtc);
@@ -131,6 +151,8 @@ internal static class BaselineManager
                 baseline_ready = gating.BaselineReady,
                 cold_start = gating.ColdStart,
                 confidence_cap = gating.ConfidenceCap,
+                guidance_enabled = gating.GuidanceEnabled,
+                suggestions_enabled = gating.SuggestionsEnabled,
                 policies_enabled = gating.PoliciesEnabled,
                 system_actions_enabled = gating.SystemActionsEnabled,
                 calibration_stage = gating.CalibrationStage,
@@ -161,6 +183,69 @@ internal static class BaselineManager
             inputBucketRow.StartUtc);
 
         return gating;
+    }
+
+    private static double ResolveBootstrappingQuality(
+        InputBucketRow inputBucketRow,
+        QualityWindowStats provisionalQualityWindow)
+    {
+        double quality = provisionalQualityWindow.BucketCount > 0
+            ? provisionalQualityWindow.AverageQuality
+            : inputBucketRow.QualityScore;
+        return Math.Clamp(double.IsFinite(quality) ? quality : 0d, 0d, 1d);
+    }
+
+    private static bool HasEarlySignalEvidence(InputBucketRow row)
+    {
+        bool keyboardEvidence = row.KeyboardBurstRate > 0d
+            || row.KeyboardIkiMean > 0d
+            || row.KeyboardBackspaceRate > 0d
+            || row.TypingBurstIntensity > 0d;
+        bool mouseEvidence = row.MouseSpeedMean > 0d
+            || row.MouseScrollSpeed > 0d
+            || row.MouseJerkP95 > 0d
+            || row.MouseMicroCorrectionRate > 0d
+            || row.ScrollVelocityIndex > 0d;
+        bool focusEvidence = row.FocusActiveAppCount > 0d
+            || row.FocusSwitchCount > 0
+            || row.FocusAppEntropy > 0d
+            || !string.IsNullOrWhiteSpace(row.DominantAppHash);
+
+        return keyboardEvidence || mouseEvidence || focusEvidence;
+    }
+
+    private static double ResolveProvisionalConfidenceCap(
+        double baselineReadyPct,
+        QualityWindowStats qualityWindow,
+        QualityWindowStats provisionalQualityWindow)
+    {
+        double coverageProgress = 0d;
+        double coverageRange = PortaExecutionConstants.BaselineReadiness.ReadyCoverageThreshold
+            - PortaExecutionConstants.BaselineReadiness.ProvisionalCoverageThreshold;
+        if (coverageRange > 0d)
+        {
+            coverageProgress = Math.Clamp(
+                (baselineReadyPct - PortaExecutionConstants.BaselineReadiness.ProvisionalCoverageThreshold) / coverageRange,
+                0d,
+                1d);
+        }
+
+        double observedQuality = qualityWindow.BucketCount > 0
+            ? qualityWindow.AverageQuality
+            : provisionalQualityWindow.AverageQuality;
+        double qualityRange = PortaExecutionConstants.BaselineReadiness.RecentQualityThreshold
+            - PortaExecutionConstants.BaselineReadiness.ProvisionalRecentQualityThreshold;
+        double qualityProgress = qualityRange <= 0d
+            ? 1d
+            : Math.Clamp(
+                (observedQuality - PortaExecutionConstants.BaselineReadiness.ProvisionalRecentQualityThreshold) / qualityRange,
+                0d,
+                1d);
+
+        double progress = (0.60d * coverageProgress) + (0.40d * qualityProgress);
+        return PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCapMin
+            + ((PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCap
+                - PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCapMin) * progress);
     }
 
     internal static RobustNormalizationSnapshot ComputeRobustNormalizationForBucket(

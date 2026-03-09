@@ -13,7 +13,7 @@ public sealed class BreakSuggestionPolicyTests
     {
         int cooldownReads = 0;
         BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
-            BaselineGatingResult.Cold,
+            BaselineGatingResult.Cold(guidanceEnabled: true),
             BuildStabilization(overloadActive: true),
             BuildOverloadInference(confidence: 0.9d),
             BuildSession(saSeconds: 7200d),
@@ -35,7 +35,7 @@ public sealed class BreakSuggestionPolicyTests
     {
         int cooldownReads = 0;
         BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
-            BaselineGatingResult.Provisional,
+            BaselineGatingResult.Provisional(PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCap),
             BuildStabilization(overloadActive: true),
             BuildOverloadInference(confidence: 0.49d),
             BuildSession(saSeconds: 7200d),
@@ -57,7 +57,7 @@ public sealed class BreakSuggestionPolicyTests
     {
         int cooldownReads = 0;
         BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
-            BaselineGatingResult.Provisional,
+            BaselineGatingResult.Provisional(PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCap),
             BuildStabilization(overloadActive: false),
             BuildOverloadInference(confidence: 0.60d),
             BuildSession(saSeconds: 1500d),
@@ -82,7 +82,7 @@ public sealed class BreakSuggestionPolicyTests
     public void ShouldTriggerBreak_HighOverloadShortBreak_EmitsBreakSuggestion()
     {
         BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
-            BaselineGatingResult.Provisional,
+            BaselineGatingResult.Provisional(PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCap),
             BuildStabilization(overloadActive: true),
             BuildOverloadInference(confidence: 0.72d),
             BuildSession(saSeconds: 2700d),
@@ -104,7 +104,7 @@ public sealed class BreakSuggestionPolicyTests
     {
         int cooldownReads = 0;
         BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
-            BaselineGatingResult.Provisional,
+            BaselineGatingResult.Provisional(PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCap),
             BuildStabilization(overloadActive: false),
             BuildOverloadInference(confidence: 0.70d),
             BuildSession(saSeconds: 1500d),

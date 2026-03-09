@@ -72,7 +72,7 @@ public sealed class OverloadInferenceComputerTests
             snapshot,
             bucket,
             primitive,
-            BaselineGatingResult.Cold,
+            BaselineGatingResult.Cold(guidanceEnabled: true),
             robust: null);
 
         Assert.Equal(0.41025d, result.OverloadLikelihood, precision: 6);
@@ -183,7 +183,7 @@ public sealed class OverloadInferenceComputerTests
             snapshot,
             bucket,
             primitive,
-            BaselineGatingResult.Cold,
+            BaselineGatingResult.Cold(guidanceEnabled: true),
             robust: null);
 
         Assert.Equal(1.0d, warm.Agreement, precision: 6);
