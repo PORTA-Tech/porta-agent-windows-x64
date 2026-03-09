@@ -53,14 +53,14 @@ public sealed class CalibrationTruthTests
     }
 
     [Fact]
-    public void ResolveTrustTier_PartialData_ForcesLow()
+    public void ResolveTrustTier_PartialData_DoesNotOverrideUsableConfidenceAndQuality()
     {
         string trust = CalibrationTruth.ResolveTrustTier(
-            CalibrationTruth.StageCalibrated,
-            confidence: 0.81d,
-            signalQualityScore: 0.85d,
+            CalibrationTruth.StageProvisional,
+            confidence: 0.62d,
+            signalQualityScore: 0.72d,
             partialData: true);
 
-        Assert.Equal(CalibrationTruth.TrustLow, trust);
+        Assert.Equal(CalibrationTruth.TrustMedium, trust);
     }
 }

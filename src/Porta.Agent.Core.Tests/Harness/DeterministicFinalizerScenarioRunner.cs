@@ -321,7 +321,12 @@ public sealed class DeterministicFinalizerScenarioRunner : IDisposable
 
     private void EmitRawKeyboardEvents(ScriptedBucketInput input, DateTimeOffset startUtc, DateTimeOffset endUtc)
     {
-        int keydowns = Math.Max(2, input.KeyboardKeydowns);
+        int keydowns = Math.Max(0, input.KeyboardKeydowns);
+        if (keydowns <= 0)
+        {
+            return;
+        }
+
         double intensity = Clamp01(input.TypingBurstIntensity);
         int intervalMs = (int)Math.Round(Lerp(220d, 25d, intensity), MidpointRounding.AwayFromZero);
         int jitterMs = Math.Max(1, (int)Math.Round(intervalMs * (keydowns >= 8 ? 0.45d : 0.10d), MidpointRounding.AwayFromZero));
@@ -358,7 +363,12 @@ public sealed class DeterministicFinalizerScenarioRunner : IDisposable
 
     private void EmitRawMouseMoveEvents(ScriptedBucketInput input, DateTimeOffset startUtc, DateTimeOffset endUtc)
     {
-        int moves = Math.Max(1, input.MouseMoves);
+        int moves = Math.Max(0, input.MouseMoves);
+        if (moves <= 0)
+        {
+            return;
+        }
+
         double intensity = Clamp01(input.ScrollVelocityIndex);
         int intervalMs = (int)Math.Round(Lerp(220d, 30d, intensity), MidpointRounding.AwayFromZero);
         int baseDx = (int)Math.Round(Lerp(2d, 220d, intensity), MidpointRounding.AwayFromZero);

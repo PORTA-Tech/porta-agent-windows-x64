@@ -29,7 +29,7 @@ public static class CalibrationTruth
             return TrustLow;
         }
 
-        if (partialData || clampedQuality < UnstableQualityThreshold || clampedConfidence < MediumTrustConfidenceMin)
+        if (clampedQuality < UnstableQualityThreshold || clampedConfidence < MediumTrustConfidenceMin)
         {
             return TrustLow;
         }
