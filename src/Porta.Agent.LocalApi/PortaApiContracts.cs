@@ -177,7 +177,9 @@ public sealed record LocalApiCurrentSnapshotResponse(
     double TaskContinuityScore = 0d,
     double TaskContinuitySeconds = 0d,
     string? ContinuityState = null,
-    double? ContinuityConfidence = null)
+    double? ContinuityConfidence = null,
+    double? SignalQualityScore = null,
+    double? ModelConfidence = null)
 {
     // Step 18D pinned snake_case aliases for snapshot consumers.
     public double overload_likelihood => OverloadLikelihood;
@@ -199,6 +201,9 @@ public sealed record LocalApiCurrentSnapshotResponse(
     public double task_continuity_seconds => TaskContinuitySeconds;
     public string? continuity_state => ContinuityState;
     public double? continuity_confidence => ContinuityConfidence;
+    public double behavior_continuity_score => TaskContinuityScore;
+    public double? signal_quality_score => SignalQualityScore;
+    public double model_confidence => ModelConfidence ?? Confidence;
     public string timestamp_utc => TimestampUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
     public LocalApiSnapshotCurrentView current => new(
         overload_active: overload_active,
@@ -207,6 +212,9 @@ public sealed record LocalApiCurrentSnapshotResponse(
         brightness_adjusted: brightness_adjusted,
         overload_likelihood: overload_likelihood,
         confidence: Confidence,
+        model_confidence: ModelConfidence ?? Confidence,
+        signal_quality_score: SignalQualityScore,
+        behavior_continuity_score: TaskContinuityScore,
         sustained_attention_duration_sec: sustained_attention_duration_sec,
         f: F,
         i: I,
@@ -262,6 +270,9 @@ public sealed record LocalApiSnapshotCurrentView(
     bool brightness_adjusted,
     double overload_likelihood,
     double confidence,
+    double model_confidence,
+    double? signal_quality_score,
+    double behavior_continuity_score,
     double sustained_attention_duration_sec,
     double? f,
     double? i,

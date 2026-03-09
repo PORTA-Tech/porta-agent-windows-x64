@@ -37,6 +37,14 @@ internal static class SnapshotMapper
         double taskContinuitySeconds = ReadDoubleFlag(normalizedStateFlagsJson, "task_continuity_seconds", fallback: sustainedAttentionSeconds);
         string continuityState = ReadStringFlag(normalizedStateFlagsJson, "continuity_state", fallback: "reset");
         double continuityConfidence = ReadDoubleFlag(normalizedStateFlagsJson, "continuity_confidence", fallback: confidence);
+        double signalQualityScore = ReadDoubleFlag(
+            normalizedStateFlagsJson,
+            "signal_quality_score",
+            fallback: latestState?.CurrentQualityScore ?? 0d);
+        double modelConfidence = ReadDoubleFlag(
+            normalizedStateFlagsJson,
+            "model_confidence",
+            fallback: confidence);
         (double? fComponent, double? iComponent, double? vComponent) = ReadFivComponents(normalizedContributorsJson);
 
         // Pinned null/partial behavior: if there is no finalized state row, keep endpoint healthy
@@ -96,7 +104,9 @@ internal static class SnapshotMapper
             taskContinuityScore,
             taskContinuitySeconds,
             continuityState,
-            continuityConfidence);
+            continuityConfidence,
+            signalQualityScore,
+            modelConfidence);
     }
 
     private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(string? stateFlagsJson)

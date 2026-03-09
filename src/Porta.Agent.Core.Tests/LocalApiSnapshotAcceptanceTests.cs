@@ -24,7 +24,7 @@ public sealed class LocalApiSnapshotAcceptanceTests
             IdleFragmentationIndex: 0.33d,
             FocusAppEntropy: 0.44d,
             OverloadActive: true,
-            StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":true,\"deep_work_active\":true}",
+            StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":true,\"deep_work_active\":true,\"task_continuity_score\":0.72,\"task_continuity_seconds\":1810,\"continuity_state\":\"keep\",\"continuity_confidence\":0.81,\"signal_quality_score\":0.90,\"model_confidence\":0.91}",
             ContributorsJson: "{\"schema_ver\":1,\"components\":{\"F\":{\"value\":0.2},\"I\":{\"value\":0.6},\"V\":{\"value\":0.3}}}",
             BaselineReady: true,
             BaselineReadyPct: 1d,
@@ -44,6 +44,9 @@ public sealed class LocalApiSnapshotAcceptanceTests
         Assert.InRange((dto.F ?? 0d) - 0.2d, -0.000001d, 0.000001d);
         Assert.InRange((dto.I ?? 0d) - 0.6d, -0.000001d, 0.000001d);
         Assert.InRange((dto.V ?? 0d) - 0.3d, -0.000001d, 0.000001d);
+        Assert.InRange(dto.behavior_continuity_score - 0.72d, -0.000001d, 0.000001d);
+        Assert.InRange((dto.signal_quality_score ?? 0d) - 0.90d, -0.000001d, 0.000001d);
+        Assert.InRange(dto.model_confidence - 0.91d, -0.000001d, 0.000001d);
     }
 
     [Fact]

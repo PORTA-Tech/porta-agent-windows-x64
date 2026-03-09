@@ -59,6 +59,13 @@ public sealed class StateBucketJsonContractsTests
             coldStart: true,
             partial: true,
             saResetReason: "context_changed",
+            taskContinuityScore: 0.72d,
+            taskContinuitySeconds: 1810d,
+            continuityState: "keep",
+            continuityConfidence: 0.81d,
+            continuityAnchorAppHash: "app-anchor",
+            signalQualityScore: 0.90d,
+            modelConfidence: 0.91d,
             overloadInferenceSource: "bucket_finalizer",
             calibrationStage: CalibrationTruth.StageProvisional,
             trustTier: CalibrationTruth.TrustMedium,
@@ -106,6 +113,14 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal(1, root.GetProperty("cold_start").GetInt32());
         Assert.Equal(1, root.GetProperty("partial").GetInt32());
         Assert.Equal("context_changed", root.GetProperty("sa_reset_reason").GetString());
+        Assert.Equal(0.72d, root.GetProperty("task_continuity_score").GetDouble(), precision: 6);
+        Assert.Equal(1810d, root.GetProperty("task_continuity_seconds").GetDouble(), precision: 6);
+        Assert.Equal("keep", root.GetProperty("continuity_state").GetString());
+        Assert.Equal(0.81d, root.GetProperty("continuity_confidence").GetDouble(), precision: 6);
+        Assert.Equal("app-anchor", root.GetProperty("continuity_anchor_app_hash").GetString());
+        Assert.Equal(0.72d, root.GetProperty("behavior_continuity_score").GetDouble(), precision: 6);
+        Assert.Equal(0.90d, root.GetProperty("signal_quality_score").GetDouble(), precision: 6);
+        Assert.Equal(0.91d, root.GetProperty("model_confidence").GetDouble(), precision: 6);
         Assert.Equal(CalibrationTruth.StageProvisional, root.GetProperty("calibration_stage").GetString());
         Assert.Equal(CalibrationTruth.TrustMedium, root.GetProperty("trust_tier").GetString());
         Assert.Equal(1, root.GetProperty("policies_enabled").GetInt32());
