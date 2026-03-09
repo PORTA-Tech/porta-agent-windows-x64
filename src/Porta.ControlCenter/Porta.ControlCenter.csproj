@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Porta.Agent.Common\Porta.Agent.Common.csproj" />
     <ProjectReference Include="..\Porta.Agent.LocalApi\Porta.Agent.LocalApi.csproj" />
   </ItemGroup>
 

@@ -11,6 +11,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Porta.Agent.Common;
 using Porta.Agent.LocalApi;
 
 namespace Porta.ControlCenter;
@@ -2669,6 +2670,22 @@ public partial class MainWindow : Window
             return "Unsupported on this device/build. No desktop change was applied.";
         }
 
+        string executionState = NormalizeExecutionState(ev.ExecutionState);
+        if (!IsRealDesktopAction(ev))
+        {
+            return "Recorded by current regulation policy. No desktop executor was involved.";
+        }
+
+        if (executionState == "failed")
+        {
+            return "Execution failed in the user session. No desktop change was applied.";
+        }
+
+        if (executionState == "decided")
+        {
+            return "Decision recorded and waiting for desktop execution acknowledgement.";
+        }
+
         return "Applied according to current regulation policy.";
     }
 
@@ -2759,56 +2776,16 @@ public partial class MainWindow : Window
     }
 
     private static string ClassifyAction(LocalApiEventResponse ev)
-    {
-        if (IsPolicyIntentAction(ev.Action))
-        {
-            return "Policy Intent";
-        }
-
-        if (IsUnsupportedAction(ev.Action))
-        {
-            return "Unsupported";
-        }
-
-        if (IsRealDesktopAction(ev))
-        {
-            return "Real Action";
-        }
-
-        return "Decision Record";
-    }
+        => PortaActionSemantics.ClassifyAction(ev.Action, ev.CommandType);
 
     private static bool IsRealDesktopAction(LocalApiEventResponse ev)
-    {
-        string normalized = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
-        if (normalized is "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion"
-            or "deep_work_notifications_suppressed" or "deep_work_notifications_restored")
-        {
-            return true;
-        }
-
-        if (normalized is "notification_snapshot_failed" or "notification_suppress_failed" or "notification_restore_failed")
-        {
-            return true;
-        }
-
-        return !string.IsNullOrWhiteSpace(ev.CommandType);
-    }
+        => PortaActionSemantics.IsRealDesktopAction(ev.Action, ev.CommandType);
 
     private static bool IsPolicyIntentAction(string? action)
-    {
-        string normalized = action?.Trim().ToLowerInvariant() ?? string.Empty;
-        return normalized is "focus_mode_enabled"
-            or "focus_assist_enabled"
-            or "fatigue_relief_enabled"
-            or "temporary_app_restriction_enabled";
-    }
+        => PortaActionSemantics.IsPolicyIntentAction(action);
 
     private static bool IsUnsupportedAction(string? action)
-    {
-        string normalized = action?.Trim().ToLowerInvariant() ?? string.Empty;
-        return normalized.Contains("brightness", StringComparison.Ordinal);
-    }
+        => PortaActionSemantics.IsUnsupportedAction(action);
 
     private static string BuildUndoBadge(LocalApiEventResponse ev)
     {

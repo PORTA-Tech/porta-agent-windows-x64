@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Porta.Agent.Common;
 using Porta.Agent.Common.Contracts;
 using Porta.Agent.Common.UserAgent;
 
@@ -1074,6 +1075,11 @@ public sealed class AgentCoreController : IAgentCoreController
 
     private static string ResolveEventWhatChanged(string action, string lifecycleState)
     {
+        if (PortaActionSemantics.IsPolicyIntentAction(action))
+        {
+            return PortaActionSemantics.DescribePolicyIntent(action, lifecycleState);
+        }
+
         if (string.Equals(lifecycleState, "deactivated", StringComparison.OrdinalIgnoreCase))
         {
             return "Intervention ended and automatic restoration was attempted.";
@@ -1081,17 +1087,13 @@ public sealed class AgentCoreController : IAgentCoreController
 
         return action switch
         {
-            "focus_mode_enabled" => "Focus mode controls were enabled for overload relief.",
-            "focus_assist_enabled" => "Focus Assist was enabled to protect deep focus.",
-            "fatigue_relief_enabled" => "Fatigue relief controls were enabled (dimming + animation reduction).",
-            "temporary_app_restriction_enabled" => "Temporary app restriction was activated for restrict-level control.",
             "break_suggestion" => "Break suggestion was presented in the user interface.",
             "focus_lock_in_suggestion" => "Focus lock-in suggestion was presented in the user interface.",
             "stretch_break_suggestion" => "Stretch break suggestion was presented in the user interface.",
             "inform_overload_risk" => "Overload risk was logged (inform-only).",
             "inform_focus_protection" => "Focus protection was logged (inform-only).",
             "inform_fatigue_prevention" => "Fatigue prevention was logged (inform-only).",
-            _ => $"Action {action} was applied."
+            _ => $"Action {action} was recorded."
         };
     }
 

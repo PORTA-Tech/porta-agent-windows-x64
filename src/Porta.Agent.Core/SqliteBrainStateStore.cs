@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Porta.Agent.Common;
 using Porta.Agent.Core.Analysis;
 using Porta.Agent.Core.Buckets;
 using Porta.Agent.Core.Db;
@@ -4505,16 +4506,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     }
 
     private static string ResolveOverloadBrightnessWhatChanged(string action)
-    {
-        return action switch
-        {
-            "overload_brightness_reduced" => "Display brightness entered reduced mode for overload dampening.",
-            "overload_brightness_restored" => "Display brightness restoration to pre-overload level completed.",
-            "brightness_unsupported" => "Brightness control is unsupported on this device; no change applied.",
-            "brightness_control_failed" => "Brightness control operation failed during overload brightness handling.",
-            _ => "No brightness action change."
-        };
-    }
+        => PortaActionSemantics.DescribeBrightnessAction(action);
 
     private static string ResolveOverloadBrightnessReason(string action, OverloadBrightnessActionOutcome outcome)
     {
@@ -5246,29 +5238,28 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         if (string.Equals(lifecycleState, "deactivated", StringComparison.OrdinalIgnoreCase))
         {
-            return action switch
+            if (PortaActionSemantics.IsPolicyIntentAction(action))
             {
-                "temporary_app_restriction_enabled" => "Temporary app restriction ended and prior state restoration was applied.",
-                "focus_mode_enabled" => "Focus mode intervention ended and prior notification/animation state was restored.",
-                "focus_assist_enabled" => "Focus Assist intervention ended and previous Focus Assist state was restored.",
-                "fatigue_relief_enabled" => "Fatigue relief intervention ended and prior brightness/animation state was restored.",
-                _ => "Intervention ended; prior system state restoration attempted."
-            };
+                return PortaActionSemantics.DescribePolicyIntent(action, lifecycleState);
+            }
+
+            return "Intervention ended; prior system state restoration attempted.";
+        }
+
+        if (PortaActionSemantics.IsPolicyIntentAction(action))
+        {
+            return PortaActionSemantics.DescribePolicyIntent(action, lifecycleState);
         }
 
         return action switch
         {
-            "temporary_app_restriction_enabled" => "Temporary app restriction activated; notification/animation/dimming controls applied per allowed categories.",
-            "focus_mode_enabled" => "Focus mode activated; Focus Assist and reduction controls applied per allowed categories.",
-            "focus_assist_enabled" => "Focus Assist enabled to protect focus and reduce interruption pressure.",
-            "fatigue_relief_enabled" => "Fatigue relief enabled; display dimmed and visual stimulation reduced.",
             "break_suggestion" => "Break suggestion displayed to user (no forced system restriction).",
             "focus_lock_in_suggestion" => "Focus lock-in suggestion displayed to user.",
             "stretch_break_suggestion" => "Stretch break suggestion displayed to user.",
             "inform_overload_risk" => "Overload risk logged for transparency; no direct system setting changed.",
             "inform_focus_protection" => "Focus protection signal logged for transparency; no direct system setting changed.",
             "inform_fatigue_prevention" => "Fatigue prevention signal logged for transparency; no direct system setting changed.",
-            _ => $"Action {action} applied."
+            _ => $"Action {action} recorded."
         };
     }
 
