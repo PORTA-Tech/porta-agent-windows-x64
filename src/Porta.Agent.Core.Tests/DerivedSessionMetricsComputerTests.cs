@@ -30,6 +30,9 @@ public sealed class DerivedSessionMetricsComputerTests
             BaselineGatingResult.Warm);
 
         Assert.Equal(15d, result.SustainedAttentionDurationSec, precision: 6);
+        Assert.Equal(15d, result.TaskContinuitySeconds, precision: 6);
+        Assert.Equal("keep", result.ContinuityState);
+        Assert.Equal(1d, result.TaskContinuityScore, precision: 6);
         Assert.Equal(string.Empty, result.SaFreezeReason);
         Assert.False(result.SaUntrusted);
     }
@@ -57,6 +60,7 @@ public sealed class DerivedSessionMetricsComputerTests
             BaselineGatingResult.Cold);
 
         Assert.Equal(30d, result.SustainedAttentionDurationSec, precision: 6);
+        Assert.Equal("keep", result.ContinuityState);
         Assert.Equal(string.Empty, result.SaFreezeReason);
         Assert.True(result.SaUntrusted);
     }
@@ -111,7 +115,7 @@ public sealed class DerivedSessionMetricsComputerTests
     }
 
     [Fact]
-    public void ComputeForFinalizedBucket_MissingData_MarksPartialAndDecays()
+    public void ComputeForFinalizedBucket_FocusMissing_PausesContinuityAndMarksPartial()
     {
         using var connection = OpenInMemoryDb();
         using SqliteTransaction tx = connection.BeginTransaction();
@@ -136,9 +140,11 @@ public sealed class DerivedSessionMetricsComputerTests
             BaselineGatingResult.Warm);
 
         Assert.True(result.Partial);
-        Assert.Equal(18d, result.SustainedAttentionDurationSec, precision: 6);
+        Assert.Equal(20d, result.SustainedAttentionDurationSec, precision: 6);
         Assert.Equal(0.33d, result.IdleFragmentationIndex, precision: 6);
-        Assert.Equal("partial_or_missing", result.SaFreezeReason);
+        Assert.Equal("pause", result.ContinuityState);
+        Assert.True(result.ContinuityConfidence < 0.7d);
+        Assert.Equal("focus_unavailable", result.SaFreezeReason);
         Assert.False(result.SaUntrusted);
     }
 
@@ -199,7 +205,8 @@ public sealed class DerivedSessionMetricsComputerTests
             BaselineGatingResult.Warm);
 
         Assert.Equal(20d, result.SustainedAttentionDurationSec, precision: 6);
-        Assert.Equal("context_shift_hold", result.SaFreezeReason);
+        Assert.Equal("pause", result.ContinuityState);
+        Assert.Equal("context_excursion", result.SaFreezeReason);
         Assert.Equal("app_hash_other", result.DominantAppHash);
         Assert.False(result.SaUntrusted);
     }
@@ -230,7 +237,8 @@ public sealed class DerivedSessionMetricsComputerTests
             BaselineGatingResult.Warm);
 
         Assert.Equal(15d, result.SustainedAttentionDurationSec, precision: 6);
-        Assert.Equal("entropy_spike", result.SaFreezeReason);
+        Assert.Equal("decay", result.ContinuityState);
+        Assert.Equal("focus_instability", result.SaFreezeReason);
     }
 
     [Fact]
@@ -259,7 +267,8 @@ public sealed class DerivedSessionMetricsComputerTests
             BaselineGatingResult.Warm);
 
         Assert.Equal(15d, result.SustainedAttentionDurationSec, precision: 6);
-        Assert.Equal("focus_switch_spike", result.SaFreezeReason);
+        Assert.Equal("decay", result.ContinuityState);
+        Assert.Equal("focus_instability", result.SaFreezeReason);
     }
 
     [Fact]
@@ -287,8 +296,9 @@ public sealed class DerivedSessionMetricsComputerTests
             primitive,
             BaselineGatingResult.Cold);
 
-        Assert.Equal(20d, result.SustainedAttentionDurationSec, precision: 6);
-        Assert.Equal("quality_low", result.SaFreezeReason);
+        Assert.Equal(25d, result.SustainedAttentionDurationSec, precision: 6);
+        Assert.Equal("keep", result.ContinuityState);
+        Assert.Equal(string.Empty, result.SaFreezeReason);
         Assert.True(result.SaUntrusted);
     }
 
@@ -357,7 +367,151 @@ public sealed class DerivedSessionMetricsComputerTests
             BaselineGatingResult.Warm);
 
         Assert.Equal(0d, result.SustainedAttentionDurationSec, precision: 6);
+        Assert.Equal("reset", result.ContinuityState);
         Assert.Equal("long_break", result.SaFreezeReason);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_KeyboardOnly_MaintainsContinuityAndLowersConfidence()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 20d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0);
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            ScrollVelocityIndex = 0d,
+            MouseSpeedMean = 0d,
+            MouseJerkP95 = 0d,
+            MouseScrollSpeed = 0d,
+            MouseMicroCorrectionRate = 0d,
+            ContributorsJson = "{\"schema_ver\":1,\"missing_major_channels\":[\"mouse\"]}"
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.False(result.Partial);
+        Assert.Equal(25d, result.TaskContinuitySeconds, precision: 6);
+        Assert.Equal("keep", result.ContinuityState);
+        Assert.True(result.ContinuityConfidence < 0.95d);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_MouseOnly_MaintainsContinuityAndLowersConfidence()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 20d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0);
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            KeyboardIkiMean = 0d,
+            KeyboardIkiCv = 0d,
+            KeyboardBurstRate = 0d,
+            KeyboardBackspaceRate = 0d,
+            ContributorsJson = "{\"schema_ver\":1,\"missing_major_channels\":[\"keyboard\"]}"
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.False(result.Partial);
+        Assert.Equal(25d, result.TaskContinuitySeconds, precision: 6);
+        Assert.Equal("keep", result.ContinuityState);
+        Assert.True(result.ContinuityConfidence < 0.95d);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_ThirtySecondThinkingPause_PausesWithoutReset()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 120d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityIdlePauseSeconds: 0d);
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            IdleSeconds = 30d,
+            KeyboardIkiMean = 0d,
+            KeyboardIkiCv = 0d,
+            KeyboardBurstRate = 0d,
+            KeyboardBackspaceRate = 0d,
+            ScrollVelocityIndex = 0d,
+            MouseSpeedMean = 0d,
+            MouseJerkP95 = 0d,
+            MouseScrollSpeed = 0d,
+            MouseMicroCorrectionRate = 0d
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.Equal(120d, result.TaskContinuitySeconds, precision: 6);
+        Assert.Equal("pause", result.ContinuityState);
+        Assert.Equal("short_pause", result.SaFreezeReason);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_ContextExcursionBeyondGrace_DecaysWithoutReset()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 120d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityContextSwitchSeconds: 60d);
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            DominantAppHash = "app_hash_other"
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.Equal(115d, result.TaskContinuitySeconds, precision: 6);
+        Assert.Equal("decay", result.ContinuityState);
+        Assert.Equal("context_excursion_decay", result.SaFreezeReason);
+        Assert.Equal("app_hash_work", result.DominantAppHash);
     }
 
     [Fact]
@@ -476,18 +630,33 @@ public sealed class DerivedSessionMetricsComputerTests
         double idleFragmentationIndex,
         string saContextAppHash,
         long saLastUpdateBucketSeq,
-        string saFreezeReason = "")
+        string saFreezeReason = "",
+        double continuityIdlePauseSeconds = 0d,
+        double continuityContextSwitchSeconds = 0d,
+        string continuityState = "reset",
+        double continuityScore = 0d,
+        double continuityInstabilitySeconds = 0d)
     {
         string valueJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
             contract_ver = "v1",
+            task_continuity_score = continuityScore,
+            task_continuity_seconds = sustainedAttentionDurationSec,
+            continuity_state = continuityState,
+            continuity_confidence = 1d,
+            continuity_anchor_app_hash = saContextAppHash,
+            continuity_last_update_bucket_seq = saLastUpdateBucketSeq,
+            continuity_idle_pause_seconds = continuityIdlePauseSeconds,
+            continuity_context_switch_seconds = continuityContextSwitchSeconds,
+            continuity_reason_code = saFreezeReason,
+            continuity_instability_seconds = continuityInstabilitySeconds,
             sa_seconds = sustainedAttentionDurationSec,
             sa_context_app_hash = saContextAppHash,
             sa_last_update_bucket_seq = saLastUpdateBucketSeq,
             sa_freeze_reason = saFreezeReason,
-            sa_idle_pause_seconds = 0d,
-            sa_context_switch_seconds = 0d,
+            sa_idle_pause_seconds = continuityIdlePauseSeconds,
+            sa_context_switch_seconds = continuityContextSwitchSeconds,
             sustained_attention_duration_sec = sustainedAttentionDurationSec,
             idle_fragmentation_index = idleFragmentationIndex,
             dominant_app_hash = saContextAppHash,
@@ -531,6 +700,10 @@ public sealed class DerivedSessionMetricsComputerTests
             idleFragmentationIndex: result.IdleFragmentationIndex,
             saContextAppHash: result.DominantAppHash,
             saLastUpdateBucketSeq: bucketSeq,
-            saFreezeReason: result.SaFreezeReason);
+            saFreezeReason: result.SaFreezeReason,
+            continuityIdlePauseSeconds: result.SaIdlePauseSeconds,
+            continuityContextSwitchSeconds: result.SaContextSwitchSeconds,
+            continuityState: result.ContinuityState,
+            continuityScore: result.TaskContinuityScore);
     }
 }

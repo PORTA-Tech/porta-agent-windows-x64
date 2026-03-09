@@ -56,15 +56,28 @@ public static class PortaExecutionConstants
     {
         public const string RuntimeStateKey = "derived_session:current";
         public const string ContractVersion = "v1";
-        public const double IdleSecondsStableMax = 4.0;
+        public const double IdleSecondsStableMax = 10.0;
         public const double IdleAccumulateMaxSeconds = 10.0;
         public const double IdlePauseMaxSeconds = 60.0;
         public const double IdleDecayMaxSeconds = 180.0;
-        public const double IdleResetSeconds = 300.0;
+        public const double IdleResetSeconds = 180.0;
         public const double IdleDecayPerBucketSeconds = 2.5;
-        public const double ContextShiftGraceSeconds = 20.0;
-        public const double ContextShiftResetSeconds = 60.0;
+        public const double ContextShiftGraceSeconds = 60.0;
+        public const double ContextShiftResetSeconds = 180.0;
         public const double ContextShiftDecayPerBucketSeconds = 5.0;
+        public const double InstabilityResetSeconds = 180.0;
+        public const double InstabilityDecayPerBucketSeconds = 5.0;
+        public const double KeepScore = 1.0;
+        public const double PauseScore = 0.0;
+        public const double DecayScore = 0.35;
+        public const double ResetScore = 0.0;
+        public const double FocusMissingConfidencePenalty = 0.35;
+        public const double KeyboardMissingConfidencePenalty = 0.08;
+        public const double MouseMissingConfidencePenalty = 0.08;
+        public const double BothInteractionsMissingConfidencePenalty = 0.20;
+        public const double IdleMissingConfidencePenalty = 0.12;
+        public const double PartialConfidencePenalty = 0.05;
+        public const double NoInteractionConfidencePenalty = 0.05;
     }
 
     public static class OverloadStabilization

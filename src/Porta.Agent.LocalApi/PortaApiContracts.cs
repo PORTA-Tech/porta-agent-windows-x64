@@ -173,7 +173,11 @@ public sealed record LocalApiCurrentSnapshotResponse(
     bool BrightnessAdjusted = false,
     double? FComponent = null,
     double? IComponent = null,
-    double? VComponent = null)
+    double? VComponent = null,
+    double TaskContinuityScore = 0d,
+    double TaskContinuitySeconds = 0d,
+    string? ContinuityState = null,
+    double? ContinuityConfidence = null)
 {
     // Step 18D pinned snake_case aliases for snapshot consumers.
     public double overload_likelihood => OverloadLikelihood;
@@ -191,6 +195,10 @@ public sealed record LocalApiCurrentSnapshotResponse(
     public double? F => FComponent;
     public double? I => IComponent;
     public double? V => VComponent;
+    public double task_continuity_score => TaskContinuityScore;
+    public double task_continuity_seconds => TaskContinuitySeconds;
+    public string? continuity_state => ContinuityState;
+    public double? continuity_confidence => ContinuityConfidence;
     public string timestamp_utc => TimestampUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
     public LocalApiSnapshotCurrentView current => new(
         overload_active: overload_active,

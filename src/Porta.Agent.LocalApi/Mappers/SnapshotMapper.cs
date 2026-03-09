@@ -33,6 +33,10 @@ internal static class SnapshotMapper
         bool deepWorkActive = ReadBoolFlag(normalizedStateFlagsJson, "deep_work_active");
         bool notificationsSuppressed = ReadBoolFlag(normalizedStateFlagsJson, "notifications_suppressed");
         bool brightnessAdjusted = ReadBoolFlag(normalizedStateFlagsJson, "brightness_adjusted");
+        double taskContinuityScore = ReadDoubleFlag(normalizedStateFlagsJson, "task_continuity_score", fallback: 0d);
+        double taskContinuitySeconds = ReadDoubleFlag(normalizedStateFlagsJson, "task_continuity_seconds", fallback: sustainedAttentionSeconds);
+        string continuityState = ReadStringFlag(normalizedStateFlagsJson, "continuity_state", fallback: "reset");
+        double continuityConfidence = ReadDoubleFlag(normalizedStateFlagsJson, "continuity_confidence", fallback: confidence);
         (double? fComponent, double? iComponent, double? vComponent) = ReadFivComponents(normalizedContributorsJson);
 
         // Pinned null/partial behavior: if there is no finalized state row, keep endpoint healthy
@@ -88,7 +92,11 @@ internal static class SnapshotMapper
             brightnessAdjusted,
             fComponent,
             iComponent,
-            vComponent);
+            vComponent,
+            taskContinuityScore,
+            taskContinuitySeconds,
+            continuityState,
+            continuityConfidence);
     }
 
     private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(string? stateFlagsJson)
@@ -179,6 +187,61 @@ internal static class SnapshotMapper
                 JsonValueKind.Number when node.TryGetInt32(out int numeric) => numeric != 0,
                 _ => fallback
             };
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
+    private static double ReadDoubleFlag(string? json, string name, double fallback = 0d)
+    {
+        if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(name))
+        {
+            return fallback;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty(name, out JsonElement node))
+            {
+                return fallback;
+            }
+
+            if (node.ValueKind == JsonValueKind.Number && node.TryGetDouble(out double numeric))
+            {
+                return numeric;
+            }
+        }
+        catch
+        {
+        }
+
+        return fallback;
+    }
+
+    private static string ReadStringFlag(string? json, string name, string fallback = "")
+    {
+        if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(name))
+        {
+            return fallback;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty(name, out JsonElement node)
+                || node.ValueKind != JsonValueKind.String)
+            {
+                return fallback;
+            }
+
+            return node.GetString() ?? fallback;
         }
         catch
         {
