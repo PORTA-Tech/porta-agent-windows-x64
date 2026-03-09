@@ -105,12 +105,22 @@ public static class PortaExecutionConstants
 
     public static class BreakPolicy
     {
-        public const int SustainedAttentionSeconds = 1800;
+        public const int MicrobreakWindowSeconds = 35 * 60;
+        public const int MicrobreakEffectiveFocusSecondsLowOverload = 30 * 60;
+        public const int MicrobreakEffectiveFocusSecondsHighOverload = 25 * 60;
+        public const int ShortBreakWindowSeconds = 75 * 60;
+        public const int ShortBreakEffectiveFocusSecondsLowOverload = 60 * 60;
+        public const int ShortBreakEffectiveFocusSecondsHighOverload = 45 * 60;
         public const int CooldownSeconds = 1800;
         public const long CooldownWindowMs = CooldownSeconds * 1000L;
-        public const double ConfidenceMin = 0.55;
+        public const double ConfidenceMin = 0.50;
+        public const double HighOverloadLikelihood = OverloadStabilization.ThresholdOn;
+        public const double DeliveryBoundaryIdleMinSeconds = 2.0;
+        public const double DeliveryBoundaryIdleMaxSeconds = 30.0;
+        public const double DeliveryBoundaryTypingQuietMax = 0.35;
+        public const double DeliveryBoundaryKeyboardBurstQuietMax = 0.20;
         public const string RuntimeStateKey = "break_policy:cooldown";
-        public const string ContractVersion = "v1";
+        public const string ContractVersion = "v2";
     }
 
     public static class DeepWorkDetection

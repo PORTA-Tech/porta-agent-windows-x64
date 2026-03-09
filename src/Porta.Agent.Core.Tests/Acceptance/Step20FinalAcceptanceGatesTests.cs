@@ -8,6 +8,7 @@ namespace Porta.Agent.Core.Tests.Acceptance;
 public sealed class Step20FinalAcceptanceGatesTests
 {
     private const int WarmupBuckets = 220;
+    private const int BreakWarmupBuckets = 120;
     private const int BucketsPerHour = 3600 / Time.bucketSeconds;
     private const int DeepWorkToggleThresholdPerHour = 3;
     private const int BrightnessToggleThresholdPerHour = 2;
@@ -82,6 +83,15 @@ public sealed class Step20FinalAcceptanceGatesTests
         MouseMoves: 12,
         MouseWheels: 10,
         IdleSeconds: 0d);
+    private static readonly ScriptedBucketInput BreakBoundaryCandidate = new(
+        TypingBurstIntensity: 0.10d,
+        ScrollVelocityIndex: 0.10d,
+        FocusSwitchRate: 0.05d,
+        AppHash: "app_break",
+        KeyboardKeydowns: 1,
+        MouseMoves: 1,
+        MouseWheels: 0,
+        IdleSeconds: 4d);
 
     [Fact]
     [Trait("Category", "AcceptanceGate")]
@@ -340,37 +350,25 @@ public sealed class Step20FinalAcceptanceGatesTests
         using var runner = new DeterministicFinalizerScenarioRunner(
             startUtc: DateTimeOffset.Parse("2026-03-07T12:00:00.000+00:00"),
             seed: 94090);
-        WarmupBaseline(runner);
+        WarmupBaseline(runner, BreakWarmupBuckets);
 
-        runner.RunBucket(BreakEligibleCandidate);
+        FinalizerTickObservation activation = runner.RunBucket(BreakEligibleCandidate);
         PinOverloadCandidateNormalization(runner.DbPath);
-
-        FinalizerTickObservation activation = default;
-        for (int i = 0; i < 360; i++)
-        {
-            activation = runner.RunBucket(BreakEligibleCandidate);
-            if (activation.LatestState?.OverloadActive ?? false)
-            {
-                break;
-            }
-        }
-
-        Assert.True(activation.LatestState?.OverloadActive ?? false, "Break gate scenario could not activate overload.");
-
-        SeedDerivedSessionRuntime(
-            runner,
-            sustainedAttentionSeconds: PortaExecutionConstants.BreakPolicy.SustainedAttentionSeconds - Time.bucketSeconds,
-            dominantAppHash: BreakEligibleCandidate.AppHash,
-            bucketSeq: activation.BucketSeq);
+        SeedBreakContinuityHistory(
+            runner.DbPath,
+            endExclusiveBucketSeq: activation.BucketSeq - BreakWarmupBuckets,
+            bucketCount: 180,
+            dominantAppHash: BreakEligibleCandidate.AppHash);
+        PinOverloadActiveRuntime(runner, activation.BucketSeq);
 
         bool replayDone = false;
         int previousBreakCount = 0;
         for (int i = 0; i < BucketsPerHour; i++)
         {
             PinOverloadActiveRuntime(runner, activation.BucketSeq + i);
-            FinalizerTickObservation observation = runner.RunBucket(BreakEligibleCandidate);
+            FinalizerTickObservation observation = runner.RunBucket(SelectBreakScenarioBucket(i));
 
-            int currentBreakCount = CountEvents(runner.ReadRecentEventRows(4000), "break_suggestion");
+            int currentBreakCount = CountBreakFamilyEvents(runner.ReadRecentEventRows(4000));
             if (!replayDone && currentBreakCount > previousBreakCount)
             {
                 DateTimeOffset replayAt = observation.BucketEndUtc.AddMilliseconds(Time.finalizeDelayMs);
@@ -386,7 +384,7 @@ public sealed class Step20FinalAcceptanceGatesTests
 
         IReadOnlyList<(string TimestampUtc, string Action, string IdempotencyKey)> allEvents = runner.ReadRecentEventRows(8000);
         var breakEvents = allEvents
-            .Where(e => string.Equals(e.Action, "break_suggestion", StringComparison.Ordinal))
+            .Where(e => IsBreakFamilyAction(e.Action))
             .Select(e => new BreakEventTrace(
                 TimestampUtc: DateTimeOffset.Parse(e.TimestampUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal),
                 IdempotencyKey: e.IdempotencyKey))
@@ -437,6 +435,13 @@ public sealed class Step20FinalAcceptanceGatesTests
             < 660 => (bucketIndex % 20) < 3 ? LightOverloadBurst : MixedWork,
             _ => MixedWork
         };
+    }
+
+    private static ScriptedBucketInput SelectBreakScenarioBucket(int bucketIndex)
+    {
+        return (bucketIndex % 12) == 11
+            ? BreakBoundaryCandidate
+            : BreakEligibleCandidate;
     }
 
     private static ScenarioTrace RunScenario(
@@ -533,9 +538,9 @@ public sealed class Step20FinalAcceptanceGatesTests
         return transitions;
     }
 
-    private static void WarmupBaseline(DeterministicFinalizerScenarioRunner runner)
+    private static void WarmupBaseline(DeterministicFinalizerScenarioRunner runner, int bucketCount = WarmupBuckets)
     {
-        for (int i = 0; i < WarmupBuckets; i++)
+        for (int i = 0; i < bucketCount; i++)
         {
             runner.RunBucket(BuildWarmupBucket(i));
         }
@@ -681,33 +686,6 @@ public sealed class Step20FinalAcceptanceGatesTests
         }
     }
 
-    private static void SeedDerivedSessionRuntime(
-        DeterministicFinalizerScenarioRunner runner,
-        int sustainedAttentionSeconds,
-        string dominantAppHash,
-        long bucketSeq)
-    {
-        string json = JsonSerializer.Serialize(new
-        {
-            schema_ver = 1,
-            contract_ver = PortaExecutionConstants.DerivedSessionMetrics.ContractVersion,
-            bucket_seq = bucketSeq,
-            sa_seconds = sustainedAttentionSeconds,
-            sa_context_app_hash = dominantAppHash,
-            sa_last_update_bucket_seq = bucketSeq,
-            sa_freeze_reason = string.Empty,
-            sa_untrusted = false,
-            sustained_attention_duration_sec = sustainedAttentionSeconds,
-            idle_fragmentation_index = 0d,
-            partial = false,
-            dominant_app_hash = dominantAppHash
-        });
-        runner.UpsertRuntimeStateValue(
-            PortaExecutionConstants.DerivedSessionMetrics.RuntimeStateKey,
-            json,
-            runner.Clock.UtcNow);
-    }
-
     private static void PinOverloadActiveRuntime(DeterministicFinalizerScenarioRunner runner, long bucketSeq)
     {
         long nowMs = runner.Clock.UtcNow.ToUnixTimeMilliseconds();
@@ -746,6 +724,107 @@ public sealed class Step20FinalAcceptanceGatesTests
         string action)
     {
         return rows.Count(row => string.Equals(row.Action, action, StringComparison.Ordinal));
+    }
+
+    private static int CountBreakFamilyEvents(
+        IReadOnlyList<(string TimestampUtc, string Action, string IdempotencyKey)> rows)
+    {
+        return rows.Count(row => IsBreakFamilyAction(row.Action));
+    }
+
+    private static bool IsBreakFamilyAction(string action)
+    {
+        return string.Equals(action, "break_suggestion", StringComparison.Ordinal)
+            || string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal);
+    }
+
+    private static void SeedBreakContinuityHistory(
+        string dbPath,
+        long endExclusiveBucketSeq,
+        int bucketCount,
+        string dominantAppHash)
+    {
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+        using SqliteTransaction tx = connection.BeginTransaction();
+
+        for (int i = Math.Max(0, bucketCount); i > 0; i--)
+        {
+            long bucketSeq = endExclusiveBucketSeq - i;
+            if (bucketSeq < 0)
+            {
+                continue;
+            }
+
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText =
+                """
+                INSERT OR REPLACE INTO state_buckets (
+                    timestamp_utc,
+                    typing_burst_intensity_raw,
+                    scroll_velocity_index_raw,
+                    focus_switch_rate_raw,
+                    typing_burst_intensity_smoothed,
+                    scroll_velocity_index_smoothed,
+                    focus_switch_rate_smoothed,
+                    focus_strength,
+                    overload_likelihood,
+                    fatigue_probability,
+                    cognitive_stability,
+                    dominant_state_name,
+                    dominant_state_value,
+                    confidence,
+                    sustained_attention_duration_sec,
+                    idle_fragmentation_index,
+                    activation_window_triggered,
+                    cooldown_triggered,
+                    activation_window_open,
+                    contributors_json,
+                    state_flags_json
+                ) VALUES (
+                    $ts,
+                    0.9,
+                    0.9,
+                    0.1,
+                    0.9,
+                    0.9,
+                    0.1,
+                    0.6,
+                    0.7,
+                    0.2,
+                    0.8,
+                    'focus',
+                    0.8,
+                    0.8,
+                    $sa_seconds,
+                    0.05,
+                    0,
+                    0,
+                    1,
+                    $contributors_json,
+                    $state_flags_json
+                );
+                """;
+            cmd.Parameters.AddWithValue("$ts", Time.toIsoUtcMsString(Time.bucketStartEnd(bucketSeq).endUtcMs));
+            cmd.Parameters.AddWithValue("$sa_seconds", Math.Max(0, (bucketCount - i + 1) * Time.bucketSeconds));
+            cmd.Parameters.AddWithValue("$contributors_json", "{\"schema_ver\":1}");
+            cmd.Parameters.AddWithValue(
+                "$state_flags_json",
+                JsonSerializer.Serialize(new
+                {
+                    schema_ver = 1,
+                    task_continuity_score = 1.0,
+                    behavior_continuity_score = 1.0,
+                    task_continuity_seconds = Math.Max(0, (bucketCount - i + 1) * Time.bucketSeconds),
+                    continuity_state = "keep",
+                    continuity_confidence = 0.85,
+                    continuity_anchor_app_hash = dominantAppHash
+                }));
+            cmd.ExecuteNonQuery();
+        }
+
+        tx.Commit();
     }
 
     private static long ResolveWindowStartMs(long nowUtcMs, long windowMs)

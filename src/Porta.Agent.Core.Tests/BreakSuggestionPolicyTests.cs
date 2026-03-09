@@ -17,6 +17,7 @@ public sealed class BreakSuggestionPolicyTests
             BuildStabilization(overloadActive: true),
             BuildOverloadInference(confidence: 0.9d),
             BuildSession(saSeconds: 7200d),
+            BuildFocusWindow(microbreakSeconds: 1800d, shortBreakSeconds: 3600d, boundaryKind: "short_idle"),
             resolveCooldown: () =>
             {
                 cooldownReads++;
@@ -34,10 +35,11 @@ public sealed class BreakSuggestionPolicyTests
     {
         int cooldownReads = 0;
         BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
-            BaselineGatingResult.Warm,
+            BaselineGatingResult.Provisional,
             BuildStabilization(overloadActive: true),
-            BuildOverloadInference(confidence: 0.54d),
+            BuildOverloadInference(confidence: 0.49d),
             BuildSession(saSeconds: 7200d),
+            BuildFocusWindow(microbreakSeconds: 1800d, shortBreakSeconds: 3600d, boundaryKind: "short_idle"),
             resolveCooldown: () =>
             {
                 cooldownReads++;
@@ -51,14 +53,18 @@ public sealed class BreakSuggestionPolicyTests
     }
 
     [Fact]
-    public void ShouldTriggerBreak_AllPreconditionsPass_Emits()
+    public void ShouldTriggerBreak_ProvisionalMicrobreakAtBoundary_EmitsStretchSuggestion()
     {
         int cooldownReads = 0;
         BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
-            BaselineGatingResult.Warm,
-            BuildStabilization(overloadActive: true),
+            BaselineGatingResult.Provisional,
+            BuildStabilization(overloadActive: false),
             BuildOverloadInference(confidence: 0.60d),
-            BuildSession(saSeconds: 3600d),
+            BuildSession(saSeconds: 1500d),
+            BuildFocusWindow(
+                microbreakSeconds: PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload,
+                shortBreakSeconds: 2400d,
+                boundaryKind: "short_idle"),
             resolveCooldown: () =>
             {
                 cooldownReads++;
@@ -66,9 +72,56 @@ public sealed class BreakSuggestionPolicyTests
             });
 
         Assert.True(decision.ShouldEmit);
+        Assert.Equal("stretch_break_suggestion", decision.Action);
         Assert.Equal("preconditions_met", decision.ReasonCode);
         Assert.Equal(1, cooldownReads);
         Assert.True(decision.CooldownChecked);
+    }
+
+    [Fact]
+    public void ShouldTriggerBreak_HighOverloadShortBreak_EmitsBreakSuggestion()
+    {
+        BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
+            BaselineGatingResult.Provisional,
+            BuildStabilization(overloadActive: true),
+            BuildOverloadInference(confidence: 0.72d),
+            BuildSession(saSeconds: 2700d),
+            BuildFocusWindow(
+                microbreakSeconds: 1900d,
+                shortBreakSeconds: PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsHighOverload,
+                boundaryKind: "typing_quiet",
+                highOverloadPressure: true),
+            resolveCooldown: () => new BreakPolicyCooldownSnapshot(true, 0, 0));
+
+        Assert.True(decision.ShouldEmit);
+        Assert.Equal("break_suggestion", decision.Action);
+        Assert.True(decision.HighOverloadPressure);
+        Assert.Equal("typing_quiet", decision.DeliveryBoundaryKind);
+    }
+
+    [Fact]
+    public void ShouldTriggerBreak_ThresholdMetWithoutBoundary_WaitsForBoundary()
+    {
+        int cooldownReads = 0;
+        BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
+            BaselineGatingResult.Provisional,
+            BuildStabilization(overloadActive: false),
+            BuildOverloadInference(confidence: 0.70d),
+            BuildSession(saSeconds: 1500d),
+            BuildFocusWindow(
+                microbreakSeconds: PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload,
+                shortBreakSeconds: 2000d,
+                boundaryKind: string.Empty),
+            resolveCooldown: () =>
+            {
+                cooldownReads++;
+                return new BreakPolicyCooldownSnapshot(true, 0, 0);
+            });
+
+        Assert.False(decision.ShouldEmit);
+        Assert.Equal("awaiting_delivery_boundary", decision.ReasonCode);
+        Assert.Equal("stretch_break_suggestion", decision.Action);
+        Assert.Equal(0, cooldownReads);
     }
 
     [Fact]
@@ -84,6 +137,7 @@ public sealed class BreakSuggestionPolicyTests
             BuildStabilization(overloadActive: true),
             BuildOverloadInference(confidence: 0.80d),
             BuildSession(saSeconds: 7200d),
+            BuildFocusWindow(microbreakSeconds: 1900d, shortBreakSeconds: 3600d, boundaryKind: "short_idle"),
             resolveCooldown: () => cooldown);
 
         Assert.False(decision.ShouldEmit);
@@ -183,15 +237,24 @@ public sealed class BreakSuggestionPolicyTests
             SaIdlePauseSeconds: 0d,
             SaContextSwitchSeconds: 0d,
             SaFreezeReason: string.Empty,
-            SaUntrusted: false);
+            SaUntrusted: false,
+            TaskContinuityScore: 0.83d,
+            TaskContinuitySeconds: 3725d,
+            ContinuityState: "keep",
+            ContinuityConfidence: 0.81d);
         BaselineGatingResult gating = BaselineGatingResult.Warm;
         OverloadInferenceResult overload = BuildOverloadInference(confidence: 0.71d);
         OverloadStabilizationResult stabilization = BuildStabilization(overloadActive: true);
         BreakSuggestionDecision decision = new(
             ShouldEmit: true,
+            Action: "break_suggestion",
             ReasonCode: "preconditions_met",
             CooldownChecked: true,
-            Cooldown: new BreakPolicyCooldownSnapshot(true, 0, 0));
+            Cooldown: new BreakPolicyCooldownSnapshot(true, 0, 0),
+            EffectiveFocusSeconds: 3250d,
+            EffectiveFocusWindowSeconds: PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds,
+            DeliveryBoundaryKind: "short_idle",
+            HighOverloadPressure: true);
 
         string json = SqliteBrainStateStore.BuildBreakSuggestionWhyJson(
             inputBucket,
@@ -204,16 +267,24 @@ public sealed class BreakSuggestionPolicyTests
         JsonElement root = doc.RootElement;
 
         Assert.Equal(1, root.GetProperty("schema_ver").GetInt32());
-        Assert.Equal("break_suggestion_v1", root.GetProperty("policy").GetString());
+        Assert.Equal("break_suggestion_v2", root.GetProperty("policy").GetString());
         JsonElement reasons = root.GetProperty("reasons");
-        Assert.True(reasons.GetProperty("baseline_ready").GetBoolean());
+        Assert.True(reasons.GetProperty("suggestions_enabled").GetBoolean());
         Assert.True(reasons.GetProperty("overload_active").GetBoolean());
+        Assert.True(reasons.GetProperty("overload_high").GetBoolean());
         Assert.Equal(0.71d, reasons.GetProperty("confidence").GetDouble(), precision: 6);
-        Assert.Equal(3725d, reasons.GetProperty("sustained_attention_s").GetDouble(), precision: 6);
+        Assert.Equal(3725d, reasons.GetProperty("task_continuity_s").GetDouble(), precision: 6);
+        Assert.Equal(3250d, reasons.GetProperty("effective_focus_s").GetDouble(), precision: 6);
+        Assert.Equal(PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds, reasons.GetProperty("effective_focus_window_s").GetInt32());
+        Assert.Equal("break_suggestion", reasons.GetProperty("action").GetString());
+        Assert.Equal("short_idle", reasons.GetProperty("delivery_boundary").GetString());
         Assert.True(reasons.GetProperty("cooldown_expired").GetBoolean());
         JsonElement thresholds = root.GetProperty("thresholds");
-        Assert.Equal(0.55d, thresholds.GetProperty("confidence_min").GetDouble(), precision: 6);
-        Assert.Equal(1800, thresholds.GetProperty("sustained_attention_min_s").GetInt32());
+        Assert.Equal(0.50d, thresholds.GetProperty("confidence_min").GetDouble(), precision: 6);
+        Assert.Equal(2100, thresholds.GetProperty("microbreak_window_s").GetInt32());
+        Assert.Equal(1500, thresholds.GetProperty("microbreak_effective_focus_min_high_s").GetInt32());
+        Assert.Equal(4500, thresholds.GetProperty("short_break_window_s").GetInt32());
+        Assert.Equal(2700, thresholds.GetProperty("short_break_effective_focus_min_high_s").GetInt32());
         Assert.Equal(1800, thresholds.GetProperty("cooldown_min_s").GetInt32());
         JsonElement context = root.GetProperty("context");
         Assert.Equal(123456, context.GetProperty("bucket_seq").GetInt64());
@@ -233,9 +304,14 @@ public sealed class BreakSuggestionPolicyTests
         DerivedSessionMetricsResult session = BuildSession(saSeconds: 3900d);
         BreakSuggestionDecision decision = new(
             ShouldEmit: true,
+            Action: "break_suggestion",
             ReasonCode: "preconditions_met",
             CooldownChecked: true,
-            Cooldown: new BreakPolicyCooldownSnapshot(true, 0, 0));
+            Cooldown: new BreakPolicyCooldownSnapshot(true, 0, 0),
+            EffectiveFocusSeconds: 3250d,
+            EffectiveFocusWindowSeconds: PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds,
+            DeliveryBoundaryKind: "short_idle",
+            HighOverloadPressure: true);
 
         InputBucketRow bucketA = BuildMinimalInputBucket(bucketSeq: 1500);
         InputBucketRow bucketB = BuildMinimalInputBucket(bucketSeq: 1501);
@@ -299,6 +375,7 @@ public sealed class BreakSuggestionPolicyTests
             stabilization,
             overload,
             session,
+            BuildFocusWindow(microbreakSeconds: 1800d, shortBreakSeconds: 3600d, boundaryKind: "short_idle"),
             resolveCooldown: () => new BreakPolicyCooldownSnapshot(
                 CooldownExpired: false,
                 CooldownEndTsMs: Time.parseIsoUtcMs("2026-03-03T00:30:00.000Z"),
@@ -382,7 +459,26 @@ public sealed class BreakSuggestionPolicyTests
             SaIdlePauseSeconds: 0d,
             SaContextSwitchSeconds: 0d,
             SaFreezeReason: string.Empty,
-            SaUntrusted: false);
+            SaUntrusted: false,
+            TaskContinuityScore: Math.Clamp(saSeconds / PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowOverload, 0d, 1d),
+            TaskContinuitySeconds: saSeconds,
+            ContinuityState: "keep",
+            ContinuityConfidence: 0.82d);
+    }
+
+    private static BreakFocusWindowSnapshot BuildFocusWindow(
+        double microbreakSeconds,
+        double shortBreakSeconds,
+        string boundaryKind,
+        bool highOverloadPressure = false)
+    {
+        return new BreakFocusWindowSnapshot(
+            CurrentBucketEffectiveFocusSeconds: Time.bucketSeconds,
+            MicrobreakWindowEffectiveFocusSeconds: microbreakSeconds,
+            ShortBreakWindowEffectiveFocusSeconds: shortBreakSeconds,
+            DeliveryBoundaryReached: !string.IsNullOrWhiteSpace(boundaryKind),
+            DeliveryBoundaryKind: boundaryKind,
+            HighOverloadPressure: highOverloadPressure);
     }
 
     private static AgentBrainSnapshot BuildMinimalSnapshot(long bucketSeq, double overload, double confidence)

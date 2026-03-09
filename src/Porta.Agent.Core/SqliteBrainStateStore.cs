@@ -279,11 +279,19 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         Confidence: overloadInference.Confidence),
                     previousBrightnessActionState);
                 long finalizeTsMs = Time.bucketStartEnd(mapped.BucketSeq).endUtcMs;
+                BreakFocusWindowSnapshot breakFocusWindow = ReadBreakFocusWindowSnapshot(
+                    connection,
+                    tx,
+                    mapped,
+                    derivedSession,
+                    overloadStabilization,
+                    overloadInference);
                 BreakSuggestionDecision breakSuggestionDecision = BreakSuggestionPolicy.ShouldTriggerBreak(
                     gating,
                     overloadStabilization,
                     overloadInference,
                     derivedSession,
+                    breakFocusWindow,
                     resolveCooldown: () => ReadBreakPolicyCooldownSnapshot(connection, tx, finalizeTsMs));
                 AgentBrainSnapshot inferredSnapshot = ApplyOverloadInference(gatedSnapshot, overloadInference);
                 PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, primitive, robust);
@@ -332,7 +340,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     overloadInference,
                     overloadStabilization,
                     breakSuggestionDecision);
-                PersistBreakPolicyCooldownState(connection, tx, finalizeTsMs, breakSuggestionDecision, breakInserted);
+                PersistBreakPolicyRuntimeState(
+                    connection,
+                    tx,
+                    finalizeTsMs,
+                    breakSuggestionDecision,
+                    breakInserted,
+                    breakFocusWindow);
                 TryInsertAutomaticInterventionEvent(connection, tx, inferredSnapshot);
                 UpsertRuntimeStateForSnapshot(
                     connection,
@@ -3887,6 +3901,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             return false;
         }
 
+        string action = string.IsNullOrWhiteSpace(decision.Action)
+            ? "break_suggestion"
+            : decision.Action.Trim().ToLowerInvariant();
         string whyJson = BuildBreakSuggestionWhyJson(
             inputBucket,
             derivedSession,
@@ -3898,22 +3915,22 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             Time.bucketStartEnd(inputBucket.BucketSeq).endUtcMs);
         var ev = new AgentControlEvent(
             TimestampUtc: finalizeTimestampUtc,
-            Action: "break_suggestion",
-            TriggerState: "overload",
+            Action: action,
+            TriggerState: decision.HighOverloadPressure ? "overload" : "focus",
             TriggerValue: snapshot.OverloadLikelihood,
             Confidence: snapshot.Confidence,
-            DurationSeconds: 300,
+            DurationSeconds: string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal) ? 180 : 300,
             EscalationLevel: "Suggest",
             Reversible: false,
             Reason: decision.ReasonCode,
             Contributors: snapshot.Contributors,
             InterventionId: Guid.NewGuid().ToString("N"),
-            PolicyId: "break-policy-v1",
+            PolicyId: "break-policy-v2",
             Domain: "fatigue",
             PlannedEndTimestampUtc: finalizeTimestampUtc.AddMinutes(5),
             ActualEndTimestampUtc: null,
             PreviousSystemStateJson: "{\"previous_action\":\"none\"}",
-            WhatChanged: "Break suggestion displayed to user (policy-managed).",
+            WhatChanged: ResolveWhatChanged(action, "activated"),
             HowToUndo: "Dismiss suggestion toast.",
             ReversalApplied: false,
             CooldownEndTimestampUtc: finalizeTimestampUtc.AddSeconds(PortaExecutionConstants.BreakPolicy.CooldownSeconds),
@@ -3943,21 +3960,32 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return JsonSerializer.Serialize(new
         {
             schema_ver = 1,
-            policy = "break_suggestion_v1",
+            policy = "break_suggestion_v2",
             reasons = new
             {
-                baseline_ready = gating.BaselineReady,
                 suggestions_enabled = gating.PoliciesEnabled,
                 calibration_stage = gating.CalibrationStage,
                 overload_active = overloadStabilization.OverloadActive,
+                overload_likelihood = overloadInference.OverloadLikelihood,
+                overload_high = decision.HighOverloadPressure,
                 confidence = overloadInference.Confidence,
-                sustained_attention_s = derivedSession.SustainedAttentionDurationSec,
+                task_continuity_s = derivedSession.TaskContinuitySeconds,
+                task_continuity_score = derivedSession.TaskContinuityScore,
+                effective_focus_s = decision.EffectiveFocusSeconds,
+                effective_focus_window_s = decision.EffectiveFocusWindowSeconds,
+                action = decision.Action,
+                delivery_boundary = string.IsNullOrWhiteSpace(decision.DeliveryBoundaryKind) ? "none" : decision.DeliveryBoundaryKind,
                 cooldown_expired = decision.CooldownChecked && decision.Cooldown.CooldownExpired
             },
             thresholds = new
             {
                 confidence_min = PortaExecutionConstants.BreakPolicy.ConfidenceMin,
-                sustained_attention_min_s = PortaExecutionConstants.BreakPolicy.SustainedAttentionSeconds,
+                microbreak_window_s = PortaExecutionConstants.BreakPolicy.MicrobreakWindowSeconds,
+                microbreak_effective_focus_min_low_s = PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload,
+                microbreak_effective_focus_min_high_s = PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsHighOverload,
+                short_break_window_s = PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds,
+                short_break_effective_focus_min_low_s = PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowOverload,
+                short_break_effective_focus_min_high_s = PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsHighOverload,
                 cooldown_min_s = PortaExecutionConstants.BreakPolicy.CooldownSeconds
             },
             context = new
@@ -4496,28 +4524,74 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return "unknown";
     }
 
-    private static void PersistBreakPolicyCooldownState(
+    private static void PersistBreakPolicyRuntimeState(
         SqliteConnection connection,
         SqliteTransaction tx,
         long nowUtcMs,
         BreakSuggestionDecision decision,
-        bool breakInserted)
+        bool breakInserted,
+        BreakFocusWindowSnapshot focusWindow)
     {
-        if (!decision.ShouldEmit || !breakInserted)
+        string? existingJson = ReadRuntimeStateValue(connection, tx, PortaExecutionConstants.BreakPolicy.RuntimeStateKey);
+        BreakPolicyCooldownSnapshot existingCooldown = ParseBreakPolicyCooldownSnapshotJson(existingJson, nowUtcMs);
+        long cooldownEndTsMs = existingCooldown.CooldownEndTsMs;
+        long lastFiredTsMs = 0;
+        string lastAction = string.Empty;
+        if (decision.ShouldEmit && breakInserted)
         {
-            return;
+            cooldownEndTsMs = checked(nowUtcMs + (PortaExecutionConstants.BreakPolicy.CooldownSeconds * 1000L));
+            lastFiredTsMs = nowUtcMs;
+            lastAction = decision.Action;
         }
 
-        long cooldownEndTsMs = checked(nowUtcMs + (PortaExecutionConstants.BreakPolicy.CooldownSeconds * 1000L));
+        if (!string.IsNullOrWhiteSpace(existingJson))
+        {
+            try
+            {
+                using JsonDocument existingDoc = JsonDocument.Parse(existingJson);
+                JsonElement root = existingDoc.RootElement;
+                if (root.ValueKind == JsonValueKind.Object)
+                {
+                    if (lastFiredTsMs <= 0)
+                    {
+                        lastFiredTsMs = ReadInt64Property(root, "break_last_fired_utc_ms", "last_trigger_ts_ms");
+                    }
+
+                    if (string.IsNullOrWhiteSpace(lastAction))
+                    {
+                        lastAction = ReadStringProperty(root, "break_last_action");
+                        if (string.IsNullOrWhiteSpace(lastAction))
+                        {
+                            lastAction = ReadStringProperty(root, "last_action");
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
         string valueJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
             contract_ver = PortaExecutionConstants.BreakPolicy.ContractVersion,
             break_cooldown_until_utc_ms = cooldownEndTsMs,
-            break_last_fired_utc_ms = nowUtcMs,
+            break_last_fired_utc_ms = lastFiredTsMs,
+            break_last_action = lastAction,
+            microbreak_effective_focus_s = focusWindow.MicrobreakWindowEffectiveFocusSeconds,
+            short_break_effective_focus_s = focusWindow.ShortBreakWindowEffectiveFocusSeconds,
+            current_bucket_effective_focus_s = focusWindow.CurrentBucketEffectiveFocusSeconds,
+            delivery_boundary_reached = focusWindow.DeliveryBoundaryReached,
+            delivery_boundary_kind = focusWindow.DeliveryBoundaryKind ?? string.Empty,
+            high_overload_pressure = focusWindow.HighOverloadPressure,
+            pending_action = decision.Action,
+            pending_reason_code = decision.ReasonCode,
+            pending_effective_focus_s = decision.EffectiveFocusSeconds,
+            pending_effective_focus_window_s = decision.EffectiveFocusWindowSeconds,
             // Backward-compat fields for older readers during rollout.
             cooldown_end_ts_ms = cooldownEndTsMs,
-            last_trigger_ts_ms = nowUtcMs,
+            last_trigger_ts_ms = lastFiredTsMs,
             last_reason_code = decision.ReasonCode
         });
 
@@ -4527,6 +4601,112 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             PortaExecutionConstants.BreakPolicy.RuntimeStateKey,
             valueJson,
             Time.toIsoUtcMsString(nowUtcMs));
+    }
+
+    private static BreakFocusWindowSnapshot ReadBreakFocusWindowSnapshot(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        InputBucketRow inputBucket,
+        DerivedSessionMetricsResult derivedSession,
+        OverloadStabilizationResult overloadStabilization,
+        OverloadInferenceResult overloadInference)
+    {
+        int microbreakBuckets = Math.Max(1, PortaExecutionConstants.BreakPolicy.MicrobreakWindowSeconds / Time.bucketSeconds);
+        int shortBreakBuckets = Math.Max(1, PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds / Time.bucketSeconds);
+        long earliestBucketSeq = Math.Max(0, inputBucket.BucketSeq - shortBreakBuckets + 1);
+        long earliestMicrobreakBucketSeq = Math.Max(0, inputBucket.BucketSeq - microbreakBuckets + 1);
+        string earliestTimestampUtc = Time.toIsoUtcMsString(Time.bucketStartEnd(earliestBucketSeq).endUtcMs);
+        string earliestMicrobreakTimestampUtc = Time.toIsoUtcMsString(Time.bucketStartEnd(earliestMicrobreakBucketSeq).endUtcMs);
+        string currentTimestampUtc = Time.toIsoUtcMsString(Time.bucketStartEnd(inputBucket.BucketSeq).endUtcMs);
+        double currentBucketEffectiveFocusSeconds = ResolveEffectiveFocusSeconds(derivedSession.TaskContinuityScore);
+        double microbreakWindowEffectiveFocusSeconds = currentBucketEffectiveFocusSeconds;
+        double shortBreakWindowEffectiveFocusSeconds = currentBucketEffectiveFocusSeconds;
+
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            SELECT
+                COALESCE(SUM(
+                    CASE
+                        WHEN timestamp_utc >= $micro_min_timestamp_utc
+                        THEN COALESCE(
+                            json_extract(state_flags_json, '$.behavior_continuity_score'),
+                            json_extract(state_flags_json, '$.task_continuity_score'),
+                            0.0)
+                        ELSE 0.0
+                    END), 0.0) AS micro_score_sum,
+                COALESCE(SUM(
+                    COALESCE(
+                        json_extract(state_flags_json, '$.behavior_continuity_score'),
+                        json_extract(state_flags_json, '$.task_continuity_score'),
+                        0.0)), 0.0) AS short_score_sum
+            FROM state_buckets
+            WHERE timestamp_utc >= $min_timestamp_utc
+              AND timestamp_utc < $current_timestamp_utc
+            """;
+        cmd.Parameters.AddWithValue("$min_timestamp_utc", earliestTimestampUtc);
+        cmd.Parameters.AddWithValue("$micro_min_timestamp_utc", earliestMicrobreakTimestampUtc);
+        cmd.Parameters.AddWithValue("$current_timestamp_utc", currentTimestampUtc);
+
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        if (reader.Read())
+        {
+            double microScoreSum = ReadDoubleOrFallback(reader, 0, 0d);
+            double shortScoreSum = ReadDoubleOrFallback(reader, 1, 0d);
+            microbreakWindowEffectiveFocusSeconds += Time.bucketSeconds * Math.Max(0d, microScoreSum);
+            shortBreakWindowEffectiveFocusSeconds += Time.bucketSeconds * Math.Max(0d, shortScoreSum);
+        }
+
+        return new BreakFocusWindowSnapshot(
+            CurrentBucketEffectiveFocusSeconds: currentBucketEffectiveFocusSeconds,
+            MicrobreakWindowEffectiveFocusSeconds: microbreakWindowEffectiveFocusSeconds,
+            ShortBreakWindowEffectiveFocusSeconds: shortBreakWindowEffectiveFocusSeconds,
+            DeliveryBoundaryReached: IsBreakDeliveryBoundary(inputBucket, derivedSession),
+            DeliveryBoundaryKind: ResolveBreakDeliveryBoundaryKind(inputBucket, derivedSession),
+            HighOverloadPressure: overloadStabilization.OverloadActive
+                || overloadInference.OverloadLikelihood >= PortaExecutionConstants.BreakPolicy.HighOverloadLikelihood);
+    }
+
+    private static double ResolveEffectiveFocusSeconds(double continuityScore)
+    {
+        return Math.Max(0d, Time.bucketSeconds * Math.Clamp(
+            double.IsFinite(continuityScore) ? continuityScore : 0d,
+            0d,
+            1d));
+    }
+
+    private static bool IsBreakDeliveryBoundary(InputBucketRow inputBucket, DerivedSessionMetricsResult derivedSession)
+    {
+        return !string.IsNullOrWhiteSpace(ResolveBreakDeliveryBoundaryKind(inputBucket, derivedSession));
+    }
+
+    private static string ResolveBreakDeliveryBoundaryKind(InputBucketRow inputBucket, DerivedSessionMetricsResult derivedSession)
+    {
+        if (inputBucket.IdleSeconds >= PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds
+            && inputBucket.IdleSeconds <= PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMaxSeconds)
+        {
+            return "short_idle";
+        }
+
+        if (inputBucket.IdleMicroIdleSeconds >= PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds)
+        {
+            return "micro_idle";
+        }
+
+        if (inputBucket.FocusSwitchCount > 0
+            && !string.Equals(derivedSession.ContinuityState, "reset", StringComparison.Ordinal))
+        {
+            return "post_switch_settle";
+        }
+
+        if (inputBucket.TypingBurstIntensity <= PortaExecutionConstants.BreakPolicy.DeliveryBoundaryTypingQuietMax
+            && inputBucket.KeyboardBurstRate <= PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax)
+        {
+            return "typing_quiet";
+        }
+
+        return string.Empty;
     }
 
     private static BreakPolicyCooldownSnapshot ReadBreakPolicyCooldownSnapshot(
@@ -5315,7 +5495,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string action = string.IsNullOrWhiteSpace(controlEvent.Action)
             ? "unknown"
             : controlEvent.Action.Trim();
-        if (string.Equals(action, "break_suggestion", StringComparison.Ordinal)
+        if ((string.Equals(action, "break_suggestion", StringComparison.Ordinal)
+            || string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal))
             && string.Equals(lifecycle, "activated", StringComparison.Ordinal))
         {
             return BuildBreakEventIdempotencyKey(

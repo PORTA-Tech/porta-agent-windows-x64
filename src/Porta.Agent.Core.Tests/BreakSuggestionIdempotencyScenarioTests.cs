@@ -6,8 +6,7 @@ namespace Porta.Agent.Core.Tests;
 
 public sealed class BreakSuggestionIdempotencyScenarioTests
 {
-    private const int WarmupBuckets = 220;
-    private const int SearchBuckets = 320;
+    private const int WarmupBuckets = 120;
     private static readonly ScriptedBucketInput BreakEligibleCandidate = new(
         TypingBurstIntensity: 0.98d,
         ScrollVelocityIndex: 0.98d,
@@ -17,6 +16,15 @@ public sealed class BreakSuggestionIdempotencyScenarioTests
         MouseMoves: 12,
         MouseWheels: 10,
         IdleSeconds: 0d);
+    private static readonly ScriptedBucketInput BreakBoundaryCandidate = new(
+        TypingBurstIntensity: 0.10d,
+        ScrollVelocityIndex: 0.10d,
+        FocusSwitchRate: 0.05d,
+        AppHash: "app_break",
+        KeyboardKeydowns: 1,
+        MouseMoves: 1,
+        MouseWheels: 0,
+        IdleSeconds: 4d);
 
     [Fact]
     public void Scenario_BreakSuggestionIdempotency_PreventsDuplicateBreakEventsWithinCooldownWindow()
@@ -31,33 +39,18 @@ public sealed class BreakSuggestionIdempotencyScenarioTests
             runner.RunBucket(BuildWarmupBucket(i));
         }
 
-        // Pin robust normalization to the scripted overload candidate so activation is deterministic.
-        runner.RunBucket(BreakEligibleCandidate);
+        // Pin robust normalization to the scripted overload candidate so break gating uses stable overload math.
+        FinalizerTickObservation activation = runner.RunBucket(BreakEligibleCandidate);
         PinOverloadCandidateNormalization(runner.DbPath);
+        SeedBreakContinuityHistory(
+            runner.DbPath,
+            endExclusiveBucketSeq: activation.BucketSeq - WarmupBuckets,
+            bucketCount: 180,
+            dominantAppHash: BreakEligibleCandidate.AppHash);
+        PinOverloadActiveRuntime(runner, activation.BucketSeq);
 
-        FinalizerTickObservation activation = default;
-        for (int i = 0; i < SearchBuckets; i++)
-        {
-            activation = runner.RunBucket(BreakEligibleCandidate);
-            if (activation.LatestState?.OverloadActive ?? false)
-            {
-                break;
-            }
-        }
-
-        Assert.True(
-            activation.LatestState?.OverloadActive ?? false,
-            $"Overload did not activate in {SearchBuckets} buckets (seed={runner.Seed}).");
-
-        // Seed sustained attention near threshold so next eligible buckets cross break preconditions.
-        SeedDerivedSessionRuntime(
-            runner,
-            sustainedAttentionSeconds: PortaExecutionConstants.BreakPolicy.SustainedAttentionSeconds - Time.bucketSeconds,
-            dominantAppHash: BreakEligibleCandidate.AppHash,
-            bucketSeq: activation.BucketSeq);
-
-        int breakCountBefore = CountEvents(runner.ReadRecentEventRows(4000), "break_suggestion");
-        int eligibleBucketsAfterFirstBreak = 0;
+        int breakCountBefore = CountBreakFamilyEvents(runner.ReadRecentEventRows(4000));
+        int boundaryBucketsAfterFirstBreak = 0;
         int bucketsAfterFirstBreak = 0;
         FinalizerTickObservation? firstBreakObservation = null;
 
@@ -66,9 +59,10 @@ public sealed class BreakSuggestionIdempotencyScenarioTests
             // Keep overload session active so this scenario stresses break cooldown/idempotency, not overload off-dwell.
             PinOverloadActiveRuntime(runner, activation.BucketSeq + i);
 
-            FinalizerTickObservation observation = runner.RunBucket(BreakEligibleCandidate);
-            bool breakEligible = IsBreakEligible(observation);
-            int currentBreakCount = CountEvents(runner.ReadRecentEventRows(4000), "break_suggestion");
+            ScriptedBucketInput bucket = SelectBreakScenarioBucket(i);
+            FinalizerTickObservation observation = runner.RunBucket(bucket);
+            bool boundaryBucket = bucket.IdleSeconds >= 2d;
+            int currentBreakCount = CountBreakFamilyEvents(runner.ReadRecentEventRows(4000));
 
             if (firstBreakObservation is null && currentBreakCount == breakCountBefore + 1)
             {
@@ -77,15 +71,15 @@ public sealed class BreakSuggestionIdempotencyScenarioTests
             else if (firstBreakObservation is not null)
             {
                 bucketsAfterFirstBreak++;
-                if (breakEligible)
+                if (boundaryBucket)
                 {
-                    eligibleBucketsAfterFirstBreak++;
+                    boundaryBucketsAfterFirstBreak++;
                 }
             }
 
             if (firstBreakObservation is not null
                 && bucketsAfterFirstBreak >= 8
-                && eligibleBucketsAfterFirstBreak >= 3)
+                && boundaryBucketsAfterFirstBreak >= 3)
             {
                 break;
             }
@@ -93,16 +87,16 @@ public sealed class BreakSuggestionIdempotencyScenarioTests
 
         Assert.NotNull(firstBreakObservation);
         Assert.True(
-            eligibleBucketsAfterFirstBreak >= 3,
-            $"Expected multiple eligible buckets after first break event; got {eligibleBucketsAfterFirstBreak} (seed={runner.Seed}).");
+            boundaryBucketsAfterFirstBreak >= 3,
+            $"Expected multiple delivery-boundary buckets after first break event; got {boundaryBucketsAfterFirstBreak} (seed={runner.Seed}).");
 
         IReadOnlyList<(string TimestampUtc, string Action, string IdempotencyKey)> eventsAfterScenario =
             runner.ReadRecentEventRows(4000);
-        int breakCountAfterScenario = CountEvents(eventsAfterScenario, "break_suggestion");
+        int breakCountAfterScenario = CountBreakFamilyEvents(eventsAfterScenario);
         Assert.Equal(breakCountBefore + 1, breakCountAfterScenario);
 
         string breakIdempotencyKey = eventsAfterScenario
-            .First(row => string.Equals(row.Action, "break_suggestion", StringComparison.Ordinal))
+            .First(row => IsBreakFamilyAction(row.Action))
             .IdempotencyKey;
         Assert.StartsWith("break_v1:", breakIdempotencyKey, StringComparison.Ordinal);
 
@@ -121,22 +115,15 @@ public sealed class BreakSuggestionIdempotencyScenarioTests
         runner.Clock.Advance(TimeSpan.FromSeconds(2));
         runner.RunFinalizerTick(runner.Clock.UtcNow);
 
-        int breakCountAfterReplay = CountEvents(runner.ReadRecentEventRows(4000), "break_suggestion");
+        int breakCountAfterReplay = CountBreakFamilyEvents(runner.ReadRecentEventRows(4000));
         Assert.Equal(breakCountBefore + 1, breakCountAfterReplay);
     }
 
-    private static bool IsBreakEligible(FinalizerTickObservation observation)
+    private static ScriptedBucketInput SelectBreakScenarioBucket(int bucketIndex)
     {
-        AgentLatestStateDetails? state = observation.LatestState;
-        if (state is null)
-        {
-            return false;
-        }
-
-        return state.BaselineReady == true
-            && state.OverloadActive
-            && state.Confidence >= PortaExecutionConstants.BreakPolicy.ConfidenceMin
-            && state.SustainedAttentionDurationSec >= PortaExecutionConstants.BreakPolicy.SustainedAttentionSeconds;
+        return (bucketIndex % 12) == 11
+            ? BreakBoundaryCandidate
+            : BreakEligibleCandidate;
     }
 
     private static ScriptedBucketInput BuildWarmupBucket(int bucketIndex)
@@ -152,33 +139,6 @@ public sealed class BreakSuggestionIdempotencyScenarioTests
             MouseMoves: 2,
             MouseWheels: 1,
             IdleSeconds: 0d);
-    }
-
-    private static void SeedDerivedSessionRuntime(
-        DeterministicFinalizerScenarioRunner runner,
-        int sustainedAttentionSeconds,
-        string dominantAppHash,
-        long bucketSeq)
-    {
-        string json = JsonSerializer.Serialize(new
-        {
-            schema_ver = 1,
-            contract_ver = PortaExecutionConstants.DerivedSessionMetrics.ContractVersion,
-            bucket_seq = bucketSeq,
-            sa_seconds = sustainedAttentionSeconds,
-            sa_context_app_hash = dominantAppHash,
-            sa_last_update_bucket_seq = bucketSeq,
-            sa_freeze_reason = string.Empty,
-            sa_untrusted = false,
-            sustained_attention_duration_sec = sustainedAttentionSeconds,
-            idle_fragmentation_index = 0d,
-            partial = false,
-            dominant_app_hash = dominantAppHash
-        });
-        runner.UpsertRuntimeStateValue(
-            PortaExecutionConstants.DerivedSessionMetrics.RuntimeStateKey,
-            json,
-            runner.Clock.UtcNow);
     }
 
     private static void PinOverloadActiveRuntime(DeterministicFinalizerScenarioRunner runner, long bucketSeq)
@@ -214,11 +174,105 @@ public sealed class BreakSuggestionIdempotencyScenarioTests
             runner.Clock.UtcNow);
     }
 
-    private static int CountEvents(
-        IReadOnlyList<(string TimestampUtc, string Action, string IdempotencyKey)> rows,
-        string action)
+    private static int CountBreakFamilyEvents(
+        IReadOnlyList<(string TimestampUtc, string Action, string IdempotencyKey)> rows)
     {
-        return rows.Count(row => string.Equals(row.Action, action, StringComparison.Ordinal));
+        return rows.Count(row => IsBreakFamilyAction(row.Action));
+    }
+
+    private static bool IsBreakFamilyAction(string action)
+    {
+        return string.Equals(action, "break_suggestion", StringComparison.Ordinal)
+            || string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal);
+    }
+
+    private static void SeedBreakContinuityHistory(
+        string dbPath,
+        long endExclusiveBucketSeq,
+        int bucketCount,
+        string dominantAppHash)
+    {
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+        using SqliteTransaction tx = connection.BeginTransaction();
+
+        for (int i = Math.Max(0, bucketCount); i > 0; i--)
+        {
+            long bucketSeq = endExclusiveBucketSeq - i;
+            if (bucketSeq < 0)
+            {
+                continue;
+            }
+
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText =
+                """
+                INSERT OR REPLACE INTO state_buckets (
+                    timestamp_utc,
+                    typing_burst_intensity_raw,
+                    scroll_velocity_index_raw,
+                    focus_switch_rate_raw,
+                    typing_burst_intensity_smoothed,
+                    scroll_velocity_index_smoothed,
+                    focus_switch_rate_smoothed,
+                    focus_strength,
+                    overload_likelihood,
+                    fatigue_probability,
+                    cognitive_stability,
+                    dominant_state_name,
+                    dominant_state_value,
+                    confidence,
+                    sustained_attention_duration_sec,
+                    idle_fragmentation_index,
+                    activation_window_triggered,
+                    cooldown_triggered,
+                    activation_window_open,
+                    contributors_json,
+                    state_flags_json
+                ) VALUES (
+                    $ts,
+                    0.9,
+                    0.9,
+                    0.1,
+                    0.9,
+                    0.9,
+                    0.1,
+                    0.6,
+                    0.7,
+                    0.2,
+                    0.8,
+                    'focus',
+                    0.8,
+                    0.8,
+                    $sa_seconds,
+                    0.05,
+                    0,
+                    0,
+                    1,
+                    $contributors_json,
+                    $state_flags_json
+                );
+                """;
+            cmd.Parameters.AddWithValue("$ts", Time.toIsoUtcMsString(Time.bucketStartEnd(bucketSeq).endUtcMs));
+            cmd.Parameters.AddWithValue("$sa_seconds", Math.Max(0, (bucketCount - i + 1) * Time.bucketSeconds));
+            cmd.Parameters.AddWithValue("$contributors_json", "{\"schema_ver\":1}");
+            cmd.Parameters.AddWithValue(
+                "$state_flags_json",
+                JsonSerializer.Serialize(new
+                {
+                    schema_ver = 1,
+                    task_continuity_score = 1.0,
+                    behavior_continuity_score = 1.0,
+                    task_continuity_seconds = Math.Max(0, (bucketCount - i + 1) * Time.bucketSeconds),
+                    continuity_state = "keep",
+                    continuity_confidence = 0.85,
+                    continuity_anchor_app_hash = dominantAppHash
+                }));
+            cmd.ExecuteNonQuery();
+        }
+
+        tx.Commit();
     }
 
     private static long ReadRuntimeInt64(string? valueJson, string propertyName)
