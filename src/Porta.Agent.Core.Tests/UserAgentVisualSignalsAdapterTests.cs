@@ -157,6 +157,7 @@ public sealed class UserAgentVisualSignalsAdapterTests
             BackendInstanceId: "backend-1",
             BackendProcessId: 42,
             CaptureContext: captureContext,
+            UserAgentHeartbeatUpdatedAtUtc: DateTimeOffset.Parse("2026-03-08T09:59:58Z"),
             UserAgentInstanceId: "ua-1",
             UserAgentProcessId: 321,
             UserAgentSessionId: "session-1",

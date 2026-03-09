@@ -792,6 +792,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             bool? partialData = null;
             double? focusAppEntropy = null;
             IReadOnlyList<string>? missingMajorChannels = null;
+            string? breakPendingAction = null;
+            string? breakPendingReasonCode = null;
+            double? breakPendingEffectiveFocusSeconds = null;
+            int? breakPendingEffectiveFocusWindowSeconds = null;
+            bool? breakDeliveryBoundaryReached = null;
+            string? breakDeliveryBoundaryKind = null;
+            double? breakMicrobreakEffectiveFocusSeconds = null;
+            double? breakShortBreakEffectiveFocusSeconds = null;
 
             using (var baselineCmd = connection.CreateCommand())
             {
@@ -841,6 +849,76 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                             if (TryReadBoolProperty(baselineRoot, "system_actions_enabled", out bool systemActionsEnabledParsed))
                             {
                                 systemActionsEnabled = systemActionsEnabledParsed;
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+            }
+
+            using (var breakCmd = connection.CreateCommand())
+            {
+                breakCmd.CommandText =
+                    """
+                    SELECT value_json
+                    FROM runtime_state
+                    WHERE key = $key
+                    LIMIT 1;
+                    """;
+                breakCmd.Parameters.AddWithValue("$key", PortaExecutionConstants.BreakPolicy.RuntimeStateKey);
+                object? breakScalar = breakCmd.ExecuteScalar();
+                if (breakScalar != null && breakScalar != DBNull.Value)
+                {
+                    string breakJson = Convert.ToString(breakScalar, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(breakJson))
+                    {
+                        try
+                        {
+                            using JsonDocument breakDoc = JsonDocument.Parse(breakJson);
+                            JsonElement breakRoot = breakDoc.RootElement;
+                            if (TryReadStringProperty(breakRoot, "pending_action", out string? pendingActionParsed)
+                                && !string.IsNullOrWhiteSpace(pendingActionParsed))
+                            {
+                                breakPendingAction = pendingActionParsed.Trim().ToLowerInvariant();
+                            }
+
+                            if (TryReadStringProperty(breakRoot, "pending_reason_code", out string? pendingReasonCodeParsed)
+                                && !string.IsNullOrWhiteSpace(pendingReasonCodeParsed))
+                            {
+                                breakPendingReasonCode = pendingReasonCodeParsed.Trim().ToLowerInvariant();
+                            }
+
+                            if (TryReadDoubleProperty(breakRoot, "pending_effective_focus_s", out double pendingEffectiveFocusParsed))
+                            {
+                                breakPendingEffectiveFocusSeconds = Math.Max(0d, pendingEffectiveFocusParsed);
+                            }
+
+                            if (TryReadIntProperty(breakRoot, "pending_effective_focus_window_s", out int pendingWindowParsed))
+                            {
+                                breakPendingEffectiveFocusWindowSeconds = Math.Max(0, pendingWindowParsed);
+                            }
+
+                            if (TryReadBoolProperty(breakRoot, "delivery_boundary_reached", out bool deliveryBoundaryParsed))
+                            {
+                                breakDeliveryBoundaryReached = deliveryBoundaryParsed;
+                            }
+
+                            if (TryReadStringProperty(breakRoot, "delivery_boundary_kind", out string? deliveryBoundaryKindParsed)
+                                && !string.IsNullOrWhiteSpace(deliveryBoundaryKindParsed))
+                            {
+                                breakDeliveryBoundaryKind = deliveryBoundaryKindParsed.Trim().ToLowerInvariant();
+                            }
+
+                            if (TryReadDoubleProperty(breakRoot, "microbreak_effective_focus_s", out double microbreakParsed))
+                            {
+                                breakMicrobreakEffectiveFocusSeconds = Math.Max(0d, microbreakParsed);
+                            }
+
+                            if (TryReadDoubleProperty(breakRoot, "short_break_effective_focus_s", out double shortBreakParsed))
+                            {
+                                breakShortBreakEffectiveFocusSeconds = Math.Max(0d, shortBreakParsed);
                             }
                         }
                         catch
@@ -967,7 +1045,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     partialData == true),
                 CurrentQualityScore: currentQualityScore,
                 PartialData: partialData,
-                MissingMajorChannels: missingMajorChannels);
+                MissingMajorChannels: missingMajorChannels,
+                BreakPendingAction: breakPendingAction,
+                BreakPendingReasonCode: breakPendingReasonCode,
+                BreakPendingEffectiveFocusSeconds: breakPendingEffectiveFocusSeconds,
+                BreakPendingEffectiveFocusWindowSeconds: breakPendingEffectiveFocusWindowSeconds,
+                BreakDeliveryBoundaryReached: breakDeliveryBoundaryReached,
+                BreakDeliveryBoundaryKind: breakDeliveryBoundaryKind,
+                BreakMicrobreakEffectiveFocusSeconds: breakMicrobreakEffectiveFocusSeconds,
+                BreakShortBreakEffectiveFocusSeconds: breakShortBreakEffectiveFocusSeconds);
         }
     }
 
@@ -2946,6 +3032,35 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         {
             return null;
         }
+    }
+
+    private static bool TryReadIntProperty(JsonElement root, string propertyName, out int parsed)
+    {
+        parsed = 0;
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty(propertyName, out JsonElement property))
+        {
+            return false;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out int numeric))
+        {
+            parsed = numeric;
+            return true;
+        }
+
+        if (property.ValueKind == JsonValueKind.String
+            && int.TryParse(
+                property.GetString(),
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out int fromString))
+        {
+            parsed = fromString;
+            return true;
+        }
+
+        return false;
     }
 
     private static long ReadInt64Property(JsonElement root, params string[] propertyNames)

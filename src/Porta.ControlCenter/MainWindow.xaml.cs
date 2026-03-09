@@ -306,6 +306,10 @@ public partial class MainWindow : Window
             ConsentOverlay.Visibility = Visibility.Collapsed;
             UpdateTopBar(serviceProbe, runtimeSettings, null, nowTruth, _latestVisualState);
             UpdateCaptureHealthCards(null, statusFresh: false);
+            UpdateSessionTruthCards(null, statusFresh: false);
+            UpdateInputTruthCards(null, statusFresh: false);
+            UpdateStateTruthCards(null, null, statusFresh: false);
+            UpdateActionTruthCards([], statusFresh: false);
             PopulateOverview(nowTruth, null, [], previousSnapshot);
             PopulateInputs(null, null, null);
             PopulateInterventions([], null);
@@ -365,6 +369,10 @@ public partial class MainWindow : Window
         ConsentOverlay.Visibility = consentMissing ? Visibility.Visible : Visibility.Collapsed;
         UpdateTopBar(serviceProbe, runtimeSettings, _latestStatus, nowTruth, _latestVisualState);
         UpdateCaptureHealthCards(_latestStatus, statusFresh);
+        UpdateSessionTruthCards(_latestStatus, statusFresh);
+        UpdateInputTruthCards(_latestStatus, statusFresh);
+        UpdateStateTruthCards(_latestStatus, truthSnapshot, statusFresh);
+        UpdateActionTruthCards(_allRecentEvents, statusFresh);
 
         PopulateOverview(nowTruth, inputSummary, _recentEvents, previousSnapshot);
         PopulateInputs(inputSummary, _retention, truthSnapshot);
@@ -828,11 +836,22 @@ public partial class MainWindow : Window
             NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
             _activeRecoveryEventId = 0;
             NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
+            NowWaitingDataText.Text = string.IsNullOrWhiteSpace(nowTruth.Explanation)
+                ? "Waiting for service data"
+                : nowTruth.Explanation;
             NowWaitingDataText.Visibility = Visibility.Visible;
             return;
         }
 
-        NowWaitingDataText.Visibility = Visibility.Collapsed;
+        if (string.IsNullOrWhiteSpace(nowTruth.Explanation))
+        {
+            NowWaitingDataText.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            NowWaitingDataText.Text = nowTruth.Explanation;
+            NowWaitingDataText.Visibility = Visibility.Visible;
+        }
         // Source: GET /v1/snapshot/current -> overload_likelihood
         AnimateTopMetric(
             metricKey: "now_overload",
@@ -1302,6 +1321,37 @@ public partial class MainWindow : Window
             : NotAvailableText;
     }
 
+    private static string FormatHeartbeatLabel(DateTimeOffset? heartbeatUtc)
+    {
+        if (!heartbeatUtc.HasValue)
+        {
+            return NotAvailableText;
+        }
+
+        TimeSpan age = DateTimeOffset.UtcNow - heartbeatUtc.Value;
+        string ageText = age.TotalSeconds < 60d
+            ? $"{Math.Max(0, (int)Math.Round(age.TotalSeconds))}s ago"
+            : age.TotalMinutes < 60d
+                ? $"{Math.Max(0, (int)Math.Round(age.TotalMinutes))}m ago"
+                : $"{Math.Max(0, (int)Math.Round(age.TotalHours))}h ago";
+        return $"{heartbeatUtc.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss} ({ageText})";
+    }
+
+    private static string FormatUserAgentIdentity(string? instanceId, int? processId)
+    {
+        string left = string.IsNullOrWhiteSpace(instanceId) ? "None" : instanceId!;
+        return processId.HasValue
+            ? $"{left} | pid {processId.Value.ToString(CultureInfo.InvariantCulture)}"
+            : left;
+    }
+
+    private static string FormatInputOwnerLabel(LocalApiStatusResponse status)
+    {
+        string instance = string.IsNullOrWhiteSpace(status.LastInputAgentInstanceId) ? "None" : status.LastInputAgentInstanceId!;
+        string session = string.IsNullOrWhiteSpace(status.LastInputSessionId) ? "None" : status.LastInputSessionId!;
+        return $"{instance} | {session}";
+    }
+
     private static EngineHealthView BuildEngineHealthView(
         ServiceProbeResult serviceProbe,
         bool apiReachable,
@@ -1497,6 +1547,292 @@ public partial class MainWindow : Window
             DetailColor: Color.FromRgb(148, 163, 184));
     }
 
+    private static SessionTruthView BuildSessionTruthView(LocalApiStatusResponse? status, bool statusFresh)
+    {
+        if (status == null)
+        {
+            return new SessionTruthView(
+                StatusLabel: "Unavailable",
+                ContextLabel: NotAvailableText,
+                HeartbeatLabel: NotAvailableText,
+                AgentLabel: NotAvailableText,
+                SessionLabel: NotAvailableText,
+                WarningText: "Session truth unavailable because the local API is not reachable.",
+                StatusColor: Color.FromRgb(248, 113, 113),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        string contextLabel = FormatCaptureContextLabel(status.CaptureContext);
+        string heartbeatLabel = FormatHeartbeatLabel(status.UserAgentHeartbeatUpdatedAtUtc);
+        string agentLabel = FormatUserAgentIdentity(status.UserAgentInstanceId, status.UserAgentProcessId);
+        string sessionLabel = string.IsNullOrWhiteSpace(status.UserAgentSessionId) ? NotAvailableText : status.UserAgentSessionId!;
+        string? ownershipDetail = DescribeOwnershipWarning(status);
+        string? captureFailureDetail = DescribeCaptureFailureReason(status.CaptureFailureReason);
+
+        if (!statusFresh)
+        {
+            return new SessionTruthView(
+                StatusLabel: "Stale",
+                ContextLabel: contextLabel,
+                HeartbeatLabel: heartbeatLabel,
+                AgentLabel: agentLabel,
+                SessionLabel: sessionLabel,
+                WarningText: "Session truth is stale. Refresh or restore the local API before trusting ownership data.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!string.IsNullOrWhiteSpace(ownershipDetail))
+        {
+            return new SessionTruthView(
+                StatusLabel: "Warning",
+                ContextLabel: contextLabel,
+                HeartbeatLabel: heartbeatLabel,
+                AgentLabel: agentLabel,
+                SessionLabel: sessionLabel,
+                WarningText: $"Ownership mismatch detected: {ownershipDetail}.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!string.Equals(status.CaptureContext, "UserSession", StringComparison.Ordinal))
+        {
+            string warning = string.IsNullOrWhiteSpace(captureFailureDetail)
+                ? "PORTA is not attached to the active user session."
+                : $"PORTA is not attached to the active user session: {captureFailureDetail}.";
+            return new SessionTruthView(
+                StatusLabel: "Warning",
+                ContextLabel: contextLabel,
+                HeartbeatLabel: heartbeatLabel,
+                AgentLabel: agentLabel,
+                SessionLabel: sessionLabel,
+                WarningText: warning,
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!status.UserAgentHeartbeatUpdatedAtUtc.HasValue)
+        {
+            return new SessionTruthView(
+                StatusLabel: "Watching",
+                ContextLabel: contextLabel,
+                HeartbeatLabel: heartbeatLabel,
+                AgentLabel: agentLabel,
+                SessionLabel: sessionLabel,
+                WarningText: "Waiting for a fresh user-agent heartbeat from the interactive session.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        return new SessionTruthView(
+            StatusLabel: "Healthy",
+            ContextLabel: contextLabel,
+            HeartbeatLabel: heartbeatLabel,
+            AgentLabel: agentLabel,
+            SessionLabel: sessionLabel,
+            WarningText: "Session ownership is healthy and attached to the interactive user session.",
+            StatusColor: Color.FromRgb(74, 222, 128),
+            DetailColor: Color.FromRgb(148, 163, 184));
+    }
+
+    private static InputTruthView BuildInputTruthView(LocalApiStatusResponse? status, bool statusFresh)
+    {
+        if (status == null)
+        {
+            return new InputTruthView(
+                StatusLabel: "Unavailable",
+                KeyboardSignalLabel: NotAvailableText,
+                MouseSignalLabel: NotAvailableText,
+                LastInputLabel: NotAvailableText,
+                InputOwnerLabel: NotAvailableText,
+                WarningText: "Input truth unavailable because the local API is not reachable.",
+                StatusColor: Color.FromRgb(248, 113, 113),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        string keyboardLabel = FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh);
+        string mouseLabel = FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh);
+        string lastInputLabel = FormatCaptureLastInputLabel(status.LastInputEventUtc);
+        string inputOwnerLabel = FormatInputOwnerLabel(status);
+        string? captureFailureDetail = DescribeCaptureFailureReason(status.CaptureFailureReason);
+        string? ownershipDetail = DescribeOwnershipWarning(status);
+
+        if (!statusFresh)
+        {
+            return new InputTruthView(
+                StatusLabel: "Stale",
+                KeyboardSignalLabel: keyboardLabel,
+                MouseSignalLabel: mouseLabel,
+                LastInputLabel: lastInputLabel,
+                InputOwnerLabel: inputOwnerLabel,
+                WarningText: "Input truth is stale. Refresh or restore the local API before trusting live signal status.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!string.IsNullOrWhiteSpace(ownershipDetail))
+        {
+            return new InputTruthView(
+                StatusLabel: "Warning",
+                KeyboardSignalLabel: keyboardLabel,
+                MouseSignalLabel: mouseLabel,
+                LastInputLabel: lastInputLabel,
+                InputOwnerLabel: inputOwnerLabel,
+                WarningText: $"Live input owner does not match the current session: {ownershipDetail}.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!string.IsNullOrWhiteSpace(captureFailureDetail))
+        {
+            return new InputTruthView(
+                StatusLabel: "Warning",
+                KeyboardSignalLabel: keyboardLabel,
+                MouseSignalLabel: mouseLabel,
+                LastInputLabel: lastInputLabel,
+                InputOwnerLabel: inputOwnerLabel,
+                WarningText: $"Live input is not trusted: {captureFailureDetail}.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!status.KeyboardSignalActive || !status.MouseSignalActive)
+        {
+            string missingSignals = BuildMissingSignalList(status.KeyboardSignalActive, status.MouseSignalActive);
+            return new InputTruthView(
+                StatusLabel: "Watching",
+                KeyboardSignalLabel: keyboardLabel,
+                MouseSignalLabel: mouseLabel,
+                LastInputLabel: lastInputLabel,
+                InputOwnerLabel: inputOwnerLabel,
+                WarningText: $"Waiting for fresh {missingSignals} activity from the current user session.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        return new InputTruthView(
+            StatusLabel: "Healthy",
+            KeyboardSignalLabel: keyboardLabel,
+            MouseSignalLabel: mouseLabel,
+            LastInputLabel: lastInputLabel,
+            InputOwnerLabel: inputOwnerLabel,
+            WarningText: "Keyboard and mouse signals are arriving from the current user session.",
+            StatusColor: Color.FromRgb(74, 222, 128),
+            DetailColor: Color.FromRgb(148, 163, 184));
+    }
+
+    private StateTruthView BuildStateTruthView(
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        bool statusFresh)
+    {
+        if (snapshot == null)
+        {
+            string warning = statusFresh
+                ? "State truth unavailable because no current snapshot was returned."
+                : "State truth unavailable because the local API is stale or unreachable.";
+            return new StateTruthView(
+                ContinuityLabel: NotAvailableText,
+                ConfidenceLabel: NotAvailableText,
+                CalibrationLabel: NotAvailableText,
+                BreakReadinessLabel: NotAvailableText,
+                ModesLabel: NotAvailableText,
+                WarningText: warning,
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        string continuityState = string.IsNullOrWhiteSpace(snapshot.ContinuityState)
+            ? "Unknown"
+            : snapshot.ContinuityState!.Trim().ToLowerInvariant() switch
+            {
+                "keep" => "Keep",
+                "pause" => "Pause",
+                "decay" => "Decay",
+                "reset" => "Reset",
+                _ => snapshot.ContinuityState!
+            };
+        string continuitySeconds = FormatFocusedTime(snapshot.TaskContinuitySeconds);
+        string continuityLabel =
+            $"{continuityState} | {continuitySeconds} continuity | score {snapshot.TaskContinuityScore:F2} | confidence {(snapshot.ContinuityConfidence ?? 0d):F2}";
+
+        string trustTier = ToTrustLabel(NormalizeTrustTier(snapshot.TrustTier, snapshot.ModelConfidence));
+        string confidenceLabel =
+            $"Trust {trustTier} | model {(snapshot.ModelConfidence ?? snapshot.Confidence):F2} | signal quality {(snapshot.SignalQualityScore ?? snapshot.CurrentQualityScore ?? 0d):F2} | partial {MapYesNo(snapshot.PartialData)}";
+
+        string calibrationStage = NormalizeCalibrationStage(snapshot.CalibrationStage, snapshot.BaselineReady, snapshot.ColdStart);
+        string progressText = snapshot.BaselineReadyPct.HasValue
+            ? $"{Math.Clamp(snapshot.BaselineReadyPct.Value * 100d, 0d, 100d):F0}% metrics ready"
+            : "progress unavailable";
+        string calibrationLabel =
+            $"{ToCalibrationStageLabel(calibrationStage)} | {progressText} | quality {(snapshot.CurrentQualityScore?.ToString("F2", CultureInfo.InvariantCulture) ?? NotAvailableText)}";
+
+        string breakReadinessLabel = BuildBreakReadinessLabel(snapshot);
+        string modesLabel =
+            $"Overload {(snapshot.OverloadActive ? "ON" : "OFF")} | Deep work {(snapshot.DeepWorkActive ? "ON" : "OFF")} | Notifications {(snapshot.NotificationsSuppressed ? "suppressed" : "normal")}";
+
+        string? captureHint = status == null ? null : BuildCaptureContextHint(status);
+        string warningText;
+        Color detailColor;
+        if (!statusFresh)
+        {
+            warningText = "State may be historical because the local API is stale.";
+            detailColor = Color.FromRgb(245, 158, 11);
+        }
+        else if (!string.IsNullOrWhiteSpace(captureHint))
+        {
+            warningText = $"State is present, but live capture is unhealthy: {captureHint}.";
+            detailColor = Color.FromRgb(245, 158, 11);
+        }
+        else
+        {
+            warningText = "State truth is live and aligned with current capture health.";
+            detailColor = Color.FromRgb(148, 163, 184);
+        }
+
+        return new StateTruthView(
+            ContinuityLabel: continuityLabel,
+            ConfidenceLabel: confidenceLabel,
+            CalibrationLabel: calibrationLabel,
+            BreakReadinessLabel: breakReadinessLabel,
+            ModesLabel: modesLabel,
+            WarningText: warningText,
+            DetailColor: detailColor);
+    }
+
+    private static ActionTruthView BuildActionTruthView(IReadOnlyList<LocalApiEventResponse> recentEvents, bool statusFresh)
+    {
+        LocalApiEventResponse? latestEvent = recentEvents.FirstOrDefault();
+        if (latestEvent == null)
+        {
+            return new ActionTruthView(
+                TitleLabel: "No recent actions",
+                TypeLabel: NotAvailableText,
+                DecisionLabel: NotAvailableText,
+                ExecutionLabel: NotAvailableText,
+                WhenLabel: NotAvailableText,
+                WarningText: statusFresh
+                    ? "No recent action decisions are available yet."
+                    : "Action truth may be stale because the local API is stale or unreachable.",
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        string warningText = BuildExecutionStateText(latestEvent);
+        Color detailColor = NormalizeExecutionState(latestEvent.ExecutionState) == "failed"
+            ? Color.FromRgb(248, 113, 113)
+            : NormalizeExecutionState(latestEvent.ExecutionState) == "applied"
+                ? Color.FromRgb(148, 163, 184)
+                : Color.FromRgb(245, 158, 11);
+
+        return new ActionTruthView(
+            TitleLabel: ToActionTitle(latestEvent),
+            TypeLabel: ClassifyAction(latestEvent),
+            DecisionLabel: BuildDecisionStateText(latestEvent).Replace("Decision: ", string.Empty, StringComparison.Ordinal),
+            ExecutionLabel: BuildExecutionStateText(latestEvent).Replace("Execution: ", string.Empty, StringComparison.Ordinal),
+            WhenLabel: latestEvent.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+            WarningText: warningText,
+            DetailColor: detailColor);
+    }
+
     private static string BuildMissingSignalList(bool keyboardSignalActive, bool mouseSignalActive)
     {
         if (!keyboardSignalActive && !mouseSignalActive)
@@ -1505,6 +1841,66 @@ public partial class MainWindow : Window
         }
 
         return keyboardSignalActive ? "mouse" : "keyboard";
+    }
+
+    private static string BuildBreakReadinessLabel(LocalApiCurrentSnapshotResponse snapshot)
+    {
+        if (!string.IsNullOrWhiteSpace(snapshot.BreakPendingAction))
+        {
+            string actionTitle = HumanizeActionName(snapshot.BreakPendingAction);
+            string effectiveFocusText = snapshot.BreakPendingEffectiveFocusSeconds.HasValue
+                ? FormatFocusedTime(snapshot.BreakPendingEffectiveFocusSeconds.Value)
+                : NotAvailableText;
+            string windowText = snapshot.BreakPendingEffectiveFocusWindowSeconds.HasValue
+                ? $"{Math.Max(0, snapshot.BreakPendingEffectiveFocusWindowSeconds.Value) / 60} min window"
+                : "rolling window";
+            string reasonText = string.IsNullOrWhiteSpace(snapshot.BreakPendingReasonCode)
+                ? "pending"
+                : snapshot.BreakPendingReasonCode!.Replace('_', ' ');
+
+            if (snapshot.BreakDeliveryBoundaryReached == true)
+            {
+                string boundaryKind = string.IsNullOrWhiteSpace(snapshot.BreakDeliveryBoundaryKind)
+                    ? "ready to deliver"
+                    : HumanizeBreakBoundaryKind(snapshot.BreakDeliveryBoundaryKind);
+                return $"{actionTitle} ready | {effectiveFocusText} effective focus in {windowText} | boundary {boundaryKind} | {reasonText}";
+            }
+
+            string waitingFor = string.IsNullOrWhiteSpace(snapshot.BreakDeliveryBoundaryKind)
+                ? "waiting for a delivery boundary"
+                : $"waiting for {HumanizeBreakBoundaryKind(snapshot.BreakDeliveryBoundaryKind)}";
+            return $"{actionTitle} pending | {effectiveFocusText} effective focus in {windowText} | {waitingFor} | {reasonText}";
+        }
+
+        if (snapshot.BreakMicrobreakEffectiveFocusSeconds.HasValue || snapshot.BreakShortBreakEffectiveFocusSeconds.HasValue)
+        {
+            string microbreak = snapshot.BreakMicrobreakEffectiveFocusSeconds.HasValue
+                ? FormatFocusedTime(snapshot.BreakMicrobreakEffectiveFocusSeconds.Value)
+                : NotAvailableText;
+            string shortBreak = snapshot.BreakShortBreakEffectiveFocusSeconds.HasValue
+                ? FormatFocusedTime(snapshot.BreakShortBreakEffectiveFocusSeconds.Value)
+                : NotAvailableText;
+            return $"Microbreak window: {microbreak} | Short-break window: {shortBreak}";
+        }
+
+        return "No break suggestion is currently pending.";
+    }
+
+    private static string HumanizeBreakBoundaryKind(string? boundaryKind)
+    {
+        if (string.IsNullOrWhiteSpace(boundaryKind))
+        {
+            return "delivery boundary";
+        }
+
+        return boundaryKind.Trim().ToLowerInvariant() switch
+        {
+            "short_idle" => "short idle",
+            "micro_idle" => "micro-idle",
+            "post_switch_settle" => "post-switch settle",
+            "typing_quiet" => "typing quiet",
+            _ => boundaryKind.Replace('_', ' ')
+        };
     }
 
     private static string BuildEngineServiceLabel(
@@ -1670,15 +2066,69 @@ public partial class MainWindow : Window
         NowCaptureLastInputText.Text = $"Last input: {view.LastInputLabel}";
         NowCaptureWarningText.Text = view.WarningText;
         NowCaptureWarningText.Foreground = detailBrush;
+    }
 
-        HealthCaptureStatusValue.Text = view.StatusLabel;
-        HealthCaptureStatusValue.Foreground = statusBrush;
-        HealthCaptureContextValue.Text = view.ContextLabel;
+    private void UpdateSessionTruthCards(LocalApiStatusResponse? status, bool statusFresh)
+    {
+        SessionTruthView view = BuildSessionTruthView(status, statusFresh);
+        var statusBrush = new SolidColorBrush(view.StatusColor);
+        var detailBrush = new SolidColorBrush(view.DetailColor);
+
+        HealthSessionStatusValue.Text = view.StatusLabel;
+        HealthSessionStatusValue.Foreground = statusBrush;
+        HealthSessionContextValue.Text = view.ContextLabel;
+        HealthSessionHeartbeatValue.Text = view.HeartbeatLabel;
+        HealthSessionAgentValue.Text = view.AgentLabel;
+        HealthSessionIdValue.Text = view.SessionLabel;
+        HealthSessionWarningValue.Text = view.WarningText;
+        HealthSessionWarningValue.Foreground = detailBrush;
+    }
+
+    private void UpdateInputTruthCards(LocalApiStatusResponse? status, bool statusFresh)
+    {
+        InputTruthView view = BuildInputTruthView(status, statusFresh);
+        var statusBrush = new SolidColorBrush(view.StatusColor);
+        var detailBrush = new SolidColorBrush(view.DetailColor);
+
+        HealthInputStatusValue.Text = view.StatusLabel;
+        HealthInputStatusValue.Foreground = statusBrush;
         HealthKeyboardSignalValue.Text = view.KeyboardSignalLabel;
         HealthMouseSignalValue.Text = view.MouseSignalLabel;
         HealthLastInputValue.Text = view.LastInputLabel;
-        HealthCaptureWarningValue.Text = view.WarningText;
-        HealthCaptureWarningValue.Foreground = detailBrush;
+        HealthInputOwnerValue.Text = view.InputOwnerLabel;
+        HealthInputWarningValue.Text = view.WarningText;
+        HealthInputWarningValue.Foreground = detailBrush;
+    }
+
+    private void UpdateStateTruthCards(
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        bool statusFresh)
+    {
+        StateTruthView view = BuildStateTruthView(status, snapshot, statusFresh);
+        var detailBrush = new SolidColorBrush(view.DetailColor);
+
+        HealthStateContinuityValue.Text = view.ContinuityLabel;
+        HealthStateConfidenceValue.Text = view.ConfidenceLabel;
+        HealthStateCalibrationValue.Text = view.CalibrationLabel;
+        HealthStateBreakReadinessValue.Text = view.BreakReadinessLabel;
+        HealthStateModesValue.Text = view.ModesLabel;
+        HealthStateWarningValue.Text = view.WarningText;
+        HealthStateWarningValue.Foreground = detailBrush;
+    }
+
+    private void UpdateActionTruthCards(IReadOnlyList<LocalApiEventResponse> recentEvents, bool statusFresh)
+    {
+        ActionTruthView view = BuildActionTruthView(recentEvents, statusFresh);
+        var detailBrush = new SolidColorBrush(view.DetailColor);
+
+        HealthActionTitleValue.Text = view.TitleLabel;
+        HealthActionTypeValue.Text = view.TypeLabel;
+        HealthActionDecisionValue.Text = view.DecisionLabel;
+        HealthActionExecutionValue.Text = view.ExecutionLabel;
+        HealthActionWhenValue.Text = view.WhenLabel;
+        HealthActionWarningValue.Text = view.WarningText;
+        HealthActionWarningValue.Foreground = detailBrush;
     }
 
     private static OverloadExplainView ParseOverloadExplain(string? contributorsJson)
@@ -4527,6 +4977,40 @@ public partial class MainWindow : Window
         string LastInputLabel,
         string WarningText,
         Color StatusColor,
+        Color DetailColor);
+    private sealed record SessionTruthView(
+        string StatusLabel,
+        string ContextLabel,
+        string HeartbeatLabel,
+        string AgentLabel,
+        string SessionLabel,
+        string WarningText,
+        Color StatusColor,
+        Color DetailColor);
+    private sealed record InputTruthView(
+        string StatusLabel,
+        string KeyboardSignalLabel,
+        string MouseSignalLabel,
+        string LastInputLabel,
+        string InputOwnerLabel,
+        string WarningText,
+        Color StatusColor,
+        Color DetailColor);
+    private sealed record StateTruthView(
+        string ContinuityLabel,
+        string ConfidenceLabel,
+        string CalibrationLabel,
+        string BreakReadinessLabel,
+        string ModesLabel,
+        string WarningText,
+        Color DetailColor);
+    private sealed record ActionTruthView(
+        string TitleLabel,
+        string TypeLabel,
+        string DecisionLabel,
+        string ExecutionLabel,
+        string WhenLabel,
+        string WarningText,
         Color DetailColor);
     private sealed record NowTruth(
         // Source: GET /v1/snapshot/current -> full snapshot payload (null if service/auth/freshness checks fail)

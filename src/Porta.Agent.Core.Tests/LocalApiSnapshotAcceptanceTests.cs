@@ -32,7 +32,15 @@ public sealed class LocalApiSnapshotAcceptanceTests
             ColdStart: false,
             CurrentQualityScore: 0.9d,
             PartialData: false,
-            MissingMajorChannels: []);
+            MissingMajorChannels: [],
+            BreakPendingAction: "stretch_break_suggestion",
+            BreakPendingReasonCode: "rolling_focus_microbreak",
+            BreakPendingEffectiveFocusSeconds: 1680d,
+            BreakPendingEffectiveFocusWindowSeconds: 2100,
+            BreakDeliveryBoundaryReached: false,
+            BreakDeliveryBoundaryKind: "typing_quiet",
+            BreakMicrobreakEffectiveFocusSeconds: 1680d,
+            BreakShortBreakEffectiveFocusSeconds: 2280d);
 
         var dto = SnapshotMapper.Map(snapshot, latest);
 
@@ -47,6 +55,14 @@ public sealed class LocalApiSnapshotAcceptanceTests
         Assert.InRange(dto.behavior_continuity_score - 0.72d, -0.000001d, 0.000001d);
         Assert.InRange((dto.signal_quality_score ?? 0d) - 0.90d, -0.000001d, 0.000001d);
         Assert.InRange(dto.model_confidence - 0.91d, -0.000001d, 0.000001d);
+        Assert.Equal("stretch_break_suggestion", dto.break_pending_action);
+        Assert.Equal("rolling_focus_microbreak", dto.break_pending_reason_code);
+        Assert.InRange((dto.break_pending_effective_focus_s ?? 0d) - 1680d, -0.000001d, 0.000001d);
+        Assert.Equal(2100, dto.break_pending_effective_focus_window_s);
+        Assert.False(dto.break_delivery_boundary_reached ?? true);
+        Assert.Equal("typing_quiet", dto.break_delivery_boundary_kind);
+        Assert.InRange((dto.break_microbreak_effective_focus_s ?? 0d) - 1680d, -0.000001d, 0.000001d);
+        Assert.InRange((dto.break_short_break_effective_focus_s ?? 0d) - 2280d, -0.000001d, 0.000001d);
     }
 
     [Fact]

@@ -108,6 +108,8 @@ public sealed class LocalApiStatusAcceptanceTests
         Assert.False(string.IsNullOrWhiteSpace(dto.BackendInstanceId));
         Assert.True(dto.BackendProcessId > 0);
         Assert.Equal("UserSession", dto.capture_context);
+        Assert.NotNull(dto.UserAgentHeartbeatUpdatedAtUtc);
+        Assert.NotNull(dto.user_agent_heartbeat_utc);
         Assert.Equal("agent-1", dto.UserAgentInstanceId);
         Assert.Equal(9876, dto.UserAgentProcessId);
         Assert.Equal("session-1", dto.UserAgentSessionId);
@@ -249,6 +251,8 @@ public sealed class LocalApiStatusAcceptanceTests
         var dto = StatusMapper.Map(status, localApiAuthReady: true, localApiAuthError: null);
 
         Assert.Equal("UserSession", dto.capture_context);
+        Assert.NotNull(dto.UserAgentHeartbeatUpdatedAtUtc);
+        Assert.NotNull(dto.user_agent_heartbeat_utc);
         Assert.Equal("useragent-4", dto.UserAgentInstanceId);
         Assert.Equal("session-4", dto.UserAgentSessionId);
         Assert.False(dto.keyboard_signal_active);

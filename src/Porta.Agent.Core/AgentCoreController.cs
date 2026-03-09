@@ -194,6 +194,7 @@ public sealed class AgentCoreController : IAgentCoreController
             string? userAgentSessionId = sessionContext is not null
                 ? BuildSessionOwnerId(sessionContext.SessionId)
                 : null;
+            DateTimeOffset? userAgentHeartbeatUpdatedAtUtc = sessionContext?.UpdatedAtUtc;
             string? ownershipWarning = ResolveOwnershipWarning(sessionContext);
             string? captureFailureReason = ResolveCaptureFailureReason(captureContext);
             AgentStatus status = effectiveLastError is null
@@ -220,6 +221,7 @@ public sealed class AgentCoreController : IAgentCoreController
                 BackendInstanceId: _backendInstanceId,
                 BackendProcessId: Environment.ProcessId,
                 CaptureContext: captureContext,
+                UserAgentHeartbeatUpdatedAtUtc: userAgentHeartbeatUpdatedAtUtc,
                 UserAgentInstanceId: userAgentInstanceId,
                 UserAgentProcessId: userAgentProcessId,
                 UserAgentSessionId: userAgentSessionId,

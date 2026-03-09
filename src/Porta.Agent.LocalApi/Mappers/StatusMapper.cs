@@ -29,6 +29,7 @@ internal static class StatusMapper
             status.BackendInstanceId,
             status.BackendProcessId,
             status.CaptureContext,
+            status.UserAgentHeartbeatUpdatedAtUtc,
             status.UserAgentInstanceId,
             status.UserAgentProcessId,
             status.UserAgentSessionId,

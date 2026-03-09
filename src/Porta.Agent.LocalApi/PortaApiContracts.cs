@@ -24,6 +24,7 @@ public sealed record LocalApiStatusResponse(
     string BackendInstanceId,
     int BackendProcessId,
     string CaptureContext,
+    DateTimeOffset? UserAgentHeartbeatUpdatedAtUtc,
     string? UserAgentInstanceId,
     int? UserAgentProcessId,
     string? UserAgentSessionId,
@@ -80,6 +81,7 @@ public sealed record LocalApiStatusResponse(
     public string backend_instance_id => BackendInstanceId;
     public int backend_process_id => BackendProcessId;
     public string capture_context => CaptureContext;
+    public string? user_agent_heartbeat_utc => ToUtcMsStringOrNull(UserAgentHeartbeatUpdatedAtUtc);
     public string? user_agent_instance_id => UserAgentInstanceId;
     public int? user_agent_process_id => UserAgentProcessId;
     public string? user_agent_session_id => UserAgentSessionId;
@@ -179,7 +181,15 @@ public sealed record LocalApiCurrentSnapshotResponse(
     string? ContinuityState = null,
     double? ContinuityConfidence = null,
     double? SignalQualityScore = null,
-    double? ModelConfidence = null)
+    double? ModelConfidence = null,
+    string? BreakPendingAction = null,
+    string? BreakPendingReasonCode = null,
+    double? BreakPendingEffectiveFocusSeconds = null,
+    int? BreakPendingEffectiveFocusWindowSeconds = null,
+    bool? BreakDeliveryBoundaryReached = null,
+    string? BreakDeliveryBoundaryKind = null,
+    double? BreakMicrobreakEffectiveFocusSeconds = null,
+    double? BreakShortBreakEffectiveFocusSeconds = null)
 {
     // Step 18D pinned snake_case aliases for snapshot consumers.
     public double overload_likelihood => OverloadLikelihood;
@@ -204,6 +214,14 @@ public sealed record LocalApiCurrentSnapshotResponse(
     public double behavior_continuity_score => TaskContinuityScore;
     public double? signal_quality_score => SignalQualityScore;
     public double model_confidence => ModelConfidence ?? Confidence;
+    public string? break_pending_action => BreakPendingAction;
+    public string? break_pending_reason_code => BreakPendingReasonCode;
+    public double? break_pending_effective_focus_s => BreakPendingEffectiveFocusSeconds;
+    public int? break_pending_effective_focus_window_s => BreakPendingEffectiveFocusWindowSeconds;
+    public bool? break_delivery_boundary_reached => BreakDeliveryBoundaryReached;
+    public string? break_delivery_boundary_kind => BreakDeliveryBoundaryKind;
+    public double? break_microbreak_effective_focus_s => BreakMicrobreakEffectiveFocusSeconds;
+    public double? break_short_break_effective_focus_s => BreakShortBreakEffectiveFocusSeconds;
     public string timestamp_utc => TimestampUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
     public LocalApiSnapshotCurrentView current => new(
         overload_active: overload_active,
@@ -216,6 +234,12 @@ public sealed record LocalApiCurrentSnapshotResponse(
         signal_quality_score: SignalQualityScore,
         behavior_continuity_score: TaskContinuityScore,
         sustained_attention_duration_sec: sustained_attention_duration_sec,
+        break_pending_action: BreakPendingAction,
+        break_pending_reason_code: BreakPendingReasonCode,
+        break_pending_effective_focus_s: BreakPendingEffectiveFocusSeconds,
+        break_pending_effective_focus_window_s: BreakPendingEffectiveFocusWindowSeconds,
+        break_delivery_boundary_reached: BreakDeliveryBoundaryReached,
+        break_delivery_boundary_kind: BreakDeliveryBoundaryKind,
         f: F,
         i: I,
         v: V);
@@ -274,6 +298,12 @@ public sealed record LocalApiSnapshotCurrentView(
     double? signal_quality_score,
     double behavior_continuity_score,
     double sustained_attention_duration_sec,
+    string? break_pending_action,
+    string? break_pending_reason_code,
+    double? break_pending_effective_focus_s,
+    int? break_pending_effective_focus_window_s,
+    bool? break_delivery_boundary_reached,
+    string? break_delivery_boundary_kind,
     double? f,
     double? i,
     double? v);

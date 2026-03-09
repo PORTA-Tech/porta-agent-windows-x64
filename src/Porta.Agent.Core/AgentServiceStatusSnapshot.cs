@@ -22,6 +22,7 @@ public sealed record AgentServiceStatusSnapshot(
     string BackendInstanceId,
     int BackendProcessId,
     string CaptureContext,
+    DateTimeOffset? UserAgentHeartbeatUpdatedAtUtc,
     string? UserAgentInstanceId,
     int? UserAgentProcessId,
     string? UserAgentSessionId,

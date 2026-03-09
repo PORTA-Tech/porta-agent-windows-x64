@@ -110,7 +110,15 @@ internal static class SnapshotMapper
             continuityState,
             continuityConfidence,
             signalQualityScore,
-            modelConfidence);
+            modelConfidence,
+            latestState?.BreakPendingAction,
+            latestState?.BreakPendingReasonCode,
+            latestState?.BreakPendingEffectiveFocusSeconds,
+            latestState?.BreakPendingEffectiveFocusWindowSeconds,
+            latestState?.BreakDeliveryBoundaryReached,
+            latestState?.BreakDeliveryBoundaryKind,
+            latestState?.BreakMicrobreakEffectiveFocusSeconds,
+            latestState?.BreakShortBreakEffectiveFocusSeconds);
     }
 
     private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(string? stateFlagsJson)

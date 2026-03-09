@@ -112,7 +112,15 @@ public sealed record AgentLatestStateDetails(
     string? TrustTier = null,
     double? CurrentQualityScore = null,
     bool? PartialData = null,
-    IReadOnlyList<string>? MissingMajorChannels = null);
+    IReadOnlyList<string>? MissingMajorChannels = null,
+    string? BreakPendingAction = null,
+    string? BreakPendingReasonCode = null,
+    double? BreakPendingEffectiveFocusSeconds = null,
+    int? BreakPendingEffectiveFocusWindowSeconds = null,
+    bool? BreakDeliveryBoundaryReached = null,
+    string? BreakDeliveryBoundaryKind = null,
+    double? BreakMicrobreakEffectiveFocusSeconds = null,
+    double? BreakShortBreakEffectiveFocusSeconds = null);
 
 public sealed record AgentSettingsState(
     string RegulationIntensity,
