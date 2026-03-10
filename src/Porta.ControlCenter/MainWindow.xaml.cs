@@ -4543,14 +4543,6 @@ public partial class MainWindow : Window
             SectionTitleText.Text = $"Now ({visualState.ModeLabel})";
         }
 
-        bool statusFresh = status != null
-            && _lastStatusSuccessUtc.HasValue
-            && (DateTimeOffset.UtcNow - _lastStatusSuccessUtc.Value) <= StatusFreshnessWindow
-            && (DateTimeOffset.UtcNow - status.LastUpdatedUtc) <= StatusFreshnessWindow;
-        string? hint = BuildTopBarHint(serviceProbe, runtimeSettings, status, statusFresh);
-        TopBarHintText.Text = hint ?? string.Empty;
-        TopBarHintText.Visibility = string.IsNullOrWhiteSpace(hint) ? Visibility.Collapsed : Visibility.Visible;
-
         AgentVersionMenuItem.Header = $"Agent: {status?.AgentVersion ?? NotAvailableText}";
         UiVersionMenuItem.Header = $"UI: {_uiVersion}";
         SchemaVersionMenuItem.Header = $"Schema: {status?.SchemaVersion ?? NotAvailableText}";

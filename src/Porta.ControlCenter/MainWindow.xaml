@@ -163,7 +163,6 @@
                     <Border x:Name="TrustBadgeBorder" CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0">
                         <TextBlock x:Name="TrustBadgeText" Text="Trust: Low" />
                     </Border>
-                    <TextBlock x:Name="TopBarHintText" Text="" VerticalAlignment="Center" Foreground="#FB923C" Margin="0,0,16,0" Visibility="Collapsed" />
                     <Button x:Name="WhyDrawerToggleButton" Content="Why" Padding="12,6" Margin="0,0,10,0" Click="WhyDrawerToggleButton_Click" />
                     <Button x:Name="QuickPauseResumeButton" Content="Pause" Padding="12,6" Margin="0,0,10,0" Click="QuickPauseResumeButton_Click" />
                     <Button x:Name="RefreshButton" Content="Refresh" Padding="12,6" Margin="0,0,10,0" Click="RefreshButton_Click" />
