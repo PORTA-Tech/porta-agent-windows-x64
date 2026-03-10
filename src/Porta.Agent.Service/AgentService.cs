@@ -34,18 +34,22 @@ internal sealed class AgentService : IHostedService, IDisposable
         });
 
         builder.Services.AddPortaLocalApi();
+        builder.Services.AddSingleton<IRuntimePolicyProvider, FileRuntimePolicyProvider>();
         builder.Services.AddSingleton<IBrightnessController, WindowsBrightnessController>();
         builder.Services.AddSingleton<IOverloadBrightnessActionCoordinator, OverloadBrightnessActionCoordinator>();
         builder.Services.AddSingleton<IDeepWorkOutputActionCoordinator, QueuedDeepWorkOutputActionCoordinator>();
         builder.Services.AddSingleton<BucketFinalizerStateStore>(sp =>
             new BucketFinalizerStateStore(new SqliteBrainStateStore(
                 sp.GetRequiredService<IDeepWorkOutputActionCoordinator>(),
-                sp.GetRequiredService<IOverloadBrightnessActionCoordinator>())));
+                sp.GetRequiredService<IOverloadBrightnessActionCoordinator>(),
+                sp.GetRequiredService<IRuntimePolicyProvider>())));
         builder.Services.AddSingleton<IBrainStateStore>(sp => sp.GetRequiredService<BucketFinalizerStateStore>());
         builder.Services.AddSingleton<IBucketFinalizerPump>(sp => sp.GetRequiredService<BucketFinalizerStateStore>());
         builder.Services.AddSingleton<IAgentCoreController>(sp =>
         {
-            var controller = new AgentCoreController(sp.GetRequiredService<IBrainStateStore>());
+            var controller = new AgentCoreController(
+                sp.GetRequiredService<IBrainStateStore>(),
+                runtimePolicyProvider: sp.GetRequiredService<IRuntimePolicyProvider>());
             controller.SetLocalApiAuthState(settings.LocalApiAuthReady, settings.LocalApiAuthError);
             return controller;
         });

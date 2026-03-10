@@ -4,8 +4,10 @@ public sealed class QueuedDeepWorkOutputActionCoordinator : IDeepWorkOutputActio
 {
     public DeepWorkTransitionExecution HandleDeepWorkTransition(
         DeepWorkTransitionContext context,
-        NotificationSuppressionRuntimeState runtimeState)
+        NotificationSuppressionRuntimeState runtimeState,
+        RuntimeNotificationSuppressionSettings? policy = null)
     {
+        _ = policy;
         NotificationSuppressionRuntimeState state = NormalizeRuntimeState(runtimeState);
         long nowUtcMs = context.BucketEndUtc.ToUnixTimeMilliseconds();
         bool enteringTransition = !context.PreviousDeepWorkActive && context.CurrentDeepWorkActive;
@@ -102,9 +104,11 @@ public sealed class QueuedDeepWorkOutputActionCoordinator : IDeepWorkOutputActio
 
     public NotificationSuppressionStartupReconciliation ReconcileOnStartup(
         NotificationSuppressionRuntimeState runtimeState,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        RuntimeNotificationSuppressionSettings? policy = null)
     {
         _ = nowUtc;
+        _ = policy;
         NotificationSuppressionRuntimeState state = NormalizeRuntimeState(runtimeState);
         string actionState = state.Active
             ? (state.RestorePending ? "restore_pending" : "active")

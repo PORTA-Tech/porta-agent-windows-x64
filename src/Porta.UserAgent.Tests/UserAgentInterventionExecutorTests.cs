@@ -64,8 +64,8 @@ public sealed class UserAgentInterventionExecutorTests
 
         LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
-        Assert.Equal("applied", ack.Result);
-        Assert.Equal(1, notificationController.GetSnapshotCalls);
+        Assert.Equal("verified", ack.Result);
+        Assert.Equal(2, notificationController.GetSnapshotCalls);
         Assert.Equal(1, notificationController.ApplyCalls);
         Assert.True(snapshotStore.SavedSnapshot.HasValue);
     }
@@ -89,9 +89,56 @@ public sealed class UserAgentInterventionExecutorTests
 
         LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
-        Assert.Equal("applied", ack.Result);
+        Assert.Equal("verified", ack.Result);
+        Assert.Equal(1, notificationController.GetSnapshotCalls);
         Assert.Equal(1, notificationController.RestoreCalls);
         Assert.True(snapshotStore.Cleared);
+    }
+
+    [Fact]
+    public void ExecuteOrReplay_NotificationVerificationUnavailable_FallsBackToApplied()
+    {
+        var presenter = new FakePresenter();
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController
+        {
+            FailVerificationSnapshot = true
+        };
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        LocalApiInterventionPendingResponse intervention = BuildPending(
+            "intv-dw-on",
+            "deep_work_notifications_suppressed",
+            "suppress_notifications",
+            "{}");
+
+        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+
+        Assert.Equal("applied", ack.Result);
+        Assert.Equal(2, notificationController.GetSnapshotCalls);
+    }
+
+    [Fact]
+    public void ExecuteOrReplay_NotificationVerificationMismatch_AcksFailed()
+    {
+        var presenter = new FakePresenter();
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController
+        {
+            VerificationToastsEnabled = true
+        };
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        LocalApiInterventionPendingResponse intervention = BuildPending(
+            "intv-dw-on",
+            "deep_work_notifications_suppressed",
+            "suppress_notifications",
+            "{}");
+
+        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+
+        Assert.Equal("failed", ack.Result);
+        Assert.Equal("suppression_verify_failed", ack.ErrorCode);
     }
 
     [Fact]
@@ -198,15 +245,32 @@ public sealed class UserAgentInterventionExecutorTests
         public int GetSnapshotCalls { get; private set; }
         public int ApplyCalls { get; private set; }
         public int RestoreCalls { get; private set; }
+        public bool FailVerificationSnapshot { get; init; }
+        public bool? VerificationToastsEnabled { get; init; }
 
         public NotificationControllerSnapshotResult GetSnapshot()
         {
             GetSnapshotCalls++;
+            if (GetSnapshotCalls >= 2 && FailVerificationSnapshot)
+            {
+                return new NotificationControllerSnapshotResult(
+                    Succeeded: false,
+                    ErrorCode: "verification_snapshot_failed",
+                    ErrorDetail: "simulated verification failure",
+                    Snapshot: ValidSnapshot());
+            }
+
+            bool? verificationToastsEnabled = GetSnapshotCalls >= 2
+                ? VerificationToastsEnabled
+                : null;
             return new NotificationControllerSnapshotResult(
                 Succeeded: true,
                 ErrorCode: string.Empty,
                 ErrorDetail: string.Empty,
-                Snapshot: ValidSnapshot());
+                Snapshot: ValidSnapshot() with
+                {
+                    ToastBannersEnabled = verificationToastsEnabled ?? (ApplyCalls == 0)
+                });
         }
 
         public NotificationControllerActionResult ApplySuppression(NotificationControllerSnapshot snapshot)

@@ -220,14 +220,14 @@ public sealed class InterventionDeliveryTests
                 InterventionId: "dw-1",
                 SessionId: "session-11",
                 AgentInstanceId: "useragent-11",
-                Result: "applied",
+                Result: "verified",
                 ErrorCode: null,
                 AppliedAtUtc: eventUtc.AddSeconds(2)));
             Assert.True(suppressAcked);
 
             AgentNotificationSuppressionStatus activeStatus = store.ReadNotificationSuppressionStatus();
             Assert.True(activeStatus.Active);
-            Assert.Equal("active", activeStatus.ActionState);
+            Assert.Equal("verified_active", activeStatus.ActionState);
 
             store.WriteControlEvent(new AgentControlEvent(
                 TimestampUtc: eventUtc.AddSeconds(30),
@@ -253,14 +253,71 @@ public sealed class InterventionDeliveryTests
                 InterventionId: "dw-2",
                 SessionId: "session-11",
                 AgentInstanceId: "useragent-11",
-                Result: "applied",
+                Result: "verified",
                 ErrorCode: null,
                 AppliedAtUtc: eventUtc.AddSeconds(35)));
             Assert.True(restoreAcked);
 
             AgentNotificationSuppressionStatus inactiveStatus = store.ReadNotificationSuppressionStatus();
             Assert.False(inactiveStatus.Active);
-            Assert.Equal("inactive", inactiveStatus.ActionState);
+            Assert.Equal("verified_inactive", inactiveStatus.ActionState);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(dbPath))
+                {
+                    File.Delete(dbPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void SqliteStore_MapsVerifiedExecutionState_IntoRecentEvents()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"porta-verified-interventions-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new SqliteBrainStateStore(
+                new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
+                new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+                dbPath);
+
+            DateTimeOffset eventUtc = DateTimeOffset.UtcNow;
+            store.WriteControlEvent(new AgentControlEvent(
+                TimestampUtc: eventUtc,
+                Action: "deep_work_notifications_suppressed",
+                TriggerState: "deep_work",
+                TriggerValue: 0.77d,
+                Confidence: 0.77d,
+                DurationSeconds: null,
+                EscalationLevel: "Auto",
+                Reversible: true,
+                Reason: "queued",
+                Contributors: [],
+                InterventionId: "dw-verified",
+                PolicyId: "deep_work_notifications:local-default",
+                Domain: "output_action",
+                WhatChanged: "Notification suppression requested for deep work protection.",
+                HowToUndo: "Automatically restored when deep work exits."));
+
+            bool acked = store.AcknowledgeIntervention(new AgentInterventionAck(
+                InterventionId: "dw-verified",
+                SessionId: "session-11",
+                AgentInstanceId: "useragent-11",
+                Result: "verified",
+                ErrorCode: null,
+                AppliedAtUtc: eventUtc.AddSeconds(1)));
+
+            Assert.True(acked);
+            AgentControlEvent ev = Assert.Single(store.ReadRecentEvents(10));
+            Assert.Equal("verified", ev.ExecutionState);
+            Assert.NotNull(ev.AppliedAtUtc);
         }
         finally
         {

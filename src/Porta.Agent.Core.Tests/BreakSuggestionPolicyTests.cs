@@ -119,6 +119,57 @@ public sealed class BreakSuggestionPolicyTests
     }
 
     [Fact]
+    public void ShouldTriggerBreak_UsesPolicyOverrideThresholds()
+    {
+        BaselineGatingResult gating = BaselineGatingResult.Provisional(PortaExecutionConstants.BaselineReadiness.ProvisionalConfidenceCap);
+        OverloadStabilizationResult stabilization = BuildStabilization(overloadActive: false);
+        OverloadInferenceResult overload = BuildOverloadInference(confidence: 0.60d);
+        DerivedSessionMetricsResult session = BuildSession(saSeconds: 1200d);
+        BreakFocusWindowSnapshot focusWindow = BuildFocusWindow(
+            microbreakSeconds: 900d,
+            shortBreakSeconds: 1200d,
+            boundaryKind: "short_idle");
+
+        BreakSuggestionDecision withoutOverride = BreakSuggestionPolicy.ShouldTriggerBreak(
+            gating,
+            stabilization,
+            overload,
+            session,
+            focusWindow,
+            resolveCooldown: () => new BreakPolicyCooldownSnapshot(true, 0, 0));
+
+        RuntimeBreakPolicySettings policy = new(
+            MicrobreakWindowSeconds: 1800,
+            MicrobreakEffectiveFocusSecondsLowOverload: 900,
+            MicrobreakEffectiveFocusSecondsHighOverload: 600,
+            ShortBreakWindowSeconds: 3600,
+            ShortBreakEffectiveFocusSecondsLowOverload: 2400,
+            ShortBreakEffectiveFocusSecondsHighOverload: 1800,
+            CooldownSeconds: 900,
+            ConfidenceMin: 0.50d,
+            HighOverloadLikelihood: 0.72d,
+            DeliveryBoundaryIdleMinSeconds: 2.0d,
+            DeliveryBoundaryIdleMaxSeconds: 30.0d,
+            DeliveryBoundaryTypingQuietMax: 0.35d,
+            DeliveryBoundaryKeyboardBurstQuietMax: 0.20d);
+
+        BreakSuggestionDecision withOverride = BreakSuggestionPolicy.ShouldTriggerBreak(
+            gating,
+            stabilization,
+            overload,
+            session,
+            focusWindow,
+            resolveCooldown: () => new BreakPolicyCooldownSnapshot(true, 0, 0),
+            policy: policy);
+
+        Assert.False(withoutOverride.ShouldEmit);
+        Assert.Equal("effective_focus_below_min", withoutOverride.ReasonCode);
+        Assert.True(withOverride.ShouldEmit);
+        Assert.Equal("stretch_break_suggestion", withOverride.Action);
+        Assert.Equal(1800, withOverride.EffectiveFocusWindowSeconds);
+    }
+
+    [Fact]
     public void ShouldTriggerBreak_ThresholdMetWithoutBoundary_WaitsForBoundary()
     {
         int cooldownReads = 0;
@@ -287,7 +338,7 @@ public sealed class BreakSuggestionPolicyTests
         JsonElement root = doc.RootElement;
 
         Assert.Equal(1, root.GetProperty("schema_ver").GetInt32());
-        Assert.Equal("break_suggestion_v2", root.GetProperty("policy").GetString());
+        Assert.Equal("break_suggestion:local-default", root.GetProperty("policy").GetString());
         JsonElement reasons = root.GetProperty("reasons");
         Assert.True(reasons.GetProperty("suggestions_enabled").GetBoolean());
         Assert.True(reasons.GetProperty("overload_active").GetBoolean());

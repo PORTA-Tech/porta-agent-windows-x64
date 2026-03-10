@@ -137,7 +137,12 @@ internal sealed class UserAgentInterventionExecutor
                 errorCode: NormalizeErrorCode(applyResult.ErrorCode, "suppression_apply_failed"));
         }
 
-        return BuildAck(intervention, sessionId, agentInstanceId, result: "applied", errorCode: null);
+        return VerifyNotificationState(
+            intervention,
+            sessionId,
+            agentInstanceId,
+            expectedToastsEnabled: false,
+            verificationMismatchError: "suppression_verify_failed");
     }
 
     private LocalApiInterventionAckRequest BuildNotificationRestoreAck(
@@ -163,7 +168,33 @@ internal sealed class UserAgentInterventionExecutor
         }
 
         _notificationSnapshotStore.Clear();
-        return BuildAck(intervention, sessionId, agentInstanceId, result: "applied", errorCode: null);
+        return VerifyNotificationState(
+            intervention,
+            sessionId,
+            agentInstanceId,
+            expectedToastsEnabled: snapshot.Value.ToastBannersEnabled,
+            verificationMismatchError: "restore_verify_failed");
+    }
+
+    private LocalApiInterventionAckRequest VerifyNotificationState(
+        LocalApiInterventionPendingResponse intervention,
+        string sessionId,
+        string agentInstanceId,
+        bool expectedToastsEnabled,
+        string verificationMismatchError)
+    {
+        NotificationControllerSnapshotResult verification = _notificationController.GetSnapshot();
+        if (!verification.Succeeded || !verification.Snapshot.IsValid)
+        {
+            return BuildAck(intervention, sessionId, agentInstanceId, result: "applied", errorCode: null);
+        }
+
+        if (verification.Snapshot.ToastBannersEnabled != expectedToastsEnabled)
+        {
+            return BuildAck(intervention, sessionId, agentInstanceId, result: "failed", errorCode: verificationMismatchError);
+        }
+
+        return BuildAck(intervention, sessionId, agentInstanceId, result: "verified", errorCode: null);
     }
 
     private static LocalApiInterventionAckRequest BuildAck(

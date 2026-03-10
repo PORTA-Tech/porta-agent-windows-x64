@@ -33,36 +33,46 @@ internal static class OverloadStabilizationComputer
     internal static OverloadStabilizationResult ComputeForFinalizedBucket(
         InputBucketRow bucket,
         OverloadInferenceResult overloadInference,
-        OverloadStabilizationRuntimeState previous)
+        OverloadStabilizationRuntimeState previous,
+        RuntimeOverloadStabilizationSettings? policy = null)
     {
+        RuntimeOverloadStabilizationSettings settings = policy ?? new RuntimeOverloadStabilizationSettings(
+            PortaExecutionConstants.OverloadStabilization.ThresholdOn,
+            PortaExecutionConstants.OverloadStabilization.ThresholdOff,
+            PortaExecutionConstants.OverloadStabilization.DwellOnSeconds,
+            PortaExecutionConstants.OverloadStabilization.DwellOffSeconds,
+            PortaExecutionConstants.OverloadStabilization.ConfidenceMin,
+            PortaExecutionConstants.OverloadStabilization.GapAllowSeconds,
+            PortaExecutionConstants.OverloadStabilization.LowQualityPauseThreshold,
+            PortaExecutionConstants.OverloadStabilization.LowQualityDwellDecayMs);
         double overload = Clamp01(overloadInference.OverloadLikelihood);
         double confidence = Clamp01(overloadInference.Confidence);
         double quality = Clamp01(overloadInference.Quality);
         bool overloadActive = previous.OverloadActive;
         long currentBucketEndUtcMs = Time.bucketStartEnd(bucket.BucketSeq).endUtcMs;
         long gapMs = ComputeGapMs(previous.LastGoodTsMs, currentBucketEndUtcMs);
-        long gapAllowMs = PortaExecutionConstants.OverloadStabilization.GapAllowSeconds * 1000L;
+        long gapAllowMs = settings.GapAllowSeconds * 1000L;
         bool gapExceeded = gapMs > gapAllowMs;
-        bool lowQualityPaused = quality < PortaExecutionConstants.OverloadStabilization.LowQualityPauseThreshold;
-        bool eligible = confidence >= PortaExecutionConstants.OverloadStabilization.ConfidenceMin && !lowQualityPaused;
+        bool lowQualityPaused = quality < settings.LowQualityPauseThreshold;
+        bool eligible = confidence >= settings.ConfidenceMin && !lowQualityPaused;
         long onDwellMs = Math.Max(0, previous.OnDwellMs);
         long offDwellMs = Math.Max(0, previous.OffDwellMs);
         string debugMode = previous.LastBucketSeq == 0 ? "bootstrap_hold" : "stable_hold";
         string transition = string.Empty;
         bool transitioned = false;
 
-        bool betweenThresholds = overload > PortaExecutionConstants.OverloadStabilization.ThresholdOff
-            && overload < PortaExecutionConstants.OverloadStabilization.ThresholdOn;
+        bool betweenThresholds = overload > settings.ThresholdOff
+            && overload < settings.ThresholdOn;
 
-        bool onSignal = eligible && overload >= PortaExecutionConstants.OverloadStabilization.ThresholdOn;
-        bool offSignal = eligible && overload <= PortaExecutionConstants.OverloadStabilization.ThresholdOff;
+        bool onSignal = eligible && overload >= settings.ThresholdOn;
+        bool offSignal = eligible && overload <= settings.ThresholdOff;
 
         if (lowQualityPaused)
         {
             // Step 12F override: low quality pauses all dwell accumulation,
             // decays both dwells by one bucket, and never transitions state by itself.
-            onDwellMs = Math.Max(0, onDwellMs - PortaExecutionConstants.OverloadStabilization.LowQualityDwellDecayMs);
-            offDwellMs = Math.Max(0, offDwellMs - PortaExecutionConstants.OverloadStabilization.LowQualityDwellDecayMs);
+            onDwellMs = Math.Max(0, onDwellMs - settings.LowQualityDwellDecayMs);
+            offDwellMs = Math.Max(0, offDwellMs - settings.LowQualityDwellDecayMs);
             debugMode = "quality_pause_decay";
         }
         else if (!overloadActive)
@@ -74,7 +84,7 @@ internal static class OverloadStabilizationComputer
                 gapMs = 0;
                 gapExceeded = false;
                 debugMode = "on_dwell_accumulating";
-                if (onDwellMs >= (PortaExecutionConstants.OverloadStabilization.DwellOnSeconds * 1000L))
+                if (onDwellMs >= (settings.DwellOnSeconds * 1000L))
                 {
                     overloadActive = true;
                     onDwellMs = 0;
@@ -110,7 +120,7 @@ internal static class OverloadStabilizationComputer
                 gapMs = 0;
                 gapExceeded = false;
                 debugMode = "off_dwell_accumulating";
-                if (offDwellMs >= (PortaExecutionConstants.OverloadStabilization.DwellOffSeconds * 1000L))
+                if (offDwellMs >= (settings.DwellOffSeconds * 1000L))
                 {
                     overloadActive = false;
                     onDwellMs = 0;

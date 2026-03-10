@@ -69,11 +69,13 @@ public interface IOverloadBrightnessActionCoordinator
 {
     OverloadBrightnessTransitionExecution HandleOverloadTransition(
         OverloadTransitionContext context,
-        BrightnessActionRuntimeState runtimeState);
+        BrightnessActionRuntimeState runtimeState,
+        RuntimeBrightnessAdjustmentSettings? policy = null);
 
     BrightnessStartupReconciliation ReconcileOnStartup(
         BrightnessActionRuntimeState runtimeState,
-        DateTimeOffset nowUtc);
+        DateTimeOffset nowUtc,
+        RuntimeBrightnessAdjustmentSettings? policy = null);
 }
 
 public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessActionCoordinator
@@ -87,8 +89,15 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
 
     public OverloadBrightnessTransitionExecution HandleOverloadTransition(
         OverloadTransitionContext context,
-        BrightnessActionRuntimeState runtimeState)
+        BrightnessActionRuntimeState runtimeState,
+        RuntimeBrightnessAdjustmentSettings? policy = null)
     {
+        RuntimeBrightnessAdjustmentSettings settings = policy ?? new RuntimeBrightnessAdjustmentSettings(
+            PortaExecutionConstants.BrightnessAdjustment.ReductionDelta,
+            PortaExecutionConstants.BrightnessAdjustment.MinSafeBrightness,
+            PortaExecutionConstants.BrightnessAdjustment.RampStepPerBucket,
+            PortaExecutionConstants.BrightnessAdjustment.CooldownSeconds,
+            PortaExecutionConstants.BrightnessAdjustment.FailureBackoffSeconds);
         BrightnessActionRuntimeState state = NormalizeRuntimeState(runtimeState);
         long nowUtcMs = context.BucketEndUtc.ToUnixTimeMilliseconds();
         bool enteringTransition = !context.PreviousOverloadActive && context.CurrentOverloadActive;
@@ -96,12 +105,12 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
 
         if (enteringTransition)
         {
-            return HandleEntering(context, state, nowUtcMs);
+            return HandleEntering(context, state, nowUtcMs, settings);
         }
 
         if (state.Active && context.CurrentOverloadActive && string.Equals(state.RampDirection, "down", StringComparison.Ordinal))
         {
-            return TryRampStep(context, state, nowUtcMs, enteringTransition: false, exitingTransition: false, direction: "down");
+            return TryRampStep(context, state, nowUtcMs, enteringTransition: false, exitingTransition: false, direction: "down", settings);
         }
 
         if (state.Active && !context.CurrentOverloadActive)
@@ -118,7 +127,8 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
                 nowUtcMs,
                 enteringTransition: false,
                 exitingTransition: exitingTransition || !context.CurrentOverloadActive,
-                direction: "up");
+                direction: "up",
+                settings);
         }
 
         return NoOp(state, "no_transition");
@@ -126,8 +136,15 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
 
     public BrightnessStartupReconciliation ReconcileOnStartup(
         BrightnessActionRuntimeState runtimeState,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        RuntimeBrightnessAdjustmentSettings? policy = null)
     {
+        RuntimeBrightnessAdjustmentSettings settings = policy ?? new RuntimeBrightnessAdjustmentSettings(
+            PortaExecutionConstants.BrightnessAdjustment.ReductionDelta,
+            PortaExecutionConstants.BrightnessAdjustment.MinSafeBrightness,
+            PortaExecutionConstants.BrightnessAdjustment.RampStepPerBucket,
+            PortaExecutionConstants.BrightnessAdjustment.CooldownSeconds,
+            PortaExecutionConstants.BrightnessAdjustment.FailureBackoffSeconds);
         BrightnessActionRuntimeState state = NormalizeRuntimeState(runtimeState);
         long nowUtcMs = nowUtc.ToUnixTimeMilliseconds();
 
@@ -149,7 +166,7 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
                 LastErrorCode = "brightness_unsupported",
                 BackoffUntilUtcMs = Math.Max(
                     state.BackoffUntilUtcMs,
-                    checked(nowUtcMs + (PortaExecutionConstants.BrightnessAdjustment.FailureBackoffSeconds * 1000L))),
+                    checked(nowUtcMs + (settings.FailureBackoffSeconds * 1000L))),
                 LoggedUnsupported = true,
                 ActionState = "startup_unsupported"
             };
@@ -171,7 +188,7 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
                 LastErrorCode = errorCode,
                 BackoffUntilUtcMs = Math.Max(
                     state.BackoffUntilUtcMs,
-                    checked(nowUtcMs + (PortaExecutionConstants.BrightnessAdjustment.FailureBackoffSeconds * 1000L))),
+                    checked(nowUtcMs + (settings.FailureBackoffSeconds * 1000L))),
                 ActionState = "startup_reconcile_failed"
             };
             return new BrightnessStartupReconciliation(
@@ -232,7 +249,7 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
                 {
                     Active = false,
                     RampDirection = "idle",
-                    CooldownUntilUtcMs = checked(nowUtcMs + (PortaExecutionConstants.BrightnessAdjustment.CooldownSeconds * 1000L)),
+                    CooldownUntilUtcMs = checked(nowUtcMs + (settings.CooldownSeconds * 1000L)),
                     ActionState = "restored"
                 };
             }
@@ -265,7 +282,8 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
     private OverloadBrightnessTransitionExecution HandleEntering(
         OverloadTransitionContext context,
         BrightnessActionRuntimeState state,
-        long nowUtcMs)
+        long nowUtcMs,
+        RuntimeBrightnessAdjustmentSettings settings)
     {
         if (state.Active)
         {
@@ -277,7 +295,7 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
                     LastTransitionSourceBucketSeq = context.BucketSeq,
                     ActionState = "ramping_down"
                 };
-                return TryRampStep(context, resumed, nowUtcMs, enteringTransition: true, exitingTransition: false, direction: "down");
+                return TryRampStep(context, resumed, nowUtcMs, enteringTransition: true, exitingTransition: false, direction: "down", settings);
             }
 
             return NoOp(state, "already_active");
@@ -307,7 +325,8 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
                 errorCode: "brightness_unsupported",
                 errorDetail: "Brightness controller reported unsupported device.",
                 actionState: "unsupported",
-                nowUtcMs: nowUtcMs);
+                nowUtcMs: nowUtcMs,
+                settings);
         }
 
         if (nowUtcMs < state.CooldownUntilUtcMs)
@@ -336,13 +355,14 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
                 errorCode: errorCode,
                 errorDetail: levelResult.ErrorDetail,
                 actionState: "read_failed",
-                nowUtcMs: nowUtcMs);
+                nowUtcMs: nowUtcMs,
+                settings);
         }
 
         int prevLevel = ClampLevel(levelResult.Level);
         int targetLevel = Math.Max(
-            prevLevel - PortaExecutionConstants.BrightnessAdjustment.ReductionDelta,
-            PortaExecutionConstants.BrightnessAdjustment.MinSafeBrightness);
+            prevLevel - settings.ReductionDelta,
+            settings.MinSafeBrightness);
         BrightnessActionRuntimeState activeState = state with
         {
             Active = targetLevel < prevLevel,
@@ -375,7 +395,7 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
                 RuntimeState: activeState);
         }
 
-        return TryRampStep(context, activeState, nowUtcMs, enteringTransition: true, exitingTransition: false, direction: "down");
+        return TryRampStep(context, activeState, nowUtcMs, enteringTransition: true, exitingTransition: false, direction: "down", settings);
     }
 
     private OverloadBrightnessTransitionExecution TryRampStep(
@@ -384,7 +404,8 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
         long nowUtcMs,
         bool enteringTransition,
         bool exitingTransition,
-        string direction)
+        string direction,
+        RuntimeBrightnessAdjustmentSettings settings)
     {
         if (nowUtcMs < state.BackoffUntilUtcMs)
         {
@@ -422,13 +443,14 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
                 errorCode: "brightness_unsupported",
                 errorDetail: "Brightness controller reported unsupported device during ramp operation.",
                 actionState: "unsupported",
-                nowUtcMs: nowUtcMs);
+                nowUtcMs: nowUtcMs,
+                settings);
         }
 
         int currentLevel = ClampLevel(state.CurrentLevel < 0 ? state.PreviousLevel : state.CurrentLevel);
         int destination = string.Equals(direction, "down", StringComparison.Ordinal)
-            ? Math.Max(state.TargetLevel, currentLevel - PortaExecutionConstants.BrightnessAdjustment.RampStepPerBucket)
-            : Math.Min(state.PreviousLevel, currentLevel + PortaExecutionConstants.BrightnessAdjustment.RampStepPerBucket);
+            ? Math.Max(state.TargetLevel, currentLevel - settings.RampStepPerBucket)
+            : Math.Min(state.PreviousLevel, currentLevel + settings.RampStepPerBucket);
         destination = ClampLevel(destination);
 
         if (destination == currentLevel)
@@ -440,7 +462,7 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
                 RampDirection = ResolveCompletedRampDirection(direction),
                 Active = ResolveCompletedActive(direction),
                 CooldownUntilUtcMs = string.Equals(direction, "up", StringComparison.Ordinal)
-                    ? checked(nowUtcMs + (PortaExecutionConstants.BrightnessAdjustment.CooldownSeconds * 1000L))
+                    ? checked(nowUtcMs + (settings.CooldownSeconds * 1000L))
                     : state.CooldownUntilUtcMs
             };
             return FinalizeRampState(
@@ -470,7 +492,8 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
                 errorCode: errorCode,
                 errorDetail: setResult.ErrorDetail,
                 actionState: string.Equals(direction, "down", StringComparison.Ordinal) ? "ramp_down_failed" : "ramp_up_failed",
-                nowUtcMs: nowUtcMs);
+                nowUtcMs: nowUtcMs,
+                settings);
         }
 
         int appliedLevel = ClampLevel(setResult.AppliedLevel);
@@ -495,7 +518,7 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
             nextState = nextState with
             {
                 Active = false,
-                CooldownUntilUtcMs = checked(nowUtcMs + (PortaExecutionConstants.BrightnessAdjustment.CooldownSeconds * 1000L))
+                CooldownUntilUtcMs = checked(nowUtcMs + (settings.CooldownSeconds * 1000L))
             };
         }
 
@@ -610,9 +633,16 @@ public sealed class OverloadBrightnessActionCoordinator : IOverloadBrightnessAct
         string errorCode,
         string errorDetail,
         string actionState,
-        long nowUtcMs)
+        long nowUtcMs,
+        RuntimeBrightnessAdjustmentSettings? policy = null)
     {
-        long backoffUntilUtcMs = checked(nowUtcMs + (PortaExecutionConstants.BrightnessAdjustment.FailureBackoffSeconds * 1000L));
+        RuntimeBrightnessAdjustmentSettings settings = policy ?? new RuntimeBrightnessAdjustmentSettings(
+            PortaExecutionConstants.BrightnessAdjustment.ReductionDelta,
+            PortaExecutionConstants.BrightnessAdjustment.MinSafeBrightness,
+            PortaExecutionConstants.BrightnessAdjustment.RampStepPerBucket,
+            PortaExecutionConstants.BrightnessAdjustment.CooldownSeconds,
+            PortaExecutionConstants.BrightnessAdjustment.FailureBackoffSeconds);
+        long backoffUntilUtcMs = checked(nowUtcMs + (settings.FailureBackoffSeconds * 1000L));
         string normalizedErrorCode = string.IsNullOrWhiteSpace(errorCode) ? "unknown_brightness_error" : errorCode;
         BrightnessActionRuntimeState failedState = runtimeState with
         {

@@ -23,6 +23,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private readonly string _connectionString;
     private readonly IDeepWorkOutputActionCoordinator _deepWorkOutputActionCoordinator;
     private readonly IOverloadBrightnessActionCoordinator _overloadBrightnessActionCoordinator;
+    private readonly IRuntimePolicyProvider _runtimePolicyProvider;
     private readonly TimeSpan _retention = TimeSpan.FromDays(DefaultRetentionDays);
     private DateTimeOffset _lastPruneUtc = DateTimeOffset.MinValue;
     private string? _lastAutoEventAction;
@@ -43,6 +44,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         : this(
             new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
             new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+            new FileRuntimePolicyProvider(),
             dbPathOverride: null)
     {
     }
@@ -51,6 +53,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         : this(
             deepWorkOutputActionCoordinator,
             new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+            new FileRuntimePolicyProvider(),
             dbPathOverride: null)
     {
     }
@@ -58,7 +61,23 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     public SqliteBrainStateStore(
         IDeepWorkOutputActionCoordinator deepWorkOutputActionCoordinator,
         IOverloadBrightnessActionCoordinator overloadBrightnessActionCoordinator)
-        : this(deepWorkOutputActionCoordinator, overloadBrightnessActionCoordinator, dbPathOverride: null)
+        : this(
+            deepWorkOutputActionCoordinator,
+            overloadBrightnessActionCoordinator,
+            new FileRuntimePolicyProvider(),
+            dbPathOverride: null)
+    {
+    }
+
+    public SqliteBrainStateStore(
+        IDeepWorkOutputActionCoordinator deepWorkOutputActionCoordinator,
+        IOverloadBrightnessActionCoordinator overloadBrightnessActionCoordinator,
+        IRuntimePolicyProvider runtimePolicyProvider)
+        : this(
+            deepWorkOutputActionCoordinator,
+            overloadBrightnessActionCoordinator,
+            runtimePolicyProvider,
+            dbPathOverride: null)
     {
     }
 
@@ -66,11 +85,26 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         IDeepWorkOutputActionCoordinator deepWorkOutputActionCoordinator,
         IOverloadBrightnessActionCoordinator overloadBrightnessActionCoordinator,
         string? dbPathOverride)
+        : this(
+            deepWorkOutputActionCoordinator,
+            overloadBrightnessActionCoordinator,
+            new FileRuntimePolicyProvider(),
+            dbPathOverride)
+    {
+    }
+
+    internal SqliteBrainStateStore(
+        IDeepWorkOutputActionCoordinator deepWorkOutputActionCoordinator,
+        IOverloadBrightnessActionCoordinator overloadBrightnessActionCoordinator,
+        IRuntimePolicyProvider runtimePolicyProvider,
+        string? dbPathOverride)
     {
         _deepWorkOutputActionCoordinator = deepWorkOutputActionCoordinator
             ?? throw new ArgumentNullException(nameof(deepWorkOutputActionCoordinator));
         _overloadBrightnessActionCoordinator = overloadBrightnessActionCoordinator
             ?? throw new ArgumentNullException(nameof(overloadBrightnessActionCoordinator));
+        _runtimePolicyProvider = runtimePolicyProvider
+            ?? throw new ArgumentNullException(nameof(runtimePolicyProvider));
         _dbPath = string.IsNullOrWhiteSpace(dbPathOverride)
             ? DbPaths.GetCoreStateDbPath()
             : dbPathOverride;
@@ -83,6 +117,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         EnsureSchema();
         TryReconcileNotificationSuppressionOnStartup();
         TryReconcileBrightnessActionOnStartup();
+    }
+
+    public string ReadActivePolicyVersion()
+    {
+        return _runtimePolicyProvider.GetEnvelope().Version;
     }
 
     public void WriteSnapshot(AgentBrainSnapshot snapshot)
@@ -111,9 +150,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             try
             {
                 DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+                RuntimeNotificationSuppressionSettings notificationPolicy = _runtimePolicyProvider.GetEnvelope().Settings.NotificationSuppression;
                 NotificationSuppressionRuntimeState existingState = ReadNotificationSuppressionRuntimeState(connection, tx);
                 NotificationSuppressionStartupReconciliation reconciliation =
-                    _deepWorkOutputActionCoordinator.ReconcileOnStartup(existingState, nowUtc);
+                    _deepWorkOutputActionCoordinator.ReconcileOnStartup(existingState, nowUtc, notificationPolicy);
 
                 bool stateChanged = !existingState.Equals(reconciliation.RuntimeState);
                 if (stateChanged || reconciliation.ShouldLogDiagnosticEvent)
@@ -135,11 +175,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
                 if (reconciliation.ShouldLogDiagnosticEvent)
                 {
+                    RuntimePolicyEnvelope policyEnvelope = _runtimePolicyProvider.GetEnvelope();
                     InsertStartupNotificationSuppressionDiagnosticEvent(
                         connection,
                         tx,
                         nowUtc,
-                        reconciliation);
+                        reconciliation,
+                        policyEnvelope);
                 }
 
                 tx.Commit();
@@ -161,10 +203,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             try
             {
                 DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+                RuntimeBrightnessAdjustmentSettings brightnessPolicy = _runtimePolicyProvider.GetEnvelope().Settings.BrightnessAdjustment;
                 BrightnessActionRuntimeState existingState = ReadBrightnessActionRuntimeState(connection, tx);
                 BrightnessStartupReconciliation reconciliation = _overloadBrightnessActionCoordinator.ReconcileOnStartup(
                     existingState,
-                    nowUtc);
+                    nowUtc,
+                    brightnessPolicy);
 
                 if (reconciliation.Reconciled || !existingState.Equals(reconciliation.RuntimeState))
                 {
@@ -207,6 +251,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             using SqliteTransaction tx = BeginImmediateTransaction(connection);
             try
             {
+                RuntimePolicyEnvelope policyEnvelope = _runtimePolicyProvider.GetEnvelope();
+                RuntimePolicySettings policy = policyEnvelope.Settings;
                 // Finalize contract write order:
                 // 1) input_buckets UPSERT
                 // 2) baseline gating/update decision (same transaction as bucket finalize)
@@ -256,14 +302,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 OverloadStabilizationResult overloadStabilization = OverloadStabilizationComputer.ComputeForFinalizedBucket(
                     mapped,
                     overloadInference,
-                    previousOverloadStabilization);
+                    previousOverloadStabilization,
+                    policy.OverloadStabilization);
                 DeepWorkStabilizationRuntimeState previousDeepWorkStabilization = ReadDeepWorkStabilizationRuntimeState(connection, tx);
                 DeepWorkStabilizationResult deepWorkStabilization = DeepWorkStabilizationComputer.ComputeForFinalizedBucket(
                     mapped,
                     overloadInference,
                     derivedSession,
                     gating,
-                    previousDeepWorkStabilization);
+                    previousDeepWorkStabilization,
+                    policy.DeepWorkDetection,
+                    policy.OverloadStabilization);
                 NotificationSuppressionRuntimeState previousNotificationSuppressionState = ReadNotificationSuppressionRuntimeState(
                     connection,
                     tx);
@@ -278,7 +327,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         BaselineReady: gating.BaselineReady,
                         LowQualityPaused: deepWorkStabilization.LowQualityPaused,
                         Confidence: overloadInference.Confidence),
-                    previousNotificationSuppressionState);
+                    previousNotificationSuppressionState,
+                    policy.NotificationSuppression);
                 BrightnessActionRuntimeState previousBrightnessActionState = ReadBrightnessActionRuntimeState(connection, tx);
                 OverloadBrightnessTransitionExecution overloadBrightnessTransitionExecution = _overloadBrightnessActionCoordinator.HandleOverloadTransition(
                     new OverloadTransitionContext(
@@ -291,7 +341,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         LowQualityPaused: overloadStabilization.LowQualityPaused,
                         OverloadLikelihood: overloadInference.OverloadLikelihood,
                         Confidence: overloadInference.Confidence),
-                    previousBrightnessActionState);
+                    previousBrightnessActionState,
+                    policy.BrightnessAdjustment);
                 long finalizeTsMs = Time.bucketStartEnd(mapped.BucketSeq).endUtcMs;
                 BreakFocusWindowSnapshot breakFocusWindow = ReadBreakFocusWindowSnapshot(
                     connection,
@@ -299,14 +350,16 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     mapped,
                     derivedSession,
                     overloadStabilization,
-                    overloadInference);
+                    overloadInference,
+                    policy.BreakPolicy);
                 BreakSuggestionDecision breakSuggestionDecision = BreakSuggestionPolicy.ShouldTriggerBreak(
                     gating,
                     overloadStabilization,
                     overloadInference,
                     derivedSession,
                     breakFocusWindow,
-                    resolveCooldown: () => ReadBreakPolicyCooldownSnapshot(connection, tx, finalizeTsMs));
+                    resolveCooldown: () => ReadBreakPolicyCooldownSnapshot(connection, tx, finalizeTsMs),
+                    policy.BreakPolicy);
                 AgentBrainSnapshot inferredSnapshot = ApplyOverloadInference(gatedSnapshot, overloadInference);
                 PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, primitive, robust);
                 StateBucketWriteModel stateRow = BuildStateBucketRow(
@@ -327,7 +380,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     tx,
                     mapped,
                     deepWorkTransitionExecution,
-                    deepWorkStabilization);
+                    deepWorkStabilization,
+                    policyEnvelope);
                 TryInsertOverloadBrightnessEvent(
                     connection,
                     tx,
@@ -335,13 +389,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     previousBrightnessActionState,
                     overloadBrightnessTransitionExecution,
                     overloadStabilization,
-                    overloadInference);
+                    overloadInference,
+                    policyEnvelope);
                 TryInsertOverloadRecoveryEvent(
                     connection,
                     tx,
                     mapped,
                     overloadStabilization,
-                    overloadInference);
+                    overloadInference,
+                    policyEnvelope);
                 UpsertPrimitiveBucket(connection, tx, primitiveRow);
                 UpsertStateBucket(connection, tx, stateRow);
                 InsertLegacySnapshot(connection, tx, inferredSnapshot);
@@ -355,14 +411,16 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     derivedSession,
                     overloadInference,
                     overloadStabilization,
-                    breakSuggestionDecision);
+                    breakSuggestionDecision,
+                    policyEnvelope);
                 PersistBreakPolicyRuntimeState(
                     connection,
                     tx,
                     finalizeTsMs,
                     breakSuggestionDecision,
                     breakInserted,
-                    breakFocusWindow);
+                    breakFocusWindow,
+                    policyEnvelope);
                 TryInsertAutomaticInterventionEvent(connection, tx, inferredSnapshot);
                 UpsertRuntimeStateForSnapshot(
                     connection,
@@ -1567,7 +1625,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         END,
                         execution_state = $execution_state,
                         applied_at_utc = CASE
-                            WHEN $execution_state = 'applied' THEN $applied_at_utc
+                            WHEN $execution_state IN ('applied', 'verified') THEN $applied_at_utc
                             ELSE applied_at_utc
                         END,
                         acked_at_utc = $applied_at_utc,
@@ -1590,7 +1648,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 bool updated = update.ExecuteNonQuery() == 1;
                 if (updated)
                 {
-                    ApplyInterventionAckSideEffects(connection, tx, action, commandType, ack with { Result = normalizedResult });
+                    ApplyInterventionAckSideEffects(
+                        connection,
+                        tx,
+                        action,
+                        commandType,
+                        ack with { Result = normalizedResult },
+                        _runtimePolicyProvider.GetEnvelope());
                 }
                 tx.Commit();
                 return updated;
@@ -2082,8 +2146,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         SqliteTransaction tx,
         string action,
         string commandType,
-        AgentInterventionAck ack)
+        AgentInterventionAck ack,
+        RuntimePolicyEnvelope? policyEnvelope = null)
     {
+        RuntimeNotificationSuppressionSettings notificationPolicy = policyEnvelope?.Settings.NotificationSuppression
+            ?? new RuntimeNotificationSuppressionSettings(
+                PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds,
+                PortaExecutionConstants.NotificationSuppression.EnableCooldownSeconds,
+                PortaExecutionConstants.NotificationSuppression.MinOnSeconds);
         string normalizedCommand = string.IsNullOrWhiteSpace(commandType)
             ? string.Empty
             : commandType.Trim().ToLowerInvariant();
@@ -2106,7 +2176,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         {
             updatedState = normalizedResult switch
             {
-                "applied" => currentState with
+                "applied" or "verified" => currentState with
                 {
                     SchemaVer = 1,
                     Active = true,
@@ -2114,19 +2184,19 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     SnapshotCapturedAtUtc = string.Empty,
                     SuppressedAtUtc = appliedAtUtc,
                     RestoredAtUtc = string.Empty,
-                    EnableCooldownUntilUtcMs = checked(appliedAtUtcMs + (PortaExecutionConstants.NotificationSuppression.EnableCooldownSeconds * 1000L)),
-                    MinOnUntilUtcMs = checked(appliedAtUtcMs + (PortaExecutionConstants.NotificationSuppression.MinOnSeconds * 1000L)),
+                    EnableCooldownUntilUtcMs = checked(appliedAtUtcMs + (notificationPolicy.EnableCooldownSeconds * 1000L)),
+                    MinOnUntilUtcMs = checked(appliedAtUtcMs + (notificationPolicy.MinOnSeconds * 1000L)),
                     LastErrorCode = string.Empty,
                     BackoffUntilUtcMs = 0,
                     RestorePending = false,
-                    ActionState = "active"
+                    ActionState = normalizedResult == "verified" ? "verified_active" : "active"
                 },
                 "failed" => currentState with
                 {
                     SchemaVer = 1,
                     Active = false,
                     LastErrorCode = errorCode,
-                    BackoffUntilUtcMs = checked(appliedAtUtcMs + (PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds * 1000L)),
+                    BackoffUntilUtcMs = checked(appliedAtUtcMs + (notificationPolicy.FailureBackoffSeconds * 1000L)),
                     RestorePending = false,
                     ActionState = "apply_failed"
                 },
@@ -2137,7 +2207,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         {
             updatedState = normalizedResult switch
             {
-                "applied" => currentState with
+                "applied" or "verified" => currentState with
                 {
                     SchemaVer = 1,
                     Active = false,
@@ -2148,14 +2218,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     LastErrorCode = string.Empty,
                     BackoffUntilUtcMs = 0,
                     RestorePending = false,
-                    ActionState = "inactive"
+                    ActionState = normalizedResult == "verified" ? "verified_inactive" : "inactive"
                 },
                 "failed" => currentState with
                 {
                     SchemaVer = 1,
                     Active = currentState.Active,
                     LastErrorCode = errorCode,
-                    BackoffUntilUtcMs = checked(appliedAtUtcMs + (PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds * 1000L)),
+                    BackoffUntilUtcMs = checked(appliedAtUtcMs + (notificationPolicy.FailureBackoffSeconds * 1000L)),
                     RestorePending = true,
                     ActionState = "active_with_restore_error"
                 },
@@ -4102,13 +4172,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         DerivedSessionMetricsResult derivedSession,
         OverloadInferenceResult overloadInference,
         OverloadStabilizationResult overloadStabilization,
-        BreakSuggestionDecision decision)
+        BreakSuggestionDecision decision,
+        RuntimePolicyEnvelope? policyEnvelope = null)
     {
         if (!decision.ShouldEmit)
         {
             return false;
         }
 
+        RuntimeBreakPolicySettings breakPolicy = policyEnvelope?.Settings.BreakPolicy
+            ?? DefaultBreakPolicySettings();
+        string policyVersion = policyEnvelope?.Version ?? "local-default";
         string action = string.IsNullOrWhiteSpace(decision.Action)
             ? "break_suggestion"
             : decision.Action.Trim().ToLowerInvariant();
@@ -4119,7 +4193,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             trustTier,
             overloadInference,
             overloadStabilization,
-            decision);
+            decision,
+            breakPolicy,
+            policyVersion);
         DateTimeOffset finalizeTimestampUtc = DateTimeOffset.FromUnixTimeMilliseconds(
             Time.bucketStartEnd(inputBucket.BucketSeq).endUtcMs);
         var ev = new AgentControlEvent(
@@ -4134,7 +4210,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             Reason: decision.ReasonCode,
             Contributors: snapshot.Contributors,
             InterventionId: Guid.NewGuid().ToString("N"),
-            PolicyId: "break-policy-v2",
+            PolicyId: $"break-policy:{policyVersion}",
             Domain: "fatigue",
             PlannedEndTimestampUtc: finalizeTimestampUtc.AddMinutes(5),
             ActualEndTimestampUtc: null,
@@ -4142,9 +4218,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             WhatChanged: ResolveWhatChanged(action, "activated"),
             HowToUndo: "Dismiss suggestion toast.",
             ReversalApplied: false,
-            CooldownEndTimestampUtc: finalizeTimestampUtc.AddSeconds(PortaExecutionConstants.BreakPolicy.CooldownSeconds),
+            CooldownEndTimestampUtc: finalizeTimestampUtc.AddSeconds(breakPolicy.CooldownSeconds),
             LifecycleState: "activated",
-            WhyJsonOverride: whyJson);
+            WhyJsonOverride: whyJson,
+            IdempotencyKey: BuildBreakEventIdempotencyKey(
+                nowUtcMs: finalizeTimestampUtc.ToUnixTimeMilliseconds(),
+                installIdHash: BreakInstallIdHash.Value,
+                cooldownWindowMs: breakPolicy.CooldownSeconds * 1000L));
 
         try
         {
@@ -4165,12 +4245,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string trustTier,
         OverloadInferenceResult overloadInference,
         OverloadStabilizationResult overloadStabilization,
-        BreakSuggestionDecision decision)
+        BreakSuggestionDecision decision,
+        RuntimeBreakPolicySettings? policy = null,
+        string policyVersion = "local-default")
     {
+        RuntimeBreakPolicySettings settings = policy ?? DefaultBreakPolicySettings();
         return JsonSerializer.Serialize(new
         {
             schema_ver = 1,
-            policy = "break_suggestion_v2",
+            policy = $"break_suggestion:{policyVersion}",
             reasons = new
             {
                 guidance_enabled = gating.GuidanceEnabled,
@@ -4191,14 +4274,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             },
             thresholds = new
             {
-                confidence_min = PortaExecutionConstants.BreakPolicy.ConfidenceMin,
-                microbreak_window_s = PortaExecutionConstants.BreakPolicy.MicrobreakWindowSeconds,
-                microbreak_effective_focus_min_low_s = PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload,
-                microbreak_effective_focus_min_high_s = PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsHighOverload,
-                short_break_window_s = PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds,
-                short_break_effective_focus_min_low_s = PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowOverload,
-                short_break_effective_focus_min_high_s = PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsHighOverload,
-                cooldown_min_s = PortaExecutionConstants.BreakPolicy.CooldownSeconds
+                confidence_min = settings.ConfidenceMin,
+                microbreak_window_s = settings.MicrobreakWindowSeconds,
+                microbreak_effective_focus_min_low_s = settings.MicrobreakEffectiveFocusSecondsLowOverload,
+                microbreak_effective_focus_min_high_s = settings.MicrobreakEffectiveFocusSecondsHighOverload,
+                short_break_window_s = settings.ShortBreakWindowSeconds,
+                short_break_effective_focus_min_low_s = settings.ShortBreakEffectiveFocusSecondsLowOverload,
+                short_break_effective_focus_min_high_s = settings.ShortBreakEffectiveFocusSecondsHighOverload,
+                cooldown_min_s = settings.CooldownSeconds
             },
             context = new
             {
@@ -4213,8 +4296,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         SqliteTransaction tx,
         InputBucketRow inputBucket,
         DeepWorkTransitionExecution transitionExecution,
-        DeepWorkStabilizationResult deepWorkStabilization)
+        DeepWorkStabilizationResult deepWorkStabilization,
+        RuntimePolicyEnvelope? policyEnvelope = null)
     {
+        string policyVersion = policyEnvelope?.Version ?? "local-default";
         DeepWorkActionOutcome outcome = transitionExecution.Outcome;
         string action = ResolveDeepWorkNotificationAction(outcome);
         if (string.IsNullOrWhiteSpace(action))
@@ -4232,12 +4317,23 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         };
         string operation = ResolveDeepWorkNotificationOperation(action, outcome);
         long eventTsMs = eventTimestampUtc.ToUnixTimeMilliseconds();
-        string interventionId = $"dw_notify:{action}:{ResolveDeepWorkTransitionWindowStartMs(action, eventTsMs)}";
-        string deterministicIdempotencyKey = BuildDeepWorkNotificationIdempotencyKey(action, eventTsMs);
+        RuntimeDeepWorkDetectionSettings deepWorkPolicy = policyEnvelope?.Settings.DeepWorkDetection
+            ?? new RuntimeDeepWorkDetectionSettings(
+                PortaExecutionConstants.DeepWorkDetection.SustainedAttentionSeconds,
+                PortaExecutionConstants.DeepWorkDetection.ConfidenceMin,
+                PortaExecutionConstants.DeepWorkDetection.FragmentationMax,
+                PortaExecutionConstants.DeepWorkDetection.VolatilityMax,
+                PortaExecutionConstants.DeepWorkDetection.IntensityMin,
+                PortaExecutionConstants.DeepWorkDetection.IntensityMax,
+                PortaExecutionConstants.DeepWorkDetection.DwellOnSeconds,
+                PortaExecutionConstants.DeepWorkDetection.DwellOffSeconds,
+                PortaExecutionConstants.DeepWorkDetection.GapAllowSeconds);
+        string interventionId = $"dw_notify:{action}:{ResolveDeepWorkTransitionWindowStartMs(action, eventTsMs, deepWorkPolicy)}";
+        string deterministicIdempotencyKey = BuildDeepWorkNotificationIdempotencyKey(action, eventTsMs, deepWorkPolicy);
         string whyJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
-            policy = "deep_work_notifications_v1",
+            policy = $"deep_work_notifications:{policyVersion}",
             operation,
             error_code = outcome.ErrorCode,
             error_detail = outcome.ErrorDetail,
@@ -4292,7 +4388,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             Reason: action,
             Contributors: Array.Empty<string>(),
             InterventionId: interventionId,
-            PolicyId: "deep_work_notifications_v1",
+            PolicyId: $"deep_work_notifications:{policyVersion}",
             Domain: "output_action",
             PlannedEndTimestampUtc: null,
             ActualEndTimestampUtc: null,
@@ -4319,19 +4415,21 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         SqliteConnection connection,
         SqliteTransaction tx,
         DateTimeOffset nowUtc,
-        NotificationSuppressionStartupReconciliation reconciliation)
+        NotificationSuppressionStartupReconciliation reconciliation,
+        RuntimePolicyEnvelope? policyEnvelope = null)
     {
         if (string.IsNullOrWhiteSpace(reconciliation.DiagnosticEventAction))
         {
             return;
         }
 
+        string policyVersion = policyEnvelope?.Version ?? "local-default";
         string interventionId = $"startup_notify_diag:{reconciliation.DiagnosticEventAction}:{nowUtc.ToUnixTimeMilliseconds()}";
         string diagnosticIdempotencyKey = $"startup_notify_diag:v1:{reconciliation.DiagnosticEventAction}:{ResolveWindowStartMs(nowUtc.ToUnixTimeMilliseconds(), 300000)}";
         string whyJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
-            policy = "deep_work_notifications_startup_reconcile_v1",
+            policy = $"deep_work_notifications_startup_reconcile:{policyVersion}",
             outcome_reason = reconciliation.OutcomeReason,
             error_code = reconciliation.ErrorCode,
             error_detail = reconciliation.ErrorDetail,
@@ -4360,7 +4458,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 : reconciliation.ErrorCode,
             Contributors: Array.Empty<string>(),
             InterventionId: interventionId,
-            PolicyId: "deep_work_notifications_startup_reconcile_v1",
+            PolicyId: $"deep_work_notifications_startup_reconcile:{policyVersion}",
             Domain: "output_action",
             PlannedEndTimestampUtc: null,
             ActualEndTimestampUtc: null,
@@ -4389,8 +4487,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         BrightnessActionRuntimeState previousBrightnessState,
         OverloadBrightnessTransitionExecution transitionExecution,
         OverloadStabilizationResult overloadStabilization,
-        OverloadInferenceResult overloadInference)
+        OverloadInferenceResult overloadInference,
+        RuntimePolicyEnvelope? policyEnvelope = null)
     {
+        string policyVersion = policyEnvelope?.Version ?? "local-default";
         string action = ResolveOverloadBrightnessAction(previousBrightnessState, transitionExecution);
         if (string.IsNullOrWhiteSpace(action))
         {
@@ -4407,11 +4507,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             _ => "failed"
         };
         string interventionId = $"ovr_brightness:{action}:{ResolveOverloadBrightnessTransitionWindowStartMs(action, eventTsMs)}";
-        string deterministicIdempotencyKey = BuildOverloadBrightnessIdempotencyKey(action, eventTsMs);
+        RuntimeOverloadStabilizationSettings overloadPolicy = policyEnvelope?.Settings.OverloadStabilization
+            ?? DefaultOverloadStabilizationSettings();
+        string deterministicIdempotencyKey = BuildOverloadBrightnessIdempotencyKey(action, eventTsMs, overloadPolicy);
         string whyJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
-            policy = "overload_brightness_v1",
+            policy = $"overload_brightness:{policyVersion}",
             action,
             reason = ResolveOverloadBrightnessReason(action, transitionExecution.Outcome),
             outcome = new
@@ -4483,7 +4585,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             Reason: action,
             Contributors: Array.Empty<string>(),
             InterventionId: interventionId,
-            PolicyId: "overload_brightness_v1",
+            PolicyId: $"overload_brightness:{policyVersion}",
             Domain: "output_action",
             PlannedEndTimestampUtc: null,
             ActualEndTimestampUtc: null,
@@ -4510,7 +4612,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         SqliteTransaction tx,
         InputBucketRow inputBucket,
         OverloadStabilizationResult overloadStabilization,
-        OverloadInferenceResult overloadInference)
+        OverloadInferenceResult overloadInference,
+        RuntimePolicyEnvelope? policyEnvelope = null)
     {
         if (!overloadStabilization.Transitioned
             || !overloadStabilization.PreviousOverloadActive
@@ -4519,6 +4622,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             return;
         }
 
+        RuntimeOverloadStabilizationSettings overloadPolicy = policyEnvelope?.Settings.OverloadStabilization
+            ?? DefaultOverloadStabilizationSettings();
+        string policyVersion = policyEnvelope?.Version ?? "local-default";
         DateTimeOffset eventTimestampUtc = DateTimeOffset.FromUnixTimeMilliseconds(
             Time.bucketStartEnd(inputBucket.BucketSeq).endUtcMs);
         long eventTsMs = eventTimestampUtc.ToUnixTimeMilliseconds();
@@ -4527,7 +4633,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string whyJson = JsonSerializer.Serialize(new
         {
             schema_ver = 1,
-            policy = "overload_stabilization_v1",
+            policy = $"overload_stabilization:{policyVersion}",
             action,
             reason = "overload_active_transition_off",
             overload = new
@@ -4546,8 +4652,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             }
         });
 
-        string interventionId = $"overload_recovery:v1:{ResolveWindowStartMs(eventTsMs, PortaExecutionConstants.OverloadStabilization.DwellOffSeconds * 1000L)}";
-        string deterministicIdempotencyKey = BuildOverloadRecoveryIdempotencyKey(eventTsMs);
+        string interventionId = $"overload_recovery:v1:{ResolveWindowStartMs(eventTsMs, overloadPolicy.DwellOffSeconds * 1000L)}";
+        string deterministicIdempotencyKey = BuildOverloadRecoveryIdempotencyKey(eventTsMs, overloadPolicy);
         var ev = new AgentControlEvent(
             TimestampUtc: eventTimestampUtc,
             Action: action,
@@ -4560,7 +4666,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             Reason: "Overload ended after stabilization.",
             Contributors: Array.Empty<string>(),
             InterventionId: interventionId,
-            PolicyId: "overload_stabilization_v1",
+            PolicyId: $"overload_stabilization:{policyVersion}",
             Domain: "state_transition",
             PlannedEndTimestampUtc: null,
             ActualEndTimestampUtc: null,
@@ -4733,8 +4839,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         long nowUtcMs,
         BreakSuggestionDecision decision,
         bool breakInserted,
-        BreakFocusWindowSnapshot focusWindow)
+        BreakFocusWindowSnapshot focusWindow,
+        RuntimePolicyEnvelope? policyEnvelope = null)
     {
+        RuntimeBreakPolicySettings breakPolicy = policyEnvelope?.Settings.BreakPolicy
+            ?? DefaultBreakPolicySettings();
         string? existingJson = ReadRuntimeStateValue(connection, tx, PortaExecutionConstants.BreakPolicy.RuntimeStateKey);
         BreakPolicyCooldownSnapshot existingCooldown = ParseBreakPolicyCooldownSnapshotJson(existingJson, nowUtcMs);
         long cooldownEndTsMs = existingCooldown.CooldownEndTsMs;
@@ -4742,7 +4851,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string lastAction = string.Empty;
         if (decision.ShouldEmit && breakInserted)
         {
-            cooldownEndTsMs = checked(nowUtcMs + (PortaExecutionConstants.BreakPolicy.CooldownSeconds * 1000L));
+            cooldownEndTsMs = checked(nowUtcMs + (breakPolicy.CooldownSeconds * 1000L));
             lastFiredTsMs = nowUtcMs;
             lastAction = decision.Action;
         }
@@ -4812,10 +4921,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         InputBucketRow inputBucket,
         DerivedSessionMetricsResult derivedSession,
         OverloadStabilizationResult overloadStabilization,
-        OverloadInferenceResult overloadInference)
+        OverloadInferenceResult overloadInference,
+        RuntimeBreakPolicySettings? policy = null)
     {
-        int microbreakBuckets = Math.Max(1, PortaExecutionConstants.BreakPolicy.MicrobreakWindowSeconds / Time.bucketSeconds);
-        int shortBreakBuckets = Math.Max(1, PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds / Time.bucketSeconds);
+        RuntimeBreakPolicySettings settings = policy ?? DefaultBreakPolicySettings();
+        int microbreakBuckets = Math.Max(1, settings.MicrobreakWindowSeconds / Time.bucketSeconds);
+        int shortBreakBuckets = Math.Max(1, settings.ShortBreakWindowSeconds / Time.bucketSeconds);
         long earliestBucketSeq = Math.Max(0, inputBucket.BucketSeq - shortBreakBuckets + 1);
         long earliestMicrobreakBucketSeq = Math.Max(0, inputBucket.BucketSeq - microbreakBuckets + 1);
         string earliestTimestampUtc = Time.toIsoUtcMsString(Time.bucketStartEnd(earliestBucketSeq).endUtcMs);
@@ -4865,10 +4976,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             CurrentBucketEffectiveFocusSeconds: currentBucketEffectiveFocusSeconds,
             MicrobreakWindowEffectiveFocusSeconds: microbreakWindowEffectiveFocusSeconds,
             ShortBreakWindowEffectiveFocusSeconds: shortBreakWindowEffectiveFocusSeconds,
-            DeliveryBoundaryReached: IsBreakDeliveryBoundary(inputBucket, derivedSession),
-            DeliveryBoundaryKind: ResolveBreakDeliveryBoundaryKind(inputBucket, derivedSession),
+            DeliveryBoundaryReached: IsBreakDeliveryBoundary(inputBucket, derivedSession, settings),
+            DeliveryBoundaryKind: ResolveBreakDeliveryBoundaryKind(inputBucket, derivedSession, settings),
             HighOverloadPressure: overloadStabilization.OverloadActive
-                || overloadInference.OverloadLikelihood >= PortaExecutionConstants.BreakPolicy.HighOverloadLikelihood);
+                || overloadInference.OverloadLikelihood >= settings.HighOverloadLikelihood);
     }
 
     private static double ResolveEffectiveFocusSeconds(double continuityScore)
@@ -4879,25 +4990,32 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             1d));
     }
 
-    private static bool IsBreakDeliveryBoundary(InputBucketRow inputBucket, DerivedSessionMetricsResult derivedSession)
+    private static bool IsBreakDeliveryBoundary(
+        InputBucketRow inputBucket,
+        DerivedSessionMetricsResult derivedSession,
+        RuntimeBreakPolicySettings? policy = null)
     {
-        return !string.IsNullOrWhiteSpace(ResolveBreakDeliveryBoundaryKind(inputBucket, derivedSession));
+        return !string.IsNullOrWhiteSpace(ResolveBreakDeliveryBoundaryKind(inputBucket, derivedSession, policy));
     }
 
-    private static string ResolveBreakDeliveryBoundaryKind(InputBucketRow inputBucket, DerivedSessionMetricsResult derivedSession)
+    private static string ResolveBreakDeliveryBoundaryKind(
+        InputBucketRow inputBucket,
+        DerivedSessionMetricsResult derivedSession,
+        RuntimeBreakPolicySettings? policy = null)
     {
+        RuntimeBreakPolicySettings settings = policy ?? DefaultBreakPolicySettings();
         if (HasShortIdleBoundaryObserved(inputBucket.ContributorsJson))
         {
             return "short_idle";
         }
 
-        if (inputBucket.IdleSeconds >= PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds
-            && inputBucket.IdleSeconds <= PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMaxSeconds)
+        if (inputBucket.IdleSeconds >= settings.DeliveryBoundaryIdleMinSeconds
+            && inputBucket.IdleSeconds <= settings.DeliveryBoundaryIdleMaxSeconds)
         {
             return "short_idle";
         }
 
-        if (inputBucket.IdleMicroIdleSeconds >= PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds)
+        if (inputBucket.IdleMicroIdleSeconds >= settings.DeliveryBoundaryIdleMinSeconds)
         {
             return "micro_idle";
         }
@@ -4908,8 +5026,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             return "post_switch_settle";
         }
 
-        if (inputBucket.TypingBurstIntensity <= PortaExecutionConstants.BreakPolicy.DeliveryBoundaryTypingQuietMax
-            && inputBucket.KeyboardBurstRate <= PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax)
+        if (inputBucket.TypingBurstIntensity <= settings.DeliveryBoundaryTypingQuietMax
+            && inputBucket.KeyboardBurstRate <= settings.DeliveryBoundaryKeyboardBurstQuietMax)
         {
             return "typing_quiet";
         }
@@ -4945,6 +5063,37 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         {
             return false;
         }
+    }
+
+    private static RuntimeBreakPolicySettings DefaultBreakPolicySettings()
+    {
+        return new RuntimeBreakPolicySettings(
+            PortaExecutionConstants.BreakPolicy.MicrobreakWindowSeconds,
+            PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload,
+            PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsHighOverload,
+            PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds,
+            PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowOverload,
+            PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsHighOverload,
+            PortaExecutionConstants.BreakPolicy.CooldownSeconds,
+            PortaExecutionConstants.BreakPolicy.ConfidenceMin,
+            PortaExecutionConstants.BreakPolicy.HighOverloadLikelihood,
+            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds,
+            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMaxSeconds,
+            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryTypingQuietMax,
+            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax);
+    }
+
+    private static RuntimeOverloadStabilizationSettings DefaultOverloadStabilizationSettings()
+    {
+        return new RuntimeOverloadStabilizationSettings(
+            PortaExecutionConstants.OverloadStabilization.ThresholdOn,
+            PortaExecutionConstants.OverloadStabilization.ThresholdOff,
+            PortaExecutionConstants.OverloadStabilization.DwellOnSeconds,
+            PortaExecutionConstants.OverloadStabilization.DwellOffSeconds,
+            PortaExecutionConstants.OverloadStabilization.ConfidenceMin,
+            PortaExecutionConstants.OverloadStabilization.GapAllowSeconds,
+            PortaExecutionConstants.OverloadStabilization.LowQualityPauseThreshold,
+            PortaExecutionConstants.OverloadStabilization.LowQualityDwellDecayMs);
     }
 
     private static BreakPolicyCooldownSnapshot ReadBreakPolicyCooldownSnapshot(
@@ -5677,6 +5826,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return normalized switch
         {
             "applied" => "applied",
+            "verified" => "verified",
             "failed" => "failed",
             _ => string.Empty
         };
@@ -5688,18 +5838,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return ex.SqliteErrorCode == 19 || ex.SqliteExtendedErrorCode == 2067;
     }
 
-    internal static string BuildBreakEventIdempotencyKey(long nowUtcMs, string installIdHash)
+    internal static string BuildBreakEventIdempotencyKey(long nowUtcMs, string installIdHash, long? cooldownWindowMs = null)
     {
         string safeHash = string.IsNullOrWhiteSpace(installIdHash)
             ? "unknown_install"
             : installIdHash.Trim().ToLowerInvariant();
-        long windowStartMs = ResolveBreakCooldownWindowStartMs(nowUtcMs);
+        long windowStartMs = ResolveBreakCooldownWindowStartMs(nowUtcMs, cooldownWindowMs);
         return $"break_v1:{windowStartMs}:{safeHash}";
     }
 
-    private static long ResolveBreakCooldownWindowStartMs(long nowUtcMs)
+    private static long ResolveBreakCooldownWindowStartMs(long nowUtcMs, long? cooldownWindowMs = null)
     {
-        long windowMs = PortaExecutionConstants.BreakPolicy.CooldownWindowMs;
+        long windowMs = cooldownWindowMs.GetValueOrDefault(PortaExecutionConstants.BreakPolicy.CooldownWindowMs);
         if (windowMs <= 0)
         {
             return nowUtcMs;
@@ -5714,12 +5864,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return checked(quotient * windowMs);
     }
 
-    internal static string BuildDeepWorkNotificationIdempotencyKey(string action, long eventTsMs)
+    internal static string BuildDeepWorkNotificationIdempotencyKey(
+        string action,
+        long eventTsMs,
+        RuntimeDeepWorkDetectionSettings? policy = null)
     {
         string normalizedAction = string.IsNullOrWhiteSpace(action)
             ? "unknown"
             : action.Trim().ToLowerInvariant();
-        long windowStartMs = ResolveDeepWorkTransitionWindowStartMs(normalizedAction, eventTsMs);
+        long windowStartMs = ResolveDeepWorkTransitionWindowStartMs(normalizedAction, eventTsMs, policy);
         string keyPrefix = normalizedAction switch
         {
             "deep_work_notifications_suppressed" => "dw_notify_on",
@@ -5732,12 +5885,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return $"{keyPrefix}:v1:{windowStartMs}";
     }
 
-    internal static string BuildOverloadBrightnessIdempotencyKey(string action, long eventTsMs)
+    internal static string BuildOverloadBrightnessIdempotencyKey(
+        string action,
+        long eventTsMs,
+        RuntimeOverloadStabilizationSettings? policy = null)
     {
         string normalizedAction = string.IsNullOrWhiteSpace(action)
             ? "unknown"
             : action.Trim().ToLowerInvariant();
-        long windowStartMs = ResolveOverloadBrightnessTransitionWindowStartMs(normalizedAction, eventTsMs);
+        long windowStartMs = ResolveOverloadBrightnessTransitionWindowStartMs(normalizedAction, eventTsMs, policy);
         string keyPrefix = normalizedAction switch
         {
             "overload_brightness_reduced" => "brightness_on",
@@ -5749,35 +5905,53 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return $"{keyPrefix}:v1:{windowStartMs}";
     }
 
-    internal static string BuildOverloadRecoveryIdempotencyKey(long eventTsMs)
+    internal static string BuildOverloadRecoveryIdempotencyKey(long eventTsMs, RuntimeOverloadStabilizationSettings? policy = null)
     {
-        long windowMs = PortaExecutionConstants.OverloadStabilization.DwellOffSeconds * 1000L;
+        RuntimeOverloadStabilizationSettings settings = policy ?? DefaultOverloadStabilizationSettings();
+        long windowMs = settings.DwellOffSeconds * 1000L;
         long windowStartMs = ResolveWindowStartMs(eventTsMs, windowMs);
         return $"overload_recovery:v1:{windowStartMs}";
     }
 
-    private static long ResolveDeepWorkTransitionWindowStartMs(string action, long eventTsMs)
+    private static long ResolveDeepWorkTransitionWindowStartMs(
+        string action,
+        long eventTsMs,
+        RuntimeDeepWorkDetectionSettings? policy = null)
     {
+        RuntimeDeepWorkDetectionSettings settings = policy ?? new RuntimeDeepWorkDetectionSettings(
+            PortaExecutionConstants.DeepWorkDetection.SustainedAttentionSeconds,
+            PortaExecutionConstants.DeepWorkDetection.ConfidenceMin,
+            PortaExecutionConstants.DeepWorkDetection.FragmentationMax,
+            PortaExecutionConstants.DeepWorkDetection.VolatilityMax,
+            PortaExecutionConstants.DeepWorkDetection.IntensityMin,
+            PortaExecutionConstants.DeepWorkDetection.IntensityMax,
+            PortaExecutionConstants.DeepWorkDetection.DwellOnSeconds,
+            PortaExecutionConstants.DeepWorkDetection.DwellOffSeconds,
+            PortaExecutionConstants.DeepWorkDetection.GapAllowSeconds);
         long windowMs = action switch
         {
-            "deep_work_notifications_suppressed" => PortaExecutionConstants.DeepWorkDetection.DwellOnSeconds * 1000L,
-            "notification_suppress_failed" => PortaExecutionConstants.DeepWorkDetection.DwellOnSeconds * 1000L,
-            "notification_snapshot_failed" => PortaExecutionConstants.DeepWorkDetection.DwellOnSeconds * 1000L,
-            "deep_work_notifications_restored" => PortaExecutionConstants.DeepWorkDetection.DwellOffSeconds * 1000L,
-            "notification_restore_failed" => PortaExecutionConstants.DeepWorkDetection.DwellOffSeconds * 1000L,
+            "deep_work_notifications_suppressed" => settings.DwellOnSeconds * 1000L,
+            "notification_suppress_failed" => settings.DwellOnSeconds * 1000L,
+            "notification_snapshot_failed" => settings.DwellOnSeconds * 1000L,
+            "deep_work_notifications_restored" => settings.DwellOffSeconds * 1000L,
+            "notification_restore_failed" => settings.DwellOffSeconds * 1000L,
             _ => Time.bucketSeconds * 1000L
         };
         return ResolveWindowStartMs(eventTsMs, windowMs);
     }
 
-    private static long ResolveOverloadBrightnessTransitionWindowStartMs(string action, long eventTsMs)
+    private static long ResolveOverloadBrightnessTransitionWindowStartMs(
+        string action,
+        long eventTsMs,
+        RuntimeOverloadStabilizationSettings? policy = null)
     {
+        RuntimeOverloadStabilizationSettings settings = policy ?? DefaultOverloadStabilizationSettings();
         long windowMs = action switch
         {
-            "overload_brightness_reduced" => PortaExecutionConstants.OverloadStabilization.DwellOnSeconds * 1000L,
-            "brightness_control_failed" => PortaExecutionConstants.OverloadStabilization.DwellOnSeconds * 1000L,
-            "brightness_unsupported" => PortaExecutionConstants.OverloadStabilization.DwellOnSeconds * 1000L,
-            "overload_brightness_restored" => PortaExecutionConstants.OverloadStabilization.DwellOffSeconds * 1000L,
+            "overload_brightness_reduced" => settings.DwellOnSeconds * 1000L,
+            "brightness_control_failed" => settings.DwellOnSeconds * 1000L,
+            "brightness_unsupported" => settings.DwellOnSeconds * 1000L,
+            "overload_brightness_restored" => settings.DwellOffSeconds * 1000L,
             _ => Time.bucketSeconds * 1000L
         };
         return ResolveWindowStartMs(eventTsMs, windowMs);

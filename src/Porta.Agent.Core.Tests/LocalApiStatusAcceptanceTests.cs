@@ -389,6 +389,43 @@ public sealed class LocalApiStatusAcceptanceTests
         Assert.Null(dto.LastInputEventUtc);
     }
 
+    [Fact]
+    public void Status_ReportsActivePolicyVersion_FromRuntimePolicyProvider()
+    {
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.14d, confidence: 0.72d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: DateTimeOffset.UtcNow,
+                OverloadLikelihood: 0.14d,
+                Confidence: 0.72d,
+                SustainedAttentionDurationSec: 240d,
+                IdleFragmentationIndex: 0.08d,
+                FocusAppEntropy: 0.02d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: true,
+                BaselineReadyPct: 0.94d,
+                AvgQuality2m: 0.88d,
+                ColdStart: false,
+                CurrentQualityScore: 0.91d,
+                PartialData: false,
+                MissingMajorChannels: [])
+        };
+
+        var controller = new AgentCoreController(
+            store,
+            new FakeUserAgentSessionContextStore(null),
+            new FakeRuntimePolicyProvider("policy-2026-03-10"));
+
+        AgentServiceStatusSnapshot status = controller.GetStatus();
+        var dto = StatusMapper.Map(status, localApiAuthReady: true, localApiAuthError: null);
+
+        Assert.Equal("policy-2026-03-10", status.PolicyVersion);
+        Assert.Equal("policy-2026-03-10", dto.PolicyVersion);
+    }
+
     private static AgentBrainSnapshot CreateSnapshot(double overload, double confidence)
     {
         return new AgentBrainSnapshot(
@@ -431,5 +468,62 @@ public sealed class LocalApiStatusAcceptanceTests
         {
             _snapshot = snapshot;
         }
+    }
+
+    private sealed class FakeRuntimePolicyProvider : IRuntimePolicyProvider
+    {
+        private readonly RuntimePolicyEnvelope _envelope;
+
+        public FakeRuntimePolicyProvider(string version)
+        {
+            _envelope = new RuntimePolicyEnvelope(
+                version,
+                new RuntimePolicySettings(
+                    new RuntimeOverloadStabilizationSettings(
+                        PortaExecutionConstants.OverloadStabilization.ThresholdOn,
+                        PortaExecutionConstants.OverloadStabilization.ThresholdOff,
+                        PortaExecutionConstants.OverloadStabilization.DwellOnSeconds,
+                        PortaExecutionConstants.OverloadStabilization.DwellOffSeconds,
+                        PortaExecutionConstants.OverloadStabilization.ConfidenceMin,
+                        PortaExecutionConstants.OverloadStabilization.GapAllowSeconds,
+                        PortaExecutionConstants.OverloadStabilization.LowQualityPauseThreshold,
+                        PortaExecutionConstants.OverloadStabilization.LowQualityDwellDecayMs),
+                    new RuntimeBreakPolicySettings(
+                        PortaExecutionConstants.BreakPolicy.MicrobreakWindowSeconds,
+                        PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload,
+                        PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsHighOverload,
+                        PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds,
+                        PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowOverload,
+                        PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsHighOverload,
+                        PortaExecutionConstants.BreakPolicy.CooldownSeconds,
+                        PortaExecutionConstants.BreakPolicy.ConfidenceMin,
+                        PortaExecutionConstants.BreakPolicy.HighOverloadLikelihood,
+                        PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds,
+                        PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMaxSeconds,
+                        PortaExecutionConstants.BreakPolicy.DeliveryBoundaryTypingQuietMax,
+                        PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax),
+                    new RuntimeDeepWorkDetectionSettings(
+                        PortaExecutionConstants.DeepWorkDetection.SustainedAttentionSeconds,
+                        PortaExecutionConstants.DeepWorkDetection.ConfidenceMin,
+                        PortaExecutionConstants.DeepWorkDetection.FragmentationMax,
+                        PortaExecutionConstants.DeepWorkDetection.VolatilityMax,
+                        PortaExecutionConstants.DeepWorkDetection.IntensityMin,
+                        PortaExecutionConstants.DeepWorkDetection.IntensityMax,
+                        PortaExecutionConstants.DeepWorkDetection.DwellOnSeconds,
+                        PortaExecutionConstants.DeepWorkDetection.DwellOffSeconds,
+                        PortaExecutionConstants.DeepWorkDetection.GapAllowSeconds),
+                    new RuntimeNotificationSuppressionSettings(
+                        PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds,
+                        PortaExecutionConstants.NotificationSuppression.EnableCooldownSeconds,
+                        PortaExecutionConstants.NotificationSuppression.MinOnSeconds),
+                    new RuntimeBrightnessAdjustmentSettings(
+                        PortaExecutionConstants.BrightnessAdjustment.ReductionDelta,
+                        PortaExecutionConstants.BrightnessAdjustment.MinSafeBrightness,
+                        PortaExecutionConstants.BrightnessAdjustment.RampStepPerBucket,
+                        PortaExecutionConstants.BrightnessAdjustment.CooldownSeconds,
+                        PortaExecutionConstants.BrightnessAdjustment.FailureBackoffSeconds)));
+        }
+
+        public RuntimePolicyEnvelope GetEnvelope() => _envelope;
     }
 }

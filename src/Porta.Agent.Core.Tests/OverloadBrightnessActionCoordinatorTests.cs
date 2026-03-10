@@ -47,6 +47,32 @@ public sealed class OverloadBrightnessActionCoordinatorTests
     }
 
     [Fact]
+    public void HandleOverloadTransition_UsesPolicyOverrideForReductionDelta()
+    {
+        var fake = new FakeBrightnessController
+        {
+            Supported = true,
+            CurrentLevel = 72
+        };
+        var coordinator = new OverloadBrightnessActionCoordinator(fake);
+        RuntimeBrightnessAdjustmentSettings policy = new(
+            ReductionDelta: 8,
+            MinSafeBrightness: 20,
+            RampStepPerBucket: 2,
+            CooldownSeconds: 300,
+            FailureBackoffSeconds: 240);
+
+        OverloadBrightnessTransitionExecution execution = coordinator.HandleOverloadTransition(
+            BuildContext(previousActive: false, currentActive: true),
+            BrightnessActionRuntimeState.CreateDefault(),
+            policy);
+
+        Assert.True(execution.Outcome.Succeeded);
+        Assert.Equal(64, execution.RuntimeState.TargetLevel);
+        Assert.Equal(70, fake.LastSetLevel);
+    }
+
+    [Fact]
     public void HandleOverloadTransition_EnteringUnsupported_SetsLoggedUnsupported()
     {
         var fake = new FakeBrightnessController

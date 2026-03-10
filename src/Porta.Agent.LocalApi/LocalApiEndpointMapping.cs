@@ -327,7 +327,7 @@ public static class LocalApiEndpointMapping
             }
 
             string result = request.Result?.Trim().ToLowerInvariant() ?? string.Empty;
-            if (result is not "applied" and not "failed")
+            if (result is not "applied" and not "verified" and not "failed")
             {
                 return Results.BadRequest(new LocalApiAckResponse(
                     Success: false,

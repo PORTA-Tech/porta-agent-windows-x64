@@ -40,8 +40,29 @@ internal static class DeepWorkStabilizationComputer
         OverloadInferenceResult overloadInference,
         DerivedSessionMetricsResult derivedSession,
         BaselineGatingResult gating,
-        DeepWorkStabilizationRuntimeState previous)
+        DeepWorkStabilizationRuntimeState previous,
+        RuntimeDeepWorkDetectionSettings? policy = null,
+        RuntimeOverloadStabilizationSettings? overloadPolicy = null)
     {
+        RuntimeDeepWorkDetectionSettings settings = policy ?? new RuntimeDeepWorkDetectionSettings(
+            PortaExecutionConstants.DeepWorkDetection.SustainedAttentionSeconds,
+            PortaExecutionConstants.DeepWorkDetection.ConfidenceMin,
+            PortaExecutionConstants.DeepWorkDetection.FragmentationMax,
+            PortaExecutionConstants.DeepWorkDetection.VolatilityMax,
+            PortaExecutionConstants.DeepWorkDetection.IntensityMin,
+            PortaExecutionConstants.DeepWorkDetection.IntensityMax,
+            PortaExecutionConstants.DeepWorkDetection.DwellOnSeconds,
+            PortaExecutionConstants.DeepWorkDetection.DwellOffSeconds,
+            PortaExecutionConstants.DeepWorkDetection.GapAllowSeconds);
+        RuntimeOverloadStabilizationSettings overloadSettings = overloadPolicy ?? new RuntimeOverloadStabilizationSettings(
+            PortaExecutionConstants.OverloadStabilization.ThresholdOn,
+            PortaExecutionConstants.OverloadStabilization.ThresholdOff,
+            PortaExecutionConstants.OverloadStabilization.DwellOnSeconds,
+            PortaExecutionConstants.OverloadStabilization.DwellOffSeconds,
+            PortaExecutionConstants.OverloadStabilization.ConfidenceMin,
+            PortaExecutionConstants.OverloadStabilization.GapAllowSeconds,
+            PortaExecutionConstants.OverloadStabilization.LowQualityPauseThreshold,
+            PortaExecutionConstants.OverloadStabilization.LowQualityDwellDecayMs);
         double confidence = Clamp01(overloadInference.Confidence);
         double quality = Clamp01(overloadInference.Quality);
         double fComponent = Clamp01(overloadInference.FComponent);
@@ -52,27 +73,27 @@ internal static class DeepWorkStabilizationComputer
         bool deepWorkActive = previous.DeepWorkActive;
         long currentBucketEndUtcMs = Time.bucketStartEnd(bucket.BucketSeq).endUtcMs;
         long gapMs = ComputeGapMs(previous.LastGoodTsMs, currentBucketEndUtcMs);
-        long gapAllowMs = PortaExecutionConstants.DeepWorkDetection.GapAllowSeconds * 1000L;
+        long gapAllowMs = settings.GapAllowSeconds * 1000L;
         bool gapExceeded = gapMs > gapAllowMs;
 
         bool baselineReadyGate = gating.SystemActionsEnabled;
-        bool lowQualityPaused = quality < PortaExecutionConstants.OverloadStabilization.LowQualityPauseThreshold
+        bool lowQualityPaused = quality < overloadSettings.LowQualityPauseThreshold
             || bucket.Partial == 1
             || derivedSession.Partial;
-        bool intensityInRange = iComponent >= PortaExecutionConstants.DeepWorkDetection.IntensityMin
-            && iComponent <= PortaExecutionConstants.DeepWorkDetection.IntensityMax;
+        bool intensityInRange = iComponent >= settings.IntensityMin
+            && iComponent <= settings.IntensityMax;
         bool deepWorkCandidate = baselineReadyGate
-            && confidence >= PortaExecutionConstants.DeepWorkDetection.ConfidenceMin
-            && fComponent <= PortaExecutionConstants.DeepWorkDetection.FragmentationMax
-            && vComponent <= PortaExecutionConstants.DeepWorkDetection.VolatilityMax
+            && confidence >= settings.ConfidenceMin
+            && fComponent <= settings.FragmentationMax
+            && vComponent <= settings.VolatilityMax
             && intensityInRange
-            && sustainedAttentionSec >= PortaExecutionConstants.DeepWorkDetection.SustainedAttentionSeconds;
-        bool deepWorkExitCandidate = confidence < PortaExecutionConstants.DeepWorkDetection.ConfidenceMin
-            || fComponent > PortaExecutionConstants.DeepWorkDetection.FragmentationMax
-            || vComponent > PortaExecutionConstants.DeepWorkDetection.VolatilityMax
-            || iComponent < PortaExecutionConstants.DeepWorkDetection.IntensityMin
-            || iComponent > PortaExecutionConstants.DeepWorkDetection.IntensityMax
-            || sustainedAttentionSec < PortaExecutionConstants.DeepWorkDetection.SustainedAttentionSeconds;
+            && sustainedAttentionSec >= settings.SustainedAttentionSeconds;
+        bool deepWorkExitCandidate = confidence < settings.ConfidenceMin
+            || fComponent > settings.FragmentationMax
+            || vComponent > settings.VolatilityMax
+            || iComponent < settings.IntensityMin
+            || iComponent > settings.IntensityMax
+            || sustainedAttentionSec < settings.SustainedAttentionSeconds;
         bool onSignal = !lowQualityPaused && deepWorkCandidate;
         bool offSignal = !lowQualityPaused && deepWorkExitCandidate;
 
@@ -88,8 +109,8 @@ internal static class DeepWorkStabilizationComputer
         {
             // Mirror overload Step-12 behavior for action-driving state:
             // low quality pauses dwell accumulation and decays both dwells by one bucket.
-            onDwellMs = Math.Max(0, onDwellMs - PortaExecutionConstants.OverloadStabilization.LowQualityDwellDecayMs);
-            offDwellMs = Math.Max(0, offDwellMs - PortaExecutionConstants.OverloadStabilization.LowQualityDwellDecayMs);
+            onDwellMs = Math.Max(0, onDwellMs - overloadSettings.LowQualityDwellDecayMs);
+            offDwellMs = Math.Max(0, offDwellMs - overloadSettings.LowQualityDwellDecayMs);
             debugMode = "quality_pause_decay";
         }
         else if (!deepWorkActive)
@@ -102,7 +123,7 @@ internal static class DeepWorkStabilizationComputer
                 gapExceeded = false;
                 dwellAccumulated = true;
                 debugMode = "on_dwell_accumulating";
-                if (onDwellMs >= (PortaExecutionConstants.DeepWorkDetection.DwellOnSeconds * 1000L))
+                if (onDwellMs >= (settings.DwellOnSeconds * 1000L))
                 {
                     deepWorkActive = true;
                     onDwellMs = 0;
@@ -133,7 +154,7 @@ internal static class DeepWorkStabilizationComputer
                 gapExceeded = false;
                 dwellAccumulated = true;
                 debugMode = "off_dwell_accumulating";
-                if (offDwellMs >= (PortaExecutionConstants.DeepWorkDetection.DwellOffSeconds * 1000L))
+                if (offDwellMs >= (settings.DwellOffSeconds * 1000L))
                 {
                     deepWorkActive = false;
                     onDwellMs = 0;

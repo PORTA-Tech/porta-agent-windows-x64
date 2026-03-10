@@ -244,6 +244,62 @@ public sealed class DeepWorkStabilizationComputerTests
     }
 
     [Fact]
+    public void ComputeForFinalizedBucket_UsesPolicyOverrideThresholdsAndDwell()
+    {
+        RuntimeDeepWorkDetectionSettings deepWorkPolicy = new(
+            SustainedAttentionSeconds: 300,
+            ConfidenceMin: 0.50d,
+            FragmentationMax: 0.60d,
+            VolatilityMax: 0.60d,
+            IntensityMin: 0.30d,
+            IntensityMax: 0.80d,
+            DwellOnSeconds: 10,
+            DwellOffSeconds: 10,
+            GapAllowSeconds: 10);
+        RuntimeOverloadStabilizationSettings overloadPolicy = new(
+            ThresholdOn: PortaExecutionConstants.OverloadStabilization.ThresholdOn,
+            ThresholdOff: PortaExecutionConstants.OverloadStabilization.ThresholdOff,
+            DwellOnSeconds: PortaExecutionConstants.OverloadStabilization.DwellOnSeconds,
+            DwellOffSeconds: PortaExecutionConstants.OverloadStabilization.DwellOffSeconds,
+            ConfidenceMin: PortaExecutionConstants.OverloadStabilization.ConfidenceMin,
+            GapAllowSeconds: PortaExecutionConstants.OverloadStabilization.GapAllowSeconds,
+            LowQualityPauseThreshold: PortaExecutionConstants.OverloadStabilization.LowQualityPauseThreshold,
+            LowQualityDwellDecayMs: PortaExecutionConstants.OverloadStabilization.LowQualityDwellDecayMs);
+
+        DeepWorkStabilizationResult withoutOverride = DeepWorkStabilizationComputer.ComputeForFinalizedBucket(
+            BuildBucket(bucketSeq: 1),
+            BuildInference(confidence: 0.80d, f: 0.40d, i: 0.55d, v: 0.35d),
+            BuildDerivedSession(sustainedAttentionSeconds: 300d),
+            BaselineGatingResult.Warm,
+            default);
+
+        DeepWorkStabilizationRuntimeState state = default;
+        DeepWorkStabilizationResult first = DeepWorkStabilizationComputer.ComputeForFinalizedBucket(
+            BuildBucket(bucketSeq: 1),
+            BuildInference(confidence: 0.80d, f: 0.40d, i: 0.55d, v: 0.35d),
+            BuildDerivedSession(sustainedAttentionSeconds: 300d),
+            BaselineGatingResult.Warm,
+            state,
+            deepWorkPolicy,
+            overloadPolicy);
+        DeepWorkStabilizationResult second = DeepWorkStabilizationComputer.ComputeForFinalizedBucket(
+            BuildBucket(bucketSeq: 2),
+            BuildInference(confidence: 0.80d, f: 0.40d, i: 0.55d, v: 0.35d),
+            BuildDerivedSession(sustainedAttentionSeconds: 300d),
+            BaselineGatingResult.Warm,
+            first.RuntimeState,
+            deepWorkPolicy,
+            overloadPolicy);
+
+        Assert.False(withoutOverride.DeepWorkCandidate);
+        Assert.False(withoutOverride.DeepWorkActive);
+        Assert.False(first.DeepWorkActive);
+        Assert.True(second.DeepWorkActive);
+        Assert.True(second.Transitioned);
+        Assert.Equal("activated", second.Transition);
+    }
+
+    [Fact]
     public void ComputeForFinalizedBucket_LowQualityDecaysDwellsByOneBucketAndPreventsTransitions()
     {
         var state = new DeepWorkStabilizationRuntimeState(

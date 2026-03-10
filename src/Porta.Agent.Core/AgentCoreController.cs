@@ -25,7 +25,6 @@ public sealed class AgentCoreController : IAgentCoreController
     private const string TrayLogFileName = "tray.log";
     private const string UiLogFileName = "control-center.log";
     private const string DefaultSchemaVersion = "1.0.0";
-    private const string DefaultPolicyVersion = "1.0.0";
     private const int MaxSignalIdLength = 128;
     private const int MaxFocusHashLength = 128;
     private const string CaptureContextUnknown = UserAgentCaptureContexts.Unknown;
@@ -50,6 +49,7 @@ public sealed class AgentCoreController : IAgentCoreController
     private readonly IBrainStateStore _stateStore;
     private readonly IInputSignalsIngress? _inputSignalsIngress;
     private readonly IUserAgentSessionContextStore _userAgentSessionContextStore;
+    private readonly IRuntimePolicyProvider _runtimePolicyProvider;
     private readonly string _consentPath = BuildConsentPath();
     private readonly string _settingsPath = BuildSettingsPath();
     private readonly string _logPath = BuildLogPath();
@@ -99,17 +99,20 @@ public sealed class AgentCoreController : IAgentCoreController
     public AgentCoreController()
         : this(
             new BucketFinalizerStateStore(new SqliteBrainStateStore()),
-            new UserAgentSessionContextStore())
+            new UserAgentSessionContextStore(),
+            new FileRuntimePolicyProvider())
     {
     }
 
     public AgentCoreController(
         IBrainStateStore stateStore,
-        IUserAgentSessionContextStore? userAgentSessionContextStore = null)
+        IUserAgentSessionContextStore? userAgentSessionContextStore = null,
+        IRuntimePolicyProvider? runtimePolicyProvider = null)
     {
         _stateStore = stateStore;
         _inputSignalsIngress = stateStore as IInputSignalsIngress;
         _userAgentSessionContextStore = userAgentSessionContextStore ?? new UserAgentSessionContextStore();
+        _runtimePolicyProvider = runtimePolicyProvider ?? new FileRuntimePolicyProvider();
         AgentConsentRecord? consentFromStore = _stateStore.ReadLatestConsent();
         _consentState = consentFromStore != null
             ? new ConsentStateRecord(
@@ -200,6 +203,7 @@ public sealed class AgentCoreController : IAgentCoreController
             AgentStatus status = effectiveLastError is null
                 ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
                 : AgentStatus.Degraded;
+            string policyVersion = ResolvePolicyVersion();
 
             return new AgentServiceStatusSnapshot(
                 Status: status,
@@ -216,7 +220,7 @@ public sealed class AgentCoreController : IAgentCoreController
                 LastAction: _latestSnapshot.LastAction,
                 AgentVersion: _agentVersion,
                 SchemaVersion: DefaultSchemaVersion,
-                PolicyVersion: DefaultPolicyVersion,
+                PolicyVersion: policyVersion,
                 LastEventTimestampUtc: _lastEventTimestampUtc,
                 BackendInstanceId: _backendInstanceId,
                 BackendProcessId: Environment.ProcessId,
@@ -1042,7 +1046,7 @@ public sealed class AgentCoreController : IAgentCoreController
                 ["ui"] = ResolveUiVersion(),
                 ["tray"] = ResolveTrayVersion(),
                 ["schema"] = DefaultSchemaVersion,
-                ["policy"] = DefaultPolicyVersion
+                ["policy"] = ResolvePolicyVersion()
             };
 
             IReadOnlyList<string> logPaths =
@@ -1198,7 +1202,7 @@ public sealed class AgentCoreController : IAgentCoreController
             ConsentActive: _consentActive,
             Paused: _paused,
             LastError: _lastError,
-            PolicyVersion: DefaultPolicyVersion,
+            PolicyVersion: ResolvePolicyVersion(),
             SchemaVersion: DefaultSchemaVersion,
             AgentVersion: _agentVersion,
             LastEventTimestampUtc: _lastEventTimestampUtc,
@@ -2126,6 +2130,7 @@ public sealed class AgentCoreController : IAgentCoreController
             ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
             : AgentStatus.Degraded;
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        string policyVersion = ResolvePolicyVersion();
         string captureContext = ResolveCaptureContextLocked(nowUtc, out UserAgentSessionContextSnapshot? sessionContext);
         string? userAgentInstanceId = NormalizeIdentifier(sessionContext?.AgentInstanceId);
         int? userAgentProcessId = sessionContext?.ProcessId > 0 ? sessionContext.ProcessId : null;
@@ -2183,7 +2188,7 @@ public sealed class AgentCoreController : IAgentCoreController
                 ui = ResolveUiVersion(),
                 tray = ResolveTrayVersion(),
                 schema = DefaultSchemaVersion,
-                policy = DefaultPolicyVersion
+                policy = policyVersion
             }
         };
 
@@ -2238,6 +2243,12 @@ public sealed class AgentCoreController : IAgentCoreController
             || errorText.Contains("migration", StringComparison.OrdinalIgnoreCase)
             || errorText.Contains("readonly database", StringComparison.OrdinalIgnoreCase)
             || errorText.Contains("sqlite error", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string ResolvePolicyVersion()
+    {
+        string version = _runtimePolicyProvider.GetEnvelope().Version;
+        return string.IsNullOrWhiteSpace(version) ? "local-default" : version;
     }
 
     private static int ComputeDeepWorkStreakSeconds(

@@ -34,14 +34,29 @@ internal static class BreakSuggestionPolicy
         OverloadInferenceResult overloadInference,
         DerivedSessionMetricsResult derivedSession,
         BreakFocusWindowSnapshot focusWindow,
-        Func<BreakPolicyCooldownSnapshot> resolveCooldown)
+        Func<BreakPolicyCooldownSnapshot> resolveCooldown,
+        RuntimeBreakPolicySettings? policy = null)
     {
+        RuntimeBreakPolicySettings settings = policy ?? new RuntimeBreakPolicySettings(
+            PortaExecutionConstants.BreakPolicy.MicrobreakWindowSeconds,
+            PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload,
+            PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsHighOverload,
+            PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds,
+            PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowOverload,
+            PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsHighOverload,
+            PortaExecutionConstants.BreakPolicy.CooldownSeconds,
+            PortaExecutionConstants.BreakPolicy.ConfidenceMin,
+            PortaExecutionConstants.BreakPolicy.HighOverloadLikelihood,
+            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds,
+            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMaxSeconds,
+            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryTypingQuietMax,
+            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax);
         if (!gating.SuggestionsEnabled)
         {
             return Fail("suggestions_not_enabled");
         }
 
-        if (Clamp01(overloadInference.Confidence) < PortaExecutionConstants.BreakPolicy.ConfidenceMin)
+        if (Clamp01(overloadInference.Confidence) < settings.ConfidenceMin)
         {
             return Fail("confidence_below_min");
         }
@@ -58,13 +73,13 @@ internal static class BreakSuggestionPolicy
 
         bool highOverloadPressure = focusWindow.HighOverloadPressure
             || overloadStabilization.OverloadActive
-            || overloadInference.OverloadLikelihood >= PortaExecutionConstants.BreakPolicy.HighOverloadLikelihood;
+            || overloadInference.OverloadLikelihood >= settings.HighOverloadLikelihood;
         int microbreakThresholdSeconds = highOverloadPressure
-            ? PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsHighOverload
-            : PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload;
+            ? settings.MicrobreakEffectiveFocusSecondsHighOverload
+            : settings.MicrobreakEffectiveFocusSecondsLowOverload;
         int shortBreakThresholdSeconds = highOverloadPressure
-            ? PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsHighOverload
-            : PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowOverload;
+            ? settings.ShortBreakEffectiveFocusSecondsHighOverload
+            : settings.ShortBreakEffectiveFocusSecondsLowOverload;
 
         string action;
         int windowSeconds;
@@ -72,13 +87,13 @@ internal static class BreakSuggestionPolicy
         if (Math.Max(0d, focusWindow.ShortBreakWindowEffectiveFocusSeconds) >= shortBreakThresholdSeconds)
         {
             action = "break_suggestion";
-            windowSeconds = PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds;
+            windowSeconds = settings.ShortBreakWindowSeconds;
             effectiveFocusSeconds = Math.Max(0d, focusWindow.ShortBreakWindowEffectiveFocusSeconds);
         }
         else if (Math.Max(0d, focusWindow.MicrobreakWindowEffectiveFocusSeconds) >= microbreakThresholdSeconds)
         {
             action = "stretch_break_suggestion";
-            windowSeconds = PortaExecutionConstants.BreakPolicy.MicrobreakWindowSeconds;
+            windowSeconds = settings.MicrobreakWindowSeconds;
             effectiveFocusSeconds = Math.Max(0d, focusWindow.MicrobreakWindowEffectiveFocusSeconds);
         }
         else

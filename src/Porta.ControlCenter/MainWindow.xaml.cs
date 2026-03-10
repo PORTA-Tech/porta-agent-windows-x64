@@ -1531,7 +1531,7 @@ public partial class MainWindow : Window
                 KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
                 MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
                 LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
-                WarningText: $"Waiting for fresh {missingSignals} activity from the current user session.",
+                WarningText: $"Waiting for fresh {missingSignals} activity from the current user session. Continuity can continue, but confidence stays reduced until live input returns.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -1705,7 +1705,7 @@ public partial class MainWindow : Window
                 MouseSignalLabel: mouseLabel,
                 LastInputLabel: lastInputLabel,
                 InputOwnerLabel: inputOwnerLabel,
-                WarningText: $"Waiting for fresh {missingSignals} activity from the current user session.",
+                WarningText: $"Waiting for fresh {missingSignals} activity from the current user session. State continuity can continue, but trust stays lower until live input returns.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -1819,7 +1819,9 @@ public partial class MainWindow : Window
         string warningText = BuildExecutionStateText(latestEvent);
         Color detailColor = NormalizeExecutionState(latestEvent.ExecutionState) == "failed"
             ? Color.FromRgb(248, 113, 113)
-            : NormalizeExecutionState(latestEvent.ExecutionState) == "applied"
+            : NormalizeExecutionState(latestEvent.ExecutionState) == "verified"
+                ? Color.FromRgb(74, 222, 128)
+                : NormalizeExecutionState(latestEvent.ExecutionState) == "applied"
                 ? Color.FromRgb(148, 163, 184)
                 : Color.FromRgb(245, 158, 11);
 
@@ -3169,10 +3171,13 @@ public partial class MainWindow : Window
             "applied" when ev.AppliedAtUtc.HasValue
                 => $"Execution: Applied at {ev.AppliedAtUtc.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}",
             "applied" => "Execution: Applied",
+            "verified" when ev.AppliedAtUtc.HasValue
+                => $"Execution: Verified at {ev.AppliedAtUtc.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}",
+            "verified" => "Execution: Verified",
             "failed" when !string.IsNullOrWhiteSpace(ev.ExecutionErrorCode)
                 => $"Execution: Failed ({HumanizeExecutionError(ev.ExecutionErrorCode)})",
             "failed" => "Execution: Failed",
-            "decided" => "Execution: Waiting for acknowledgement",
+            "decided" => "Execution: Pending user-session acknowledgement",
             _ => "Execution: Decision only (no desktop executor)"
         };
     }
@@ -3199,6 +3204,7 @@ public partial class MainWindow : Window
         return executionState switch
         {
             "applied" => "Execution: Applied",
+            "verified" => "Execution: Verified",
             "failed" => "Execution: Failed",
             "decided" => "Execution: Pending",
             _ => "Execution: Decision only"

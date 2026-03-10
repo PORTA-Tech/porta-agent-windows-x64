@@ -302,6 +302,38 @@ public sealed class OverloadStabilizationComputerTests
     }
 
     [Fact]
+    public void ComputeForFinalizedBucket_UsesPolicyOverrideThresholdsAndDwell()
+    {
+        RuntimeOverloadStabilizationSettings policy = new(
+            ThresholdOn: 0.50d,
+            ThresholdOff: 0.40d,
+            DwellOnSeconds: 10,
+            DwellOffSeconds: 10,
+            ConfidenceMin: 0.40d,
+            GapAllowSeconds: 20,
+            LowQualityPauseThreshold: 0.35d,
+            LowQualityDwellDecayMs: 5000);
+
+        OverloadStabilizationRuntimeState state = default;
+
+        OverloadStabilizationResult first = OverloadStabilizationComputer.ComputeForFinalizedBucket(
+            BuildBucket(bucketSeq: 1, quality: 0.90d),
+            BuildInference(overload: 0.60d, confidence: 0.50d, quality: 0.90d),
+            state,
+            policy);
+        OverloadStabilizationResult second = OverloadStabilizationComputer.ComputeForFinalizedBucket(
+            BuildBucket(bucketSeq: 2, quality: 0.90d),
+            BuildInference(overload: 0.60d, confidence: 0.50d, quality: 0.90d),
+            first.RuntimeState,
+            policy);
+
+        Assert.False(first.OverloadActive);
+        Assert.True(second.OverloadActive);
+        Assert.True(second.Transitioned);
+        Assert.Equal("activated", second.Transition);
+    }
+
+    [Fact]
     public void ComputeForFinalizedBucket_LowQualityNearOnTransition_DoesNotActivate()
     {
         var previous = new OverloadStabilizationRuntimeState(

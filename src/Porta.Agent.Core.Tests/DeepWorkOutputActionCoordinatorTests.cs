@@ -169,6 +169,27 @@ public sealed class DeepWorkOutputActionCoordinatorTests
     }
 
     [Fact]
+    public void HandleDeepWorkTransition_UsesPolicyOverrideForMinOnAndEnableCooldown()
+    {
+        var fake = new FakeNotificationController();
+        var coordinator = new DeepWorkOutputActionCoordinator(fake);
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        RuntimeNotificationSuppressionSettings policy = new(
+            FailureBackoffSeconds: 90,
+            EnableCooldownSeconds: 180,
+            MinOnSeconds: 45);
+
+        DeepWorkTransitionExecution execution = coordinator.HandleDeepWorkTransition(
+            BuildContext(previousActive: false, currentActive: true, nowUtc: nowUtc),
+            NotificationSuppressionRuntimeState.CreateDefault(),
+            policy);
+
+        Assert.True(execution.Outcome.Succeeded);
+        Assert.True(execution.RuntimeState.EnableCooldownUntilUtcMs >= nowUtc.ToUnixTimeMilliseconds() + 180_000 - 1);
+        Assert.True(execution.RuntimeState.MinOnUntilUtcMs >= nowUtc.ToUnixTimeMilliseconds() + 45_000 - 1);
+    }
+
+    [Fact]
     public void HandleDeepWorkTransition_ExitBeforeMinOn_LeavesSuppressionActiveAndPendingRestore()
     {
         var fake = new FakeNotificationController();

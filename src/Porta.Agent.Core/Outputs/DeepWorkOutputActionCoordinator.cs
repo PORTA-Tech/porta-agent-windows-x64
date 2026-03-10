@@ -70,11 +70,13 @@ public interface IDeepWorkOutputActionCoordinator
 {
     DeepWorkTransitionExecution HandleDeepWorkTransition(
         DeepWorkTransitionContext context,
-        NotificationSuppressionRuntimeState runtimeState);
+        NotificationSuppressionRuntimeState runtimeState,
+        RuntimeNotificationSuppressionSettings? policy = null);
 
     NotificationSuppressionStartupReconciliation ReconcileOnStartup(
         NotificationSuppressionRuntimeState runtimeState,
-        DateTimeOffset nowUtc);
+        DateTimeOffset nowUtc,
+        RuntimeNotificationSuppressionSettings? policy = null);
 }
 
 public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoordinator
@@ -88,8 +90,13 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
 
     public DeepWorkTransitionExecution HandleDeepWorkTransition(
         DeepWorkTransitionContext context,
-        NotificationSuppressionRuntimeState runtimeState)
+        NotificationSuppressionRuntimeState runtimeState,
+        RuntimeNotificationSuppressionSettings? policy = null)
     {
+        RuntimeNotificationSuppressionSettings settings = policy ?? new RuntimeNotificationSuppressionSettings(
+            PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds,
+            PortaExecutionConstants.NotificationSuppression.EnableCooldownSeconds,
+            PortaExecutionConstants.NotificationSuppression.MinOnSeconds);
         NotificationSuppressionRuntimeState state = NormalizeRuntimeState(runtimeState);
         long nowUtcMs = context.BucketEndUtc.ToUnixTimeMilliseconds();
         bool enteringTransition = !context.PreviousDeepWorkActive && context.CurrentDeepWorkActive;
@@ -159,8 +166,8 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
                     actionState: "inactive");
             }
 
-            long minOnUntilUtcMs = checked(nowUtcMs + (PortaExecutionConstants.NotificationSuppression.MinOnSeconds * 1000L));
-            long enableCooldownUntilUtcMs = checked(nowUtcMs + (PortaExecutionConstants.NotificationSuppression.EnableCooldownSeconds * 1000L));
+            long minOnUntilUtcMs = checked(nowUtcMs + (settings.MinOnSeconds * 1000L));
+            long enableCooldownUntilUtcMs = checked(nowUtcMs + (settings.EnableCooldownSeconds * 1000L));
             NotificationSuppressionRuntimeState updatedState = state with
             {
                 SchemaVer = 1,
@@ -254,11 +261,12 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
                 exiting: true,
                 suppressionAttempted: false,
                 restoreAttempted: true,
-                errorCode: string.IsNullOrWhiteSpace(restoreResult.ErrorCode)
-                    ? "suppression_restore_failed"
-                    : restoreResult.ErrorCode,
-                errorDetail: restoreResult.ErrorDetail,
-                actionState: "active_with_restore_error");
+                    errorCode: string.IsNullOrWhiteSpace(restoreResult.ErrorCode)
+                        ? "suppression_restore_failed"
+                        : restoreResult.ErrorCode,
+                    errorDetail: restoreResult.ErrorDetail,
+                    actionState: "active_with_restore_error",
+                    policy: settings);
         }
 
         NotificationSuppressionRuntimeState restoredState = state with
@@ -286,7 +294,7 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
                 ErrorDetail: string.Empty,
                 StateChanged: restoreResult.StateChanged,
                 OutcomeReason: "restored"),
-            RuntimeState: restoredState);
+                RuntimeState: restoredState);
     }
 
     private static DeepWorkTransitionExecution NoOp(NotificationSuppressionRuntimeState state, string reason)
@@ -335,10 +343,15 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
         bool restoreAttempted,
         string errorCode,
         string errorDetail,
-        string actionState)
+        string actionState,
+        RuntimeNotificationSuppressionSettings? policy = null)
     {
+        RuntimeNotificationSuppressionSettings settings = policy ?? new RuntimeNotificationSuppressionSettings(
+            PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds,
+            PortaExecutionConstants.NotificationSuppression.EnableCooldownSeconds,
+            PortaExecutionConstants.NotificationSuppression.MinOnSeconds);
         long nowUtcMs = context.BucketEndUtc.ToUnixTimeMilliseconds();
-        long backoffUntilUtcMs = checked(nowUtcMs + (PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds * 1000L));
+        long backoffUntilUtcMs = checked(nowUtcMs + (settings.FailureBackoffSeconds * 1000L));
         string normalizedErrorCode = string.IsNullOrWhiteSpace(errorCode) ? "unknown_notification_error" : errorCode;
         NotificationSuppressionRuntimeState failedState = runtimeState with
         {
@@ -365,8 +378,13 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
 
     public NotificationSuppressionStartupReconciliation ReconcileOnStartup(
         NotificationSuppressionRuntimeState runtimeState,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        RuntimeNotificationSuppressionSettings? policy = null)
     {
+        RuntimeNotificationSuppressionSettings settings = policy ?? new RuntimeNotificationSuppressionSettings(
+            PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds,
+            PortaExecutionConstants.NotificationSuppression.EnableCooldownSeconds,
+            PortaExecutionConstants.NotificationSuppression.MinOnSeconds);
         NotificationSuppressionRuntimeState state = NormalizeRuntimeState(runtimeState);
         if (!state.Active)
         {
@@ -392,7 +410,7 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
                 RestorePending = true,
                 BackoffUntilUtcMs = Math.Max(
                     state.BackoffUntilUtcMs,
-                    checked(nowUtc.ToUnixTimeMilliseconds() + (PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds * 1000L)))
+                    checked(nowUtc.ToUnixTimeMilliseconds() + (settings.FailureBackoffSeconds * 1000L)))
             };
             return new NotificationSuppressionStartupReconciliation(
                 RuntimeState: corrupted,
@@ -415,7 +433,7 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
                 RestorePending = state.RestorePending,
                 BackoffUntilUtcMs = Math.Max(
                     state.BackoffUntilUtcMs,
-                    checked(nowUtc.ToUnixTimeMilliseconds() + (PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds * 1000L)))
+                    checked(nowUtc.ToUnixTimeMilliseconds() + (settings.FailureBackoffSeconds * 1000L)))
             };
             return new NotificationSuppressionStartupReconciliation(
                 RuntimeState: degraded,
@@ -452,7 +470,7 @@ public sealed class DeepWorkOutputActionCoordinator : IDeepWorkOutputActionCoord
             LastErrorCode = "startup_discrepancy_os_not_suppressed",
             BackoffUntilUtcMs = Math.Max(
                 state.BackoffUntilUtcMs,
-                checked(nowUtc.ToUnixTimeMilliseconds() + (PortaExecutionConstants.NotificationSuppression.FailureBackoffSeconds * 1000L))),
+                checked(nowUtc.ToUnixTimeMilliseconds() + (settings.FailureBackoffSeconds * 1000L))),
             RestoredAtUtc = nowUtc.ToString("O")
         };
         return new NotificationSuppressionStartupReconciliation(
