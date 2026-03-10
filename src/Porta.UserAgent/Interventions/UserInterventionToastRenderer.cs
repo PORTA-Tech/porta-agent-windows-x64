@@ -174,6 +174,7 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
         private readonly BlockingCollection<RendererCommand> _queue;
         private readonly NotifyIcon _notifyIcon;
         private readonly System.Windows.Forms.Timer _timer;
+        private ToastPopupForm? _activeToast;
 
         public ToastApplicationContext(BlockingCollection<RendererCommand> queue, TaskCompletionSource<bool> ready)
         {
@@ -193,6 +194,9 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
         protected override void ExitThreadCore()
         {
             _timer.Stop();
+            _activeToast?.Close();
+            _activeToast?.Dispose();
+            _activeToast = null;
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
             _timer.Dispose();
@@ -223,6 +227,7 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
                 _notifyIcon.BalloonTipText = message;
                 _notifyIcon.BalloonTipIcon = ToolTipIcon.Info;
                 _notifyIcon.ShowBalloonTip(4000);
+                ShowDesktopToast(title, message);
             }
         }
 
@@ -230,6 +235,14 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
         {
             _notifyIcon.Icon = ResolveTrayIcon(state.Mode);
             _notifyIcon.Text = NormalizeNotifyIconText(state.TooltipText);
+        }
+
+        private void ShowDesktopToast(string title, string message)
+        {
+            _activeToast?.Close();
+            _activeToast?.Dispose();
+            _activeToast = new ToastPopupForm(title, message);
+            _activeToast.Show();
         }
 
         private static Icon ResolveTrayIcon(UserTrayMode mode)
@@ -254,6 +267,99 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
             }
 
             return text[..63];
+        }
+    }
+
+    private sealed class ToastPopupForm : Form
+    {
+        private readonly System.Windows.Forms.Timer _closeTimer;
+
+        public ToastPopupForm(string title, string message)
+        {
+            Font baseFont = SystemFonts.MessageBoxFont ?? Control.DefaultFont;
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.Manual;
+            TopMost = true;
+            BackColor = Color.FromArgb(21, 24, 28);
+            ForeColor = Color.FromArgb(226, 232, 240);
+            ClientSize = new Size(360, 112);
+            Padding = new Padding(16);
+
+            var titleLabel = new Label
+            {
+                AutoSize = false,
+                Text = string.IsNullOrWhiteSpace(title) ? "PORTA" : title.Trim(),
+                Font = new Font(
+                    baseFont.FontFamily,
+                    baseFont.Size,
+                    FontStyle.Bold),
+                ForeColor = Color.FromArgb(248, 250, 252),
+                Dock = DockStyle.Top,
+                Height = 24
+            };
+
+            var messageLabel = new Label
+            {
+                AutoSize = false,
+                Text = string.IsNullOrWhiteSpace(message) ? "PORTA has a suggestion for you." : message.Trim(),
+                Font = baseFont,
+                ForeColor = Color.FromArgb(203, 213, 225),
+                Dock = DockStyle.Fill
+            };
+
+            var accentPanel = new Panel
+            {
+                Dock = DockStyle.Left,
+                Width = 6,
+                BackColor = Color.FromArgb(59, 130, 246)
+            };
+
+            Controls.Add(messageLabel);
+            Controls.Add(titleLabel);
+            Controls.Add(accentPanel);
+
+            PositionBottomRight();
+
+            _closeTimer = new System.Windows.Forms.Timer { Interval = 5000 };
+            _closeTimer.Tick += (_, _) =>
+            {
+                _closeTimer.Stop();
+                Close();
+            };
+            Shown += (_, _) => _closeTimer.Start();
+        }
+
+        protected override bool ShowWithoutActivation => true;
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                const int WsExToolWindow = 0x00000080;
+                const int WsExNoActivate = 0x08000000;
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= WsExToolWindow | WsExNoActivate;
+                return cp;
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _closeTimer.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+
+        private void PositionBottomRight()
+        {
+            Rectangle area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
+            Location = new Point(
+                area.Right - Width - 16,
+                area.Bottom - Height - 16);
         }
     }
 }
