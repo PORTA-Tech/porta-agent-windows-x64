@@ -17,7 +17,7 @@ public sealed class InputSignalsBucketIntegrationTests
         DateTimeOffset windowEndUtc = new(2026, 03, 07, 10, 0, 7, TimeSpan.Zero);
 
         stateStore.IngestInputSignals(new InputSignalsPacket(
-            SchemaVer: 1,
+            SchemaVer: 2,
             AgentInstanceId: "agent-1",
             SessionId: "session-1",
             WindowStartUtc: windowStartUtc,
@@ -29,7 +29,24 @@ public sealed class InputSignalsBucketIntegrationTests
             MouseMoveDy: -10d,
             FocusAppHash: "a1b2c3d4",
             IdleSeconds: 4d,
-            LastInputEventUtc: windowEndUtc));
+            LastInputEventUtc: windowEndUtc,
+            KeyboardIkiMeanMs: 140d,
+            KeyboardIkiStdMs: 20d,
+            KeyboardIkiCv: 0.1428571429d,
+            KeyboardBurstCount: 2,
+            KeyboardBurstRate: 0.5d,
+            KeyboardCorrectionSpikeCount: 1,
+            KeyboardCorrectionSpikeRate: 0.25d,
+            MouseMoveSampleCount: 8,
+            MousePathLengthPx: 200d,
+            MouseSpeedMeanPxPerSec: 50d,
+            MouseJerkP95: 110d,
+            MouseMicroCorrectionCount: 2,
+            MouseMicroCorrectionRate: 0.5d,
+            MouseWheelEventCount: 2,
+            MouseScrollBurstCount: 1,
+            MouseScrollBurstRate: 0.25d,
+            MouseScrollSpeedMean: 240d));
 
         stateStore.RunFinalizerTick(new DateTimeOffset(2026, 03, 07, 10, 0, 12, TimeSpan.Zero));
 
@@ -45,9 +62,61 @@ public sealed class InputSignalsBucketIntegrationTests
         Assert.Equal("a1b2c3d4", second.InputRow.DominantAppHash);
         Assert.Equal(2d, first.InputRow.IdleSeconds, precision: 6);
         Assert.Equal(2d, second.InputRow.IdleSeconds, precision: 6);
+        Assert.Equal(140d, first.InputRow.KeyboardIkiMean, precision: 6);
+        Assert.Equal(0.5d, first.InputRow.KeyboardBurstRate, precision: 6);
+        Assert.Equal(50d, first.InputRow.MouseSpeedMean, precision: 6);
+        Assert.Equal(110d, first.InputRow.MouseJerkP95, precision: 6);
+        Assert.Equal(0.5d, first.InputRow.MouseMicroCorrectionRate, precision: 6);
+        Assert.Equal(240d, first.InputRow.MouseScrollSpeed, precision: 6);
 
-        AssertKeyboardCounts(first.InputRow, expectedKeydowns: 3, expectedBackspaces: 1);
-        AssertKeyboardCounts(second.InputRow, expectedKeydowns: 3, expectedBackspaces: 1);
+        AssertKeyboardCounts(first.InputRow, expectedKeydowns: 2, expectedBackspaces: 1);
+        AssertKeyboardCounts(second.InputRow, expectedKeydowns: 2, expectedBackspaces: 1);
+    }
+
+    [Fact]
+    public void IngestedSignals_V2IdleSummary_PreservesCurrentIdleAndWithinWindowBoundary()
+    {
+        var innerStore = new FakeBucketIngressStore();
+        var stateStore = new BucketFinalizerStateStore(
+            innerStore,
+            () => new DateTimeOffset(2026, 03, 07, 10, 0, 8, TimeSpan.Zero));
+
+        DateTimeOffset windowStartUtc = new(2026, 03, 07, 10, 0, 0, TimeSpan.Zero);
+        DateTimeOffset windowEndUtc = new(2026, 03, 07, 10, 0, 5, TimeSpan.Zero);
+
+        stateStore.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 2,
+            AgentInstanceId: "agent-1",
+            SessionId: "session-1",
+            WindowStartUtc: windowStartUtc,
+            WindowEndUtc: windowEndUtc,
+            KeyboardKeydownCount: 1,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0d,
+            MouseMoveDy: 0d,
+            FocusAppHash: "a1b2c3d4",
+            IdleSeconds: 0.75d,
+            LastInputEventUtc: windowEndUtc,
+            IdleObservationCount: 5,
+            IdleSecondsWithinWindow: 4.5d,
+            MicroIdleCount: 1,
+            MicroIdleSeconds: 4.5d,
+            BreakSecondsWithinWindow: 0d,
+            ShortIdleBoundaryObserved: true));
+
+        stateStore.RunFinalizerTick(new DateTimeOffset(2026, 03, 07, 10, 0, 8, TimeSpan.Zero));
+
+        FinalizedWrite write = Assert.Single(innerStore.FinalizedWrites);
+        Assert.Equal(0.75d, write.InputRow.IdleSeconds, precision: 6);
+        Assert.Equal(1d, write.InputRow.IdleMicroIdleCount, precision: 6);
+        Assert.Equal(4.5d, write.InputRow.IdleMicroIdleSeconds, precision: 6);
+
+        using JsonDocument json = JsonDocument.Parse(write.InputRow.ContributorsJson);
+        JsonElement idle = json.RootElement.GetProperty("idle");
+        Assert.Equal(0.75d, idle.GetProperty("current_idle_s").GetDouble(), precision: 6);
+        Assert.Equal(4.5d, idle.GetProperty("idle_within_window_s").GetDouble(), precision: 6);
+        Assert.True(idle.GetProperty("short_idle_boundary_observed").GetBoolean());
     }
 
     private static void AssertKeyboardCounts(InputBucketRow row, int expectedKeydowns, int expectedBackspaces)

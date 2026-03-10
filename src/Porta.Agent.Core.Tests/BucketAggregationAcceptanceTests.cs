@@ -53,6 +53,31 @@ public sealed class BucketAggregationAcceptanceTests
     }
 
     [Fact]
+    public void Keyboard_TelemetrySummary_UsesProvidedMetricsWithoutSyntheticSpacing()
+    {
+        var keyboard = new KeyboardRawAggregates();
+        keyboard.RecordTelemetrySummary(
+            keydownCount: 6,
+            backspaceCount: 2,
+            ikiMeanMs: 140d,
+            ikiStdMs: 20d,
+            burstCount: 2,
+            correctionSpikeCount: 1,
+            windowSeconds: 5d);
+
+        keyboard.RecomputeDerivedMetrics();
+
+        Assert.Equal(6, keyboard.KeydownCount);
+        Assert.Equal(2, keyboard.BackspaceCount);
+        Assert.Equal(140d, keyboard.IkiMeanMs, precision: 6);
+        Assert.Equal(20d, keyboard.IkiStdMs, precision: 6);
+        Assert.Equal(20d / 140d, keyboard.IkiCv, precision: 6);
+        Assert.Equal(0.4d, keyboard.BurstRate, precision: 6);
+        Assert.Equal(0.2d, keyboard.CorrectionSpikeRate, precision: 6);
+        Assert.Empty(keyboard.KeydownTsList);
+    }
+
+    [Fact]
     public void Mouse_KnownSamples_ProducesDeterministicSpeedAndJerkP95()
     {
         var mouse = new MouseRawAggregates();
@@ -72,6 +97,30 @@ public sealed class BucketAggregationAcceptanceTests
         Assert.Equal(1000d, firstJerkP95, precision: 6);
         Assert.Equal(firstSpeedMean, mouse.SpeedMeanPxPerSec, precision: 6);
         Assert.Equal(firstJerkP95, mouse.JerkP95, precision: 6);
+    }
+
+    [Fact]
+    public void Mouse_TelemetrySummary_UsesProvidedMicroCorrectionsAndScrollBursts()
+    {
+        var mouse = new MouseRawAggregates();
+        mouse.RecordTelemetrySummary(
+            moveSampleCount: 8,
+            pathLengthPx: 180d,
+            speedMeanPxPerSec: 44d,
+            jerkP95: 91d,
+            microCorrectionCount: 2,
+            wheelEventCount: 3,
+            scrollBurstCount: 1,
+            scrollSpeedMean: 300d,
+            windowSeconds: 5d);
+
+        mouse.RecomputeDerivedMetrics();
+
+        Assert.Equal(44d, mouse.SpeedMeanPxPerSec, precision: 6);
+        Assert.Equal(91d, mouse.JerkP95, precision: 6);
+        Assert.Equal(0.4d, mouse.MicroCorrectionRate, precision: 6);
+        Assert.Equal(300d, mouse.ScrollSpeed, precision: 6);
+        Assert.Equal(0.2d, mouse.ScrollBursts, precision: 6);
     }
 
     [Fact]
@@ -106,6 +155,30 @@ public sealed class BucketAggregationAcceptanceTests
         Assert.Equal(1, idle.MicroIdleCount);
         Assert.InRange(idle.BreakSeconds, 129.99d, 130.01d);
         Assert.InRange(idle.IdleSeconds, 134.99d, 135.01d);
+    }
+
+    [Fact]
+    public void Idle_TelemetrySummary_SeparatesEndIdleFromWithinWindowIdle()
+    {
+        var idle = new IdleRawAggregates();
+        idle.RecordTelemetrySummary(
+            observationCount: 5,
+            endIdleSeconds: 0.75d,
+            idleSecondsWithinWindow: 4.5d,
+            microIdleCount: 1,
+            microIdleSeconds: 4.5d,
+            breakSecondsWithinWindow: 0d,
+            shortIdleBoundaryObserved: true);
+
+        idle.RecomputeDerivedMetrics(bucketStartUtcMs: 0, bucketEndUtcMs: 5000);
+
+        Assert.Equal(5, idle.ObservationCount);
+        Assert.Equal(0.75d, idle.IdleSeconds, precision: 6);
+        Assert.Equal(4.5d, idle.IdleSecondsWithinWindow, precision: 6);
+        Assert.Equal(1, idle.MicroIdleCount);
+        Assert.Equal(4.5d, idle.MicroIdleSeconds, precision: 6);
+        Assert.Equal(0d, idle.BreakSeconds, precision: 6);
+        Assert.True(idle.ShortIdleBoundaryObserved);
     }
 
     [Fact]
@@ -166,5 +239,28 @@ public sealed class BucketAggregationAcceptanceTests
         Assert.DoesNotContain("focus", quality.MissingMajorChannels);
         Assert.DoesNotContain("idle", quality.MissingMajorChannels);
         Assert.Equal(0.75d, quality.QualityScore, precision: 6);
+    }
+
+    [Fact]
+    public void Quality_IdleTelemetryObservationCount_MarksIdleChannelAvailable()
+    {
+        var bucket = new BucketBuffer(bucketSeq: 1);
+        bucket.Keyboard.RecordKeydown(bucket.StartUtcMs + 100, isBackspace: false);
+        bucket.Focus.RecordFocusEvent(bucket.StartUtcMs + 150, "app");
+        bucket.Idle.RecordTelemetrySummary(
+            observationCount: 5,
+            endIdleSeconds: 0d,
+            idleSecondsWithinWindow: 0d,
+            microIdleCount: 0,
+            microIdleSeconds: 0d,
+            breakSecondsWithinWindow: 0d,
+            shortIdleBoundaryObserved: false);
+
+        BucketDataQualityScore quality = BucketDataQualityScorer.Compute(
+            bucket,
+            new BucketDropCountersDelta(FutureSkewDrops: 0, TooOldDrops: 0, LateFinalDrops: 0));
+
+        Assert.False(quality.Partial);
+        Assert.DoesNotContain("idle", quality.MissingMajorChannels);
     }
 }

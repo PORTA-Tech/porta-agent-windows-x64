@@ -63,9 +63,11 @@ internal static class InputBucketRowMapper
             },
             idle = new
             {
-                idle_s = ClampNonNegativeFinite(bucket.Idle.IdleSeconds),
+                current_idle_s = ClampNonNegativeFinite(bucket.Idle.IdleSeconds),
+                idle_within_window_s = ClampNonNegativeFinite(bucket.Idle.IdleSecondsWithinWindow),
                 micro_idle_s = ClampNonNegativeFinite(bucket.Idle.MicroIdleSeconds),
                 break_s = ClampNonNegativeFinite(bucket.Idle.BreakSeconds),
+                short_idle_boundary_observed = bucket.Idle.ShortIdleBoundaryObserved,
                 true_break_flag = bucket.Idle.BreakSeconds >= 120d ? 1 : 0
             },
             missing_major_channels = missingMajorChannels

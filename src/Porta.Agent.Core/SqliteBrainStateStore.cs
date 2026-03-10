@@ -4886,6 +4886,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private static string ResolveBreakDeliveryBoundaryKind(InputBucketRow inputBucket, DerivedSessionMetricsResult derivedSession)
     {
+        if (HasShortIdleBoundaryObserved(inputBucket.ContributorsJson))
+        {
+            return "short_idle";
+        }
+
         if (inputBucket.IdleSeconds >= PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds
             && inputBucket.IdleSeconds <= PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMaxSeconds)
         {
@@ -4910,6 +4915,36 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
 
         return string.Empty;
+    }
+
+    private static bool HasShortIdleBoundaryObserved(string contributorsJson)
+    {
+        if (string.IsNullOrWhiteSpace(contributorsJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(contributorsJson);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("idle", out JsonElement idle)
+                || idle.ValueKind != JsonValueKind.Object
+                || !idle.TryGetProperty("short_idle_boundary_observed", out JsonElement boundary))
+            {
+                return false;
+            }
+
+            return boundary.ValueKind == JsonValueKind.True
+                || (boundary.ValueKind == JsonValueKind.String
+                    && bool.TryParse(boundary.GetString(), out bool parsed)
+                    && parsed);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static BreakPolicyCooldownSnapshot ReadBreakPolicyCooldownSnapshot(

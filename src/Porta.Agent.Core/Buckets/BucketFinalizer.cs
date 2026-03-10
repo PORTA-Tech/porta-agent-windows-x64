@@ -130,24 +130,71 @@ internal sealed class BucketFinalizer
 
         int[] keydownsBySlice = DistributeNonNegativeInt(packet.KeyboardKeydownCount, slices);
         int[] backspacesBySlice = DistributeNonNegativeInt(packet.KeyboardBackspaceCount, slices);
+        int[] keyboardBurstsBySlice = DistributeNonNegativeInt(packet.KeyboardBurstCount, slices);
+        int[] keyboardCorrectionSpikesBySlice = DistributeNonNegativeInt(packet.KeyboardCorrectionSpikeCount, slices);
         int[] mouseWheelBySlice = DistributeSignedInt(packet.MouseWheelDelta, slices);
         int[] mouseMoveDxBySlice = DistributeSignedInt((int)Math.Round(packet.MouseMoveDx, MidpointRounding.AwayFromZero), slices);
         int[] mouseMoveDyBySlice = DistributeSignedInt((int)Math.Round(packet.MouseMoveDy, MidpointRounding.AwayFromZero), slices);
-        double[] idleSecondsBySlice = DistributeNonNegativeDouble(packet.IdleSeconds, slices);
+        int[] mouseMoveSamplesBySlice = DistributeNonNegativeInt(packet.MouseMoveSampleCount, slices);
+        int[] mouseMicroCorrectionsBySlice = DistributeNonNegativeInt(packet.MouseMicroCorrectionCount, slices);
+        int[] mouseWheelEventsBySlice = DistributeNonNegativeInt(packet.MouseWheelEventCount, slices);
+        int[] mouseScrollBurstsBySlice = DistributeNonNegativeInt(packet.MouseScrollBurstCount, slices);
+        int[] idleObservationCountBySlice = DistributeNonNegativeInt(packet.IdleObservationCount, slices);
+        double[] idleSecondsBySlice = DistributeTrailingIdleSeconds(
+            packet.IdleSeconds,
+            windowStartUtcMs,
+            windowEndUtcMs,
+            slices);
+        double[] idleSecondsWithinWindowBySlice = DistributeNonNegativeDouble(packet.IdleSecondsWithinWindow ?? 0d, slices);
+        int[] microIdleCountBySlice = DistributeNonNegativeInt(packet.MicroIdleCount, slices);
+        double[] microIdleSecondsBySlice = DistributeNonNegativeDouble(packet.MicroIdleSeconds ?? 0d, slices);
+        double[] breakSecondsWithinWindowBySlice = DistributeNonNegativeDouble(packet.BreakSecondsWithinWindow ?? 0d, slices);
+        bool[] shortIdleBoundaryBySlice = DistributeShortIdleBoundaryObserved(
+            packet.ShortIdleBoundaryObserved,
+            idleSecondsBySlice,
+            idleSecondsWithinWindowBySlice,
+            microIdleSecondsBySlice,
+            slices.Count);
+        double[] mousePathLengthBySlice = DistributeNonNegativeDouble(packet.MousePathLengthPx ?? 0d, slices);
         string? focusAppHash = string.IsNullOrWhiteSpace(packet.FocusAppHash) ? null : packet.FocusAppHash.Trim().ToLowerInvariant();
+        bool useTelemetrySummaries = packet.SchemaVer >= 2;
 
         for (int i = 0; i < slices.Count; i++)
         {
             ApplyInputSignalsSlice(
                 slice: slices[i],
                 nowUtcMs: nowUtcMs,
+                useTelemetrySummaries: useTelemetrySummaries,
                 keydownCount: keydownsBySlice[i],
                 backspaceCount: backspacesBySlice[i],
+                keyboardIkiMeanMs: packet.KeyboardIkiMeanMs ?? 0d,
+                keyboardIkiStdMs: packet.KeyboardIkiStdMs ?? 0d,
+                keyboardIkiCv: packet.KeyboardIkiCv ?? 0d,
+                keyboardBurstCount: keyboardBurstsBySlice[i],
+                keyboardBurstRate: packet.KeyboardBurstRate ?? 0d,
+                keyboardCorrectionSpikeCount: keyboardCorrectionSpikesBySlice[i],
+                keyboardCorrectionSpikeRate: packet.KeyboardCorrectionSpikeRate ?? 0d,
                 mouseWheelDelta: mouseWheelBySlice[i],
                 mouseMoveDx: mouseMoveDxBySlice[i],
                 mouseMoveDy: mouseMoveDyBySlice[i],
+                mouseMoveSampleCount: mouseMoveSamplesBySlice[i],
+                mousePathLengthPx: mousePathLengthBySlice[i],
+                mouseSpeedMeanPxPerSec: packet.MouseSpeedMeanPxPerSec ?? 0d,
+                mouseJerkP95: packet.MouseJerkP95 ?? 0d,
+                mouseMicroCorrectionCount: mouseMicroCorrectionsBySlice[i],
+                mouseMicroCorrectionRate: packet.MouseMicroCorrectionRate ?? 0d,
+                mouseWheelEventCount: mouseWheelEventsBySlice[i],
+                mouseScrollBurstCount: mouseScrollBurstsBySlice[i],
+                mouseScrollBurstRate: packet.MouseScrollBurstRate ?? 0d,
+                mouseScrollSpeedMean: packet.MouseScrollSpeedMean ?? 0d,
                 focusAppHash: focusAppHash,
-                idleSeconds: idleSecondsBySlice[i]);
+                idleSeconds: idleSecondsBySlice[i],
+                idleObservationCount: idleObservationCountBySlice[i],
+                idleSecondsWithinWindow: idleSecondsWithinWindowBySlice[i],
+                microIdleCount: microIdleCountBySlice[i],
+                microIdleSeconds: microIdleSecondsBySlice[i],
+                breakSecondsWithinWindow: breakSecondsWithinWindowBySlice[i],
+                shortIdleBoundaryObserved: shortIdleBoundaryBySlice[i]);
         }
     }
 
@@ -536,21 +583,57 @@ internal sealed class BucketFinalizer
     private void ApplyInputSignalsSlice(
         BucketWindowSlice slice,
         long nowUtcMs,
+        bool useTelemetrySummaries,
         int keydownCount,
         int backspaceCount,
+        double keyboardIkiMeanMs,
+        double keyboardIkiStdMs,
+        double keyboardIkiCv,
+        int keyboardBurstCount,
+        double keyboardBurstRate,
+        int keyboardCorrectionSpikeCount,
+        double keyboardCorrectionSpikeRate,
         int mouseWheelDelta,
         int mouseMoveDx,
         int mouseMoveDy,
+        int mouseMoveSampleCount,
+        double mousePathLengthPx,
+        double mouseSpeedMeanPxPerSec,
+        double mouseJerkP95,
+        int mouseMicroCorrectionCount,
+        double mouseMicroCorrectionRate,
+        int mouseWheelEventCount,
+        int mouseScrollBurstCount,
+        double mouseScrollBurstRate,
+        double mouseScrollSpeedMean,
         string? focusAppHash,
-        double idleSeconds)
+        double idleSeconds,
+        int idleObservationCount,
+        double idleSecondsWithinWindow,
+        int microIdleCount,
+        double microIdleSeconds,
+        double breakSecondsWithinWindow,
+        bool shortIdleBoundaryObserved)
     {
         bool hasMutation = keydownCount > 0
             || backspaceCount > 0
+            || keyboardBurstCount > 0
+            || keyboardCorrectionSpikeCount > 0
             || mouseWheelDelta != 0
             || mouseMoveDx != 0
             || mouseMoveDy != 0
+            || mouseMoveSampleCount > 0
+            || mouseMicroCorrectionCount > 0
+            || mouseWheelEventCount > 0
+            || mouseScrollBurstCount > 0
             || !string.IsNullOrWhiteSpace(focusAppHash)
-            || idleSeconds > 0d;
+            || idleSeconds > 0d
+            || idleObservationCount > 0
+            || idleSecondsWithinWindow > 0d
+            || microIdleCount > 0
+            || microIdleSeconds > 0d
+            || breakSecondsWithinWindow > 0d
+            || shortIdleBoundaryObserved;
         if (!hasMutation)
         {
             return;
@@ -592,13 +675,37 @@ internal sealed class BucketFinalizer
                     bucket,
                     slice.StartUtcMs,
                     slice.EndUtcMs,
+                    useTelemetrySummaries,
                     keydownCount,
                     backspaceCount,
+                    keyboardIkiMeanMs,
+                    keyboardIkiStdMs,
+                    keyboardIkiCv,
+                    keyboardBurstCount,
+                    keyboardBurstRate,
+                    keyboardCorrectionSpikeCount,
+                    keyboardCorrectionSpikeRate,
                     mouseMoveDx,
                     mouseMoveDy,
+                    mouseMoveSampleCount,
+                    mousePathLengthPx,
+                    mouseSpeedMeanPxPerSec,
+                    mouseJerkP95,
+                    mouseMicroCorrectionCount,
+                    mouseMicroCorrectionRate,
                     mouseWheelDelta,
+                    mouseWheelEventCount,
+                    mouseScrollBurstCount,
+                    mouseScrollBurstRate,
+                    mouseScrollSpeedMean,
                     focusAppHash,
-                    idleSeconds);
+                    idleSeconds,
+                    idleObservationCount,
+                    idleSecondsWithinWindow,
+                    microIdleCount,
+                    microIdleSeconds,
+                    breakSecondsWithinWindow,
+                    shortIdleBoundaryObserved);
                 if (wasPendingFinalize)
                 {
                     bucket.Dirty = true;
@@ -674,6 +781,45 @@ internal sealed class BucketFinalizer
         return distributed;
     }
 
+    private static double[] DistributeTrailingIdleSeconds(
+        double totalIdleSeconds,
+        long windowStartUtcMs,
+        long windowEndUtcMs,
+        IReadOnlyList<BucketWindowSlice> slices)
+    {
+        var distributed = new double[slices.Count];
+        if (totalIdleSeconds <= 0d || slices.Count == 0)
+        {
+            return distributed;
+        }
+
+        long safeStartUtcMs = Math.Min(windowStartUtcMs, windowEndUtcMs);
+        long safeEndUtcMs = Math.Max(safeStartUtcMs + 1, windowEndUtcMs);
+        long trailingIdleMs = Math.Min(
+            safeEndUtcMs - safeStartUtcMs,
+            Math.Max(0L, (long)Math.Round(totalIdleSeconds * 1000d, MidpointRounding.AwayFromZero)));
+        if (trailingIdleMs <= 0)
+        {
+            return distributed;
+        }
+
+        long idleIntervalEndUtcMs = safeEndUtcMs;
+        long idleIntervalStartUtcMs = Math.Max(safeStartUtcMs, idleIntervalEndUtcMs - trailingIdleMs);
+        for (int i = 0; i < slices.Count; i++)
+        {
+            long overlapStartUtcMs = Math.Max(idleIntervalStartUtcMs, slices[i].StartUtcMs);
+            long overlapEndUtcMs = Math.Min(idleIntervalEndUtcMs, slices[i].EndUtcMs);
+            if (overlapEndUtcMs <= overlapStartUtcMs)
+            {
+                continue;
+            }
+
+            distributed[i] = (overlapEndUtcMs - overlapStartUtcMs) / 1000d;
+        }
+
+        return distributed;
+    }
+
     private static int[] DistributeNonNegativeInt(int total, IReadOnlyList<double> weights)
     {
         var distributed = new int[weights.Count];
@@ -740,6 +886,34 @@ internal sealed class BucketFinalizer
             assigned += distributed[i];
         }
 
+        return distributed;
+    }
+
+    private static bool[] DistributeShortIdleBoundaryObserved(
+        bool observed,
+        IReadOnlyList<double> currentIdleSecondsBySlice,
+        IReadOnlyList<double> idleSecondsWithinWindowBySlice,
+        IReadOnlyList<double> microIdleSecondsBySlice,
+        int count)
+    {
+        var distributed = new bool[count];
+        if (!observed || count <= 0)
+        {
+            return distributed;
+        }
+
+        for (int i = count - 1; i >= 0; i--)
+        {
+            if (currentIdleSecondsBySlice[i] > 0d
+                || idleSecondsWithinWindowBySlice[i] > 0d
+                || microIdleSecondsBySlice[i] > 0d)
+            {
+                distributed[i] = true;
+                return distributed;
+            }
+        }
+
+        distributed[^1] = true;
         return distributed;
     }
 

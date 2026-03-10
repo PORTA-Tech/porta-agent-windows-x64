@@ -6,9 +6,19 @@ internal sealed class MouseRawAggregates
     private readonly List<MouseWheelDeltaSample> _wheelSamples = [];
     private readonly HashSet<MouseMoveDeltaSample> _seenMoveSamples = [];
     private readonly HashSet<MouseWheelDeltaSample> _seenWheelSamples = [];
+    private int _summaryMoveSampleCount;
+    private int _summaryWheelSampleCount;
+    private int _summaryMicroCorrectionCount;
+    private int _summaryScrollBurstCount;
+    private double _summaryMoveWindowSeconds;
+    private double _summaryWheelWindowSeconds;
+    private double _summaryPathLengthPx;
+    private double _summarySpeedWeightedSum;
+    private double _summaryJerkWeightedSum;
+    private double _summaryScrollSpeedWeightedSum;
 
-    public int MoveSampleCount => _moveSamples.Count;
-    public int WheelSampleCount => _wheelSamples.Count;
+    public int MoveSampleCount => _moveSamples.Count + _summaryMoveSampleCount;
+    public int WheelSampleCount => _wheelSamples.Count + _summaryWheelSampleCount;
     public IReadOnlyList<MouseMoveDeltaSample> MoveSamples => _moveSamples;
     public IReadOnlyList<MouseWheelDeltaSample> WheelSamples => _wheelSamples;
 
@@ -60,6 +70,33 @@ internal sealed class MouseRawAggregates
         RecordWheel(ResolveRepresentativeTimestamp(startUtcMs, endUtcMs), delta);
     }
 
+    public void RecordTelemetrySummary(
+        int moveSampleCount,
+        double pathLengthPx,
+        double speedMeanPxPerSec,
+        double jerkP95,
+        int microCorrectionCount,
+        int wheelEventCount,
+        int scrollBurstCount,
+        double scrollSpeedMean,
+        double windowSeconds)
+    {
+        int normalizedMoveSampleCount = Math.Max(0, moveSampleCount);
+        int normalizedWheelEventCount = Math.Max(0, wheelEventCount);
+        double normalizedWindowSeconds = NormalizeNonNegative(windowSeconds);
+
+        _summaryMoveSampleCount += normalizedMoveSampleCount;
+        _summaryWheelSampleCount += normalizedWheelEventCount;
+        _summaryMicroCorrectionCount += Math.Max(0, microCorrectionCount);
+        _summaryScrollBurstCount += Math.Max(0, scrollBurstCount);
+        _summaryPathLengthPx += NormalizeNonNegative(pathLengthPx);
+        _summaryMoveWindowSeconds += normalizedWindowSeconds;
+        _summaryWheelWindowSeconds += normalizedWindowSeconds;
+        _summarySpeedWeightedSum += NormalizeNonNegative(speedMeanPxPerSec) * Math.Max(1, normalizedMoveSampleCount);
+        _summaryJerkWeightedSum += NormalizeNonNegative(jerkP95) * Math.Max(1, normalizedMoveSampleCount);
+        _summaryScrollSpeedWeightedSum += NormalizeNonNegative(scrollSpeedMean) * Math.Max(1, normalizedWheelEventCount);
+    }
+
     public void RecomputeDerivedMetrics()
     {
         RecomputeMoveDerivedMetrics();
@@ -70,9 +107,7 @@ internal sealed class MouseRawAggregates
     {
         if (_moveSamples.Count < 2)
         {
-            SpeedMeanPxPerSec = 0d;
-            JerkP95 = 0d;
-            MicroCorrectionRate = 0d;
+            RecomputeMoveFromTelemetrySummary();
             return;
         }
 
@@ -116,16 +151,14 @@ internal sealed class MouseRawAggregates
         SpeedMeanPxPerSec = speedSamples.Count == 0 ? 0d : speedSamples.Average();
         JerkP95 = PercentileNearestRank(jerkSamples, 0.95d);
 
-        // TODO(porta-step-5): micro-correction definition pending (do not invent).
-        MicroCorrectionRate = 0d;
+        MicroCorrectionRate = ComputeMicroCorrectionRateFromSamples(ordered);
     }
 
     private void RecomputeWheelDerivedMetrics()
     {
         if (_wheelSamples.Count < 2)
         {
-            ScrollSpeed = 0d;
-            ScrollBursts = 0d;
+            RecomputeWheelFromTelemetrySummary();
             return;
         }
 
@@ -153,8 +186,7 @@ internal sealed class MouseRawAggregates
 
         ScrollSpeed = scrollSpeedSamples.Count == 0 ? 0d : scrollSpeedSamples.Average();
 
-        // TODO(porta-step-5): scroll burst definition pending (do not invent).
-        ScrollBursts = 0d;
+        ScrollBursts = ComputeScrollBurstRateFromSamples(ordered);
     }
 
     private static double PercentileNearestRank(IReadOnlyCollection<double> samples, double percentile)
@@ -179,7 +211,132 @@ internal sealed class MouseRawAggregates
         long midpoint = safeStartUtcMs + ((safeEndUtcMs - safeStartUtcMs) / 2);
         return Math.Clamp(midpoint, safeStartUtcMs, safeEndUtcMs - 1);
     }
+
+    private void RecomputeMoveFromTelemetrySummary()
+    {
+        if (_summaryMoveSampleCount <= 0)
+        {
+            SpeedMeanPxPerSec = 0d;
+            JerkP95 = 0d;
+            MicroCorrectionRate = 0d;
+            return;
+        }
+
+        SpeedMeanPxPerSec = _summarySpeedWeightedSum / Math.Max(1, _summaryMoveSampleCount);
+        JerkP95 = _summaryJerkWeightedSum / Math.Max(1, _summaryMoveSampleCount);
+        MicroCorrectionRate = _summaryMoveWindowSeconds <= 0d
+            ? 0d
+            : Clamp01(_summaryMicroCorrectionCount / _summaryMoveWindowSeconds);
+    }
+
+    private void RecomputeWheelFromTelemetrySummary()
+    {
+        if (_summaryWheelSampleCount <= 0)
+        {
+            ScrollSpeed = 0d;
+            ScrollBursts = 0d;
+            return;
+        }
+
+        ScrollSpeed = _summaryScrollSpeedWeightedSum / Math.Max(1, _summaryWheelSampleCount);
+        ScrollBursts = _summaryWheelWindowSeconds <= 0d
+            ? 0d
+            : Clamp01(_summaryScrollBurstCount / _summaryWheelWindowSeconds);
+    }
+
+    private static double ComputeMicroCorrectionRateFromSamples(IReadOnlyList<MouseMoveDeltaSample> orderedSamples)
+    {
+        if (orderedSamples.Count < 2)
+        {
+            return 0d;
+        }
+
+        int microCorrectionCount = 0;
+        for (int i = 1; i < orderedSamples.Count; i++)
+        {
+            MouseMoveDeltaSample previous = orderedSamples[i - 1];
+            MouseMoveDeltaSample current = orderedSamples[i];
+            long gapMs = current.TimestampUtcMs - previous.TimestampUtcMs;
+            if (gapMs <= 0 || gapMs > 250L)
+            {
+                continue;
+            }
+
+            if (previous.MagnitudePx > 12d || current.MagnitudePx > 12d)
+            {
+                continue;
+            }
+
+            double dot = (previous.Dx * (double)current.Dx) + (previous.Dy * (double)current.Dy);
+            if (dot < 0d)
+            {
+                microCorrectionCount++;
+            }
+        }
+
+        double windowSeconds = Math.Max(0.001d, (orderedSamples[^1].TimestampUtcMs - orderedSamples[0].TimestampUtcMs) / 1000d);
+        return Clamp01(microCorrectionCount / windowSeconds);
+    }
+
+    private static double ComputeScrollBurstRateFromSamples(IReadOnlyList<MouseWheelDeltaSample> orderedSamples)
+    {
+        if (orderedSamples.Count < 2)
+        {
+            return 0d;
+        }
+
+        int burstCount = 0;
+        int clusterLength = 1;
+        for (int i = 1; i < orderedSamples.Count; i++)
+        {
+            long gapMs = orderedSamples[i].TimestampUtcMs - orderedSamples[i - 1].TimestampUtcMs;
+            if (gapMs <= 300L)
+            {
+                clusterLength++;
+            }
+            else
+            {
+                if (clusterLength >= 2)
+                {
+                    burstCount++;
+                }
+
+                clusterLength = 1;
+            }
+        }
+
+        if (clusterLength >= 2)
+        {
+            burstCount++;
+        }
+
+        double windowSeconds = Math.Max(0.001d, (orderedSamples[^1].TimestampUtcMs - orderedSamples[0].TimestampUtcMs) / 1000d);
+        return Clamp01(burstCount / windowSeconds);
+    }
+
+    private static double Clamp01(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return 0d;
+        }
+
+        return Math.Clamp(value, 0d, 1d);
+    }
+
+    private static double NormalizeNonNegative(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value) || value < 0d)
+        {
+            return 0d;
+        }
+
+        return value;
+    }
 }
 
-internal readonly record struct MouseMoveDeltaSample(long TimestampUtcMs, int Dx, int Dy);
+internal readonly record struct MouseMoveDeltaSample(long TimestampUtcMs, int Dx, int Dy)
+{
+    public double MagnitudePx => Math.Sqrt((Dx * (double)Dx) + (Dy * (double)Dy));
+}
 internal readonly record struct MouseWheelDeltaSample(long TimestampUtcMs, int Delta);

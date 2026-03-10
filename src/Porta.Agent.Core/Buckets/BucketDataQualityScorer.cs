@@ -21,7 +21,8 @@ internal static class BucketDataQualityScorer
             || bucket.Mouse.WheelSampleCount > 0;
         bool focusAvailable = bucket.Focus.FocusEvents.Count > 0
             || bucket.Focus.ObservedIntervalCount > 0;
-        bool idleAvailable = bucket.Idle.Samples.Count > 0
+        bool idleAvailable = bucket.Idle.ObservationCount > 0
+            || bucket.Idle.Samples.Count > 0
             || bucket.Idle.ObservedIntervalCount > 0;
 
         var missing = new List<string>(4);

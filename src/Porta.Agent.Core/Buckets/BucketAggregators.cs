@@ -93,25 +93,95 @@ internal static class BucketAggregators
         BucketBuffer bucket,
         long sliceStartUtcMs,
         long sliceEndUtcMs,
+        bool useTelemetrySummaries,
         int keydownCount,
         int backspaceCount,
+        double keyboardIkiMeanMs,
+        double keyboardIkiStdMs,
+        double keyboardIkiCv,
+        int keyboardBurstCount,
+        double keyboardBurstRate,
+        int keyboardCorrectionSpikeCount,
+        double keyboardCorrectionSpikeRate,
         int mouseMoveDx,
         int mouseMoveDy,
+        int mouseMoveSampleCount,
+        double mousePathLengthPx,
+        double mouseSpeedMeanPxPerSec,
+        double mouseJerkP95,
+        int mouseMicroCorrectionCount,
+        double mouseMicroCorrectionRate,
         int mouseWheelDelta,
+        int mouseWheelEventCount,
+        int mouseScrollBurstCount,
+        double mouseScrollBurstRate,
+        double mouseScrollSpeedMean,
         string? focusAppHash,
-        double idleSeconds)
+        double idleSeconds,
+        int idleObservationCount,
+        double idleSecondsWithinWindow,
+        int microIdleCount,
+        double microIdleSeconds,
+        double breakSecondsWithinWindow,
+        bool shortIdleBoundaryObserved)
     {
-        if (keydownCount > 0 || backspaceCount > 0)
+        double sliceWindowSeconds = Math.Max(0.001d, (sliceEndUtcMs - sliceStartUtcMs) / 1000d);
+        bool hasKeyboardSummary = useTelemetrySummaries
+            && (keydownCount > 0
+                || backspaceCount > 0
+                || keyboardBurstCount > 0
+                || keyboardCorrectionSpikeCount > 0
+                || keyboardIkiMeanMs > 0d
+                || keyboardIkiStdMs > 0d
+                || keyboardIkiCv > 0d
+                || keyboardBurstRate > 0d
+                || keyboardCorrectionSpikeRate > 0d);
+        if (hasKeyboardSummary)
+        {
+            bucket.Keyboard.RecordTelemetrySummary(
+                keydownCount,
+                backspaceCount,
+                keyboardIkiMeanMs,
+                keyboardIkiStdMs,
+                keyboardBurstCount,
+                keyboardCorrectionSpikeCount,
+                sliceWindowSeconds);
+        }
+        else if (keydownCount > 0 || backspaceCount > 0)
         {
             bucket.Keyboard.RecordAggregatedCounts(sliceStartUtcMs, sliceEndUtcMs, keydownCount, backspaceCount);
         }
 
-        if (mouseMoveDx != 0 || mouseMoveDy != 0)
+        bool hasMouseSummary = useTelemetrySummaries
+            && (mouseMoveSampleCount > 0
+                || mouseWheelEventCount > 0
+                || mouseMicroCorrectionCount > 0
+                || mouseScrollBurstCount > 0
+                || mousePathLengthPx > 0d
+                || mouseSpeedMeanPxPerSec > 0d
+                || mouseJerkP95 > 0d
+                || mouseMicroCorrectionRate > 0d
+                || mouseScrollBurstRate > 0d
+                || mouseScrollSpeedMean > 0d);
+        if (hasMouseSummary)
+        {
+            bucket.Mouse.RecordTelemetrySummary(
+                mouseMoveSampleCount,
+                mousePathLengthPx,
+                mouseSpeedMeanPxPerSec,
+                mouseJerkP95,
+                mouseMicroCorrectionCount,
+                mouseWheelEventCount,
+                mouseScrollBurstCount,
+                mouseScrollSpeedMean,
+                sliceWindowSeconds);
+        }
+        else if (mouseMoveDx != 0 || mouseMoveDy != 0)
         {
             bucket.Mouse.RecordAggregatedMove(sliceStartUtcMs, sliceEndUtcMs, mouseMoveDx, mouseMoveDy);
         }
 
-        if (mouseWheelDelta != 0)
+        if (!hasMouseSummary && mouseWheelDelta != 0)
         {
             bucket.Mouse.RecordAggregatedWheel(sliceStartUtcMs, sliceEndUtcMs, mouseWheelDelta);
         }
@@ -121,7 +191,25 @@ internal static class BucketAggregators
             bucket.Focus.RecordObservedInterval(sliceStartUtcMs, sliceEndUtcMs, focusAppHash);
         }
 
-        if (idleSeconds > 0d)
+        bool hasIdleSummary = useTelemetrySummaries
+            && (idleObservationCount > 0
+                || idleSecondsWithinWindow > 0d
+                || microIdleCount > 0
+                || microIdleSeconds > 0d
+                || breakSecondsWithinWindow > 0d
+                || shortIdleBoundaryObserved);
+        if (hasIdleSummary)
+        {
+            bucket.Idle.RecordTelemetrySummary(
+                idleObservationCount,
+                idleSeconds,
+                idleSecondsWithinWindow,
+                microIdleCount,
+                microIdleSeconds,
+                breakSecondsWithinWindow,
+                shortIdleBoundaryObserved);
+        }
+        else if (idleSeconds > 0d)
         {
             bucket.Idle.RecordObservedInterval(sliceStartUtcMs, sliceEndUtcMs, idleSeconds);
         }

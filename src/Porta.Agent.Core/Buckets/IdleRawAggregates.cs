@@ -4,19 +4,34 @@ internal sealed class IdleRawAggregates
 {
     private const double MicroIdleMinSeconds = 3d;
     private const double MicroIdleMaxSeconds = 15d;
+    private const double ShortIdleMinSeconds = 2d;
+    private const double ShortIdleMaxSeconds = 30d;
     private const double TrueBreakMinSeconds = 120d;
 
     private readonly List<IdleSamplePoint> _samples = [];
     private readonly List<ObservedIdleInterval> _observedIntervals = [];
     private readonly HashSet<IdleSampleKey> _seenSamples = [];
     private readonly HashSet<ObservedIdleIntervalKey> _seenObservedIntervals = [];
+    private bool _hasTelemetrySummary;
+    private int _summaryObservationCount;
+    private double _summaryEndIdleSeconds;
+    private double _summaryIdleSecondsWithinWindow;
+    private int _summaryMicroIdleCount;
+    private double _summaryMicroIdleSeconds;
+    private double _summaryBreakSeconds;
+    private bool _summaryShortIdleBoundaryObserved;
 
     public IReadOnlyList<IdleSamplePoint> Samples => _samples;
     public int ObservedIntervalCount => _observedIntervals.Count;
+    public int ObservationCount => _summaryObservationCount > 0
+        ? _summaryObservationCount
+        : _samples.Count + _observedIntervals.Count;
     public double IdleSeconds { get; private set; }
+    public double IdleSecondsWithinWindow { get; private set; }
     public int MicroIdleCount { get; private set; }
     public double MicroIdleSeconds { get; private set; }
     public double BreakSeconds { get; private set; }
+    public bool ShortIdleBoundaryObserved { get; private set; }
 
     public void RecordSample(long tsUtcMs, double idleSeconds)
     {
@@ -49,15 +64,51 @@ internal sealed class IdleRawAggregates
         }
     }
 
+    public void RecordTelemetrySummary(
+        int observationCount,
+        double endIdleSeconds,
+        double idleSecondsWithinWindow,
+        int microIdleCount,
+        double microIdleSeconds,
+        double breakSecondsWithinWindow,
+        bool shortIdleBoundaryObserved)
+    {
+        _hasTelemetrySummary = true;
+        _summaryObservationCount += Math.Max(0, observationCount);
+        _summaryEndIdleSeconds += NormalizeNonNegative(endIdleSeconds);
+        _summaryIdleSecondsWithinWindow += NormalizeNonNegative(idleSecondsWithinWindow);
+        _summaryMicroIdleCount += Math.Max(0, microIdleCount);
+        _summaryMicroIdleSeconds += NormalizeNonNegative(microIdleSeconds);
+        _summaryBreakSeconds += NormalizeNonNegative(breakSecondsWithinWindow);
+        _summaryShortIdleBoundaryObserved |= shortIdleBoundaryObserved;
+    }
+
     public void RecomputeDerivedMetrics(long bucketStartUtcMs, long bucketEndUtcMs)
     {
         IdleSeconds = 0d;
+        IdleSecondsWithinWindow = 0d;
         MicroIdleCount = 0;
         MicroIdleSeconds = 0d;
         BreakSeconds = 0d;
+        ShortIdleBoundaryObserved = false;
 
         if (bucketEndUtcMs <= bucketStartUtcMs)
         {
+            return;
+        }
+
+        if (_hasTelemetrySummary)
+        {
+            IdleSeconds = NormalizeNonNegative(_summaryEndIdleSeconds);
+            IdleSecondsWithinWindow = NormalizeNonNegative(_summaryIdleSecondsWithinWindow);
+            MicroIdleCount = Math.Max(0, _summaryMicroIdleCount);
+            MicroIdleSeconds = Math.Min(
+                NormalizeNonNegative(_summaryMicroIdleSeconds),
+                IdleSecondsWithinWindow);
+            BreakSeconds = Math.Min(
+                NormalizeNonNegative(_summaryBreakSeconds),
+                IdleSecondsWithinWindow);
+            ShortIdleBoundaryObserved = _summaryShortIdleBoundaryObserved || MicroIdleSeconds >= ShortIdleMinSeconds;
             return;
         }
 
@@ -88,15 +139,20 @@ internal sealed class IdleRawAggregates
                 }
 
                 double overlapSeconds = (overlapEnd - overlapStart) / 1000d;
-                if (current.IdleSeconds >= MicroIdleMinSeconds)
+                if (current.IdleSeconds > 0d)
                 {
-                    IdleSeconds += overlapSeconds;
+                    IdleSecondsWithinWindow += overlapSeconds;
                 }
 
                 bool isMicro = IsMicro(current.IdleSeconds);
                 if (isMicro)
                 {
                     MicroIdleSeconds += overlapSeconds;
+                }
+
+                if (IsShortIdle(current.IdleSeconds))
+                {
+                    ShortIdleBoundaryObserved = true;
                 }
 
                 // Frozen count rule:
@@ -115,7 +171,7 @@ internal sealed class IdleRawAggregates
             }
         }
 
-        IdleSeconds = NormalizeNonNegative(IdleSeconds);
+        IdleSecondsWithinWindow = NormalizeNonNegative(IdleSecondsWithinWindow);
         MicroIdleSeconds = NormalizeNonNegative(MicroIdleSeconds);
         BreakSeconds = NormalizeNonNegative(BreakSeconds);
 
@@ -128,11 +184,16 @@ internal sealed class IdleRawAggregates
                 continue;
             }
 
-            IdleSeconds += observedSeconds;
+            IdleSecondsWithinWindow += observedSeconds;
             if (IsMicro(observedSeconds))
             {
                 MicroIdleCount++;
                 MicroIdleSeconds += observedSeconds;
+            }
+
+            if (IsShortIdle(observedSeconds))
+            {
+                ShortIdleBoundaryObserved = true;
             }
 
             if (observedSeconds >= TrueBreakMinSeconds)
@@ -141,7 +202,8 @@ internal sealed class IdleRawAggregates
             }
         }
 
-        IdleSeconds = NormalizeNonNegative(IdleSeconds);
+        IdleSeconds = NormalizeNonNegative(IdleSecondsWithinWindow);
+        IdleSecondsWithinWindow = NormalizeNonNegative(IdleSecondsWithinWindow);
         MicroIdleSeconds = NormalizeNonNegative(MicroIdleSeconds);
         BreakSeconds = NormalizeNonNegative(BreakSeconds);
     }
@@ -149,6 +211,11 @@ internal sealed class IdleRawAggregates
     private static bool IsMicro(double idleSeconds)
     {
         return idleSeconds >= MicroIdleMinSeconds && idleSeconds <= MicroIdleMaxSeconds;
+    }
+
+    private static bool IsShortIdle(double idleSeconds)
+    {
+        return idleSeconds >= ShortIdleMinSeconds && idleSeconds <= ShortIdleMaxSeconds;
     }
 
     private static double NormalizeNonNegative(double value)
