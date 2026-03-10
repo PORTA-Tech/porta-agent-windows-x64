@@ -10,7 +10,7 @@ public sealed class Phase10RolloutAuditTests
     private const int TypingOnlyScenarioBuckets = 72;
     private const int ReadingScenarioBuckets = 72;
     private const int QuickExcursionBuckets = 10;
-    private const int LongAwayBuckets = 40;
+    private const int LongAwayBuckets = 65;
     private const int HighTrustSuppressionSearchBuckets = 360;
 
     private static readonly ScriptedBucketInput FocusedWork = new(

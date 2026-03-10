@@ -10,7 +10,7 @@ public sealed class Phase09ValidationHarnessTests
     private const int TypingOnlyScenarioBuckets = 96;
     private const int ReadingOnlyScenarioBuckets = 96;
     private const int QuickExcursionBuckets = 10;
-    private const int LongAwayBuckets = 40;
+    private const int LongAwayBuckets = 65;
     private const int MediumTrustBreakSearchBuckets = 520;
     private const int HighTrustSuppressionSearchBuckets = 360;
 

@@ -65,7 +65,7 @@ public static class PortaExecutionConstants
         public const double IdleResetSeconds = 180.0;
         public const double IdleDecayPerBucketSeconds = 2.5;
         public const double ContextShiftGraceSeconds = 60.0;
-        public const double ContextShiftResetSeconds = 180.0;
+        public const double ContextShiftResetSeconds = 300.0;
         public const double ContextShiftDecayPerBucketSeconds = 5.0;
         public const double InstabilityResetSeconds = 180.0;
         public const double InstabilityDecayPerBucketSeconds = 5.0;
