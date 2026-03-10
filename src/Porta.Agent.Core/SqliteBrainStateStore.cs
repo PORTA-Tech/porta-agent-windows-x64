@@ -1062,11 +1062,24 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
             string stateFlagsJson = ReadStringOrFallback(reader, 5, "{\"schema_ver\":1}");
             bool overloadActive = false;
+            double taskContinuityScore = 0d;
+            double taskContinuitySeconds = ReadDoubleOrFallback(reader, 3, 0d);
+            string continuityState = "reset";
             try
             {
                 using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
                 JsonElement root = doc.RootElement;
                 overloadActive = TryReadBoolProperty(root, "overload_active", out bool parsed) && parsed;
+                taskContinuityScore = TryReadDoubleProperty(root, "task_continuity_score", out double parsedContinuityScore)
+                    ? Math.Clamp(parsedContinuityScore, 0d, 1d)
+                    : 0d;
+                taskContinuitySeconds = TryReadDoubleProperty(root, "task_continuity_seconds", out double parsedContinuitySeconds)
+                    ? Math.Max(0d, parsedContinuitySeconds)
+                    : taskContinuitySeconds;
+                continuityState = TryReadStringProperty(root, "continuity_state", out string? parsedContinuityState)
+                    && !string.IsNullOrWhiteSpace(parsedContinuityState)
+                        ? parsedContinuityState.Trim().ToLowerInvariant()
+                        : continuityState;
             }
             catch
             {
@@ -1111,7 +1124,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 BreakDeliveryBoundaryReached: breakDeliveryBoundaryReached,
                 BreakDeliveryBoundaryKind: breakDeliveryBoundaryKind,
                 BreakMicrobreakEffectiveFocusSeconds: breakMicrobreakEffectiveFocusSeconds,
-                BreakShortBreakEffectiveFocusSeconds: breakShortBreakEffectiveFocusSeconds);
+                BreakShortBreakEffectiveFocusSeconds: breakShortBreakEffectiveFocusSeconds,
+                TaskContinuityScore: taskContinuityScore,
+                TaskContinuitySeconds: taskContinuitySeconds,
+                ContinuityState: continuityState);
         }
     }
 

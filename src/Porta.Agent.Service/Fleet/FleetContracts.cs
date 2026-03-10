@@ -1,0 +1,58 @@
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
+
+namespace Porta.Agent.Service.Fleet;
+
+internal sealed record MachineSummaryReportPayload(
+    [property: JsonPropertyName("machineId")] string MachineId,
+    [property: JsonPropertyName("machineName")] string MachineName,
+    [property: JsonPropertyName("userName")] string UserName,
+    [property: JsonPropertyName("agentVersion")] string AgentVersion,
+    [property: JsonPropertyName("schemaVersion")] string SchemaVersion,
+    [property: JsonPropertyName("policyVersion")] string PolicyVersion,
+    [property: JsonPropertyName("reportedAtUtc")] string ReportedAtUtc,
+    [property: JsonPropertyName("agentRunning")] bool AgentRunning,
+    [property: JsonPropertyName("userSessionConnected")] bool UserSessionConnected,
+    [property: JsonPropertyName("activityDetected")] bool ActivityDetected,
+    [property: JsonPropertyName("lastActivityUtc")] string? LastActivityUtc,
+    [property: JsonPropertyName("userAgentHeartbeatUtc")] string? UserAgentHeartbeatUtc,
+    [property: JsonPropertyName("captureContext")] string CaptureContext,
+    [property: JsonPropertyName("keyboardSignalActive")] bool KeyboardSignalActive,
+    [property: JsonPropertyName("mouseSignalActive")] bool MouseSignalActive,
+    [property: JsonPropertyName("ownershipWarning")] string? OwnershipWarning,
+    [property: JsonPropertyName("captureFailureReason")] string? CaptureFailureReason,
+    [property: JsonPropertyName("lastError")] string? LastError,
+    [property: JsonPropertyName("backendConnected")] bool BackendConnected,
+    [property: JsonPropertyName("localApiAuthReady")] bool LocalApiAuthReady,
+    [property: JsonPropertyName("dbMigrationFailed")] bool DbMigrationFailed,
+    [property: JsonPropertyName("taskContinuityScore")] double TaskContinuityScore,
+    [property: JsonPropertyName("taskContinuitySeconds")] double TaskContinuitySeconds,
+    [property: JsonPropertyName("continuityState")] string ContinuityState,
+    [property: JsonPropertyName("deepWorkActive")] bool DeepWorkActive,
+    [property: JsonPropertyName("overloadLikelihood")] double OverloadLikelihood,
+    [property: JsonPropertyName("overloadActive")] bool OverloadActive,
+    [property: JsonPropertyName("breakNeeded")] bool BreakNeeded,
+    [property: JsonPropertyName("breakPendingAction")] string? BreakPendingAction,
+    [property: JsonPropertyName("breakPendingReasonCode")] string? BreakPendingReasonCode,
+    [property: JsonPropertyName("calibrationStage")] string CalibrationStage,
+    [property: JsonPropertyName("trustTier")] string TrustTier,
+    [property: JsonPropertyName("modelConfidence")] double ModelConfidence,
+    [property: JsonPropertyName("signalQualityScore")] double? SignalQualityScore,
+    [property: JsonPropertyName("partialData")] bool PartialData,
+    [property: JsonPropertyName("missingMajorChannels")] IReadOnlyList<string> MissingMajorChannels);
+
+internal sealed record MachineActionEventPayload(
+    [property: JsonPropertyName("machineId")] string MachineId,
+    [property: JsonPropertyName("userName")] string UserName,
+    [property: JsonPropertyName("interventionId")] string InterventionId,
+    [property: JsonPropertyName("action")] string Action,
+    [property: JsonPropertyName("actionCategory")] string ActionCategory,
+    [property: JsonPropertyName("decisionState")] string DecisionState,
+    [property: JsonPropertyName("executionState")] string ExecutionState,
+    [property: JsonPropertyName("verifiedState")] string VerifiedState,
+    [property: JsonPropertyName("timestampUtc")] string TimestampUtc,
+    [property: JsonPropertyName("appliedAtUtc")] string? AppliedAtUtc,
+    [property: JsonPropertyName("errorCode")] string? ErrorCode,
+    [property: JsonPropertyName("policyId")] string PolicyId,
+    [property: JsonPropertyName("whatChanged")] string? WhatChanged,
+    [property: JsonPropertyName("howToUndo")] string? HowToUndo);

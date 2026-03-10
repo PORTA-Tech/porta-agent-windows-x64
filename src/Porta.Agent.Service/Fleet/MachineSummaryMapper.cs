@@ -1,0 +1,199 @@
+using System;
+using System.Linq;
+using System.Runtime.InteropServices;
+using Porta.Agent.Core;
+
+namespace Porta.Agent.Service.Fleet;
+
+internal sealed class MachineSummaryMapper
+{
+    private readonly string _machineName = Environment.MachineName;
+
+    public string ResolveUserName(AgentServiceStatusSnapshot status)
+    {
+        if (!TryParseSessionId(status.UserAgentSessionId, out int sessionId))
+        {
+            return "unknown";
+        }
+
+        string? userName = QuerySessionInfo(sessionId, WtsInfoClass.WTSUserName);
+        if (string.IsNullOrWhiteSpace(userName))
+        {
+            return "unknown";
+        }
+
+        string? domainName = QuerySessionInfo(sessionId, WtsInfoClass.WTSDomainName);
+        return string.IsNullOrWhiteSpace(domainName)
+            ? userName.Trim()
+            : $"{domainName.Trim()}\\{userName.Trim()}";
+    }
+
+    public MachineSummaryReportPayload Map(
+        AgentServiceStatusSnapshot status,
+        AgentLatestStateDetails? latestState,
+        string userName,
+        bool backendConnected,
+        DateTimeOffset reportedAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+
+        double taskContinuityScore = Math.Clamp(latestState?.TaskContinuityScore ?? 0d, 0d, 1d);
+        double taskContinuitySeconds = Math.Max(
+            0d,
+            latestState?.TaskContinuitySeconds
+            ?? latestState?.SustainedAttentionDurationSec
+            ?? 0d);
+        string continuityState = NormalizeContinuityState(latestState?.ContinuityState);
+        bool activityDetected = status.KeyboardSignalActive || status.MouseSignalActive;
+        bool userSessionConnected =
+            string.Equals(status.CaptureContext, "UserSession", StringComparison.Ordinal)
+            && status.UserAgentHeartbeatUpdatedAtUtc.HasValue;
+
+        return new MachineSummaryReportPayload(
+            MachineId: _machineName,
+            MachineName: _machineName,
+            UserName: string.IsNullOrWhiteSpace(userName) ? "unknown" : userName.Trim(),
+            AgentVersion: status.AgentVersion,
+            SchemaVersion: status.SchemaVersion,
+            PolicyVersion: status.PolicyVersion,
+            ReportedAtUtc: ToUtcString(reportedAtUtc),
+            AgentRunning: status.ServiceRunning,
+            UserSessionConnected: userSessionConnected,
+            ActivityDetected: activityDetected,
+            LastActivityUtc: ToUtcStringOrNull(status.LastInputEventUtc),
+            UserAgentHeartbeatUtc: ToUtcStringOrNull(status.UserAgentHeartbeatUpdatedAtUtc),
+            CaptureContext: NormalizeCaptureContext(status.CaptureContext),
+            KeyboardSignalActive: status.KeyboardSignalActive,
+            MouseSignalActive: status.MouseSignalActive,
+            OwnershipWarning: NullIfWhiteSpace(status.OwnershipWarning),
+            CaptureFailureReason: NullIfWhiteSpace(status.CaptureFailureReason),
+            LastError: NullIfWhiteSpace(status.LastError),
+            BackendConnected: backendConnected || status.BackendConnected,
+            LocalApiAuthReady: status.LocalApiAuthReady,
+            DbMigrationFailed: status.DbMigrationFailed,
+            TaskContinuityScore: taskContinuityScore,
+            TaskContinuitySeconds: taskContinuitySeconds,
+            ContinuityState: continuityState,
+            DeepWorkActive: status.DeepWorkActive,
+            OverloadLikelihood: Math.Clamp(status.OverloadLikelihood, 0d, 1d),
+            OverloadActive: status.OverloadActive,
+            BreakNeeded: !string.IsNullOrWhiteSpace(latestState?.BreakPendingAction),
+            BreakPendingAction: NullIfWhiteSpace(latestState?.BreakPendingAction),
+            BreakPendingReasonCode: NullIfWhiteSpace(latestState?.BreakPendingReasonCode),
+            CalibrationStage: NormalizeCalibrationStage(status.CalibrationStage),
+            TrustTier: NormalizeTrustTier(status.TrustTier),
+            ModelConfidence: Math.Clamp(latestState?.Confidence ?? 0d, 0d, 1d),
+            SignalQualityScore: latestState?.CurrentQualityScore is double score
+                ? Math.Clamp(score, 0d, 1d)
+                : null,
+            PartialData: latestState?.PartialData == true,
+            MissingMajorChannels: latestState?.MissingMajorChannels?
+                .Where(static value => !string.IsNullOrWhiteSpace(value))
+                .Select(static value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+                ?? Array.Empty<string>());
+    }
+
+    private static string NormalizeCaptureContext(string? captureContext) =>
+        captureContext?.Trim() switch
+        {
+            "UserSession" => "UserSession",
+            "ServiceSession" => "ServiceSession",
+            _ => "Unknown"
+        };
+
+    private static string NormalizeContinuityState(string? state) =>
+        state?.Trim().ToLowerInvariant() switch
+        {
+            "keep" => "keep",
+            "pause" => "pause",
+            "decay" => "decay",
+            _ => "reset"
+        };
+
+    private static string NormalizeCalibrationStage(string? stage) =>
+        stage?.Trim().ToLowerInvariant() switch
+        {
+            "provisional" => "provisional",
+            "calibrated" => "calibrated",
+            _ => "cold"
+        };
+
+    private static string NormalizeTrustTier(string? trustTier) =>
+        trustTier?.Trim().ToLowerInvariant() switch
+        {
+            "medium" => "medium",
+            "high" => "high",
+            _ => "low"
+        };
+
+    private static string ToUtcString(DateTimeOffset value) =>
+        value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+
+    private static string? ToUtcStringOrNull(DateTimeOffset? value) =>
+        value.HasValue ? ToUtcString(value.Value) : null;
+
+    private static string? NullIfWhiteSpace(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static bool TryParseSessionId(string? sessionId, out int parsed)
+    {
+        parsed = 0;
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return false;
+        }
+
+        const string prefix = "session-";
+        if (!sessionId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return int.TryParse(sessionId[prefix.Length..], out parsed) && parsed >= 0;
+    }
+
+    private static string? QuerySessionInfo(int sessionId, WtsInfoClass infoClass)
+    {
+        if (!WTSQuerySessionInformation(IntPtr.Zero, sessionId, infoClass, out IntPtr buffer, out int bytesReturned)
+            || buffer == IntPtr.Zero
+            || bytesReturned <= 1)
+        {
+            return null;
+        }
+
+        try
+        {
+            string? value = Marshal.PtrToStringUni(buffer);
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+        finally
+        {
+            WTSFreeMemory(buffer);
+        }
+    }
+
+    [DllImport("Wtsapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool WTSQuerySessionInformation(
+        IntPtr hServer,
+        int sessionId,
+        WtsInfoClass wtsInfoClass,
+        out IntPtr ppBuffer,
+        out int pBytesReturned);
+
+    [DllImport("Wtsapi32.dll")]
+    private static extern void WTSFreeMemory(IntPtr memory);
+
+    private enum WtsInfoClass
+    {
+        WTSInitialProgram,
+        WTSApplicationName,
+        WTSWorkingDirectory,
+        WTSOEMId,
+        WTSSessionId,
+        WTSUserName,
+        WTSWinStationName,
+        WTSDomainName
+    }
+}

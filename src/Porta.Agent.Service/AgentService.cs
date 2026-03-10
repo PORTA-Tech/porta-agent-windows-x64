@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Porta.Agent.Core;
 using Porta.Agent.Core.Db;
 using Porta.Agent.Core.Outputs;
+using Porta.Agent.Service.Fleet;
 using Porta.Agent.LocalApi;
 
 namespace Porta.Agent.Service;
@@ -54,6 +55,11 @@ internal sealed class AgentService : IHostedService, IDisposable
             return controller;
         });
         builder.Services.AddHostedService<BucketFinalizerWorker>();
+        builder.Services.AddSingleton<ControlPlaneClient>();
+        builder.Services.AddSingleton<ControlPlaneReporterStateStore>();
+        builder.Services.AddSingleton<MachineSummaryMapper>();
+        builder.Services.AddSingleton<MachineActionMapper>();
+        builder.Services.AddHostedService<ControlPlaneReporter>();
 
         _localApiApp = builder.Build();
         _localApiApp.MapPortaLocalApi(settings);

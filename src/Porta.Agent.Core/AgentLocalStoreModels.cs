@@ -120,7 +120,10 @@ public sealed record AgentLatestStateDetails(
     bool? BreakDeliveryBoundaryReached = null,
     string? BreakDeliveryBoundaryKind = null,
     double? BreakMicrobreakEffectiveFocusSeconds = null,
-    double? BreakShortBreakEffectiveFocusSeconds = null);
+    double? BreakShortBreakEffectiveFocusSeconds = null,
+    double? TaskContinuityScore = null,
+    double? TaskContinuitySeconds = null,
+    string? ContinuityState = null);
 
 public sealed record AgentSettingsState(
     string RegulationIntensity,
