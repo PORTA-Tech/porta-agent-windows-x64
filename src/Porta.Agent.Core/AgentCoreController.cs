@@ -433,7 +433,7 @@ public sealed class AgentCoreController : IAgentCoreController
         }
 
         int schemaVer = packet.SchemaVer;
-        if (schemaVer != 1)
+        if (schemaVer is not 1 and not 2)
         {
             throw new ArgumentException("unsupported_schema_ver", nameof(packet));
         }
@@ -480,6 +480,32 @@ public sealed class AgentCoreController : IAgentCoreController
         double mouseMoveDx = ClampFiniteDouble(packet.MouseMoveDx, -8192d, 8192d);
         double mouseMoveDy = ClampFiniteDouble(packet.MouseMoveDy, -8192d, 8192d);
         double idleSeconds = ClampNonNegativeDouble(packet.IdleSeconds, 1800d);
+        double keyboardIkiMeanMs = ClampNonNegativeNullableDouble(packet.KeyboardIkiMeanMs, 5000d);
+        double keyboardIkiStdMs = ClampNonNegativeNullableDouble(packet.KeyboardIkiStdMs, 5000d);
+        double keyboardIkiCv = ClampNonNegativeNullableDouble(packet.KeyboardIkiCv, 10d);
+        int keyboardBurstCount = ClampNonNegativeInt(packet.KeyboardBurstCount, 500);
+        double keyboardBurstRate = ClampNonNegativeNullableDouble(packet.KeyboardBurstRate, 100d);
+        int keyboardCorrectionSpikeCount = ClampNonNegativeInt(packet.KeyboardCorrectionSpikeCount, 500);
+        double keyboardCorrectionSpikeRate = ClampNonNegativeNullableDouble(packet.KeyboardCorrectionSpikeRate, 100d);
+        int mouseMoveSampleCount = ClampNonNegativeInt(packet.MouseMoveSampleCount, 5000);
+        double mousePathLengthPx = ClampNonNegativeNullableDouble(packet.MousePathLengthPx, 100000d);
+        double mouseSpeedMeanPxPerSec = ClampNonNegativeNullableDouble(packet.MouseSpeedMeanPxPerSec, 100000d);
+        double mouseJerkP95 = ClampNonNegativeNullableDouble(packet.MouseJerkP95, 1000000d);
+        int mouseMicroCorrectionCount = ClampNonNegativeInt(packet.MouseMicroCorrectionCount, 5000);
+        double mouseMicroCorrectionRate = ClampNonNegativeNullableDouble(packet.MouseMicroCorrectionRate, 1000d);
+        int mouseWheelEventCount = ClampNonNegativeInt(packet.MouseWheelEventCount, 5000);
+        int mouseScrollBurstCount = ClampNonNegativeInt(packet.MouseScrollBurstCount, 5000);
+        double mouseScrollBurstRate = ClampNonNegativeNullableDouble(packet.MouseScrollBurstRate, 1000d);
+        double mouseScrollSpeedMean = ClampNonNegativeNullableDouble(packet.MouseScrollSpeedMean, 100000d);
+        int focusObservationCount = ClampNonNegativeInt(packet.FocusObservationCount, 600);
+        int focusSwitchCount = ClampNonNegativeInt(packet.FocusSwitchCount, 200);
+        int focusActiveAppCount = ClampNonNegativeInt(packet.FocusActiveAppCount, 200);
+        double focusAppEntropy = ClampNonNegativeNullableDouble(packet.FocusAppEntropy, 10d);
+        int idleObservationCount = ClampNonNegativeInt(packet.IdleObservationCount, 600);
+        double idleSecondsWithinWindow = ClampNonNegativeNullableDouble(packet.IdleSecondsWithinWindow, 1800d);
+        int microIdleCount = ClampNonNegativeInt(packet.MicroIdleCount, 200);
+        double microIdleSeconds = ClampNonNegativeNullableDouble(packet.MicroIdleSeconds, 1800d);
+        double breakSecondsWithinWindow = ClampNonNegativeNullableDouble(packet.BreakSecondsWithinWindow, 1800d);
 
         lock (_gate)
         {
@@ -522,7 +548,35 @@ public sealed class AgentCoreController : IAgentCoreController
                 MouseMoveDy: mouseMoveDy,
                 FocusAppHash: string.IsNullOrWhiteSpace(focusAppHash) ? null : focusAppHash,
                 IdleSeconds: idleSeconds,
-                LastInputEventUtc: packet.LastInputEventUtc?.ToUniversalTime() ?? fallbackEventUtc));
+                LastInputEventUtc: packet.LastInputEventUtc?.ToUniversalTime() ?? fallbackEventUtc,
+                KeyboardIkiMeanMs: keyboardIkiMeanMs,
+                KeyboardIkiStdMs: keyboardIkiStdMs,
+                KeyboardIkiCv: keyboardIkiCv,
+                KeyboardBurstCount: keyboardBurstCount,
+                KeyboardBurstRate: keyboardBurstRate,
+                KeyboardCorrectionSpikeCount: keyboardCorrectionSpikeCount,
+                KeyboardCorrectionSpikeRate: keyboardCorrectionSpikeRate,
+                MouseMoveSampleCount: mouseMoveSampleCount,
+                MousePathLengthPx: mousePathLengthPx,
+                MouseSpeedMeanPxPerSec: mouseSpeedMeanPxPerSec,
+                MouseJerkP95: mouseJerkP95,
+                MouseMicroCorrectionCount: mouseMicroCorrectionCount,
+                MouseMicroCorrectionRate: mouseMicroCorrectionRate,
+                MouseWheelEventCount: mouseWheelEventCount,
+                MouseScrollBurstCount: mouseScrollBurstCount,
+                MouseScrollBurstRate: mouseScrollBurstRate,
+                MouseScrollSpeedMean: mouseScrollSpeedMean,
+                FocusObservationCount: focusObservationCount,
+                FocusSwitchCount: focusSwitchCount,
+                FocusActiveAppCount: focusActiveAppCount,
+                FocusAppEntropy: focusAppEntropy,
+                IdleObservationCount: idleObservationCount,
+                IdleSecondsWithinWindow: idleSecondsWithinWindow,
+                MicroIdleCount: microIdleCount,
+                MicroIdleSeconds: microIdleSeconds,
+                BreakSecondsWithinWindow: breakSecondsWithinWindow,
+                ShortIdleBoundaryObserved: packet.ShortIdleBoundaryObserved,
+                NotificationToastsEnabled: packet.NotificationToastsEnabled));
 
             if (packet.LastInputEventUtc is DateTimeOffset lastInputEventUtc)
             {
@@ -1814,6 +1868,16 @@ public sealed class AgentCoreController : IAgentCoreController
         }
 
         return Math.Min(value, max);
+    }
+
+    private static double ClampNonNegativeNullableDouble(double? value, double max)
+    {
+        if (!value.HasValue)
+        {
+            return 0d;
+        }
+
+        return ClampNonNegativeDouble(value.Value, max);
     }
 
     private static string NormalizeFocusHash(string? focusAppHash)

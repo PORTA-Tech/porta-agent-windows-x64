@@ -13,6 +13,7 @@ using System.Diagnostics;
 
 public sealed class UserAgentHost : BackgroundService, IDisposable
 {
+    private static readonly TimeSpan PassiveSamplingPeriod = TimeSpan.FromSeconds(1);
     private readonly ILogger<UserAgentHost> _logger;
     private readonly IUserAgentSessionContextStore _sessionContextStore;
     private readonly LocalApiClient _localApiClient = new();
@@ -79,7 +80,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             UserInterventionToastRenderer.UserTrayMode.Normal,
             "PORTA | Starting"));
 
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(Time.bucketSeconds));
+        using var timer = new PeriodicTimer(PassiveSamplingPeriod);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -87,9 +88,14 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
             if (_captureContext == UserAgentCaptureContexts.UserSession)
             {
-                await FlushSignalsAsync(stoppingToken).ConfigureAwait(false);
-                await PollPendingInterventionsAsync(stoppingToken).ConfigureAwait(false);
-                await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
+                DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+                SampleAmbientSignals(nowUtc);
+                if ((nowUtc - _windowStartUtc) >= TimeSpan.FromSeconds(Time.bucketSeconds))
+                {
+                    await FlushSignalsAsync(stoppingToken).ConfigureAwait(false);
+                    await PollPendingInterventionsAsync(stoppingToken).ConfigureAwait(false);
+                    await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
+                }
             }
 
             try
@@ -180,13 +186,20 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             return;
         }
 
+        SampleAmbientSignals(windowEndUtc);
         UserSessionSignalSnapshot snapshot = _signalAggregator.SnapshotAndReset();
         string sessionId = BuildSessionId(_sessionId);
-        string? focusAppHash = UserSessionNativeSignals.TryGetForegroundAppHash();
-        double idleSeconds = UserSessionNativeSignals.ReadIdleDurationSeconds();
+        double windowSeconds = Math.Max(0.001d, (windowEndUtc - windowStartUtc).TotalSeconds);
+        string? fallbackFocusAppHash = UserSessionNativeSignals.TryGetForegroundAppHash();
+        double fallbackIdleSeconds = UserSessionNativeSignals.ReadIdleDurationSeconds();
+        UserSessionKeyboardTelemetrySummary keyboard = snapshot.BuildKeyboardSummary(windowSeconds);
+        UserSessionMouseTelemetrySummary mouse = snapshot.BuildMouseSummary(windowSeconds);
+        UserSessionFocusTelemetrySummary focus = snapshot.BuildFocusSummary(windowStartUtc, windowEndUtc, fallbackFocusAppHash);
+        UserSessionIdleTelemetrySummary idle = snapshot.BuildIdleSummary(windowStartUtc, windowEndUtc, fallbackIdleSeconds);
+        bool? notificationToastsEnabled = ReadNotificationToastsEnabled();
 
         var request = new LocalApiInputSignalsRequest(
-            SchemaVer: 1,
+            SchemaVer: 2,
             AgentInstanceId: _agentInstanceId,
             SessionId: sessionId,
             WindowStartUtc: windowStartUtc,
@@ -196,9 +209,37 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             MouseWheelDelta: snapshot.MouseWheelDelta,
             MouseMoveDx: snapshot.MouseMoveDx,
             MouseMoveDy: snapshot.MouseMoveDy,
-            FocusAppHash: focusAppHash,
-            IdleSeconds: idleSeconds,
-            LastInputEventUtc: snapshot.LastInputEventUtc);
+            FocusAppHash: focus.DominantAppHash ?? fallbackFocusAppHash,
+            IdleSeconds: fallbackIdleSeconds,
+            LastInputEventUtc: snapshot.LastInputEventUtc,
+            KeyboardIkiMeanMs: keyboard.IkiMeanMs,
+            KeyboardIkiStdMs: keyboard.IkiStdMs,
+            KeyboardIkiCv: keyboard.IkiCv,
+            KeyboardBurstCount: keyboard.BurstCount,
+            KeyboardBurstRate: keyboard.BurstRate,
+            KeyboardCorrectionSpikeCount: keyboard.CorrectionSpikeCount,
+            KeyboardCorrectionSpikeRate: keyboard.CorrectionSpikeRate,
+            MouseMoveSampleCount: mouse.MoveSampleCount,
+            MousePathLengthPx: mouse.PathLengthPx,
+            MouseSpeedMeanPxPerSec: mouse.SpeedMeanPxPerSec,
+            MouseJerkP95: mouse.JerkP95,
+            MouseMicroCorrectionCount: mouse.MicroCorrectionCount,
+            MouseMicroCorrectionRate: mouse.MicroCorrectionRate,
+            MouseWheelEventCount: mouse.WheelEventCount,
+            MouseScrollBurstCount: mouse.ScrollBurstCount,
+            MouseScrollBurstRate: mouse.ScrollBurstRate,
+            MouseScrollSpeedMean: mouse.ScrollSpeedMean,
+            FocusObservationCount: focus.ObservationCount,
+            FocusSwitchCount: focus.SwitchCount,
+            FocusActiveAppCount: focus.ActiveAppCount,
+            FocusAppEntropy: focus.AppEntropy,
+            IdleObservationCount: idle.ObservationCount,
+            IdleSecondsWithinWindow: idle.IdleSecondsWithinWindow,
+            MicroIdleCount: idle.MicroIdleCount,
+            MicroIdleSeconds: idle.MicroIdleSeconds,
+            BreakSecondsWithinWindow: idle.BreakSecondsWithinWindow,
+            ShortIdleBoundaryObserved: idle.ShortIdleBoundaryObserved,
+            NotificationToastsEnabled: notificationToastsEnabled);
 
         if (!_localApiClient.IsConfigured)
         {
@@ -353,6 +394,20 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private void OnMouseWheelChanged(int delta, bool _)
     {
         _signalAggregator.RecordMouseWheel(delta, DateTimeOffset.UtcNow);
+    }
+
+    private void SampleAmbientSignals(DateTimeOffset sampleUtc)
+    {
+        _signalAggregator.RecordFocusObservation(UserSessionNativeSignals.TryGetForegroundAppHash(), sampleUtc);
+        _signalAggregator.RecordIdleObservation(UserSessionNativeSignals.ReadIdleDurationSeconds(), sampleUtc);
+    }
+
+    private bool? ReadNotificationToastsEnabled()
+    {
+        NotificationControllerSnapshotResult snapshotResult = _notificationController.GetSnapshot();
+        return snapshotResult.Succeeded
+            ? snapshotResult.Snapshot.ToastBannersEnabled
+            : null;
     }
 
     private void UpdateTrayState(UserInterventionToastRenderer.UserTrayVisualState state)

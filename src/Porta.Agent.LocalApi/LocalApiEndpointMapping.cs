@@ -158,7 +158,7 @@ public static class LocalApiEndpointMapping
 
         api.MapPost("/input/signals", (IAgentCoreController controller, LocalApiInputSignalsRequest? request) =>
         {
-            if (request is null || request.SchemaVer != 1)
+            if (request is null || (request.SchemaVer is not 1 and not 2))
             {
                 return Results.BadRequest(new LocalApiAckResponse(
                     Success: false,
@@ -208,7 +208,35 @@ public static class LocalApiEndpointMapping
                     MouseMoveDy: request.MouseMoveDy,
                     FocusAppHash: string.IsNullOrWhiteSpace(focusAppHash) ? null : focusAppHash,
                     IdleSeconds: request.IdleSeconds,
-                    LastInputEventUtc: request.LastInputEventUtc));
+                    LastInputEventUtc: request.LastInputEventUtc,
+                    KeyboardIkiMeanMs: request.KeyboardIkiMeanMs,
+                    KeyboardIkiStdMs: request.KeyboardIkiStdMs,
+                    KeyboardIkiCv: request.KeyboardIkiCv,
+                    KeyboardBurstCount: request.KeyboardBurstCount,
+                    KeyboardBurstRate: request.KeyboardBurstRate,
+                    KeyboardCorrectionSpikeCount: request.KeyboardCorrectionSpikeCount,
+                    KeyboardCorrectionSpikeRate: request.KeyboardCorrectionSpikeRate,
+                    MouseMoveSampleCount: request.MouseMoveSampleCount,
+                    MousePathLengthPx: request.MousePathLengthPx,
+                    MouseSpeedMeanPxPerSec: request.MouseSpeedMeanPxPerSec,
+                    MouseJerkP95: request.MouseJerkP95,
+                    MouseMicroCorrectionCount: request.MouseMicroCorrectionCount,
+                    MouseMicroCorrectionRate: request.MouseMicroCorrectionRate,
+                    MouseWheelEventCount: request.MouseWheelEventCount,
+                    MouseScrollBurstCount: request.MouseScrollBurstCount,
+                    MouseScrollBurstRate: request.MouseScrollBurstRate,
+                    MouseScrollSpeedMean: request.MouseScrollSpeedMean,
+                    FocusObservationCount: request.FocusObservationCount,
+                    FocusSwitchCount: request.FocusSwitchCount,
+                    FocusActiveAppCount: request.FocusActiveAppCount,
+                    FocusAppEntropy: request.FocusAppEntropy,
+                    IdleObservationCount: request.IdleObservationCount,
+                    IdleSecondsWithinWindow: request.IdleSecondsWithinWindow,
+                    MicroIdleCount: request.MicroIdleCount,
+                    MicroIdleSeconds: request.MicroIdleSeconds,
+                    BreakSecondsWithinWindow: request.BreakSecondsWithinWindow,
+                    ShortIdleBoundaryObserved: request.ShortIdleBoundaryObserved,
+                    NotificationToastsEnabled: request.NotificationToastsEnabled));
 
                 return Results.Ok(new LocalApiAckResponse(
                     Success: true,

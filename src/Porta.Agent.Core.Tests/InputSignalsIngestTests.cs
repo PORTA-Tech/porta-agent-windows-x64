@@ -15,7 +15,7 @@ public sealed class InputSignalsIngestTests
         DateTimeOffset lastInput = windowEnd.AddSeconds(2);
 
         controller.IngestInputSignals(new InputSignalsPacket(
-            SchemaVer: 1,
+            SchemaVer: 2,
             AgentInstanceId: "agent-1",
             SessionId: "session-1",
             WindowStartUtc: windowStart,
@@ -27,13 +27,41 @@ public sealed class InputSignalsIngestTests
             MouseMoveDy: -7d,
             FocusAppHash: "a1b2c3d4",
             IdleSeconds: 0.75d,
-            LastInputEventUtc: lastInput));
+            LastInputEventUtc: lastInput,
+            KeyboardIkiMeanMs: 115d,
+            KeyboardIkiStdMs: 20d,
+            KeyboardIkiCv: 0.17d,
+            KeyboardBurstCount: 2,
+            KeyboardBurstRate: 0.25d,
+            KeyboardCorrectionSpikeCount: 1,
+            KeyboardCorrectionSpikeRate: 0.12d,
+            MouseMoveSampleCount: 8,
+            MousePathLengthPx: 144d,
+            MouseSpeedMeanPxPerSec: 52d,
+            MouseJerkP95: 130d,
+            MouseMicroCorrectionCount: 2,
+            MouseMicroCorrectionRate: 0.2d,
+            MouseWheelEventCount: 2,
+            MouseScrollBurstCount: 1,
+            MouseScrollBurstRate: 0.12d,
+            MouseScrollSpeedMean: 240d,
+            FocusObservationCount: 5,
+            FocusSwitchCount: 2,
+            FocusActiveAppCount: 2,
+            FocusAppEntropy: 0.66d,
+            IdleObservationCount: 5,
+            IdleSecondsWithinWindow: 1.6d,
+            MicroIdleCount: 1,
+            MicroIdleSeconds: 4.5d,
+            BreakSecondsWithinWindow: 0d,
+            ShortIdleBoundaryObserved: true,
+            NotificationToastsEnabled: false));
 
         Assert.Equal(0, store.SnapshotWriteCount);
         Assert.Equal(1, store.InputSignalsIngestCount);
 
         InputSignalsPacket ingested = Assert.Single(store.IngestedInputSignals);
-        Assert.Equal(1, ingested.SchemaVer);
+        Assert.Equal(2, ingested.SchemaVer);
         Assert.Equal("agent-1", ingested.AgentInstanceId);
         Assert.Equal("session-1", ingested.SessionId);
         Assert.Equal(windowStart.ToUniversalTime().UtcDateTime, ingested.WindowStartUtc!.Value.UtcDateTime);
@@ -46,6 +74,34 @@ public sealed class InputSignalsIngestTests
         Assert.Equal("a1b2c3d4", ingested.FocusAppHash);
         Assert.Equal(0.75d, ingested.IdleSeconds, precision: 6);
         Assert.Equal(lastInput.ToUniversalTime().UtcDateTime, ingested.LastInputEventUtc!.Value.UtcDateTime);
+        Assert.Equal(115d, ingested.KeyboardIkiMeanMs);
+        Assert.Equal(20d, ingested.KeyboardIkiStdMs);
+        Assert.Equal(0.17d, ingested.KeyboardIkiCv);
+        Assert.Equal(2, ingested.KeyboardBurstCount);
+        Assert.Equal(0.25d, ingested.KeyboardBurstRate);
+        Assert.Equal(1, ingested.KeyboardCorrectionSpikeCount);
+        Assert.Equal(0.12d, ingested.KeyboardCorrectionSpikeRate);
+        Assert.Equal(8, ingested.MouseMoveSampleCount);
+        Assert.Equal(144d, ingested.MousePathLengthPx);
+        Assert.Equal(52d, ingested.MouseSpeedMeanPxPerSec);
+        Assert.Equal(130d, ingested.MouseJerkP95);
+        Assert.Equal(2, ingested.MouseMicroCorrectionCount);
+        Assert.Equal(0.2d, ingested.MouseMicroCorrectionRate);
+        Assert.Equal(2, ingested.MouseWheelEventCount);
+        Assert.Equal(1, ingested.MouseScrollBurstCount);
+        Assert.Equal(0.12d, ingested.MouseScrollBurstRate);
+        Assert.Equal(240d, ingested.MouseScrollSpeedMean);
+        Assert.Equal(5, ingested.FocusObservationCount);
+        Assert.Equal(2, ingested.FocusSwitchCount);
+        Assert.Equal(2, ingested.FocusActiveAppCount);
+        Assert.Equal(0.66d, ingested.FocusAppEntropy);
+        Assert.Equal(5, ingested.IdleObservationCount);
+        Assert.Equal(1.6d, ingested.IdleSecondsWithinWindow);
+        Assert.Equal(1, ingested.MicroIdleCount);
+        Assert.Equal(4.5d, ingested.MicroIdleSeconds);
+        Assert.Equal(0d, ingested.BreakSecondsWithinWindow);
+        Assert.True(ingested.ShortIdleBoundaryObserved);
+        Assert.False(ingested.NotificationToastsEnabled);
     }
 
     [Fact]

@@ -132,7 +132,7 @@ public sealed class LocalApiClient : IDisposable
             return null;
         }
 
-        if (request.SchemaVer != 1)
+        if (request.SchemaVer is not 1 and not 2)
         {
             return new LocalApiAckResponse(
                 Success: false,
