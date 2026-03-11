@@ -41,6 +41,51 @@ internal sealed record MachineSummaryReportPayload(
     [property: JsonPropertyName("partialData")] bool PartialData,
     [property: JsonPropertyName("missingMajorChannels")] IReadOnlyList<string> MissingMajorChannels);
 
+internal sealed record DeviceRegistrationRequestPayload(
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("machineName")] string MachineName,
+    [property: JsonPropertyName("deviceDisplayName")] string? DeviceDisplayName,
+    [property: JsonPropertyName("platform")] string Platform,
+    [property: JsonPropertyName("agentVersion")] string AgentVersion,
+    [property: JsonPropertyName("accountId")] string? AccountId,
+    [property: JsonPropertyName("orgId")] string? OrgId,
+    [property: JsonPropertyName("sessionToken")] string? SessionToken,
+    [property: JsonPropertyName("localProofToken")] string? LocalProofToken);
+
+internal sealed record DeviceAccountLinkRequestPayload(
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("accountId")] string AccountId,
+    [property: JsonPropertyName("orgId")] string OrgId,
+    [property: JsonPropertyName("sessionToken")] string? SessionToken,
+    [property: JsonPropertyName("localProofToken")] string? LocalProofToken);
+
+internal sealed record DeviceAccountUnlinkRequestPayload(
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("accountId")] string? AccountId,
+    [property: JsonPropertyName("orgId")] string? OrgId,
+    [property: JsonPropertyName("sessionToken")] string? SessionToken,
+    [property: JsonPropertyName("localProofToken")] string? LocalProofToken);
+
+internal sealed record DeviceProfilePayload(
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("orgId")] string? OrgId,
+    [property: JsonPropertyName("machineName")] string MachineName,
+    [property: JsonPropertyName("deviceDisplayName")] string DeviceDisplayName,
+    [property: JsonPropertyName("platform")] string Platform,
+    [property: JsonPropertyName("agentVersion")] string AgentVersion,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("firstSeenAt")] string FirstSeenAt,
+    [property: JsonPropertyName("lastSeenAt")] string LastSeenAt,
+    [property: JsonPropertyName("currentAccountId")] string? CurrentAccountId,
+    [property: JsonPropertyName("revokedAt")] string? RevokedAt,
+    [property: JsonPropertyName("createdAt")] string CreatedAt,
+    [property: JsonPropertyName("updatedAt")] string UpdatedAt);
+
+internal sealed record DeviceLinkResultPayload(
+    [property: JsonPropertyName("ok")] bool Ok,
+    [property: JsonPropertyName("linkState")] string LinkState,
+    [property: JsonPropertyName("device")] DeviceProfilePayload Device);
+
 internal sealed record MachineActionEventPayload(
     [property: JsonPropertyName("machineId")] string MachineId,
     [property: JsonPropertyName("userName")] string UserName,

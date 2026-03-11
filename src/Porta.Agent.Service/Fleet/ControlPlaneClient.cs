@@ -117,9 +117,74 @@ internal sealed class ControlPlaneClient : IDisposable
         }
     }
 
+    public async Task<DeviceLinkResultPayload?> RegisterDeviceAsync(
+        DeviceRegistrationRequestPayload request,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return await PostForResultAsync<DeviceRegistrationRequestPayload, DeviceLinkResultPayload>(
+            "api/device/register",
+            request,
+            token).ConfigureAwait(false);
+    }
+
+    public async Task<DeviceLinkResultPayload?> LinkDeviceAccountAsync(
+        DeviceAccountLinkRequestPayload request,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return await PostForResultAsync<DeviceAccountLinkRequestPayload, DeviceLinkResultPayload>(
+            "api/device/link-account",
+            request,
+            token).ConfigureAwait(false);
+    }
+
+    public async Task<DeviceLinkResultPayload?> UnlinkDeviceAccountAsync(
+        DeviceAccountUnlinkRequestPayload request,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return await PostForResultAsync<DeviceAccountUnlinkRequestPayload, DeviceLinkResultPayload>(
+            "api/device/unlink-account",
+            request,
+            token).ConfigureAwait(false);
+    }
+
     public void Dispose()
     {
         _httpClient?.Dispose();
+    }
+
+    private async Task<TResponse?> PostForResultAsync<TRequest, TResponse>(
+        string relativeUri,
+        TRequest request,
+        CancellationToken token)
+        where TRequest : class
+        where TResponse : class
+    {
+        if (_httpClient is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(
+                relativeUri,
+                request,
+                JsonOptions,
+                token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<TResponse>(JsonOptions, token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string? NormalizeHex(string? value)
