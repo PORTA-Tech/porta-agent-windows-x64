@@ -1,6 +1,22 @@
 using System.Diagnostics;
 using Porta.Agent.Common.Control;
 using Porta.Agent.Common.Environment;
+using Porta.Agent.ValidationRunner.Fleet;
+
+if (args.Length > 0 && string.Equals(args[0], "fleet-gates", StringComparison.OrdinalIgnoreCase))
+{
+    try
+    {
+        Environment.ExitCode = await FleetValidationRunner.RunAsync(args[1..]).ConfigureAwait(false);
+        return;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"FAIL fleet-gates {ex.Message}");
+        Environment.ExitCode = 1;
+        return;
+    }
+}
 
 long frequency = Stopwatch.Frequency;
 if (args.Length > 0 && long.TryParse(args[0], out long parsed) && parsed > 0)
