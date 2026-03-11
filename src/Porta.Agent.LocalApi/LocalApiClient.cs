@@ -274,6 +274,83 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    public async Task<LocalApiIdentityLinkResponse?> GetIdentityLinkAsync(CancellationToken token = default)
+    {
+        if (_settings == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            return await _httpClient.GetFromJsonAsync<LocalApiIdentityLinkResponse>("/v1/identity/link", token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LocalApiIdentityLinkResponse?> SetIdentityLinkAsync(
+        string accountId,
+        string orgId,
+        CancellationToken token = default)
+    {
+        if (_settings == null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(orgId))
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            var request = new LocalApiSetIdentityLinkRequest(accountId.Trim(), orgId.Trim());
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/identity/link", content, token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<LocalApiIdentityLinkResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LocalApiIdentityLinkResponse?> ClearIdentityLinkAsync(CancellationToken token = default)
+    {
+        if (_settings == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(string.Empty, Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/identity/unlink", content, token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<LocalApiIdentityLinkResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public Task<bool> PauseAsync(string? reason = null, DateTimeOffset? untilUtc = null, CancellationToken token = default)
     {
         return PostAsync("/v1/control/pause", new LocalApiPauseRequest(reason, untilUtc), token);

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Porta.Agent.Core;
 using Porta.Agent.Core.Security;
+using Porta.Agent.Common.Identity;
 using Porta.Agent.LocalApi.Mappers;
 
 namespace Porta.Agent.LocalApi;
@@ -418,6 +419,42 @@ public static class LocalApiEndpointMapping
                 info.UpdatedAtUtc);
         });
 
+        api.MapGet("/identity/link", (ILocalIdentityLinkStore identityLinkStore) =>
+        {
+            LocalIdentityLinkSnapshot snapshot = identityLinkStore.GetCurrent();
+            return Results.Ok(ToIdentityLinkResponse(snapshot));
+        });
+
+        api.MapPost("/identity/link", (ILocalIdentityLinkStore identityLinkStore, LocalApiSetIdentityLinkRequest? request) =>
+        {
+            string? normalizedAccountId = NormalizeGuid(request?.AccountId);
+            if (normalizedAccountId is null)
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_account_id",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            string? normalizedOrgId = NormalizeGuid(request?.OrgId);
+            if (normalizedOrgId is null)
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_org_id",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            LocalIdentityLinkSnapshot snapshot = identityLinkStore.SetLink(normalizedAccountId, normalizedOrgId);
+            return Results.Ok(ToIdentityLinkResponse(snapshot));
+        });
+
+        api.MapPost("/identity/unlink", (ILocalIdentityLinkStore identityLinkStore) =>
+        {
+            LocalIdentityLinkSnapshot snapshot = identityLinkStore.ClearLink();
+            return Results.Ok(ToIdentityLinkResponse(snapshot));
+        });
+
         api.MapPost("/control/pause", (IAgentCoreController controller, LocalApiPauseRequest? request) =>
         {
             controller.Pause(request?.Reason, request?.UntilUtc);
@@ -535,6 +572,18 @@ public static class LocalApiEndpointMapping
         return FocusHashPattern.IsMatch(focusHash);
     }
 
+    private static string? NormalizeGuid(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return Guid.TryParse(value.Trim(), out Guid guid)
+            ? guid.ToString("D")
+            : null;
+    }
+
     private static LocalApiCurrentSnapshotResponse ToSnapshotResponse(
         AgentBrainSnapshot snapshot,
         AgentLatestStateDetails? latestState = null)
@@ -555,5 +604,16 @@ public static class LocalApiEndpointMapping
             state.BaselineRecalibrationStartedUtc,
             state.BaselineRecalibrationUntilUtc,
             state.UpdatedAtUtc);
+    }
+
+    private static LocalApiIdentityLinkResponse ToIdentityLinkResponse(LocalIdentityLinkSnapshot snapshot)
+    {
+        return new LocalApiIdentityLinkResponse(
+            snapshot.DeviceId,
+            snapshot.AccountId,
+            snapshot.OrgId,
+            snapshot.LinkStatus,
+            snapshot.LinkedAtUtc,
+            snapshot.UpdatedAtUtc);
     }
 }

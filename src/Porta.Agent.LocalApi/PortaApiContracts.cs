@@ -391,6 +391,18 @@ public sealed record LocalApiUpdateSettingsRequest(
     bool? AnimationReductionEnabled,
     bool? TemporaryAppRestrictionEnabled);
 
+public sealed record LocalApiIdentityLinkResponse(
+    [property: JsonPropertyName("device_id")] string DeviceId,
+    [property: JsonPropertyName("account_id")] string? AccountId,
+    [property: JsonPropertyName("org_id")] string? OrgId,
+    [property: JsonPropertyName("link_status")] string LinkStatus,
+    [property: JsonPropertyName("linked_at_utc")] DateTimeOffset? LinkedAtUtc,
+    [property: JsonPropertyName("updated_at_utc")] DateTimeOffset UpdatedAtUtc);
+
+public sealed record LocalApiSetIdentityLinkRequest(
+    [property: JsonPropertyName("account_id")] string? AccountId,
+    [property: JsonPropertyName("org_id")] string? OrgId);
+
 public sealed record LocalApiRetentionResponse(
     int RetentionDays,
     long DatabaseBytes,

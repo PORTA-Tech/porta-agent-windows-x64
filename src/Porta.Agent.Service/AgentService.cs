@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Porta.Agent.Common.Identity;
 using Porta.Agent.Core;
 using Porta.Agent.Core.Db;
 using Porta.Agent.Core.Outputs;
@@ -35,6 +36,7 @@ internal sealed class AgentService : IHostedService, IDisposable
         });
 
         builder.Services.AddPortaLocalApi();
+        builder.Services.AddSingleton<ILocalIdentityLinkStore, LocalIdentityLinkStore>();
         builder.Services.AddSingleton<IRuntimePolicyProvider, FileRuntimePolicyProvider>();
         builder.Services.AddSingleton<IBrightnessController, WindowsBrightnessController>();
         builder.Services.AddSingleton<IOverloadBrightnessActionCoordinator, OverloadBrightnessActionCoordinator>();
@@ -62,6 +64,7 @@ internal sealed class AgentService : IHostedService, IDisposable
         builder.Services.AddHostedService<ControlPlaneReporter>();
 
         _localApiApp = builder.Build();
+        _ = _localApiApp.Services.GetRequiredService<ILocalIdentityLinkStore>().GetCurrent();
         _localApiApp.MapPortaLocalApi(settings);
     }
 
