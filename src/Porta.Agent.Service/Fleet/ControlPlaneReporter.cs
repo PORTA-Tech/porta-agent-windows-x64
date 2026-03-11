@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Porta.Agent.Common.Identity;
 using Porta.Agent.Core;
 
 namespace Porta.Agent.Service.Fleet;
@@ -21,6 +22,7 @@ internal sealed class ControlPlaneReporter : BackgroundService
     private readonly MachineSummaryMapper _summaryMapper;
     private readonly MachineActionMapper _actionMapper;
     private readonly ControlPlaneReporterStateStore _stateStore;
+    private readonly ILocalIdentityLinkStore _identityLinkStore;
     private DateTimeOffset? _lastSummaryFailureLogUtc;
     private DateTimeOffset? _lastActionFailureLogUtc;
 
@@ -29,12 +31,14 @@ internal sealed class ControlPlaneReporter : BackgroundService
         ControlPlaneClient client,
         MachineSummaryMapper summaryMapper,
         MachineActionMapper actionMapper,
+        ILocalIdentityLinkStore identityLinkStore,
         ControlPlaneReporterStateStore stateStore)
     {
         _controller = controller;
         _client = client;
         _summaryMapper = summaryMapper;
         _actionMapper = actionMapper;
+        _identityLinkStore = identityLinkStore;
         _stateStore = stateStore;
     }
 
@@ -61,10 +65,11 @@ internal sealed class ControlPlaneReporter : BackgroundService
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
             AgentServiceStatusSnapshot currentStatus = _controller.GetStatus();
             string userName = _summaryMapper.ResolveUserName(currentStatus);
+            LocalIdentityLinkSnapshot identityLink = _identityLinkStore.GetCurrent();
 
             if (nowUtc >= nextSummaryDueUtc)
             {
-                bool summarySent = await TryPublishSummaryAsync(state, currentStatus, userName, nowUtc, stoppingToken).ConfigureAwait(false);
+                bool summarySent = await TryPublishSummaryAsync(state, currentStatus, identityLink, userName, nowUtc, stoppingToken).ConfigureAwait(false);
                 if (summarySent)
                 {
                     state = state with { LastSummarySuccessUtc = nowUtc };
@@ -73,7 +78,7 @@ internal sealed class ControlPlaneReporter : BackgroundService
                 nextSummaryDueUtc = nowUtc.AddSeconds(SummaryIntervalSeconds);
             }
 
-            ActionPublishResult actionPublishResult = await TryPublishActionsAsync(state, userName, stoppingToken).ConfigureAwait(false);
+            ActionPublishResult actionPublishResult = await TryPublishActionsAsync(state, identityLink, userName, stoppingToken).ConfigureAwait(false);
             state = actionPublishResult.State;
             if (actionPublishResult.AnySent)
             {
@@ -88,6 +93,7 @@ internal sealed class ControlPlaneReporter : BackgroundService
     private async Task<bool> TryPublishSummaryAsync(
         ControlPlaneReporterState state,
         AgentServiceStatusSnapshot status,
+        LocalIdentityLinkSnapshot identityLink,
         string userName,
         DateTimeOffset reportedAtUtc,
         CancellationToken token)
@@ -98,6 +104,7 @@ internal sealed class ControlPlaneReporter : BackgroundService
         MachineSummaryReportPayload payload = _summaryMapper.Map(
             status,
             latestState,
+            identityLink,
             userName,
             backendConnected,
             reportedAtUtc);
@@ -113,6 +120,7 @@ internal sealed class ControlPlaneReporter : BackgroundService
 
     private async Task<ActionPublishResult> TryPublishActionsAsync(
         ControlPlaneReporterState state,
+        LocalIdentityLinkSnapshot identityLink,
         string userName,
         CancellationToken token)
     {
@@ -132,7 +140,7 @@ internal sealed class ControlPlaneReporter : BackgroundService
             }
 
             MachineActionEventPayload[] payload = rows
-                .Select(row => _actionMapper.Map(row, userName))
+                .Select(row => _actionMapper.Map(row, identityLink, userName))
                 .ToArray();
 
             bool sent = await _client.PostMachineActionEventsAsync(payload, token).ConfigureAwait(false);

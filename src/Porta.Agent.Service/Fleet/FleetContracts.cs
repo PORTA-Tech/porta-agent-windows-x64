@@ -4,6 +4,9 @@ using System.Text.Json.Serialization;
 namespace Porta.Agent.Service.Fleet;
 
 internal sealed record MachineSummaryReportPayload(
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("accountId")] string? AccountId,
+    [property: JsonPropertyName("orgId")] string? OrgId,
     [property: JsonPropertyName("machineId")] string MachineId,
     [property: JsonPropertyName("machineName")] string MachineName,
     [property: JsonPropertyName("userName")] string UserName,
@@ -87,6 +90,9 @@ internal sealed record DeviceLinkResultPayload(
     [property: JsonPropertyName("device")] DeviceProfilePayload Device);
 
 internal sealed record MachineActionEventPayload(
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("accountId")] string? AccountId,
+    [property: JsonPropertyName("orgId")] string? OrgId,
     [property: JsonPropertyName("machineId")] string MachineId,
     [property: JsonPropertyName("userName")] string UserName,
     [property: JsonPropertyName("interventionId")] string InterventionId,

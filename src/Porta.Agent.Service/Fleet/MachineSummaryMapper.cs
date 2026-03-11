@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Runtime.InteropServices;
+using Porta.Agent.Common.Identity;
 using Porta.Agent.Core;
 
 namespace Porta.Agent.Service.Fleet;
@@ -31,11 +32,13 @@ internal sealed class MachineSummaryMapper
     public MachineSummaryReportPayload Map(
         AgentServiceStatusSnapshot status,
         AgentLatestStateDetails? latestState,
+        LocalIdentityLinkSnapshot identityLink,
         string userName,
         bool backendConnected,
         DateTimeOffset reportedAtUtc)
     {
         ArgumentNullException.ThrowIfNull(status);
+        ArgumentNullException.ThrowIfNull(identityLink);
 
         double taskContinuityScore = Math.Clamp(latestState?.TaskContinuityScore ?? 0d, 0d, 1d);
         double taskContinuitySeconds = Math.Max(
@@ -48,8 +51,13 @@ internal sealed class MachineSummaryMapper
         bool userSessionConnected =
             string.Equals(status.CaptureContext, "UserSession", StringComparison.Ordinal)
             && status.UserAgentHeartbeatUpdatedAtUtc.HasValue;
+        string? accountId = IsLinked(identityLink) ? identityLink.AccountId : null;
+        string? orgId = IsLinked(identityLink) ? identityLink.OrgId : null;
 
         return new MachineSummaryReportPayload(
+            DeviceId: identityLink.DeviceId,
+            AccountId: accountId,
+            OrgId: orgId,
             MachineId: _machineName,
             MachineName: _machineName,
             UserName: string.IsNullOrWhiteSpace(userName) ? "unknown" : userName.Trim(),
@@ -94,6 +102,11 @@ internal sealed class MachineSummaryMapper
                 .ToArray()
                 ?? Array.Empty<string>());
     }
+
+    private static bool IsLinked(LocalIdentityLinkSnapshot snapshot) =>
+        string.Equals(snapshot.LinkStatus, LocalIdentityLinkStatuses.Linked, StringComparison.Ordinal)
+        && !string.IsNullOrWhiteSpace(snapshot.AccountId)
+        && !string.IsNullOrWhiteSpace(snapshot.OrgId);
 
     private static string NormalizeCaptureContext(string? captureContext) =>
         captureContext?.Trim() switch

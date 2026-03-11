@@ -1,4 +1,5 @@
 using System;
+using Porta.Agent.Common.Identity;
 using Porta.Agent.Common;
 using Porta.Agent.Core;
 
@@ -8,9 +9,10 @@ internal sealed class MachineActionMapper
 {
     private readonly string _machineName = Environment.MachineName;
 
-    public MachineActionEventPayload Map(AgentControlEvent controlEvent, string userName)
+    public MachineActionEventPayload Map(AgentControlEvent controlEvent, LocalIdentityLinkSnapshot identityLink, string userName)
     {
         ArgumentNullException.ThrowIfNull(controlEvent);
+        ArgumentNullException.ThrowIfNull(identityLink);
 
         string category = ResolveCategory(controlEvent.Action, controlEvent.CommandType);
         string executionState = NormalizeExecutionState(controlEvent.ExecutionState);
@@ -18,8 +20,13 @@ internal sealed class MachineActionMapper
         string interventionId = !string.IsNullOrWhiteSpace(controlEvent.InterventionId)
             ? controlEvent.InterventionId
             : $"event-{Math.Max(0L, controlEvent.EventId)}";
+        string? accountId = IsLinked(identityLink) ? identityLink.AccountId : null;
+        string? orgId = IsLinked(identityLink) ? identityLink.OrgId : null;
 
         return new MachineActionEventPayload(
+            DeviceId: identityLink.DeviceId,
+            AccountId: accountId,
+            OrgId: orgId,
             MachineId: _machineName,
             UserName: string.IsNullOrWhiteSpace(userName) ? "unknown" : userName.Trim(),
             InterventionId: interventionId,
@@ -90,4 +97,9 @@ internal sealed class MachineActionMapper
 
     private static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static bool IsLinked(LocalIdentityLinkSnapshot snapshot) =>
+        string.Equals(snapshot.LinkStatus, LocalIdentityLinkStatuses.Linked, StringComparison.Ordinal)
+        && !string.IsNullOrWhiteSpace(snapshot.AccountId)
+        && !string.IsNullOrWhiteSpace(snapshot.OrgId);
 }
