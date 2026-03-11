@@ -13,6 +13,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Porta.Agent.Common;
 using Porta.Agent.LocalApi;
+using Porta.ControlCenter.Identity;
 
 namespace Porta.ControlCenter;
 
@@ -88,6 +89,7 @@ public partial class MainWindow : Window
         Interventions,
         Inputs,
         States,
+        Account,
         Settings,
         Diagnostics
     }
@@ -115,6 +117,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        InitializeAccountSurface();
         _lastSeenEventId = LoadLastSeenEventId();
         _dismissedRecoveryEventId = LoadRecoveryAckEventId();
         UiVersionMenuItem.Header = $"UI: {_uiVersion}";
@@ -143,6 +146,7 @@ public partial class MainWindow : Window
             {
                 timer.Stop();
             }
+            _controlPlaneAccountClient.Dispose();
             _apiClient.Dispose();
             _refreshGate.Dispose();
         };
@@ -250,6 +254,7 @@ public partial class MainWindow : Window
 
         _recentEvents = _allRecentEvents.Take(5).ToArray();
         _lastSnapshot = snapshot;
+        await RefreshAccountSurfaceAsync().ConfigureAwait(true);
         NowTruth nowTruth = BuildNowTruth(serviceProbe, runtimeSettings, _latestStatus, snapshot, statusFresh);
         _latestVisualState = VisualStateAdapter.Build(
             _latestStatus,
@@ -664,6 +669,7 @@ public partial class MainWindow : Window
         InterventionsPanel.Visibility = section == UiSection.Interventions ? Visibility.Visible : Visibility.Collapsed;
         InputsPanel.Visibility = section == UiSection.Inputs ? Visibility.Visible : Visibility.Collapsed;
         StatesPanel.Visibility = section == UiSection.States ? Visibility.Visible : Visibility.Collapsed;
+        AccountPanel.Visibility = section == UiSection.Account ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = section == UiSection.Settings ? Visibility.Visible : Visibility.Collapsed;
         DiagnosticsPanel.Visibility = section == UiSection.Diagnostics ? Visibility.Visible : Visibility.Collapsed;
 
@@ -674,6 +680,7 @@ public partial class MainWindow : Window
             UiSection.Interventions => "Actions",
             UiSection.Inputs => "What I Track",
             UiSection.States => "How It Decides",
+            UiSection.Account => "Account",
             UiSection.Settings => "Controls",
             UiSection.Diagnostics => "Health",
             _ => "Now"
@@ -684,6 +691,7 @@ public partial class MainWindow : Window
         ApplyNavState(InterventionsNavButton, section == UiSection.Interventions);
         ApplyNavState(InputsNavButton, section == UiSection.Inputs);
         ApplyNavState(StatesNavButton, section == UiSection.States);
+        ApplyNavState(AccountNavButton, section == UiSection.Account);
         ApplyNavState(SettingsNavButton, section == UiSection.Settings);
         ApplyNavState(DiagnosticsNavButton, section == UiSection.Diagnostics);
 
@@ -3267,7 +3275,7 @@ public partial class MainWindow : Window
 
         if (TryInferManualUndo(ev.Action, out string? manualUndo))
         {
-            return manualUndo;
+            return manualUndo ?? "No direct undo for this event type.";
         }
 
         return "No direct undo for this event type.";
