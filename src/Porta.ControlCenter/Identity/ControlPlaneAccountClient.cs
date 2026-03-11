@@ -101,6 +101,16 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         }
     }
 
+    public async Task<ControlPlaneDeviceLinkResult?> RevokeMyDeviceAsync(string accessToken, string deviceId, CancellationToken token = default)
+    {
+        return await PostSessionDeviceActionAsync(accessToken, deviceId, "revoke", token).ConfigureAwait(false);
+    }
+
+    public async Task<ControlPlaneDeviceLinkResult?> UnlinkMyDeviceAsync(string accessToken, string deviceId, CancellationToken token = default)
+    {
+        return await PostSessionDeviceActionAsync(accessToken, deviceId, "unlink", token).ConfigureAwait(false);
+    }
+
     public async Task<bool> LogoutAsync(string accessToken, CancellationToken token = default)
     {
         if (string.IsNullOrWhiteSpace(accessToken))
@@ -153,6 +163,37 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         try
         {
             using HttpRequestMessage request = CreateJsonRequest(HttpMethod.Post, path, payload, accessToken);
+            using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<ControlPlaneDeviceLinkResult>(JsonOptions, token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<ControlPlaneDeviceLinkResult?> PostSessionDeviceActionAsync(
+        string accessToken,
+        string deviceId,
+        string action,
+        CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(deviceId))
+        {
+            return null;
+        }
+
+        try
+        {
+            using HttpRequestMessage request = CreateRequest(
+                HttpMethod.Post,
+                $"v1/me/devices/{Uri.EscapeDataString(deviceId.Trim())}/{action}",
+                accessToken);
             using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {

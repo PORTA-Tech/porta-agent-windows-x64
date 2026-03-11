@@ -1132,7 +1132,42 @@
                                     <TextBlock Text="Status" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountCurrentDeviceStatusValue" Text="Not available" Margin="0,4,0,8" TextWrapping="Wrap" />
                                     <TextBlock Text="Last seen" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="AccountCurrentDeviceLastSeenValue" Text="Not available" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="AccountCurrentDeviceLastSeenValue" Text="Not available" Margin="0,4,0,10" TextWrapping="Wrap" />
+
+                                    <TextBlock Text="Account devices" Foreground="#CBD5E1" Margin="0,0,0,4" />
+                                    <TextBlock x:Name="AccountDevicesEmptyText" Text="Sign in to manage account devices." Foreground="#94A3B8" Margin="0,0,0,8" TextWrapping="Wrap" />
+                                    <ItemsControl x:Name="AccountDevicesItemsControl">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Style="{StaticResource QuietHoverSubCardCompactStyle}" Margin="0,0,0,8">
+                                                    <StackPanel>
+                                                        <DockPanel Margin="0,0,0,6">
+                                                            <TextBlock Text="{Binding DisplayLabel}" FontWeight="SemiBold" DockPanel.Dock="Left" />
+                                                            <Border Background="#1E293B" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
+                                                                <TextBlock Text="{Binding BadgeLabel}" Foreground="#BFDBFE" FontSize="11" />
+                                                            </Border>
+                                                        </DockPanel>
+                                                        <TextBlock Text="{Binding DetailLabel}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,4" />
+                                                        <TextBlock Text="{Binding StatusLabel, StringFormat=Status: {0}}" Foreground="#F8FAFC" Margin="0,0,0,2" />
+                                                        <TextBlock Text="{Binding LastSeenLabel, StringFormat=Last seen: {0}}" Foreground="#94A3B8" Margin="0,0,0,8" />
+                                                        <WrapPanel>
+                                                            <Button Content="Unlink"
+                                                                    Padding="12,6"
+                                                                    Margin="0,0,8,0"
+                                                                    Tag="{Binding DeviceId}"
+                                                                    IsEnabled="{Binding CanUnlink}"
+                                                                    Click="AccountDeviceUnlinkButton_Click" />
+                                                            <Button Content="Revoke"
+                                                                    Padding="12,6"
+                                                                    Tag="{Binding DeviceId}"
+                                                                    IsEnabled="{Binding CanRevoke}"
+                                                                    Click="AccountDeviceRevokeButton_Click" />
+                                                        </WrapPanel>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
                             </Border>
                         </Grid>

@@ -15,6 +15,7 @@ public partial class MainWindow
     private readonly ControlPlaneAccountClient _controlPlaneAccountClient = new();
     private readonly ControlPlaneAccountSessionStore _accountSessionStore = new();
     private readonly ObservableCollection<AccountWorkspaceOption> _accountWorkspaceOptions = [];
+    private readonly ObservableCollection<AccountDeviceRowView> _accountDeviceRows = [];
     private LocalIdentityLinkCoordinator _identityLinkCoordinator = null!;
     private ControlPlaneSessionState? _accountSession;
     private ControlPlaneMeProfileView? _accountProfile;
@@ -33,6 +34,11 @@ public partial class MainWindow
             AccountWorkspaceComboBox.DisplayMemberPath = nameof(AccountWorkspaceOption.Label);
         }
 
+        if (AccountDevicesItemsControl != null)
+        {
+            AccountDevicesItemsControl.ItemsSource = _accountDeviceRows;
+        }
+
         PopulateAccountSurface();
     }
 
@@ -46,7 +52,18 @@ public partial class MainWindow
 
         if (_accountSession != null && shouldRefreshRemote)
         {
-            await RegisterCurrentDeviceAsync().ConfigureAwait(true);
+            ControlPlaneDeviceLinkResult? deviceRegistration = await RegisterCurrentDeviceAsync().ConfigureAwait(true);
+            string? remoteDeviceStatusMessage = null;
+            if (ShouldClearLocalIdentityLink(deviceRegistration))
+            {
+                LocalApiIdentityLinkResponse? local = await _identityLinkCoordinator.ClearAsync().ConfigureAwait(true);
+                if (local != null)
+                {
+                    _latestIdentityLink = local;
+                }
+
+                remoteDeviceStatusMessage = BuildRemoteDeviceStatusMessage(deviceRegistration!);
+            }
 
             ControlPlaneMeProfileView? me = await _controlPlaneAccountClient.GetMeAsync(_accountSession.AccessToken).ConfigureAwait(true);
             if (me == null)
@@ -63,18 +80,18 @@ public partial class MainWindow
                 _accountProfile = me;
                 SyncWorkspaceOptions();
                 _lastAccountRefreshUtc = DateTimeOffset.UtcNow;
-                _accountStatusMessage = $"Signed in to {TrimBackendUrl(_controlPlaneAccountClient.GetConfiguredBaseUrl())}.";
+                _accountStatusMessage = remoteDeviceStatusMessage ?? $"Signed in to {TrimBackendUrl(_controlPlaneAccountClient.GetConfiguredBaseUrl())}.";
             }
         }
 
         PopulateAccountSurface();
     }
 
-    private async Task RegisterCurrentDeviceAsync()
+    private async Task<ControlPlaneDeviceLinkResult?> RegisterCurrentDeviceAsync()
     {
         if (_accountSession == null || _latestIdentityLink == null)
         {
-            return;
+            return null;
         }
 
         string? linkedAccountId = IsIdentityLinkedToSignedInAccount(_latestIdentityLink) ? _latestIdentityLink!.AccountId : null;
@@ -91,7 +108,7 @@ public partial class MainWindow
             SessionToken: _accountSession.AccessToken,
             LocalProofToken: null);
 
-        await _controlPlaneAccountClient.RegisterDeviceAsync(request, _accountSession.AccessToken).ConfigureAwait(true);
+        return await _controlPlaneAccountClient.RegisterDeviceAsync(request, _accountSession.AccessToken).ConfigureAwait(true);
     }
 
     private void SyncWorkspaceOptions()
@@ -327,6 +344,14 @@ public partial class MainWindow
         AccountCurrentDeviceLastSeenValue.Text = currentDevice != null
             ? FormatHeartbeatLabel(currentDevice.LastSeenAt)
             : (_latestIdentityLink != null ? FormatHeartbeatLabel(_latestIdentityLink.UpdatedAtUtc) : NotAvailableText);
+        SyncAccountDeviceRows(signedIn);
+        if (AccountDevicesEmptyText != null)
+        {
+            AccountDevicesEmptyText.Text = signedIn
+                ? "No account devices are currently linked."
+                : "Sign in to manage account devices.";
+            AccountDevicesEmptyText.Visibility = _accountDeviceRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
 
         AccountConsentStatusValue.Text = _latestStatus == null
             ? NotAvailableText
@@ -349,6 +374,33 @@ public partial class MainWindow
 
         return _accountProfile.Devices
             .FirstOrDefault(device => string.Equals(device.DeviceId, _latestIdentityLink.DeviceId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void SyncAccountDeviceRows(bool signedIn)
+    {
+        _accountDeviceRows.Clear();
+
+        if (!signedIn || _accountProfile?.Devices == null)
+        {
+            return;
+        }
+
+        string? currentDeviceId = _latestIdentityLink?.DeviceId;
+        foreach (ControlPlaneDeviceProfile device in _accountProfile.Devices
+                     .OrderByDescending(device => string.Equals(device.DeviceId, currentDeviceId, StringComparison.OrdinalIgnoreCase))
+                     .ThenByDescending(device => device.LastSeenAt))
+        {
+            bool isCurrentDevice = string.Equals(device.DeviceId, currentDeviceId, StringComparison.OrdinalIgnoreCase);
+            _accountDeviceRows.Add(new AccountDeviceRowView(
+                DeviceId: device.DeviceId,
+                DisplayLabel: isCurrentDevice ? $"{device.DeviceDisplayName} (Current device)" : device.DeviceDisplayName,
+                DetailLabel: $"{device.MachineName} / {ToTitleCase(device.Platform)} / {device.AgentVersion}",
+                StatusLabel: ToTitleCase(device.Status),
+                LastSeenLabel: FormatHeartbeatLabel(device.LastSeenAt),
+                BadgeLabel: isCurrentDevice ? "Current device" : "Account device",
+                CanUnlink: !string.IsNullOrWhiteSpace(device.CurrentAccountId),
+                CanRevoke: !string.Equals(device.Status, "revoked", StringComparison.OrdinalIgnoreCase)));
+        }
     }
 
     private string ResolveWorkspaceDisplayName(AccountWorkspaceOption? selectedWorkspace)
@@ -405,6 +457,39 @@ public partial class MainWindow
             && !string.IsNullOrWhiteSpace(link.OrgId);
     }
 
+    private bool ShouldClearLocalIdentityLink(ControlPlaneDeviceLinkResult? result)
+    {
+        if (_latestIdentityLink == null || !IsIdentityLinked(_latestIdentityLink) || result == null)
+        {
+            return false;
+        }
+
+        if (string.Equals(result.Device.Status, "revoked", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(result.Device.Status, "unlinked", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return string.Equals(result.LinkState, "linked", StringComparison.OrdinalIgnoreCase)
+            && (!string.Equals(result.Device.CurrentAccountId, _latestIdentityLink.AccountId, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(result.Device.OrgId, _latestIdentityLink.OrgId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string BuildRemoteDeviceStatusMessage(ControlPlaneDeviceLinkResult result)
+    {
+        if (string.Equals(result.Device.Status, "revoked", StringComparison.OrdinalIgnoreCase))
+        {
+            return "This device was revoked centrally and is no longer linked to your account.";
+        }
+
+        if (string.Equals(result.Device.Status, "unlinked", StringComparison.OrdinalIgnoreCase))
+        {
+            return "This device was unlinked centrally and is no longer linked to your account.";
+        }
+
+        return "This device link changed centrally and is no longer using the local account link.";
+    }
+
     private bool IsIdentityLinkedToSignedInAccount(LocalApiIdentityLinkResponse? link)
     {
         return _accountSession != null
@@ -443,6 +528,75 @@ public partial class MainWindow
         return IsIdentityLinked(_latestIdentityLink)
             ? "Signed out. This device remains locally linked to its workspace."
             : "Signed out. Sign in to see your PORTA identity and linked device.";
+    }
+
+    private string LookupDeviceDisplayName(string deviceId)
+    {
+        ControlPlaneDeviceProfile? match = _accountProfile?.Devices
+            ?.FirstOrDefault(device => string.Equals(device.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase));
+        return match?.DeviceDisplayName ?? deviceId;
+    }
+
+    private async Task<bool> UnlinkManagedDeviceAsync(string deviceId)
+    {
+        if (_accountSession == null || string.IsNullOrWhiteSpace(deviceId))
+        {
+            return false;
+        }
+
+        ControlPlaneDeviceLinkResult? response = await _controlPlaneAccountClient
+            .UnlinkMyDeviceAsync(_accountSession.AccessToken, deviceId)
+            .ConfigureAwait(true);
+        if (response == null || !response.Ok)
+        {
+            _accountStatusMessage = "Could not unlink the selected device.";
+            return false;
+        }
+
+        if (_latestIdentityLink != null
+            && string.Equals(_latestIdentityLink.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+        {
+            LocalApiIdentityLinkResponse? local = await _identityLinkCoordinator.ClearAsync().ConfigureAwait(true);
+            if (local != null)
+            {
+                _latestIdentityLink = local;
+            }
+        }
+
+        await RefreshAccountSurfaceAsync(force: true).ConfigureAwait(true);
+        _accountStatusMessage = $"Device unlinked: {LookupDeviceDisplayName(deviceId)}.";
+        return true;
+    }
+
+    private async Task<bool> RevokeManagedDeviceAsync(string deviceId)
+    {
+        if (_accountSession == null || string.IsNullOrWhiteSpace(deviceId))
+        {
+            return false;
+        }
+
+        ControlPlaneDeviceLinkResult? response = await _controlPlaneAccountClient
+            .RevokeMyDeviceAsync(_accountSession.AccessToken, deviceId)
+            .ConfigureAwait(true);
+        if (response == null || !response.Ok)
+        {
+            _accountStatusMessage = "Could not revoke the selected device.";
+            return false;
+        }
+
+        if (_latestIdentityLink != null
+            && string.Equals(_latestIdentityLink.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+        {
+            LocalApiIdentityLinkResponse? local = await _identityLinkCoordinator.ClearAsync().ConfigureAwait(true);
+            if (local != null)
+            {
+                _latestIdentityLink = local;
+            }
+        }
+
+        await RefreshAccountSurfaceAsync(force: true).ConfigureAwait(true);
+        _accountStatusMessage = $"Device revoked: {LookupDeviceDisplayName(deviceId)}.";
+        return true;
     }
 
     private static string TrimBackendUrl(string? value)
@@ -617,6 +771,7 @@ public partial class MainWindow
             _accountSession = null;
             _accountProfile = null;
             _accountWorkspaceOptions.Clear();
+            _accountDeviceRows.Clear();
             _lastAccountRefreshUtc = DateTimeOffset.MinValue;
             AccountPasswordBox.Password = string.Empty;
 
@@ -626,6 +781,72 @@ public partial class MainWindow
         finally
         {
             AccountSignOutButton.IsEnabled = true;
+            PopulateAccountSurface();
+        }
+    }
+
+    private async void AccountDeviceUnlinkButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string deviceId || string.IsNullOrWhiteSpace(deviceId))
+        {
+            return;
+        }
+
+        string deviceLabel = LookupDeviceDisplayName(deviceId);
+        if (MessageBox.Show(
+                $"Unlink {deviceLabel} from this account?",
+                "PORTA Control Center",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question) != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        button.IsEnabled = false;
+        try
+        {
+            bool ok = await UnlinkManagedDeviceAsync(deviceId).ConfigureAwait(true);
+            if (!ok)
+            {
+                PopulateAccountSurface();
+            }
+        }
+        finally
+        {
+            button.IsEnabled = true;
+            PopulateAccountSurface();
+        }
+    }
+
+    private async void AccountDeviceRevokeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string deviceId || string.IsNullOrWhiteSpace(deviceId))
+        {
+            return;
+        }
+
+        string deviceLabel = LookupDeviceDisplayName(deviceId);
+        if (MessageBox.Show(
+                $"Revoke {deviceLabel}? Revoked devices are no longer treated as active account-linked devices.",
+                "PORTA Control Center",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning) != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        button.IsEnabled = false;
+        try
+        {
+            bool ok = await RevokeManagedDeviceAsync(deviceId).ConfigureAwait(true);
+            if (!ok)
+            {
+                PopulateAccountSurface();
+            }
+        }
+        finally
+        {
+            button.IsEnabled = true;
             PopulateAccountSurface();
         }
     }

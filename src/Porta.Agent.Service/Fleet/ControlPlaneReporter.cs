@@ -66,6 +66,7 @@ internal sealed class ControlPlaneReporter : BackgroundService
             AgentServiceStatusSnapshot currentStatus = _controller.GetStatus();
             string userName = _summaryMapper.ResolveUserName(currentStatus);
             LocalIdentityLinkSnapshot identityLink = _identityLinkStore.GetCurrent();
+            identityLink = await SyncDeviceIdentityAsync(currentStatus, identityLink, stoppingToken).ConfigureAwait(false);
 
             if (nowUtc >= nextSummaryDueUtc)
             {
@@ -116,6 +117,39 @@ internal sealed class ControlPlaneReporter : BackgroundService
         }
 
         return sent;
+    }
+
+    private async Task<LocalIdentityLinkSnapshot> SyncDeviceIdentityAsync(
+        AgentServiceStatusSnapshot status,
+        LocalIdentityLinkSnapshot identityLink,
+        CancellationToken token)
+    {
+        DeviceRegistrationRequestPayload request = new(
+            DeviceId: identityLink.DeviceId,
+            MachineName: Environment.MachineName,
+            DeviceDisplayName: Environment.MachineName,
+            Platform: "windows",
+            AgentVersion: status.AgentVersion,
+            AccountId: IsLinked(identityLink) ? identityLink.AccountId : null,
+            OrgId: IsLinked(identityLink) ? identityLink.OrgId : null,
+            SessionToken: null,
+            LocalProofToken: null);
+
+        DeviceLinkResultPayload? result = await _client.RegisterDeviceAsync(request, token).ConfigureAwait(false);
+        if (result == null || !IsLinked(identityLink))
+        {
+            return identityLink;
+        }
+
+        if (!ShouldClearLocalIdentityLink(identityLink, result))
+        {
+            return identityLink;
+        }
+
+        LocalIdentityLinkSnapshot cleared = _identityLinkStore.ClearLink();
+        Console.WriteLine(
+            $"Fleet reporter cleared local identity link for device {identityLink.DeviceId} because control plane reported status={result.Device.Status} link_state={result.LinkState}.");
+        return cleared;
     }
 
     private async Task<ActionPublishResult> TryPublishActionsAsync(
@@ -185,6 +219,25 @@ internal sealed class ControlPlaneReporter : BackgroundService
             Console.WriteLine("Fleet reporter failed to post action events.");
             _lastActionFailureLogUtc = nowUtc;
         }
+    }
+
+    private static bool IsLinked(LocalIdentityLinkSnapshot snapshot) =>
+        string.Equals(snapshot.LinkStatus, LocalIdentityLinkStatuses.Linked, StringComparison.Ordinal)
+        && !string.IsNullOrWhiteSpace(snapshot.AccountId)
+        && !string.IsNullOrWhiteSpace(snapshot.OrgId);
+
+    private static bool ShouldClearLocalIdentityLink(LocalIdentityLinkSnapshot identityLink, DeviceLinkResultPayload result)
+    {
+        string remoteStatus = result.Device.Status?.Trim() ?? string.Empty;
+        if (string.Equals(remoteStatus, "revoked", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(remoteStatus, "unlinked", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return string.Equals(result.LinkState, "linked", StringComparison.OrdinalIgnoreCase)
+            && (!string.Equals(result.Device.CurrentAccountId, identityLink.AccountId, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(result.Device.OrgId, identityLink.OrgId, StringComparison.OrdinalIgnoreCase));
     }
 
     private readonly record struct ActionPublishResult(

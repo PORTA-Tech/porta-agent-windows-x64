@@ -146,3 +146,13 @@ internal sealed record AccountWorkspaceOption(
         return char.ToUpperInvariant(value[0]) + value[1..].ToLowerInvariant();
     }
 }
+
+internal sealed record AccountDeviceRowView(
+    string DeviceId,
+    string DisplayLabel,
+    string DetailLabel,
+    string StatusLabel,
+    string LastSeenLabel,
+    string BadgeLabel,
+    bool CanUnlink,
+    bool CanRevoke);
