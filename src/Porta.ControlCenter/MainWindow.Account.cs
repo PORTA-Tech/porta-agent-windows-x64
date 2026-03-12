@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -14,19 +15,35 @@ public partial class MainWindow
 
     private readonly ControlPlaneAccountClient _controlPlaneAccountClient = new();
     private readonly ControlPlaneAccountSessionStore _accountSessionStore = new();
+    private readonly ControlPlaneRememberedSignInStore _rememberedSignInStore = new();
     private readonly ObservableCollection<AccountWorkspaceOption> _accountWorkspaceOptions = [];
     private readonly ObservableCollection<AccountDeviceRowView> _accountDeviceRows = [];
     private LocalIdentityLinkCoordinator _identityLinkCoordinator = null!;
     private ControlPlaneSessionState? _accountSession;
+    private RememberedSignInState? _rememberedSignIn;
     private ControlPlaneMeProfileView? _accountProfile;
+    private ControlPlaneAuthAccessHelpResponse? _accountAccessHelp;
     private LocalApiIdentityLinkResponse? _latestIdentityLink;
     private DateTimeOffset _lastAccountRefreshUtc = DateTimeOffset.MinValue;
-    private string _accountStatusMessage = "Sign in to see your PORTA identity and linked device.";
+    private AccountSurfaceSection _activeAccountSection = AccountSurfaceSection.Summary;
+    private string _accountStatusMessage = "Sign in to view your account, workspace, and devices.";
+
+    private enum AccountSurfaceSection
+    {
+        Summary,
+        ManageAccount,
+        Workspace,
+        Subscription,
+        Devices,
+        Privacy,
+        SignOut
+    }
 
     private void InitializeAccountSurface()
     {
         _identityLinkCoordinator = new LocalIdentityLinkCoordinator(_apiClient);
         _accountSession = _accountSessionStore.Load();
+        _rememberedSignIn = _rememberedSignInStore.Load();
 
         if (AccountWorkspaceComboBox != null)
         {
@@ -39,12 +56,25 @@ public partial class MainWindow
             AccountDevicesItemsControl.ItemsSource = _accountDeviceRows;
         }
 
+        AccountRememberSignInCheckBox.IsChecked = _rememberedSignIn != null || AccountRememberSignInCheckBox.IsChecked == true;
+        RestoreRememberedSignInInputs(force: true);
+        ShowAccountSection(_activeAccountSection);
         PopulateAccountSurface();
     }
 
     private async Task RefreshAccountSurfaceAsync(bool force = false)
     {
         _latestIdentityLink = await _identityLinkCoordinator.GetCurrentAsync().ConfigureAwait(true);
+
+        bool shouldRefreshAccessHelp = force || (_activeSection == UiSection.Account && _accountAccessHelp == null);
+        if (shouldRefreshAccessHelp)
+        {
+            ControlPlaneAuthAccessHelpResponse? accessHelp = await _controlPlaneAccountClient.GetAccessHelpAsync().ConfigureAwait(true);
+            if (accessHelp != null)
+            {
+                _accountAccessHelp = accessHelp;
+            }
+        }
 
         bool shouldRefreshRemote = force
             || _activeSection == UiSection.Account
@@ -73,14 +103,14 @@ public partial class MainWindow
                 _accountProfile = null;
                 _accountWorkspaceOptions.Clear();
                 _lastAccountRefreshUtc = DateTimeOffset.MinValue;
-                _accountStatusMessage = "Account session expired. Sign in again to manage your profile.";
+                _accountStatusMessage = "Your sign-in expired. Sign in again to view your account.";
             }
             else
             {
                 _accountProfile = me;
                 SyncWorkspaceOptions();
                 _lastAccountRefreshUtc = DateTimeOffset.UtcNow;
-                _accountStatusMessage = remoteDeviceStatusMessage ?? $"Signed in to {TrimBackendUrl(_controlPlaneAccountClient.GetConfiguredBaseUrl())}.";
+                _accountStatusMessage = remoteDeviceStatusMessage ?? "Signed in. Use the menu to open account, workspace, devices, or privacy.";
             }
         }
 
@@ -234,7 +264,7 @@ public partial class MainWindow
 
             if (updateStatusMessage)
             {
-                _accountStatusMessage = "Could not update the local device link. No workspace change was saved.";
+                _accountStatusMessage = "Could not finish linking this PC to the selected workspace.";
                 PopulateAccountSurface();
             }
 
@@ -286,25 +316,40 @@ public partial class MainWindow
 
     private void PopulateAccountSurface()
     {
-        string backendUrl = _controlPlaneAccountClient.GetConfiguredBaseUrl() ?? "Not configured";
-        AccountBackendValue.Text = backendUrl;
         AccountStatusText.Text = _accountStatusMessage;
 
         bool signedIn = _accountSession != null && _accountProfile != null;
+        bool backendConfigured = !string.IsNullOrWhiteSpace(_controlPlaneAccountClient.GetConfiguredBaseUrl());
         AccountSignedOutPanel.Visibility = signedIn ? Visibility.Collapsed : Visibility.Visible;
         AccountSignedInPanel.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
 
-        AccountSignInButton.IsEnabled = !signedIn && !string.IsNullOrWhiteSpace(backendUrl) && backendUrl != "Not configured";
-        AccountSignOutButton.IsEnabled = signedIn;
+        AccountSignInButton.IsEnabled = !signedIn && backendConfigured;
         AccountRefreshButton.IsEnabled = signedIn;
 
         ControlPlaneAccountProfile? account = _accountProfile?.Account;
         AccountSignedInAsValue.Text = account?.DisplayName ?? "Not signed in";
         AccountEmailValue.Text = account?.PrimaryEmail ?? NotAvailableText;
-        AccountAuthProviderValue.Text = account?.AuthProvider ?? _accountSession?.AuthProvider ?? NotAvailableText;
         AccountSessionExpiryValue.Text = _accountSession != null
             ? FormatSessionExpiry(_accountSession.SessionExpiresAtUtc)
             : NotAvailableText;
+        AccountSignedInSummaryText.Text = signedIn
+            ? "Use the menu below to open your profile, workspace, subscription, devices, or privacy."
+            : "Sign in to open your profile, workspace, subscription, devices, and privacy.";
+        AccountUserIdHelpText.Text = BuildUserIdHelpText();
+        AccountPasswordHelpText.Text = BuildPasswordHelpText();
+        AccountRememberedSignInHelpText.Text = BuildRememberedSignInHelpText(signedIn);
+        AccountCreateHelpText.Text = BuildCreateAccountHelpText(backendConfigured);
+        AccountCreateDisplayNameHelpText.Text = BuildCreateDisplayNameHelpText();
+        AccountCreateUserIdHelpText.Text = BuildCreateUserIdHelpText();
+        AccountCreatePasswordHelpText.Text = BuildCreatePasswordHelpText();
+        AccountSignupCodeHelpText.Text = BuildSignupCodeHelpText();
+        AccountRegistrationPanel.Visibility = _accountAccessHelp?.SignupEnabled == true ? Visibility.Visible : Visibility.Collapsed;
+        AccountSignupCodePanel.Visibility = _accountAccessHelp?.SignupCodeRequired == true ? Visibility.Visible : Visibility.Collapsed;
+        AccountCreateAccountButton.IsEnabled = !signedIn && backendConfigured && _accountAccessHelp?.SignupEnabled == true;
+        AccountRememberSignInCheckBox.IsEnabled = !signedIn && backendConfigured;
+        AccountForgetRememberedSignInButton.Visibility = !signedIn && _rememberedSignIn != null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
         if (!AccountDisplayNameTextBox.IsKeyboardFocusWithin)
         {
@@ -312,8 +357,8 @@ public partial class MainWindow
         }
         AccountReadOnlyEmailValue.Text = account?.PrimaryEmail ?? NotAvailableText;
         AccountProfileStatusText.Text = signedIn
-            ? "Profile data comes from the control plane account session."
-            : "Sign in to manage your account profile.";
+            ? "Change the name PORTA shows for your account."
+            : "Sign in to change your display name.";
         AccountSaveProfileButton.IsEnabled = signedIn;
 
         AccountWorkspaceOption? selectedWorkspace = AccountWorkspaceComboBox.SelectedItem as AccountWorkspaceOption
@@ -330,10 +375,12 @@ public partial class MainWindow
 
         AccountPlanTierValue.Text = selectedWorkspace != null ? ToTitleCase(selectedWorkspace.PlanTier) : NotAvailableText;
         AccountSubscriptionStatusValue.Text = selectedWorkspace != null
-            ? $"Plan from {selectedWorkspace.OrgName}"
+            ? $"Plan for {selectedWorkspace.OrgName}."
             : (_latestIdentityLink != null && IsIdentityLinked(_latestIdentityLink))
-                ? "Subscription details require an active account session."
-                : "Subscription details appear once a workspace is linked.";
+                ? "Sign in to see plan details for this workspace."
+                : signedIn
+                    ? "Choose a workspace to see its plan."
+                    : "Sign in to see plan details.";
 
         ControlPlaneDeviceProfile? currentDevice = ResolveCurrentDevice();
         ControlPlaneConsentRecord? accountLegalConsent = ResolveAccountLegalConsent();
@@ -350,8 +397,8 @@ public partial class MainWindow
         if (AccountDevicesEmptyText != null)
         {
             AccountDevicesEmptyText.Text = signedIn
-                ? "No account devices are currently linked."
-                : "Sign in to manage account devices.";
+                ? "No devices are linked to this account right now."
+                : "Sign in to view this account's devices.";
             AccountDevicesEmptyText.Visibility = _accountDeviceRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -369,6 +416,227 @@ public partial class MainWindow
         AccountLinkedAtValue.Text = _latestIdentityLink?.LinkedAtUtc.HasValue == true
             ? FormatHeartbeatLabel(_latestIdentityLink.LinkedAtUtc)
             : "Not linked";
+
+        AccountSummaryMenuButton.IsEnabled = true;
+        AccountManageMenuButton.IsEnabled = true;
+        AccountWorkspaceMenuButton.IsEnabled = true;
+        AccountSubscriptionMenuButton.IsEnabled = true;
+        AccountDevicesMenuButton.IsEnabled = true;
+        AccountPrivacyMenuButton.IsEnabled = true;
+        AccountSignOutMenuButton.IsEnabled = signedIn;
+        AccountSignOutButton.IsEnabled = signedIn;
+        ShowAccountSection(_activeAccountSection);
+    }
+
+    private string BuildUserIdHelpText()
+    {
+        string prefix = "Most people sign in with their work email. If your workspace gave you a different account ID, use that instead.";
+        string? example = _accountAccessHelp?.UserIdRules?.Example;
+        return string.IsNullOrWhiteSpace(example)
+            ? prefix
+            : $"{prefix} Example: {example}.";
+    }
+
+    private string BuildPasswordHelpText()
+    {
+        ControlPlanePasswordRules? rules = _accountAccessHelp?.PasswordRules;
+        if (rules == null)
+        {
+            return "Use the password set for your workspace account.";
+        }
+
+        var requirements = new List<string>();
+        if (rules.RequiresUpper)
+        {
+            requirements.Add("an uppercase letter");
+        }
+
+        if (rules.RequiresLower)
+        {
+            requirements.Add("a lowercase letter");
+        }
+
+        if (rules.RequiresNumber)
+        {
+            requirements.Add("a number");
+        }
+
+        string suffix = requirements.Count switch
+        {
+            0 => string.Empty,
+            1 => $" and include {requirements[0]}",
+            2 => $" and include {requirements[0]} and {requirements[1]}",
+            _ => $" and include {string.Join(", ", requirements.Take(requirements.Count - 1))}, and {requirements[^1]}"
+        };
+
+        return $"Password must be at least {rules.MinLength} characters{suffix}.";
+    }
+
+    private string BuildCreateAccountHelpText(bool backendConfigured)
+    {
+        if (!backendConfigured)
+        {
+            return "Sign-in is not configured on this PC yet.";
+        }
+
+        if (_accountAccessHelp == null)
+        {
+            return "Use your existing account, or create one here if your workspace allows self-service sign-up.";
+        }
+
+        if (!_accountAccessHelp.SignupEnabled)
+        {
+            return "This server does not allow self-service sign-up. Use the account your admin gave you.";
+        }
+
+        if (_accountAccessHelp.SignupCodeRequired)
+        {
+            return $"Create an account here if this is your first time. Keep your name, sign-in ID, password, and {_accountAccessHelp.SignupCodeLength}-digit admin code ready.";
+        }
+
+        return "Create an account here if this is your first time signing in. Fill in the same details you will use every time you come back to this PC.";
+    }
+
+    private string BuildCreateDisplayNameHelpText()
+    {
+        return "Use the name you want to see in your account and on linked devices.";
+    }
+
+    private string BuildCreateUserIdHelpText()
+    {
+        string prefix = "This becomes how you sign in later. Most people use their work email.";
+        string? example = _accountAccessHelp?.UserIdRules?.Example;
+        return string.IsNullOrWhiteSpace(example)
+            ? prefix
+            : $"{prefix} Example: {example}.";
+    }
+
+    private string BuildCreatePasswordHelpText()
+    {
+        string baseText = BuildPasswordHelpText();
+        return baseText.StartsWith("Use the password", StringComparison.Ordinal)
+            ? "Create the password you want to use when you sign in on this PC."
+            : $"Create the password you want to use when you sign in on this PC. {baseText}";
+    }
+
+    private string BuildSignupCodeHelpText()
+    {
+        if (_accountAccessHelp?.SignupCodeRequired != true)
+        {
+            return "Only fill this if your admin gave you a sign-up code.";
+        }
+
+        return $"Enter the {_accountAccessHelp.SignupCodeLength}-digit sign-up code your admin gave you.";
+    }
+
+    private string BuildRememberedSignInHelpText(bool signedIn)
+    {
+        if (signedIn)
+        {
+            return _rememberedSignIn != null
+                ? "Your sign-in is saved only for this Windows account on this PC."
+                : "You can save your sign-in on this PC so the form is ready next time.";
+        }
+
+        if (_rememberedSignIn == null)
+        {
+            return "Keep this checked if you want PORTA to remember this email and password on this Windows account only.";
+        }
+
+        return $"Saved on this PC for {_rememberedSignIn.UserId}. Click Sign in to reuse it, or forget it below.";
+    }
+
+    private void RestoreRememberedSignInInputs(bool force)
+    {
+        _rememberedSignIn = _rememberedSignInStore.Load();
+
+        if (_rememberedSignIn == null)
+        {
+            if (force)
+            {
+                AccountUserIdTextBox.Text = string.Empty;
+                AccountPasswordBox.Password = string.Empty;
+            }
+
+            return;
+        }
+
+        if (force || !AccountUserIdTextBox.IsKeyboardFocusWithin)
+        {
+            AccountUserIdTextBox.Text = _rememberedSignIn.UserId;
+        }
+
+        if (force || !AccountPasswordBox.IsKeyboardFocusWithin)
+        {
+            AccountPasswordBox.Password = _rememberedSignIn.Password;
+        }
+    }
+
+    private void UpdateRememberedSignIn(string userId, string password)
+    {
+        if (AccountRememberSignInCheckBox.IsChecked == true)
+        {
+            _rememberedSignInStore.Save(userId, password);
+        }
+        else
+        {
+            _rememberedSignInStore.Clear();
+        }
+
+        _rememberedSignIn = _rememberedSignInStore.Load();
+    }
+
+    private void ShowAccountSection(AccountSurfaceSection section)
+    {
+        _activeAccountSection = section;
+
+        bool showSummary = section == AccountSurfaceSection.Summary;
+        bool showManage = section == AccountSurfaceSection.ManageAccount;
+        bool showWorkspace = section == AccountSurfaceSection.Workspace;
+        bool showSubscription = section == AccountSurfaceSection.Subscription;
+        bool showDevices = section == AccountSurfaceSection.Devices;
+        bool showPrivacy = section == AccountSurfaceSection.Privacy;
+        bool showSignOut = section == AccountSurfaceSection.SignOut;
+
+        AccountSummarySectionPanel.Visibility = showSummary ? Visibility.Visible : Visibility.Collapsed;
+        ConfigureAccountPairLayout(AccountPrimarySectionsGrid, AccountManageSectionPanel, AccountWorkspaceSectionPanel, showManage, showWorkspace);
+        ConfigureAccountPairLayout(AccountSecondarySectionsGrid, AccountSubscriptionSectionPanel, AccountDevicesSectionPanel, showSubscription, showDevices);
+        AccountPrivacySectionPanel.Visibility = showPrivacy ? Visibility.Visible : Visibility.Collapsed;
+        AccountSignOutSectionPanel.Visibility = showSignOut ? Visibility.Visible : Visibility.Collapsed;
+
+        ApplyHistoryButtonState(AccountSummaryMenuButton, section == AccountSurfaceSection.Summary);
+        ApplyHistoryButtonState(AccountManageMenuButton, section == AccountSurfaceSection.ManageAccount);
+        ApplyHistoryButtonState(AccountWorkspaceMenuButton, section == AccountSurfaceSection.Workspace);
+        ApplyHistoryButtonState(AccountSubscriptionMenuButton, section == AccountSurfaceSection.Subscription);
+        ApplyHistoryButtonState(AccountDevicesMenuButton, section == AccountSurfaceSection.Devices);
+        ApplyHistoryButtonState(AccountPrivacyMenuButton, section == AccountSurfaceSection.Privacy);
+        ApplyHistoryButtonState(AccountSignOutMenuButton, section == AccountSurfaceSection.SignOut);
+    }
+
+    private static void ConfigureAccountPairLayout(
+        Grid hostGrid,
+        Border first,
+        Border second,
+        bool showFirst,
+        bool showSecond)
+    {
+        hostGrid.Visibility = showFirst || showSecond ? Visibility.Visible : Visibility.Collapsed;
+        first.Visibility = showFirst ? Visibility.Visible : Visibility.Collapsed;
+        second.Visibility = showSecond ? Visibility.Visible : Visibility.Collapsed;
+
+        if (showFirst)
+        {
+            Grid.SetColumn(first, 0);
+            Grid.SetColumnSpan(first, showSecond ? 1 : 2);
+            first.Margin = showSecond ? new Thickness(0, 0, 8, 0) : new Thickness(0);
+        }
+
+        if (showSecond)
+        {
+            Grid.SetColumn(second, showFirst ? 1 : 0);
+            Grid.SetColumnSpan(second, showFirst ? 1 : 2);
+            second.Margin = showFirst ? new Thickness(8, 0, 0, 0) : new Thickness(0);
+        }
     }
 
     private ControlPlaneDeviceProfile? ResolveCurrentDevice()
@@ -453,21 +721,21 @@ public partial class MainWindow
 
         if (_latestStatus?.ConsentActive == true)
         {
-            return "Allowed to capture and regulate here";
+            return "Allowed on this PC";
         }
 
         if (_latestStatus != null)
         {
-            return "Signed in, but local capture consent is still needed here.";
+            return "Signed in, but this PC still needs capture approval.";
         }
 
         string? consentState = deviceCaptureConsent?.ConsentState;
         if (string.Equals(consentState, "accepted", StringComparison.OrdinalIgnoreCase))
         {
-            return "Allowed to capture and regulate here";
+            return "Allowed on this PC";
         }
 
-        return "Signed in, but local capture consent is still needed here.";
+        return "Signed in, but this PC still needs capture approval.";
     }
 
     private string BuildLocalDeviceConsentStatus()
@@ -479,10 +747,10 @@ public partial class MainWindow
 
         if (_latestStatus.ConsentActive)
         {
-            return "Accepted locally";
+            return "Accepted on this PC";
         }
 
-        return _latestStatus.ConsentTimestampUtc.HasValue ? "Revoked locally" : "Needed locally";
+        return _latestStatus.ConsentTimestampUtc.HasValue ? "Revoked on this PC" : "Needed on this PC";
     }
 
     private void SyncAccountDeviceRows(bool signedIn)
@@ -531,14 +799,14 @@ public partial class MainWindow
     {
         if (_latestIdentityLink == null)
         {
-            return "Local device identity is unavailable.";
+            return "This PC is not ready to link yet.";
         }
 
         if (IsIdentityLinkedToDifferentAccount(_latestIdentityLink))
         {
             return selectedWorkspace != null
-                ? $"Current device is linked to another account locally. Link it to {selectedWorkspace.OrgName} to switch."
-                : "Current device is linked to another account locally.";
+                ? $"Current device is already linked to another account on this PC. Link it to {selectedWorkspace.OrgName} to switch."
+                : "Current device is already linked to another account on this PC.";
         }
 
         if (!IsIdentityLinked(_latestIdentityLink))
@@ -588,15 +856,15 @@ public partial class MainWindow
     {
         if (string.Equals(result.Device.Status, "revoked", StringComparison.OrdinalIgnoreCase))
         {
-            return "This device was revoked centrally and is no longer linked to your account.";
+            return "This device was revoked from your account and is no longer active.";
         }
 
         if (string.Equals(result.Device.Status, "unlinked", StringComparison.OrdinalIgnoreCase))
         {
-            return "This device was unlinked centrally and is no longer linked to your account.";
+            return "This device was removed from your account.";
         }
 
-        return "This device link changed centrally and is no longer using the local account link.";
+        return "This device link changed elsewhere and needs to be linked again here.";
     }
 
     private bool IsIdentityLinkedToSignedInAccount(LocalApiIdentityLinkResponse? link)
@@ -629,14 +897,14 @@ public partial class MainWindow
 
     private string BuildSignedOutStatusMessage()
     {
-        if (_latestIdentityLink == null)
+        if (_rememberedSignIn != null)
         {
-            return "Signed out. Local device identity is unavailable.";
+            return "Signed out. Your saved sign-in is still ready on this PC.";
         }
 
-        return IsIdentityLinked(_latestIdentityLink)
-            ? "Signed out. This device remains locally linked to its workspace."
-            : "Signed out. Sign in to see your PORTA identity and linked device.";
+        return _latestIdentityLink != null && IsIdentityLinked(_latestIdentityLink)
+            ? "Signed out. This PC still remembers its workspace link until you change it."
+            : "Signed out. Sign in again to view or change account access on this PC.";
     }
 
     private string LookupDeviceDisplayName(string deviceId)
@@ -673,7 +941,7 @@ public partial class MainWindow
         }
 
         await RefreshAccountSurfaceAsync(force: true).ConfigureAwait(true);
-        _accountStatusMessage = $"Device unlinked: {LookupDeviceDisplayName(deviceId)}.";
+        _accountStatusMessage = $"{LookupDeviceDisplayName(deviceId)} was unlinked.";
         return true;
     }
 
@@ -704,18 +972,8 @@ public partial class MainWindow
         }
 
         await RefreshAccountSurfaceAsync(force: true).ConfigureAwait(true);
-        _accountStatusMessage = $"Device revoked: {LookupDeviceDisplayName(deviceId)}.";
+        _accountStatusMessage = $"{LookupDeviceDisplayName(deviceId)} was revoked.";
         return true;
-    }
-
-    private static string TrimBackendUrl(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "the control plane";
-        }
-
-        return value.TrimEnd('/');
     }
 
     private static string FormatSessionExpiry(DateTimeOffset expiryUtc)
@@ -746,13 +1004,62 @@ public partial class MainWindow
         await RefreshAccountSurfaceAsync(force: true).ConfigureAwait(true);
     }
 
+    private async Task<bool> TrySignInAsync(string userId, string password)
+    {
+        ControlPlaneLoginResult result = await _controlPlaneAccountClient.LoginAsync(userId, password).ConfigureAwait(true);
+        if (!result.Ok || result.Response == null)
+        {
+            _accountStatusMessage = result.Message ?? "Sign-in failed.";
+            return false;
+        }
+
+        ControlPlaneLoginResponse response = result.Response;
+        _accountSession = new ControlPlaneSessionState(
+            response.AccessToken,
+            response.User.AccountId,
+            response.User.UserId,
+            response.User.Role,
+            response.User.AuthProvider,
+            response.SessionExpiresAtUtc,
+            response.ReauthExpiresAtUtc,
+            DateTimeOffset.UtcNow);
+        _accountSessionStore.Save(_accountSession);
+        UpdateRememberedSignIn(userId, password);
+        AccountPasswordBox.Password = string.Empty;
+        _activeAccountSection = AccountSurfaceSection.Summary;
+
+        await RefreshAccountSurfaceAsync(force: true).ConfigureAwait(true);
+        return true;
+    }
+
+    private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string tag)
+        {
+            return;
+        }
+
+        AccountSurfaceSection section = tag switch
+        {
+            "manage" => AccountSurfaceSection.ManageAccount,
+            "workspace" => AccountSurfaceSection.Workspace,
+            "subscription" => AccountSurfaceSection.Subscription,
+            "devices" => AccountSurfaceSection.Devices,
+            "privacy" => AccountSurfaceSection.Privacy,
+            "signout" => AccountSurfaceSection.SignOut,
+            _ => AccountSurfaceSection.Summary
+        };
+
+        ShowAccountSection(section);
+    }
+
     private async void AccountSignInButton_Click(object sender, RoutedEventArgs e)
     {
         string userId = AccountUserIdTextBox.Text?.Trim() ?? string.Empty;
         string password = AccountPasswordBox.Password ?? string.Empty;
         if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(password))
         {
-            _accountStatusMessage = "Enter your user ID and password.";
+            _accountStatusMessage = "Enter your email or user ID and password.";
             PopulateAccountSurface();
             return;
         }
@@ -763,30 +1070,61 @@ public partial class MainWindow
 
         try
         {
-            ControlPlaneLoginResponse? response = await _controlPlaneAccountClient.LoginAsync(userId, password).ConfigureAwait(true);
-            if (response == null)
-            {
-                _accountStatusMessage = "Sign-in failed. Check your credentials or control-plane connection.";
-                return;
-            }
-
-            _accountSession = new ControlPlaneSessionState(
-                response.AccessToken,
-                response.User.AccountId,
-                response.User.UserId,
-                response.User.Role,
-                response.User.AuthProvider,
-                response.SessionExpiresAtUtc,
-                response.ReauthExpiresAtUtc,
-                DateTimeOffset.UtcNow);
-            _accountSessionStore.Save(_accountSession);
-            AccountPasswordBox.Password = string.Empty;
-
-            await RefreshAccountSurfaceAsync(force: true).ConfigureAwait(true);
+            await TrySignInAsync(userId, password).ConfigureAwait(true);
         }
         finally
         {
             AccountSignInButton.IsEnabled = true;
+            PopulateAccountSurface();
+        }
+    }
+
+    private async void AccountCreateAccountButton_Click(object sender, RoutedEventArgs e)
+    {
+        string displayName = AccountRegisterDisplayNameTextBox.Text?.Trim() ?? string.Empty;
+        string userId = AccountRegisterUserIdTextBox.Text?.Trim() ?? string.Empty;
+        string password = AccountRegisterPasswordBox.Password ?? string.Empty;
+        string signupCode = AccountRegisterSignupCodeTextBox.Text?.Trim() ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(displayName) || string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(password))
+        {
+            _accountStatusMessage = "Enter your display name, email, and password to create an account.";
+            PopulateAccountSurface();
+            return;
+        }
+
+        if (_accountAccessHelp?.SignupCodeRequired == true && string.IsNullOrWhiteSpace(signupCode))
+        {
+            _accountStatusMessage = "Enter the sign-up code your admin gave you.";
+            PopulateAccountSurface();
+            return;
+        }
+
+        AccountCreateAccountButton.IsEnabled = false;
+        _accountStatusMessage = "Creating account...";
+        PopulateAccountSurface();
+
+        try
+        {
+            ControlPlaneRegisterResult result = await _controlPlaneAccountClient
+                .RegisterAsync(userId, password, displayName, signupCode)
+                .ConfigureAwait(true);
+
+            if (!result.Ok)
+            {
+                _accountStatusMessage = result.Message ?? "Could not create the account.";
+                return;
+            }
+
+            AccountUserIdTextBox.Text = userId;
+            AccountPasswordBox.Password = password;
+            AccountRegisterPasswordBox.Password = string.Empty;
+            AccountRegisterSignupCodeTextBox.Text = string.Empty;
+            await TrySignInAsync(userId, password).ConfigureAwait(true);
+        }
+        finally
+        {
+            AccountCreateAccountButton.IsEnabled = true;
             PopulateAccountSurface();
         }
     }
@@ -806,7 +1144,7 @@ public partial class MainWindow
         string displayName = AccountDisplayNameTextBox.Text?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(displayName))
         {
-            _accountStatusMessage = "Display name cannot be empty.";
+            _accountStatusMessage = "Enter a display name.";
             PopulateAccountSurface();
             return;
         }
@@ -819,12 +1157,12 @@ public partial class MainWindow
                 .ConfigureAwait(true);
             if (response == null || !response.Ok)
             {
-                _accountStatusMessage = "Could not update your account profile.";
+                _accountStatusMessage = "Could not update your account.";
                 return;
             }
 
             await RefreshAccountSurfaceAsync(force: true).ConfigureAwait(true);
-            _accountStatusMessage = "Account profile updated.";
+            _accountStatusMessage = "Your account was updated.";
         }
         finally
         {
@@ -882,9 +1220,10 @@ public partial class MainWindow
             _accountWorkspaceOptions.Clear();
             _accountDeviceRows.Clear();
             _lastAccountRefreshUtc = DateTimeOffset.MinValue;
-            AccountPasswordBox.Password = string.Empty;
+            _activeAccountSection = AccountSurfaceSection.Summary;
 
             await RefreshAccountSurfaceAsync(force: true).ConfigureAwait(true);
+            RestoreRememberedSignInInputs(force: true);
             _accountStatusMessage = BuildSignedOutStatusMessage();
         }
         finally
@@ -958,5 +1297,16 @@ public partial class MainWindow
             button.IsEnabled = true;
             PopulateAccountSurface();
         }
+    }
+
+    private void AccountForgetRememberedSignInButton_Click(object sender, RoutedEventArgs e)
+    {
+        _rememberedSignInStore.Clear();
+        _rememberedSignIn = null;
+        AccountUserIdTextBox.Text = string.Empty;
+        AccountPasswordBox.Password = string.Empty;
+        AccountRememberSignInCheckBox.IsChecked = false;
+        _accountStatusMessage = "Saved sign-in cleared from this PC.";
+        PopulateAccountSurface();
     }
 }

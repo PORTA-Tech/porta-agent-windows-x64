@@ -6,6 +6,12 @@ internal sealed record ControlPlaneLoginRequest(
     [property: JsonPropertyName("user_id")] string UserId,
     [property: JsonPropertyName("password")] string Password);
 
+internal sealed record ControlPlaneRegisterRequest(
+    [property: JsonPropertyName("user_id")] string UserId,
+    [property: JsonPropertyName("password")] string Password,
+    [property: JsonPropertyName("display_name")] string DisplayName,
+    [property: JsonPropertyName("signup_code")] string? SignupCode);
+
 internal sealed record ControlPlaneLoginUser(
     [property: JsonPropertyName("account_id")] string AccountId,
     [property: JsonPropertyName("user_id")] string UserId,
@@ -21,8 +27,48 @@ internal sealed record ControlPlaneLoginResponse(
     [property: JsonPropertyName("session_expires_at_utc")] DateTimeOffset SessionExpiresAtUtc,
     [property: JsonPropertyName("reauth_expires_at_utc")] DateTimeOffset ReauthExpiresAtUtc);
 
+internal sealed record ControlPlaneRegisterResponse(
+    [property: JsonPropertyName("ok")] bool Ok,
+    [property: JsonPropertyName("user")] ControlPlaneLoginUser User);
+
+internal sealed record ControlPlaneUserIdRules(
+    [property: JsonPropertyName("pattern")] string Pattern,
+    [property: JsonPropertyName("min_length")] int MinLength,
+    [property: JsonPropertyName("max_length")] int MaxLength,
+    [property: JsonPropertyName("example")] string? Example);
+
+internal sealed record ControlPlanePasswordRules(
+    [property: JsonPropertyName("min_length")] int MinLength,
+    [property: JsonPropertyName("requires_upper")] bool RequiresUpper,
+    [property: JsonPropertyName("requires_lower")] bool RequiresLower,
+    [property: JsonPropertyName("requires_number")] bool RequiresNumber);
+
+internal sealed record ControlPlaneAuthAccessHelpResponse(
+    [property: JsonPropertyName("signup_enabled")] bool SignupEnabled,
+    [property: JsonPropertyName("admin_signup_enabled")] bool AdminSignupEnabled,
+    [property: JsonPropertyName("signup_code_required")] bool SignupCodeRequired,
+    [property: JsonPropertyName("signup_code_length")] int SignupCodeLength,
+    [property: JsonPropertyName("user_id_rules")] ControlPlaneUserIdRules UserIdRules,
+    [property: JsonPropertyName("password_rules")] ControlPlanePasswordRules PasswordRules);
+
 internal sealed record ControlPlaneLogoutResponse(
     [property: JsonPropertyName("ok")] bool Ok);
+
+internal sealed record ControlPlaneApiErrorResponse(
+    [property: JsonPropertyName("error_code")] string? ErrorCode,
+    [property: JsonPropertyName("message")] string? Message);
+
+internal sealed record ControlPlaneLoginResult(
+    bool Ok,
+    ControlPlaneLoginResponse? Response,
+    string? ErrorCode,
+    string? Message);
+
+internal sealed record ControlPlaneRegisterResult(
+    bool Ok,
+    ControlPlaneRegisterResponse? Response,
+    string? ErrorCode,
+    string? Message);
 
 internal sealed record ControlPlaneProfileUpdateRequest(
     [property: JsonPropertyName("display_name")] string DisplayName);

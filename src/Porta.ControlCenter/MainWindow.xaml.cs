@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private static readonly TimeSpan TopMetricAnimationFrameInterval = TimeSpan.FromMilliseconds(16);
     private const string EventCursorFileName = "control-center.events.cursor";
     private const string RecoveryAckFileName = "control-center.recovery.ack";
+    private const double WheelScrollPixelsPerLine = 18d;
 
     private readonly LocalApiClient _apiClient = new();
     private readonly DispatcherTimer _refreshTimer;
@@ -118,6 +119,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         InitializeAccountSurface();
+        InitializeUnifiedScrollBehavior();
         _lastSeenEventId = LoadLastSeenEventId();
         _dismissedRecoveryEventId = LoadRecoveryAckEventId();
         UiVersionMenuItem.Header = $"UI: {_uiVersion}";
@@ -2955,11 +2957,79 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Keep change-list scrolling controlled/readable instead of fast jumps.
-        double step = 24d;
-        double nextOffset = scrollViewer.VerticalOffset - (Math.Sign(e.Delta) * step);
-        scrollViewer.ScrollToVerticalOffset(Math.Max(0d, nextOffset));
-        e.Handled = true;
+        if (TryScrollViewerByMouseWheel(scrollViewer, e.Delta))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void InitializeUnifiedScrollBehavior()
+    {
+        RegisterUnifiedScroll(OverviewPanel);
+        RegisterUnifiedScroll(InputsPanel);
+        RegisterUnifiedScroll(InterventionsPanel);
+        RegisterUnifiedScroll(ActionDetailsScrollViewer);
+        RegisterUnifiedScroll(SettingsPanel);
+        RegisterUnifiedScroll(StatesPanel);
+        RegisterUnifiedScroll(TimelinePanel);
+        RegisterUnifiedScroll(AccountPanel);
+        RegisterUnifiedScroll(DiagnosticsPanel);
+    }
+
+    private static void RegisterUnifiedScroll(ScrollViewer? scrollViewer)
+    {
+        if (scrollViewer == null)
+        {
+            return;
+        }
+
+        scrollViewer.PanningMode = PanningMode.VerticalFirst;
+        scrollViewer.MouseWheel -= UnifiedScrollViewer_MouseWheel;
+        scrollViewer.MouseWheel += UnifiedScrollViewer_MouseWheel;
+    }
+
+    private static void UnifiedScrollViewer_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not ScrollViewer scrollViewer)
+        {
+            return;
+        }
+
+        if (TryScrollViewerByMouseWheel(scrollViewer, e.Delta))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private static bool TryScrollViewerByMouseWheel(ScrollViewer scrollViewer, int delta)
+    {
+        if (scrollViewer.ScrollableHeight <= 0)
+        {
+            return false;
+        }
+
+        double distance = ComputeWheelScrollDistance(scrollViewer, delta);
+        double nextOffset = Math.Clamp(
+            scrollViewer.VerticalOffset - (Math.Sign(delta) * distance),
+            0d,
+            scrollViewer.ScrollableHeight);
+
+        if (Math.Abs(nextOffset - scrollViewer.VerticalOffset) < 0.5d)
+        {
+            return false;
+        }
+
+        scrollViewer.ScrollToVerticalOffset(nextOffset);
+        return true;
+    }
+
+    private static double ComputeWheelScrollDistance(ScrollViewer scrollViewer, int delta)
+    {
+        double multiplier = Math.Max(1d, Math.Abs(delta) / 120d);
+        double baseDistance = SystemParameters.WheelScrollLines < 0
+            ? Math.Max(60d, scrollViewer.ViewportHeight * 0.9d)
+            : Math.Max(42d, SystemParameters.WheelScrollLines * WheelScrollPixelsPerLine);
+        return baseDistance * multiplier;
     }
 
     private void UpdateInterventionDrawer(LocalApiEventResponse? item)

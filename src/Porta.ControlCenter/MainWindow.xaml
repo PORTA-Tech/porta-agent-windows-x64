@@ -14,8 +14,9 @@
     <Window.Resources>
         <SolidColorBrush x:Key="PortaSurfaceBaseBrush" Color="#15181C" />
         <SolidColorBrush x:Key="PortaSurfaceElevatedBrush" Color="#1B1F25" />
+        <SolidColorBrush x:Key="PortaSurfaceHoverBrush" Color="#1D232A" />
         <SolidColorBrush x:Key="PortaBorderBrush" Color="#262B33" />
-        <SolidColorBrush x:Key="PortaBorderHoverBrush" Color="#303743" />
+        <SolidColorBrush x:Key="PortaBorderHoverBrush" Color="#3A4656" />
         <SolidColorBrush x:Key="PortaTextPrimaryBrush" Color="#E6E9ED" />
         <SolidColorBrush x:Key="PortaTextSecondaryBrush" Color="#9AA4B2" />
 
@@ -42,7 +43,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonChrome" Property="Background" Value="#1E242C" />
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="{StaticResource PortaSurfaceHoverBrush}" />
                                 <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{StaticResource PortaBorderHoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
@@ -75,13 +76,8 @@
             <Setter Property="Padding" Value="12" />
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#171B20" />
+                    <Setter Property="Background" Value="{StaticResource PortaSurfaceHoverBrush}" />
                     <Setter Property="BorderBrush" Value="{StaticResource PortaBorderHoverBrush}" />
-                    <Setter Property="Effect">
-                        <Setter.Value>
-                            <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.30" Color="#000000" />
-                        </Setter.Value>
-                    </Setter>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -94,13 +90,8 @@
             <Setter Property="Padding" Value="10" />
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#111827" />
-                    <Setter Property="BorderBrush" Value="#334155" />
-                    <Setter Property="Effect">
-                        <Setter.Value>
-                            <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.28" Color="#000000" />
-                        </Setter.Value>
-                    </Setter>
+                    <Setter Property="Background" Value="{StaticResource PortaSurfaceHoverBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource PortaBorderHoverBrush}" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -118,7 +109,7 @@
             <Setter Property="Padding" Value="1" />
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="BorderBrush" Value="#64748B" />
+                    <Setter Property="BorderBrush" Value="{StaticResource PortaBorderHoverBrush}" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -999,78 +990,130 @@
                 <ScrollViewer x:Name="AccountPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
                         <TextBlock Text="Account" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                        <TextBlock Text="Keep identity, workspace, subscription, and device relationship visible without turning this into a settings maze." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Text="Open one section at a time so your account, workspace, device, and consent details stay easy to scan." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
                                 <DockPanel Margin="0,0,0,8">
-                                    <TextBlock Text="Signed in as" FontSize="18" FontWeight="SemiBold" DockPanel.Dock="Left" />
-                                    <WrapPanel DockPanel.Dock="Right">
-                                        <Button x:Name="AccountRefreshButton" Content="Refresh account" Padding="12,6" Margin="0,0,10,0" Click="AccountRefreshButton_Click" />
-                                        <Button x:Name="AccountSignOutButton" Content="Sign out" Padding="12,6" Click="AccountSignOutButton_Click" />
-                                    </WrapPanel>
+                                    <TextBlock Text="Access" FontSize="18" FontWeight="SemiBold" DockPanel.Dock="Left" />
+                                    <Button x:Name="AccountRefreshButton" Content="Refresh account" Padding="12,6" DockPanel.Dock="Right" Click="AccountRefreshButton_Click" />
                                 </DockPanel>
-                                <TextBlock Text="The control plane owns account/legal truth and linked-device consent records; this local app still owns the live local capture gate." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                <TextBlock x:Name="AccountStatusText" Text="Sign in to view your account, workspace, and devices." Foreground="#93C5FD" TextWrapping="Wrap" Margin="0,0,0,10" />
 
-                                <Grid Margin="0,0,0,10">
+                                <StackPanel x:Name="AccountSignedOutPanel">
+                                    <TextBlock Text="Sign in to view your workspace access and devices." FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,8" />
+                                    <TextBlock Text="Email or user ID" Margin="0,0,0,4" />
+                                    <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,4">
+                                        <TextBox x:Name="AccountUserIdTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" />
+                                    </Border>
+                                    <TextBlock x:Name="AccountUserIdHelpText" Text="Use the email or user ID your workspace gave you." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                    <TextBlock Text="Password" Margin="0,0,0,4" />
+                                    <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,4">
+                                        <PasswordBox x:Name="AccountPasswordBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" />
+                                    </Border>
+                                    <TextBlock x:Name="AccountPasswordHelpText" Text="Use the password set for your workspace account." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                        <CheckBox x:Name="AccountRememberSignInCheckBox" Content="Remember on this PC" IsChecked="True" Foreground="#E6E9ED" VerticalAlignment="Center" />
+                                        <Button x:Name="AccountForgetRememberedSignInButton"
+                                                Content="Forget saved sign-in"
+                                                Margin="12,0,0,0"
+                                                Padding="10,4"
+                                                MinHeight="30"
+                                                Click="AccountForgetRememberedSignInButton_Click"
+                                                Visibility="Collapsed" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="AccountRememberedSignInHelpText" Text="Keep this checked if you want PORTA to remember this email and password on this Windows account only." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                    <Button x:Name="AccountSignInButton" Content="Sign in" Padding="12,6" Width="140" HorizontalAlignment="Left" Click="AccountSignInButton_Click" />
+
+                                    <Border Style="{StaticResource QuietHoverSubCardCompactStyle}" Margin="0,12,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="Need an account?" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,6" />
+                                            <TextBlock x:Name="AccountCreateHelpText" Text="Use your existing account, or create one here if your workspace allows self-service sign-up." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                            <StackPanel x:Name="AccountRegistrationPanel">
+                                                <TextBlock Text="Display name" Margin="0,0,0,4" />
+                                                <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,8">
+                                                    <TextBox x:Name="AccountRegisterDisplayNameTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" />
+                                                </Border>
+                                                <TextBlock x:Name="AccountCreateDisplayNameHelpText" Text="Use the name you want to see in your account and on linked devices." Foreground="#CBD5E1" Margin="0,0,0,8" TextWrapping="Wrap" />
+                                                <TextBlock Text="Email or user ID" Margin="0,0,0,4" />
+                                                <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,8">
+                                                    <TextBox x:Name="AccountRegisterUserIdTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" />
+                                                </Border>
+                                                <TextBlock x:Name="AccountCreateUserIdHelpText" Text="This becomes how you sign in later. Most people use their work email." Foreground="#CBD5E1" Margin="0,0,0,8" TextWrapping="Wrap" />
+                                                <TextBlock Text="Password" Margin="0,0,0,4" />
+                                                <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,8">
+                                                    <PasswordBox x:Name="AccountRegisterPasswordBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" />
+                                                </Border>
+                                                <TextBlock x:Name="AccountCreatePasswordHelpText" Text="Create the password you want to use when you sign in on this PC." Foreground="#CBD5E1" Margin="0,0,0,8" TextWrapping="Wrap" />
+                                                <StackPanel x:Name="AccountSignupCodePanel" Visibility="Collapsed">
+                                                    <TextBlock Text="Sign-up code" Margin="0,0,0,4" />
+                                                    <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,8">
+                                                        <TextBox x:Name="AccountRegisterSignupCodeTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" />
+                                                    </Border>
+                                                    <TextBlock x:Name="AccountSignupCodeHelpText" Text="Only fill this if your admin gave you a sign-up code." Foreground="#CBD5E1" Margin="0,0,0,8" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                                <Button x:Name="AccountCreateAccountButton" Content="Create account" Padding="12,6" Width="150" HorizontalAlignment="Left" Click="AccountCreateAccountButton_Click" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+
+                                <StackPanel x:Name="AccountSignedInPanel" Visibility="Collapsed">
+                                    <Border Style="{StaticResource QuietHoverSubCardCompactStyle}">
+                                        <TextBlock x:Name="AccountSignedInSummaryText" Text="Use the menu below to open your profile, workspace, subscription, devices, or privacy." TextWrapping="Wrap" Foreground="#CBD5E1" />
+                                    </Border>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="AccountSummarySectionPanel" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Signed in as" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="260" />
+                                        <ColumnDefinition Width="220" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Control plane" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="AccountBackendValue" Grid.Row="0" Grid.Column="1" Text="Not configured" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Name" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="AccountSignedInAsValue" Grid.Row="0" Grid.Column="1" Text="Not signed in" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Display name" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="AccountSignedInAsValue" Grid.Row="1" Grid.Column="1" Text="Not signed in" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Email" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="AccountEmailValue" Grid.Row="1" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Email" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="AccountEmailValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Auth provider" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="AccountAuthProviderValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Session expires" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="AccountSessionExpiryValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Signed in until" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="AccountSessionExpiryValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
                                 </Grid>
-
-                                <TextBlock x:Name="AccountStatusText" Text="Sign in to see your PORTA identity and linked device." Foreground="#93C5FD" TextWrapping="Wrap" Margin="0,0,0,10" />
-
-                                <StackPanel x:Name="AccountSignedOutPanel">
-                                    <TextBlock Text="Sign in" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,6" />
-                                    <TextBlock Text="User ID" Margin="0,0,0,4" />
-                                    <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,8">
-                                        <TextBox x:Name="AccountUserIdTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" />
-                                    </Border>
-                                    <TextBlock Text="Password" Margin="0,0,0,4" />
-                                    <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,10">
-                                        <PasswordBox x:Name="AccountPasswordBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" />
-                                    </Border>
-                                    <Button x:Name="AccountSignInButton" Content="Sign in to account" Padding="12,6" Width="180" HorizontalAlignment="Left" Click="AccountSignInButton_Click" />
-                                </StackPanel>
-
-                                <StackPanel x:Name="AccountSignedInPanel" Visibility="Collapsed">
-                                    <Border Style="{StaticResource QuietHoverSubCardCompactStyle}">
-                                        <TextBlock Text="Signed in. PORTA can now show your account profile and let you link this device to a workspace explicitly." TextWrapping="Wrap" Foreground="#CBD5E1" />
-                                    </Border>
-                                </StackPanel>
+                                <Border Style="{StaticResource QuietHoverSubCardCompactStyle}" Margin="0,12,0,0">
+                                    <TextBlock Text="This section shows who is signed in on this PC. Open Workspace or Devices to change how this machine uses your account." TextWrapping="Wrap" Foreground="#CBD5E1" />
+                                </Border>
                             </StackPanel>
                         </Border>
 
-                        <Grid Margin="0,0,0,12">
+                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
+                            <WrapPanel>
+                                <Button x:Name="AccountSummaryMenuButton" Content="Signed in as" Margin="0,0,8,8" Tag="summary" Click="AccountSectionMenuButton_Click" />
+                                <Button x:Name="AccountManageMenuButton" Content="Manage account" Margin="0,0,8,8" Tag="manage" Click="AccountSectionMenuButton_Click" />
+                                <Button x:Name="AccountWorkspaceMenuButton" Content="Workspace" Margin="0,0,8,8" Tag="workspace" Click="AccountSectionMenuButton_Click" />
+                                <Button x:Name="AccountSubscriptionMenuButton" Content="Subscription" Margin="0,0,8,8" Tag="subscription" Click="AccountSectionMenuButton_Click" />
+                                <Button x:Name="AccountDevicesMenuButton" Content="Devices" Margin="0,0,8,8" Tag="devices" Click="AccountSectionMenuButton_Click" />
+                                <Button x:Name="AccountPrivacyMenuButton" Content="Privacy &amp; consent" Margin="0,0,8,8" Tag="privacy" Click="AccountSectionMenuButton_Click" />
+                                <Button x:Name="AccountSignOutMenuButton" Content="Sign out" Margin="0,0,0,8" Tag="signout" Click="AccountSectionMenuButton_Click" />
+                            </WrapPanel>
+                        </Border>
+
+                        <Grid x:Name="AccountPrimarySectionsGrid" Margin="0,0,0,12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
 
-                            <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,8,0">
+                            <Border x:Name="AccountManageSectionPanel" Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="Manage account" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock Text="Display name" Margin="0,0,0,4" />
@@ -1080,11 +1123,11 @@
                                     <TextBlock Text="Email" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountReadOnlyEmailValue" Text="Not available" Margin="0,4,0,10" TextWrapping="Wrap" />
                                     <Button x:Name="AccountSaveProfileButton" Content="Save display name" Padding="12,6" HorizontalAlignment="Left" Click="AccountSaveProfileButton_Click" />
-                                    <TextBlock x:Name="AccountProfileStatusText" Text="Sign in to manage your account profile." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="AccountProfileStatusText" Text="Sign in to change your display name." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
 
-                            <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="8,0,0,0">
+                            <Border x:Name="AccountWorkspaceSectionPanel" Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="8,0,0,0">
                                 <StackPanel>
                                     <TextBlock Text="Workspace" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock Text="Workspace" Margin="0,0,0,4" />
@@ -1100,29 +1143,29 @@
                                     <TextBlock x:Name="AccountWorkspaceNameValue" Text="No workspace linked" Margin="0,4,0,8" TextWrapping="Wrap" />
                                     <TextBlock Text="Role" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountWorkspaceRoleValue" Text="Not available" Margin="0,4,0,8" TextWrapping="Wrap" />
-                                    <TextBlock Text="Link status" Foreground="#CBD5E1" />
+                                    <TextBlock Text="This device" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountWorkspaceLinkValue" Text="Device identity unavailable" Margin="0,4,0,10" TextWrapping="Wrap" />
                                     <Button x:Name="AccountLinkWorkspaceButton" Content="Link current device to workspace" Padding="12,6" HorizontalAlignment="Left" Click="AccountLinkWorkspaceButton_Click" />
                                 </StackPanel>
                             </Border>
                         </Grid>
 
-                        <Grid Margin="0,0,0,12">
+                        <Grid x:Name="AccountSecondarySectionsGrid" Margin="0,0,0,12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
 
-                            <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,8,0">
+                            <Border x:Name="AccountSubscriptionSectionPanel" Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="Subscription" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock Text="Plan tier" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountPlanTierValue" Text="Not available" Margin="0,4,0,8" />
-                                    <TextBlock x:Name="AccountSubscriptionStatusValue" Text="Subscription details appear once a workspace is linked." Foreground="#94A3B8" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="AccountSubscriptionStatusValue" Text="Sign in to see plan details." Foreground="#94A3B8" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
 
-                            <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="8,0,0,0">
+                            <Border x:Name="AccountDevicesSectionPanel" Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="8,0,0,0">
                                 <StackPanel>
                                     <TextBlock Text="Devices" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock Text="Current device" Foreground="#CBD5E1" />
@@ -1134,8 +1177,8 @@
                                     <TextBlock Text="Last seen" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountCurrentDeviceLastSeenValue" Text="Not available" Margin="0,4,0,10" TextWrapping="Wrap" />
 
-                                    <TextBlock Text="Account devices" Foreground="#CBD5E1" Margin="0,0,0,4" />
-                                    <TextBlock x:Name="AccountDevicesEmptyText" Text="Sign in to manage account devices." Foreground="#94A3B8" Margin="0,0,0,8" TextWrapping="Wrap" />
+                                    <TextBlock Text="Other devices on this account" Foreground="#CBD5E1" Margin="0,0,0,4" />
+                                    <TextBlock x:Name="AccountDevicesEmptyText" Text="Sign in to view this account's devices." Foreground="#94A3B8" Margin="0,0,0,8" TextWrapping="Wrap" />
                                     <ItemsControl x:Name="AccountDevicesItemsControl">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
@@ -1172,7 +1215,7 @@
                             </Border>
                         </Grid>
 
-                        <Border Style="{StaticResource QuietHoverCardStyle}">
+                        <Border x:Name="AccountPrivacySectionPanel" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
                                 <TextBlock Text="Privacy &amp; consent" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
                                 <Grid>
@@ -1190,27 +1233,35 @@
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Account legal consent" Foreground="#CBD5E1" />
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Account agreement" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountConsentStatusValue" Grid.Row="0" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Account legal version" Foreground="#CBD5E1" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Agreement version" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountConsentVersionValue" Grid.Row="1" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Device local capture" Foreground="#CBD5E1" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="This device" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountDeviceConsentStatusValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Device capture version" Foreground="#CBD5E1" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Device version" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountDeviceConsentVersionValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Allowed here" Foreground="#CBD5E1" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Capture on this device" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountCaptureAuthorizationValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Local link status" Foreground="#CBD5E1" />
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Workspace link" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountLinkStatusValue" Grid.Row="5" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Linked at" Foreground="#CBD5E1" />
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Linked since" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountLinkedAtValue" Grid.Row="6" Grid.Column="1" Text="Not linked" TextWrapping="Wrap" />
                                 </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="AccountSignOutSectionPanel" Style="{StaticResource QuietHoverCardStyle}" Visibility="Collapsed">
+                            <StackPanel>
+                                <TextBlock Text="Sign out" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBlock Text="Signing out removes the saved sign-in from this PC. It does not uninstall PORTA or remove this device from your account unless you choose that in Devices." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+                                <Button x:Name="AccountSignOutButton" Content="Sign out on this PC" Padding="12,6" Width="170" HorizontalAlignment="Left" Click="AccountSignOutButton_Click" />
                             </StackPanel>
                         </Border>
                     </StackPanel>

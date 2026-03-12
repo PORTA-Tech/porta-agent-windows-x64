@@ -21,11 +21,30 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         return ReadConfiguredBackendUrl();
     }
 
-    public async Task<ControlPlaneLoginResponse?> LoginAsync(string userId, string password, CancellationToken token = default)
+    public async Task<ControlPlaneAuthAccessHelpResponse?> GetAccessHelpAsync(CancellationToken token = default)
+    {
+        try
+        {
+            using HttpRequestMessage request = CreateRequest(HttpMethod.Get, "auth/access-help", accessToken: null);
+            using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<ControlPlaneAuthAccessHelpResponse>(JsonOptions, token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<ControlPlaneLoginResult> LoginAsync(string userId, string password, CancellationToken token = default)
     {
         if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(password))
         {
-            return null;
+            return new ControlPlaneLoginResult(false, null, "VALIDATION_ERROR", "Enter your email or account ID and password.");
         }
 
         try
@@ -38,14 +57,53 @@ internal sealed class ControlPlaneAccountClient : IDisposable
             using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                return null;
+                return await CreateLoginFailureAsync(response, token).ConfigureAwait(false);
             }
 
-            return await response.Content.ReadFromJsonAsync<ControlPlaneLoginResponse>(JsonOptions, token).ConfigureAwait(false);
+            ControlPlaneLoginResponse? payload = await response.Content.ReadFromJsonAsync<ControlPlaneLoginResponse>(JsonOptions, token).ConfigureAwait(false);
+            return payload == null
+                ? new ControlPlaneLoginResult(false, null, "INVALID_RESPONSE", "The sign-in response was incomplete.")
+                : new ControlPlaneLoginResult(true, payload, null, null);
         }
         catch
         {
-            return null;
+            return new ControlPlaneLoginResult(false, null, "NETWORK_ERROR", "Could not reach the sign-in server.");
+        }
+    }
+
+    public async Task<ControlPlaneRegisterResult> RegisterAsync(
+        string userId,
+        string password,
+        string displayName,
+        string? signupCode,
+        CancellationToken token = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(password) || string.IsNullOrWhiteSpace(displayName))
+        {
+            return new ControlPlaneRegisterResult(false, null, "VALIDATION_ERROR", "Display name, email, and password are required.");
+        }
+
+        try
+        {
+            using HttpRequestMessage request = CreateJsonRequest(
+                HttpMethod.Post,
+                "auth/register",
+                new ControlPlaneRegisterRequest(userId.Trim(), password, displayName.Trim(), string.IsNullOrWhiteSpace(signupCode) ? null : signupCode.Trim()),
+                accessToken: null);
+            using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return await CreateRegisterFailureAsync(response, token).ConfigureAwait(false);
+            }
+
+            ControlPlaneRegisterResponse? payload = await response.Content.ReadFromJsonAsync<ControlPlaneRegisterResponse>(JsonOptions, token).ConfigureAwait(false);
+            return payload == null
+                ? new ControlPlaneRegisterResult(false, null, "INVALID_RESPONSE", "The account-creation response was incomplete.")
+                : new ControlPlaneRegisterResult(true, payload, null, null);
+        }
+        catch
+        {
+            return new ControlPlaneRegisterResult(false, null, "NETWORK_ERROR", "Could not reach the sign-up server.");
         }
     }
 
@@ -201,6 +259,65 @@ internal sealed class ControlPlaneAccountClient : IDisposable
             }
 
             return await response.Content.ReadFromJsonAsync<ControlPlaneDeviceLinkResult>(JsonOptions, token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task<ControlPlaneLoginResult> CreateLoginFailureAsync(HttpResponseMessage response, CancellationToken token)
+    {
+        ControlPlaneApiErrorResponse? error = await TryReadErrorAsync(response, token).ConfigureAwait(false);
+        string? message = error?.ErrorCode switch
+        {
+            "ACCOUNT_NOT_FOUND" => "Account not found on this server. Create one below or ask your admin.",
+            "INVALID_CREDENTIALS" => "Your email, account ID, or password was not accepted.",
+            _ => error?.Message
+        };
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            message = response.StatusCode switch
+            {
+                System.Net.HttpStatusCode.Unauthorized => "Your email, account ID, or password was not accepted.",
+                System.Net.HttpStatusCode.NotFound => "Account not found on this server.",
+                _ => "Sign-in failed."
+            };
+        }
+
+        return new ControlPlaneLoginResult(false, null, error?.ErrorCode, message);
+    }
+
+    private static async Task<ControlPlaneRegisterResult> CreateRegisterFailureAsync(HttpResponseMessage response, CancellationToken token)
+    {
+        ControlPlaneApiErrorResponse? error = await TryReadErrorAsync(response, token).ConfigureAwait(false);
+        string? message = error?.ErrorCode switch
+        {
+            "USER_EXISTS" => "An account with that email already exists.",
+            "SIGNUP_DISABLED" => "Self-service sign-up is not enabled on this server.",
+            "INVALID_SIGNUP_CODE" => "That sign-up code was not accepted.",
+            "INVALID_USER_ID" => "Use a valid email address.",
+            "WEAK_PASSWORD" => error?.Message,
+            _ => error?.Message
+        };
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            message = response.StatusCode switch
+            {
+                System.Net.HttpStatusCode.Conflict => "An account with that email already exists.",
+                System.Net.HttpStatusCode.Forbidden => "Self-service sign-up is not enabled on this server.",
+                _ => "Could not create the account."
+            };
+        }
+
+        return new ControlPlaneRegisterResult(false, null, error?.ErrorCode, message);
+    }
+
+    private static async Task<ControlPlaneApiErrorResponse?> TryReadErrorAsync(HttpResponseMessage response, CancellationToken token)
+    {
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<ControlPlaneApiErrorResponse>(JsonOptions, token).ConfigureAwait(false);
         }
         catch
         {
