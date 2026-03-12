@@ -2,6 +2,7 @@ namespace Porta.UserAgent.Interventions;
 
 using System.Collections.Concurrent;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -223,10 +224,6 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
                 string message = string.IsNullOrWhiteSpace(command.Message)
                     ? "PORTA has a suggestion for you."
                     : command.Message.Trim();
-                _notifyIcon.BalloonTipTitle = title;
-                _notifyIcon.BalloonTipText = message;
-                _notifyIcon.BalloonTipIcon = ToolTipIcon.Info;
-                _notifyIcon.ShowBalloonTip(4000);
                 ShowDesktopToast(title, message);
             }
         }
@@ -272,6 +269,17 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
 
     private sealed class ToastPopupForm : Form
     {
+        private static readonly Color ToastBackgroundColor = Color.FromArgb(248, 250, 252);
+        private static readonly Color ToastBorderColor = Color.FromArgb(203, 213, 225);
+        private static readonly Color ToastAccentColor = Color.FromArgb(14, 116, 144);
+        private static readonly Color ToastTitleColor = Color.FromArgb(15, 23, 42);
+        private static readonly Color ToastMessageColor = Color.FromArgb(30, 41, 59);
+        private const int ToastCornerRadius = 18;
+        private const int ToastWidth = 420;
+        private const int ToastHeight = 154;
+        private const int ToastScreenMargin = 18;
+        private const int ToastDisplayDurationMs = 6500;
+
         private readonly System.Windows.Forms.Timer _closeTimer;
 
         public ToastPopupForm(string title, string message)
@@ -281,53 +289,100 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
             TopMost = true;
-            BackColor = Color.FromArgb(21, 24, 28);
-            ForeColor = Color.FromArgb(226, 232, 240);
-            ClientSize = new Size(360, 112);
-            Padding = new Padding(16);
+            BackColor = ToastBackgroundColor;
+            ForeColor = ToastMessageColor;
+            ClientSize = new Size(ToastWidth, ToastHeight);
+            Padding = new Padding(18, 16, 18, 16);
+            DoubleBuffered = true;
+            SetStyle(
+                ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw
+                | ControlStyles.UserPaint,
+                true);
+
+            var accentBar = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 6,
+                BackColor = ToastAccentColor
+            };
+
+            var contentPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = ToastBackgroundColor,
+                ColumnCount = 1,
+                RowCount = 3,
+                Padding = new Padding(18, 16, 18, 16)
+            };
+            contentPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            contentPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            contentPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+            var subtitleLabel = new Label
+            {
+                AutoSize = true,
+                Text = "Suggestion",
+                Font = new Font(
+                    baseFont.FontFamily,
+                    Math.Max(9f, baseFont.Size - 0.5f),
+                    FontStyle.Bold),
+                ForeColor = ToastAccentColor,
+                Margin = new Padding(0, 0, 0, 6)
+            };
 
             var titleLabel = new Label
             {
-                AutoSize = false,
+                AutoSize = true,
                 Text = string.IsNullOrWhiteSpace(title) ? "PORTA" : title.Trim(),
                 Font = new Font(
                     baseFont.FontFamily,
-                    baseFont.Size,
+                    Math.Max(13f, baseFont.Size + 1.5f),
                     FontStyle.Bold),
-                ForeColor = Color.FromArgb(248, 250, 252),
-                Dock = DockStyle.Top,
-                Height = 24
+                ForeColor = ToastTitleColor,
+                Margin = new Padding(0, 0, 0, 8)
             };
 
             var messageLabel = new Label
             {
-                AutoSize = false,
+                AutoSize = true,
                 Text = string.IsNullOrWhiteSpace(message) ? "PORTA has a suggestion for you." : message.Trim(),
-                Font = baseFont,
-                ForeColor = Color.FromArgb(203, 213, 225),
-                Dock = DockStyle.Fill
+                Font = new Font(
+                    baseFont.FontFamily,
+                    Math.Max(10.5f, baseFont.Size + 0.25f),
+                    FontStyle.Regular),
+                ForeColor = ToastMessageColor,
+                MaximumSize = new Size(ToastWidth - 64, 0),
+                Margin = new Padding(0)
             };
 
-            var accentPanel = new Panel
-            {
-                Dock = DockStyle.Left,
-                Width = 6,
-                BackColor = Color.FromArgb(59, 130, 246)
-            };
+            contentPanel.Controls.Add(subtitleLabel, 0, 0);
+            contentPanel.Controls.Add(titleLabel, 0, 1);
+            contentPanel.Controls.Add(messageLabel, 0, 2);
 
-            Controls.Add(messageLabel);
-            Controls.Add(titleLabel);
-            Controls.Add(accentPanel);
+            Controls.Add(contentPanel);
+            Controls.Add(accentBar);
 
-            PositionBottomRight();
+            ApplyRoundedChrome();
+            PositionTopRight();
 
-            _closeTimer = new System.Windows.Forms.Timer { Interval = 5000 };
+            _closeTimer = new System.Windows.Forms.Timer { Interval = ToastDisplayDurationMs };
             _closeTimer.Tick += (_, _) =>
             {
                 _closeTimer.Stop();
                 Close();
             };
-            Shown += (_, _) => _closeTimer.Start();
+            Shown += (_, _) =>
+            {
+                PositionTopRight();
+                _closeTimer.Start();
+            };
+            SizeChanged += (_, _) =>
+            {
+                ApplyRoundedChrome();
+                PositionTopRight();
+            };
         }
 
         protected override bool ShowWithoutActivation => true;
@@ -354,12 +409,45 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
             base.Dispose(disposing);
         }
 
-        private void PositionBottomRight()
+        protected override void OnPaint(PaintEventArgs e)
         {
-            Rectangle area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
+            base.OnPaint(e);
+            using var pen = new Pen(ToastBorderColor, 1.25f);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using GraphicsPath path = CreateRoundedRectanglePath(
+                new RectangleF(0.6f, 0.6f, Width - 1.2f, Height - 1.2f),
+                ToastCornerRadius);
+            e.Graphics.DrawPath(pen, path);
+        }
+
+        private void ApplyRoundedChrome()
+        {
+            using GraphicsPath path = CreateRoundedRectanglePath(
+                new RectangleF(0f, 0f, Width, Height),
+                ToastCornerRadius);
+            Region?.Dispose();
+            Region = new Region(path);
+        }
+
+        private void PositionTopRight()
+        {
+            Rectangle area = Screen.FromPoint(Cursor.Position).WorkingArea;
             Location = new Point(
-                area.Right - Width - 16,
-                area.Bottom - Height - 16);
+                area.Right - Width - ToastScreenMargin,
+                area.Top + ToastScreenMargin);
+        }
+
+        private static GraphicsPath CreateRoundedRectanglePath(RectangleF bounds, float radius)
+        {
+            float diameter = radius * 2f;
+            var path = new GraphicsPath();
+            path.StartFigure();
+            path.AddArc(bounds.X, bounds.Y, diameter, diameter, 180f, 90f);
+            path.AddArc(bounds.Right - diameter, bounds.Y, diameter, diameter, 270f, 90f);
+            path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0f, 90f);
+            path.AddArc(bounds.X, bounds.Bottom - diameter, diameter, diameter, 90f, 90f);
+            path.CloseFigure();
+            return path;
         }
     }
 }

@@ -130,7 +130,7 @@ public partial class MainWindow : Window
         UpdateWindowChromeButtons();
         _lastSeenEventId = LoadLastSeenEventId();
         _dismissedRecoveryEventId = LoadRecoveryAckEventId();
-        UiVersionMenuItem.Header = $"UI: {_uiVersion}";
+        UiVersionText.Text = _uiVersion;
         InitializePauseUntilControls();
         _settingsAutoSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
         _settingsAutoSaveTimer.Tick += async (_, _) =>
@@ -507,6 +507,11 @@ public partial class MainWindow : Window
         ControlCenterFileLog.Info("manual_refresh_clicked");
         await RefreshDiagnosticsAsync(manual: true).ConfigureAwait(true);
         ControlCenterFileLog.Info($"manual_refresh_completed api_reachable={(_latestStatus != null).ToString().ToLowerInvariant()}");
+    }
+
+    private void VersionsButton_Click(object sender, RoutedEventArgs e)
+    {
+        VersionsPopup.IsOpen = !VersionsPopup.IsOpen;
     }
 
     private void WhyDrawerToggleButton_Click(object sender, RoutedEventArgs e)
@@ -4724,9 +4729,9 @@ public partial class MainWindow : Window
             SectionTitleText.Text = $"Now ({visualState.ModeLabel})";
         }
 
-        AgentVersionMenuItem.Header = $"Agent: {status?.AgentVersion ?? NotAvailableText}";
-        UiVersionMenuItem.Header = $"UI: {_uiVersion}";
-        SchemaVersionMenuItem.Header = $"Schema: {status?.SchemaVersion ?? NotAvailableText}";
+        AgentVersionText.Text = status?.AgentVersion ?? NotAvailableText;
+        UiVersionText.Text = _uiVersion;
+        SchemaVersionText.Text = status?.SchemaVersion ?? NotAvailableText;
     }
 
     private static void SetBadgeVisual(Border border, bool isPositive)

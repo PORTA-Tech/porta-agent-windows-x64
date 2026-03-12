@@ -257,13 +257,83 @@
                     <Button x:Name="WhyDrawerToggleButton" Content="Why" Padding="12,6" Margin="0,0,10,0" Click="WhyDrawerToggleButton_Click" />
                     <Button x:Name="QuickPauseResumeButton" Content="Pause" Padding="12,6" Margin="0,0,10,0" Click="QuickPauseResumeButton_Click" />
                     <Button x:Name="RefreshButton" Content="Refresh" Padding="12,6" Margin="0,0,10,0" Click="RefreshButton_Click" />
-                    <Menu Background="Transparent" Foreground="#E2E8F0" VerticalAlignment="Center">
-                        <MenuItem Header="Versions">
-                            <MenuItem x:Name="AgentVersionMenuItem" Header="Agent: Not available" IsEnabled="False" />
-                            <MenuItem x:Name="UiVersionMenuItem" Header="UI: Not available" IsEnabled="False" />
-                            <MenuItem x:Name="SchemaVersionMenuItem" Header="Schema: Not available" IsEnabled="False" />
-                        </MenuItem>
-                    </Menu>
+                    <Grid VerticalAlignment="Center">
+                        <Button x:Name="VersionsButton"
+                                Padding="12,6"
+                                MinWidth="102"
+                                ToolTip="Agent, UI, and schema versions"
+                                Click="VersionsButton_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Versions"
+                                           VerticalAlignment="Center"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Text="&#xE70D;"
+                                           Margin="8,0,0,0"
+                                           VerticalAlignment="Center"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           FontSize="10"
+                                           Foreground="{StaticResource PortaTextSecondaryBrush}" />
+                            </StackPanel>
+                        </Button>
+                        <Popup x:Name="VersionsPopup"
+                               PlacementTarget="{Binding ElementName=VersionsButton}"
+                               Placement="Bottom"
+                               VerticalOffset="8"
+                               AllowsTransparency="True"
+                               PopupAnimation="Fade"
+                               StaysOpen="False">
+                            <Border Width="236"
+                                    Padding="12"
+                                    Background="#0F1319"
+                                    BorderBrush="#2E3641"
+                                    BorderThickness="1"
+                                    CornerRadius="14">
+                                <StackPanel>
+                                    <TextBlock Text="Versions"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource PortaTextSecondaryBrush}"
+                                               Margin="0,0,0,10" />
+                                    <Border Style="{StaticResource QuietHoverSubCardCompactStyle}" Margin="0,0,0,8">
+                                        <StackPanel>
+                                            <TextBlock Text="Agent"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource PortaTextSecondaryBrush}" />
+                                            <TextBlock x:Name="AgentVersionText"
+                                                       Text="Not available"
+                                                       Margin="0,4,0,0"
+                                                       FontSize="13"
+                                                       FontWeight="SemiBold" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Style="{StaticResource QuietHoverSubCardCompactStyle}" Margin="0,0,0,8">
+                                        <StackPanel>
+                                            <TextBlock Text="UI"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource PortaTextSecondaryBrush}" />
+                                            <TextBlock x:Name="UiVersionText"
+                                                       Text="Not available"
+                                                       Margin="0,4,0,0"
+                                                       FontSize="13"
+                                                       FontWeight="SemiBold" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Style="{StaticResource QuietHoverSubCardCompactStyle}">
+                                        <StackPanel>
+                                            <TextBlock Text="Schema"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource PortaTextSecondaryBrush}" />
+                                            <TextBlock x:Name="SchemaVersionText"
+                                                       Text="Not available"
+                                                       Margin="0,4,0,0"
+                                                       FontSize="13"
+                                                       FontWeight="SemiBold" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </Popup>
+                    </Grid>
                 </DockPanel>
             </Border>
 
