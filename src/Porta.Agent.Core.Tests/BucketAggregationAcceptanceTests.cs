@@ -198,7 +198,7 @@ public sealed class BucketAggregationAcceptanceTests
         Assert.DoesNotContain("keyboard", quality.MissingMajorChannels);
         Assert.DoesNotContain("mouse", quality.MissingMajorChannels);
         Assert.DoesNotContain("idle", quality.MissingMajorChannels);
-        Assert.Equal(0.8d, quality.QualityScore, precision: 6);
+        Assert.Equal(0.76d, quality.QualityScore, precision: 6);
     }
 
     [Fact]
@@ -218,7 +218,7 @@ public sealed class BucketAggregationAcceptanceTests
         Assert.DoesNotContain("keyboard", quality.MissingMajorChannels);
         Assert.DoesNotContain("focus", quality.MissingMajorChannels);
         Assert.DoesNotContain("idle", quality.MissingMajorChannels);
-        Assert.Equal(0.8d, quality.QualityScore, precision: 6);
+        Assert.Equal(0.88d, quality.QualityScore, precision: 6);
     }
 
     [Fact]
@@ -238,7 +238,46 @@ public sealed class BucketAggregationAcceptanceTests
         Assert.DoesNotContain("mouse", quality.MissingMajorChannels);
         Assert.DoesNotContain("focus", quality.MissingMajorChannels);
         Assert.DoesNotContain("idle", quality.MissingMajorChannels);
-        Assert.Equal(0.75d, quality.QualityScore, precision: 6);
+        Assert.Equal(0.90d, quality.QualityScore, precision: 6);
+    }
+
+    [Fact]
+    public void Quality_NoInteractionPenalty_GrowsWithQuietDuration()
+    {
+        var shortQuietBucket = new BucketBuffer(bucketSeq: 1);
+        shortQuietBucket.Focus.RecordFocusEvent(shortQuietBucket.StartUtcMs + 150, "app");
+        shortQuietBucket.Idle.RecordTelemetrySummary(
+            observationCount: 3,
+            endIdleSeconds: 2d,
+            idleSecondsWithinWindow: 2d,
+            microIdleCount: 0,
+            microIdleSeconds: 0d,
+            breakSecondsWithinWindow: 0d,
+            shortIdleBoundaryObserved: true);
+
+        var longQuietBucket = new BucketBuffer(bucketSeq: 2);
+        longQuietBucket.Focus.RecordFocusEvent(longQuietBucket.StartUtcMs + 150, "app");
+        longQuietBucket.Idle.RecordTelemetrySummary(
+            observationCount: 3,
+            endIdleSeconds: 45d,
+            idleSecondsWithinWindow: 5d,
+            microIdleCount: 0,
+            microIdleSeconds: 0d,
+            breakSecondsWithinWindow: 0d,
+            shortIdleBoundaryObserved: true);
+
+        BucketDataQualityScore shortQuiet = BucketDataQualityScorer.Compute(
+            shortQuietBucket,
+            new BucketDropCountersDelta(FutureSkewDrops: 0, TooOldDrops: 0, LateFinalDrops: 0));
+        BucketDataQualityScore longQuiet = BucketDataQualityScorer.Compute(
+            longQuietBucket,
+            new BucketDropCountersDelta(FutureSkewDrops: 0, TooOldDrops: 0, LateFinalDrops: 0));
+
+        Assert.True(shortQuiet.Partial);
+        Assert.True(longQuiet.Partial);
+        Assert.True(shortQuiet.QualityScore > longQuiet.QualityScore);
+        Assert.True(shortQuiet.QualityScore >= 0.80d);
+        Assert.True(longQuiet.QualityScore <= 0.65d);
     }
 
     [Fact]

@@ -49,7 +49,8 @@ internal static class DerivedSessionMetricsComputer
             bucket,
             evidence,
             idleChannelMissing,
-            continuity.State);
+            continuity.State,
+            continuity.IdlePauseSeconds);
         return new DerivedSessionMetricsResult(
             SustainedAttentionDurationSec: ClampNonNegativeFinite(continuity.TaskContinuitySeconds),
             IdleFragmentationIndex: Clamp01(idleFragmentation),
@@ -351,7 +352,8 @@ internal static class DerivedSessionMetricsComputer
         InputBucketRow bucket,
         ChannelEvidence evidence,
         bool idleChannelMissing,
-        string continuityState)
+        string continuityState,
+        double idlePauseSeconds)
     {
         double confidence = Clamp01(bucket.QualityScore);
         if (!evidence.FocusAvailable)
@@ -367,12 +369,12 @@ internal static class DerivedSessionMetricsComputer
         {
             if (!evidence.KeyboardAvailable)
             {
-                confidence -= PortaExecutionConstants.DerivedSessionMetrics.KeyboardMissingConfidencePenalty;
+                confidence -= 0.05d;
             }
 
             if (!evidence.MouseAvailable)
             {
-                confidence -= PortaExecutionConstants.DerivedSessionMetrics.MouseMissingConfidencePenalty;
+                confidence -= 0.06d;
             }
         }
 
@@ -388,7 +390,7 @@ internal static class DerivedSessionMetricsComputer
 
         if (!evidence.AnyInteractionActive)
         {
-            confidence -= PortaExecutionConstants.DerivedSessionMetrics.NoInteractionConfidencePenalty;
+            confidence -= ResolveNoInteractionConfidencePenalty(idlePauseSeconds);
         }
 
         if (string.Equals(continuityState, "reset", StringComparison.Ordinal))
@@ -397,6 +399,34 @@ internal static class DerivedSessionMetricsComputer
         }
 
         return Clamp01(confidence);
+    }
+
+    private static double ResolveNoInteractionConfidencePenalty(double idlePauseSeconds)
+    {
+        double quietSeconds = ClampNonNegativeFinite(idlePauseSeconds);
+        if (quietSeconds <= 0d)
+        {
+            return 0.03d;
+        }
+
+        if (quietSeconds <= PortaExecutionConstants.DerivedSessionMetrics.IdleAccumulateMaxSeconds)
+        {
+            double progress = quietSeconds / PortaExecutionConstants.DerivedSessionMetrics.IdleAccumulateMaxSeconds;
+            return 0.03d + (0.05d * progress);
+        }
+
+        if (quietSeconds <= PortaExecutionConstants.DerivedSessionMetrics.IdlePauseMaxSeconds)
+        {
+            double progress = (quietSeconds - PortaExecutionConstants.DerivedSessionMetrics.IdleAccumulateMaxSeconds)
+                / (PortaExecutionConstants.DerivedSessionMetrics.IdlePauseMaxSeconds
+                    - PortaExecutionConstants.DerivedSessionMetrics.IdleAccumulateMaxSeconds);
+            return 0.08d + (0.10d * progress);
+        }
+
+        double extendedProgress = (quietSeconds - PortaExecutionConstants.DerivedSessionMetrics.IdlePauseMaxSeconds)
+            / (PortaExecutionConstants.DerivedSessionMetrics.IdleResetSeconds
+                - PortaExecutionConstants.DerivedSessionMetrics.IdlePauseMaxSeconds);
+        return 0.18d + (0.07d * Math.Clamp(extendedProgress, 0d, 1d));
     }
 
     private static TaskContinuityDecision BuildDecision(

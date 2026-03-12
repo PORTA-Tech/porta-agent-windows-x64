@@ -2,11 +2,14 @@ namespace Porta.Agent.Core.Buckets;
 
 internal static class BucketDataQualityScorer
 {
-    // Pinned scoring contract for v1.
-    private const double KeyboardMissingPenalty = 0.25;
-    private const double MouseMissingPenalty = 0.20;
-    private const double FocusMissingPenalty = 0.20;
-    private const double IdleMissingPenalty = 0.15;
+    private const double KeyboardMissingPenalty = 0.10;
+    private const double MouseMissingPenalty = 0.12;
+    private const double FocusMissingPenalty = 0.24;
+    private const double IdleMissingPenalty = 0.18;
+    private const double InteractionMissingBasePenalty = 0.18;
+    private const double InteractionMissingMaxPenalty = 0.38;
+    private const double InteractionMissingShortQuietSeconds = 2.0;
+    private const double InteractionMissingLongQuietSeconds = 45.0;
     private const double MaxDropPenalty = 0.25;
     private const double DropPenaltySlope = 0.50;
 
@@ -28,16 +31,27 @@ internal static class BucketDataQualityScorer
         var missing = new List<string>(4);
         double score = 1d;
 
-        if (!keyboardAvailable)
+        bool interactionMissing = !keyboardAvailable && !mouseAvailable;
+
+        if (interactionMissing)
         {
             missing.Add("keyboard");
-            score -= KeyboardMissingPenalty;
-        }
-
-        if (!mouseAvailable)
-        {
             missing.Add("mouse");
-            score -= MouseMissingPenalty;
+            score -= ResolveInteractionMissingPenalty(bucket, idleAvailable);
+        }
+        else
+        {
+            if (!keyboardAvailable)
+            {
+                missing.Add("keyboard");
+                score -= KeyboardMissingPenalty;
+            }
+
+            if (!mouseAvailable)
+            {
+                missing.Add("mouse");
+                score -= MouseMissingPenalty;
+            }
         }
 
         if (!focusAvailable)
@@ -59,12 +73,27 @@ internal static class BucketDataQualityScorer
         score -= dropPenalty;
 
         double clamped = Clamp01(score);
-        // Normal active use often alternates between keyboard-only and mouse-only windows.
-        // Treat those as valid interaction buckets; only mark partial when both interaction
-        // channels are absent or a non-interaction channel is missing.
-        bool interactionMissing = !keyboardAvailable && !mouseAvailable;
         bool partial = interactionMissing || !focusAvailable || !idleAvailable;
         return new BucketDataQualityScore(clamped, partial, missing);
+    }
+
+    private static double ResolveInteractionMissingPenalty(BucketBuffer bucket, bool idleAvailable)
+    {
+        double quietSeconds = idleAvailable
+            ? NormalizeNonNegative(bucket.Idle.QualityIdleSecondsEstimate)
+            : Time.bucketSeconds;
+        double progress = 0d;
+        if (InteractionMissingLongQuietSeconds > InteractionMissingShortQuietSeconds)
+        {
+            progress = Math.Clamp(
+                (quietSeconds - InteractionMissingShortQuietSeconds)
+                / (InteractionMissingLongQuietSeconds - InteractionMissingShortQuietSeconds),
+                0d,
+                1d);
+        }
+
+        return InteractionMissingBasePenalty
+            + ((InteractionMissingMaxPenalty - InteractionMissingBasePenalty) * progress);
     }
 
     private static double Clamp01(double value)
@@ -75,6 +104,16 @@ internal static class BucketDataQualityScorer
         }
 
         return Math.Clamp(value, 0d, 1d);
+    }
+
+    private static double NormalizeNonNegative(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value) || value < 0d)
+        {
+            return 0d;
+        }
+
+        return value;
     }
 }
 

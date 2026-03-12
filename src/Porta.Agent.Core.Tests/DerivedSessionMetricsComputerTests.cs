@@ -567,6 +567,65 @@ public sealed class DerivedSessionMetricsComputerTests
     }
 
     [Fact]
+    public void ComputeForFinalizedBucket_ProlongedNoInteraction_DegradesConfidenceMoreThanShortQuiet()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 120d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityIdlePauseSeconds: 0d);
+
+        InputBucketRow shortQuiet = BuildStableRow() with
+        {
+            IdleSeconds = 5d,
+            KeyboardIkiMean = 0d,
+            KeyboardIkiCv = 0d,
+            KeyboardBurstRate = 0d,
+            KeyboardBackspaceRate = 0d,
+            ScrollVelocityIndex = 0d,
+            MouseSpeedMean = 0d,
+            MouseJerkP95 = 0d,
+            MouseScrollSpeed = 0d,
+            MouseMicroCorrectionRate = 0d
+        };
+        DerivedSessionMetricsResult shortQuietResult = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            shortQuiet,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 120d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityIdlePauseSeconds: 0d);
+
+        InputBucketRow longQuiet = shortQuiet with
+        {
+            IdleSeconds = 40d
+        };
+        DerivedSessionMetricsResult longQuietResult = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            longQuiet,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.Equal("pause", shortQuietResult.ContinuityState);
+        Assert.Equal("pause", longQuietResult.ContinuityState);
+        Assert.True(shortQuietResult.ContinuityConfidence > longQuietResult.ContinuityConfidence);
+    }
+
+    [Fact]
     public void ComputeForFinalizedBucket_ContextExcursionBeyondGrace_DecaysWithoutReset()
     {
         using var connection = OpenInMemoryDb();

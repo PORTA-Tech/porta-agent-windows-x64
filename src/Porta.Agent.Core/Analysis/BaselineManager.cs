@@ -189,9 +189,19 @@ internal static class BaselineManager
         InputBucketRow inputBucketRow,
         QualityWindowStats provisionalQualityWindow)
     {
-        double quality = provisionalQualityWindow.BucketCount > 0
-            ? provisionalQualityWindow.AverageQuality
-            : inputBucketRow.QualityScore;
+        double quality;
+        if (provisionalQualityWindow.BucketCount > 0)
+        {
+            // Smooth cold-start guidance against the recent window so one quiet bucket
+            // does not swing guidance as hard as a sustained low-quality run.
+            quality = (provisionalQualityWindow.AverageQuality * 0.70d)
+                + (inputBucketRow.QualityScore * 0.30d);
+        }
+        else
+        {
+            quality = inputBucketRow.QualityScore;
+        }
+
         return Math.Clamp(double.IsFinite(quality) ? quality : 0d, 0d, 1d);
     }
 

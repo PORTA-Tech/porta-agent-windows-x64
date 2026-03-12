@@ -26,6 +26,7 @@ internal sealed class IdleRawAggregates
     public int ObservationCount => _summaryObservationCount > 0
         ? _summaryObservationCount
         : _samples.Count + _observedIntervals.Count;
+    public double QualityIdleSecondsEstimate => ResolveQualityIdleSecondsEstimate();
     public double IdleSeconds { get; private set; }
     public double IdleSecondsWithinWindow { get; private set; }
     public int MicroIdleCount { get; private set; }
@@ -216,6 +217,22 @@ internal sealed class IdleRawAggregates
     private static bool IsShortIdle(double idleSeconds)
     {
         return idleSeconds >= ShortIdleMinSeconds && idleSeconds <= ShortIdleMaxSeconds;
+    }
+
+    private double ResolveQualityIdleSecondsEstimate()
+    {
+        if (_hasTelemetrySummary)
+        {
+            return NormalizeNonNegative(Math.Max(_summaryEndIdleSeconds, _summaryIdleSecondsWithinWindow));
+        }
+
+        double sampleIdle = _samples.Count == 0
+            ? 0d
+            : NormalizeNonNegative(_samples.Max(static sample => sample.IdleSeconds));
+        double intervalIdle = _observedIntervals.Count == 0
+            ? 0d
+            : NormalizeNonNegative(_observedIntervals.Max(static interval => interval.IdleSeconds));
+        return NormalizeNonNegative(Math.Max(sampleIdle, intervalIdle));
     }
 
     private static double NormalizeNonNegative(double value)
