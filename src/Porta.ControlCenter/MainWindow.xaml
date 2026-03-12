@@ -186,6 +186,12 @@
                 </Grid.ColumnDefinitions>
 
                 <DockPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                    <Image Source="Assets/PortaSymbolWhite.png"
+                           Width="18"
+                           Height="18"
+                           Margin="0,0,5,0"
+                           Stretch="Uniform"
+                           VerticalAlignment="Center" />
                     <TextBlock Text="PORTA"
                                VerticalAlignment="Center"
                                FontSize="14"
@@ -215,16 +221,6 @@
 
         <Border Grid.Row="1" Grid.Column="0" Background="#0C0E11" BorderBrush="#262B33" BorderThickness="0,0,1,0">
             <StackPanel Margin="16">
-                <Border Height="136"
-                        Margin="0,0,0,20"
-                        CornerRadius="18"
-                        ClipToBounds="True"
-                        BorderBrush="#2F3844"
-                        BorderThickness="1"
-                        Background="#E5E7EB"
-                        Padding="18">
-                    <Image Source="Assets/PortaBrandBanner.png" Stretch="Uniform" />
-                </Border>
                 <Button x:Name="OverviewNavButton" Content="Now" Margin="0,0,0,8" Padding="10,8" Click="OverviewNavButton_Click" />
                 <Button x:Name="TimelineNavButton" Content="History" Margin="0,0,0,8" Padding="10,8" Click="TimelineNavButton_Click" />
                 <Button x:Name="InterventionsNavButton" Content="Actions" Margin="0,0,0,8" Padding="10,8" Click="InterventionsNavButton_Click" />

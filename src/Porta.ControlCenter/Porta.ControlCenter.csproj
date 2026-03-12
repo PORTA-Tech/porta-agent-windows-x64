@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="Assets\PortaBrandBanner.png" />
+    <Resource Include="Assets\PortaSymbolWhite.png" />
   </ItemGroup>
 
 </Project>
