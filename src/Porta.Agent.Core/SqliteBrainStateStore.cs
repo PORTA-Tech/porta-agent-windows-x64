@@ -4931,7 +4931,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             Time.toIsoUtcMsString(nowUtcMs));
     }
 
-    private static BreakFocusWindowSnapshot ReadBreakFocusWindowSnapshot(
+    internal static BreakFocusWindowSnapshot ReadBreakFocusWindowSnapshot(
         SqliteConnection connection,
         SqliteTransaction tx,
         InputBucketRow inputBucket,
@@ -4945,47 +4945,59 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         int shortBreakBuckets = Math.Max(1, settings.ShortBreakWindowSeconds / Time.bucketSeconds);
         long earliestBucketSeq = Math.Max(0, inputBucket.BucketSeq - shortBreakBuckets + 1);
         long earliestMicrobreakBucketSeq = Math.Max(0, inputBucket.BucketSeq - microbreakBuckets + 1);
-        string earliestTimestampUtc = Time.toIsoUtcMsString(Time.bucketStartEnd(earliestBucketSeq).endUtcMs);
-        string earliestMicrobreakTimestampUtc = Time.toIsoUtcMsString(Time.bucketStartEnd(earliestMicrobreakBucketSeq).endUtcMs);
-        string currentTimestampUtc = Time.toIsoUtcMsString(Time.bucketStartEnd(inputBucket.BucketSeq).endUtcMs);
-        double currentBucketEffectiveFocusSeconds = ResolveEffectiveFocusSeconds(derivedSession.TaskContinuityScore);
+        long earliestTimestampUtcMs = Time.bucketStartEnd(earliestBucketSeq).startUtcMs;
+        long earliestMicrobreakTimestampUtcMs = Time.bucketStartEnd(earliestMicrobreakBucketSeq).startUtcMs;
+        long currentTimestampUtcMs = Time.bucketStartEnd(inputBucket.BucketSeq).startUtcMs;
+        string earliestTimestampUtc = Time.toIsoUtcMsString(earliestTimestampUtcMs);
+        string currentTimestampUtc = Time.toIsoUtcMsString(currentTimestampUtcMs);
+        double currentBucketEffectiveFocusSeconds = ResolveCurrentBucketEffectiveFocusSeconds(derivedSession);
         double microbreakWindowEffectiveFocusSeconds = currentBucketEffectiveFocusSeconds;
         double shortBreakWindowEffectiveFocusSeconds = currentBucketEffectiveFocusSeconds;
+        long segmentCursorUtcMs = Time.bucketStartEnd(inputBucket.BucketSeq).endUtcMs;
 
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText =
             """
             SELECT
-                COALESCE(SUM(
-                    CASE
-                        WHEN timestamp_utc >= $micro_min_timestamp_utc
-                        THEN COALESCE(
-                            json_extract(state_flags_json, '$.behavior_continuity_score'),
-                            json_extract(state_flags_json, '$.task_continuity_score'),
-                            0.0)
-                        ELSE 0.0
-                    END), 0.0) AS micro_score_sum,
-                COALESCE(SUM(
-                    COALESCE(
-                        json_extract(state_flags_json, '$.behavior_continuity_score'),
-                        json_extract(state_flags_json, '$.task_continuity_score'),
-                        0.0)), 0.0) AS short_score_sum
+                timestamp_utc,
+                state_flags_json
             FROM state_buckets
             WHERE timestamp_utc >= $min_timestamp_utc
               AND timestamp_utc < $current_timestamp_utc
+            ORDER BY timestamp_utc DESC
             """;
         cmd.Parameters.AddWithValue("$min_timestamp_utc", earliestTimestampUtc);
-        cmd.Parameters.AddWithValue("$micro_min_timestamp_utc", earliestMicrobreakTimestampUtc);
         cmd.Parameters.AddWithValue("$current_timestamp_utc", currentTimestampUtc);
 
         using SqliteDataReader reader = cmd.ExecuteReader();
-        if (reader.Read())
+        while (reader.Read())
         {
-            double microScoreSum = ReadDoubleOrFallback(reader, 0, 0d);
-            double shortScoreSum = ReadDoubleOrFallback(reader, 1, 0d);
-            microbreakWindowEffectiveFocusSeconds += Time.bucketSeconds * Math.Max(0d, microScoreSum);
-            shortBreakWindowEffectiveFocusSeconds += Time.bucketSeconds * Math.Max(0d, shortScoreSum);
+            string timestampUtc = ReadStringOrFallback(reader, 0, string.Empty);
+            if (string.IsNullOrWhiteSpace(timestampUtc))
+            {
+                break;
+            }
+
+            long timestampUtcMs = Time.parseIsoUtcMs(timestampUtc);
+            if ((segmentCursorUtcMs - timestampUtcMs) > (long)(PortaExecutionConstants.DerivedSessionMetrics.GapResetSeconds * 1000d))
+            {
+                break;
+            }
+
+            string stateFlagsJson = ReadStringOrFallback(reader, 1, string.Empty);
+            if (!TryResolveStoredBreakActiveFocusSeconds(stateFlagsJson, out double rowEffectiveFocusSeconds))
+            {
+                break;
+            }
+
+            shortBreakWindowEffectiveFocusSeconds += rowEffectiveFocusSeconds;
+            if (timestampUtcMs >= earliestMicrobreakTimestampUtcMs)
+            {
+                microbreakWindowEffectiveFocusSeconds += rowEffectiveFocusSeconds;
+            }
+
+            segmentCursorUtcMs = timestampUtcMs;
         }
 
         return new BreakFocusWindowSnapshot(
@@ -4998,12 +5010,77 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 || overloadInference.OverloadLikelihood >= settings.HighOverloadLikelihood);
     }
 
+    private static double ResolveCurrentBucketEffectiveFocusSeconds(DerivedSessionMetricsResult derivedSession)
+    {
+        return IsBreakActiveContinuity(
+            derivedSession.ContinuityState,
+            derivedSession.SaFreezeReason,
+            derivedSession.TaskContinuityScore)
+            ? ResolveEffectiveFocusSeconds(derivedSession.TaskContinuityScore)
+            : 0d;
+    }
+
     private static double ResolveEffectiveFocusSeconds(double continuityScore)
     {
         return Math.Max(0d, Time.bucketSeconds * Math.Clamp(
             double.IsFinite(continuityScore) ? continuityScore : 0d,
             0d,
             1d));
+    }
+
+    private static bool TryResolveStoredBreakActiveFocusSeconds(
+        string stateFlagsJson,
+        out double effectiveFocusSeconds)
+    {
+        effectiveFocusSeconds = 0d;
+        if (string.IsNullOrWhiteSpace(stateFlagsJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
+            JsonElement root = doc.RootElement;
+            double continuityScore = TryReadDoubleProperty(root, "behavior_continuity_score", out double behaviorScore)
+                ? behaviorScore
+                : TryReadDoubleProperty(root, "task_continuity_score", out double taskScore)
+                    ? taskScore
+                    : 0d;
+            string continuityState = TryReadStringProperty(root, "continuity_state", out string? continuityStateParsed)
+                ? continuityStateParsed ?? string.Empty
+                : string.Empty;
+            string reasonCode = TryReadStringProperty(root, "sa_reset_reason", out string? reasonParsed)
+                ? reasonParsed ?? string.Empty
+                : string.Empty;
+
+            if (!IsBreakActiveContinuity(continuityState, reasonCode, continuityScore))
+            {
+                return false;
+            }
+
+            effectiveFocusSeconds = ResolveEffectiveFocusSeconds(continuityScore);
+            return effectiveFocusSeconds > 0d;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsBreakActiveContinuity(
+        string continuityState,
+        string reasonCode,
+        double continuityScore)
+    {
+        if (string.Equals(reasonCode, "long_break", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return string.Equals(continuityState?.Trim(), "keep", StringComparison.OrdinalIgnoreCase)
+            && double.IsFinite(continuityScore)
+            && continuityScore > 0d;
     }
 
     private static bool IsBreakDeliveryBoundary(

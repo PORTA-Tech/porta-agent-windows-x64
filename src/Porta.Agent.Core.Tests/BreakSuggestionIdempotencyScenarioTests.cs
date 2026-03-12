@@ -44,8 +44,8 @@ public sealed class BreakSuggestionIdempotencyScenarioTests
         PinOverloadCandidateNormalization(runner.DbPath);
         SeedBreakContinuityHistory(
             runner.DbPath,
-            endExclusiveBucketSeq: activation.BucketSeq - WarmupBuckets,
-            bucketCount: 180,
+            endExclusiveBucketSeq: activation.BucketSeq + 1,
+            bucketCount: 360,
             dominantAppHash: BreakEligibleCandidate.AppHash);
         PinOverloadActiveRuntime(runner, activation.BucketSeq);
 

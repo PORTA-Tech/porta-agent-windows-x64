@@ -516,6 +516,88 @@ public sealed class BreakSuggestionPolicyTests
         Assert.Equal(0L, CountBreakEvents(connection));
     }
 
+    [Fact]
+    public void ReadBreakFocusWindowSnapshot_CountsOnlyMostRecentActiveContinuitySegment()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        Migrations.Migrate(connection);
+        using SqliteTransaction tx = connection.BeginTransaction();
+
+        long currentBucketSeq = 100;
+        InsertStateBucketRow(connection, tx, currentBucketSeq - 4, "keep", 1d);
+        InsertStateBucketRow(connection, tx, currentBucketSeq - 3, "pause", 0d, reasonCode: "short_pause");
+        InsertStateBucketRow(connection, tx, currentBucketSeq - 2, "keep", 1d);
+        InsertStateBucketRow(connection, tx, currentBucketSeq - 1, "keep", 1d);
+
+        BreakFocusWindowSnapshot snapshot = SqliteBrainStateStore.ReadBreakFocusWindowSnapshot(
+            connection,
+            tx,
+            BuildMinimalInputBucket(bucketSeq: currentBucketSeq) with
+            {
+                IdleSeconds = 5d,
+                ContributorsJson = "{\"schema_ver\":1,\"idle\":{\"short_idle_boundary_observed\":true}}"
+            },
+            new DerivedSessionMetricsResult(
+                SustainedAttentionDurationSec: 600d,
+                IdleFragmentationIndex: 0.10d,
+                Partial: false,
+                DominantAppHash: "app",
+                SaIdlePauseSeconds: 15d,
+                SaContextSwitchSeconds: 0d,
+                SaFreezeReason: "short_pause",
+                SaUntrusted: false,
+                TaskContinuityScore: 0d,
+                TaskContinuitySeconds: 600d,
+                ContinuityState: "pause",
+                ContinuityConfidence: 0.80d),
+            BuildStabilization(overloadActive: false),
+            BuildOverloadInference(confidence: 0.80d));
+
+        Assert.Equal(0d, snapshot.CurrentBucketEffectiveFocusSeconds, precision: 6);
+        Assert.Equal(10d, snapshot.MicrobreakWindowEffectiveFocusSeconds, precision: 6);
+        Assert.Equal(10d, snapshot.ShortBreakWindowEffectiveFocusSeconds, precision: 6);
+        Assert.True(snapshot.DeliveryBoundaryReached);
+        Assert.Equal("short_idle", snapshot.DeliveryBoundaryKind);
+    }
+
+    [Fact]
+    public void ReadBreakFocusWindowSnapshot_StopsAccumulationAcrossLongTimestampGap()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        Migrations.Migrate(connection);
+        using SqliteTransaction tx = connection.BeginTransaction();
+
+        long currentBucketSeq = 400;
+        long staleBucketSeq = currentBucketSeq - 40; // 200s gap > reset threshold.
+        InsertStateBucketRow(connection, tx, staleBucketSeq, "keep", 1d);
+
+        BreakFocusWindowSnapshot snapshot = SqliteBrainStateStore.ReadBreakFocusWindowSnapshot(
+            connection,
+            tx,
+            BuildMinimalInputBucket(bucketSeq: currentBucketSeq),
+            new DerivedSessionMetricsResult(
+                SustainedAttentionDurationSec: 5d,
+                IdleFragmentationIndex: 0.10d,
+                Partial: false,
+                DominantAppHash: "app",
+                SaIdlePauseSeconds: 0d,
+                SaContextSwitchSeconds: 0d,
+                SaFreezeReason: string.Empty,
+                SaUntrusted: false,
+                TaskContinuityScore: 1d,
+                TaskContinuitySeconds: 5d,
+                ContinuityState: "keep",
+                ContinuityConfidence: 0.90d),
+            BuildStabilization(overloadActive: false),
+            BuildOverloadInference(confidence: 0.80d));
+
+        Assert.Equal(5d, snapshot.CurrentBucketEffectiveFocusSeconds, precision: 6);
+        Assert.Equal(5d, snapshot.MicrobreakWindowEffectiveFocusSeconds, precision: 6);
+        Assert.Equal(5d, snapshot.ShortBreakWindowEffectiveFocusSeconds, precision: 6);
+    }
+
     private static OverloadInferenceResult BuildOverloadInference(double confidence, double quality = 1d)
     {
         return new OverloadInferenceResult(
@@ -650,6 +732,53 @@ public sealed class BreakSuggestionPolicyTests
             QualityScore: 1d,
             Partial: 0,
             ContributorsJson: "{\"schema_ver\":1}");
+    }
+
+    private static void InsertStateBucketRow(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long bucketSeq,
+        string continuityState,
+        double continuityScore,
+        string reasonCode = "")
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            INSERT INTO state_buckets (
+                timestamp_utc,
+                focus_strength,
+                overload_likelihood,
+                fatigue_probability,
+                cognitive_stability,
+                confidence,
+                contributors_json,
+                state_flags_json
+            ) VALUES (
+                $timestamp_utc,
+                0,
+                0,
+                0,
+                1,
+                1,
+                $contributors_json,
+                $state_flags_json
+            );
+            """;
+        cmd.Parameters.AddWithValue("$timestamp_utc", Time.toIsoUtcMsString(Time.bucketStartEnd(bucketSeq).startUtcMs));
+        cmd.Parameters.AddWithValue("$contributors_json", "{\"schema_ver\":1}");
+        cmd.Parameters.AddWithValue(
+            "$state_flags_json",
+            JsonSerializer.Serialize(new
+            {
+                schema_ver = 1,
+                continuity_state = continuityState,
+                sa_reset_reason = reasonCode,
+                task_continuity_score = continuityScore,
+                behavior_continuity_score = continuityScore
+            }));
+        cmd.ExecuteNonQuery();
     }
 
     private static long CountBreakEvents(SqliteConnection connection)
