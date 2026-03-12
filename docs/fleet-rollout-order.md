@@ -1,6 +1,6 @@
 # Fleet Rollout Order
 
-This is the canonical rollout order for the fleet reporting + operations console path.
+This is the canonical rollout order for the identity-aware fleet path.
 
 It exists to keep the implementation sequence stable across:
 
@@ -9,133 +9,204 @@ It exists to keep the implementation sequence stable across:
 - `porta-agent-windows-x64`
 - `porta-operations-console`
 
-The order below reflects the current live architecture and the work already completed.
+The order below is the exact release order. Identity is additive and rollout claims are only valid after the final stage.
 
 ## Stage 1: Contract Freeze
 
-Define the canonical fleet reporting payloads first in `porta-api-contracts`.
+Repo:
 
-Required payloads:
+- `porta-api-contracts`
 
-- `MachineSummaryReport`
-- `MachineActionEvent`
+Scope:
 
-Why first:
-
-- every other repo depends on the same field names and enums
-- control-plane storage and UI hooks should not guess response shapes
+- freeze the identity-aware fleet contracts before downstream repos change
 
 Status:
 
 - done
 
-## Stage 2: Control-Plane Persistence
+## Stage 2: Control-Plane Identity Tables
 
-Add persistent fleet stores in `porta-control-plane`.
+Repo:
 
-Required stores:
+- `porta-control-plane`
 
-- `machineSummaryStore`
-- `machineActionStore`
+Scope:
 
-Rules:
-
-- production uses Postgres when `PORTA_CONTROL_PLANE_DATABASE_URL` or `DATABASE_URL` is configured
-- in-memory fallback is allowed only for local/dev scenarios
-
-Why second:
-
-- the agent should not publish into a temporary endpoint contract with nowhere durable to land
+- add persistent identity/profile tables and keep them separate from telemetry truth
+- accounts
+- organizations
+- memberships
+- devices
+- consent records
 
 Status:
 
 - done
 
-## Stage 3: Agent Summary/Action Publisher
+## Stage 3: Control-Plane Identity/Profile Endpoints
 
-Add the upstream reporter only in `Porta.Agent.Service`.
+Repo:
 
-Rules:
+- `porta-control-plane`
 
-- do not move fleet reporting into `Porta.UserAgent`
-- use local truth already available from:
-  - status
-  - snapshot
-  - recent events
-  - runtime state
-- publish machine summary every 5-10 seconds
-- publish action events with a persisted last-sent cursor
+Scope:
 
-Why third:
-
-- the service is the authoritative machine-level reporter
-- `UserAgent` remains capture/execution only
+- add account/profile/device/org read and management endpoints
+- keep profile/device truth out of telemetry tables
 
 Status:
 
 - done
 
-## Stage 4: Control-Plane Ingestion and Read Endpoints
+## Stage 4: Device Register/Link Flow
 
-Add the ingestion API and the operator read API in `porta-control-plane`.
+Repos:
 
-Required ingestion endpoints:
+- `porta-control-plane`
+- `porta-agent-windows-x64`
 
-- `POST /api/agent/machine-summary`
-- `POST /api/agent/action-events`
+Scope:
 
-Required read endpoints:
-
-- `GET /v1/machines/summary`
-- `GET /v1/machines/:machineId`
-- `GET /v1/machines/:machineId/actions`
-- `GET /v1/actions/recent`
-
-Compatibility:
-
-- `/v1/nodes/snapshot` may remain as a compatibility alias, but it must be backed from fleet summary truth, not legacy presence-only state
+- explicit device register, link, unlink, and revoke flow
+- no implicit relink during inventory registration
 
 Status:
 
 - done
 
-## Stage 5: Operations Console Hook Refactor
+## Stage 5: Local Identity Link In Windows App
 
-Make the active console pages consume the new fleet endpoints directly.
+Repo:
 
-Required mapping:
+- `porta-agent-windows-x64`
 
-- Layers 1-3 from `GET /v1/machines/summary`
-- Layer 4 from `GET /v1/actions/recent`
+Scope:
 
-Rules:
-
-- do not use audit traces, websocket fragments, or inferred fake rows as the primary source of truth
-- UI may simplify backend truth, but it must not invent it
+- stable local `device_id`
+- local link store for `device_id/account_id/org_id/link_status`
+- Control Center seam over the local identity link
 
 Status:
 
 - done
 
-## Stage 6: Validation and Rollout
+## Stage 6: Service Reporter Update
 
-Run the end-to-end validation gates after all of the above exist.
+Repo:
+
+- `porta-agent-windows-x64`
+
+Scope:
+
+- service reporter always publishes `device_id`
+- publish `account_id` and `org_id` only when linked
+- keep name/email out of telemetry reports
+
+Status:
+
+- done
+
+## Stage 7: Joined Admin Endpoints
+
+Repo:
+
+- `porta-control-plane`
+
+Scope:
+
+- joined admin/ops reads over telemetry truth plus account/org display fields
+- unlinked devices still return operational rows with null identity display fields
+
+Status:
+
+- done
+
+## Stage 8: Operations Console Identity Display
+
+Repo:
+
+- `porta-operations-console`
+
+Scope:
+
+- augment the existing 4-layer model with joined identity fields
+- no new top-level profile layer
+
+Status:
+
+- done
+
+## Stage 9: Control Center Account UI
+
+Repo:
+
+- `porta-agent-windows-x64`
+
+Scope:
+
+- signed-in account surface
+- workspace/subscription/device/privacy views
+- real account/device relationship display
+
+Status:
+
+- done
+
+## Stage 10: Consent Split
+
+Repos:
+
+- `porta-control-plane`
+- `porta-agent-windows-x64`
+
+Scope:
+
+- separate `account/legal` consent from `device/local capture` consent
+- signed in does not automatically mean capture-authorized on this machine
+
+Status:
+
+- done
+
+## Stage 11: Migration/Backfill
+
+Repo:
+
+- `porta-control-plane`
+
+Scope:
+
+- existing unlinked machines continue to report
+- first new report backfills missing device rows when needed
+- legacy fleet pages remain honest for unlinked devices
+
+Status:
+
+- done
+
+## Stage 12: Validation And Rollout
+
+Repos:
+
+- `porta-agent-windows-x64`
+- `porta-control-plane`
+
+Scope:
+
+- run rollout validation gates only after Stages 1-11 are complete
+- publish validation results to the control plane
+- block broad rollout claims unless validation is green
 
 Required checks:
 
-1. machine appears in `machines/summary`
-2. stable local `device_id` exists
-3. sign-in links the current device to account/org
-4. service publishes `device_id/account_id/org_id`
-5. control plane stores profile + device + telemetry separately
-6. joined endpoints show real `name/email/org`
-7. revoked device disappears or shows revoked status correctly
-8. unlinked device still appears operationally without fake identity
-9. degraded capture is reflected when `Porta.UserAgent` stops
-10. activity and last-activity fields move with real input
-11. fleet summary matches local Control Center truth closely
-12. action lifecycle appears centrally
-13. persistence survives restart when control plane uses Postgres
+1. new install creates stable `device_id`
+2. sign-in links device to account/org
+3. service publishes `device_id/account_id/org_id`
+4. control plane stores profile + device + telemetry separately
+5. joined endpoints show real `name/email/org`
+6. revoked device disappears or shows revoked status correctly
+7. unlinked device still appears operationally without fake identity
 
 Primary runner:
 
@@ -147,7 +218,8 @@ Reference:
 
 Status:
 
-- done
+- done in code and automated checks
+- live broad-rollout signoff still requires running the real gate flow against a live control plane and real credentials
 
 ## Commands
 
@@ -158,6 +230,7 @@ $h = @{ "x-operator-id" = "validation-runner"; "x-operator-role" = "viewer" }
 
 Invoke-RestMethod -Uri "https://porta-control-plane.onrender.com/v1/machines/summary" -Headers $h
 Invoke-RestMethod -Uri "https://porta-control-plane.onrender.com/v1/actions/recent" -Headers $h
+Invoke-RestMethod -Uri "https://porta-control-plane.onrender.com/v1/rollout/evaluate" -Headers $h
 ```
 
 ### Run fleet validation gates
@@ -180,37 +253,18 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-fleet-validation-gates.ps
   -AllowProcessControl
 ```
 
-## Current Commit Landmarks
-
-These are the main commits that established the fleet path:
-
-- `porta-api-contracts`
-  - `df2645e` `Add fleet reporting contracts`
-- `porta-control-plane`
-  - `7410e45` `Persist fleet state and expose machine endpoints`
-  - `6ae63fa` `Track vendored fleet contract DTOs`
-  - `d0b9d7f` `Add fleet validation health metadata`
-- `porta-agent-windows-x64`
-  - `73424d7` `Publish fleet reports from agent service`
-  - `5a65803` `Add fleet validation gates runner`
-  - `ae509b6` `Fix fleet validation wrapper param parsing`
-- `porta-operations-console`
-  - `648c907` `Read operations layers from machine summary and actions`
-  - `7d187e8` `Align operations pages to four-layer UI mapping`
-  - `c523d3f` `Unwrap machine and action collection responses`
-
 ## Non-Negotiable Rules
 
 Do not:
 
+- skip ahead in the order above
 - publish fleet truth from `Porta.UserAgent`
-- let the console invent rows from traces
-- rely on in-memory control-plane stores for production
-- change the rollout order
+- duplicate PII into telemetry persistence
+- claim rollout readiness before validation gates are green
 
 Do:
 
-- keep contracts frozen first
-- keep storage ahead of publishing
-- keep publishing ahead of UI refactors
-- keep validation ahead of rollout claims
+- freeze contracts first
+- keep identity/profile/device truth separate from telemetry truth
+- keep migration/backfill ahead of rollout claims
+- keep validation as the final gate before broad rollout
