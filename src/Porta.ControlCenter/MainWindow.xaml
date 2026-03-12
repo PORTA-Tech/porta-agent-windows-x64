@@ -4,6 +4,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="PORTA"
+        Icon="Assets/PortaAppIcon.png"
         Height="750"
         Width="1100"
         MinHeight="700"
