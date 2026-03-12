@@ -31,6 +31,9 @@ namespace Porta.Agent.Common.Contracts
         public double? Ewma { get; init; }
         public int? WindowSizeSeconds { get; init; }
         public double? Confidence { get; init; }
+        public double? RawConfidence { get; init; }
+        public double? FinalConfidence { get; init; }
+        public double? EvidenceCoverage { get; init; }
         public DateTimeOffset? ComputedAtUtc { get; init; }
         public string? StateId { get; init; }
         public string? StateName { get; init; }
@@ -49,6 +52,7 @@ namespace Porta.Agent.Common.Contracts
         public double? AuditLogWriteLatencyMs { get; init; }
         public bool? CorrelationTraceComplete { get; init; }
         public string? DistributionJson { get; init; }
+        public string? TopDriversJson { get; init; }
         public string? ContributingPrimitivesJson { get; init; }
         public string? ExplanationJson { get; init; }
         public string? Note { get; init; }

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Porta.Agent.Common.Contracts;
 
 namespace Porta.Agent.Runtime.Layer1;
 
@@ -53,6 +54,12 @@ internal sealed class Layer1LocalLogStore : IDisposable
         return Math.Max(0, (DateTimeOffset.UtcNow - started).TotalMilliseconds);
     }
 
+    public double LogTelemetry(AgentTelemetry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        return Log(entry.EventType, entry);
+    }
+
     public string ExportJson()
     {
         lock (_gate)
@@ -63,7 +70,7 @@ internal sealed class Layer1LocalLogStore : IDisposable
             {
                 timestamp = row.TimestampUtc,
                 event_type = row.EventType,
-                payload = Decrypt(row.PayloadCipher, row.Nonce, row.Tag),
+                payload = DeserializePayload(Decrypt(row.PayloadCipher, row.Nonce, row.Tag)),
                 signature = row.Signature
             });
             File.WriteAllText(outputPath, JsonSerializer.Serialize(docs, new JsonSerializerOptions { WriteIndented = true }));
@@ -196,6 +203,23 @@ internal sealed class Layer1LocalLogStore : IDisposable
         using var hmac = new HMACSHA256(_signingKey);
         string data = $"{eventType}|{cipher}|{nonce}|{tag}";
         return Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(data)));
+    }
+
+    private static object DeserializePayload(string payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return new { };
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<JsonElement>(payloadJson);
+        }
+        catch
+        {
+            return payloadJson;
+        }
     }
 
     private static string BuildDbPath()

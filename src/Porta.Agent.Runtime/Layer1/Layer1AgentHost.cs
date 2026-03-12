@@ -702,6 +702,9 @@ public sealed class Layer1AgentHost : IDisposable
             WindowDurationSeconds = source.WindowDurationSeconds,
             WindowSizeSeconds = result.WindowSizeSeconds,
             Confidence = result.Confidence,
+            RawConfidence = result.Confidence,
+            FinalConfidence = result.Confidence,
+            EvidenceCoverage = 1d,
             ComputedAtUtc = result.ComputedAtUtc,
             CollectionMethod = source.CollectionMethod,
             PrivacyClass = source.PrivacyClass,
@@ -719,18 +722,7 @@ public sealed class Layer1AgentHost : IDisposable
         _captureToPrimitiveLatencyMs = entry.CaptureToPrimitiveLatencyMs ?? 0;
         _latestPrimitiveAtUtc = result.ComputedAtUtc;
         AppendPrimitiveForTray(result);
-        _auditLogWriteLatencyMs = _localLogStore.Log("agent.primitive", new
-        {
-            correlation_id = result.CorrelationId,
-            primitive_id = result.PrimitiveId,
-            name = result.Name,
-            value = result.Value,
-            unit = result.Unit,
-            z_score = result.ZScore,
-            ewma = result.Ewma,
-            confidence = result.Confidence,
-            computed_at = result.ComputedAtUtc
-        });
+        _auditLogWriteLatencyMs = _localLogStore.LogTelemetry(entry);
         if (string.IsNullOrWhiteSpace(result.CorrelationId))
         {
             Interlocked.Increment(ref _correlationTraceIncompleteTotal);
@@ -768,6 +760,9 @@ public sealed class Layer1AgentHost : IDisposable
             StateName = stabilized.CommittedState,
             Probability = stabilized.Probability,
             Confidence = stabilized.Confidence,
+            RawConfidence = layer3.Confidence,
+            FinalConfidence = stabilized.Confidence,
+            EvidenceCoverage = stabilized.EvidenceCoverage,
             GlobalRiskScore = layer3.GlobalRiskScore,
             RiskDelta = layer3.RiskDelta,
             TrendDirection = layer3.TrendDirection,
@@ -777,6 +772,7 @@ public sealed class Layer1AgentHost : IDisposable
             SignatureVerified = true,
             InterventionStatus = stabilized.TransitionReason,
             DistributionJson = stabilized.DistributionJson,
+            TopDriversJson = ExtractTopDriversJson(stabilized.ExplanationJson, stabilized.ContributingPrimitivesJson),
             ContributingPrimitivesJson = stabilized.ContributingPrimitivesJson,
             ExplanationJson = stabilized.ExplanationJson,
             ComputedAtUtc = stabilized.EvaluatedAtUtc,
@@ -795,15 +791,7 @@ public sealed class Layer1AgentHost : IDisposable
 
         _telemetry?.Writer.TryWrite(entry);
         UpdateRiskForTray(stabilized, layer3);
-        _auditLogWriteLatencyMs = _localLogStore.Log("agent.state", new
-        {
-            correlation_id = stabilized.CorrelationId,
-            state_id = layer3.StateId,
-            state_name = stabilized.CommittedState,
-            probability = stabilized.Probability,
-            confidence = stabilized.Confidence,
-            evaluated_at = stabilized.EvaluatedAtUtc
-        });
+        _auditLogWriteLatencyMs = _localLogStore.LogTelemetry(entry);
     }
 
     private void EmitEvent(
@@ -1207,6 +1195,7 @@ public sealed class Layer1AgentHost : IDisposable
 
         _lastCommittedState = stabilized.CommittedState;
         string reason = $"State={stabilized.CommittedState}, probability={stabilized.Probability:F2}, risk={layer3.GlobalRiskScore:F2}";
+        string topDriversJson = ExtractTopDriversJson(stabilized.ExplanationJson, stabilized.ContributingPrimitivesJson);
         Layer1TrayInterventionView view = new(
             CorrelationId: string.IsNullOrWhiteSpace(stabilized.CorrelationId) ? CreateCorrelationId() : stabilized.CorrelationId,
             ActionType: actionType,
@@ -1226,6 +1215,25 @@ public sealed class Layer1AgentHost : IDisposable
             }
         }
         Interlocked.Increment(ref _interventionsAppliedTotal);
+        _auditLogWriteLatencyMs = _localLogStore.Log("agent.intervention", new
+        {
+            correlation_id = view.CorrelationId,
+            action_type = view.ActionType,
+            trigger_state = stabilized.CommittedState,
+            probability = stabilized.Probability,
+            global_risk_score = layer3.GlobalRiskScore,
+            evidence_coverage = stabilized.EvidenceCoverage,
+            raw_confidence = layer3.Confidence,
+            final_confidence = stabilized.Confidence,
+            top_drivers_json = topDriversJson,
+            contributing_primitives_json = stabilized.ContributingPrimitivesJson,
+            explanation_json = stabilized.ExplanationJson,
+            evaluated_at = stabilized.EvaluatedAtUtc,
+            policy_id = view.PolicyId,
+            policy_version = view.PolicyVersion,
+            signature_verified = view.SignatureVerified,
+            reason = view.Reason
+        });
     }
 
     private static (bool OverloadActive, bool DeepWorkActive) ResolveTrayVisualFlags(
@@ -1301,6 +1309,29 @@ public sealed class Layer1AgentHost : IDisposable
     private static double ReadDistribution(IReadOnlyDictionary<string, double> distribution, string key)
     {
         return distribution.TryGetValue(key, out double value) ? Math.Clamp(value, 0, 1) : 0;
+    }
+
+    private static string ExtractTopDriversJson(string explanationJson, string contributingPrimitivesJson)
+    {
+        if (!string.IsNullOrWhiteSpace(explanationJson))
+        {
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(explanationJson);
+                JsonElement root = doc.RootElement;
+                if (root.ValueKind == JsonValueKind.Object
+                    && root.TryGetProperty("top_drivers", out JsonElement topDrivers)
+                    && topDrivers.ValueKind == JsonValueKind.Array)
+                {
+                    return JsonSerializer.Serialize(topDrivers);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        return string.IsNullOrWhiteSpace(contributingPrimitivesJson) ? "[]" : contributingPrimitivesJson;
     }
 
     private static string CreateCorrelationId()
