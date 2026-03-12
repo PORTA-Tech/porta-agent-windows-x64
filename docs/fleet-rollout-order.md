@@ -124,11 +124,18 @@ Run the end-to-end validation gates after all of the above exist.
 Required checks:
 
 1. machine appears in `machines/summary`
-2. degraded capture is reflected when `Porta.UserAgent` stops
-3. activity and last-activity fields move with real input
-4. fleet summary matches local Control Center truth closely
-5. action lifecycle appears centrally
-6. persistence survives restart when control plane uses Postgres
+2. stable local `device_id` exists
+3. sign-in links the current device to account/org
+4. service publishes `device_id/account_id/org_id`
+5. control plane stores profile + device + telemetry separately
+6. joined endpoints show real `name/email/org`
+7. revoked device disappears or shows revoked status correctly
+8. unlinked device still appears operationally without fake identity
+9. degraded capture is reflected when `Porta.UserAgent` stops
+10. activity and last-activity fields move with real input
+11. fleet summary matches local Control Center truth closely
+12. action lifecycle appears centrally
+13. persistence survives restart when control plane uses Postgres
 
 Primary runner:
 
@@ -157,13 +164,20 @@ Invoke-RestMethod -Uri "https://porta-control-plane.onrender.com/v1/actions/rece
 
 ```powershell
 Set-Location C:\Users\hp\porta-agent-windows-x64
-powershell -ExecutionPolicy Bypass -File .\scripts\run-fleet-validation-gates.ps1 -ControlPlaneBaseUrl "https://porta-control-plane.onrender.com"
+powershell -ExecutionPolicy Bypass -File .\scripts\run-fleet-validation-gates.ps1 `
+  -ControlPlaneBaseUrl "https://porta-control-plane.onrender.com" `
+  -IdentityUserId "admin" `
+  -IdentityPassword "porta-admin"
 ```
 
 ### Optional process-control validation
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run-fleet-validation-gates.ps1 -ControlPlaneBaseUrl "https://porta-control-plane.onrender.com" -AllowProcessControl
+powershell -ExecutionPolicy Bypass -File .\scripts\run-fleet-validation-gates.ps1 `
+  -ControlPlaneBaseUrl "https://porta-control-plane.onrender.com" `
+  -IdentityUserId "admin" `
+  -IdentityPassword "porta-admin" `
+  -AllowProcessControl
 ```
 
 ## Current Commit Landmarks

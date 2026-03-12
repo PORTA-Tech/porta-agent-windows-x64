@@ -4,7 +4,7 @@ param(
 
     [string]$OperatorId = "validation-runner",
 
-    [string]$OperatorRole = "viewer",
+    [string]$OperatorRole = "operator",
 
     [string]$MachineId = $env:COMPUTERNAME,
 
@@ -12,7 +12,17 @@ param(
 
     [switch]$AllowProcessControl,
 
-    [string]$VerifyPersistenceCheckpoint
+    [string]$VerifyPersistenceCheckpoint,
+
+    [string]$IdentityUserId,
+
+    [string]$IdentityPassword,
+
+    [string]$IdentityOrgId,
+
+    [switch]$AllowIdentityRelink,
+
+    [switch]$SkipIdentityRolloutGates
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,6 +41,25 @@ $args = @(
     "--machine-id", $MachineId,
     "--user-agent-path", $UserAgentPath
 )
+
+if (-not $SkipIdentityRolloutGates) {
+    if ([string]::IsNullOrWhiteSpace($IdentityUserId) -or [string]::IsNullOrWhiteSpace($IdentityPassword)) {
+        throw "IdentityUserId and IdentityPassword are required unless SkipIdentityRolloutGates is set."
+    }
+
+    $args += @("--identity-user-id", $IdentityUserId, "--identity-password", $IdentityPassword)
+
+    if ($IdentityOrgId) {
+        $args += @("--identity-org-id", $IdentityOrgId)
+    }
+
+    if ($AllowIdentityRelink) {
+        $args += "--allow-identity-relink"
+    }
+}
+else {
+    $args += "--skip-identity-rollout-gates"
+}
 
 if ($AllowProcessControl) {
     $args += "--allow-process-control"
