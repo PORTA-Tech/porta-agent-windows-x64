@@ -133,6 +133,7 @@ internal sealed class Layer4StabilityEngine
         {
             ["layer3_state"] = layer3.StateName,
             ["committed_state"] = _committedState,
+            ["evidence_coverage"] = layer3.EvidenceCoverage,
             ["hysteresis_applied"] = hysteresisApplied,
             ["dwell_applied"] = dwellApplied,
             ["cooldown_active"] = cooldownActive,
@@ -149,6 +150,7 @@ internal sealed class Layer4StabilityEngine
             CorrelationId: layer3.CorrelationId,
             Probability: layer3.Probability,
             Confidence: Math.Clamp(layer3.Confidence * confidenceScale, 0, 1),
+            EvidenceCoverage: layer3.EvidenceCoverage,
             DistributionJson: layer3.DistributionJson,
             ContributingPrimitivesJson: layer3.ContributingPrimitivesJson,
             ExplanationJson: explanation,

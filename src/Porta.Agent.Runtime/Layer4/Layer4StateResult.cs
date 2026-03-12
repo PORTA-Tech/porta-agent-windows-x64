@@ -5,6 +5,7 @@ internal readonly record struct Layer4StateResult(
     string CorrelationId,
     double Probability,
     double Confidence,
+    double EvidenceCoverage,
     string DistributionJson,
     string ContributingPrimitivesJson,
     string ExplanationJson,

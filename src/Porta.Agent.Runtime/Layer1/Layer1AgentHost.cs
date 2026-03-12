@@ -771,7 +771,7 @@ public sealed class Layer1AgentHost : IDisposable
             GlobalRiskScore = layer3.GlobalRiskScore,
             RiskDelta = layer3.RiskDelta,
             TrendDirection = layer3.TrendDirection,
-            ModelVersion = "deterministic-v1.0.0|stability-v1.0.0",
+            ModelVersion = $"{layer3.ModelVersion}|stability-v1.0.0",
             PolicyId = "local-state-policy-v1",
             PolicyVersion = _expectedPolicyVersion,
             SignatureVerified = true,

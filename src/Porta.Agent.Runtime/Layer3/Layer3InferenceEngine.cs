@@ -30,38 +30,49 @@ internal sealed class Layer3InferenceEngine
     {
         try
         {
-            List<(string name, string correlationId, DateTimeOffset computedAtUtc, double weight, double z, double confidence, double metricRisk, double contribution)> contributors = new();
+            List<(string name, string correlationId, DateTimeOffset computedAtUtc, double weight, double z, double confidence, Layer3RiskDirection direction, double metricRisk, double contribution)> contributors = new();
             double presentWeight = 0;
             double weightedRisk = 0;
+            double totalWeight = _config.MetricRiskSpecs.Values.Sum(static spec => spec.Weight);
             double confidenceAccumulator = 0;
             int confidenceCount = 0;
+            int missingMetricCount = 0;
+            int staleMetricCount = 0;
+            int presentMetricCount = 0;
 
             lock (_gate)
             {
-                foreach ((string metric, double weight) in _config.MetricWeights)
+                foreach ((string metric, Layer3MetricRiskSpec spec) in _config.MetricRiskSpecs)
                 {
                     if (!_latestByMetric.TryGetValue(metric, out Layer3PrimitiveInput primitive))
                     {
+                        missingMetricCount++;
                         continue;
                     }
 
                     if ((nowUtc - primitive.ComputedAtUtc).TotalSeconds > _config.PrimitiveStaleAfterSeconds)
                     {
+                        staleMetricCount++;
                         continue;
                     }
 
-                    double anomalyScore = Math.Abs(primitive.ZScore);
+                    double weight = spec.Weight;
+                    double anomalyScore = ResolveDirectionalAnomalyScore(primitive.ZScore, spec.Direction);
                     double metricRisk = Math.Clamp(anomalyScore / _config.ZMax, 0, 1);
                     double contribution = metricRisk * weight;
-                    contributors.Add((metric, primitive.CorrelationId, primitive.ComputedAtUtc, weight, primitive.ZScore, primitive.Confidence, metricRisk, contribution));
+                    contributors.Add((metric, primitive.CorrelationId, primitive.ComputedAtUtc, weight, primitive.ZScore, primitive.Confidence, spec.Direction, metricRisk, contribution));
                     presentWeight += weight;
                     weightedRisk += contribution;
                     confidenceAccumulator += primitive.Confidence;
                     confidenceCount++;
+                    presentMetricCount++;
                 }
             }
 
-            double globalRisk = Math.Clamp(weightedRisk, 0, 1);
+            double evidenceCoverage = totalWeight <= 0 ? 0 : Math.Clamp(presentWeight / totalWeight, 0, 1);
+            double globalRisk = presentWeight > 0
+                ? Math.Clamp(weightedRisk / presentWeight, 0, 1)
+                : 0;
             double riskDelta = _hasPrevious ? globalRisk - _previousGlobalRisk : 0;
             string trend = riskDelta > _config.TrendEpsilon ? "up" : riskDelta < -_config.TrendEpsilon ? "down" : "flat";
 
@@ -88,7 +99,7 @@ internal sealed class Layer3InferenceEngine
                 .FirstOrDefault() ?? string.Empty;
 
             double avgPrimitiveConfidence = confidenceCount == 0 ? 0 : confidenceAccumulator / confidenceCount;
-            double coverageFactor = Math.Clamp(presentWeight, 0, 1);
+            double coverageFactor = evidenceCoverage;
             double stabilityFactor = 1.0 - Math.Min(1.0, Math.Abs(riskDelta) / 0.5);
             double stateConfidence = Math.Clamp(avgPrimitiveConfidence * coverageFactor * stabilityFactor, 0, 1);
 
@@ -99,6 +110,9 @@ internal sealed class Layer3InferenceEngine
                     {
                         primitive_name = c.name,
                         z_score = Round(c.z),
+                        risk_direction = c.direction.ToString().ToLowerInvariant(),
+                        primitive_confidence = Round(c.confidence),
+                        metric_risk = Round(c.metricRisk),
                         weight = Round(c.weight),
                         contribution_to_global_risk = Round(c.contribution),
                         correlation_id = c.correlationId
@@ -114,8 +128,20 @@ internal sealed class Layer3InferenceEngine
                 risk_breakdown = new
                 {
                     global_risk_score = Round(globalRisk),
+                    weighted_risk_sum = Round(weightedRisk),
+                    present_weight = Round(presentWeight),
+                    total_weight = Round(totalWeight),
+                    evidence_coverage = Round(evidenceCoverage),
                     risk_delta = Round(riskDelta),
-                    trend_direction = trend
+                    trend_direction = trend,
+                    renormalized_by_present_weight = true
+                },
+                evidence = new
+                {
+                    present_metric_count = presentMetricCount,
+                    stale_metric_count = staleMetricCount,
+                    missing_metric_count = missingMetricCount,
+                    total_metric_count = _config.MetricRiskSpecs.Count
                 },
                 top_drivers = topDrivers,
                 decision_path = new
@@ -141,6 +167,7 @@ internal sealed class Layer3InferenceEngine
                 StateName: dominantState,
                 Probability: Round(dominantProbability),
                 Confidence: Round(stateConfidence),
+                EvidenceCoverage: Round(evidenceCoverage),
                 GlobalRiskScore: Round(globalRisk),
                 RiskDelta: Round(riskDelta),
                 TrendDirection: trend,
@@ -155,6 +182,16 @@ internal sealed class Layer3InferenceEngine
         {
             return Layer3StateResult.Error("layer3_math_failure", nowUtc);
         }
+    }
+
+    private static double ResolveDirectionalAnomalyScore(double zScore, Layer3RiskDirection direction)
+    {
+        return direction switch
+        {
+            Layer3RiskDirection.HighOnly => Math.Max(0, zScore),
+            Layer3RiskDirection.LowOnly => Math.Max(0, -zScore),
+            _ => Math.Abs(zScore)
+        };
     }
 
     private static Dictionary<string, double> BuildBaseDistribution(double globalRisk, out string thresholdBucket)

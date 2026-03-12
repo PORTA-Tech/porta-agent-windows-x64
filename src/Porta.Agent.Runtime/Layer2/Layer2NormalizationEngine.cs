@@ -9,14 +9,17 @@ internal sealed class Layer2NormalizationEngine
     private readonly Dictionary<string, Layer2MetricState> _stateByMetric = new(StringComparer.Ordinal);
     private readonly double _alphaShort;
     private readonly double _alphaLong;
+    private readonly double _alphaBaseline;
 
     public Layer2NormalizationEngine(Layer2NormalizationConfig config, double samplePeriodSeconds)
     {
         _config = config;
         double shortSamples = Math.Max(1.0, config.ShortWindowSeconds / Math.Max(1.0, samplePeriodSeconds));
         double longSamples = Math.Max(shortSamples, config.LongWindowSeconds / Math.Max(1.0, samplePeriodSeconds));
+        double baselineSamples = Math.Max(longSamples, config.BaselineWindowSeconds / Math.Max(1.0, samplePeriodSeconds));
         _alphaShort = 2.0 / (shortSamples + 1.0);
         _alphaLong = 2.0 / (longSamples + 1.0);
+        _alphaBaseline = 2.0 / (baselineSamples + 1.0);
     }
 
     public Layer2PrimitiveResult Transform(Layer2SignalSample sample)
@@ -44,10 +47,8 @@ internal sealed class Layer2NormalizationEngine
         }
 
         long n = checked(state.SampleCount + 1);
-        double delta = clampedValue - state.Mean;
-        double meanNew = state.Mean + (delta / n);
-        double delta2 = clampedValue - meanNew;
-        double m2New = state.M2 + (delta * delta2);
+        double baselineMean = state.BaselineInitialized ? state.BaselineMean : clampedValue;
+        double baselineVariance = state.BaselineInitialized ? Math.Max(0.0, state.BaselineVariance) : 0.0;
 
         if (!state.EwmaInitialized)
         {
@@ -61,17 +62,10 @@ internal sealed class Layer2NormalizationEngine
             state.EwmaLong = (_alphaLong * clampedValue) + ((1.0 - _alphaLong) * state.EwmaLong);
         }
 
-        state.SampleCount = n;
-        state.Mean = meanNew;
-        state.M2 = m2New;
-        state.LastUpdateUtc = sample.TimestampUtc;
-
         double? std = null;
-        if (n > 1)
+        if (state.BaselineInitialized)
         {
-            double variance = m2New / (n - 1);
-            variance = Math.Max(0.0, variance);
-            double sigma = Math.Sqrt(variance);
+            double sigma = Math.Sqrt(baselineVariance);
             if (!double.IsNaN(sigma) && !double.IsInfinity(sigma))
             {
                 std = sigma;
@@ -79,9 +73,9 @@ internal sealed class Layer2NormalizationEngine
         }
 
         double z = 0;
-        if (std.HasValue && std.Value >= _config.SigmaEpsilon)
+        if (state.SampleCount >= _config.MinSamplesForStd && std.HasValue && std.Value >= _config.SigmaEpsilon)
         {
-            z = (clampedValue - meanNew) / std.Value;
+            z = (clampedValue - baselineMean) / std.Value;
             z = Math.Clamp(z, -_config.ZScoreCap, _config.ZScoreCap);
         }
 
@@ -92,6 +86,26 @@ internal sealed class Layer2NormalizationEngine
             std = null;
             z = 0;
         }
+
+        if (!state.BaselineInitialized)
+        {
+            state.BaselineMean = clampedValue;
+            state.BaselineVariance = 0.0;
+            state.EffectiveSampleCount = 1.0;
+            state.BaselineInitialized = true;
+        }
+        else
+        {
+            double delta = clampedValue - state.BaselineMean;
+            state.BaselineMean += _alphaBaseline * delta;
+            state.BaselineVariance = Math.Max(
+                0.0,
+                (1.0 - _alphaBaseline) * (state.BaselineVariance + (_alphaBaseline * delta * delta)));
+            state.EffectiveSampleCount = 1.0 + ((1.0 - _alphaBaseline) * state.EffectiveSampleCount);
+        }
+
+        state.SampleCount = n;
+        state.LastUpdateUtc = sample.TimestampUtc;
 
         if (double.IsNaN(z) || double.IsInfinity(z) || double.IsNaN(state.EwmaShort) || double.IsInfinity(state.EwmaShort))
         {
@@ -106,7 +120,7 @@ internal sealed class Layer2NormalizationEngine
             Name: sample.MetricName,
             Value: clampedValue,
             Unit: sample.Unit,
-            BaselineMean: meanNew,
+            BaselineMean: baselineMean,
             BaselineStd: std,
             ZScore: z,
             Ewma: state.EwmaShort,
