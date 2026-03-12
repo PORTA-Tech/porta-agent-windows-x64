@@ -83,10 +83,23 @@ internal sealed record ControlPlaneDeviceProfile(
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
     [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt);
 
+internal sealed record ControlPlaneConsentRecord(
+    [property: JsonPropertyName("consentId")] string ConsentId,
+    [property: JsonPropertyName("scope")] string Scope,
+    [property: JsonPropertyName("accountId")] string? AccountId,
+    [property: JsonPropertyName("deviceId")] string? DeviceId,
+    [property: JsonPropertyName("orgId")] string? OrgId,
+    [property: JsonPropertyName("consentVersion")] string ConsentVersion,
+    [property: JsonPropertyName("consentState")] string ConsentState,
+    [property: JsonPropertyName("telemetryLevel")] string? TelemetryLevel,
+    [property: JsonPropertyName("consentedAt")] DateTimeOffset ConsentedAt,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt);
+
 internal sealed record ControlPlaneMeProfileView(
     [property: JsonPropertyName("account")] ControlPlaneAccountProfile Account,
     [property: JsonPropertyName("organizations")] IReadOnlyList<ControlPlaneAccountMembershipView> Organizations,
-    [property: JsonPropertyName("devices")] IReadOnlyList<ControlPlaneDeviceProfile> Devices);
+    [property: JsonPropertyName("devices")] IReadOnlyList<ControlPlaneDeviceProfile> Devices,
+    [property: JsonPropertyName("consents")] IReadOnlyList<ControlPlaneConsentRecord> Consents);
 
 internal sealed record ControlPlaneDeviceRegistrationRequest(
     [property: JsonPropertyName("deviceId")] string DeviceId,

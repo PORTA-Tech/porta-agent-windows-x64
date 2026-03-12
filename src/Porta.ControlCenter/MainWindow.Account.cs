@@ -336,6 +336,8 @@ public partial class MainWindow
                 : "Subscription details appear once a workspace is linked.";
 
         ControlPlaneDeviceProfile? currentDevice = ResolveCurrentDevice();
+        ControlPlaneConsentRecord? accountLegalConsent = ResolveAccountLegalConsent();
+        ControlPlaneConsentRecord? deviceCaptureConsent = ResolveCurrentDeviceCaptureConsent();
         AccountCurrentDeviceNameValue.Text = currentDevice?.DeviceDisplayName ?? Environment.MachineName;
         AccountCurrentDeviceIdValue.Text = _latestIdentityLink?.DeviceId ?? NotAvailableText;
         AccountCurrentDeviceStatusValue.Text = currentDevice != null
@@ -353,10 +355,14 @@ public partial class MainWindow
             AccountDevicesEmptyText.Visibility = _accountDeviceRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        AccountConsentStatusValue.Text = _latestStatus == null
-            ? NotAvailableText
-            : (_latestStatus.ConsentActive ? "Accepted" : "Needed");
-        AccountConsentVersionValue.Text = _latestStatus?.ConsentVersion ?? NotAvailableText;
+        AccountConsentStatusValue.Text = accountLegalConsent != null
+            ? ToTitleCase(accountLegalConsent.ConsentState)
+            : (signedIn ? "Accepted" : NotAvailableText);
+        AccountConsentVersionValue.Text = accountLegalConsent?.ConsentVersion ?? (signedIn ? "v1" : NotAvailableText);
+        AccountDeviceConsentStatusValue.Text = BuildDeviceCaptureConsentStatus(currentDevice, deviceCaptureConsent, signedIn);
+        AccountDeviceConsentVersionValue.Text = deviceCaptureConsent?.ConsentVersion
+            ?? (_latestStatus?.ConsentVersion ?? NotAvailableText);
+        AccountCaptureAuthorizationValue.Text = BuildCaptureAuthorizationStatus(currentDevice, deviceCaptureConsent, signedIn);
         AccountLinkStatusValue.Text = _latestIdentityLink != null
             ? ToTitleCase(_latestIdentityLink.LinkStatus)
             : NotAvailableText;
@@ -374,6 +380,109 @@ public partial class MainWindow
 
         return _accountProfile.Devices
             .FirstOrDefault(device => string.Equals(device.DeviceId, _latestIdentityLink.DeviceId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private ControlPlaneConsentRecord? ResolveAccountLegalConsent()
+    {
+        if (_accountProfile?.Consents == null)
+        {
+            return null;
+        }
+
+        return _accountProfile.Consents
+            .Where(consent => string.Equals(consent.Scope, "account_legal", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(consent => consent.UpdatedAt)
+            .FirstOrDefault();
+    }
+
+    private ControlPlaneConsentRecord? ResolveCurrentDeviceCaptureConsent()
+    {
+        if (_accountProfile?.Consents == null || _latestIdentityLink == null)
+        {
+            return null;
+        }
+
+        return _accountProfile.Consents
+            .Where(consent => string.Equals(consent.Scope, "device_capture", StringComparison.OrdinalIgnoreCase))
+            .Where(consent => string.Equals(consent.DeviceId, _latestIdentityLink.DeviceId, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(consent => consent.UpdatedAt)
+            .FirstOrDefault();
+    }
+
+    private string BuildDeviceCaptureConsentStatus(
+        ControlPlaneDeviceProfile? currentDevice,
+        ControlPlaneConsentRecord? deviceCaptureConsent,
+        bool signedIn)
+    {
+        if (!signedIn)
+        {
+            return NotAvailableText;
+        }
+
+        if (currentDevice == null)
+        {
+            return BuildLocalDeviceConsentStatus();
+        }
+
+        return _latestStatus != null
+            ? BuildLocalDeviceConsentStatus()
+            : deviceCaptureConsent != null
+                ? ToTitleCase(deviceCaptureConsent.ConsentState)
+                : NotAvailableText;
+    }
+
+    private string BuildCaptureAuthorizationStatus(
+        ControlPlaneDeviceProfile? currentDevice,
+        ControlPlaneConsentRecord? deviceCaptureConsent,
+        bool signedIn)
+    {
+        if (!signedIn)
+        {
+            return "Sign in required";
+        }
+
+        if (currentDevice == null)
+        {
+            return "This device is not an active account-linked device.";
+        }
+
+        if (!string.Equals(currentDevice.Status, "active", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Blocked here ({ToTitleCase(currentDevice.Status)})";
+        }
+
+        if (_latestStatus?.ConsentActive == true)
+        {
+            return "Allowed to capture and regulate here";
+        }
+
+        if (_latestStatus != null)
+        {
+            return "Signed in, but local capture consent is still needed here.";
+        }
+
+        string? consentState = deviceCaptureConsent?.ConsentState;
+        if (string.Equals(consentState, "accepted", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Allowed to capture and regulate here";
+        }
+
+        return "Signed in, but local capture consent is still needed here.";
+    }
+
+    private string BuildLocalDeviceConsentStatus()
+    {
+        if (_latestStatus == null)
+        {
+            return NotAvailableText;
+        }
+
+        if (_latestStatus.ConsentActive)
+        {
+            return "Accepted locally";
+        }
+
+        return _latestStatus.ConsentTimestampUtc.HasValue ? "Revoked locally" : "Needed locally";
     }
 
     private void SyncAccountDeviceRows(bool signedIn)

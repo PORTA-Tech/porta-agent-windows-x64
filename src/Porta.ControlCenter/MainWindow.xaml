@@ -1010,7 +1010,7 @@
                                         <Button x:Name="AccountSignOutButton" Content="Sign out" Padding="12,6" Click="AccountSignOutButton_Click" />
                                     </WrapPanel>
                                 </DockPanel>
-                                <TextBlock Text="The control plane owns profile truth; this local app owns the device link and consent state." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                <TextBlock Text="The control plane owns account/legal truth and linked-device consent records; this local app still owns the live local capture gate." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
 
                                 <Grid Margin="0,0,0,10">
                                     <Grid.ColumnDefinitions>
@@ -1185,19 +1185,31 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Consent status" Foreground="#CBD5E1" />
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Account legal consent" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountConsentStatusValue" Grid.Row="0" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Consent version" Foreground="#CBD5E1" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Account legal version" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountConsentVersionValue" Grid.Row="1" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Local link status" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="AccountLinkStatusValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Device local capture" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="AccountDeviceConsentStatusValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Linked at" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="AccountLinkedAtValue" Grid.Row="3" Grid.Column="1" Text="Not linked" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Device capture version" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="AccountDeviceConsentVersionValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Allowed here" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="AccountCaptureAuthorizationValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Local link status" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="AccountLinkStatusValue" Grid.Row="5" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Linked at" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="AccountLinkedAtValue" Grid.Row="6" Grid.Column="1" Text="Not linked" TextWrapping="Wrap" />
                                 </Grid>
                             </StackPanel>
                         </Border>

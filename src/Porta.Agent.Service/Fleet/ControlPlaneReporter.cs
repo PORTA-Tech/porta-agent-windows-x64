@@ -132,6 +132,10 @@ internal sealed class ControlPlaneReporter : BackgroundService
             AgentVersion: status.AgentVersion,
             AccountId: IsLinked(identityLink) ? identityLink.AccountId : null,
             OrgId: IsLinked(identityLink) ? identityLink.OrgId : null,
+            DeviceCaptureConsentState: ResolveDeviceCaptureConsentState(status),
+            DeviceCaptureConsentVersion: string.IsNullOrWhiteSpace(status.ConsentVersion) ? null : status.ConsentVersion,
+            DeviceCaptureConsentedAt: status.ConsentTimestampUtc?.ToString("O"),
+            DeviceCaptureTelemetryLevel: ResolveDeviceCaptureTelemetryLevel(status),
             SessionToken: null,
             LocalProofToken: null);
 
@@ -225,6 +229,19 @@ internal sealed class ControlPlaneReporter : BackgroundService
         string.Equals(snapshot.LinkStatus, LocalIdentityLinkStatuses.Linked, StringComparison.Ordinal)
         && !string.IsNullOrWhiteSpace(snapshot.AccountId)
         && !string.IsNullOrWhiteSpace(snapshot.OrgId);
+
+    private static string ResolveDeviceCaptureConsentState(AgentServiceStatusSnapshot status)
+    {
+        if (status.ConsentActive)
+        {
+            return "accepted";
+        }
+
+        return status.ConsentTimestampUtc.HasValue ? "revoked" : "declined";
+    }
+
+    private static string ResolveDeviceCaptureTelemetryLevel(AgentServiceStatusSnapshot status) =>
+        status.ConsentActive ? "enhanced" : "essential";
 
     private static bool ShouldClearLocalIdentityLink(LocalIdentityLinkSnapshot identityLink, DeviceLinkResultPayload result)
     {

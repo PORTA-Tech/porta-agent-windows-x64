@@ -52,6 +52,10 @@ internal sealed record DeviceRegistrationRequestPayload(
     [property: JsonPropertyName("agentVersion")] string AgentVersion,
     [property: JsonPropertyName("accountId")] string? AccountId,
     [property: JsonPropertyName("orgId")] string? OrgId,
+    [property: JsonPropertyName("deviceCaptureConsentState")] string? DeviceCaptureConsentState,
+    [property: JsonPropertyName("deviceCaptureConsentVersion")] string? DeviceCaptureConsentVersion,
+    [property: JsonPropertyName("deviceCaptureConsentedAt")] string? DeviceCaptureConsentedAt,
+    [property: JsonPropertyName("deviceCaptureTelemetryLevel")] string? DeviceCaptureTelemetryLevel,
     [property: JsonPropertyName("sessionToken")] string? SessionToken,
     [property: JsonPropertyName("localProofToken")] string? LocalProofToken);
 
