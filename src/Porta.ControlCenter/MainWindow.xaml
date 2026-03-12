@@ -2,15 +2,25 @@
 <Window x:Class="Porta.ControlCenter.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PORTA Control Center"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="PORTA"
         Height="750"
         Width="1100"
         MinHeight="700"
         MinWidth="1000"
         WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        ResizeMode="CanResize"
         Background="#0F1114"
         Foreground="#E6E9ED"
         FontFamily="Segoe UI Variable, Segoe UI, Inter">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="46"
+                            ResizeBorderThickness="6"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
     <Window.Resources>
         <SolidColorBrush x:Key="PortaSurfaceBaseBrush" Color="#15181C" />
         <SolidColorBrush x:Key="PortaSurfaceElevatedBrush" Color="#1B1F25" />
@@ -113,16 +123,104 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <Style x:Key="TitleBarButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource PortaTextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Width" Value="46" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="TitleBarButtonChrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TitleBarButtonChrome" Property="Background" Value="{StaticResource PortaSurfaceHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="TitleBarButtonChrome" Property="Background" Value="#12161B" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TitleBarCloseButtonStyle" TargetType="Button" BasedOn="{StaticResource TitleBarButtonStyle}">
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#A61E2E" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#821625" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
     <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="46" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="240" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Background="#0C0E11" BorderBrush="#262B33" BorderThickness="0,0,1,0">
+        <Border Grid.Row="0" Grid.ColumnSpan="2" Background="#0B0E12" BorderBrush="#20252D" BorderThickness="0,0,0,1">
+            <Grid x:Name="TitleBarRoot" MouseLeftButtonDown="TitleBarRoot_MouseLeftButtonDown">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <DockPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                    <Border Width="172" Height="28" CornerRadius="7" ClipToBounds="True" BorderBrush="#1F3A46" BorderThickness="1" Background="#081014" Margin="0,0,12,0">
+                        <Image Source="Assets/PortaBrandBanner.png" Stretch="UniformToFill" />
+                    </Border>
+                    <TextBlock Text="PORTA"
+                               VerticalAlignment="Center"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource PortaTextPrimaryBrush}" />
+                </DockPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="TitleBarMinimizeButton"
+                            Style="{StaticResource TitleBarButtonStyle}"
+                            Click="TitleBarMinimizeButton_Click">
+                        <TextBlock Text="&#xE921;" FontFamily="Segoe MDL2 Assets" FontSize="10" />
+                    </Button>
+                    <Button x:Name="TitleBarMaximizeButton"
+                            Style="{StaticResource TitleBarButtonStyle}"
+                            Click="TitleBarMaximizeButton_Click">
+                        <TextBlock x:Name="TitleBarMaximizeGlyph" Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="10" />
+                    </Button>
+                    <Button x:Name="TitleBarCloseButton"
+                            Style="{StaticResource TitleBarCloseButtonStyle}"
+                            Click="TitleBarCloseButton_Click">
+                        <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="10" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Grid.Column="0" Background="#0C0E11" BorderBrush="#262B33" BorderThickness="0,0,1,0">
             <StackPanel Margin="16">
-                <TextBlock Text="PORTA" FontSize="24" FontWeight="Bold" Margin="0,0,0,20" />
+                <Border Height="96" Margin="0,0,0,20" CornerRadius="14" ClipToBounds="True" BorderBrush="#1F3A46" BorderThickness="1" Background="#081014">
+                    <Image Source="Assets/PortaBrandBanner.png" Stretch="UniformToFill" />
+                </Border>
                 <Button x:Name="OverviewNavButton" Content="Now" Margin="0,0,0,8" Padding="10,8" Click="OverviewNavButton_Click" />
                 <Button x:Name="TimelineNavButton" Content="History" Margin="0,0,0,8" Padding="10,8" Click="TimelineNavButton_Click" />
                 <Button x:Name="InterventionsNavButton" Content="Actions" Margin="0,0,0,8" Padding="10,8" Click="InterventionsNavButton_Click" />
@@ -134,7 +232,7 @@
             </StackPanel>
         </Border>
 
-        <Grid Grid.Column="1">
+        <Grid Grid.Row="1" Grid.Column="1">
             <Grid.RowDefinitions>
                 <RowDefinition Height="64" />
                 <RowDefinition Height="*" />

@@ -10,6 +10,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shell;
 using System.Windows.Threading;
 using Porta.Agent.Common;
 using Porta.Agent.LocalApi;
@@ -120,6 +121,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         InitializeAccountSurface();
         InitializeUnifiedScrollBehavior();
+        UpdateWindowChromeButtons();
         _lastSeenEventId = LoadLastSeenEventId();
         _dismissedRecoveryEventId = LoadRecoveryAckEventId();
         UiVersionMenuItem.Header = $"UI: {_uiVersion}";
@@ -133,6 +135,7 @@ public partial class MainWindow : Window
 
         ShowSection(UiSection.Overview);
         UpdateHistoryControls();
+        StateChanged += (_, _) => UpdateWindowChromeButtons();
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _refreshTimer.Tick += async (_, _) => await RefreshDiagnosticsAsync().ConfigureAwait(true);
         Loaded += async (_, _) =>
@@ -152,6 +155,72 @@ public partial class MainWindow : Window
             _apiClient.Dispose();
             _refreshGate.Dispose();
         };
+    }
+
+    private void TitleBarRoot_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject source && FindAncestor<Button>(source) != null)
+        {
+            return;
+        }
+
+        if (e.ClickCount == 2)
+        {
+            ToggleWindowState();
+            return;
+        }
+
+        try
+        {
+            DragMove();
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private void TitleBarMinimizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        SystemCommands.MinimizeWindow(this);
+    }
+
+    private void TitleBarMaximizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleWindowState();
+    }
+
+    private void TitleBarCloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        SystemCommands.CloseWindow(this);
+    }
+
+    private void ToggleWindowState()
+    {
+        if (ResizeMode is not (ResizeMode.CanResize or ResizeMode.CanResizeWithGrip))
+        {
+            return;
+        }
+
+        if (WindowState == WindowState.Maximized)
+        {
+            SystemCommands.RestoreWindow(this);
+        }
+        else
+        {
+            SystemCommands.MaximizeWindow(this);
+        }
+
+        UpdateWindowChromeButtons();
+    }
+
+    private void UpdateWindowChromeButtons()
+    {
+        if (TitleBarMaximizeGlyph == null)
+        {
+            return;
+        }
+
+        TitleBarMaximizeGlyph.Text = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
     }
 
     private async Task RefreshDiagnosticsAsync(bool manual = false)
@@ -4801,6 +4870,21 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(captureHint))
         {
             return captureHint;
+        }
+
+        return null;
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? child) where T : DependencyObject
+    {
+        while (child != null)
+        {
+            if (child is T match)
+            {
+                return match;
+            }
+
+            child = VisualTreeHelper.GetParent(child);
         }
 
         return null;
