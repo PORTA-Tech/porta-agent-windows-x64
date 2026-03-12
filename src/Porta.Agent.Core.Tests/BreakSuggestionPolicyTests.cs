@@ -217,6 +217,46 @@ public sealed class BreakSuggestionPolicyTests
     }
 
     [Fact]
+    public void ShouldTriggerBreak_FirstKeypressAfterLongIdle_DoesNotEmitFromStaleFocusWindow()
+    {
+        int cooldownReads = 0;
+        DerivedSessionMetricsResult pausedSession = new(
+            SustainedAttentionDurationSec: 3600d,
+            IdleFragmentationIndex: 0.10d,
+            Partial: false,
+            DominantAppHash: "app",
+            SaIdlePauseSeconds: PortaExecutionConstants.DerivedSessionMetrics.IdleResetSeconds,
+            SaContextSwitchSeconds: 0d,
+            SaFreezeReason: "long_break",
+            SaUntrusted: false,
+            TaskContinuityScore: 0d,
+            TaskContinuitySeconds: 0d,
+            ContinuityState: "pause",
+            ContinuityConfidence: 0.82d);
+
+        BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
+            BaselineGatingResult.Warm,
+            BuildStabilization(overloadActive: true),
+            BuildOverloadInference(confidence: 0.82d),
+            pausedSession,
+            BuildFocusWindow(
+                microbreakSeconds: 2000d,
+                shortBreakSeconds: PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsHighOverload,
+                boundaryKind: "short_idle",
+                highOverloadPressure: true),
+            resolveCooldown: () =>
+            {
+                cooldownReads++;
+                return new BreakPolicyCooldownSnapshot(true, 0, 0);
+            });
+
+        Assert.False(decision.ShouldEmit);
+        Assert.Equal("continuity_not_active", decision.ReasonCode);
+        Assert.Equal(0, cooldownReads);
+        Assert.False(decision.CooldownChecked);
+    }
+
+    [Fact]
     public void ParseBreakPolicyCooldownSnapshotJson_UsesStep13CFieldsAndExpiryRule()
     {
         long nowMs = Time.parseIsoUtcMs("2026-03-03T00:00:00.000Z");

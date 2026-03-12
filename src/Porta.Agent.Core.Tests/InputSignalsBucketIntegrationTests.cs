@@ -119,6 +119,51 @@ public sealed class InputSignalsBucketIntegrationTests
         Assert.True(idle.GetProperty("short_idle_boundary_observed").GetBoolean());
     }
 
+    [Fact]
+    public void IngestedSignals_V2LongBreakSummary_PreservesTrueBreakFactsForContinuityReset()
+    {
+        var innerStore = new FakeBucketIngressStore();
+        var stateStore = new BucketFinalizerStateStore(
+            innerStore,
+            () => new DateTimeOffset(2026, 03, 07, 10, 5, 8, TimeSpan.Zero));
+
+        DateTimeOffset windowStartUtc = new(2026, 03, 07, 10, 5, 0, TimeSpan.Zero);
+        DateTimeOffset windowEndUtc = new(2026, 03, 07, 10, 5, 5, TimeSpan.Zero);
+
+        stateStore.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 2,
+            AgentInstanceId: "agent-1",
+            SessionId: "session-1",
+            WindowStartUtc: windowStartUtc,
+            WindowEndUtc: windowEndUtc,
+            KeyboardKeydownCount: 1,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0d,
+            MouseMoveDy: 0d,
+            FocusAppHash: "a1b2c3d4",
+            IdleSeconds: 0.5d,
+            LastInputEventUtc: windowEndUtc,
+            IdleObservationCount: 5,
+            IdleSecondsWithinWindow: 300d,
+            MicroIdleCount: 0,
+            MicroIdleSeconds: 0d,
+            BreakSecondsWithinWindow: 300d,
+            ShortIdleBoundaryObserved: true));
+
+        stateStore.RunFinalizerTick(new DateTimeOffset(2026, 03, 07, 10, 5, 8, TimeSpan.Zero));
+
+        FinalizedWrite write = Assert.Single(innerStore.FinalizedWrites);
+        Assert.Equal(300d, write.InputRow.TrueBreakSeconds, precision: 6);
+        Assert.Equal(1, write.InputRow.TrueBreakFlag);
+
+        using JsonDocument json = JsonDocument.Parse(write.InputRow.ContributorsJson);
+        JsonElement idle = json.RootElement.GetProperty("idle");
+        Assert.Equal(300d, idle.GetProperty("break_s").GetDouble(), precision: 6);
+        Assert.Equal(1, idle.GetProperty("true_break_flag").GetInt32());
+        Assert.True(idle.GetProperty("short_idle_boundary_observed").GetBoolean());
+    }
+
     private static void AssertKeyboardCounts(InputBucketRow row, int expectedKeydowns, int expectedBackspaces)
     {
         using JsonDocument json = JsonDocument.Parse(row.ContributorsJson);

@@ -94,6 +94,8 @@ internal static class DerivedSessionMetricsComputer
         DerivedSessionRuntimeState previous)
     {
         double previousContinuitySeconds = ClampNonNegativeFinite(previous.TaskContinuitySeconds);
+        double continuityGapSeconds = ResolveContinuityGapSeconds(previous, bucket);
+        bool resetForGap = continuityGapSeconds >= PortaExecutionConstants.DerivedSessionMetrics.GapResetSeconds;
         string anchorAppHash = string.IsNullOrWhiteSpace(previous.AnchorAppHash)
             ? bucket.DominantAppHash
             : previous.AnchorAppHash;
@@ -109,6 +111,21 @@ internal static class DerivedSessionMetricsComputer
             ? ClampNonNegativeFinite(previous.ContextSwitchSeconds + Time.bucketSeconds)
             : 0d;
         double instabilitySeconds = ClampNonNegativeFinite(previous.InstabilitySeconds);
+
+        if (resetForGap)
+        {
+            previousContinuitySeconds = 0d;
+            anchorAppHash = evidence.FocusAvailable && !string.IsNullOrWhiteSpace(bucket.DominantAppHash)
+                ? bucket.DominantAppHash
+                : string.Empty;
+            currentContextAppHash = anchorAppHash;
+            idlePauseSeconds = bucket.IdleSeconds <= 0.25d
+                ? 0d
+                : ClampNonNegativeFinite(bucket.IdleSeconds);
+            contextChanged = false;
+            contextSwitchSeconds = 0d;
+            instabilitySeconds = 0d;
+        }
 
         if (bucket.TrueBreakSeconds >= PortaExecutionConstants.DerivedSessionMetrics.IdleResetSeconds
             || idlePauseSeconds >= PortaExecutionConstants.DerivedSessionMetrics.IdleResetSeconds)
@@ -242,6 +259,18 @@ internal static class DerivedSessionMetricsComputer
                 "idle_unstable");
         }
 
+        if (!evidence.AnyInteractionActive)
+        {
+            return BuildDecision(
+                previousContinuitySeconds,
+                currentContextAppHash,
+                idlePauseSeconds,
+                0d,
+                0d,
+                "pause",
+                "passive_focus");
+        }
+
         return BuildDecision(
             previousContinuitySeconds + Time.bucketSeconds,
             currentContextAppHash,
@@ -300,6 +329,22 @@ internal static class DerivedSessionMetricsComputer
         }
 
         return ClampNonNegativeFinite(previous.IdlePauseSeconds + bucket.IdleSeconds);
+    }
+
+    private static double ResolveContinuityGapSeconds(DerivedSessionRuntimeState previous, InputBucketRow bucket)
+    {
+        if (previous.LastUpdateBucketSeq <= 0 || bucket.BucketSeq <= previous.LastUpdateBucketSeq)
+        {
+            return 0d;
+        }
+
+        long skippedBuckets = bucket.BucketSeq - previous.LastUpdateBucketSeq - 1;
+        if (skippedBuckets <= 0)
+        {
+            return 0d;
+        }
+
+        return ClampNonNegativeFinite(skippedBuckets * Time.bucketSeconds);
     }
 
     private static double ComputeContinuityConfidence(

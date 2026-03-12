@@ -58,6 +58,7 @@ public static class PortaExecutionConstants
     {
         public const string RuntimeStateKey = "derived_session:current";
         public const string ContractVersion = "v1";
+        public const double GapResetSeconds = 180.0;
         public const double IdleSecondsStableMax = 10.0;
         public const double IdleAccumulateMaxSeconds = 10.0;
         public const double IdlePauseMaxSeconds = 60.0;

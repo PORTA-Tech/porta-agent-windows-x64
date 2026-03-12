@@ -71,6 +71,15 @@ internal static class BreakSuggestionPolicy
             return Fail("trust_below_suggestion_min");
         }
 
+        bool continuityNotActive = Math.Max(0d, derivedSession.TaskContinuitySeconds) <= 0d
+            && (derivedSession.SaIdlePauseSeconds >= PortaExecutionConstants.DerivedSessionMetrics.IdleResetSeconds
+                || string.Equals(derivedSession.SaFreezeReason, "long_break", StringComparison.Ordinal)
+                || string.Equals(derivedSession.ContinuityState, "reset", StringComparison.Ordinal));
+        if (continuityNotActive)
+        {
+            return Fail("continuity_not_active");
+        }
+
         bool highOverloadPressure = focusWindow.HighOverloadPressure
             || overloadStabilization.OverloadActive
             || overloadInference.OverloadLikelihood >= settings.HighOverloadLikelihood;

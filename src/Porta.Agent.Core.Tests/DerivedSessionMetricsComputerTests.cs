@@ -372,6 +372,90 @@ public sealed class DerivedSessionMetricsComputerTests
     }
 
     [Fact]
+    public void Acceptance_PassiveViewingBuckets_DoNotAccumulateFocusContinuity()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 0d,
+            idleFragmentationIndex: 0d,
+            saContextAppHash: "app_hash_video",
+            saLastUpdateBucketSeq: 0);
+
+        DerivedSessionMetricsResult result = default;
+        for (int i = 1; i <= 12; i++)
+        {
+            InputBucketRow passiveRow = BuildStableRow() with
+            {
+                BucketSeq = i,
+                TimestampUtc = Time.toIsoUtcMsString(Time.epoch_anchor_ms + (i * Time.bucket_ms)),
+                StartUtc = Time.toIsoUtcMsString(Time.epoch_anchor_ms + (i * Time.bucket_ms)),
+                DominantAppHash = "app_hash_video",
+                KeyboardIkiMean = 0d,
+                KeyboardIkiCv = 0d,
+                KeyboardBurstRate = 0d,
+                KeyboardBackspaceRate = 0d,
+                ScrollVelocityIndex = 0d,
+                MouseSpeedMean = 0d,
+                MouseJerkP95 = 0d,
+                MouseScrollSpeed = 0d,
+                MouseMicroCorrectionRate = 0d,
+                IdleSeconds = 0.2d,
+                IdleMicroIdleCount = 0d,
+                IdleMicroIdleSeconds = 0d
+            };
+
+            result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+                connection,
+                tx,
+                passiveRow,
+                BuildPrimitive(focusAvailable: true),
+                BaselineGatingResult.Warm);
+
+            PersistResultAsRuntimeState(connection, tx, passiveRow.BucketSeq, result);
+        }
+
+        Assert.Equal(0d, result.TaskContinuitySeconds, precision: 6);
+        Assert.Equal("pause", result.ContinuityState);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_LongBucketGap_ResetsStaleContinuityBeforeNewActivity()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        const long previousBucketSeq = 100;
+        const int sevenHoursSeconds = 7 * 60 * 60;
+        long resumeBucketSeq = previousBucketSeq + (sevenHoursSeconds / Time.bucketSeconds) + 1;
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 600d,
+            idleFragmentationIndex: 0.2d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: previousBucketSeq);
+
+        InputBucketRow resumedRow = BuildStableRow() with
+        {
+            BucketSeq = resumeBucketSeq,
+            TimestampUtc = Time.toIsoUtcMsString(Time.epoch_anchor_ms + (resumeBucketSeq * Time.bucket_ms)),
+            StartUtc = Time.toIsoUtcMsString(Time.epoch_anchor_ms + (resumeBucketSeq * Time.bucket_ms))
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            resumedRow,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.Equal(Time.bucketSeconds, result.TaskContinuitySeconds, precision: 6);
+        Assert.Equal("keep", result.ContinuityState);
+    }
+
+    [Fact]
     public void ComputeForFinalizedBucket_KeyboardOnly_MaintainsContinuityAndLowersConfidence()
     {
         using var connection = OpenInMemoryDb();
