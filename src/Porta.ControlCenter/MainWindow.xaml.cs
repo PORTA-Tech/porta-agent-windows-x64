@@ -40,6 +40,11 @@ public partial class MainWindow : Window
     private const string EventCursorFileName = "control-center.events.cursor";
     private const string RecoveryAckFileName = "control-center.recovery.ack";
     private const double WheelScrollPixelsPerLine = 18d;
+    private const double StartupWindowHorizontalMargin = 36d;
+    private const double StartupWindowTopMargin = 24d;
+    private const double StartupWindowBottomMargin = 28d;
+    private const double StartupWindowTargetWidth = 1280d;
+    private const double StartupWindowTargetHeight = 820d;
 
     private readonly LocalApiClient _apiClient = new();
     private readonly DispatcherTimer _refreshTimer;
@@ -119,6 +124,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ApplyStartupBounds();
         InitializeAccountSurface();
         InitializeUnifiedScrollBehavior();
         UpdateWindowChromeButtons();
@@ -155,6 +161,34 @@ public partial class MainWindow : Window
             _apiClient.Dispose();
             _refreshGate.Dispose();
         };
+    }
+
+    private void ApplyStartupBounds()
+    {
+        Rect workArea = SystemParameters.WorkArea;
+        double availableWidth = Math.Max(MinWidth, workArea.Width - (StartupWindowHorizontalMargin * 2d));
+        double availableHeight = Math.Max(MinHeight, workArea.Height - StartupWindowTopMargin - StartupWindowBottomMargin);
+
+        Width = Math.Min(StartupWindowTargetWidth, availableWidth);
+        Height = Math.Min(StartupWindowTargetHeight, availableHeight);
+
+        double centeredLeft = workArea.Left + Math.Max(0d, (workArea.Width - Width) / 2d);
+        double minLeft = workArea.Left + StartupWindowHorizontalMargin;
+        double maxLeft = workArea.Right - StartupWindowHorizontalMargin - Width;
+
+        Left = Math.Max(minLeft, centeredLeft);
+        if (Left > maxLeft)
+        {
+            Left = Math.Max(workArea.Left, maxLeft);
+        }
+
+        Top = workArea.Top + StartupWindowTopMargin;
+        if (Top + Height > workArea.Bottom - StartupWindowBottomMargin)
+        {
+            Top = Math.Max(workArea.Top, workArea.Bottom - StartupWindowBottomMargin - Height);
+        }
+
+        WindowState = WindowState.Normal;
     }
 
     private void TitleBarRoot_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
