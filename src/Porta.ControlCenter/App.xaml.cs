@@ -1,4 +1,5 @@
-﻿using System.IO;
+using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -41,9 +42,12 @@ public partial class App : Application
         };
         _focusThread.Start();
 
+        EnsureCurrentSessionUserAgent();
+
         MainWindow window = new();
         MainWindow = window;
         window.Show();
+        window.HandleExternalActivation();
         ControlCenterFileLog.Info("startup");
         base.OnStartup(e);
     }
@@ -132,21 +136,59 @@ public partial class App : Application
 
             Dispatcher.BeginInvoke(() =>
             {
-                if (_focusLoopStopping || MainWindow is not { IsLoaded: true })
+                if (_focusLoopStopping || MainWindow is not MainWindow window || !window.IsLoaded)
                 {
                     return;
                 }
 
-                if (MainWindow.WindowState == WindowState.Minimized)
-                {
-                    MainWindow.WindowState = WindowState.Normal;
-                }
-
-                MainWindow.Activate();
-                MainWindow.Topmost = true;
-                MainWindow.Topmost = false;
-                MainWindow.Focus();
+                EnsureCurrentSessionUserAgent();
+                window.HandleExternalActivation();
             });
+        }
+    }
+
+    private static void EnsureCurrentSessionUserAgent()
+    {
+        try
+        {
+            int currentSessionId = Process.GetCurrentProcess().SessionId;
+            foreach (Process process in Process.GetProcessesByName("Porta.UserAgent"))
+            {
+                try
+                {
+                    if (!process.HasExited && process.SessionId == currentSessionId)
+                    {
+                        return;
+                    }
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+
+            string userAgentPath = Path.Combine(AppContext.BaseDirectory, "Porta.UserAgent.exe");
+            if (!File.Exists(userAgentPath))
+            {
+                ControlCenterFileLog.Info("user_agent_launch_skipped_missing_binary");
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = userAgentPath,
+                WorkingDirectory = AppContext.BaseDirectory,
+                UseShellExecute = true
+            });
+
+            ControlCenterFileLog.Info("user_agent_launch_requested");
+        }
+        catch (Exception ex)
+        {
+            ControlCenterFileLog.Error("user_agent_launch_failed", ex);
         }
     }
 }

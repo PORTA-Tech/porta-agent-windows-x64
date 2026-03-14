@@ -191,6 +191,44 @@ public partial class MainWindow : Window
         WindowState = WindowState.Normal;
     }
 
+    internal void HandleExternalActivation()
+    {
+        if (!IsWindowPlacementVisible())
+        {
+            ApplyStartupBounds();
+        }
+        else if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        Show();
+        Activate();
+        Topmost = true;
+        Topmost = false;
+        Focus();
+    }
+
+    private bool IsWindowPlacementVisible()
+    {
+        double width = Math.Max(MinWidth, double.IsNaN(ActualWidth) || ActualWidth <= 0d ? Width : ActualWidth);
+        double height = Math.Max(MinHeight, double.IsNaN(ActualHeight) || ActualHeight <= 0d ? Height : ActualHeight);
+
+        if (double.IsNaN(Left) || double.IsNaN(Top) || width <= 0d || height <= 0d)
+        {
+            return false;
+        }
+
+        Rect windowRect = new(Left, Top, width, height);
+        Rect virtualDesktop = new(
+            SystemParameters.VirtualScreenLeft,
+            SystemParameters.VirtualScreenTop,
+            SystemParameters.VirtualScreenWidth,
+            SystemParameters.VirtualScreenHeight);
+
+        return windowRect.IntersectsWith(virtualDesktop);
+    }
+
     private void TitleBarRoot_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is DependencyObject source && FindAncestor<Button>(source) != null)
