@@ -9,10 +9,28 @@
     <AriExeSource Condition="'$(AriExeSource)' == ''">$(MSBuildProjectDirectory)\payload\ari.exe</AriExeSource>
     <UserAgentExeSource Condition="'$(UserAgentExeSource)' == ''">$(MSBuildProjectDirectory)\payload\Porta.UserAgent.exe</UserAgentExeSource>
     <ControlCenterExeSource Condition="'$(ControlCenterExeSource)' == ''">$(MSBuildProjectDirectory)\payload\Porta.ControlCenter.exe</ControlCenterExeSource>
-    <DefineConstants>ProductVersion=$(ProductVersion);UpgradeCode=$(UpgradeCode);AriBackendUrlDefault=$(AriBackendUrlDefault);AriExeSource=$(AriExeSource);UserAgentExeSource=$(UserAgentExeSource);ControlCenterExeSource=$(ControlCenterExeSource)</DefineConstants>
+    <SharedPayloadSourceDir Condition="'$(SharedPayloadSourceDir)' == ''">$(MSBuildProjectDirectory)\payload\SharedFiles</SharedPayloadSourceDir>
+    <DefineConstants>ProductVersion=$(ProductVersion);UpgradeCode=$(UpgradeCode);AriBackendUrlDefault=$(AriBackendUrlDefault);AriExeSource=$(AriExeSource);UserAgentExeSource=$(UserAgentExeSource);ControlCenterExeSource=$(ControlCenterExeSource);SharedPayloadSourceDir=$(SharedPayloadSourceDir)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="WixToolset.Heat" Version="4.0.5" />
     <PackageReference Include="WixToolset.Util.wixext" Version="4.0.5" />
+  </ItemGroup>
+
+  <Target Name="EnsurePayloadHarvestDirectories" BeforeTargets="BeforeBuild">
+    <MakeDir Directories="$(SharedPayloadSourceDir)" />
+  </Target>
+
+  <ItemGroup>
+    <HarvestDirectory Include="$(SharedPayloadSourceDir)">
+      <ComponentGroupName>SharedPayloadComponentGroup</ComponentGroupName>
+      <DirectoryRefId>INSTALLFOLDER</DirectoryRefId>
+      <SuppressRootDirectory>true</SuppressRootDirectory>
+      <SuppressCom>true</SuppressCom>
+      <SuppressRegistry>true</SuppressRegistry>
+      <PreprocessorVariable>SharedPayloadSourceDir</PreprocessorVariable>
+    </HarvestDirectory>
+    <BindPath Include="$(SharedPayloadSourceDir)" />
   </ItemGroup>
 </Project>

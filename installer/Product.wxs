@@ -144,6 +144,7 @@
       <ComponentRef Id="ControlCenterExeComponent" />
       <ComponentRef Id="ControlCenterShortcutComponent" />
       <ComponentRef Id="DesktopShortcutComponent" />
+      <ComponentGroupRef Id="SharedPayloadComponentGroup" />
     </Feature>
   </Package>
 </Wix>
