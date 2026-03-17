@@ -133,6 +133,10 @@ public sealed class BucketRecomputeRulesTests
         public int FinalizeAttempts { get; private set; }
         public List<FinalizedWrite> FinalizedWrites { get; } = [];
 
+        public void WriteInputSignalWindow(AgentInputSignalWindow window)
+        {
+        }
+
         public void WriteFinalizedBucketSnapshot(AgentBrainSnapshot snapshot, InputBucketRow inputBucketRow)
         {
             FinalizeAttempts++;

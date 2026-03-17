@@ -141,6 +141,28 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         WriteSnapshotCore(snapshot, inputBucketRow);
     }
 
+    void IBucketFinalizerDbWriter.WriteInputSignalWindow(AgentInputSignalWindow window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            try
+            {
+                InsertInputSignalWindow(connection, tx, window);
+                PruneIfNeeded(connection, tx, window.AcceptedAtUtc);
+                tx.Commit();
+            }
+            catch
+            {
+                TryRollback(tx);
+                throw;
+            }
+        }
+    }
+
     private void TryReconcileNotificationSuppressionOnStartup()
     {
         lock (_gate)
@@ -713,6 +735,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 cmd.Transaction = tx;
                 cmd.CommandText =
                     """
+                    DELETE FROM input_signal_windows;
                     DELETE FROM input_buckets;
                     DELETE FROM state_buckets;
                     DELETE FROM events;
@@ -1240,6 +1263,130 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 .OrderBy(pair => pair.Key)
                 .Select(pair => pair.Value)
                 .ToList();
+        }
+    }
+
+    public IReadOnlyList<AgentInputSignalWindow> ReadInputSignalWindows(
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        int limit = 50000)
+    {
+        lock (_gate)
+        {
+            if (toUtc < fromUtc)
+            {
+                return [];
+            }
+
+            int boundedLimit = Math.Clamp(limit, 1, 200000);
+            var rows = new List<AgentInputSignalWindow>(Math.Min(boundedLimit, 4096));
+
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT
+                    accepted_at_utc,
+                    schema_ver,
+                    agent_instance_id,
+                    session_id,
+                    window_start_utc,
+                    window_end_utc,
+                    keyboard_keydown_count,
+                    keyboard_backspace_count,
+                    mouse_wheel_delta,
+                    mouse_move_dx,
+                    mouse_move_dy,
+                    focus_app_hash,
+                    idle_seconds,
+                    last_input_event_utc,
+                    keyboard_iki_mean_ms,
+                    keyboard_iki_std_ms,
+                    keyboard_iki_cv,
+                    keyboard_burst_count,
+                    keyboard_burst_rate,
+                    keyboard_correction_spike_count,
+                    keyboard_correction_spike_rate,
+                    mouse_move_sample_count,
+                    mouse_path_length_px,
+                    mouse_speed_mean_px_per_sec,
+                    mouse_jerk_p95,
+                    mouse_micro_correction_count,
+                    mouse_micro_correction_rate,
+                    mouse_wheel_event_count,
+                    mouse_scroll_burst_count,
+                    mouse_scroll_burst_rate,
+                    mouse_scroll_speed_mean,
+                    focus_observation_count,
+                    focus_switch_count,
+                    focus_active_app_count,
+                    focus_app_entropy,
+                    idle_observation_count,
+                    idle_seconds_within_window,
+                    micro_idle_count,
+                    micro_idle_seconds,
+                    break_seconds_within_window,
+                    short_idle_boundary_observed,
+                    notification_toasts_enabled
+                FROM input_signal_windows
+                WHERE window_end_utc >= $from AND window_start_utc <= $to
+                ORDER BY window_start_utc ASC, id ASC
+                LIMIT $limit;
+                """;
+            cmd.Parameters.AddWithValue("$from", fromUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$to", toUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$limit", boundedLimit);
+
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                string focusAppHash = ReadStringOrFallback(reader, 11, string.Empty);
+                rows.Add(new AgentInputSignalWindow(
+                    AcceptedAtUtc: DateTimeOffset.Parse(reader.GetString(0)),
+                    SchemaVer: reader.GetInt32(1),
+                    AgentInstanceId: reader.GetString(2),
+                    SessionId: reader.GetString(3),
+                    WindowStartUtc: DateTimeOffset.Parse(reader.GetString(4)),
+                    WindowEndUtc: DateTimeOffset.Parse(reader.GetString(5)),
+                    KeyboardKeydownCount: reader.GetInt32(6),
+                    KeyboardBackspaceCount: reader.GetInt32(7),
+                    MouseWheelDelta: reader.GetInt32(8),
+                    MouseMoveDx: reader.GetDouble(9),
+                    MouseMoveDy: reader.GetDouble(10),
+                    FocusAppHash: string.IsNullOrWhiteSpace(focusAppHash) ? null : focusAppHash,
+                    IdleSeconds: reader.GetDouble(12),
+                    LastInputEventUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 13, string.Empty)),
+                    KeyboardIkiMeanMs: ReadNullableDouble(reader, 14),
+                    KeyboardIkiStdMs: ReadNullableDouble(reader, 15),
+                    KeyboardIkiCv: ReadNullableDouble(reader, 16),
+                    KeyboardBurstCount: reader.GetInt32(17),
+                    KeyboardBurstRate: ReadNullableDouble(reader, 18),
+                    KeyboardCorrectionSpikeCount: reader.GetInt32(19),
+                    KeyboardCorrectionSpikeRate: ReadNullableDouble(reader, 20),
+                    MouseMoveSampleCount: reader.GetInt32(21),
+                    MousePathLengthPx: ReadNullableDouble(reader, 22),
+                    MouseSpeedMeanPxPerSec: ReadNullableDouble(reader, 23),
+                    MouseJerkP95: ReadNullableDouble(reader, 24),
+                    MouseMicroCorrectionCount: reader.GetInt32(25),
+                    MouseMicroCorrectionRate: ReadNullableDouble(reader, 26),
+                    MouseWheelEventCount: reader.GetInt32(27),
+                    MouseScrollBurstCount: reader.GetInt32(28),
+                    MouseScrollBurstRate: ReadNullableDouble(reader, 29),
+                    MouseScrollSpeedMean: ReadNullableDouble(reader, 30),
+                    FocusObservationCount: reader.GetInt32(31),
+                    FocusSwitchCount: reader.GetInt32(32),
+                    FocusActiveAppCount: reader.GetInt32(33),
+                    FocusAppEntropy: ReadNullableDouble(reader, 34),
+                    IdleObservationCount: reader.GetInt32(35),
+                    IdleSecondsWithinWindow: ReadNullableDouble(reader, 36),
+                    MicroIdleCount: reader.GetInt32(37),
+                    MicroIdleSeconds: ReadNullableDouble(reader, 38),
+                    BreakSecondsWithinWindow: ReadNullableDouble(reader, 39),
+                    ShortIdleBoundaryObserved: ReadBoolOrFallback(reader, 40, false),
+                    NotificationToastsEnabled: reader.IsDBNull(41) ? null : reader.GetInt32(41) == 1));
+            }
+
+            return rows;
         }
     }
 
@@ -3760,6 +3907,150 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         };
     }
 
+    private void InsertInputSignalWindow(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        AgentInputSignalWindow window)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            INSERT INTO input_signal_windows (
+                accepted_at_utc,
+                schema_ver,
+                agent_instance_id,
+                session_id,
+                window_start_utc,
+                window_end_utc,
+                keyboard_keydown_count,
+                keyboard_backspace_count,
+                mouse_wheel_delta,
+                mouse_move_dx,
+                mouse_move_dy,
+                focus_app_hash,
+                idle_seconds,
+                last_input_event_utc,
+                keyboard_iki_mean_ms,
+                keyboard_iki_std_ms,
+                keyboard_iki_cv,
+                keyboard_burst_count,
+                keyboard_burst_rate,
+                keyboard_correction_spike_count,
+                keyboard_correction_spike_rate,
+                mouse_move_sample_count,
+                mouse_path_length_px,
+                mouse_speed_mean_px_per_sec,
+                mouse_jerk_p95,
+                mouse_micro_correction_count,
+                mouse_micro_correction_rate,
+                mouse_wheel_event_count,
+                mouse_scroll_burst_count,
+                mouse_scroll_burst_rate,
+                mouse_scroll_speed_mean,
+                focus_observation_count,
+                focus_switch_count,
+                focus_active_app_count,
+                focus_app_entropy,
+                idle_observation_count,
+                idle_seconds_within_window,
+                micro_idle_count,
+                micro_idle_seconds,
+                break_seconds_within_window,
+                short_idle_boundary_observed,
+                notification_toasts_enabled
+            ) VALUES (
+                $accepted_at_utc,
+                $schema_ver,
+                $agent_instance_id,
+                $session_id,
+                $window_start_utc,
+                $window_end_utc,
+                $keyboard_keydown_count,
+                $keyboard_backspace_count,
+                $mouse_wheel_delta,
+                $mouse_move_dx,
+                $mouse_move_dy,
+                $focus_app_hash,
+                $idle_seconds,
+                $last_input_event_utc,
+                $keyboard_iki_mean_ms,
+                $keyboard_iki_std_ms,
+                $keyboard_iki_cv,
+                $keyboard_burst_count,
+                $keyboard_burst_rate,
+                $keyboard_correction_spike_count,
+                $keyboard_correction_spike_rate,
+                $mouse_move_sample_count,
+                $mouse_path_length_px,
+                $mouse_speed_mean_px_per_sec,
+                $mouse_jerk_p95,
+                $mouse_micro_correction_count,
+                $mouse_micro_correction_rate,
+                $mouse_wheel_event_count,
+                $mouse_scroll_burst_count,
+                $mouse_scroll_burst_rate,
+                $mouse_scroll_speed_mean,
+                $focus_observation_count,
+                $focus_switch_count,
+                $focus_active_app_count,
+                $focus_app_entropy,
+                $idle_observation_count,
+                $idle_seconds_within_window,
+                $micro_idle_count,
+                $micro_idle_seconds,
+                $break_seconds_within_window,
+                $short_idle_boundary_observed,
+                $notification_toasts_enabled
+            );
+            """;
+        cmd.Parameters.AddWithValue("$accepted_at_utc", window.AcceptedAtUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$schema_ver", window.SchemaVer);
+        cmd.Parameters.AddWithValue("$agent_instance_id", window.AgentInstanceId);
+        cmd.Parameters.AddWithValue("$session_id", window.SessionId);
+        cmd.Parameters.AddWithValue("$window_start_utc", window.WindowStartUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$window_end_utc", window.WindowEndUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$keyboard_keydown_count", window.KeyboardKeydownCount);
+        cmd.Parameters.AddWithValue("$keyboard_backspace_count", window.KeyboardBackspaceCount);
+        cmd.Parameters.AddWithValue("$mouse_wheel_delta", window.MouseWheelDelta);
+        cmd.Parameters.AddWithValue("$mouse_move_dx", window.MouseMoveDx);
+        cmd.Parameters.AddWithValue("$mouse_move_dy", window.MouseMoveDy);
+        cmd.Parameters.AddWithValue("$focus_app_hash", window.FocusAppHash ?? string.Empty);
+        cmd.Parameters.AddWithValue("$idle_seconds", window.IdleSeconds);
+        cmd.Parameters.AddWithValue("$last_input_event_utc", window.LastInputEventUtc?.ToString("O") ?? string.Empty);
+        cmd.Parameters.AddWithValue("$keyboard_iki_mean_ms", (object?)window.KeyboardIkiMeanMs ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$keyboard_iki_std_ms", (object?)window.KeyboardIkiStdMs ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$keyboard_iki_cv", (object?)window.KeyboardIkiCv ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$keyboard_burst_count", window.KeyboardBurstCount);
+        cmd.Parameters.AddWithValue("$keyboard_burst_rate", (object?)window.KeyboardBurstRate ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$keyboard_correction_spike_count", window.KeyboardCorrectionSpikeCount);
+        cmd.Parameters.AddWithValue("$keyboard_correction_spike_rate", (object?)window.KeyboardCorrectionSpikeRate ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$mouse_move_sample_count", window.MouseMoveSampleCount);
+        cmd.Parameters.AddWithValue("$mouse_path_length_px", (object?)window.MousePathLengthPx ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$mouse_speed_mean_px_per_sec", (object?)window.MouseSpeedMeanPxPerSec ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$mouse_jerk_p95", (object?)window.MouseJerkP95 ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$mouse_micro_correction_count", window.MouseMicroCorrectionCount);
+        cmd.Parameters.AddWithValue("$mouse_micro_correction_rate", (object?)window.MouseMicroCorrectionRate ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$mouse_wheel_event_count", window.MouseWheelEventCount);
+        cmd.Parameters.AddWithValue("$mouse_scroll_burst_count", window.MouseScrollBurstCount);
+        cmd.Parameters.AddWithValue("$mouse_scroll_burst_rate", (object?)window.MouseScrollBurstRate ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$mouse_scroll_speed_mean", (object?)window.MouseScrollSpeedMean ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$focus_observation_count", window.FocusObservationCount);
+        cmd.Parameters.AddWithValue("$focus_switch_count", window.FocusSwitchCount);
+        cmd.Parameters.AddWithValue("$focus_active_app_count", window.FocusActiveAppCount);
+        cmd.Parameters.AddWithValue("$focus_app_entropy", (object?)window.FocusAppEntropy ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$idle_observation_count", window.IdleObservationCount);
+        cmd.Parameters.AddWithValue("$idle_seconds_within_window", (object?)window.IdleSecondsWithinWindow ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$micro_idle_count", window.MicroIdleCount);
+        cmd.Parameters.AddWithValue("$micro_idle_seconds", (object?)window.MicroIdleSeconds ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$break_seconds_within_window", (object?)window.BreakSecondsWithinWindow ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$short_idle_boundary_observed", window.ShortIdleBoundaryObserved ? 1 : 0);
+        cmd.Parameters.AddWithValue("$notification_toasts_enabled", window.NotificationToastsEnabled.HasValue
+            ? (window.NotificationToastsEnabled.Value ? 1 : 0)
+            : DBNull.Value);
+        cmd.ExecuteNonQuery();
+    }
+
     private void UpsertInputBucket(
         SqliteConnection connection,
         SqliteTransaction tx,
@@ -6162,6 +6453,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         cmd.Transaction = tx;
         cmd.CommandText =
             """
+            DELETE FROM input_signal_windows WHERE window_end_utc < $cutoff;
             DELETE FROM input_buckets WHERE timestamp_utc < $cutoff;
             DELETE FROM state_buckets WHERE timestamp_utc < $cutoff;
             DELETE FROM events WHERE timestamp_utc < $cutoff;
@@ -6270,6 +6562,22 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
 
         return fallback;
+    }
+
+    private static double? ReadNullableDouble(SqliteDataReader reader, int ordinal)
+    {
+        try
+        {
+            if (!reader.IsDBNull(ordinal))
+            {
+                return reader.GetDouble(ordinal);
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
     }
 
     private static string ReadStringOrFallback(SqliteDataReader reader, int ordinal, string fallback)

@@ -21,6 +21,7 @@ internal sealed class BucketFinalizer
     private readonly Func<DateTimeOffset> _nowProvider;
     private readonly BucketBuffers _buffers = new();
     private readonly ConcurrentDictionary<long, long> _finalizedBucketMarkers = new();
+    private readonly ConcurrentQueue<AgentInputSignalWindow> _pendingInputSignalWindows = new();
     private long _highestFinalBucketSeq = long.MinValue;
     private long _lateDropCount;
     private long _futureSkewDropCount;
@@ -158,6 +159,49 @@ internal sealed class BucketFinalizer
         double[] mousePathLengthBySlice = DistributeNonNegativeDouble(packet.MousePathLengthPx ?? 0d, slices);
         string? focusAppHash = string.IsNullOrWhiteSpace(packet.FocusAppHash) ? null : packet.FocusAppHash.Trim().ToLowerInvariant();
         bool useTelemetrySummaries = packet.SchemaVer >= 2;
+        _pendingInputSignalWindows.Enqueue(new AgentInputSignalWindow(
+            AcceptedAtUtc: nowUtc,
+            SchemaVer: packet.SchemaVer,
+            AgentInstanceId: (packet.AgentInstanceId ?? string.Empty).Trim(),
+            SessionId: (packet.SessionId ?? string.Empty).Trim(),
+            WindowStartUtc: DateTimeOffset.FromUnixTimeMilliseconds(windowStartUtcMs),
+            WindowEndUtc: DateTimeOffset.FromUnixTimeMilliseconds(windowEndUtcMs),
+            KeyboardKeydownCount: packet.KeyboardKeydownCount,
+            KeyboardBackspaceCount: packet.KeyboardBackspaceCount,
+            MouseWheelDelta: packet.MouseWheelDelta,
+            MouseMoveDx: packet.MouseMoveDx,
+            MouseMoveDy: packet.MouseMoveDy,
+            FocusAppHash: focusAppHash,
+            IdleSeconds: packet.IdleSeconds,
+            LastInputEventUtc: packet.LastInputEventUtc?.ToUniversalTime(),
+            KeyboardIkiMeanMs: packet.KeyboardIkiMeanMs,
+            KeyboardIkiStdMs: packet.KeyboardIkiStdMs,
+            KeyboardIkiCv: packet.KeyboardIkiCv,
+            KeyboardBurstCount: packet.KeyboardBurstCount,
+            KeyboardBurstRate: packet.KeyboardBurstRate,
+            KeyboardCorrectionSpikeCount: packet.KeyboardCorrectionSpikeCount,
+            KeyboardCorrectionSpikeRate: packet.KeyboardCorrectionSpikeRate,
+            MouseMoveSampleCount: packet.MouseMoveSampleCount,
+            MousePathLengthPx: packet.MousePathLengthPx,
+            MouseSpeedMeanPxPerSec: packet.MouseSpeedMeanPxPerSec,
+            MouseJerkP95: packet.MouseJerkP95,
+            MouseMicroCorrectionCount: packet.MouseMicroCorrectionCount,
+            MouseMicroCorrectionRate: packet.MouseMicroCorrectionRate,
+            MouseWheelEventCount: packet.MouseWheelEventCount,
+            MouseScrollBurstCount: packet.MouseScrollBurstCount,
+            MouseScrollBurstRate: packet.MouseScrollBurstRate,
+            MouseScrollSpeedMean: packet.MouseScrollSpeedMean,
+            FocusObservationCount: packet.FocusObservationCount,
+            FocusSwitchCount: packet.FocusSwitchCount,
+            FocusActiveAppCount: packet.FocusActiveAppCount,
+            FocusAppEntropy: packet.FocusAppEntropy,
+            IdleObservationCount: packet.IdleObservationCount,
+            IdleSecondsWithinWindow: packet.IdleSecondsWithinWindow,
+            MicroIdleCount: packet.MicroIdleCount,
+            MicroIdleSeconds: packet.MicroIdleSeconds,
+            BreakSecondsWithinWindow: packet.BreakSecondsWithinWindow,
+            ShortIdleBoundaryObserved: packet.ShortIdleBoundaryObserved,
+            NotificationToastsEnabled: packet.NotificationToastsEnabled));
 
         for (int i = 0; i < slices.Count; i++)
         {
@@ -205,6 +249,7 @@ internal sealed class BucketFinalizer
 
         lock (BucketFinalizeLock)
         {
+            FlushPendingInputSignalWindowsLocked();
             PromoteOpenBucketsToPendingLocked(nowUtcMs);
             finalizable = CollectFinalizableBucketSeqsLocked(nowUtcMs);
             EvictFinalMarkersLocked(nowUtcMs);
@@ -220,6 +265,7 @@ internal sealed class BucketFinalizer
     {
         lock (BucketFinalizeLock)
         {
+            FlushPendingInputSignalWindowsLocked();
             _writer.WriteControlEvent(controlEvent);
         }
     }
@@ -228,6 +274,7 @@ internal sealed class BucketFinalizer
     {
         lock (BucketFinalizeLock)
         {
+            FlushPendingInputSignalWindowsLocked();
             _writer.WriteSystemChange(change);
         }
     }
@@ -236,6 +283,7 @@ internal sealed class BucketFinalizer
     {
         lock (BucketFinalizeLock)
         {
+            FlushPendingInputSignalWindowsLocked();
             _writer.WriteDiagnostics(diagnostics);
         }
     }
@@ -244,6 +292,7 @@ internal sealed class BucketFinalizer
     {
         lock (BucketFinalizeLock)
         {
+            FlushPendingInputSignalWindowsLocked();
             _writer.WriteConsent(consent);
         }
     }
@@ -252,6 +301,7 @@ internal sealed class BucketFinalizer
     {
         lock (BucketFinalizeLock)
         {
+            FlushPendingInputSignalWindowsLocked();
             _writer.WriteSettings(settings);
         }
     }
@@ -263,6 +313,9 @@ internal sealed class BucketFinalizer
             _writer.DeleteLocalData();
             _buffers.Clear();
             _finalizedBucketMarkers.Clear();
+            while (_pendingInputSignalWindows.TryDequeue(out _))
+            {
+            }
             _highestFinalBucketSeq = long.MinValue;
             _lateDropCount = 0;
             _futureSkewDropCount = 0;
@@ -433,6 +486,38 @@ internal sealed class BucketFinalizer
         if (!string.IsNullOrWhiteSpace(deferredLog))
         {
             Console.WriteLine(deferredLog);
+        }
+    }
+
+    private void FlushPendingInputSignalWindowsLocked()
+    {
+        if (_pendingInputSignalWindows.IsEmpty)
+        {
+            return;
+        }
+
+        var retry = new List<AgentInputSignalWindow>();
+        while (_pendingInputSignalWindows.TryDequeue(out AgentInputSignalWindow? window))
+        {
+            try
+            {
+                _bucketDbWriter.WriteInputSignalWindow(window);
+            }
+            catch
+            {
+                retry.Add(window);
+                while (_pendingInputSignalWindows.TryDequeue(out AgentInputSignalWindow? remaining))
+                {
+                    retry.Add(remaining);
+                }
+
+                foreach (AgentInputSignalWindow pending in retry)
+                {
+                    _pendingInputSignalWindows.Enqueue(pending);
+                }
+
+                throw;
+            }
         }
     }
 

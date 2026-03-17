@@ -48,10 +48,23 @@ public sealed class InputSignalsBucketIntegrationTests
             MouseScrollBurstRate: 0.25d,
             MouseScrollSpeedMean: 240d));
 
+        Assert.Empty(innerStore.RecordedWindows);
+
         stateStore.RunFinalizerTick(new DateTimeOffset(2026, 03, 07, 10, 0, 12, TimeSpan.Zero));
 
         Assert.Equal(2, innerStore.FinalizedWrites.Count);
         Assert.Equal(0, innerStore.DirectSnapshotWrites);
+        AgentInputSignalWindow recordedWindow = Assert.Single(innerStore.RecordedWindows);
+        Assert.Equal("agent-1", recordedWindow.AgentInstanceId);
+        Assert.Equal("session-1", recordedWindow.SessionId);
+        Assert.Equal(windowStartUtc, recordedWindow.WindowStartUtc);
+        Assert.Equal(windowEndUtc, recordedWindow.WindowEndUtc);
+        Assert.Equal(4, recordedWindow.KeyboardKeydownCount);
+        Assert.Equal(2, recordedWindow.KeyboardBackspaceCount);
+        Assert.Equal(120, recordedWindow.MouseWheelDelta);
+        Assert.Equal("a1b2c3d4", recordedWindow.FocusAppHash);
+        Assert.NotNull(recordedWindow.MouseScrollSpeedMean);
+        Assert.Equal(240d, recordedWindow.MouseScrollSpeedMean.Value, precision: 6);
 
         FinalizedWrite first = innerStore.FinalizedWrites.OrderBy(static write => write.InputRow.BucketSeq).First();
         FinalizedWrite second = innerStore.FinalizedWrites.OrderBy(static write => write.InputRow.BucketSeq).Last();
@@ -178,6 +191,12 @@ public sealed class InputSignalsBucketIntegrationTests
     {
         public int DirectSnapshotWrites { get; private set; }
         public List<FinalizedWrite> FinalizedWrites { get; } = [];
+        public List<AgentInputSignalWindow> RecordedWindows { get; } = [];
+
+        public void WriteInputSignalWindow(AgentInputSignalWindow window)
+        {
+            RecordedWindows.Add(window);
+        }
 
         public void WriteFinalizedBucketSnapshot(AgentBrainSnapshot snapshot, InputBucketRow inputBucketRow)
         {

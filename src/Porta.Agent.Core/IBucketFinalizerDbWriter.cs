@@ -8,5 +8,6 @@ namespace Porta.Agent.Core;
 /// </summary>
 public interface IBucketFinalizerDbWriter
 {
+    void WriteInputSignalWindow(AgentInputSignalWindow window);
     void WriteFinalizedBucketSnapshot(AgentBrainSnapshot snapshot, InputBucketRow inputBucketRow);
 }
