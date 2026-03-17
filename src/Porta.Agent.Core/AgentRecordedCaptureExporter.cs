@@ -25,6 +25,7 @@ public sealed record AgentRecordedCaptureSummary(
     DateTimeOffset? ObservedToUtc,
     int TimelineBucketSeconds,
     int InputWindowCount,
+    int SignalSampleCount,
     int SnapshotCount,
     int EventCount,
     int DiagnosticsSnapshotCount,
@@ -33,7 +34,8 @@ public sealed record AgentRecordedCaptureSummary(
     IReadOnlyDictionary<string, int> EventActionCounts,
     string? LatestDominantState,
     string? LatestAction,
-    bool HasInterventionEvents);
+    bool HasInterventionEvents,
+    string SignalSourceKind = "input_signal_window");
 
 public sealed record AgentRecordedCaptureInventoryItem(
     string CaptureId,
@@ -44,13 +46,15 @@ public sealed record AgentRecordedCaptureInventoryItem(
     DateTimeOffset RequestedFromUtc,
     DateTimeOffset RequestedToUtc,
     int InputWindowCount,
+    int SignalSampleCount,
     int SnapshotCount,
     int EventCount,
     int DiagnosticsSnapshotCount,
     bool HasInterventionEvents,
     IReadOnlyList<string> AgentInstanceIds,
     IReadOnlyList<string> SessionIds,
-    IReadOnlyDictionary<string, int> EventActionCounts);
+    IReadOnlyDictionary<string, int> EventActionCounts,
+    string SignalSourceKind = "input_signal_window");
 
 public sealed record AgentRecordedCaptureExportResult(
     string CaptureId,
@@ -90,26 +94,44 @@ public sealed class AgentRecordedCaptureExporter
         Directory.CreateDirectory(outputRoot);
 
         var reader = new RecordedCaptureReadOnlyReader(_dbPath);
-        IReadOnlyList<AgentInputSignalWindow> windows = reader.ReadInputSignalWindows(
-            request.FromUtc,
-            request.ToUtc,
-            request.InputWindowLimit);
-        IReadOnlyList<AgentBrainSnapshot> snapshots = reader.ReadTimeline(
+        IReadOnlyList<AgentInputSignalWindow> windows;
+        IReadOnlyList<AgentRecordedSignalSample> signalSamples;
+        IReadOnlyList<AgentBrainSnapshot> snapshots;
+        IReadOnlyList<AgentControlEvent> events;
+        IReadOnlyList<AgentDiagnosticsSnapshot> diagnostics;
+        AgentSettingsRecord? latestSettings;
+        AgentConsentRecord? latestConsent;
+        string signalSourceKind;
+        bool hasInputSignalWindows = reader.HasTable("input_signal_windows");
+        windows = hasInputSignalWindows
+            ? reader.ReadInputSignalWindows(
+                request.FromUtc,
+                request.ToUtc,
+                request.InputWindowLimit)
+            : [];
+        signalSamples = hasInputSignalWindows
+            ? BuildSignalSamplesFromWindows(windows)
+            : reader.ReadHistoricalSignalSamples(
+                request.FromUtc,
+                request.ToUtc,
+                request.InputWindowLimit);
+        signalSourceKind = hasInputSignalWindows ? "input_signal_window" : "input_bucket";
+        snapshots = reader.ReadTimeline(
             request.FromUtc,
             request.ToUtc,
             request.TimelineBucketSeconds);
-        IReadOnlyList<AgentControlEvent> events = reader.ReadEvents(
+        events = reader.ReadEvents(
             request.FromUtc,
             request.ToUtc,
             request.EventLimit);
-        IReadOnlyList<AgentDiagnosticsSnapshot> diagnostics = reader.ReadDiagnosticsSnapshots(
+        diagnostics = reader.ReadDiagnosticsSnapshots(
             request.FromUtc,
             request.ToUtc,
             request.DiagnosticsLimit);
-        AgentSettingsRecord? latestSettings = reader.ReadLatestSettings();
-        AgentConsentRecord? latestConsent = reader.ReadLatestConsent();
+        latestSettings = reader.ReadLatestSettings();
+        latestConsent = reader.ReadLatestConsent();
 
-        if (windows.Count == 0 && snapshots.Count == 0 && events.Count == 0 && diagnostics.Count == 0)
+        if (signalSamples.Count == 0 && snapshots.Count == 0 && events.Count == 0 && diagnostics.Count == 0)
         {
             throw new InvalidOperationException(
                 $"No recorded Ari data was found between {request.FromUtc:O} and {request.ToUtc:O}.");
@@ -121,12 +143,12 @@ public sealed class AgentRecordedCaptureExporter
         Directory.CreateDirectory(captureDirectoryPath);
 
         DateTimeOffset? observedFromUtc = MinTimestamp(
-            windows.Select(static row => (DateTimeOffset?)row.WindowStartUtc),
+            signalSamples.Select(static row => (DateTimeOffset?)row.StartUtc),
             snapshots.Select(static row => (DateTimeOffset?)row.TimestampUtc),
             events.Select(static row => (DateTimeOffset?)row.TimestampUtc),
             diagnostics.Select(static row => (DateTimeOffset?)row.TimestampUtc));
         DateTimeOffset? observedToUtc = MaxTimestamp(
-            windows.Select(static row => (DateTimeOffset?)row.WindowEndUtc),
+            signalSamples.Select(static row => (DateTimeOffset?)row.EndUtc),
             snapshots.Select(static row => (DateTimeOffset?)row.TimestampUtc),
             events.Select(static row => (DateTimeOffset?)row.TimestampUtc),
             diagnostics.Select(static row => (DateTimeOffset?)row.TimestampUtc));
@@ -161,6 +183,7 @@ public sealed class AgentRecordedCaptureExporter
             ObservedToUtc: observedToUtc,
             TimelineBucketSeconds: Math.Clamp(request.TimelineBucketSeconds, 1, 3600),
             InputWindowCount: windows.Count,
+            SignalSampleCount: signalSamples.Count,
             SnapshotCount: snapshots.Count,
             EventCount: events.Count,
             DiagnosticsSnapshotCount: diagnostics.Count,
@@ -169,7 +192,8 @@ public sealed class AgentRecordedCaptureExporter
             EventActionCounts: eventActionCounts,
             LatestDominantState: latestSnapshot?.DominantStateName,
             LatestAction: latestSnapshot?.LastAction,
-            HasInterventionEvents: events.Count > 0);
+            HasInterventionEvents: events.Count > 0,
+            SignalSourceKind: signalSourceKind);
 
         WriteJsonFile(Path.Combine(captureDirectoryPath, "capture-metadata.json"), new
         {
@@ -193,6 +217,7 @@ public sealed class AgentRecordedCaptureExporter
             }
         });
         WriteJsonFile(Path.Combine(captureDirectoryPath, "capture-summary.json"), summary);
+        WriteJsonFile(Path.Combine(captureDirectoryPath, "signal-samples.json"), signalSamples);
         WriteJsonFile(Path.Combine(captureDirectoryPath, "input-signal-windows.json"), windows);
         WriteJsonFile(Path.Combine(captureDirectoryPath, "timeline-snapshots.json"), snapshots);
         WriteJsonFile(Path.Combine(captureDirectoryPath, "events.json"), events);
@@ -214,13 +239,15 @@ public sealed class AgentRecordedCaptureExporter
             RequestedFromUtc: request.FromUtc,
             RequestedToUtc: request.ToUtc,
             InputWindowCount: summary.InputWindowCount,
+            SignalSampleCount: summary.SignalSampleCount,
             SnapshotCount: summary.SnapshotCount,
             EventCount: summary.EventCount,
             DiagnosticsSnapshotCount: summary.DiagnosticsSnapshotCount,
             HasInterventionEvents: summary.HasInterventionEvents,
             AgentInstanceIds: summary.AgentInstanceIds,
             SessionIds: summary.SessionIds,
-            EventActionCounts: summary.EventActionCounts);
+            EventActionCounts: summary.EventActionCounts,
+            SignalSourceKind: summary.SignalSourceKind);
         string inventoryPath = UpdateInventory(outputRoot, inventoryItem, exportedAtUtc);
 
         return new AgentRecordedCaptureExportResult(
@@ -364,6 +391,59 @@ public sealed class AgentRecordedCaptureExporter
         return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
     }
 
+    private static IReadOnlyList<AgentRecordedSignalSample> BuildSignalSamplesFromWindows(
+        IReadOnlyList<AgentInputSignalWindow> windows)
+    {
+        return windows
+            .Select(window => new AgentRecordedSignalSample(
+                SignalKind: "input_signal_window",
+                StartUtc: window.WindowStartUtc,
+                EndUtc: window.WindowEndUtc,
+                TimestampUtc: window.AcceptedAtUtc,
+                AgentInstanceId: NormalizeNonEmpty(window.AgentInstanceId),
+                SessionId: NormalizeNonEmpty(window.SessionId),
+                SchemaVer: window.SchemaVer,
+                KeyboardKeydownCount: window.KeyboardKeydownCount,
+                KeyboardBackspaceCount: window.KeyboardBackspaceCount,
+                KeyboardIkiMeanMs: window.KeyboardIkiMeanMs,
+                KeyboardIkiStdMs: window.KeyboardIkiStdMs,
+                KeyboardIkiCv: window.KeyboardIkiCv,
+                KeyboardBurstCount: window.KeyboardBurstCount,
+                KeyboardBurstRate: window.KeyboardBurstRate,
+                KeyboardCorrectionSpikeCount: window.KeyboardCorrectionSpikeCount,
+                KeyboardCorrectionSpikeRate: window.KeyboardCorrectionSpikeRate,
+                MouseWheelDelta: window.MouseWheelDelta,
+                MouseWheelEventCount: window.MouseWheelEventCount,
+                MouseMoveDx: window.MouseMoveDx,
+                MouseMoveDy: window.MouseMoveDy,
+                MouseMoveSampleCount: window.MouseMoveSampleCount,
+                MousePathLengthPx: window.MousePathLengthPx,
+                MouseSpeedMeanPxPerSec: window.MouseSpeedMeanPxPerSec,
+                MouseJerkP95: window.MouseJerkP95,
+                MouseMicroCorrectionCount: window.MouseMicroCorrectionCount,
+                MouseMicroCorrectionRate: window.MouseMicroCorrectionRate,
+                MouseScrollBurstCount: window.MouseScrollBurstCount,
+                MouseScrollBurstRate: window.MouseScrollBurstRate,
+                MouseScrollSpeedMean: window.MouseScrollSpeedMean,
+                FocusObservationCount: window.FocusObservationCount,
+                FocusSwitchCount: window.FocusSwitchCount,
+                FocusActiveAppCount: window.FocusActiveAppCount,
+                FocusAppEntropy: window.FocusAppEntropy,
+                FocusAppHash: NormalizeNonEmpty(window.FocusAppHash),
+                IdleSeconds: window.IdleSeconds,
+                IdleObservationCount: window.IdleObservationCount,
+                IdleSecondsWithinWindow: window.IdleSecondsWithinWindow,
+                MicroIdleCount: window.MicroIdleCount,
+                MicroIdleSeconds: window.MicroIdleSeconds,
+                TrueBreakSeconds: window.BreakSecondsWithinWindow,
+                TrueBreakFlag: window.BreakSecondsWithinWindow.HasValue
+                    ? window.BreakSecondsWithinWindow.Value >= 120d
+                    : null,
+                ShortIdleBoundaryObserved: window.ShortIdleBoundaryObserved,
+                NotificationToastsEnabled: window.NotificationToastsEnabled))
+            .ToList();
+    }
+
     private static DateTimeOffset? MinTimestamp(params IEnumerable<DateTimeOffset?>[] sources)
     {
         List<DateTimeOffset> values = sources
@@ -401,6 +481,23 @@ public sealed class AgentRecordedCaptureExporter
                 Mode = SqliteOpenMode.ReadOnly
             };
             _connectionString = builder.ToString();
+        }
+
+        public bool HasTable(string tableName)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(tableName);
+
+            using var connection = OpenConnection();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT COUNT(1)
+                FROM sqlite_master
+                WHERE type = 'table' AND name = $name;
+                """;
+            cmd.Parameters.AddWithValue("$name", tableName.Trim());
+            object? scalar = cmd.ExecuteScalar();
+            return scalar is long count && count > 0;
         }
 
         public IReadOnlyList<AgentInputSignalWindow> ReadInputSignalWindows(
@@ -519,6 +616,97 @@ public sealed class AgentRecordedCaptureExporter
                     BreakSecondsWithinWindow: ReadNullableDouble(reader, 39),
                     ShortIdleBoundaryObserved: ReadBoolOrFallback(reader, 40, false),
                     NotificationToastsEnabled: reader.IsDBNull(41) ? null : reader.GetInt32(41) == 1));
+            }
+
+            return rows;
+        }
+
+        public IReadOnlyList<AgentRecordedSignalSample> ReadHistoricalSignalSamples(
+            DateTimeOffset fromUtc,
+            DateTimeOffset toUtc,
+            int limit)
+        {
+            if (toUtc < fromUtc)
+            {
+                return [];
+            }
+
+            int boundedLimit = Math.Clamp(limit, 1, 200_000);
+            var rows = new List<AgentRecordedSignalSample>(Math.Min(boundedLimit, 4096));
+
+            using var connection = OpenConnection();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT
+                    timestamp_utc,
+                    start_utc,
+                    typing_burst_intensity,
+                    scroll_velocity_index,
+                    focus_switch_rate,
+                    keyboard_iki_mean,
+                    keyboard_iki_cv,
+                    keyboard_burst_rate,
+                    keyboard_backspace_rate,
+                    mouse_speed_mean,
+                    mouse_jerk_p95,
+                    mouse_scroll_speed,
+                    mouse_micro_correction_rate,
+                    focus_app_entropy,
+                    focus_switch_count,
+                    dominant_app_hash,
+                    focus_active_app_count,
+                    idle_seconds,
+                    idle_micro_idle_count,
+                    idle_micro_idle_seconds,
+                    true_break_seconds,
+                    true_break_flag,
+                    quality_score,
+                    partial,
+                    contributors_json
+                FROM input_buckets
+                WHERE timestamp_utc >= $from AND timestamp_utc <= $to
+                ORDER BY timestamp_utc ASC, id ASC
+                LIMIT $limit;
+                """;
+            cmd.Parameters.AddWithValue("$from", fromUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$to", toUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$limit", boundedLimit);
+
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                DateTimeOffset startUtc = ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 1, string.Empty))
+                    ?? DateTimeOffset.Parse(reader.GetString(0));
+                DateTimeOffset endUtc = startUtc.AddSeconds(Time.bucketSeconds);
+                rows.Add(new AgentRecordedSignalSample(
+                    SignalKind: "input_bucket",
+                    StartUtc: startUtc,
+                    EndUtc: endUtc,
+                    TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
+                    TypingBurstIntensity: ReadNullableDouble(reader, 2),
+                    ScrollVelocityIndex: ReadNullableDouble(reader, 3),
+                    FocusSwitchRate: ReadNullableDouble(reader, 4),
+                    KeyboardBackspaceRate: ReadNullableDouble(reader, 8),
+                    KeyboardIkiMeanMs: ReadNullableDouble(reader, 5),
+                    KeyboardIkiCv: ReadNullableDouble(reader, 6),
+                    KeyboardBurstRate: ReadNullableDouble(reader, 7),
+                    MouseSpeedMeanPxPerSec: ReadNullableDouble(reader, 9),
+                    MouseJerkP95: ReadNullableDouble(reader, 10),
+                    MouseMicroCorrectionRate: ReadNullableDouble(reader, 12),
+                    MouseScrollSpeedMean: ReadNullableDouble(reader, 11),
+                    FocusSwitchCount: reader.IsDBNull(14) ? null : reader.GetInt32(14),
+                    FocusActiveAppCount: ReadNullableDouble(reader, 16),
+                    FocusAppEntropy: ReadNullableDouble(reader, 13),
+                    FocusAppHash: NormalizeNullable(ReadStringOrFallback(reader, 15, string.Empty)),
+                    IdleSeconds: ReadNullableDouble(reader, 17),
+                    MicroIdleCount: ReadNullableDouble(reader, 18),
+                    MicroIdleSeconds: ReadNullableDouble(reader, 19),
+                    TrueBreakSeconds: ReadNullableDouble(reader, 20),
+                    TrueBreakFlag: reader.IsDBNull(21) ? null : reader.GetInt32(21) == 1,
+                    QualityScore: ReadNullableDouble(reader, 22),
+                    Partial: reader.IsDBNull(23) ? null : reader.GetInt32(23) == 1,
+                    ContributorsJson: NormalizeNullable(ReadStringOrFallback(reader, 24, string.Empty))));
             }
 
             return rows;

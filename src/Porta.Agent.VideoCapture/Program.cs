@@ -16,6 +16,7 @@ internal static class VideoCaptureCli
             {
                 "export" => RunExport(args[1..]),
                 "inventory" => RunInventory(args[1..]),
+                "curate" => RunCurate(args[1..]),
                 "help" => PrintHelp(),
                 "--help" => PrintHelp(),
                 "-h" => PrintHelp(),
@@ -59,7 +60,7 @@ internal static class VideoCaptureCli
         Console.WriteLine($"capture_dir={result.CaptureDirectoryPath}");
         Console.WriteLine($"inventory={result.InventoryPath}");
         Console.WriteLine(
-            $"counts windows={result.Summary.InputWindowCount} snapshots={result.Summary.SnapshotCount} events={result.Summary.EventCount} diagnostics={result.Summary.DiagnosticsSnapshotCount}");
+            $"counts signals={result.Summary.SignalSampleCount} source={result.Summary.SignalSourceKind} windows={result.Summary.InputWindowCount} snapshots={result.Summary.SnapshotCount} events={result.Summary.EventCount} diagnostics={result.Summary.DiagnosticsSnapshotCount}");
         return 0;
     }
 
@@ -80,9 +81,50 @@ internal static class VideoCaptureCli
         foreach (AgentRecordedCaptureInventoryItem item in items)
         {
             Console.WriteLine(
-                $"{item.ExportedAtUtc:O} {item.CaptureId} label=\"{item.Label}\" windows={item.InputWindowCount} snapshots={item.SnapshotCount} events={item.EventCount} path=\"{item.CaptureDirectoryPath}\"");
+                $"{item.ExportedAtUtc:O} {item.CaptureId} label=\"{item.Label}\" signals={item.SignalSampleCount} source={item.SignalSourceKind} windows={item.InputWindowCount} snapshots={item.SnapshotCount} events={item.EventCount} path=\"{item.CaptureDirectoryPath}\"");
         }
 
+        return 0;
+    }
+
+    private static int RunCurate(string[] args)
+    {
+        Dictionary<string, string> options = ParseOptions(args);
+        string? captureDir = ReadOptional(options, "--capture-dir");
+        string? captureDirsFile = ReadOptional(options, "--capture-dirs-file");
+        string captureRoot = ReadOptional(options, "--capture-root") ?? AgentRecordedCaptureExporter.GetDefaultOutputRoot();
+        int captureLimit = ReadOptionalInt(options, "--capture-limit", 3, 1, 25);
+        string? outputRoot = ReadOptional(options, "--output-root");
+        string? label = ReadOptional(options, "--label");
+        int targetDurationSeconds = ReadOptionalInt(options, "--target-duration-seconds", 45, 30, 60);
+        int minDurationSeconds = ReadOptionalInt(options, "--min-duration-seconds", 30, 20, 60);
+        int maxDurationSeconds = ReadOptionalInt(options, "--max-duration-seconds", 60, 30, 90);
+        int frameRate = ReadOptionalInt(options, "--frame-rate", 30, 24, 60);
+        string? dbPath = ReadOptional(options, "--db-path");
+
+        List<string> captureDirectories = ResolveCaptureDirectories(
+            captureDir,
+            captureDirsFile,
+            captureRoot,
+            captureLimit,
+            dbPath);
+
+        var builder = new AgentCuratedVideoTraceBuilder();
+        AgentCuratedVideoTraceResult result = builder.Curate(new AgentCuratedVideoTraceRequest(
+            CaptureDirectories: captureDirectories,
+            Label: label,
+            OutputRoot: outputRoot,
+            TargetDurationSeconds: targetDurationSeconds,
+            MinDurationSeconds: minDurationSeconds,
+            MaxDurationSeconds: maxDurationSeconds,
+            FrameRate: frameRate));
+
+        Console.WriteLine($"PASS trace_id={result.TraceId}");
+        Console.WriteLine($"trace_dir={result.TraceDirectoryPath}");
+        Console.WriteLine($"trace={result.TracePath}");
+        Console.WriteLine($"beat_map={result.BeatMapPath}");
+        Console.WriteLine(
+            $"counts signals={result.Trace.Signals.Count} snapshots={result.Trace.Snapshots.Count} events={result.Trace.Events.Count} chapters={result.Trace.Chapters?.Count ?? 0} beats={result.BeatMap.Count}");
         return 0;
     }
 
@@ -180,6 +222,54 @@ internal static class VideoCaptureCli
         Console.WriteLine("Usage:");
         Console.WriteLine("  Porta.Agent.VideoCapture export --from <ISO-8601> --to <ISO-8601> [--label <text>] [--notes <text>|--notes-file <path>] [--output-root <path>] [--db-path <path>]");
         Console.WriteLine("  Porta.Agent.VideoCapture inventory [--output-root <path>] [--db-path <path>]");
+        Console.WriteLine("  Porta.Agent.VideoCapture curate [--capture-dir <path>|--capture-dirs-file <path>] [--capture-root <path>] [--capture-limit <int>] [--label <text>] [--target-duration-seconds <int>] [--output-root <path>]");
         return string.IsNullOrWhiteSpace(error) ? 0 : 1;
+    }
+
+    private static List<string> ResolveCaptureDirectories(
+        string? captureDir,
+        string? captureDirsFile,
+        string captureRoot,
+        int captureLimit,
+        string? dbPath)
+    {
+        if (captureDir is not null && captureDirsFile is not null)
+        {
+            throw new ArgumentException("Use either '--capture-dir' or '--capture-dirs-file', not both.");
+        }
+
+        if (captureDir is not null)
+        {
+            return captureDir
+                .Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+        }
+
+        if (captureDirsFile is not null)
+        {
+            if (!File.Exists(captureDirsFile))
+            {
+                throw new FileNotFoundException("Capture directory list file was not found.", captureDirsFile);
+            }
+
+            return File.ReadAllLines(captureDirsFile)
+                .Select(static line => line.Trim())
+                .Where(static line => !string.IsNullOrWhiteSpace(line))
+                .ToList();
+        }
+
+        var exporter = new AgentRecordedCaptureExporter(dbPath);
+        IReadOnlyList<AgentRecordedCaptureInventoryItem> inventory = exporter.ReadInventory(captureRoot);
+        List<string> directories = inventory
+            .Take(captureLimit)
+            .Select(static item => item.CaptureDirectoryPath)
+            .ToList();
+        if (directories.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"No raw captures were found under '{captureRoot}'. Export a Phase 1 capture before running curate.");
+        }
+
+        return directories;
     }
 }
