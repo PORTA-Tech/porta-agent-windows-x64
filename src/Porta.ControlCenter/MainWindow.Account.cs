@@ -109,8 +109,22 @@ public partial class MainWindow
             {
                 _accountProfile = me;
                 SyncWorkspaceOptions();
+                string? autoLinkedWorkspaceName = await TryAutoLinkCurrentDeviceAsync().ConfigureAwait(true);
+                if (!string.IsNullOrWhiteSpace(autoLinkedWorkspaceName))
+                {
+                    ControlPlaneMeProfileView? refreshedMe = await _controlPlaneAccountClient.GetMeAsync(_accountSession.AccessToken).ConfigureAwait(true);
+                    if (refreshedMe != null)
+                    {
+                        _accountProfile = refreshedMe;
+                        SyncWorkspaceOptions();
+                    }
+                }
+
                 _lastAccountRefreshUtc = DateTimeOffset.UtcNow;
-                _accountStatusMessage = remoteDeviceStatusMessage ?? "Signed in. Use the menu to open account, workspace, devices, or privacy.";
+                _accountStatusMessage = remoteDeviceStatusMessage
+                    ?? (!string.IsNullOrWhiteSpace(autoLinkedWorkspaceName)
+                        ? $"Signed in. This PC is now linked to {autoLinkedWorkspaceName}."
+                        : "Signed in. Use the menu to open account, workspace, devices, or privacy.");
             }
         }
 
@@ -135,6 +149,12 @@ public partial class MainWindow
             AgentVersion: _latestStatus?.AgentVersion ?? _uiVersion,
             AccountId: linkedAccountId,
             OrgId: linkedOrgId,
+            DeviceCaptureConsentState: _latestStatus != null
+                ? (_latestStatus.ConsentActive ? "accepted" : "revoked")
+                : null,
+            DeviceCaptureConsentVersion: _latestStatus?.ConsentVersion,
+            DeviceCaptureConsentedAt: _latestStatus?.ConsentTimestampUtc?.ToString("O"),
+            DeviceCaptureTelemetryLevel: null,
             SessionToken: _accountSession.AccessToken,
             LocalProofToken: null);
 
@@ -154,7 +174,8 @@ public partial class MainWindow
 
         foreach (ControlPlaneAccountMembershipView membershipView in _accountProfile.Organizations)
         {
-            if (membershipView.Organization == null)
+            if (membershipView.Organization == null
+                || !string.Equals(membershipView.Membership.Status, "active", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -272,6 +293,7 @@ public partial class MainWindow
         }
 
         _latestIdentityLink = local;
+        await RegisterCurrentDeviceAsync().ConfigureAwait(true);
 
         if (updateStatusMessage)
         {
@@ -279,6 +301,28 @@ public partial class MainWindow
         }
 
         return true;
+    }
+
+    private async Task<string?> TryAutoLinkCurrentDeviceAsync()
+    {
+        if (_accountSession == null || _latestIdentityLink == null)
+        {
+            return null;
+        }
+
+        if (IsIdentityLinkedToDifferentAccount(_latestIdentityLink))
+        {
+            return null;
+        }
+
+        AccountWorkspaceOption? workspace = ResolvePreferredWorkspace();
+        if (workspace == null || !NeedsWorkspaceLink(workspace))
+        {
+            return null;
+        }
+
+        bool linked = await LinkCurrentDeviceToWorkspaceAsync(workspace, updateStatusMessage: false).ConfigureAwait(true);
+        return linked ? workspace.OrgName : null;
     }
 
     private async Task<bool> UnlinkCurrentDeviceAsync(bool updateStatusMessage)
@@ -689,7 +733,7 @@ public partial class MainWindow
 
         if (currentDevice == null)
         {
-            return BuildLocalDeviceConsentStatus();
+            return BuildCurrentDeviceLinkStatusLabel();
         }
 
         return _latestStatus != null
@@ -711,7 +755,7 @@ public partial class MainWindow
 
         if (currentDevice == null)
         {
-            return "This device is not an active account-linked device.";
+            return BuildCurrentDeviceLinkStatusMessage();
         }
 
         if (!string.Equals(currentDevice.Status, "active", StringComparison.OrdinalIgnoreCase))
@@ -736,6 +780,46 @@ public partial class MainWindow
         }
 
         return "Signed in, but this PC still needs capture approval.";
+    }
+
+    private string BuildCurrentDeviceLinkStatusLabel()
+    {
+        if (_latestIdentityLink == null)
+        {
+            return NotAvailableText;
+        }
+
+        if (IsIdentityLinkedToDifferentAccount(_latestIdentityLink))
+        {
+            return "Linked to another account";
+        }
+
+        if (!IsIdentityLinked(_latestIdentityLink))
+        {
+            return "Device not linked";
+        }
+
+        return "Link pending sync";
+    }
+
+    private string BuildCurrentDeviceLinkStatusMessage()
+    {
+        if (_latestIdentityLink == null)
+        {
+            return "This device link is not available yet.";
+        }
+
+        if (IsIdentityLinkedToDifferentAccount(_latestIdentityLink))
+        {
+            return "This device is linked to another account on this PC.";
+        }
+
+        if (!IsIdentityLinked(_latestIdentityLink))
+        {
+            return "This device is not linked to a workspace yet.";
+        }
+
+        return "This device link is waiting to sync into the signed-in workspace.";
     }
 
     private string BuildLocalDeviceConsentStatus()
