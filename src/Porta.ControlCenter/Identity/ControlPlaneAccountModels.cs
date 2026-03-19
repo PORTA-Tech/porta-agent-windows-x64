@@ -181,6 +181,18 @@ internal sealed record ControlPlaneDeviceLinkResult(
     [property: JsonPropertyName("linkState")] string LinkState,
     [property: JsonPropertyName("device")] ControlPlaneDeviceProfile Device);
 
+internal sealed record ControlPlaneWindowsReleaseManifest(
+    [property: JsonPropertyName("platform")] string Platform,
+    [property: JsonPropertyName("channel")] string Channel,
+    [property: JsonPropertyName("version")] string Version,
+    [property: JsonPropertyName("msiUrl")] string MsiUrl,
+    [property: JsonPropertyName("publishedAtUtc")] DateTimeOffset PublishedAtUtc,
+    [property: JsonPropertyName("minimumSupportedVersion")] string? MinimumSupportedVersion,
+    [property: JsonPropertyName("required")] bool Required,
+    [property: JsonPropertyName("title")] string? Title,
+    [property: JsonPropertyName("summary")] string? Summary,
+    [property: JsonPropertyName("sha256")] string? Sha256);
+
 internal sealed record ControlPlaneSessionState(
     string AccessToken,
     string AccountId,

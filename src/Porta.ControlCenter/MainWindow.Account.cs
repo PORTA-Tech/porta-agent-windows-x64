@@ -65,6 +65,7 @@ public partial class MainWindow
     private async Task RefreshAccountSurfaceAsync(bool force = false)
     {
         _latestIdentityLink = await _identityLinkCoordinator.GetCurrentAsync().ConfigureAwait(true);
+        await RefreshWindowsReleaseAsync(force).ConfigureAwait(true);
 
         bool shouldRefreshAccessHelp = force || (_activeSection == UiSection.Account && _accountAccessHelp == null);
         if (shouldRefreshAccessHelp)
@@ -361,6 +362,7 @@ public partial class MainWindow
     private void PopulateAccountSurface()
     {
         AccountStatusText.Text = _accountStatusMessage;
+        PopulateUpdateSurface();
 
         bool signedIn = _accountSession != null && _accountProfile != null;
         bool backendConfigured = !string.IsNullOrWhiteSpace(_controlPlaneAccountClient.GetConfiguredBaseUrl());

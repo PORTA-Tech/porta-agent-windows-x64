@@ -131,6 +131,25 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         }
     }
 
+    public async Task<ControlPlaneWindowsReleaseManifest?> GetLatestWindowsReleaseAsync(CancellationToken token = default)
+    {
+        try
+        {
+            using HttpRequestMessage request = CreateRequest(HttpMethod.Get, "api/client-release/windows/latest", accessToken: null);
+            using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<ControlPlaneWindowsReleaseManifest>(JsonOptions, token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<ControlPlaneProfileUpdateResponse?> UpdateProfileAsync(string accessToken, string displayName, CancellationToken token = default)
     {
         if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(displayName))
