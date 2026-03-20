@@ -1198,19 +1198,26 @@ public sealed class AgentCoreController : IAgentCoreController
             return;
         }
 
-        _stateStore.WriteDiagnostics(new AgentDiagnosticsSnapshot(
-            TimestampUtc: nowUtc,
-            BackendConnected: _backendConnected,
-            ConsentActive: _consentActive,
-            Paused: _paused,
-            LastError: _lastError,
-            PolicyVersion: ResolvePolicyVersion(),
-            SchemaVersion: DefaultSchemaVersion,
-            AgentVersion: _agentVersion,
-            LastEventTimestampUtc: _lastEventTimestampUtc,
-            LastBackendOkUtc: _lastBackendOkUtc));
+        try
+        {
+            _stateStore.WriteDiagnostics(new AgentDiagnosticsSnapshot(
+                TimestampUtc: nowUtc,
+                BackendConnected: _backendConnected,
+                ConsentActive: _consentActive,
+                Paused: _paused,
+                LastError: _lastError,
+                PolicyVersion: ResolvePolicyVersion(),
+                SchemaVersion: DefaultSchemaVersion,
+                AgentVersion: _agentVersion,
+                LastEventTimestampUtc: _lastEventTimestampUtc,
+                LastBackendOkUtc: _lastBackendOkUtc));
 
-        _lastDiagnosticsWriteUtc = nowUtc;
+            _lastDiagnosticsWriteUtc = nowUtc;
+        }
+        catch (Exception ex)
+        {
+            WriteLogLocked($"diagnostics_write_failed error={ex.GetType().Name}:{ex.Message}");
+        }
     }
 
     private static string NormalizeTestAction(string action)
