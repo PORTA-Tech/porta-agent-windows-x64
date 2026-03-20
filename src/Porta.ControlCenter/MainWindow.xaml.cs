@@ -4747,16 +4747,35 @@ public partial class MainWindow : Window
         SetBadgeVisual(StatusPillBorder, isPositive: runState == "Running");
         ApplyModeTheme(visualState);
 
-        bool consentOn = status?.ConsentActive == true;
-        ConsentBadgeText.Text = $"Consent: {(consentOn ? "On" : "Needed")}";
-        SetBadgeVisual(ConsentBadgeBorder, isPositive: consentOn);
+        bool consentUnavailable = status == null || !status.LocalApiAuthReady;
+        if (consentUnavailable)
+        {
+            ConsentBadgeText.Text = "Consent: Unavailable";
+            SetNeutralBadgeVisual(ConsentBadgeBorder);
+        }
+        else if (status is LocalApiStatusResponse statusValue)
+        {
+            bool consentOn = statusValue.ConsentActive;
+            ConsentBadgeText.Text = $"Consent: {(consentOn ? "On" : "Needed")}";
+            SetBadgeVisual(ConsentBadgeBorder, isPositive: consentOn);
+        }
 
-        string calibrationStage = NormalizeCalibrationStage(
-            nowTruth.Snapshot?.CalibrationStage ?? status?.CalibrationStage,
-            nowTruth.Snapshot?.BaselineReady,
-            nowTruth.Snapshot?.ColdStart);
-        CalibrationBadgeText.Text = $"Calibration: {ToCalibrationStageLabel(calibrationStage)}";
-        SetCalibrationBadgeVisual(calibrationStage);
+        bool calibrationUnavailable = nowTruth.Snapshot == null;
+        if (calibrationUnavailable)
+        {
+            CalibrationBadgeText.Text = "Calibration: Unavailable";
+            SetNeutralBadgeVisual(CalibrationBadgeBorder);
+        }
+        else
+        {
+            LocalApiCurrentSnapshotResponse snapshotValue = nowTruth.Snapshot!;
+            string calibrationStage = NormalizeCalibrationStage(
+                snapshotValue.CalibrationStage ?? status?.CalibrationStage,
+                snapshotValue.BaselineReady,
+                snapshotValue.ColdStart);
+            CalibrationBadgeText.Text = $"Calibration: {ToCalibrationStageLabel(calibrationStage)}";
+            SetCalibrationBadgeVisual(calibrationStage);
+        }
 
         string trustLabel = visualState.TrustLabel;
         TrustBadgeText.Text = $"Trust: {trustLabel}";
@@ -4777,6 +4796,11 @@ public partial class MainWindow : Window
         border.Background = isPositive
             ? new SolidColorBrush(Color.FromRgb(6, 95, 70))
             : new SolidColorBrush(Color.FromRgb(127, 29, 29));
+    }
+
+    private static void SetNeutralBadgeVisual(Border border)
+    {
+        border.Background = new SolidColorBrush(Color.FromRgb(51, 65, 85));
     }
 
     private void ApplyModeTheme(PortaVisualState visualState)

@@ -179,6 +179,7 @@ public static class Secrets
                 detail: "unprotected_secret_length_not_32");
         }
 
+        TryHardenFileAcl(path);
         return secretBytes;
     }
 
@@ -367,6 +368,7 @@ public static class Secrets
 
             AddDirectoryFullControlRule(security, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null));
             AddDirectoryFullControlRule(security, new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null));
+            AddDirectoryReadRule(security, new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null));
 
             SecurityIdentifier? currentSid = WindowsIdentity.GetCurrent().User;
             if (currentSid != null)
@@ -392,6 +394,7 @@ public static class Secrets
 
             AddFileFullControlRule(security, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null));
             AddFileFullControlRule(security, new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null));
+            AddFileReadRule(security, new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null));
 
             SecurityIdentifier? currentSid = WindowsIdentity.GetCurrent().User;
             if (currentSid != null)
@@ -418,11 +421,31 @@ public static class Secrets
             AccessControlType.Allow));
     }
 
+    private static void AddDirectoryReadRule(DirectorySecurity security, SecurityIdentifier sid)
+    {
+        security.AddAccessRule(new FileSystemAccessRule(
+            sid,
+            FileSystemRights.ReadAndExecute,
+            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+            PropagationFlags.None,
+            AccessControlType.Allow));
+    }
+
     private static void AddFileFullControlRule(FileSecurity security, SecurityIdentifier sid)
     {
         security.AddAccessRule(new FileSystemAccessRule(
             sid,
             FileSystemRights.FullControl,
+            InheritanceFlags.None,
+            PropagationFlags.None,
+            AccessControlType.Allow));
+    }
+
+    private static void AddFileReadRule(FileSecurity security, SecurityIdentifier sid)
+    {
+        security.AddAccessRule(new FileSystemAccessRule(
+            sid,
+            FileSystemRights.Read,
             InheritanceFlags.None,
             PropagationFlags.None,
             AccessControlType.Allow));

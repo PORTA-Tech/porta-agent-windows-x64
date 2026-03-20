@@ -35,20 +35,38 @@ internal sealed class AgentService : IHostedService, IDisposable
             options.ListenLocalhost(settings.Port);
         });
 
-        builder.Services.AddPortaLocalApi();
-        builder.Services.AddSingleton<ILocalIdentityLinkStore, LocalIdentityLinkStore>();
-        builder.Services.AddSingleton<IRuntimePolicyProvider, FileRuntimePolicyProvider>();
-        builder.Services.AddSingleton<IBrightnessController, WindowsBrightnessController>();
-        builder.Services.AddSingleton<IOverloadBrightnessActionCoordinator, OverloadBrightnessActionCoordinator>();
-        builder.Services.AddSingleton<IDeepWorkOutputActionCoordinator, QueuedDeepWorkOutputActionCoordinator>();
-        builder.Services.AddSingleton<BucketFinalizerStateStore>(sp =>
+        ConfigureServices(builder.Services, settings);
+
+        _localApiApp = builder.Build();
+        _ = _localApiApp.Services.GetRequiredService<ILocalIdentityLinkStore>().GetCurrent();
+        _localApiApp.MapPortaLocalApi(settings);
+    }
+
+    internal static void ConfigureServices(IServiceCollection services, LocalApiRuntimeSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddPortaLocalApi();
+        services.AddSingleton<ILocalIdentityLinkStore, LocalIdentityLinkStore>();
+        services.AddSingleton<IRuntimePolicyProvider, FileRuntimePolicyProvider>();
+        services.AddSingleton<IPolicyEnvelopeProvider, FilePolicyEnvelopeProvider>();
+        services.AddSingleton<IBrightnessController, WindowsBrightnessController>();
+        services.AddSingleton<IOverloadBrightnessActionCoordinator, OverloadBrightnessActionCoordinator>();
+        services.AddSingleton<IDeepWorkOutputActionCoordinator, QueuedDeepWorkOutputActionCoordinator>();
+        services.AddSingleton<ISignalAcquisitionStage, SystemSignalAcquisitionStage>();
+        services.AddSingleton<IPrimitiveNormalizationStage, DefaultPrimitiveNormalizationStage>();
+        services.AddSingleton<IInferenceStage, DefaultInferenceStage>();
+        services.AddSingleton<IStabilizationStage, EwmaStabilizationStage>();
+        services.AddSingleton<IRegulationStage, DefaultRegulationStage>();
+        services.AddSingleton<IBackendConnectivityProbe, HttpBackendConnectivityProbe>();
+        services.AddSingleton<BucketFinalizerStateStore>(sp =>
             new BucketFinalizerStateStore(new SqliteBrainStateStore(
                 sp.GetRequiredService<IDeepWorkOutputActionCoordinator>(),
                 sp.GetRequiredService<IOverloadBrightnessActionCoordinator>(),
                 sp.GetRequiredService<IRuntimePolicyProvider>())));
-        builder.Services.AddSingleton<IBrainStateStore>(sp => sp.GetRequiredService<BucketFinalizerStateStore>());
-        builder.Services.AddSingleton<IBucketFinalizerPump>(sp => sp.GetRequiredService<BucketFinalizerStateStore>());
-        builder.Services.AddSingleton<IAgentCoreController>(sp =>
+        services.AddSingleton<IBrainStateStore>(sp => sp.GetRequiredService<BucketFinalizerStateStore>());
+        services.AddSingleton<IBucketFinalizerPump>(sp => sp.GetRequiredService<BucketFinalizerStateStore>());
+        services.AddSingleton<IAgentCoreController>(sp =>
         {
             var controller = new AgentCoreController(
                 sp.GetRequiredService<IBrainStateStore>(),
@@ -56,16 +74,13 @@ internal sealed class AgentService : IHostedService, IDisposable
             controller.SetLocalApiAuthState(settings.LocalApiAuthReady, settings.LocalApiAuthError);
             return controller;
         });
-        builder.Services.AddHostedService<BucketFinalizerWorker>();
-        builder.Services.AddSingleton<ControlPlaneClient>();
-        builder.Services.AddSingleton<ControlPlaneReporterStateStore>();
-        builder.Services.AddSingleton<MachineSummaryMapper>();
-        builder.Services.AddSingleton<MachineActionMapper>();
-        builder.Services.AddHostedService<ControlPlaneReporter>();
-
-        _localApiApp = builder.Build();
-        _ = _localApiApp.Services.GetRequiredService<ILocalIdentityLinkStore>().GetCurrent();
-        _localApiApp.MapPortaLocalApi(settings);
+        services.AddHostedService<AgentBrainWorker>();
+        services.AddHostedService<BucketFinalizerWorker>();
+        services.AddSingleton<ControlPlaneClient>();
+        services.AddSingleton<ControlPlaneReporterStateStore>();
+        services.AddSingleton<MachineSummaryMapper>();
+        services.AddSingleton<MachineActionMapper>();
+        services.AddHostedService<ControlPlaneReporter>();
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)

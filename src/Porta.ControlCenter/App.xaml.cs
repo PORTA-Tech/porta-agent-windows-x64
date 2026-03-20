@@ -15,6 +15,7 @@ public partial class App : Application
     private EventWaitHandle? _focusEvent;
     private Thread? _focusThread;
     private volatile bool _focusLoopStopping;
+    private DispatcherTimer? _userAgentWatchdogTimer;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -42,7 +43,14 @@ public partial class App : Application
         };
         _focusThread.Start();
 
-        EnsureCurrentSessionUserAgent();
+        EnsureCurrentSessionUserAgent(force: true);
+
+        _userAgentWatchdogTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(15)
+        };
+        _userAgentWatchdogTimer.Tick += (_, _) => EnsureCurrentSessionUserAgent();
+        _userAgentWatchdogTimer.Start();
 
         MainWindow window = new();
         MainWindow = window;
@@ -77,6 +85,7 @@ public partial class App : Application
         }
 
         _focusEvent?.Dispose();
+        _userAgentWatchdogTimer?.Stop();
 
         if (_mutex != null)
         {
@@ -141,55 +150,15 @@ public partial class App : Application
                     return;
                 }
 
-                EnsureCurrentSessionUserAgent();
+                EnsureCurrentSessionUserAgent(force: true);
                 window.HandleExternalActivation();
             });
         }
     }
 
-    private static void EnsureCurrentSessionUserAgent()
+    private static void EnsureCurrentSessionUserAgent(bool force = false)
     {
-        try
-        {
-            int currentSessionId = Process.GetCurrentProcess().SessionId;
-            foreach (Process process in Process.GetProcessesByName("Porta.UserAgent"))
-            {
-                try
-                {
-                    if (!process.HasExited && process.SessionId == currentSessionId)
-                    {
-                        return;
-                    }
-                }
-                catch
-                {
-                }
-                finally
-                {
-                    process.Dispose();
-                }
-            }
-
-            string userAgentPath = Path.Combine(AppContext.BaseDirectory, "Porta.UserAgent.exe");
-            if (!File.Exists(userAgentPath))
-            {
-                ControlCenterFileLog.Info("user_agent_launch_skipped_missing_binary");
-                return;
-            }
-
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = userAgentPath,
-                WorkingDirectory = AppContext.BaseDirectory,
-                UseShellExecute = true
-            });
-
-            ControlCenterFileLog.Info("user_agent_launch_requested");
-        }
-        catch (Exception ex)
-        {
-            ControlCenterFileLog.Error("user_agent_launch_failed", ex);
-        }
+        CurrentSessionUserAgentLauncher.EnsureHealthy(force);
     }
 }
 
