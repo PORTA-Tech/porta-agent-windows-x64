@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     private const double UiBreakFocusThresholdSeconds = 1800d;
     private static readonly TimeSpan SlowRefreshInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ManualRefreshThrottle = TimeSpan.FromMilliseconds(700);
+    private static readonly TimeSpan SnapshotFreshnessWindow = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan StatusFreshnessWindow = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan TopMetricAnimationDuration = TimeSpan.FromMilliseconds(220);
     private static readonly TimeSpan TopMetricAnimationFrameInterval = TimeSpan.FromMilliseconds(16);
@@ -303,28 +304,50 @@ public partial class MainWindow : Window
             UpdatedValue.Text = "Last refresh: manual refresh requested...";
         }
 
-        // Prevent overlapping timer/manual refreshes from piling up and freezing the UI.
-        if (!await _refreshGate.WaitAsync(0).ConfigureAwait(true))
+        bool gateAcquired;
+        if (manual)
         {
-            if (manual)
+            gateAcquired = await _refreshGate.WaitAsync(0).ConfigureAwait(true);
+            if (!gateAcquired)
             {
                 ControlCenterFileLog.Info("manual_refresh_queued");
                 UpdatedValue.Text = "Last refresh: manual refresh queued...";
+                await _refreshGate.WaitAsync().ConfigureAwait(true);
+                _refreshGate.Release();
+                return;
             }
-            return;
+        }
+        else
+        {
+            // Prevent timer refreshes from piling up while keeping manual refresh deterministic.
+            gateAcquired = await _refreshGate.WaitAsync(0).ConfigureAwait(true);
+            if (!gateAcquired)
+            {
+                return;
+            }
         }
 
         try
         {
             if (manual)
             {
+                CurrentSessionUserAgentLauncher.EnsureHealthy(force: true);
+                _lastSlowRefreshUtc = DateTimeOffset.MinValue;
                 RefreshButton.IsEnabled = false;
                 RefreshButton.Content = "Refreshing...";
             }
             do
             {
                 Interlocked.Exchange(ref _manualRefreshPending, 0);
-                await RefreshDiagnosticsCoreAsync().ConfigureAwait(true);
+                await RefreshDiagnosticsCoreAsync(forceSlowRefresh: manual).ConfigureAwait(true);
+
+                if (manual && IsSnapshotStale(_latestStatus, _lastSnapshot, DateTimeOffset.UtcNow))
+                {
+                    ControlCenterFileLog.Info("manual_refresh_snapshot_stale_retry");
+                    CurrentSessionUserAgentLauncher.EnsureHealthy(force: true);
+                    await Task.Delay(TimeSpan.FromMilliseconds(900)).ConfigureAwait(true);
+                    await RefreshDiagnosticsCoreAsync(forceSlowRefresh: true).ConfigureAwait(true);
+                }
             }
             while (Interlocked.CompareExchange(ref _manualRefreshPending, 0, 1) == 1);
         }
@@ -343,7 +366,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task RefreshDiagnosticsCoreAsync()
+    private async Task RefreshDiagnosticsCoreAsync(bool forceSlowRefresh = false)
     {
         LocalApiEndpointSettings? endpoint = LocalApiRuntimeSettingsStore.LoadEndpoint();
         LocalApiRuntimeSettings? runtimeSettings = LocalApiRuntimeSettingsStore.Load();
@@ -364,6 +387,9 @@ public partial class MainWindow : Window
         LocalApiCurrentSnapshotResponse? snapshot = apiReachable
             ? await _apiClient.GetCurrentSnapshotAsync().ConfigureAwait(true)
             : null;
+        bool snapshotFresh = !apiReachable
+            || !statusFresh
+            || !IsSnapshotStale(_latestStatus, snapshot, DateTimeOffset.UtcNow);
         LocalApiInputsSummaryResponse? inputSummary = apiReachable
             ? await _apiClient.GetInputsSummaryAsync(60).ConfigureAwait(true)
             : null;
@@ -398,7 +424,7 @@ public partial class MainWindow : Window
         _recentEvents = _allRecentEvents.Take(5).ToArray();
         _lastSnapshot = snapshot;
         await RefreshAccountSurfaceAsync().ConfigureAwait(true);
-        NowTruth nowTruth = BuildNowTruth(serviceProbe, runtimeSettings, _latestStatus, snapshot, statusFresh);
+        NowTruth nowTruth = BuildNowTruth(serviceProbe, runtimeSettings, _latestStatus, snapshot, statusFresh, snapshotFresh);
         _latestVisualState = VisualStateAdapter.Build(
             _latestStatus,
             nowTruth.Snapshot,
@@ -407,7 +433,8 @@ public partial class MainWindow : Window
             DateTimeOffset.UtcNow);
 
         bool needsSlowRefresh = apiReachable
-            && (DateTimeOffset.UtcNow - _lastSlowRefreshUtc) >= SlowRefreshInterval;
+            && (forceSlowRefresh
+                || (DateTimeOffset.UtcNow - _lastSlowRefreshUtc) >= SlowRefreshInterval);
         if (needsSlowRefresh)
         {
             DateTimeOffset fromUtc = DateTimeOffset.UtcNow.Date;
@@ -544,7 +571,9 @@ public partial class MainWindow : Window
         _lastManualRefreshUtc = nowUtc;
         ControlCenterFileLog.Info("manual_refresh_clicked");
         await RefreshDiagnosticsAsync(manual: true).ConfigureAwait(true);
-        ControlCenterFileLog.Info($"manual_refresh_completed api_reachable={(_latestStatus != null).ToString().ToLowerInvariant()}");
+        bool snapshotFresh = !IsSnapshotStale(_latestStatus, _lastSnapshot, DateTimeOffset.UtcNow);
+        ControlCenterFileLog.Info(
+            $"manual_refresh_completed api_reachable={(_latestStatus != null).ToString().ToLowerInvariant()} snapshot_fresh={snapshotFresh.ToString().ToLowerInvariant()}");
     }
 
     private void VersionsButton_Click(object sender, RoutedEventArgs e)
@@ -4996,7 +5025,8 @@ public partial class MainWindow : Window
         LocalApiRuntimeSettings? runtimeSettings,
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
-        bool statusFresh)
+        bool statusFresh,
+        bool snapshotFresh)
     {
         if (status == null)
         {
@@ -5036,10 +5066,42 @@ public partial class MainWindow : Window
                 Explanation: "Not updating: Snapshot unavailable");
         }
 
+        if (!snapshotFresh)
+        {
+            return new NowTruth(
+                Snapshot: null,
+                Explanation: "Not updating: Snapshot stale");
+        }
+
         string? captureHint = BuildCaptureContextHint(status);
         return new NowTruth(
             Snapshot: snapshot,
             Explanation: captureHint ?? string.Empty);
+    }
+
+    private static bool IsSnapshotStale(
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        DateTimeOffset nowUtc)
+    {
+        if (status == null || snapshot == null)
+        {
+            return true;
+        }
+
+        DateTimeOffset referenceUtc = status.LastUpdatedUtc;
+        if (status.LastInputEventUtc is DateTimeOffset lastInputEventUtc
+            && lastInputEventUtc > referenceUtc)
+        {
+            referenceUtc = lastInputEventUtc;
+        }
+
+        if ((referenceUtc - snapshot.TimestampUtc) > SnapshotFreshnessWindow)
+        {
+            return true;
+        }
+
+        return (nowUtc - snapshot.TimestampUtc) > SnapshotFreshnessWindow;
     }
 
     private static string? BuildCaptureContextHint(LocalApiStatusResponse status)
