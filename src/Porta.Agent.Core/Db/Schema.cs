@@ -5,6 +5,63 @@ namespace Porta.Agent.Core.Db;
 
 internal static class Schema
 {
+    internal static void EnsureInputSignalWindowsContract(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS input_signal_windows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                accepted_at_utc TEXT NOT NULL,
+                schema_ver INTEGER NOT NULL,
+                agent_instance_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                window_start_utc TEXT NOT NULL,
+                window_end_utc TEXT NOT NULL,
+                keyboard_keydown_count INTEGER NOT NULL,
+                keyboard_backspace_count INTEGER NOT NULL,
+                mouse_wheel_delta INTEGER NOT NULL,
+                mouse_move_dx REAL NOT NULL,
+                mouse_move_dy REAL NOT NULL,
+                focus_app_hash TEXT NOT NULL DEFAULT '',
+                idle_seconds REAL NOT NULL,
+                last_input_event_utc TEXT NOT NULL DEFAULT '',
+                keyboard_iki_mean_ms REAL NULL,
+                keyboard_iki_std_ms REAL NULL,
+                keyboard_iki_cv REAL NULL,
+                keyboard_burst_count INTEGER NOT NULL DEFAULT 0,
+                keyboard_burst_rate REAL NULL,
+                keyboard_correction_spike_count INTEGER NOT NULL DEFAULT 0,
+                keyboard_correction_spike_rate REAL NULL,
+                mouse_move_sample_count INTEGER NOT NULL DEFAULT 0,
+                mouse_path_length_px REAL NULL,
+                mouse_speed_mean_px_per_sec REAL NULL,
+                mouse_jerk_p95 REAL NULL,
+                mouse_micro_correction_count INTEGER NOT NULL DEFAULT 0,
+                mouse_micro_correction_rate REAL NULL,
+                mouse_wheel_event_count INTEGER NOT NULL DEFAULT 0,
+                mouse_scroll_burst_count INTEGER NOT NULL DEFAULT 0,
+                mouse_scroll_burst_rate REAL NULL,
+                mouse_scroll_speed_mean REAL NULL,
+                focus_observation_count INTEGER NOT NULL DEFAULT 0,
+                focus_switch_count INTEGER NOT NULL DEFAULT 0,
+                focus_active_app_count INTEGER NOT NULL DEFAULT 0,
+                focus_app_entropy REAL NULL,
+                idle_observation_count INTEGER NOT NULL DEFAULT 0,
+                idle_seconds_within_window REAL NULL,
+                micro_idle_count INTEGER NOT NULL DEFAULT 0,
+                micro_idle_seconds REAL NULL,
+                break_seconds_within_window REAL NULL,
+                short_idle_boundary_observed INTEGER NOT NULL DEFAULT 0,
+                notification_toasts_enabled INTEGER NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_input_signal_windows_range
+                ON input_signal_windows(window_start_utc, window_end_utc);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
     internal static void ApplyBaseSchema(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

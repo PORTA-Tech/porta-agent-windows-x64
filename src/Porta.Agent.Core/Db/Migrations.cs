@@ -91,6 +91,7 @@ internal static class Migrations
         try
         {
             DbHealth.EnsureTable(connection);
+            Schema.EnsureInputSignalWindowsContract(connection);
             EnsureMigrationsTable(connection);
 
             int currentVersion = GetCurrentVersion(connection);
