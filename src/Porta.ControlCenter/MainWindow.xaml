@@ -1772,29 +1772,41 @@
                 </ScrollViewer>
         </Border>
 
-        <Border x:Name="UpdateOverlay" Grid.ColumnSpan="2" Background="#B3020617" Visibility="Collapsed" Panel.ZIndex="180">
-            <Grid>
-                <Border Width="620" Padding="24" CornerRadius="12" Background="#111827" BorderBrush="#334155" BorderThickness="1" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Grid x:Name="UpdateOverlay" Grid.ColumnSpan="2" Background="Transparent" Visibility="Collapsed" Panel.ZIndex="180" IsHitTestVisible="False">
+            <Border Width="420"
+                    MaxWidth="420"
+                    MaxHeight="340"
+                    Padding="18"
+                    CornerRadius="12"
+                    Background="#F4111825"
+                    BorderBrush="#334155"
+                    BorderThickness="1"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Margin="0,74,16,0"
+                    IsHitTestVisible="True">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
-                        <TextBlock x:Name="UpdateOverlayTitleText" Text="Ari update ready" FontSize="26" FontWeight="SemiBold" Margin="0,0,0,10" />
-                        <TextBlock x:Name="UpdateOverlayVersionText" Text="Current version Not available" Foreground="#93C5FD" Margin="0,0,0,12" TextWrapping="Wrap" />
-                        <TextBlock x:Name="UpdateOverlaySummaryText" Text="A newer Windows build is available for this machine." Foreground="#E5E7EB" Margin="0,0,0,12" TextWrapping="Wrap" />
-                        <TextBlock x:Name="UpdateOverlayStatusText" Text="App updates are checked automatically when a release is published." Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
+                        <TextBlock x:Name="UpdateOverlayTitleText" Text="Ari update ready" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,8" TextWrapping="Wrap" />
+                        <TextBlock x:Name="UpdateOverlayVersionText" Text="Current version Not available" Foreground="#93C5FD" Margin="0,0,0,10" TextWrapping="Wrap" />
+                        <TextBlock x:Name="UpdateOverlaySummaryText" Text="A newer Windows build is available for this machine." Foreground="#E5E7EB" Margin="0,0,0,10" TextWrapping="Wrap" />
+                        <TextBlock x:Name="UpdateOverlayStatusText" Text="App updates are checked automatically when a release is published." Foreground="#94A3B8" Margin="0,0,0,14" TextWrapping="Wrap" />
                         <WrapPanel>
                             <Button x:Name="UpdateOverlayInstallButton"
                                     Content="Download and install"
                                     Padding="14,8"
-                                    Margin="0,0,10,0"
+                                    Margin="0,0,8,8"
                                     Click="AccountInstallUpdateButton_Click" />
                             <Button x:Name="UpdateOverlayLaterButton"
                                     Content="Later"
                                     Padding="12,8"
+                                    Margin="0,0,0,8"
                                     Click="AccountDismissUpdateButton_Click" />
                         </WrapPanel>
                     </StackPanel>
-                </Border>
-            </Grid>
-        </Border>
+                </ScrollViewer>
+            </Border>
+        </Grid>
 
         <Border x:Name="ConsentOverlay" Grid.ColumnSpan="2" Background="#CC020617" Visibility="Collapsed">
             <Grid>
