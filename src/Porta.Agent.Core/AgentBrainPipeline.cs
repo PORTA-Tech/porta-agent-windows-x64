@@ -486,6 +486,21 @@ public sealed class DefaultRegulationStage : IRegulationStage
         bool focusNudgeAllowed = control.FocusModeEnabled;
         bool fatigueNudgeAllowed = control.AnimationReductionEnabled;
 
+        // Break toasts should come from the dedicated break policy, which knows about
+        // continuity, delivery boundaries, and cooldowns. The generic overload/fatigue
+        // regulator should degrade to transparent guidance instead of emitting break toasts.
+        if (domain == RegulationDomain.Overload
+            && string.Equals(action, "break_suggestion", StringComparison.Ordinal))
+        {
+            return "inform_overload_risk";
+        }
+
+        if (domain == RegulationDomain.Fatigue
+            && string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal))
+        {
+            return "inform_fatigue_prevention";
+        }
+
         if (string.Equals(action, "temporary_app_restriction_enabled", StringComparison.Ordinal)
             && !control.TemporaryAppRestrictionEnabled)
         {
@@ -496,15 +511,15 @@ public sealed class DefaultRegulationStage : IRegulationStage
 
             if (domain == RegulationDomain.Fatigue)
             {
-                return fatigueNudgeAllowed ? "fatigue_relief_enabled" : "stretch_break_suggestion";
+                return fatigueNudgeAllowed ? "fatigue_relief_enabled" : "inform_fatigue_prevention";
             }
 
-            return overloadNudgeAllowed ? "focus_mode_enabled" : "break_suggestion";
+            return overloadNudgeAllowed ? "focus_mode_enabled" : "inform_overload_risk";
         }
 
         if (string.Equals(action, "focus_mode_enabled", StringComparison.Ordinal) && !overloadNudgeAllowed)
         {
-            return "break_suggestion";
+            return "inform_overload_risk";
         }
 
         if (string.Equals(action, "focus_assist_enabled", StringComparison.Ordinal) && !focusNudgeAllowed)
@@ -514,7 +529,7 @@ public sealed class DefaultRegulationStage : IRegulationStage
 
         if (string.Equals(action, "fatigue_relief_enabled", StringComparison.Ordinal) && !fatigueNudgeAllowed)
         {
-            return "stretch_break_suggestion";
+            return "inform_fatigue_prevention";
         }
 
         // Restrict escalation with all categories disabled falls back to suggest.
@@ -527,8 +542,8 @@ public sealed class DefaultRegulationStage : IRegulationStage
             return domain switch
             {
                 RegulationDomain.Focus => "focus_lock_in_suggestion",
-                RegulationDomain.Fatigue => "stretch_break_suggestion",
-                _ => "break_suggestion"
+                RegulationDomain.Fatigue => "inform_fatigue_prevention",
+                _ => "inform_overload_risk"
             };
         }
 
