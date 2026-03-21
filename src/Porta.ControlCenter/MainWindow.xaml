@@ -1442,6 +1442,17 @@
                                     <TextBlock Grid.Row="6" Grid.Column="0" Text="Linked since" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="AccountLinkedAtValue" Grid.Row="6" Grid.Column="1" Text="Not linked" TextWrapping="Wrap" />
                                 </Grid>
+                                <TextBlock x:Name="AccountConsentActionHelpText"
+                                           Text="Use this button if this PC still needs capture approval."
+                                           Margin="0,12,0,8"
+                                           Foreground="#94A3B8"
+                                           TextWrapping="Wrap" />
+                                <Button x:Name="AccountConsentActionButton"
+                                        Content="Grant consent on this PC"
+                                        Padding="12,6"
+                                        Width="220"
+                                        HorizontalAlignment="Left"
+                                        Click="AccountConsentActionButton_Click" />
                             </StackPanel>
                         </Border>
 

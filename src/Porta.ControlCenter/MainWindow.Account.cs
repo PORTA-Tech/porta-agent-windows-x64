@@ -462,6 +462,17 @@ public partial class MainWindow
         AccountLinkedAtValue.Text = _latestIdentityLink?.LinkedAtUtc.HasValue == true
             ? FormatHeartbeatLabel(_latestIdentityLink.LinkedAtUtc)
             : "Not linked";
+        bool localConsentAvailable = _latestStatus != null;
+        bool localConsentActive = _latestStatus?.ConsentActive == true;
+        AccountConsentActionButton.Content = localConsentAvailable
+            ? (localConsentActive ? "Revoke consent on this PC" : "Grant consent on this PC")
+            : "Consent controls unavailable";
+        AccountConsentActionButton.IsEnabled = localConsentAvailable;
+        AccountConsentActionHelpText.Text = localConsentAvailable
+            ? (localConsentActive
+                ? "Capture is currently allowed on this PC. Use this button if you want to turn collection off."
+                : "If the consent overlay did not appear, use this button to allow capture on this PC.")
+            : "Consent controls become available when the local service is reachable on this PC.";
 
         AccountSummaryMenuButton.IsEnabled = true;
         AccountManageMenuButton.IsEnabled = true;
@@ -879,6 +890,25 @@ public partial class MainWindow
         }
 
         return "No workspace linked";
+    }
+
+    private async void AccountConsentActionButton_Click(object sender, RoutedEventArgs e)
+    {
+        bool revoke = _latestStatus?.ConsentActive == true;
+        bool success = revoke
+            ? await _apiClient.RevokeConsentAsync().ConfigureAwait(true)
+            : await _apiClient.GrantConsentAsync().ConfigureAwait(true);
+
+        _accountStatusMessage = success
+            ? (revoke
+                ? "Capture consent was revoked on this PC."
+                : "Capture consent was granted on this PC.")
+            : (revoke
+                ? "Could not revoke capture consent on this PC."
+                : "Could not grant capture consent on this PC.");
+
+        await RefreshDiagnosticsAsync(manual: true).ConfigureAwait(true);
+        PopulateAccountSurface();
     }
 
     private string BuildWorkspaceLinkStatus(AccountWorkspaceOption? selectedWorkspace)
