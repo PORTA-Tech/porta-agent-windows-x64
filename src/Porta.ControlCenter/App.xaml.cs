@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
+using Microsoft.Win32;
 
 namespace Porta.ControlCenter;
 
@@ -16,6 +17,7 @@ public partial class App : Application
     private Thread? _focusThread;
     private volatile bool _focusLoopStopping;
     private DispatcherTimer? _userAgentWatchdogTimer;
+    private bool _systemEventsSubscribed;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -47,10 +49,13 @@ public partial class App : Application
 
         _userAgentWatchdogTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(15)
+            Interval = TimeSpan.FromSeconds(5)
         };
         _userAgentWatchdogTimer.Tick += (_, _) => EnsureCurrentSessionUserAgent();
         _userAgentWatchdogTimer.Start();
+
+        SystemEvents.SessionSwitch += OnSessionSwitch;
+        _systemEventsSubscribed = true;
 
         MainWindow window = new();
         MainWindow = window;
@@ -86,6 +91,16 @@ public partial class App : Application
 
         _focusEvent?.Dispose();
         _userAgentWatchdogTimer?.Stop();
+        if (_systemEventsSubscribed)
+        {
+            try
+            {
+                SystemEvents.SessionSwitch -= OnSessionSwitch;
+            }
+            catch
+            {
+            }
+        }
 
         if (_mutex != null)
         {
@@ -159,6 +174,27 @@ public partial class App : Application
     private static void EnsureCurrentSessionUserAgent(bool force = false)
     {
         CurrentSessionUserAgentLauncher.EnsureHealthy(force);
+    }
+
+    private void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
+    {
+        if (e.Reason is not SessionSwitchReason.SessionLogon
+            and not SessionSwitchReason.SessionUnlock
+            and not SessionSwitchReason.ConsoleConnect
+            and not SessionSwitchReason.RemoteConnect)
+        {
+            return;
+        }
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_focusLoopStopping)
+            {
+                return;
+            }
+
+            EnsureCurrentSessionUserAgent(force: true);
+        });
     }
 }
 

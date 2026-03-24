@@ -29,6 +29,7 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
     public const int CurrentSchemaVersion = 1;
     private const string FileName = "user-agent-session-context.v1.json";
     private readonly string _path;
+    public string ContextPath => _path;
 
     public UserAgentSessionContextStore()
         : this(pathOverride: null)

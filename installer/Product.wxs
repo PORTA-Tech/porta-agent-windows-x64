@@ -76,7 +76,7 @@
                          Key="Software\Microsoft\Windows\CurrentVersion\Run"
                          Name="PORTA User Agent"
                          Type="string"
-                         Value="&quot;[INSTALLFOLDER]Porta.UserAgent.exe&quot;"
+                         Value="&quot;[INSTALLFOLDER]Porta.UserAgent.exe&quot; --startup-source=run-key"
                          KeyPath="yes" />
         </Component>
 

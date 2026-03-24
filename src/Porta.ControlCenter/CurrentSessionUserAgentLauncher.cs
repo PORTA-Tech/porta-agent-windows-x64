@@ -10,6 +10,7 @@ internal static class CurrentSessionUserAgentLauncher
     private static readonly IUserAgentSessionContextStore SessionContextStore = new UserAgentSessionContextStore();
     private static readonly TimeSpan EnsureThrottle = TimeSpan.FromSeconds(5);
     private static DateTimeOffset _lastEnsureUtc = DateTimeOffset.MinValue;
+    private static string? _lastLoggedDecisionSignature;
 
     public static void EnsureHealthy(bool force = false)
     {
@@ -38,6 +39,7 @@ internal static class CurrentSessionUserAgentLauncher
                 runningProcesses,
                 sessionContext,
                 nowUtc);
+            LogDecisionIfChanged(force, currentSessionId, runningProcesses, sessionContext, decision, nowUtc);
 
             if (decision.Action == CurrentSessionUserAgentAction.KeepExisting
                 || decision.Action == CurrentSessionUserAgentAction.WaitForHeartbeat)
@@ -66,6 +68,7 @@ internal static class CurrentSessionUserAgentLauncher
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = userAgentPath,
+                    Arguments = "--startup-source=control-center-recovery",
                     WorkingDirectory = AppContext.BaseDirectory,
                     UseShellExecute = true
                 });
@@ -177,5 +180,35 @@ internal static class CurrentSessionUserAgentLauncher
         {
             return -1;
         }
+    }
+
+    private static void LogDecisionIfChanged(
+        bool force,
+        int currentSessionId,
+        IReadOnlyList<RunningUserAgentProcessSnapshot> runningProcesses,
+        UserAgentSessionContextSnapshot? sessionContext,
+        CurrentSessionUserAgentDecision decision,
+        DateTimeOffset nowUtc)
+    {
+        string contextState = sessionContext is null
+            ? "none"
+            : $"pid={sessionContext.ProcessId},session={sessionContext.SessionId},context={sessionContext.CaptureContext},age_seconds={Math.Max(0d, (nowUtc - sessionContext.UpdatedAtUtc.ToUniversalTime()).TotalSeconds):F1}";
+        string signature = string.Join(
+            '|',
+            force ? "force" : "steady",
+            currentSessionId,
+            runningProcesses.Count,
+            decision.Action,
+            decision.Reason,
+            contextState);
+
+        if (string.Equals(signature, _lastLoggedDecisionSignature, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastLoggedDecisionSignature = signature;
+        ControlCenterFileLog.Info(
+            $"user_agent_health_decision action={decision.Action} reason={decision.Reason} force={force} current_session={currentSessionId} running_processes={runningProcesses.Count} session_context={contextState}");
     }
 }
