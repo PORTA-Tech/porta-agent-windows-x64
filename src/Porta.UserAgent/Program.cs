@@ -20,7 +20,7 @@ TaskScheduler.UnobservedTaskException += (_, eventArgs) =>
 
 using System.Diagnostics.Process currentProcess = System.Diagnostics.Process.GetCurrentProcess();
 UserAgentFileLog.Info(
-    $"startup_requested source={startupMetadata.Source} pid={currentProcess.Id} session={Math.Max(0, currentProcess.SessionId)} args={startupMetadata.RawArgsText}");
+    $"startup_requested source={startupMetadata.Source} launch_reason={startupMetadata.EffectiveLaunchReason} pid={currentProcess.Id} session={Math.Max(0, currentProcess.SessionId)} args={startupMetadata.RawArgsText}");
 
 TryRegisterForApplicationRestart();
 
@@ -29,7 +29,7 @@ using SingleInstanceLease instanceLease = SingleInstanceLease.TryAcquire(
 if (!instanceLease.HasHandle)
 {
     UserAgentFileLog.Info(
-        $"startup_skipped_single_instance source={startupMetadata.Source} pid={currentProcess.Id} session={Math.Max(0, currentProcess.SessionId)}");
+        $"startup_skipped_single_instance source={startupMetadata.Source} launch_reason={startupMetadata.EffectiveLaunchReason} pid={currentProcess.Id} session={Math.Max(0, currentProcess.SessionId)}");
     return;
 }
 
@@ -42,15 +42,15 @@ using IHost host = builder.Build();
 try
 {
     UserAgentFileLog.Info(
-        $"host_run_begin source={startupMetadata.Source} pid={currentProcess.Id} session={Math.Max(0, currentProcess.SessionId)}");
+        $"host_run_begin source={startupMetadata.Source} launch_reason={startupMetadata.EffectiveLaunchReason} pid={currentProcess.Id} session={Math.Max(0, currentProcess.SessionId)}");
     await host.RunAsync().ConfigureAwait(false);
     UserAgentFileLog.Info(
-        $"host_run_end source={startupMetadata.Source} pid={currentProcess.Id} session={Math.Max(0, currentProcess.SessionId)}");
+        $"host_run_end source={startupMetadata.Source} launch_reason={startupMetadata.EffectiveLaunchReason} pid={currentProcess.Id} session={Math.Max(0, currentProcess.SessionId)}");
 }
 catch (Exception ex)
 {
     UserAgentFileLog.Error(
-        $"host_run_failed source={startupMetadata.Source} pid={currentProcess.Id} session={Math.Max(0, currentProcess.SessionId)}",
+        $"host_run_failed source={startupMetadata.Source} launch_reason={startupMetadata.EffectiveLaunchReason} pid={currentProcess.Id} session={Math.Max(0, currentProcess.SessionId)}",
         ex);
     throw;
 }
@@ -64,7 +64,7 @@ static void TryRegisterForApplicationRestart()
 
     try
     {
-        int hr = NativeMethods.RegisterApplicationRestart("--startup-source=windows-restart", 0);
+        int hr = NativeMethods.RegisterApplicationRestart("--startup-source=windows-restart --launch-reason=windows-restart", 0);
         if (hr != 0)
         {
             UserAgentFileLog.Info($"application_restart_registration_failed hr=0x{hr:X8}");

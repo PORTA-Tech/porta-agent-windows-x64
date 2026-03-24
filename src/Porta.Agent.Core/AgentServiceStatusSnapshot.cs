@@ -64,4 +64,10 @@ public sealed record AgentServiceStatusSnapshot(
     string VisualMode,
     string? LatestContributorsJson,
     string? LatestWhyJson,
-    DateTimeOffset LastUpdatedUtc);
+    DateTimeOffset LastUpdatedUtc,
+    DateTimeOffset? UserAgentObservedHeartbeatUpdatedAtUtc = null,
+    string? UserAgentObservedCaptureContext = null,
+    string? UserAgentObservedSessionId = null,
+    string? UserAgentStartupSource = null,
+    string? UserAgentLaunchReason = null,
+    int? UserAgentHeartbeatWriteFailureCount = null);

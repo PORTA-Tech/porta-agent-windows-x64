@@ -2,31 +2,48 @@ namespace Porta.UserAgent;
 
 public sealed record UserAgentStartupMetadata(
     string Source,
+    string? LaunchReason,
     IReadOnlyList<string> RawArgs)
 {
     public static UserAgentStartupMetadata Parse(string[] args)
     {
         string source = "unknown";
+        string? launchReason = null;
 
         foreach (string arg in args)
         {
-            const string prefix = "--startup-source=";
-            if (!arg.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            const string sourcePrefix = "--startup-source=";
+            if (arg.StartsWith(sourcePrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                string candidate = arg[sourcePrefix.Length..].Trim();
+                if (!string.IsNullOrWhiteSpace(candidate))
+                {
+                    source = candidate;
+                }
+
+                continue;
+            }
+
+            const string reasonPrefix = "--launch-reason=";
+            if (!arg.StartsWith(reasonPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            string candidate = arg[prefix.Length..].Trim();
-            if (!string.IsNullOrWhiteSpace(candidate))
+            string launchReasonCandidate = arg[reasonPrefix.Length..].Trim();
+            if (!string.IsNullOrWhiteSpace(launchReasonCandidate))
             {
-                source = candidate;
+                launchReason = launchReasonCandidate;
             }
         }
 
         return new UserAgentStartupMetadata(
             Source: source,
+            LaunchReason: launchReason,
             RawArgs: args.Select(static value => value ?? string.Empty).ToArray());
     }
 
     public string RawArgsText => RawArgs.Count == 0 ? "(none)" : string.Join(' ', RawArgs);
+
+    public string EffectiveLaunchReason => string.IsNullOrWhiteSpace(LaunchReason) ? Source : LaunchReason!;
 }

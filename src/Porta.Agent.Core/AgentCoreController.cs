@@ -189,6 +189,7 @@ public sealed class AgentCoreController : IAgentCoreController
             bool dbMigrationFailed = IsDbMigrationFailure(effectiveLastError);
             dbMigrationFailed = dbMigrationFailed || dbMigrationFailedFromStore;
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+            UserAgentSessionContextSnapshot? observedSessionContext = _userAgentSessionContextStore.ReadCurrent();
             string captureContext = ResolveCaptureContextLocked(nowUtc, out UserAgentSessionContextSnapshot? sessionContext);
             bool keyboardSignalActive = IsSignalActive(_lastKeyboardSignalUtc, nowUtc);
             bool mouseSignalActive = IsSignalActive(_lastMouseSignalUtc, nowUtc);
@@ -198,6 +199,14 @@ public sealed class AgentCoreController : IAgentCoreController
                 ? BuildSessionOwnerId(sessionContext.SessionId)
                 : null;
             DateTimeOffset? userAgentHeartbeatUpdatedAtUtc = sessionContext?.UpdatedAtUtc;
+            DateTimeOffset? userAgentObservedHeartbeatUpdatedAtUtc = observedSessionContext?.UpdatedAtUtc;
+            string? userAgentObservedCaptureContext = NormalizeObservedCaptureContext(observedSessionContext?.CaptureContext);
+            string? userAgentObservedSessionId = observedSessionContext is not null
+                ? BuildSessionOwnerId(observedSessionContext.SessionId)
+                : null;
+            string? userAgentStartupSource = NormalizeIdentifier(observedSessionContext?.StartupSource);
+            string? userAgentLaunchReason = NormalizeIdentifier(observedSessionContext?.LaunchReason);
+            int? userAgentHeartbeatWriteFailureCount = NormalizeHeartbeatWriteFailureCount(observedSessionContext?.HeartbeatWriteFailureCount);
             string? ownershipWarning = ResolveOwnershipWarning(sessionContext);
             string? captureFailureReason = ResolveCaptureFailureReason(captureContext);
             AgentStatus status = effectiveLastError is null
@@ -267,7 +276,13 @@ public sealed class AgentCoreController : IAgentCoreController
                 VisualMode: PresentedVisualModeMapper.ToToken(visualMode),
                 LatestContributorsJson: latestContributorsJson,
                 LatestWhyJson: latestWhyJson,
-                LastUpdatedUtc: nowUtc);
+                LastUpdatedUtc: nowUtc,
+                UserAgentObservedHeartbeatUpdatedAtUtc: userAgentObservedHeartbeatUpdatedAtUtc,
+                UserAgentObservedCaptureContext: userAgentObservedCaptureContext,
+                UserAgentObservedSessionId: userAgentObservedSessionId,
+                UserAgentStartupSource: userAgentStartupSource,
+                UserAgentLaunchReason: userAgentLaunchReason,
+                UserAgentHeartbeatWriteFailureCount: userAgentHeartbeatWriteFailureCount);
         }
     }
 
@@ -2064,6 +2079,22 @@ public sealed class AgentCoreController : IAgentCoreController
         };
     }
 
+    private static string? NormalizeObservedCaptureContext(string? captureContext)
+    {
+        string normalized = NormalizeCaptureContext(captureContext);
+        return normalized == CaptureContextUnknown ? null : normalized;
+    }
+
+    private static int? NormalizeHeartbeatWriteFailureCount(int? count)
+    {
+        if (!count.HasValue || count.Value < 0)
+        {
+            return null;
+        }
+
+        return count.Value;
+    }
+
     private UserAgentSessionContextSnapshot? ReadFreshUserAgentSessionContextLocked(DateTimeOffset nowUtc)
     {
         UserAgentSessionContextSnapshot? snapshot = _userAgentSessionContextStore.ReadCurrent();
@@ -2152,12 +2183,21 @@ public sealed class AgentCoreController : IAgentCoreController
             : AgentStatus.Degraded;
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         string policyVersion = ResolvePolicyVersion();
+        UserAgentSessionContextSnapshot? observedSessionContext = _userAgentSessionContextStore.ReadCurrent();
         string captureContext = ResolveCaptureContextLocked(nowUtc, out UserAgentSessionContextSnapshot? sessionContext);
         string? userAgentInstanceId = NormalizeIdentifier(sessionContext?.AgentInstanceId);
         int? userAgentProcessId = sessionContext?.ProcessId > 0 ? sessionContext.ProcessId : null;
         string? userAgentSessionId = sessionContext is not null
             ? BuildSessionOwnerId(sessionContext.SessionId)
             : null;
+        DateTimeOffset? userAgentObservedHeartbeatUpdatedAtUtc = observedSessionContext?.UpdatedAtUtc;
+        string? userAgentObservedCaptureContext = NormalizeObservedCaptureContext(observedSessionContext?.CaptureContext);
+        string? userAgentObservedSessionId = observedSessionContext is not null
+            ? BuildSessionOwnerId(observedSessionContext.SessionId)
+            : null;
+        string? userAgentStartupSource = NormalizeIdentifier(observedSessionContext?.StartupSource);
+        string? userAgentLaunchReason = NormalizeIdentifier(observedSessionContext?.LaunchReason);
+        int? userAgentHeartbeatWriteFailureCount = NormalizeHeartbeatWriteFailureCount(observedSessionContext?.HeartbeatWriteFailureCount);
         string? ownershipWarning = ResolveOwnershipWarning(sessionContext);
         string? captureFailureReason = ResolveCaptureFailureReason(captureContext);
 
@@ -2176,6 +2216,12 @@ public sealed class AgentCoreController : IAgentCoreController
             user_agent_instance_id = userAgentInstanceId,
             user_agent_process_id = userAgentProcessId,
             user_agent_session_id = userAgentSessionId,
+            user_agent_observed_heartbeat_utc = userAgentObservedHeartbeatUpdatedAtUtc,
+            user_agent_observed_capture_context = userAgentObservedCaptureContext,
+            user_agent_observed_session_id = userAgentObservedSessionId,
+            user_agent_startup_source = userAgentStartupSource,
+            user_agent_launch_reason = userAgentLaunchReason,
+            user_agent_heartbeat_write_failure_count = userAgentHeartbeatWriteFailureCount,
             capture_failure_reason = captureFailureReason,
             keyboard_signal_active = IsSignalActive(_lastKeyboardSignalUtc, nowUtc),
             mouse_signal_active = IsSignalActive(_lastMouseSignalUtc, nowUtc),

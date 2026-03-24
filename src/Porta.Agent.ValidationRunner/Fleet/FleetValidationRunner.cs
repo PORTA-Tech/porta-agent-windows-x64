@@ -669,7 +669,7 @@ internal static class FleetValidationRunner
         Process.Start(new ProcessStartInfo
         {
             FileName = options.UserAgentPath,
-            Arguments = "--startup-source=validation-runner-recovery",
+            Arguments = "--startup-source=validation-runner-recovery --launch-reason=validation-runner-recovery",
             UseShellExecute = true
         });
 

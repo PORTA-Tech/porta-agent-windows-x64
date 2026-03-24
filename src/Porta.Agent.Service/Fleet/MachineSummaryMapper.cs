@@ -2,12 +2,23 @@ using System;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Porta.Agent.Common.Identity;
+using Porta.Agent.Common.UserAgent;
 using Porta.Agent.Core;
 
 namespace Porta.Agent.Service.Fleet;
 
 internal sealed class MachineSummaryMapper
 {
+    private const string CaptureFailureReasonNeverStarted = "USER_AGENT_NEVER_STARTED";
+    private const string CaptureFailureReasonHeartbeatStale = "USER_AGENT_HEARTBEAT_STALE";
+    private const string CaptureFailureReasonSessionSwitched = "USER_AGENT_SESSION_SWITCHED";
+    private const string StartupStateHealthy = "healthy";
+    private const string StartupStateIdle = "idle";
+    private const string StartupStateNeverStarted = "never_started";
+    private const string StartupStateHeartbeatStale = "heartbeat_stale";
+    private const string StartupStateSessionSwitched = "session_switched";
+    private const string StartupStateServiceSession = "service_session";
+    private const string StartupStateUnknownContext = "unknown_context";
     private readonly string _machineName = Environment.MachineName;
 
     public string ResolveUserName(AgentServiceStatusSnapshot status)
@@ -51,6 +62,10 @@ internal sealed class MachineSummaryMapper
         bool userSessionConnected =
             string.Equals(status.CaptureContext, "UserSession", StringComparison.Ordinal)
             && status.UserAgentHeartbeatUpdatedAtUtc.HasValue;
+        double? heartbeatAgeSeconds = ComputeAgeSeconds(status.UserAgentObservedHeartbeatUpdatedAtUtc, reportedAtUtc);
+        double? lastAcceptedInputAgeSeconds = ComputeAgeSeconds(status.LastInputEventUtc, reportedAtUtc);
+        string startupState = DeriveUserAgentStartupState(status, userSessionConnected, activityDetected);
+        string? captureFailureReason = DeriveCaptureFailureReason(status, userSessionConnected, startupState);
         string? accountId = IsLinked(identityLink) ? identityLink.AccountId : null;
         string? orgId = IsLinked(identityLink) ? identityLink.OrgId : null;
 
@@ -70,11 +85,17 @@ internal sealed class MachineSummaryMapper
             ActivityDetected: activityDetected,
             LastActivityUtc: ToUtcStringOrNull(status.LastInputEventUtc),
             UserAgentHeartbeatUtc: ToUtcStringOrNull(status.UserAgentHeartbeatUpdatedAtUtc),
+            UserAgentHeartbeatAgeSeconds: heartbeatAgeSeconds,
+            LastAcceptedInputAgeSeconds: lastAcceptedInputAgeSeconds,
+            UserAgentStartupSource: NullIfWhiteSpace(status.UserAgentStartupSource),
+            UserAgentStartupState: startupState,
+            UserAgentLastLaunchReason: NullIfWhiteSpace(status.UserAgentLaunchReason),
+            UserAgentHeartbeatWriteFailureCount: status.UserAgentHeartbeatWriteFailureCount,
             CaptureContext: NormalizeCaptureContext(status.CaptureContext),
             KeyboardSignalActive: status.KeyboardSignalActive,
             MouseSignalActive: status.MouseSignalActive,
             OwnershipWarning: NullIfWhiteSpace(status.OwnershipWarning),
-            CaptureFailureReason: NullIfWhiteSpace(status.CaptureFailureReason),
+            CaptureFailureReason: captureFailureReason,
             LastError: NullIfWhiteSpace(status.LastError),
             BackendConnected: backendConnected || status.BackendConnected,
             LocalApiAuthReady: status.LocalApiAuthReady,
@@ -141,6 +162,83 @@ internal sealed class MachineSummaryMapper
             _ => "low"
         };
 
+    private static string DeriveUserAgentStartupState(
+        AgentServiceStatusSnapshot status,
+        bool userSessionConnected,
+        bool activityDetected)
+    {
+        if (userSessionConnected)
+        {
+            return activityDetected ? StartupStateHealthy : StartupStateIdle;
+        }
+
+        string observedCaptureContext = NormalizeCaptureContext(status.UserAgentObservedCaptureContext);
+        if (string.Equals(observedCaptureContext, UserAgentCaptureContexts.ServiceSession, StringComparison.Ordinal))
+        {
+            return StartupStateServiceSession;
+        }
+
+        if (!status.UserAgentObservedHeartbeatUpdatedAtUtc.HasValue)
+        {
+            return StartupStateNeverStarted;
+        }
+
+        if (IsObservedSessionDifferentFromActiveSession(status.UserAgentObservedSessionId))
+        {
+            return StartupStateSessionSwitched;
+        }
+
+        if (string.Equals(observedCaptureContext, UserAgentCaptureContexts.Unknown, StringComparison.Ordinal))
+        {
+            return StartupStateUnknownContext;
+        }
+
+        return StartupStateHeartbeatStale;
+    }
+
+    private static string? DeriveCaptureFailureReason(
+        AgentServiceStatusSnapshot status,
+        bool userSessionConnected,
+        string startupState)
+    {
+        if (userSessionConnected)
+        {
+            return null;
+        }
+
+        return startupState switch
+        {
+            StartupStateNeverStarted => CaptureFailureReasonNeverStarted,
+            StartupStateHeartbeatStale => CaptureFailureReasonHeartbeatStale,
+            StartupStateSessionSwitched => CaptureFailureReasonSessionSwitched,
+            StartupStateServiceSession => "CAPTURE_CONTEXT_SERVICE_SESSION",
+            StartupStateUnknownContext => NullIfWhiteSpace(status.CaptureFailureReason) ?? "CAPTURE_CONTEXT_UNKNOWN",
+            _ => NullIfWhiteSpace(status.CaptureFailureReason)
+        };
+    }
+
+    private static bool IsObservedSessionDifferentFromActiveSession(string? observedSessionId)
+    {
+        if (!TryParseSessionId(observedSessionId, out int observedSessionNumeric))
+        {
+            return false;
+        }
+
+        int activeSessionId = WTSGetActiveConsoleSessionId();
+        return activeSessionId >= 0 && activeSessionId != observedSessionNumeric;
+    }
+
+    private static double? ComputeAgeSeconds(DateTimeOffset? timestampUtc, DateTimeOffset referenceUtc)
+    {
+        if (!timestampUtc.HasValue)
+        {
+            return null;
+        }
+
+        double ageSeconds = (referenceUtc.ToUniversalTime() - timestampUtc.Value.ToUniversalTime()).TotalSeconds;
+        return ageSeconds < 0d ? 0d : Math.Round(ageSeconds, 3);
+    }
+
     private static string ToUtcString(DateTimeOffset value) =>
         value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
 
@@ -194,6 +292,9 @@ internal sealed class MachineSummaryMapper
         WtsInfoClass wtsInfoClass,
         out IntPtr ppBuffer,
         out int pBytesReturned);
+
+    [DllImport("kernel32.dll")]
+    private static extern int WTSGetActiveConsoleSessionId();
 
     [DllImport("Wtsapi32.dll")]
     private static extern void WTSFreeMemory(IntPtr memory);

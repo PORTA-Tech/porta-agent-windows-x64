@@ -72,13 +72,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             _captureContext,
             _agentInstanceId);
         UserAgentFileLog.Info(
-            $"user_agent_host_started source={_startupMetadata.Source} pid={Environment.ProcessId} session={_sessionId} capture_context={_captureContext} agent_instance={_agentInstanceId} heartbeat_path={ResolveSessionContextPath()}");
+            $"user_agent_host_started source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId} capture_context={_captureContext} agent_instance={_agentInstanceId} heartbeat_path={ResolveSessionContextPath()}");
 
         if (_captureContext == UserAgentCaptureContexts.ServiceSession)
         {
             _logger.LogWarning("Porta.UserAgent started outside an interactive desktop session; capture stays in heartbeat-only mode.");
             UserAgentFileLog.Info(
-                $"user_agent_non_interactive_session source={_startupMetadata.Source} pid={Environment.ProcessId} session={_sessionId}");
+                $"user_agent_non_interactive_session source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId}");
         }
         else
         {
@@ -125,7 +125,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     {
         _logger.LogInformation("Porta.UserAgent stopping.");
         UserAgentFileLog.Info(
-            $"user_agent_host_stopping source={_startupMetadata.Source} pid={Environment.ProcessId} session={_sessionId}");
+            $"user_agent_host_stopping source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId}");
         StopCaptureHooks();
         await base.StopAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -329,25 +329,29 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     {
         try
         {
+            int heartbeatWriteFailureCount = _heartbeatWriteFailureCount;
             _sessionContextStore.WriteCurrent(new UserAgentSessionContextSnapshot(
                 SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
                 CaptureContext: _captureContext,
                 ProcessId: Environment.ProcessId,
                 SessionId: _sessionId,
                 UpdatedAtUtc: DateTimeOffset.UtcNow,
-                AgentInstanceId: _agentInstanceId));
+                AgentInstanceId: _agentInstanceId,
+                StartupSource: _startupMetadata.Source,
+                LaunchReason: _startupMetadata.EffectiveLaunchReason,
+                HeartbeatWriteFailureCount: heartbeatWriteFailureCount));
 
             if (!_heartbeatReadyLogged)
             {
                 _heartbeatReadyLogged = true;
                 UserAgentFileLog.Info(
-                    $"heartbeat_publishing_ready source={_startupMetadata.Source} pid={Environment.ProcessId} session={_sessionId} path={ResolveSessionContextPath()}");
+                    $"heartbeat_publishing_ready source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId} path={ResolveSessionContextPath()}");
             }
 
-            if (_heartbeatWriteFailureCount > 0)
+            if (heartbeatWriteFailureCount > 0)
             {
                 UserAgentFileLog.Info(
-                    $"heartbeat_write_recovered source={_startupMetadata.Source} pid={Environment.ProcessId} session={_sessionId} path={ResolveSessionContextPath()} failures={_heartbeatWriteFailureCount}");
+                    $"heartbeat_write_recovered source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId} path={ResolveSessionContextPath()} failures={heartbeatWriteFailureCount}");
                 _heartbeatWriteFailureCount = 0;
             }
         }
@@ -357,7 +361,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             if (ShouldLogHeartbeatWriteFailure(_heartbeatWriteFailureCount))
             {
                 UserAgentFileLog.Error(
-                    $"heartbeat_write_failed source={_startupMetadata.Source} pid={Environment.ProcessId} session={_sessionId} path={ResolveSessionContextPath()} failure_count={_heartbeatWriteFailureCount}",
+                    $"heartbeat_write_failed source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId} path={ResolveSessionContextPath()} failure_count={_heartbeatWriteFailureCount}",
                     ex);
             }
             _logger.LogError(ex, "Failed to publish user-session capture context heartbeat.");
@@ -393,12 +397,12 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 keyboardInstalled,
                 mouseInstalled);
             UserAgentFileLog.Info(
-                $"capture_hooks_ready source={_startupMetadata.Source} pid={Environment.ProcessId} session={_sessionId} keyboard={keyboardInstalled} mouse={mouseInstalled}");
+                $"capture_hooks_ready source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId} keyboard={keyboardInstalled} mouse={mouseInstalled}");
         }
         else
         {
             UserAgentFileLog.Info(
-                $"capture_hooks_unavailable source={_startupMetadata.Source} pid={Environment.ProcessId} session={_sessionId} keyboard={keyboardInstalled} mouse={mouseInstalled}");
+                $"capture_hooks_unavailable source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId} keyboard={keyboardInstalled} mouse={mouseInstalled}");
         }
     }
 

@@ -15,7 +15,10 @@ public sealed record UserAgentSessionContextSnapshot(
     int ProcessId,
     int SessionId,
     DateTimeOffset UpdatedAtUtc,
-    string? AgentInstanceId = null);
+    string? AgentInstanceId = null,
+    string? StartupSource = null,
+    string? LaunchReason = null,
+    int? HeartbeatWriteFailureCount = null);
 
 public interface IUserAgentSessionContextStore
 {
@@ -61,7 +64,10 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
             {
                 CaptureContext = NormalizeCaptureContext(snapshot.CaptureContext),
                 UpdatedAtUtc = snapshot.UpdatedAtUtc.ToUniversalTime(),
-                AgentInstanceId = NormalizeIdentifier(snapshot.AgentInstanceId)
+                AgentInstanceId = NormalizeIdentifier(snapshot.AgentInstanceId),
+                StartupSource = NormalizeIdentifier(snapshot.StartupSource),
+                LaunchReason = NormalizeIdentifier(snapshot.LaunchReason),
+                HeartbeatWriteFailureCount = NormalizeFailureCount(snapshot.HeartbeatWriteFailureCount)
             };
         }
         catch
@@ -84,7 +90,10 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
             SchemaVersion = CurrentSchemaVersion,
             CaptureContext = NormalizeCaptureContext(snapshot.CaptureContext),
             UpdatedAtUtc = snapshot.UpdatedAtUtc.ToUniversalTime(),
-            AgentInstanceId = NormalizeIdentifier(snapshot.AgentInstanceId)
+            AgentInstanceId = NormalizeIdentifier(snapshot.AgentInstanceId),
+            StartupSource = NormalizeIdentifier(snapshot.StartupSource),
+            LaunchReason = NormalizeIdentifier(snapshot.LaunchReason),
+            HeartbeatWriteFailureCount = NormalizeFailureCount(snapshot.HeartbeatWriteFailureCount)
         };
 
         string json = JsonSerializer.Serialize(normalized, new JsonSerializerOptions
@@ -129,5 +138,15 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
         }
 
         return value.Trim();
+    }
+
+    private static int? NormalizeFailureCount(int? value)
+    {
+        if (!value.HasValue || value.Value < 0)
+        {
+            return null;
+        }
+
+        return value.Value;
     }
 }

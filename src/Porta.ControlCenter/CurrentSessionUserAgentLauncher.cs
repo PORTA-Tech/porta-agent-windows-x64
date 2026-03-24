@@ -68,7 +68,7 @@ internal static class CurrentSessionUserAgentLauncher
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = userAgentPath,
-                    Arguments = "--startup-source=control-center-recovery",
+                    Arguments = $"--startup-source=control-center-recovery --launch-reason={decision.Reason}",
                     WorkingDirectory = AppContext.BaseDirectory,
                     UseShellExecute = true
                 });
