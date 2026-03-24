@@ -145,9 +145,9 @@ public sealed class InterventionDeliveryTests
             Assert.True(acked);
             Assert.Empty(store.ReadPendingInterventions("session-9", 10));
 
-            using var connection = new SqliteConnection($"Data Source={dbPath}");
-            connection.Open();
-            using var cmd = connection.CreateCommand();
+            using var verifyConnection = new SqliteConnection($"Data Source={dbPath}");
+            verifyConnection.Open();
+            using var cmd = verifyConnection.CreateCommand();
             cmd.CommandText =
                 """
                 SELECT execution_state, session_id, executor_agent_instance_id
@@ -242,9 +242,9 @@ public sealed class InterventionDeliveryTests
 
             Assert.Empty(store.ReadPendingInterventions("session-9", 10));
 
-            using var connection = new SqliteConnection($"Data Source={dbPath}");
-            connection.Open();
-            using var cmd = connection.CreateCommand();
+            using var verifyConnection = new SqliteConnection($"Data Source={dbPath}");
+            verifyConnection.Open();
+            using var cmd = verifyConnection.CreateCommand();
             cmd.CommandText =
                 """
                 SELECT COUNT(*)
@@ -253,6 +253,139 @@ public sealed class InterventionDeliveryTests
                 """;
             long interventionRows = (long)(cmd.ExecuteScalar() ?? 0L);
             Assert.Equal(1L, interventionRows);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(dbPath))
+                {
+                    File.Delete(dbPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void SqliteStore_DoesNotReturnSupersededOrExpiredBreakSuggestions_AsPending()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"porta-interventions-stale-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new SqliteBrainStateStore(
+                new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
+                new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+                dbPath);
+
+            using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+            {
+                connection.Open();
+                InsertInterventionRow(
+                    connection,
+                    interventionId: "break-stale-1",
+                    timestampUtc: "2026-03-20T09:38:45.000Z",
+                    decidedAtUtc: "2026-03-20T09:38:45.000Z",
+                    plannedEndUtc: "2026-03-20T09:43:45.000Z",
+                    lifecycleState: "activated",
+                    executionState: "decided");
+                InsertInterventionRow(
+                    connection,
+                    interventionId: "break-stale-1",
+                    timestampUtc: "2026-03-20T09:43:50.000Z",
+                    decidedAtUtc: "2026-03-20T09:43:50.000Z",
+                    plannedEndUtc: "2026-03-20T09:43:45.000Z",
+                    lifecycleState: "deactivated",
+                    executionState: "applied",
+                    appliedAtUtc: "2026-03-24T09:00:54.4235492+00:00",
+                    ackedAtUtc: "2026-03-24T09:00:54.4235492+00:00",
+                    executorAgentInstanceId: "useragent-14948-a329ebb13efe43ada9db12e157796e20");
+                InsertInterventionRow(
+                    connection,
+                    interventionId: "break-expired-1",
+                    timestampUtc: "2026-03-21T09:30:00.000Z",
+                    decidedAtUtc: "2026-03-21T09:30:00.000Z",
+                    plannedEndUtc: "2026-03-21T09:35:04.9985198+00:00",
+                    lifecycleState: "activated",
+                    executionState: "decided");
+            }
+
+            Assert.Empty(store.ReadPendingInterventions("session-9", 10));
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(dbPath))
+                {
+                    File.Delete(dbPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void SqliteStore_AcknowledgeIntervention_ResolvesOlderDecidedSiblingRows()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"porta-interventions-ack-siblings-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new SqliteBrainStateStore(
+                new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
+                new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+                dbPath);
+
+            using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+            {
+                connection.Open();
+                InsertInterventionRow(
+                    connection,
+                    interventionId: "break-sibling-1",
+                    timestampUtc: "2026-03-20T09:38:45.000Z",
+                    decidedAtUtc: "2026-03-20T09:38:45.000Z",
+                    plannedEndUtc: "2026-03-20T09:43:45.000Z",
+                    lifecycleState: "activated",
+                    executionState: "decided");
+                InsertInterventionRow(
+                    connection,
+                    interventionId: "break-sibling-1",
+                    timestampUtc: "2026-03-20T09:43:50.000Z",
+                    decidedAtUtc: "2026-03-20T09:43:50.000Z",
+                    plannedEndUtc: "2026-03-20T09:43:45.000Z",
+                    lifecycleState: "deactivated",
+                    executionState: "applied",
+                    appliedAtUtc: "2026-03-24T09:00:54.4235492+00:00",
+                    ackedAtUtc: "2026-03-24T09:00:54.4235492+00:00",
+                    executorAgentInstanceId: "useragent-14948-a329ebb13efe43ada9db12e157796e20");
+            }
+
+            bool acked = store.AcknowledgeIntervention(new AgentInterventionAck(
+                InterventionId: "break-sibling-1",
+                SessionId: "session-9",
+                AgentInstanceId: "agent-9",
+                Result: "applied",
+                ErrorCode: null,
+                AppliedAtUtc: DateTimeOffset.Parse("2026-03-24T10:00:00.000+00:00")));
+
+            Assert.True(acked);
+
+            using var verifyConnection = new SqliteConnection($"Data Source={dbPath}");
+            verifyConnection.Open();
+            using var cmd = verifyConnection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT COUNT(*)
+                FROM interventions
+                WHERE intervention_id = 'break-sibling-1'
+                  AND execution_state = 'decided';
+                """;
+            long decidedRows = (long)(cmd.ExecuteScalar() ?? 0L);
+            Assert.Equal(0L, decidedRows);
         }
         finally
         {
@@ -434,5 +567,109 @@ public sealed class InterventionDeliveryTests
         public void WriteCurrent(UserAgentSessionContextSnapshot snapshot)
         {
         }
+    }
+
+    private static void InsertInterventionRow(
+        SqliteConnection connection,
+        string interventionId,
+        string timestampUtc,
+        string decidedAtUtc,
+        string plannedEndUtc,
+        string lifecycleState,
+        string executionState,
+        string sessionId = "session-9",
+        string action = "break_suggestion",
+        string commandType = "show_break_toast",
+        string? appliedAtUtc = null,
+        string? ackedAtUtc = null,
+        string errorCode = "",
+        int retryCount = 0,
+        string executorAgentInstanceId = "")
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            INSERT INTO interventions (
+                timestamp_utc,
+                action,
+                trigger_state,
+                trigger_value,
+                confidence,
+                duration_seconds,
+                escalation_level,
+                reversible,
+                reason,
+                contributors_json,
+                intervention_id,
+                policy_id,
+                domain,
+                planned_end_timestamp_utc,
+                actual_end_timestamp_utc,
+                previous_system_state_json,
+                what_changed,
+                how_to_undo,
+                reversal_applied,
+                cooldown_end_timestamp_utc,
+                lifecycle_state,
+                session_id,
+                command_type,
+                payload_json,
+                execution_state,
+                decided_at_utc,
+                applied_at_utc,
+                acked_at_utc,
+                error_code,
+                retry_count,
+                executor_agent_instance_id
+            )
+            VALUES (
+                $timestamp_utc,
+                $action,
+                'fatigue',
+                0.55,
+                0.91,
+                300,
+                'Suggest',
+                0,
+                'test',
+                '{"schema_ver":1,"contributors":["test"]}',
+                $intervention_id,
+                'overload-relief-v1',
+                'overload',
+                $planned_end_timestamp_utc,
+                '',
+                '{}',
+                'Break suggestion displayed to user.',
+                'Dismiss the suggestion overlay or wait for auto-expiry.',
+                0,
+                '',
+                $lifecycle_state,
+                $session_id,
+                $command_type,
+                '{"schema_ver":1,"action":"break_suggestion","command_type":"show_break_toast","title":"PORTA","message":"Take a short break.","duration_seconds":300,"confidence":0.91,"policy_id":"overload-relief-v1","domain":"overload","intervention_id":"placeholder"}',
+                $execution_state,
+                $decided_at_utc,
+                $applied_at_utc,
+                $acked_at_utc,
+                $error_code,
+                $retry_count,
+                $executor_agent_instance_id
+            );
+            """;
+        cmd.Parameters.AddWithValue("$timestamp_utc", timestampUtc);
+        cmd.Parameters.AddWithValue("$action", action);
+        cmd.Parameters.AddWithValue("$intervention_id", interventionId);
+        cmd.Parameters.AddWithValue("$planned_end_timestamp_utc", plannedEndUtc);
+        cmd.Parameters.AddWithValue("$lifecycle_state", lifecycleState);
+        cmd.Parameters.AddWithValue("$session_id", sessionId);
+        cmd.Parameters.AddWithValue("$command_type", commandType);
+        cmd.Parameters.AddWithValue("$execution_state", executionState);
+        cmd.Parameters.AddWithValue("$decided_at_utc", decidedAtUtc);
+        cmd.Parameters.AddWithValue("$applied_at_utc", appliedAtUtc ?? string.Empty);
+        cmd.Parameters.AddWithValue("$acked_at_utc", ackedAtUtc ?? string.Empty);
+        cmd.Parameters.AddWithValue("$error_code", errorCode);
+        cmd.Parameters.AddWithValue("$retry_count", retryCount);
+        cmd.Parameters.AddWithValue("$executor_agent_instance_id", executorAgentInstanceId);
+        cmd.ExecuteNonQuery();
     }
 }

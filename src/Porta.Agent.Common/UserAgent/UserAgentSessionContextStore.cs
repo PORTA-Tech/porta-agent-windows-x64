@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 
 namespace Porta.Agent.Common.UserAgent;
@@ -53,7 +54,9 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
                 return null;
             }
 
-            string json = File.ReadAllText(_path);
+            using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            string json = reader.ReadToEnd();
             UserAgentSessionContextSnapshot? snapshot = JsonSerializer.Deserialize<UserAgentSessionContextSnapshot>(json);
             if (snapshot == null || snapshot.SchemaVersion != CurrentSchemaVersion)
             {
@@ -101,8 +104,20 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
             WriteIndented = true
         });
 
-        File.WriteAllText(tempPath, json);
-        File.Move(tempPath, _path, overwrite: true);
+        using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.Read))
+        using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+        {
+            writer.Write(json);
+        }
+
+        if (File.Exists(_path))
+        {
+            File.Replace(tempPath, _path, destinationBackupFileName: null, ignoreMetadataErrors: true);
+        }
+        else
+        {
+            File.Move(tempPath, _path);
+        }
     }
 
     private static string ResolvePath(string? pathOverride)

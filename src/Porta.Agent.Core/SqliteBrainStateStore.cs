@@ -1616,27 +1616,37 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 cmd.CommandText =
                     """
                     SELECT
-                        id,
-                        intervention_id,
-                        session_id,
-                        action,
-                        command_type,
-                        payload_json,
-                        decided_at_utc,
-                        execution_state,
-                        policy_id,
-                        domain,
-                        confidence,
-                        escalation_level,
-                        what_changed
-                    FROM interventions
-                    WHERE command_type <> ''
-                      AND execution_state = 'decided'
-                      AND (session_id = '' OR session_id = $session_id)
-                    ORDER BY decided_at_utc ASC, id ASC
+                        i.id,
+                        i.intervention_id,
+                        i.session_id,
+                        i.action,
+                        i.command_type,
+                        i.payload_json,
+                        i.decided_at_utc,
+                        i.execution_state,
+                        i.policy_id,
+                        i.domain,
+                        i.confidence,
+                        i.escalation_level,
+                        i.what_changed
+                    FROM interventions i
+                    WHERE i.command_type <> ''
+                      AND i.execution_state = 'decided'
+                      AND i.lifecycle_state <> 'deactivated'
+                      AND (i.session_id = '' OR i.session_id = $session_id)
+                      AND (i.planned_end_timestamp_utc = '' OR i.planned_end_timestamp_utc >= $now_utc)
+                      AND i.id = (
+                          SELECT MAX(newer.id)
+                          FROM interventions newer
+                          WHERE newer.intervention_id = i.intervention_id
+                            AND newer.command_type <> ''
+                            AND (newer.session_id = '' OR newer.session_id = $session_id)
+                      )
+                    ORDER BY i.decided_at_utc ASC, i.id ASC
                     LIMIT $limit;
                     """;
                 cmd.Parameters.AddWithValue("$session_id", normalizedSessionId);
+                cmd.Parameters.AddWithValue("$now_utc", DateTimeOffset.UtcNow.ToString("O"));
                 cmd.Parameters.AddWithValue("$limit", boundedLimit);
 
                 using SqliteDataReader reader = cmd.ExecuteReader();
@@ -1719,61 +1729,82 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             using SqliteTransaction tx = BeginImmediateTransaction(connection);
             try
             {
-                using var read = connection.CreateCommand();
-                read.Transaction = tx;
-                read.CommandText =
-                    """
-                    SELECT
-                        id,
-                        session_id,
-                        execution_state,
-                        action,
-                        command_type
-                    FROM interventions
-                    WHERE intervention_id = $intervention_id
-                      AND command_type <> ''
-                      AND (session_id = '' OR session_id = $session_id)
-                    ORDER BY id DESC
-                    LIMIT 1;
-                    """;
-                read.Parameters.AddWithValue("$intervention_id", interventionId);
-                read.Parameters.AddWithValue("$session_id", sessionId);
+                var rows = new List<(long Id, string SessionId, string ExecutionState, string Action, string CommandType)>();
 
-                using SqliteDataReader reader = read.ExecuteReader();
-                if (!reader.Read())
+                using (var read = connection.CreateCommand())
+                {
+                    read.Transaction = tx;
+                    read.CommandText =
+                        """
+                        SELECT
+                            id,
+                            session_id,
+                            execution_state,
+                            action,
+                            command_type
+                        FROM interventions
+                        WHERE intervention_id = $intervention_id
+                          AND command_type <> ''
+                          AND (session_id = '' OR session_id = $session_id)
+                        ORDER BY id DESC;
+                        """;
+                    read.Parameters.AddWithValue("$intervention_id", interventionId);
+                    read.Parameters.AddWithValue("$session_id", sessionId);
+
+                    using SqliteDataReader reader = read.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        rows.Add((
+                            Id: reader.GetInt64(0),
+                            SessionId: ReadStringOrFallback(reader, 1, string.Empty),
+                            ExecutionState: ReadStringOrFallback(reader, 2, "decided"),
+                            Action: ReadStringOrFallback(reader, 3, string.Empty),
+                            CommandType: ReadStringOrFallback(reader, 4, string.Empty)));
+                    }
+                }
+
+                if (rows.Count == 0)
                 {
                     TryRollback(tx);
                     return false;
                 }
 
-                long rowId = reader.GetInt64(0);
-                string existingSessionId = ReadStringOrFallback(reader, 1, string.Empty);
-                string existingExecutionState = ReadStringOrFallback(reader, 2, "decided");
-                string action = ReadStringOrFallback(reader, 3, string.Empty);
-                string commandType = ReadStringOrFallback(reader, 4, string.Empty);
-                reader.Close();
+                List<long> decidedRowIds = rows
+                    .Where(static row => string.Equals(row.ExecutionState, "decided", StringComparison.Ordinal))
+                    .Select(static row => row.Id)
+                    .ToList();
 
-                if (string.Equals(existingExecutionState, normalizedResult, StringComparison.Ordinal))
+                if (decidedRowIds.Count == 0)
                 {
-                    if (string.IsNullOrWhiteSpace(existingSessionId))
+                    (long Id, string SessionId, string ExecutionState, string Action, string CommandType) latestRow = rows[0];
+                    if (string.Equals(latestRow.ExecutionState, normalizedResult, StringComparison.Ordinal))
                     {
-                        using var claim = connection.CreateCommand();
-                        claim.Transaction = tx;
-                        claim.CommandText =
-                            """
-                            UPDATE interventions
-                            SET session_id = $session_id
-                            WHERE id = $id
-                              AND (session_id IS NULL OR session_id = '');
-                            """;
-                        claim.Parameters.AddWithValue("$session_id", sessionId);
-                        claim.Parameters.AddWithValue("$id", rowId);
-                        claim.ExecuteNonQuery();
+                        if (string.IsNullOrWhiteSpace(latestRow.SessionId))
+                        {
+                            using var claim = connection.CreateCommand();
+                            claim.Transaction = tx;
+                            claim.CommandText =
+                                """
+                                UPDATE interventions
+                                SET session_id = $session_id
+                                WHERE id = $id
+                                  AND (session_id IS NULL OR session_id = '');
+                                """;
+                            claim.Parameters.AddWithValue("$session_id", sessionId);
+                            claim.Parameters.AddWithValue("$id", latestRow.Id);
+                            claim.ExecuteNonQuery();
+                        }
+
+                        tx.Commit();
+                        return true;
                     }
 
-                    tx.Commit();
-                    return true;
+                    TryRollback(tx);
+                    return false;
                 }
+
+                (long Id, string SessionId, string ExecutionState, string Action, string CommandType) targetRow = rows
+                    .First(static row => string.Equals(row.ExecutionState, "decided", StringComparison.Ordinal));
 
                 string appliedAtUtc = ack.AppliedAtUtc.ToUniversalTime().ToString("O");
                 using var update = connection.CreateCommand();
@@ -1798,7 +1829,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                             ELSE retry_count
                         END,
                         executor_agent_instance_id = $agent_instance_id
-                    WHERE id = $id;
+                    WHERE intervention_id = $intervention_id
+                      AND command_type <> ''
+                      AND execution_state = 'decided'
+                      AND (session_id = '' OR session_id = $session_id);
                     """;
                 update.Parameters.AddWithValue("$session_id", sessionId);
                 update.Parameters.AddWithValue("$execution_state", normalizedResult);
@@ -1807,15 +1841,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     ? (ack.ErrorCode?.Trim() ?? string.Empty)
                     : string.Empty);
                 update.Parameters.AddWithValue("$agent_instance_id", agentInstanceId);
-                update.Parameters.AddWithValue("$id", rowId);
-                bool updated = update.ExecuteNonQuery() == 1;
+                update.Parameters.AddWithValue("$intervention_id", interventionId);
+                bool updated = update.ExecuteNonQuery() == decidedRowIds.Count;
                 if (updated)
                 {
                     ApplyInterventionAckSideEffects(
                         connection,
                         tx,
-                        action,
-                        commandType,
+                        targetRow.Action,
+                        targetRow.CommandType,
                         ack with { Result = normalizedResult },
                         _runtimePolicyProvider.GetEnvelope());
                 }
