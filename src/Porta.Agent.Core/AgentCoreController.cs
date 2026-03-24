@@ -514,9 +514,9 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             TryAutoResumeLocked();
+            ValidateInputSignalSourceLocked(nowUtc, agentInstanceId, sessionId);
             _lastInputAgentInstanceId = agentInstanceId;
             _lastInputSessionId = sessionId;
-            ValidateInputSignalSourceLocked(nowUtc, agentInstanceId, sessionId);
             _lastInputEventUtc = packet.LastInputEventUtc?.ToUniversalTime() ?? fallbackEventUtc;
             if (keyboardKeydownCount > 0 || keyboardBackspaceCount > 0)
             {

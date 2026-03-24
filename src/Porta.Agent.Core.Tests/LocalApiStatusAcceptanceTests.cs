@@ -324,7 +324,7 @@ public sealed class LocalApiStatusAcceptanceTests
     }
 
     [Fact]
-    public void Status_ExposesOwnershipMismatch_WhenHeartbeatOwnerDiffersFromPacketOwner()
+    public void Status_DoesNotExposeOwnershipMismatch_WhenRejectedPacketDiffersFromHeartbeatOwner()
     {
         var store = new LocalApiContractFakeStore
         {
@@ -379,11 +379,11 @@ public sealed class LocalApiStatusAcceptanceTests
 
         Assert.Equal("input_signals_source_agent_mismatch", ex.Message);
         Assert.Equal("heartbeat-agent", dto.UserAgentInstanceId);
-        Assert.Equal("packet-agent", dto.LastInputAgentInstanceId);
+        Assert.Null(dto.LastInputAgentInstanceId);
         Assert.Equal("session-3", dto.UserAgentSessionId);
-        Assert.Equal("session-3", dto.LastInputSessionId);
-        Assert.Equal("USER_AGENT_INSTANCE_MISMATCH", dto.OwnershipWarning);
-        Assert.Equal("USER_AGENT_INSTANCE_MISMATCH", dto.ownership_warning);
+        Assert.Null(dto.LastInputSessionId);
+        Assert.Null(dto.OwnershipWarning);
+        Assert.Null(dto.ownership_warning);
         Assert.False(dto.keyboard_signal_active);
         Assert.False(dto.mouse_signal_active);
         Assert.Null(dto.LastInputEventUtc);

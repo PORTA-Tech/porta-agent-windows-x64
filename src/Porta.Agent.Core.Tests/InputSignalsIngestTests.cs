@@ -347,6 +347,68 @@ public sealed class InputSignalsIngestTests
         Assert.Equal(0, store.InputSignalsIngestCount);
     }
 
+    [Fact]
+    public void IngestInputSignals_RejectedPacket_DoesNotOverwriteLastAcceptedOwner()
+    {
+        var store = new LocalApiContractFakeStore();
+        AgentCoreController controller = CreateController(store);
+        DateTimeOffset lastInputUtc = DateTimeOffset.UtcNow;
+
+        controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "agent-1",
+            SessionId: "session-1",
+            WindowStartUtc: lastInputUtc.AddSeconds(-5),
+            WindowEndUtc: lastInputUtc,
+            KeyboardKeydownCount: 2,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0,
+            MouseMoveDy: 0,
+            FocusAppHash: null,
+            IdleSeconds: 0,
+            LastInputEventUtc: lastInputUtc));
+
+        InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() => controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "packet-agent",
+            SessionId: "session-1",
+            WindowStartUtc: lastInputUtc.AddSeconds(-3),
+            WindowEndUtc: lastInputUtc.AddSeconds(-1),
+            KeyboardKeydownCount: 1,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0,
+            MouseMoveDy: 0,
+            FocusAppHash: null,
+            IdleSeconds: 0,
+            LastInputEventUtc: lastInputUtc.AddSeconds(-1))));
+
+        InvalidOperationException ex2 = Assert.Throws<InvalidOperationException>(() => controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "agent-1",
+            SessionId: "session-9",
+            WindowStartUtc: lastInputUtc.AddSeconds(-2),
+            WindowEndUtc: lastInputUtc,
+            KeyboardKeydownCount: 1,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0,
+            MouseMoveDy: 0,
+            FocusAppHash: null,
+            IdleSeconds: 0,
+            LastInputEventUtc: lastInputUtc)));
+
+        AgentServiceStatusSnapshot status = controller.GetStatus();
+
+        Assert.Equal("input_signals_source_agent_mismatch", ex.Message);
+        Assert.Equal("input_signals_source_session_mismatch", ex2.Message);
+        Assert.Equal(1, store.InputSignalsIngestCount);
+        Assert.Equal("agent-1", status.LastInputAgentInstanceId);
+        Assert.Equal("session-1", status.LastInputSessionId);
+        Assert.Null(status.OwnershipWarning);
+    }
+
     private static AgentCoreController CreateController(LocalApiContractFakeStore store)
     {
         return new AgentCoreController(
