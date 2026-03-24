@@ -13,6 +13,7 @@ internal static class FleetValidationRunner
     private static readonly TimeSpan UserAgentDegradeTimeout = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan UserAgentRecoverTimeout = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan ActivityTimeout = TimeSpan.FromSeconds(25);
+    private static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(40);
     private static readonly TimeSpan ActionLifecycleTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan IdentityLinkTimeout = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan DeviceInventoryTimeout = TimeSpan.FromSeconds(20);
@@ -90,6 +91,8 @@ internal static class FleetValidationRunner
                 "Skipped because --skip-identity-rollout-gates was provided."));
         }
 
+        results.Add(ValidatePrimaryStartupPath(summary));
+
         if (options.AllowProcessControl)
         {
             results.AddRange(await ValidateUserAgentDegradeAndRecoverAsync(controlPlane, options, summary).ConfigureAwait(false));
@@ -103,6 +106,9 @@ internal static class FleetValidationRunner
         }
 
         results.AddRange(await ValidateActivityUpdateAsync(controlPlane, options.MachineId, summary).ConfigureAwait(false));
+        summary = await WaitForMachineSummaryAsync(controlPlane, options.MachineId, TimeSpan.FromSeconds(5)).ConfigureAwait(false) ?? summary;
+        results.AddRange(await ValidateRejectedPacketOwnershipAsync(localApi).ConfigureAwait(false));
+        results.AddRange(await ValidateIdleConnectedAsync(controlPlane, options.MachineId, summary).ConfigureAwait(false));
         results.AddRange(await ValidateLocalTruthAlignmentAsync(controlPlane, localApi, options.MachineId).ConfigureAwait(false));
         results.AddRange(await ValidateActionLifecycleAsync(controlPlane, localApi, options.MachineId).ConfigureAwait(false));
         results.AddRange(await CreatePersistenceCheckpointAsync(controlPlane, options.MachineId).ConfigureAwait(false));
@@ -623,6 +629,29 @@ internal static class FleetValidationRunner
             string.Equals(workspace.Membership.Status, "active", StringComparison.OrdinalIgnoreCase));
     }
 
+    private static FleetValidationResult ValidatePrimaryStartupPath(MachineSummaryRow summary)
+    {
+        string startupSource = summary.UserAgentStartupSource?.Trim() ?? "(missing)";
+        string startupState = summary.UserAgentStartupState?.Trim() ?? "(missing)";
+        string launchReason = summary.UserAgentLastLaunchReason?.Trim() ?? "(missing)";
+        string heartbeatAge = summary.UserAgentHeartbeatAgeSeconds.HasValue
+            ? $"{summary.UserAgentHeartbeatAgeSeconds.Value:F1}s"
+            : "missing";
+
+        bool primaryLaunchConfirmed =
+            summary.UserSessionConnected
+            && !string.IsNullOrWhiteSpace(summary.UserAgentStartupSource)
+            && !string.Equals(summary.UserAgentStartupSource, "control-center-recovery", StringComparison.OrdinalIgnoreCase);
+
+        return primaryLaunchConfirmed
+            ? Pass(
+                "interactive session startup -> heartbeat comes from a primary OS launch path",
+                $"startupSource={startupSource}, startupState={startupState}, launchReason={launchReason}, heartbeatAge={heartbeatAge}.")
+            : Fail(
+                "interactive session startup -> heartbeat comes from a primary OS launch path",
+                $"Expected a connected session started by Run key / Windows restart, but got startupSource={startupSource}, startupState={startupState}, launchReason={launchReason}, userSessionConnected={summary.UserSessionConnected}.");
+    }
+
     private static async Task<IReadOnlyList<FleetValidationResult>> ValidateUserAgentDegradeAndRecoverAsync(
         ControlPlaneFleetClient controlPlane,
         FleetValidationOptions options,
@@ -683,6 +712,21 @@ internal static class FleetValidationRunner
             ? Pass("restart Porta.UserAgent -> session recovers", $"User session reconnected and reported at {recovered.ReportedAtUtc}.")
             : Fail("restart Porta.UserAgent -> session recovers", "Machine summary never returned to a connected user session state within 45s."));
 
+        if (recovered is not null)
+        {
+            bool recoveryTagged =
+                string.Equals(recovered.UserAgentStartupSource, "validation-runner-recovery", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(recovered.UserAgentLastLaunchReason, "validation-runner-recovery", StringComparison.OrdinalIgnoreCase);
+
+            results.Add(recoveryTagged
+                ? Pass(
+                    "restart Porta.UserAgent -> recovery launch is visible in diagnostics",
+                    $"startupSource={recovered.UserAgentStartupSource}, launchReason={recovered.UserAgentLastLaunchReason}.")
+                : Fail(
+                    "restart Porta.UserAgent -> recovery launch is visible in diagnostics",
+                    $"Expected validation-runner-recovery diagnostics after relaunch, got startupSource={recovered.UserAgentStartupSource ?? "(missing)"}, launchReason={recovered.UserAgentLastLaunchReason ?? "(missing)"}."));   
+        }
+
         return results;
     }
 
@@ -703,17 +747,149 @@ internal static class FleetValidationRunner
             machineId,
             ActivityTimeout,
             summary =>
-                summary.ActivityDetected
+                summary.AgentRunning
+                && summary.UserSessionConnected
+                && summary.ActivityDetected
                 && ParseTimestampUtc(summary.LastActivityUtc) > baselineActivityMs
                 && (summary.KeyboardSignalActive || summary.MouseSignalActive)).ConfigureAwait(false);
 
         results.Add(updated is not null
             ? Pass(
-                "active typing/mouse -> activity, last activity, and keyboard/mouse flags update",
-                $"lastActivityUtc moved to {updated.LastActivityUtc}; keyboard={updated.KeyboardSignalActive}; mouse={updated.MouseSignalActive}.")
+                "active typing/mouse -> machine truth reaches Yes / Yes / Yes",
+                $"agentRunning={updated.AgentRunning}, userSessionConnected={updated.UserSessionConnected}, activityDetected={updated.ActivityDetected}, lastActivityUtc={updated.LastActivityUtc}, startupState={updated.UserAgentStartupState ?? "(missing)"}.")
             : Fail(
-                "active typing/mouse -> activity, last activity, and keyboard/mouse flags update",
-                "Machine summary did not show fresh activity plus keyboard/mouse truth within 25s after the manual input window."));
+                "active typing/mouse -> machine truth reaches Yes / Yes / Yes",
+                "Machine summary did not show AgentRunning=true, UserSessionConnected=true, and ActivityDetected=true within 25s after the manual input window."));
+
+        return results;
+    }
+
+    private static async Task<IReadOnlyList<FleetValidationResult>> ValidateRejectedPacketOwnershipAsync(
+        LocalApiClient localApi)
+    {
+        var results = new List<FleetValidationResult>();
+        LocalApiStatusResponse? baseline = await localApi.GetStatusAsync().ConfigureAwait(false);
+        if (baseline is null)
+        {
+            results.Add(Fail(
+                "rejected input packet -> last accepted owner/session stays unchanged",
+                "Local status could not be loaded before sending the rejected packet."));
+            return results;
+        }
+
+        if (string.IsNullOrWhiteSpace(baseline.UserAgentInstanceId)
+            || string.IsNullOrWhiteSpace(baseline.UserAgentSessionId)
+            || string.IsNullOrWhiteSpace(baseline.LastInputAgentInstanceId)
+            || string.IsNullOrWhiteSpace(baseline.LastInputSessionId))
+        {
+            results.Add(Fail(
+                "rejected input packet -> last accepted owner/session stays unchanged",
+                "Local status does not yet have a complete owner/session baseline. Generate real input first."));
+            return results;
+        }
+
+        string mismatchedAgentInstanceId =
+            !string.Equals(baseline.UserAgentInstanceId, "validation-bad-agent", StringComparison.Ordinal)
+                ? "validation-bad-agent"
+                : "validation-bad-agent-2";
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        LocalApiAckResponse? ack = await localApi.SendInputSignalsAsync(new LocalApiInputSignalsRequest(
+            SchemaVer: 2,
+            AgentInstanceId: mismatchedAgentInstanceId,
+            SessionId: baseline.UserAgentSessionId,
+            WindowStartUtc: nowUtc.AddSeconds(-1),
+            WindowEndUtc: nowUtc,
+            KeyboardKeydownCount: 1,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0d,
+            MouseMoveDy: 0d,
+            FocusAppHash: null,
+            IdleSeconds: 0d,
+            LastInputEventUtc: nowUtc,
+            KeyboardIkiMeanMs: 110d,
+            KeyboardIkiStdMs: 12d,
+            KeyboardIkiCv: 0.11d,
+            KeyboardBurstCount: 1,
+            KeyboardBurstRate: 1d,
+            KeyboardCorrectionSpikeCount: 0,
+            KeyboardCorrectionSpikeRate: 0d,
+            MouseMoveSampleCount: 0,
+            MousePathLengthPx: 0d,
+            MouseSpeedMeanPxPerSec: 0d,
+            MouseJerkP95: 0d,
+            MouseMicroCorrectionCount: 0,
+            MouseMicroCorrectionRate: 0d,
+            MouseWheelEventCount: 0,
+            MouseScrollBurstCount: 0,
+            MouseScrollBurstRate: 0d,
+            MouseScrollSpeedMean: 0d,
+            FocusObservationCount: 1,
+            FocusSwitchCount: 0,
+            FocusActiveAppCount: 1,
+            FocusAppEntropy: 0d,
+            IdleObservationCount: 1,
+            IdleSecondsWithinWindow: 0d,
+            MicroIdleCount: 0,
+            MicroIdleSeconds: 0d,
+            BreakSecondsWithinWindow: 0d,
+            ShortIdleBoundaryObserved: false,
+            NotificationToastsEnabled: true)).ConfigureAwait(false);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(500)).ConfigureAwait(false);
+
+        LocalApiStatusResponse? after = await localApi.GetStatusAsync().ConfigureAwait(false);
+        bool rejectedAsMismatch =
+            ack is not null
+            && !ack.Success
+            && string.Equals(ack.Message, "input_signals_source_agent_mismatch", StringComparison.OrdinalIgnoreCase);
+        bool ownerPreserved =
+            after is not null
+            && string.Equals(after.LastInputAgentInstanceId, baseline.LastInputAgentInstanceId, StringComparison.Ordinal)
+            && string.Equals(after.LastInputSessionId, baseline.LastInputSessionId, StringComparison.Ordinal)
+            && string.Equals(after.OwnershipWarning, baseline.OwnershipWarning, StringComparison.Ordinal);
+
+        results.Add(rejectedAsMismatch && ownerPreserved
+            ? Pass(
+                "rejected input packet -> last accepted owner/session stays unchanged",
+                $"Rejected packet message={ack!.Message}; lastInputAgentInstanceId stayed {after!.LastInputAgentInstanceId}; lastInputSessionId stayed {after.LastInputSessionId}.")
+            : Fail(
+                "rejected input packet -> last accepted owner/session stays unchanged",
+                $"ack={(ack is null ? "null" : $"{ack.Success}/{ack.Message}")}; baselineOwner={baseline.LastInputAgentInstanceId}/{baseline.LastInputSessionId}; afterOwner={after?.LastInputAgentInstanceId ?? "null"}/{after?.LastInputSessionId ?? "null"}; baselineWarning={baseline.OwnershipWarning ?? "null"}; afterWarning={after?.OwnershipWarning ?? "null"}."));
+
+        return results;
+    }
+
+    private static async Task<IReadOnlyList<FleetValidationResult>> ValidateIdleConnectedAsync(
+        ControlPlaneFleetClient controlPlane,
+        string machineId,
+        MachineSummaryRow baselineSummary)
+    {
+        var results = new List<FleetValidationResult>();
+
+        Console.WriteLine();
+        Console.WriteLine("Idle gate: do not touch the keyboard or mouse for 20 seconds. Validation will continue automatically...");
+        await Task.Delay(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+
+        long baselineReportedAtMs = ParseTimestampUtc(baselineSummary.ReportedAtUtc);
+        MachineSummaryRow? idle = await WaitForConditionAsync(
+            controlPlane,
+            machineId,
+            IdleTimeout,
+            summary =>
+                ParseTimestampUtc(summary.ReportedAtUtc) > baselineReportedAtMs
+                && summary.AgentRunning
+                && summary.UserSessionConnected
+                && !summary.ActivityDetected
+                && string.Equals(summary.UserAgentStartupState, "idle", StringComparison.OrdinalIgnoreCase)).ConfigureAwait(false);
+
+        results.Add(idle is not null
+            ? Pass(
+                "idle logged-in machine -> machine truth stays Yes / Yes / No",
+                $"agentRunning={idle.AgentRunning}, userSessionConnected={idle.UserSessionConnected}, activityDetected={idle.ActivityDetected}, startupState={idle.UserAgentStartupState}, lastAcceptedInputAgeSeconds={idle.LastAcceptedInputAgeSeconds?.ToString("F1") ?? "missing"}.")
+            : Fail(
+                "idle logged-in machine -> machine truth stays Yes / Yes / No",
+                $"Machine summary did not settle to AgentRunning=true, UserSessionConnected=true, ActivityDetected=false within {IdleTimeout.TotalSeconds:F0}s after the idle window."));
 
         return results;
     }
