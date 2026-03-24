@@ -394,16 +394,16 @@ public sealed class HybridPolicyEngine
             },
             RegulationDomain.Fatigue => level switch
             {
-                RegulationEscalationLevel.Restrict => ["temporary_app_restriction_enabled", "fatigue_relief_enabled", "stretch_break_suggestion", "inform_fatigue_prevention"],
-                RegulationEscalationLevel.Nudge => ["fatigue_relief_enabled", "stretch_break_suggestion", "inform_fatigue_prevention"],
-                RegulationEscalationLevel.Suggest => ["stretch_break_suggestion", "inform_fatigue_prevention"],
+                RegulationEscalationLevel.Restrict => ["temporary_app_restriction_enabled", "fatigue_relief_enabled", "inform_fatigue_prevention"],
+                RegulationEscalationLevel.Nudge => ["fatigue_relief_enabled", "inform_fatigue_prevention"],
+                RegulationEscalationLevel.Suggest => ["inform_fatigue_prevention"],
                 _ => ["inform_fatigue_prevention"]
             },
             _ => level switch
             {
-                RegulationEscalationLevel.Restrict => ["temporary_app_restriction_enabled", "focus_mode_enabled", "break_suggestion", "inform_overload_risk"],
-                RegulationEscalationLevel.Nudge => ["focus_mode_enabled", "break_suggestion", "inform_overload_risk"],
-                RegulationEscalationLevel.Suggest => ["break_suggestion", "inform_overload_risk"],
+                RegulationEscalationLevel.Restrict => ["temporary_app_restriction_enabled", "focus_mode_enabled", "inform_overload_risk"],
+                RegulationEscalationLevel.Nudge => ["focus_mode_enabled", "inform_overload_risk"],
+                RegulationEscalationLevel.Suggest => ["inform_overload_risk"],
                 _ => ["inform_overload_risk"]
             }
         };
@@ -461,7 +461,7 @@ public sealed class HybridPolicyEngine
                 HardConfidenceGate: 0.70,
                 CooldownSeconds: 600,
                 MaxEscalationLevel: RegulationEscalationLevel.Restrict,
-                AllowedActions: ["inform_overload_risk", "break_suggestion", "focus_mode_enabled", "temporary_app_restriction_enabled"],
+                AllowedActions: ["inform_overload_risk", "focus_mode_enabled", "temporary_app_restriction_enabled"],
                 IntensityProfileModifiers: intensity),
             [RegulationDomain.Focus] = new RegulationPolicyDefinition(
                 PolicyId: "focus-protection-v1",
@@ -487,7 +487,7 @@ public sealed class HybridPolicyEngine
                 HardConfidenceGate: 0.60,
                 CooldownSeconds: 900,
                 MaxEscalationLevel: RegulationEscalationLevel.Restrict,
-                AllowedActions: ["inform_fatigue_prevention", "stretch_break_suggestion", "fatigue_relief_enabled", "temporary_app_restriction_enabled"],
+                AllowedActions: ["inform_fatigue_prevention", "fatigue_relief_enabled", "temporary_app_restriction_enabled"],
                 IntensityProfileModifiers: intensity)
         };
     }

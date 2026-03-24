@@ -3398,7 +3398,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
             if (gating.SuggestionsEnabled && CalibrationTruth.AllowsSuggestionsForTrust(trustTier))
             {
-                return MapDomainToSuggestion(domain, action);
+                return AllowsCalibrationSuggestionFallback(domain, action)
+                    ? MapDomainToSuggestion(domain, action)
+                    : MapDomainToInform(domain, action);
             }
 
             return gating.GuidanceEnabled && CalibrationTruth.AllowsGuidanceForTrust(trustTier)
@@ -5668,6 +5670,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         };
     }
 
+    private static bool AllowsCalibrationSuggestionFallback(string domain, string fallbackAction)
+    {
+        string normalizedDomain = NormalizeDomain(domain);
+        return string.Equals(normalizedDomain, "focus", StringComparison.Ordinal)
+            || string.Equals(fallbackAction, "focus_assist_enabled", StringComparison.Ordinal);
+    }
+
     private static string MapDomainToInform(string domain, string fallbackAction)
     {
         return NormalizeDomain(domain) switch
@@ -6021,6 +6030,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string payloadJson = BuildInterventionPayloadJson(controlEvent, commandType);
         string executionState = string.IsNullOrWhiteSpace(commandType) ? "decision_only" : "decided";
         string decidedAtUtc = Time.toIsoUtcMsString(controlEvent.TimestampUtc.ToUnixTimeMilliseconds());
+        bool queueDelivery = string.Equals(controlEvent.LifecycleState, "activated", StringComparison.Ordinal);
 
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
@@ -6089,12 +6099,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 error_code,
                 retry_count,
                 executor_agent_instance_id
-            ) VALUES (
+            )
+            SELECT
                 $ts, $action, $trigger_state, $trigger_value, $confidence, $duration,
                 $escalation, $reversible, $reason, $contributors,
                 $intervention_id, $policy_id, $domain, $planned_end, $actual_end, $previous_state, $what_changed, $how_to_undo, $reversal_applied, $cooldown_end, $lifecycle_state,
                 '', $command_type, $payload_json, $execution_state, $decided_at_utc, '', '', '', 0, ''
-            );
+            WHERE $queue_delivery = 1;
             """;
         string eventTsUtc = Time.toIsoUtcMsString(controlEvent.TimestampUtc.ToUnixTimeMilliseconds());
         cmd.Parameters.AddWithValue("$ts", eventTsUtc);
@@ -6149,6 +6160,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         cmd.Parameters.AddWithValue("$payload_json", payloadJson);
         cmd.Parameters.AddWithValue("$execution_state", executionState);
         cmd.Parameters.AddWithValue("$decided_at_utc", decidedAtUtc);
+        cmd.Parameters.AddWithValue("$queue_delivery", queueDelivery ? 1 : 0);
         cmd.ExecuteNonQuery();
     }
 

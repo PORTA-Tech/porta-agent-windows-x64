@@ -184,6 +184,92 @@ public sealed class InterventionDeliveryTests
     }
 
     [Fact]
+    public void SqliteStore_DeactivatedSuggestion_DoesNotQueueSecondToast()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"porta-interventions-deactivated-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new SqliteBrainStateStore(
+                new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
+                new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+                dbPath);
+
+            DateTimeOffset eventUtc = DateTimeOffset.UtcNow;
+            store.WriteControlEvent(new AgentControlEvent(
+                TimestampUtc: eventUtc,
+                Action: "break_suggestion",
+                TriggerState: "fatigue",
+                TriggerValue: 0.82d,
+                Confidence: 0.91d,
+                DurationSeconds: 300,
+                EscalationLevel: "Suggest",
+                Reversible: false,
+                Reason: "test",
+                Contributors: ["test"],
+                InterventionId: "break-repeat-1",
+                PolicyId: "break-policy-v1",
+                Domain: "fatigue",
+                WhatChanged: "Break suggestion displayed to user."));
+
+            bool acked = store.AcknowledgeIntervention(new AgentInterventionAck(
+                InterventionId: "break-repeat-1",
+                SessionId: "session-9",
+                AgentInstanceId: "agent-9",
+                Result: "applied",
+                ErrorCode: null,
+                AppliedAtUtc: eventUtc.AddSeconds(2)));
+            Assert.True(acked);
+
+            store.WriteControlEvent(new AgentControlEvent(
+                TimestampUtc: eventUtc.AddSeconds(5),
+                Action: "break_suggestion",
+                TriggerState: "overload",
+                TriggerValue: 0.25d,
+                Confidence: 0.85d,
+                DurationSeconds: 5,
+                EscalationLevel: "Inform",
+                Reversible: true,
+                Reason: "deactivated_due_to:monitor_only",
+                Contributors: ["recovery", "auto_reversal"],
+                InterventionId: "break-repeat-1",
+                PolicyId: "break-policy-v1",
+                Domain: "fatigue",
+                WhatChanged: "Break suggestion no longer active.",
+                HowToUndo: "No-op",
+                ReversalApplied: true,
+                ActualEndTimestampUtc: eventUtc.AddSeconds(5),
+                LifecycleState: "deactivated"));
+
+            Assert.Empty(store.ReadPendingInterventions("session-9", 10));
+
+            using var connection = new SqliteConnection($"Data Source={dbPath}");
+            connection.Open();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT COUNT(*)
+                FROM interventions
+                WHERE intervention_id = 'break-repeat-1';
+                """;
+            long interventionRows = (long)(cmd.ExecuteScalar() ?? 0L);
+            Assert.Equal(1L, interventionRows);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(dbPath))
+                {
+                    File.Delete(dbPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
     public void SqliteStore_QueuesNotificationSuppression_ForUserAgentAndTracksAckedState()
     {
         string dbPath = Path.Combine(Path.GetTempPath(), $"porta-notify-interventions-{Guid.NewGuid():N}.db");
