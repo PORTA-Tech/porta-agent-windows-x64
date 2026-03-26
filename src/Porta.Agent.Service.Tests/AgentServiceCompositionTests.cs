@@ -27,6 +27,10 @@ public sealed class AgentServiceCompositionTests
                 && descriptor.ImplementationType == typeof(AgentBrainWorker));
         Assert.Contains(
             services,
+            static descriptor => descriptor.ServiceType == typeof(IHostedService)
+                && descriptor.ImplementationType == typeof(CurrentSessionUserAgentWatchdog));
+        Assert.Contains(
+            services,
             static descriptor => descriptor.ServiceType == typeof(ISignalAcquisitionStage)
                 && descriptor.ImplementationType == typeof(SystemSignalAcquisitionStage));
         Assert.Contains(

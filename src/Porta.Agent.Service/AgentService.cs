@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Porta.Agent.Common.Identity;
 using Porta.Agent.Core;
 using Porta.Agent.Core.Db;
@@ -76,6 +77,12 @@ internal sealed class AgentService : IHostedService, IDisposable
         });
         services.AddHostedService<AgentBrainWorker>();
         services.AddHostedService<BucketFinalizerWorker>();
+        services.AddSingleton<ICurrentSessionUserAgentRuntime, WindowsCurrentSessionUserAgentRuntime>();
+        services.AddSingleton<CurrentSessionUserAgentWatchdogCoordinator>(sp =>
+            new CurrentSessionUserAgentWatchdogCoordinator(
+                sp.GetRequiredService<ICurrentSessionUserAgentRuntime>(),
+                sp.GetRequiredService<ILogger<CurrentSessionUserAgentWatchdog>>()));
+        services.AddHostedService<CurrentSessionUserAgentWatchdog>();
         services.AddSingleton<ControlPlaneClient>();
         services.AddSingleton<ControlPlaneReporterStateStore>();
         services.AddSingleton<MachineSummaryMapper>();
