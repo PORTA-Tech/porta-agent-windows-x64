@@ -20,7 +20,10 @@ public sealed class UserAgentSessionContextStoreTests
                 AgentInstanceId: "useragent-321",
                 StartupSource: "control-center-recovery",
                 LaunchReason: "stale_heartbeat",
-                HeartbeatWriteFailureCount: 2);
+                HeartbeatWriteFailureCount: 2,
+                CaptureSelfTestState: "failed",
+                CaptureSelfTestErrorCode: "no_live_input_after_user_activity",
+                CaptureSelfTestRemediationCount: 2);
 
             store.WriteCurrent(expected);
             UserAgentSessionContextSnapshot? actual = store.ReadCurrent();
@@ -32,6 +35,9 @@ public sealed class UserAgentSessionContextStoreTests
             Assert.Equal(expected.StartupSource, actual.StartupSource);
             Assert.Equal(expected.LaunchReason, actual.LaunchReason);
             Assert.Equal(expected.HeartbeatWriteFailureCount, actual.HeartbeatWriteFailureCount);
+            Assert.Equal(expected.CaptureSelfTestState, actual.CaptureSelfTestState);
+            Assert.Equal(expected.CaptureSelfTestErrorCode, actual.CaptureSelfTestErrorCode);
+            Assert.Equal(expected.CaptureSelfTestRemediationCount, actual.CaptureSelfTestRemediationCount);
         }
         finally
         {

@@ -32,6 +32,8 @@ public sealed class AgentCoreController : IAgentCoreController
     private const string CaptureContextServiceSession = UserAgentCaptureContexts.ServiceSession;
     private const string CaptureFailureReasonUnknown = "CAPTURE_CONTEXT_UNKNOWN";
     private const string CaptureFailureReasonServiceSession = "CAPTURE_CONTEXT_SERVICE_SESSION";
+    private const string CaptureFailureReasonInputSelfTestFailed = "USER_AGENT_INPUT_SELF_TEST_FAILED";
+    private const string CaptureSelfTestStateFailed = "failed";
     private const string OwnershipWarningHeartbeatMissing = "USER_AGENT_HEARTBEAT_MISSING";
     private const string OwnershipWarningAgentInstanceMismatch = "USER_AGENT_INSTANCE_MISMATCH";
     private const string OwnershipWarningSessionMismatch = "USER_AGENT_SESSION_MISMATCH";
@@ -174,7 +176,6 @@ public sealed class AgentCoreController : IAgentCoreController
             PresentedVisualMode visualMode = PresentedVisualModeMapper.Map(overloadActive, deepWorkActive);
             string? latestContributorsJson = latestState?.ContributorsJson;
             string? latestWhyJson = _stateStore.ReadRecentEvents(1).FirstOrDefault()?.WhyJson;
-            string? effectiveLastError = ResolveEffectiveLastError(_lastError, _latestSnapshot.StateFlagsJson);
             bool baselineReady = latestState?.BaselineReady ?? false;
             bool coldStart = latestState?.ColdStart ?? false;
             string calibrationStage = latestState?.CalibrationStage
@@ -185,9 +186,6 @@ public sealed class AgentCoreController : IAgentCoreController
                 latestState?.Confidence ?? _latestSnapshot.Confidence,
                 latestState?.CurrentQualityScore ?? 0d,
                 latestState?.PartialData == true);
-            bool dbMigrationFailedFromStore = _stateStore.ReadDbMigrationFailed();
-            bool dbMigrationFailed = IsDbMigrationFailure(effectiveLastError);
-            dbMigrationFailed = dbMigrationFailed || dbMigrationFailedFromStore;
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
             UserAgentSessionContextSnapshot? observedSessionContext = _userAgentSessionContextStore.ReadCurrent();
             string captureContext = ResolveCaptureContextLocked(nowUtc, out UserAgentSessionContextSnapshot? sessionContext);
@@ -207,8 +205,18 @@ public sealed class AgentCoreController : IAgentCoreController
             string? userAgentStartupSource = NormalizeIdentifier(observedSessionContext?.StartupSource);
             string? userAgentLaunchReason = NormalizeIdentifier(observedSessionContext?.LaunchReason);
             int? userAgentHeartbeatWriteFailureCount = NormalizeHeartbeatWriteFailureCount(observedSessionContext?.HeartbeatWriteFailureCount);
+            string? captureSelfTestState = NormalizeCaptureSelfTestState(sessionContext?.CaptureSelfTestState);
+            string? captureSelfTestErrorCode = NormalizeIdentifier(sessionContext?.CaptureSelfTestErrorCode);
             string? ownershipWarning = ResolveOwnershipWarning(sessionContext);
-            string? captureFailureReason = ResolveCaptureFailureReason(captureContext);
+            string? captureFailureReason = ResolveCaptureFailureReason(captureContext, captureSelfTestState);
+            string? effectiveLastError = ResolveEffectiveLastError(
+                _lastError,
+                _latestSnapshot.StateFlagsJson,
+                captureSelfTestState,
+                captureSelfTestErrorCode);
+            bool dbMigrationFailedFromStore = _stateStore.ReadDbMigrationFailed();
+            bool dbMigrationFailed = IsDbMigrationFailure(effectiveLastError);
+            dbMigrationFailed = dbMigrationFailed || dbMigrationFailedFromStore;
             AgentStatus status = effectiveLastError is null
                 ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
                 : AgentStatus.Degraded;
@@ -2044,8 +2052,14 @@ public sealed class AgentCoreController : IAgentCoreController
         return string.Equals(captureContext, CaptureContextUserSession, StringComparison.Ordinal);
     }
 
-    private static string? ResolveCaptureFailureReason(string captureContext)
+    private static string? ResolveCaptureFailureReason(string captureContext, string? captureSelfTestState)
     {
+        if (string.Equals(captureContext, CaptureContextUserSession, StringComparison.Ordinal)
+            && string.Equals(captureSelfTestState, CaptureSelfTestStateFailed, StringComparison.Ordinal))
+        {
+            return CaptureFailureReasonInputSelfTestFailed;
+        }
+
         return captureContext switch
         {
             CaptureContextServiceSession => CaptureFailureReasonServiceSession,
@@ -2093,6 +2107,16 @@ public sealed class AgentCoreController : IAgentCoreController
         }
 
         return count.Value;
+    }
+
+    private static string? NormalizeCaptureSelfTestState(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Trim().ToLowerInvariant();
     }
 
     private UserAgentSessionContextSnapshot? ReadFreshUserAgentSessionContextLocked(DateTimeOffset nowUtc)
@@ -2177,10 +2201,6 @@ public sealed class AgentCoreController : IAgentCoreController
     private string BuildDiagnosticsSummaryJson()
     {
         AgentNotificationSuppressionStatus suppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
-        string? effectiveLastError = ResolveEffectiveLastError(_lastError, _latestSnapshot.StateFlagsJson);
-        AgentStatus status = effectiveLastError is null
-            ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
-            : AgentStatus.Degraded;
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         string policyVersion = ResolvePolicyVersion();
         UserAgentSessionContextSnapshot? observedSessionContext = _userAgentSessionContextStore.ReadCurrent();
@@ -2198,8 +2218,18 @@ public sealed class AgentCoreController : IAgentCoreController
         string? userAgentStartupSource = NormalizeIdentifier(observedSessionContext?.StartupSource);
         string? userAgentLaunchReason = NormalizeIdentifier(observedSessionContext?.LaunchReason);
         int? userAgentHeartbeatWriteFailureCount = NormalizeHeartbeatWriteFailureCount(observedSessionContext?.HeartbeatWriteFailureCount);
+        string? captureSelfTestState = NormalizeCaptureSelfTestState(sessionContext?.CaptureSelfTestState);
+        string? captureSelfTestErrorCode = NormalizeIdentifier(sessionContext?.CaptureSelfTestErrorCode);
         string? ownershipWarning = ResolveOwnershipWarning(sessionContext);
-        string? captureFailureReason = ResolveCaptureFailureReason(captureContext);
+        string? captureFailureReason = ResolveCaptureFailureReason(captureContext, captureSelfTestState);
+        string? effectiveLastError = ResolveEffectiveLastError(
+            _lastError,
+            _latestSnapshot.StateFlagsJson,
+            captureSelfTestState,
+            captureSelfTestErrorCode);
+        AgentStatus status = effectiveLastError is null
+            ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
+            : AgentStatus.Degraded;
 
         var payload = new
         {
@@ -2262,11 +2292,23 @@ public sealed class AgentCoreController : IAgentCoreController
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     }
 
-    private static string? ResolveEffectiveLastError(string? controllerLastError, string stateFlagsJson)
+    private static string? ResolveEffectiveLastError(
+        string? controllerLastError,
+        string stateFlagsJson,
+        string? captureSelfTestState = null,
+        string? captureSelfTestErrorCode = null)
     {
         if (!string.IsNullOrWhiteSpace(controllerLastError))
         {
             return controllerLastError;
+        }
+
+        if (string.Equals(captureSelfTestState, CaptureSelfTestStateFailed, StringComparison.Ordinal))
+        {
+            string normalizedErrorCode = string.IsNullOrWhiteSpace(captureSelfTestErrorCode)
+                ? "unknown"
+                : captureSelfTestErrorCode.Trim().ToLowerInvariant();
+            return $"capture_self_test_failed:{normalizedErrorCode}";
         }
 
         if (string.IsNullOrWhiteSpace(stateFlagsJson))

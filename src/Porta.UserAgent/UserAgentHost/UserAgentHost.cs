@@ -2,6 +2,7 @@ namespace Porta.UserAgent;
 
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Win32;
 using Porta.Agent.Common.UserAgent;
 using Porta.Agent.Core;
 using Porta.Agent.Core.Outputs;
@@ -26,14 +27,18 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private readonly KeyboardHook _keyboardHook = new();
     private readonly UserKeyboardActivityPoller _keyboardPoller = new();
     private readonly MouseHook _mouseHook = new();
+    private readonly CaptureSelfTestCoordinator _captureSelfTest = new();
     private readonly string _agentInstanceId = BuildAgentInstanceId();
     private DateTimeOffset _windowStartUtc = DateTimeOffset.UtcNow;
     private long _lastRecoveryEventId;
     private UserInterventionToastRenderer.UserTrayVisualState? _lastTrayState;
     private bool _hooksInstalled;
+    private bool _keyboardCaptureAvailable;
+    private bool _mouseCaptureAvailable;
     private bool _localApiUnavailableLogged;
     private int _heartbeatWriteFailureCount;
     private bool _heartbeatReadyLogged;
+    private bool _systemEventsSubscribed;
     private int _sessionId;
     private string _captureContext = UserAgentCaptureContexts.Unknown;
 
@@ -83,6 +88,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         else
         {
             StartCaptureHooks();
+            SubscribeToSessionSwitchNotifications();
+            ArmCaptureSelfTest(_startupMetadata.EffectiveLaunchReason);
         }
 
         UpdateTrayState(new(
@@ -99,6 +106,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             {
                 DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
                 SampleAmbientSignals(nowUtc);
+                await EvaluateCaptureSelfTestAsync(nowUtc, stoppingToken).ConfigureAwait(false);
                 if ((nowUtc - _windowStartUtc) >= TimeSpan.FromSeconds(Time.bucketSeconds))
                 {
                     await FlushSignalsAsync(stoppingToken).ConfigureAwait(false);
@@ -126,12 +134,14 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         _logger.LogInformation("Porta.UserAgent stopping.");
         UserAgentFileLog.Info(
             $"user_agent_host_stopping source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId}");
+        UnsubscribeFromSessionSwitchNotifications();
         StopCaptureHooks();
         await base.StopAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public override void Dispose()
     {
+        UnsubscribeFromSessionSwitchNotifications();
         StopCaptureHooks();
         _keyboardHook.Dispose();
         _keyboardPoller.Dispose();
@@ -269,6 +279,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         {
             _windowStartUtc = windowEndUtc;
             _localApiUnavailableLogged = false;
+            _captureSelfTest.RecordPublishAccepted(windowEndUtc);
             return;
         }
 
@@ -330,6 +341,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         try
         {
             int heartbeatWriteFailureCount = _heartbeatWriteFailureCount;
+            CaptureSelfTestHeartbeatProjection selfTest = _captureSelfTest.GetHeartbeatProjection();
             _sessionContextStore.WriteCurrent(new UserAgentSessionContextSnapshot(
                 SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
                 CaptureContext: _captureContext,
@@ -339,7 +351,12 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 AgentInstanceId: _agentInstanceId,
                 StartupSource: _startupMetadata.Source,
                 LaunchReason: _startupMetadata.EffectiveLaunchReason,
-                HeartbeatWriteFailureCount: heartbeatWriteFailureCount));
+                HeartbeatWriteFailureCount: heartbeatWriteFailureCount,
+                CaptureSelfTestState: selfTest.State,
+                CaptureSelfTestErrorCode: selfTest.ErrorCode,
+                CaptureSelfTestRemediationCount: selfTest.RemediationCount));
+
+            _captureSelfTest.RecordHeartbeatPublished(DateTimeOffset.UtcNow);
 
             if (!_heartbeatReadyLogged)
             {
@@ -378,6 +395,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         }
 
         bool mouseInstalled = _mouseHook.Install();
+        _keyboardCaptureAvailable = keyboardInstalled;
+        _mouseCaptureAvailable = mouseInstalled;
         _hooksInstalled = keyboardInstalled || mouseInstalled;
 
         if (!keyboardInstalled)
@@ -410,6 +429,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     {
         if (!_hooksInstalled)
         {
+            _keyboardCaptureAvailable = false;
+            _mouseCaptureAvailable = false;
             return;
         }
 
@@ -417,6 +438,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         _keyboardPoller.Uninstall();
         _mouseHook.Uninstall();
         _hooksInstalled = false;
+        _keyboardCaptureAvailable = false;
+        _mouseCaptureAvailable = false;
     }
 
     private void OnKeyboardChanged(bool isKeyDown, bool isBackspace, bool isInjected)
@@ -426,17 +449,23 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             return;
         }
 
-        _signalAggregator.RecordKeyboard(isBackspace, DateTimeOffset.UtcNow);
+        DateTimeOffset observedAtUtc = DateTimeOffset.UtcNow;
+        _captureSelfTest.RecordRawInput(observedAtUtc);
+        _signalAggregator.RecordKeyboard(isBackspace, observedAtUtc);
     }
 
     private void OnMouseMoved(int dx, int dy)
     {
-        _signalAggregator.RecordMouseMove(dx, dy, DateTimeOffset.UtcNow);
+        DateTimeOffset observedAtUtc = DateTimeOffset.UtcNow;
+        _captureSelfTest.RecordRawInput(observedAtUtc);
+        _signalAggregator.RecordMouseMove(dx, dy, observedAtUtc);
     }
 
     private void OnMouseWheelChanged(int delta, bool _)
     {
-        _signalAggregator.RecordMouseWheel(delta, DateTimeOffset.UtcNow);
+        DateTimeOffset observedAtUtc = DateTimeOffset.UtcNow;
+        _captureSelfTest.RecordRawInput(observedAtUtc);
+        _signalAggregator.RecordMouseWheel(delta, observedAtUtc);
     }
 
     private void SampleAmbientSignals(DateTimeOffset sampleUtc)
@@ -451,6 +480,116 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         return snapshotResult.Succeeded
             ? snapshotResult.Snapshot.ToastBannersEnabled
             : null;
+    }
+
+    private async Task EvaluateCaptureSelfTestAsync(DateTimeOffset nowUtc, CancellationToken token)
+    {
+        double idleSeconds = UserSessionNativeSignals.ReadIdleDurationSeconds();
+        CaptureSelfTestDecision decision = _captureSelfTest.Evaluate(
+            nowUtc,
+            heartbeatFresh: _heartbeatWriteFailureCount == 0,
+            hooksAvailable: _keyboardCaptureAvailable || _mouseCaptureAvailable,
+            idleSeconds);
+
+        if (decision.LogMessage is not null)
+        {
+            _logger.LogInformation("{Message}", decision.LogMessage);
+            UserAgentFileLog.Info(decision.LogMessage);
+        }
+
+        if (decision.RequestHookReset)
+        {
+            StopCaptureHooks();
+            StartCaptureHooks();
+        }
+
+        if (decision.RequestImmediateFlush)
+        {
+            await FlushSignalsAsync(token).ConfigureAwait(false);
+        }
+
+        if (decision.NotifyUserFailure)
+        {
+            ShowCaptureSelfTestFailureToast(decision);
+        }
+    }
+
+    private void ArmCaptureSelfTest(string triggerReason)
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        _captureSelfTest.Arm(triggerReason, nowUtc);
+        string reason = string.IsNullOrWhiteSpace(triggerReason) ? "unspecified" : triggerReason.Trim();
+        UserAgentFileLog.Info(
+            $"capture_self_test_armed source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} trigger={reason} pid={Environment.ProcessId} session={_sessionId}");
+    }
+
+    private void SubscribeToSessionSwitchNotifications()
+    {
+        if (_systemEventsSubscribed)
+        {
+            return;
+        }
+
+        SystemEvents.SessionSwitch += OnSessionSwitch;
+        _systemEventsSubscribed = true;
+    }
+
+    private void UnsubscribeFromSessionSwitchNotifications()
+    {
+        if (!_systemEventsSubscribed)
+        {
+            return;
+        }
+
+        try
+        {
+            SystemEvents.SessionSwitch -= OnSessionSwitch;
+        }
+        catch
+        {
+        }
+
+        _systemEventsSubscribed = false;
+    }
+
+    private void OnSessionSwitch(object? sender, SessionSwitchEventArgs e)
+    {
+        if (e.Reason is not SessionSwitchReason.SessionLogon
+            and not SessionSwitchReason.SessionUnlock
+            and not SessionSwitchReason.ConsoleConnect
+            and not SessionSwitchReason.RemoteConnect)
+        {
+            return;
+        }
+
+        ArmCaptureSelfTest(e.Reason.ToString());
+    }
+
+    private void ShowCaptureSelfTestFailureToast(CaptureSelfTestDecision decision)
+    {
+        if (!UserSessionNativeSignals.IsInterventionPresentationAvailable(out _))
+        {
+            return;
+        }
+
+        string message = decision.FailureCode switch
+        {
+            "heartbeat_not_fresh"
+                => "Ari is connected, but the live session heartbeat is not updating yet. Ari will keep trying in the background. If this stays stuck, sign out and back in.",
+            "hooks_unavailable"
+                => "Ari could not attach live keyboard or mouse capture in this session. Sign out and back in if live activity stays stuck at zero.",
+            "input_publish_not_confirmed"
+                => "Ari saw live input locally, but the core did not confirm it yet. If activity stays stuck at zero, sign out and back in.",
+            _
+                => "Ari is not receiving live keyboard or mouse activity yet. If activity stays stuck at zero, sign out and back in."
+        };
+
+        if (!_toastRenderer.TryShow("PORTA", message, out string errorCode))
+        {
+            _logger.LogDebug(
+                "Failed to present capture self-test warning toast. Error={ErrorCode}",
+                errorCode);
+        }
     }
 
     private void UpdateTrayState(UserInterventionToastRenderer.UserTrayVisualState state)
@@ -506,4 +645,288 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             _ => UserInterventionToastRenderer.UserTrayMode.Normal
         };
     }
+}
+
+internal sealed class CaptureSelfTestCoordinator
+{
+    private static readonly TimeSpan HeartbeatGrace = TimeSpan.FromSeconds(12);
+    private static readonly TimeSpan HooksReadyGrace = TimeSpan.FromSeconds(6);
+    private static readonly TimeSpan RawInputGrace = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan PublishConfirmationGrace = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan FlushTriggerDelay = TimeSpan.FromSeconds(1);
+    private const int MaxRemediationAttempts = 2;
+    private const double RecentUserInputIdleThresholdSeconds = 2.5d;
+    private readonly object _gate = new();
+    private DateTimeOffset? _armedAtUtc;
+    private DateTimeOffset? _observedUserInputUtc;
+    private DateTimeOffset? _lastHeartbeatPublishedUtc;
+    private DateTimeOffset? _lastRawInputUtc;
+    private DateTimeOffset? _lastPublishAcceptedUtc;
+    private double? _lastObservedIdleSeconds;
+    private string _state = CaptureSelfTestStates.Healthy;
+    private string? _errorCode;
+    private string _triggerReason = "startup";
+    private int _remediationAttempts;
+    private bool _failureNotified;
+    private bool _flushRequested;
+
+    public void Arm(string triggerReason, DateTimeOffset nowUtc)
+    {
+        lock (_gate)
+        {
+            _armedAtUtc = nowUtc;
+            _observedUserInputUtc = null;
+            _lastObservedIdleSeconds = null;
+            _flushRequested = false;
+            _failureNotified = false;
+            _state = CaptureSelfTestStates.Pending;
+            _errorCode = null;
+            _triggerReason = string.IsNullOrWhiteSpace(triggerReason) ? "startup" : triggerReason.Trim();
+            _remediationAttempts = 0;
+        }
+    }
+
+    public void RecordHeartbeatPublished(DateTimeOffset publishedAtUtc)
+    {
+        lock (_gate)
+        {
+            _lastHeartbeatPublishedUtc = publishedAtUtc;
+        }
+    }
+
+    public void RecordRawInput(DateTimeOffset observedAtUtc)
+    {
+        lock (_gate)
+        {
+            _lastRawInputUtc = observedAtUtc;
+        }
+    }
+
+    public void RecordPublishAccepted(DateTimeOffset acceptedAtUtc)
+    {
+        lock (_gate)
+        {
+            _lastPublishAcceptedUtc = acceptedAtUtc;
+        }
+    }
+
+    public CaptureSelfTestHeartbeatProjection GetHeartbeatProjection()
+    {
+        lock (_gate)
+        {
+            string? state = _state == CaptureSelfTestStates.Healthy ? null : _state;
+            string? errorCode = _state == CaptureSelfTestStates.Failed ? _errorCode : null;
+            int? remediationCount = _remediationAttempts > 0 ? _remediationAttempts : null;
+            return new CaptureSelfTestHeartbeatProjection(state, errorCode, remediationCount);
+        }
+    }
+
+    public CaptureSelfTestDecision Evaluate(
+        DateTimeOffset nowUtc,
+        bool heartbeatFresh,
+        bool hooksAvailable,
+        double idleSeconds)
+    {
+        lock (_gate)
+        {
+            if (!_armedAtUtc.HasValue)
+            {
+                return CaptureSelfTestDecision.None;
+            }
+
+            ObserveUserInput(nowUtc, idleSeconds);
+
+            if (HasPublishConfirmationSinceObservedInput())
+            {
+                return SetHealthy("capture_self_test_passed");
+            }
+
+            if (!heartbeatFresh || !IsHeartbeatFresh(nowUtc))
+            {
+                if ((nowUtc - _armedAtUtc.Value) >= HeartbeatGrace)
+                {
+                    return SetFailed("heartbeat_not_fresh", "capture_self_test_failed reason=heartbeat_not_fresh");
+                }
+
+                return SetPending();
+            }
+
+            if (!hooksAvailable)
+            {
+                if ((nowUtc - _armedAtUtc.Value) >= HooksReadyGrace)
+                {
+                    return HandleRecoverableFailure(nowUtc, "hooks_unavailable");
+                }
+
+                return SetPending();
+            }
+
+            if (!_observedUserInputUtc.HasValue)
+            {
+                return SetPending();
+            }
+
+            if (!HasRawInputSinceObservedUserInput())
+            {
+                if ((nowUtc - _observedUserInputUtc.Value) >= RawInputGrace)
+                {
+                    return HandleRecoverableFailure(nowUtc, "no_live_input_after_user_activity");
+                }
+
+                return SetPending();
+            }
+
+            if (!_flushRequested
+                && _lastRawInputUtc.HasValue
+                && (nowUtc - _lastRawInputUtc.Value) >= FlushTriggerDelay)
+            {
+                _flushRequested = true;
+                return new CaptureSelfTestDecision(
+                    State: _state,
+                    FailureCode: _errorCode,
+                    RequestHookReset: false,
+                    RequestImmediateFlush: true,
+                    NotifyUserFailure: false,
+                    LogMessage: "capture_self_test_force_flush_requested");
+            }
+
+            if ((nowUtc - _observedUserInputUtc.Value) >= PublishConfirmationGrace)
+            {
+                return HandleRecoverableFailure(nowUtc, "input_publish_not_confirmed");
+            }
+
+            return SetPending();
+        }
+    }
+
+    private void ObserveUserInput(DateTimeOffset nowUtc, double idleSeconds)
+    {
+        bool recentInput = idleSeconds <= RecentUserInputIdleThresholdSeconds;
+        bool idleReset = _lastObservedIdleSeconds.HasValue
+            && idleSeconds + 0.5d < _lastObservedIdleSeconds.Value;
+        _lastObservedIdleSeconds = idleSeconds;
+
+        if ((recentInput || idleReset) && !_observedUserInputUtc.HasValue)
+        {
+            _observedUserInputUtc = nowUtc;
+        }
+    }
+
+    private bool HasRawInputSinceObservedUserInput()
+    {
+        return _observedUserInputUtc.HasValue
+            && _lastRawInputUtc.HasValue
+            && _lastRawInputUtc.Value >= _observedUserInputUtc.Value.AddSeconds(-1);
+    }
+
+    private bool HasPublishConfirmationSinceObservedInput()
+    {
+        return _observedUserInputUtc.HasValue
+            && _lastPublishAcceptedUtc.HasValue
+            && _lastPublishAcceptedUtc.Value >= _observedUserInputUtc.Value.AddSeconds(-1);
+    }
+
+    private bool IsHeartbeatFresh(DateTimeOffset nowUtc)
+    {
+        return _lastHeartbeatPublishedUtc.HasValue
+            && (nowUtc - _lastHeartbeatPublishedUtc.Value) <= HeartbeatGrace;
+    }
+
+    private CaptureSelfTestDecision HandleRecoverableFailure(DateTimeOffset nowUtc, string errorCode)
+    {
+        if (_remediationAttempts < MaxRemediationAttempts)
+        {
+            _remediationAttempts++;
+            _state = CaptureSelfTestStates.Recovering;
+            _errorCode = errorCode;
+            _armedAtUtc = nowUtc;
+            _observedUserInputUtc = null;
+            _lastObservedIdleSeconds = null;
+            _flushRequested = false;
+            _failureNotified = false;
+            return new CaptureSelfTestDecision(
+                State: _state,
+                FailureCode: _errorCode,
+                RequestHookReset: true,
+                RequestImmediateFlush: false,
+                NotifyUserFailure: false,
+                LogMessage: $"capture_self_test_recovery_requested trigger={_triggerReason} error={errorCode} attempt={_remediationAttempts}");
+        }
+
+        return SetFailed(errorCode, $"capture_self_test_failed trigger={_triggerReason} error={errorCode} attempts={_remediationAttempts}");
+    }
+
+    private CaptureSelfTestDecision SetHealthy(string logMessage)
+    {
+        bool changed = _state != CaptureSelfTestStates.Healthy || _errorCode is not null || _armedAtUtc.HasValue;
+        _state = CaptureSelfTestStates.Healthy;
+        _errorCode = null;
+        _armedAtUtc = null;
+        _observedUserInputUtc = null;
+        _lastObservedIdleSeconds = null;
+        _flushRequested = false;
+        _remediationAttempts = 0;
+        _failureNotified = false;
+        return changed
+            ? new CaptureSelfTestDecision(
+                State: _state,
+                FailureCode: null,
+                RequestHookReset: false,
+                RequestImmediateFlush: false,
+                NotifyUserFailure: false,
+                LogMessage: logMessage)
+            : CaptureSelfTestDecision.None;
+    }
+
+    private CaptureSelfTestDecision SetPending()
+    {
+        _state = CaptureSelfTestStates.Pending;
+        _errorCode = null;
+        return CaptureSelfTestDecision.None;
+    }
+
+    private CaptureSelfTestDecision SetFailed(string errorCode, string logMessage)
+    {
+        bool notify = !_failureNotified;
+        _state = CaptureSelfTestStates.Failed;
+        _errorCode = errorCode;
+        _failureNotified = true;
+        return new CaptureSelfTestDecision(
+            State: _state,
+            FailureCode: _errorCode,
+            RequestHookReset: false,
+            RequestImmediateFlush: false,
+            NotifyUserFailure: notify,
+            LogMessage: logMessage);
+    }
+}
+
+internal static class CaptureSelfTestStates
+{
+    public const string Pending = "pending";
+    public const string Healthy = "healthy";
+    public const string Recovering = "recovering";
+    public const string Failed = "failed";
+}
+
+internal sealed record CaptureSelfTestHeartbeatProjection(
+    string? State,
+    string? ErrorCode,
+    int? RemediationCount);
+
+internal sealed record CaptureSelfTestDecision(
+    string State,
+    string? FailureCode,
+    bool RequestHookReset,
+    bool RequestImmediateFlush,
+    bool NotifyUserFailure,
+    string? LogMessage)
+{
+    public static CaptureSelfTestDecision None { get; } = new(
+        State: CaptureSelfTestStates.Healthy,
+        FailureCode: null,
+        RequestHookReset: false,
+        RequestImmediateFlush: false,
+        NotifyUserFailure: false,
+        LogMessage: null);
 }

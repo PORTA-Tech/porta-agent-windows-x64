@@ -19,7 +19,10 @@ public sealed record UserAgentSessionContextSnapshot(
     string? AgentInstanceId = null,
     string? StartupSource = null,
     string? LaunchReason = null,
-    int? HeartbeatWriteFailureCount = null);
+    int? HeartbeatWriteFailureCount = null,
+    string? CaptureSelfTestState = null,
+    string? CaptureSelfTestErrorCode = null,
+    int? CaptureSelfTestRemediationCount = null);
 
 public interface IUserAgentSessionContextStore
 {
@@ -70,7 +73,10 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
                 AgentInstanceId = NormalizeIdentifier(snapshot.AgentInstanceId),
                 StartupSource = NormalizeIdentifier(snapshot.StartupSource),
                 LaunchReason = NormalizeIdentifier(snapshot.LaunchReason),
-                HeartbeatWriteFailureCount = NormalizeFailureCount(snapshot.HeartbeatWriteFailureCount)
+                HeartbeatWriteFailureCount = NormalizeFailureCount(snapshot.HeartbeatWriteFailureCount),
+                CaptureSelfTestState = NormalizeSelfTestState(snapshot.CaptureSelfTestState),
+                CaptureSelfTestErrorCode = NormalizeIdentifier(snapshot.CaptureSelfTestErrorCode),
+                CaptureSelfTestRemediationCount = NormalizeFailureCount(snapshot.CaptureSelfTestRemediationCount)
             };
         }
         catch
@@ -96,7 +102,10 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
             AgentInstanceId = NormalizeIdentifier(snapshot.AgentInstanceId),
             StartupSource = NormalizeIdentifier(snapshot.StartupSource),
             LaunchReason = NormalizeIdentifier(snapshot.LaunchReason),
-            HeartbeatWriteFailureCount = NormalizeFailureCount(snapshot.HeartbeatWriteFailureCount)
+            HeartbeatWriteFailureCount = NormalizeFailureCount(snapshot.HeartbeatWriteFailureCount),
+            CaptureSelfTestState = NormalizeSelfTestState(snapshot.CaptureSelfTestState),
+            CaptureSelfTestErrorCode = NormalizeIdentifier(snapshot.CaptureSelfTestErrorCode),
+            CaptureSelfTestRemediationCount = NormalizeFailureCount(snapshot.CaptureSelfTestRemediationCount)
         };
 
         string json = JsonSerializer.Serialize(normalized, new JsonSerializerOptions
@@ -153,6 +162,16 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
         }
 
         return value.Trim();
+    }
+
+    private static string? NormalizeSelfTestState(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Trim().ToLowerInvariant();
     }
 
     private static int? NormalizeFailureCount(int? value)

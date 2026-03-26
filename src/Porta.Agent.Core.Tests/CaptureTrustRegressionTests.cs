@@ -172,6 +172,54 @@ public sealed class CaptureTrustRegressionTests
         Assert.True(snapshotDto.Confidence > 0.65d);
     }
 
+    [Fact]
+    public void UserSessionSelfTestFailure_StopsLookingLikeSilentIdle()
+    {
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.09d, confidence: 0.22d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: DateTimeOffset.UtcNow,
+                OverloadLikelihood: 0.09d,
+                Confidence: 0.22d,
+                SustainedAttentionDurationSec: 0d,
+                IdleFragmentationIndex: 0.01d,
+                FocusAppEntropy: 0.01d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: false,
+                BaselineReadyPct: 0.03d,
+                AvgQuality2m: 0.11d,
+                ColdStart: true,
+                CurrentQualityScore: 0.18d,
+                PartialData: true,
+                MissingMajorChannels: ["keyboard", "mouse"]),
+        };
+
+        var controller = new AgentCoreController(
+            store,
+            new FakeUserAgentSessionContextStore(
+                new UserAgentSessionContextSnapshot(
+                    SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                    CaptureContext: UserAgentCaptureContexts.UserSession,
+                    ProcessId: 6001,
+                    SessionId: 5,
+                    UpdatedAtUtc: DateTimeOffset.UtcNow,
+                    AgentInstanceId: "agent-5",
+                    CaptureSelfTestState: "failed",
+                    CaptureSelfTestErrorCode: "no_live_input_after_user_activity",
+                    CaptureSelfTestRemediationCount: 2)));
+
+        var statusDto = StatusMapper.Map(controller.GetStatus(), localApiAuthReady: true, localApiAuthError: null);
+
+        Assert.Equal("UserSession", statusDto.capture_context);
+        Assert.Equal("USER_AGENT_INPUT_SELF_TEST_FAILED", statusDto.capture_failure_reason);
+        Assert.Equal("capture_self_test_failed:no_live_input_after_user_activity", statusDto.LastError);
+        Assert.False(statusDto.keyboard_signal_active);
+        Assert.False(statusDto.mouse_signal_active);
+    }
+
     private static AgentBrainSnapshot CreateSnapshot(double overload, double confidence)
     {
         return new AgentBrainSnapshot(
