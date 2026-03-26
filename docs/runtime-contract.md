@@ -1,0 +1,166 @@
+# Runtime Contract
+
+This document locks the Windows runtime contract that future reliability, notification, installation, and update work must implement.
+
+It is grounded in the current repo behavior, not assumptions. The audited code anchors are:
+
+- `installer/Product.wxs`
+- `src/Porta.ControlCenter/App.xaml.cs`
+- `src/Porta.ControlCenter/CurrentSessionUserAgentLauncher.cs`
+- `src/Porta.ControlCenter/MainWindow.Updates.cs`
+- `src/Porta.UserAgent/UserAgentHost/UserAgentHost.cs`
+- `src/Porta.UserAgent/Interventions/UserInterventionToastRenderer.cs`
+- `src/Porta.Agent.Core/AgentCoreController.cs`
+- `src/Porta.Agent.Common/UserAgent/CurrentSessionUserAgentRecoveryEvaluator.cs`
+- `src/Porta.Agent.ValidationRunner/Fleet/FleetValidationRunner.cs`
+
+## Runtime Roles
+
+- `AriAgent` service
+  - Machine-level runtime, local API host, deterministic engine, persistence, and regulation coordination.
+- `Porta.UserAgent`
+  - Interactive user-session process for tray state, direct user notifications, session heartbeat, and session-bound input capture.
+- `Porta.ControlCenter`
+  - WPF control surface for local truth, account/update UX, and diagnostics.
+
+## Install And Access Contract
+
+Current audited facts:
+
+- The MSI installs `ari.exe`, `Porta.UserAgent.exe`, and `Porta.ControlCenter.exe`.
+- The MSI creates an `HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run` entry named `PORTA User Agent` that launches `Porta.UserAgent.exe --startup-source=run-key`.
+- The MSI creates Start Menu and Desktop shortcuts for Control Center.
+- First install launches Control Center once after install when `NOT Installed` and `UILevel >= 5`.
+
+Locked contract:
+
+- Users must not have to manually launch `Porta.UserAgent` after install or after sign-in.
+- Users must be able to reopen PORTA from Start Menu or Desktop without knowing process names.
+- Installation and first-run copy must state that Ari runs in the background through the service plus `Porta.UserAgent`, and that Control Center is only the UI surface.
+
+## Control Center Closed
+
+Current audited facts:
+
+- Control Center is a normal WPF window and closes normally.
+- Closing Control Center stops the UI process only.
+- The service and `Porta.UserAgent` are separate binaries and are installed separately.
+
+Locked contract:
+
+- The user must not need the Control Center window open for Ari to function.
+- If `AriAgent` and `Porta.UserAgent` are healthy, Ari continues capturing, evaluating, and regulating when Control Center is closed.
+- Control Center is allowed to render truth and issue commands, but steady-state health must not depend on the UI being open.
+
+## Service Down
+
+Current audited facts:
+
+- `UserAgentVisualSignalsAdapter` already maps missing service/snapshot truth to unavailable states.
+- `UserAgentHost` already changes tray state to `Unavailable` when the local API is not configured or reachable.
+
+Locked contract:
+
+- If the service is down or the local API is unreachable, Ari must present an unavailable/degraded state and must not present stale healthy state as current truth.
+- Direct user communication may explain that core regulation is unavailable, but must not imply that live regulation is still active.
+
+## Porta.UserAgent Down
+
+Current audited facts:
+
+- `Porta.UserAgent` is the only audited interactive-session heartbeat publisher.
+- `AgentCoreController` rejects input packets when the heartbeat is missing, stale, or mismatched.
+- Control Center currently runs a 5-second `EnsureHealthy` watchdog while it is open.
+
+Locked contract:
+
+- If `Porta.UserAgent` dies, live capture and user-session regulation are degraded or unavailable.
+- That state must auto-recover without requiring the user to keep Control Center open.
+- The runtime must never silently treat a dead or mismatched `Porta.UserAgent` as healthy.
+
+## Session Switch
+
+Current audited facts:
+
+- Control Center currently reacts to `SessionLogon`, `SessionUnlock`, `ConsoleConnect`, and `RemoteConnect`.
+- The recovery evaluator already reasons about same-session process ownership, launch grace, stale heartbeat, and session mismatch.
+
+Locked contract:
+
+- After logon, unlock, console connect, or remote connect, there must be exactly one trusted `Porta.UserAgent` owner for the active session.
+- A previous session owner must not remain trusted after the active session changes.
+- Session convergence must not depend on manual refresh in Control Center.
+
+## Stale Heartbeat And Input Trust
+
+Current audited facts:
+
+- Heartbeat freshness window: `30s`.
+- Launch grace window: `12s`.
+- Control Center ensure throttle: `5s`.
+- Fleet validation runner expects degraded truth within `60s` after stopping `Porta.UserAgent` and recovery within `45s` after restart.
+
+Locked contract:
+
+- A heartbeat older than `30s` is stale and live input from that owner is not trusted.
+- Stale heartbeat, agent mismatch, and session mismatch must all produce degraded capture truth, not silent no-op behavior.
+- Automatic recovery should begin within the existing `5s` watchdog budget and should converge within the existing `45s` recovery budget used by validation.
+
+## Update Available
+
+Current audited facts:
+
+- Control Center checks the latest Windows release on a `30-minute` interval.
+- Availability today is determined by `manifest.version > local_version` and presence of `msiUrl`.
+- The current UX is an account banner plus update overlay.
+
+Locked contract:
+
+- Update availability is product-wide state, not only an account-page detail.
+- When an update is available, Control Center must show a visible global indicator and a clear entry point to the update surface.
+- The existence of an update must not require the user to discover the Account screen first.
+
+## Update Required
+
+Current audited facts:
+
+- A release is treated as required when `release.Required == true` or `current_version < minimumSupportedVersion`.
+- Current install flow downloads the MSI and launches `msiexec /i` elevated.
+
+Locked contract:
+
+- Required updates must be visibly distinguished from optional updates.
+- Update v1 remains MSI/WiX-based.
+- The update experience must be treated as upgrade flow, not first-install flow, even though the transport remains MSI.
+
+## Notification Categories
+
+Current audited facts:
+
+- The current direct user channel is the `Porta.UserAgent` tray/toast path.
+- The current pending-intervention executor directly supports break, focus lock-in, stretch break, and notification suppression/restore.
+- Recovery toast logic already exists for recent overload recovery events.
+
+Locked contract for notification v1:
+
+- Direct notifications must continue to use the existing `Porta.UserAgent` tray/toast path.
+- Voice is out of scope for v1 and remains opt-in for later work.
+- Ari must communicate directly to the user, without requiring Control Center, for these categories:
+  - suggestions made
+  - actions taken
+  - state transitions that matter to the user
+  - no-action guidance when Ari chooses not to act
+  - runtime degradation that limits capture or regulation
+  - update availability and update-required state, where appropriate
+
+## Non-Goals For This Contract
+
+- This contract does not migrate updates to MSIX/App Installer.
+- This contract does not make Control Center the tray runtime.
+- This contract does not introduce voice as a default channel.
+
+## Done When
+
+- Any engineer can answer whether Ari should still work when Control Center is closed without ambiguity.
+- Any engineer can classify service-down, user-agent-down, stale-heartbeat, and session-switch behavior against one written contract.
+- Future work on notifications, install UX, and updates can implement against this document instead of informal expectations.

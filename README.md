@@ -85,6 +85,8 @@ dotnet run --project src/Porta.ControlCenter/Porta.ControlCenter.csproj
 
 The MSI now packages `Porta.UserAgent.exe` separately from the machine service and installs a user-logon startup entry for it, so session-bound capture starts in the desktop session instead of inside the Windows service.
 
+The runtime contract for background behavior, capture health, user notifications, and Windows update handling is locked in `docs/runtime-contract.md`.
+
 ### Uninstall service
 
 ```powershell
@@ -122,6 +124,7 @@ The MSI now packages `Porta.UserAgent.exe` separately from the machine service a
 ## Docs
 
 - `docs/architecture.md`
+- `docs/runtime-contract.md`
 - `docs/project-boundaries.md`
 - `docs/step14-tray-app-full-ux.md`
 - `docs/step15-observability-alerts.md`
