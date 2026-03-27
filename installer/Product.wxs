@@ -10,7 +10,8 @@
     <SummaryInformation Description="Ari Agent Windows Service Installer" />
 
     <MajorUpgrade
-      DowngradeErrorMessage="A newer Ari Agent version is already installed." />
+      DowngradeErrorMessage="A newer Ari Agent version is already installed."
+      Schedule="afterInstallInitialize" />
 
     <MediaTemplate EmbedCab="yes" />
 
@@ -134,7 +135,7 @@
     <InstallExecuteSequence>
       <Custom Action="LaunchControlCenterAfterInstall"
               After="InstallFinalize"
-              Condition="NOT Installed AND UILevel &gt;= 5" />
+              Condition="NOT Installed AND NOT WIX_UPGRADE_DETECTED AND UILevel &gt;= 5" />
     </InstallExecuteSequence>
 
     <Feature Id="MainFeature" Title="Ari Agent" Level="1">

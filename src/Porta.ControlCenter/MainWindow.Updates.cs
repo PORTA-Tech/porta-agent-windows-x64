@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
@@ -14,6 +15,9 @@ namespace Porta.ControlCenter;
 
 public partial class MainWindow
 {
+    private const string UpdateServiceName = "AriAgent";
+    private const string UpdateInstallHelperFileName = "windows-update.install.ps1";
+    private const string UpdateInstallStatusFileName = "windows-update.status.json";
     private static readonly TimeSpan ClientReleaseCheckInterval = TimeSpan.FromMinutes(30);
     private static readonly ImageSource UpdateTaskbarOverlayImage = BuildUpdateTaskbarOverlayImage();
 
@@ -23,9 +27,13 @@ public partial class MainWindow
     private bool _updateOverlayOpen;
     private bool _updateInstallInProgress;
     private string _updateStatusMessage = "App updates are checked automatically when a release is published.";
+    private bool _updateOutcomeLoaded;
+    private UpdateInstallOutcome? _latestUpdateOutcome;
 
     private async Task RefreshWindowsReleaseAsync(bool force)
     {
+        EnsureUpdateOutcomeLoaded();
+
         bool shouldRefresh = force
             || _latestWindowsRelease == null
             || (DateTimeOffset.UtcNow - _lastWindowsReleaseCheckUtc) >= ClientReleaseCheckInterval;
@@ -44,16 +52,24 @@ public partial class MainWindow
             _updateOverlayOpen = false;
             if (!_updateInstallInProgress)
             {
-                _updateStatusMessage = $"This PC is on version {_uiVersion}.";
+                _updateStatusMessage = _latestUpdateOutcome != null
+                    ? BuildUpdateOutcomeStatusText(_latestUpdateOutcome)
+                    : $"This PC is on version {_uiVersion}.";
             }
 
             return;
         }
 
         bool isNewVersion = !string.Equals(previousVersion, _latestWindowsRelease.Version, StringComparison.OrdinalIgnoreCase);
-        if (isNewVersion || !_updateInstallInProgress)
+        bool showOutcomeForCurrentRelease = _latestUpdateOutcome != null
+            && !string.Equals(_latestUpdateOutcome.Version, _uiVersion, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(_latestUpdateOutcome.Version, _latestWindowsRelease.Version, StringComparison.OrdinalIgnoreCase);
+
+        if (!_updateInstallInProgress)
         {
-            _updateStatusMessage = BuildUpdateStatusText(_latestWindowsRelease);
+            _updateStatusMessage = showOutcomeForCurrentRelease
+                ? BuildUpdateOutcomeStatusText(_latestUpdateOutcome!)
+                : BuildUpdateStatusText(_latestWindowsRelease);
         }
 
         if (isNewVersion)
@@ -97,6 +113,7 @@ public partial class MainWindow
                 WindowTaskbarItemInfo.Overlay = null;
                 WindowTaskbarItemInfo.Description = "PORTA";
             }
+
             UpdateOverlay.Visibility = Visibility.Collapsed;
             return;
         }
@@ -156,7 +173,7 @@ public partial class MainWindow
             ? $"This update is required because version {_uiVersion} is below the supported floor."
             : release.Required
                 ? "This update is marked as required for signed-in users."
-                : "Install it now, or come back later from the Account screen.";
+                : "Install it now or come back later from the Account screen.";
         string summary = string.IsNullOrWhiteSpace(release.Summary)
             ? "A newer Windows build is available for this machine."
             : release.Summary.Trim();
@@ -165,7 +182,22 @@ public partial class MainWindow
 
     private string BuildUpdateStatusText(ControlPlaneWindowsReleaseManifest release)
     {
-        return $"This PC is on {_uiVersion}. Download {release.Version} when you are ready.";
+        return $"This PC is on {_uiVersion}. Install {release.Version} now and Ari will update in place, then reopen automatically.";
+    }
+
+    private string BuildUpdateOutcomeStatusText(UpdateInstallOutcome outcome)
+    {
+        if (outcome.Succeeded)
+        {
+            return outcome.RestartRequired
+                ? $"Ari {outcome.Version} installed successfully. Windows may need a restart to finish the upgrade."
+                : $"Ari {outcome.Version} installed successfully.";
+        }
+
+        string message = string.IsNullOrWhiteSpace(outcome.Message)
+            ? "The update could not finish."
+            : outcome.Message.Trim();
+        return $"Ari {outcome.Version} could not finish updating. {message}";
     }
 
     private bool IsMinimumVersionRequired(ControlPlaneWindowsReleaseManifest release)
@@ -230,20 +262,29 @@ public partial class MainWindow
             return;
         }
 
+        bool shuttingDownForUpdate = false;
+
         try
         {
             _updateInstallInProgress = true;
             _updateStatusMessage = $"Downloading Ari {_latestWindowsRelease.Version}...";
             PopulateAccountSurface();
 
-            string installerPath = await DownloadWindowsReleaseInstallerAsync(_latestWindowsRelease).ConfigureAwait(true);
-            _updateStatusMessage = $"Installer downloaded. Windows will ask for permission to install Ari {_latestWindowsRelease.Version}.";
+            Uri downloadUri = GetValidatedDownloadUri(_latestWindowsRelease);
+            string installerPath = await DownloadWindowsReleaseInstallerAsync(_latestWindowsRelease, downloadUri).ConfigureAwait(true);
+            UpdateInstallLaunchPlan launchPlan = PrepareUpdateInstallLaunchPlan(_latestWindowsRelease, installerPath, downloadUri);
+
+            _updateStatusMessage = $"Ari {_latestWindowsRelease.Version} is ready to update. PORTA will close, replace the installed version, and reopen automatically.";
             PopulateAccountSurface();
 
-            LaunchInstaller(installerPath);
-            _updateStatusMessage = $"Installer launched for Ari {_latestWindowsRelease.Version}. Finish the Windows installer to update this PC.";
+            LaunchInstaller(launchPlan);
             _updateOverlayOpen = false;
-            ControlCenterFileLog.Info($"windows_update_installer_launched version={_latestWindowsRelease.Version}");
+            _dismissedWindowsReleaseVersion = null;
+            shuttingDownForUpdate = true;
+            ControlCenterFileLog.Info($"windows_update_installer_launched version={_latestWindowsRelease.Version} helper={launchPlan.HelperScriptPath}");
+
+            await Task.Delay(200).ConfigureAwait(true);
+            Application.Current.Shutdown();
         }
         catch (Exception ex)
         {
@@ -259,11 +300,14 @@ public partial class MainWindow
         finally
         {
             _updateInstallInProgress = false;
-            PopulateAccountSurface();
+            if (!shuttingDownForUpdate && !(Application.Current?.Dispatcher.HasShutdownStarted ?? false))
+            {
+                PopulateAccountSurface();
+            }
         }
     }
 
-    private async Task<string> DownloadWindowsReleaseInstallerAsync(ControlPlaneWindowsReleaseManifest release)
+    private static Uri GetValidatedDownloadUri(ControlPlaneWindowsReleaseManifest release)
     {
         if (!Uri.TryCreate(release.MsiUrl, UriKind.Absolute, out Uri? downloadUri))
         {
@@ -275,37 +319,90 @@ public partial class MainWindow
             throw new InvalidOperationException("Update downloads must use HTTPS.");
         }
 
-        string updatesRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PortaAgent",
-            "Updates");
-        Directory.CreateDirectory(updatesRoot);
+        return downloadUri;
+    }
 
+    private async Task<string> DownloadWindowsReleaseInstallerAsync(ControlPlaneWindowsReleaseManifest release, Uri downloadUri)
+    {
+        string updatesRoot = GetUpdatesRoot();
         string safeVersion = SanitizeVersionForFileName(release.Version);
         string targetPath = Path.Combine(updatesRoot, $"AriAgentInstaller-{safeVersion}.msi");
         string tempPath = targetPath + ".download";
 
-        using var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
-        using HttpResponseMessage response = await httpClient.GetAsync(downloadUri, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-
-        await using (FileStream destination = new(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        if (!downloadUri.IsLoopback && string.IsNullOrWhiteSpace(release.Sha256))
         {
-            await response.Content.CopyToAsync(destination).ConfigureAwait(false);
+            throw new InvalidOperationException("Published Windows updates must include a SHA-256 checksum.");
         }
 
-        if (!string.IsNullOrWhiteSpace(release.Sha256))
+        try
         {
-            string actual = await ComputeSha256Async(tempPath).ConfigureAwait(false);
-            if (!string.Equals(actual, release.Sha256.Trim(), StringComparison.OrdinalIgnoreCase))
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+            using HttpResponseMessage response = await httpClient.GetAsync(downloadUri, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            await using (FileStream destination = new(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
             {
-                File.Delete(tempPath);
-                throw new InvalidOperationException("The downloaded update did not match the expected signature.");
+                await response.Content.CopyToAsync(destination).ConfigureAwait(false);
             }
+
+            if (!string.IsNullOrWhiteSpace(release.Sha256))
+            {
+                string actual = await ComputeSha256Async(tempPath).ConfigureAwait(false);
+                if (!string.Equals(actual, release.Sha256.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("The downloaded update did not match the published SHA-256 checksum.");
+                }
+            }
+
+            File.Move(tempPath, targetPath, overwrite: true);
+            return targetPath;
+        }
+        catch
+        {
+            DeleteFileQuietly(tempPath);
+            throw;
+        }
+    }
+
+    private UpdateInstallLaunchPlan PrepareUpdateInstallLaunchPlan(
+        ControlPlaneWindowsReleaseManifest release,
+        string installerPath,
+        Uri downloadUri)
+    {
+        if (!File.Exists(installerPath))
+        {
+            throw new FileNotFoundException("The downloaded installer was not found.", installerPath);
         }
 
-        File.Move(tempPath, targetPath, overwrite: true);
-        return targetPath;
+        string updatesRoot = GetUpdatesRoot();
+        string safeVersion = SanitizeVersionForFileName(release.Version);
+        string helperScriptPath = Path.Combine(updatesRoot, UpdateInstallHelperFileName);
+        string contextPath = Path.Combine(updatesRoot, $"windows-update-{safeVersion}.context.json");
+        string logPath = Path.Combine(updatesRoot, $"windows-update-{safeVersion}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.log");
+        string statusPath = GetUpdateInstallStatusPath();
+        string currentControlCenterPath = Process.GetCurrentProcess().MainModule?.FileName
+            ?? Path.Combine(AppContext.BaseDirectory, "Porta.ControlCenter.exe");
+
+        DeleteFileQuietly(statusPath);
+        File.WriteAllText(helperScriptPath, BuildUpdateInstallerHelperScript());
+
+        var context = new UpdateInstallContext(
+            InstallerPath: installerPath,
+            ExpectedSha256: NormalizeHash(release.Sha256),
+            RequireSha256Validation: !downloadUri.IsLoopback,
+            RequireSignatureValidation: !downloadUri.IsLoopback,
+            Version: release.Version,
+            ServiceName: UpdateServiceName,
+            CurrentControlCenterPid: Environment.ProcessId,
+            CurrentControlCenterPath: currentControlCenterPath,
+            RestartControlCenterPath: currentControlCenterPath,
+            StatusPath: statusPath,
+            LogPath: logPath);
+
+        string contextJson = JsonSerializer.Serialize(context);
+        File.WriteAllText(contextPath, contextJson);
+
+        return new UpdateInstallLaunchPlan(helperScriptPath, contextPath, context);
     }
 
     private static async Task<string> ComputeSha256Async(string path)
@@ -326,21 +423,291 @@ public partial class MainWindow
         return sanitized;
     }
 
-    private static void LaunchInstaller(string installerPath)
+    private static string NormalizeHash(string? value)
     {
-        if (!File.Exists(installerPath))
+        return string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : value.Trim().ToLowerInvariant();
+    }
+
+    private static string GetUpdatesRoot()
+    {
+        string updatesRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PortaAgent",
+            "Updates");
+        Directory.CreateDirectory(updatesRoot);
+        return updatesRoot;
+    }
+
+    private static string GetUpdateInstallStatusPath() => Path.Combine(GetUpdatesRoot(), UpdateInstallStatusFileName);
+
+    private void EnsureUpdateOutcomeLoaded()
+    {
+        if (_updateOutcomeLoaded)
         {
-            throw new FileNotFoundException("The downloaded installer was not found.", installerPath);
+            return;
+        }
+
+        _updateOutcomeLoaded = true;
+        string statusPath = GetUpdateInstallStatusPath();
+        if (!File.Exists(statusPath))
+        {
+            return;
+        }
+
+        try
+        {
+            string json = File.ReadAllText(statusPath);
+            _latestUpdateOutcome = JsonSerializer.Deserialize<UpdateInstallOutcome>(
+                json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (_latestUpdateOutcome != null)
+            {
+                _updateStatusMessage = BuildUpdateOutcomeStatusText(_latestUpdateOutcome);
+            }
+        }
+        catch (Exception ex)
+        {
+            ControlCenterFileLog.Error("windows_update_outcome_load_failed", ex);
+        }
+        finally
+        {
+            DeleteFileQuietly(statusPath);
+        }
+    }
+
+    private static void DeleteFileQuietly(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static void LaunchInstaller(UpdateInstallLaunchPlan launchPlan)
+    {
+        if (!File.Exists(launchPlan.Context.InstallerPath))
+        {
+            throw new FileNotFoundException("The downloaded installer was not found.", launchPlan.Context.InstallerPath);
+        }
+
+        if (!File.Exists(launchPlan.HelperScriptPath))
+        {
+            throw new FileNotFoundException("The update helper script was not found.", launchPlan.HelperScriptPath);
+        }
+
+        string powershellPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.System),
+            "WindowsPowerShell",
+            "v1.0",
+            "powershell.exe");
+        if (!File.Exists(powershellPath))
+        {
+            powershellPath = "powershell.exe";
         }
 
         Process.Start(new ProcessStartInfo
         {
-            FileName = "msiexec.exe",
-            Arguments = $"/i \"{installerPath}\"",
+            FileName = powershellPath,
+            Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{launchPlan.HelperScriptPath}\" -ContextPath \"{launchPlan.ContextPath}\"",
             UseShellExecute = true,
             Verb = "runas",
-            WorkingDirectory = Path.GetDirectoryName(installerPath) ?? AppContext.BaseDirectory
+            WorkingDirectory = Path.GetDirectoryName(launchPlan.Context.InstallerPath) ?? AppContext.BaseDirectory
         });
+    }
+
+    private static string BuildUpdateInstallerHelperScript()
+    {
+        return """
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$ContextPath
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+$script:Context = $null
+$script:InstallerExitCode = 1
+$script:RestartRequired = $false
+$script:ServiceSeen = $false
+
+function Write-UpdateStatus {
+    param(
+        [bool]$Succeeded,
+        [string]$Version,
+        [bool]$RestartRequired,
+        [int]$ExitCode,
+        [string]$Message,
+        [string]$LogPath
+    )
+
+    if ($null -eq $script:Context -or [string]::IsNullOrWhiteSpace($script:Context.StatusPath)) {
+        return
+    }
+
+    $payload = [ordered]@{
+        succeeded = $Succeeded
+        version = $Version
+        restartRequired = $RestartRequired
+        exitCode = $ExitCode
+        message = $Message
+        logPath = $LogPath
+        completedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
+    }
+
+    $payload | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $script:Context.StatusPath -Encoding UTF8
+}
+
+function Wait-ForProcessExit {
+    param(
+        [int]$ProcessId,
+        [int]$TimeoutSeconds
+    )
+
+    if ($ProcessId -le 0) {
+        return
+    }
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+        if ($null -eq $process) {
+            return
+        }
+
+        Start-Sleep -Milliseconds 500
+    }
+
+    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if ($null -ne $process) {
+        Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Start-ControlCenter {
+    param(
+        [string]$PreferredPath,
+        [string]$FallbackPath
+    )
+
+    $launchPath = $null
+    if (-not [string]::IsNullOrWhiteSpace($PreferredPath) -and (Test-Path $PreferredPath)) {
+        $launchPath = $PreferredPath
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($FallbackPath) -and (Test-Path $FallbackPath)) {
+        $launchPath = $FallbackPath
+    }
+
+    if ([string]::IsNullOrWhiteSpace($launchPath)) {
+        return
+    }
+
+    $explorerPath = Join-Path $env:WINDIR "explorer.exe"
+    Start-Process -FilePath $explorerPath -ArgumentList @($launchPath) -ErrorAction SilentlyContinue | Out-Null
+}
+
+try {
+    $script:Context = Get-Content -LiteralPath $ContextPath -Raw | ConvertFrom-Json
+    if (-not (Test-Path $script:Context.InstallerPath)) {
+        throw "The downloaded update package is missing."
+    }
+
+    if ($script:Context.RequireSha256Validation -and [string]::IsNullOrWhiteSpace($script:Context.ExpectedSha256)) {
+        throw "The published update is missing a SHA-256 checksum."
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($script:Context.ExpectedSha256)) {
+        $actualHash = (Get-FileHash -LiteralPath $script:Context.InstallerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne $script:Context.ExpectedSha256.ToLowerInvariant()) {
+            throw "The downloaded update package no longer matches the published SHA-256 checksum."
+        }
+    }
+
+    if ($script:Context.RequireSignatureValidation) {
+        $signature = Get-AuthenticodeSignature -LiteralPath $script:Context.InstallerPath
+        if ($signature.Status -ne "Valid") {
+            throw "The downloaded update package is not signed with a valid Windows Authenticode signature. Status: $($signature.Status)."
+        }
+    }
+
+    Wait-ForProcessExit -ProcessId ([int]$script:Context.CurrentControlCenterPid) -TimeoutSeconds 45
+
+    if (-not [string]::IsNullOrWhiteSpace($script:Context.ServiceName)) {
+        $service = Get-Service -Name $script:Context.ServiceName -ErrorAction SilentlyContinue
+        if ($null -ne $service) {
+            $script:ServiceSeen = $true
+            if ($service.Status -ne "Stopped") {
+                Stop-Service -Name $script:Context.ServiceName -Force -ErrorAction Stop
+                $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
+            }
+        }
+    }
+
+    Get-Process -Name "Porta.UserAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process -Name "Porta.ControlCenter" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+    $msiArguments = @(
+        "/i", $script:Context.InstallerPath,
+        "/qn",
+        "/norestart",
+        "REBOOT=ReallySuppress",
+        "/L*V", $script:Context.LogPath
+    )
+
+    $msiProcess = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArguments -Wait -PassThru -WindowStyle Hidden
+    $script:InstallerExitCode = $msiProcess.ExitCode
+    $script:RestartRequired = $script:InstallerExitCode -eq 3010
+
+    if (($script:InstallerExitCode -ne 0) -and ($script:InstallerExitCode -ne 3010)) {
+        throw "Windows Installer failed with exit code $($script:InstallerExitCode). See log at $($script:Context.LogPath)."
+    }
+
+    $successMessage = if ($script:RestartRequired) {
+        "Ari updated successfully. Windows may need a restart to finish the upgrade."
+    }
+    else {
+        "Ari updated successfully."
+    }
+
+    Write-UpdateStatus -Succeeded $true `
+        -Version $script:Context.Version `
+        -RestartRequired $script:RestartRequired `
+        -ExitCode $script:InstallerExitCode `
+        -Message $successMessage `
+        -LogPath $script:Context.LogPath
+}
+catch {
+    $message = $_.Exception.Message
+    Write-UpdateStatus -Succeeded $false `
+        -Version $(if ($null -ne $script:Context) { $script:Context.Version } else { "unknown" }) `
+        -RestartRequired $false `
+        -ExitCode $script:InstallerExitCode `
+        -Message $message `
+        -LogPath $(if ($null -ne $script:Context) { $script:Context.LogPath } else { "" })
+}
+finally {
+    if ($script:ServiceSeen -and -not [string]::IsNullOrWhiteSpace($script:Context.ServiceName)) {
+        try {
+            Start-Service -Name $script:Context.ServiceName -ErrorAction Stop
+        }
+        catch {
+        }
+    }
+
+    if ($null -ne $script:Context) {
+        Start-ControlCenter -PreferredPath $script:Context.RestartControlCenterPath -FallbackPath $script:Context.CurrentControlCenterPath
+    }
+}
+
+exit $script:InstallerExitCode
+""";
     }
 
     private void GlobalUpdateButton_Click(object sender, RoutedEventArgs e)
@@ -413,4 +780,31 @@ public partial class MainWindow
         bitmap.Freeze();
         return bitmap;
     }
+
+    private sealed record UpdateInstallContext(
+        string InstallerPath,
+        string ExpectedSha256,
+        bool RequireSha256Validation,
+        bool RequireSignatureValidation,
+        string Version,
+        string ServiceName,
+        int CurrentControlCenterPid,
+        string CurrentControlCenterPath,
+        string RestartControlCenterPath,
+        string StatusPath,
+        string LogPath);
+
+    private sealed record UpdateInstallLaunchPlan(
+        string HelperScriptPath,
+        string ContextPath,
+        UpdateInstallContext Context);
+
+    private sealed record UpdateInstallOutcome(
+        bool Succeeded,
+        string Version,
+        bool RestartRequired,
+        int ExitCode,
+        string? Message,
+        string? LogPath,
+        DateTimeOffset? CompletedAtUtc);
 }

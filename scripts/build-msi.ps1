@@ -3,7 +3,11 @@ param(
     [string]$Version = "1.0.10",
     [string]$BackendUrl = "https://porta-control-plane.onrender.com",
     [string]$Configuration = "Release",
-    [string]$Runtime = "win-x64"
+    [string]$Runtime = "win-x64",
+    [string]$SignToolPath = $env:PORTA_SIGNTOOL_PATH,
+    [string]$SigningThumbprint = $env:PORTA_SIGNING_CERT_THUMBPRINT,
+    [string]$TimestampUrl = $env:PORTA_SIGNING_TIMESTAMP_URL,
+    [switch]$RequireSigning
 )
 
 Set-StrictMode -Version Latest
@@ -65,6 +69,75 @@ function Merge-PayloadDirectory {
 
         Copy-Item $_.FullName $targetPath -Force
     }
+}
+
+function Resolve-SignTool {
+    param(
+        [string]$ConfiguredPath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($ConfiguredPath)) {
+        if (-not (Test-Path $ConfiguredPath)) {
+            throw "Configured SignTool path '$ConfiguredPath' does not exist."
+        }
+
+        return (Resolve-Path $ConfiguredPath).Path
+    }
+
+    $command = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    if ($null -ne $command) {
+        return $command.Source
+    }
+
+    return $null
+}
+
+function Sign-MsiIfConfigured {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$MsiPath
+    )
+
+    $signTool = Resolve-SignTool -ConfiguredPath $SignToolPath
+    $hasSigningInputs = -not [string]::IsNullOrWhiteSpace($SigningThumbprint)
+
+    if (-not $hasSigningInputs) {
+        if ($RequireSigning) {
+            throw "MSI signing is required, but no signing thumbprint was provided."
+        }
+
+        Write-Warning "MSI signing skipped because no signing thumbprint was provided."
+        return
+    }
+
+    if ([string]::IsNullOrWhiteSpace($signTool)) {
+        throw "MSI signing was requested, but signtool.exe could not be found."
+    }
+
+    $arguments = @(
+        "sign",
+        "/fd", "sha256",
+        "/sha1", $SigningThumbprint
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($TimestampUrl)) {
+        $arguments += @("/tr", $TimestampUrl, "/td", "sha256")
+    }
+
+    $arguments += $MsiPath
+
+    Write-Host "Signing MSI with Authenticode..."
+    & $signTool @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "MSI signing failed with exit code $LASTEXITCODE."
+    }
+
+    $signature = Get-AuthenticodeSignature -LiteralPath $MsiPath
+    if ($signature.Status -ne "Valid") {
+        throw "MSI signing completed, but signature validation returned '$($signature.Status)'."
+    }
+
+    Write-Host "MSI signature validated."
 }
 
 Write-Host "Publishing ari.exe ($Configuration, $Runtime)..."
@@ -129,4 +202,12 @@ $msi = Get-ChildItem (Join-Path $repoRoot "installer/bin") -Filter "*.msi" -Recu
 if (-not $msi) {
     throw "No MSI was produced under installer/bin."
 }
-$msi | Select-Object -First 1 FullName, Length, LastWriteTime
+$latestMsi = $msi | Select-Object -First 1
+
+Sign-MsiIfConfigured -MsiPath $latestMsi.FullName
+
+$hash = Get-FileHash -LiteralPath $latestMsi.FullName -Algorithm SHA256
+Write-Host "MSI SHA256: $($hash.Hash.ToLowerInvariant())"
+$signatureStatus = (Get-AuthenticodeSignature -LiteralPath $latestMsi.FullName).Status
+Write-Host "MSI signature status: $signatureStatus"
+$latestMsi | Select-Object FullName, Length, LastWriteTime
