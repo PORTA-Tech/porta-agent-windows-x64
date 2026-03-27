@@ -40,6 +40,7 @@ public partial class MainWindow : Window
     private static readonly TimeSpan TopMetricAnimationFrameInterval = TimeSpan.FromMilliseconds(16);
     private const string EventCursorFileName = "control-center.events.cursor";
     private const string RecoveryAckFileName = "control-center.recovery.ack";
+    private const string OnboardingAckFileName = "control-center.onboarding.ack";
     private const double WheelScrollPixelsPerLine = 18d;
     private const double StartupWindowHorizontalMargin = 36d;
     private const double StartupWindowTopMargin = 24d;
@@ -83,6 +84,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, DispatcherTimer> _topMetricAnimationTimers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _topMetricAnimationLastValues = new(StringComparer.Ordinal);
     private UiSection _activeSection = UiSection.Overview;
+    private bool _showOnboardingOverlay;
     private PortaVisualState _latestVisualState = VisualStateAdapter.Build(
         status: null,
         snapshot: null,
@@ -131,8 +133,15 @@ public partial class MainWindow : Window
         UpdateWindowChromeButtons();
         _lastSeenEventId = LoadLastSeenEventId();
         _dismissedRecoveryEventId = LoadRecoveryAckEventId();
+        _showOnboardingOverlay = !LoadOnboardingAcknowledged();
         UiVersionText.Text = _uiVersion;
         InitializePauseUntilControls();
+        PopulateOnboardingSurface(
+            ProbeServiceStatus(),
+            IsTrayRunning(),
+            apiReachable: false,
+            status: null,
+            statusFresh: false);
         _settingsAutoSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
         _settingsAutoSaveTimer.Tick += async (_, _) =>
         {
@@ -456,6 +465,7 @@ public partial class MainWindow : Window
         ApiReachableValue.Text = apiReachable ? "Yes" : "No";
         ApiPortValue.Text = endpoint?.Port.ToString(CultureInfo.InvariantCulture) ?? "Unavailable";
         UpdateDebugFooter(nowTruth, statusFresh);
+        PopulateOnboardingSurface(serviceProbe, trayRunning, apiReachable, _latestStatus, statusFresh);
 
         if (_latestStatus == null)
         {
@@ -2749,6 +2759,49 @@ public partial class MainWindow : Window
     private static string BuildRecoveryAckPath()
     {
         return BuildLocalStatePath(RecoveryAckFileName);
+    }
+
+    private static bool LoadOnboardingAcknowledged()
+    {
+        try
+        {
+            string path = BuildOnboardingAckPath();
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
+            string raw = File.ReadAllText(path).Trim();
+            return !string.IsNullOrWhiteSpace(raw);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void SaveOnboardingAcknowledged()
+    {
+        try
+        {
+            string path = BuildOnboardingAckPath();
+            string? dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            File.WriteAllText(path, DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture), Encoding.UTF8);
+        }
+        catch
+        {
+            // Best effort onboarding persistence.
+        }
+    }
+
+    private static string BuildOnboardingAckPath()
+    {
+        return BuildLocalStatePath(OnboardingAckFileName);
     }
 
     private static string BuildLocalStatePath(string fileName)

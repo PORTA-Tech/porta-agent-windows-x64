@@ -96,7 +96,7 @@
         <Component Id="ControlCenterShortcutComponent" Guid="793eb375-d584-408c-a9c9-fea663f1ac94">
           <Shortcut Id="ControlCenterShortcut"
                     Name="PORTA Control Center"
-                    Description="Open PORTA Control Center"
+                    Description="Open PORTA Control Center. Ari keeps running in the background."
                     Target="[INSTALLFOLDER]Porta.ControlCenter.exe"
                     WorkingDirectory="INSTALLFOLDER" />
           <RemoveFolder Id="RemoveAriProgramMenuFolder" On="uninstall" />
@@ -114,7 +114,7 @@
       <Component Id="DesktopShortcutComponent" Guid="150d2e79-b80d-4697-b0a5-0d3571fc2b3d">
         <Shortcut Id="DesktopControlCenterShortcut"
                   Name="PORTA"
-                  Description="Open PORTA"
+                  Description="Open PORTA. Ari keeps running in the background."
                   Target="[INSTALLFOLDER]Porta.ControlCenter.exe"
                   WorkingDirectory="INSTALLFOLDER" />
         <RegistryValue Root="HKCU"
