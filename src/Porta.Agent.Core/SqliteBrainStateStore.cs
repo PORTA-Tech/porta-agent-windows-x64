@@ -6208,6 +6208,21 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             "break_suggestion" => "show_break_toast",
             "focus_lock_in_suggestion" => "show_focus_lock_in_toast",
             "stretch_break_suggestion" => "show_stretch_break_toast",
+            "inform_overload_risk" => "show_status_toast",
+            "inform_focus_protection" => "show_status_toast",
+            "inform_fatigue_prevention" => "show_status_toast",
+            "focus_mode_enabled" => "show_status_toast",
+            "focus_assist_enabled" => "show_status_toast",
+            "fatigue_relief_enabled" => "show_status_toast",
+            "temporary_app_restriction_enabled" => "show_status_toast",
+            "overload_brightness_reduced" => "show_status_toast",
+            "overload_brightness_restored" => "show_status_toast",
+            "brightness_unsupported" => "show_status_toast",
+            "brightness_control_failed" => "show_status_toast",
+            "notification_snapshot_failed" => "show_status_toast",
+            "notification_suppress_failed" => "show_status_toast",
+            "notification_restore_failed" => "show_status_toast",
+            "overload_recovered" => "show_status_toast",
             "deep_work_notifications_suppressed" => "suppress_notifications",
             "deep_work_notifications_restored" => "restore_notifications",
             _ => string.Empty
@@ -6222,16 +6237,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
 
         string action = controlEvent.Action?.Trim().ToLowerInvariant() ?? string.Empty;
-        string title = "PORTA";
-        string message = action switch
-        {
-            "break_suggestion" => "Take a short break.",
-            "focus_lock_in_suggestion" => "Stay with this task and protect your focus.",
-            "stretch_break_suggestion" => "Take a stretch break.",
-            "deep_work_notifications_suppressed" => "Suppress notifications for deep work.",
-            "deep_work_notifications_restored" => "Restore notifications after deep work.",
-            _ => controlEvent.WhatChanged
-        };
+        string title = ResolveInterventionToastTitle(action);
+        string message = ResolveInterventionToastMessage(controlEvent, action);
 
         return JsonSerializer.Serialize(new
         {
@@ -6240,12 +6247,75 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             command_type = commandType,
             title,
             message,
+            what_changed = controlEvent.WhatChanged ?? string.Empty,
+            how_to_undo = controlEvent.HowToUndo ?? string.Empty,
             duration_seconds = controlEvent.DurationSeconds ?? 8,
             confidence = controlEvent.Confidence,
             policy_id = controlEvent.PolicyId,
             domain = controlEvent.Domain,
             intervention_id = controlEvent.InterventionId
         });
+    }
+
+    private static string ResolveInterventionToastTitle(string action)
+    {
+        return action switch
+        {
+            "brightness_unsupported" or "brightness_control_failed" or "notification_snapshot_failed"
+                or "notification_suppress_failed" or "notification_restore_failed"
+                => "Ari limited",
+            _ => "Ari"
+        };
+    }
+
+    private static string ResolveInterventionToastMessage(AgentControlEvent controlEvent, string action)
+    {
+        return action switch
+        {
+            "break_suggestion"
+                => "Overload is rising. Take a short break now.",
+            "focus_lock_in_suggestion"
+                => "Deep work is building. Stay with this task and protect your focus.",
+            "stretch_break_suggestion"
+                => "Fatigue is rising. Take a short stretch break.",
+            "inform_overload_risk"
+                => "Overload is rising. Ari has not changed Windows yet. Slow down or take a short break if this keeps building.",
+            "inform_focus_protection"
+                => "Focus is building. Ari has not changed Windows yet. Keep this task open and avoid switching if you can.",
+            "inform_fatigue_prevention"
+                => "Fatigue is building. Ari has not taken direct action yet. Stretch, blink, or stand up briefly if needed.",
+            "focus_mode_enabled"
+                => "Ari tightened focus protection because overload is rising. Reduce switching and keep one task in front of you.",
+            "focus_assist_enabled"
+                => "Ari started focus protection for this work block. Keep this task open and avoid interruptions if you can.",
+            "fatigue_relief_enabled"
+                => "Ari switched into fatigue relief. Slow down, stretch, and give your eyes a short reset.",
+            "temporary_app_restriction_enabled"
+                => "Ari escalated focus protection because overload stayed high. Stay off distracting apps for a few minutes.",
+            "deep_work_notifications_suppressed"
+                => "Deep work started. Ari muted Windows notification banners to protect your focus.",
+            "deep_work_notifications_restored"
+                => "Deep work ended. Ari restored Windows notification banners.",
+            "overload_brightness_reduced"
+                => "Overload is rising. Ari lowered screen brightness to reduce strain.",
+            "overload_brightness_restored"
+                => "Overload eased. Ari restored your previous screen brightness.",
+            "brightness_unsupported"
+                => "Ari tried to lower screen brightness for overload, but this device does not allow it. Lower brightness manually if needed.",
+            "brightness_control_failed"
+                => "Ari tried to lower screen brightness for overload, but Windows did not apply it. Lower brightness manually if needed.",
+            "notification_snapshot_failed"
+                => "Ari could not read the current Windows notification state. If focus protection matters right now, mute notifications manually.",
+            "notification_suppress_failed"
+                => "Ari could not mute Windows notifications for deep work. Silence notifications manually if you need a protected focus block.",
+            "notification_restore_failed"
+                => "Ari could not restore Windows notification settings cleanly. Check notification banners if they still look wrong.",
+            "overload_recovered"
+                => "Overload eased. Ari returned to normal monitoring.",
+            _ when !string.IsNullOrWhiteSpace(controlEvent.WhatChanged)
+                => controlEvent.WhatChanged!,
+            _ => "Ari recorded a new state change."
+        };
     }
 
     private static string NormalizeExecutionResult(string result)

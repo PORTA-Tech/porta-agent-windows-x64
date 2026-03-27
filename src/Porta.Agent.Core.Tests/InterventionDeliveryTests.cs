@@ -270,6 +270,102 @@ public sealed class InterventionDeliveryTests
     }
 
     [Fact]
+    public void SqliteStore_QueuesInformAction_AsStatusToast()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"porta-status-interventions-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new SqliteBrainStateStore(
+                new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
+                new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+                dbPath);
+
+            DateTimeOffset eventUtc = DateTimeOffset.UtcNow;
+            store.WriteControlEvent(new AgentControlEvent(
+                TimestampUtc: eventUtc,
+                Action: "inform_overload_risk",
+                TriggerState: "overload",
+                TriggerValue: 0.72d,
+                Confidence: 0.87d,
+                DurationSeconds: 60,
+                EscalationLevel: "Inform",
+                Reversible: false,
+                Reason: "test",
+                Contributors: ["test"],
+                InterventionId: "inform-1",
+                PolicyId: "overload-relief-v1",
+                Domain: "overload",
+                WhatChanged: "Overload risk logged for transparency; no direct system setting changed.",
+                HowToUndo: "No undo required; this action is informational only."));
+
+            AgentPendingIntervention pending = Assert.Single(store.ReadPendingInterventions("session-13", 10));
+            Assert.Equal("show_status_toast", pending.CommandType);
+            Assert.Contains("Overload is rising", pending.PayloadJson, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(dbPath))
+                {
+                    File.Delete(dbPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void SqliteStore_QueuesDeepWorkSuppression_WithUserFacingToastPayload()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"porta-deepwork-payload-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new SqliteBrainStateStore(
+                new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
+                new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+                dbPath);
+
+            DateTimeOffset eventUtc = DateTimeOffset.UtcNow;
+            store.WriteControlEvent(new AgentControlEvent(
+                TimestampUtc: eventUtc,
+                Action: "deep_work_notifications_suppressed",
+                TriggerState: "deep_work",
+                TriggerValue: 0.88d,
+                Confidence: 0.88d,
+                DurationSeconds: null,
+                EscalationLevel: "Auto",
+                Reversible: true,
+                Reason: "queued",
+                Contributors: [],
+                InterventionId: "dw-payload-1",
+                PolicyId: "deep_work_notifications_v1",
+                Domain: "output_action",
+                WhatChanged: "Notification suppression requested for deep work protection.",
+                HowToUndo: "Automatically restored when deep work exits."));
+
+            AgentPendingIntervention pending = Assert.Single(store.ReadPendingInterventions("session-14", 10));
+            Assert.Equal("suppress_notifications", pending.CommandType);
+            Assert.Contains("Deep work started", pending.PayloadJson, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(dbPath))
+                {
+                    File.Delete(dbPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
     public void SqliteStore_DoesNotReturnSupersededOrExpiredBreakSuggestions_AsPending()
     {
         string dbPath = Path.Combine(Path.GetTempPath(), $"porta-interventions-stale-{Guid.NewGuid():N}.db");

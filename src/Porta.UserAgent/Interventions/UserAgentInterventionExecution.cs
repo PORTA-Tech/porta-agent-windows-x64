@@ -62,7 +62,7 @@ internal sealed class UserAgentInterventionExecutor
 
         LocalApiInterventionAckRequest ack = (intervention.CommandType ?? string.Empty).Trim().ToLowerInvariant() switch
         {
-            "show_break_toast" or "show_focus_lock_in_toast" or "show_stretch_break_toast"
+            "show_break_toast" or "show_focus_lock_in_toast" or "show_stretch_break_toast" or "show_status_toast"
                 => BuildToastAck(intervention, sessionId, agentInstanceId),
             "suppress_notifications"
                 => BuildNotificationSuppressAck(intervention, sessionId, agentInstanceId),
@@ -137,12 +137,14 @@ internal sealed class UserAgentInterventionExecutor
                 errorCode: NormalizeErrorCode(applyResult.ErrorCode, "suppression_apply_failed"));
         }
 
-        return VerifyNotificationState(
+        LocalApiInterventionAckRequest ack = VerifyNotificationState(
             intervention,
             sessionId,
             agentInstanceId,
             expectedToastsEnabled: false,
             verificationMismatchError: "suppression_verify_failed");
+        TryShowOptionalSuccessToast(intervention, ack);
+        return ack;
     }
 
     private LocalApiInterventionAckRequest BuildNotificationRestoreAck(
@@ -168,12 +170,14 @@ internal sealed class UserAgentInterventionExecutor
         }
 
         _notificationSnapshotStore.Clear();
-        return VerifyNotificationState(
+        LocalApiInterventionAckRequest ack = VerifyNotificationState(
             intervention,
             sessionId,
             agentInstanceId,
             expectedToastsEnabled: snapshot.Value.ToastBannersEnabled,
             verificationMismatchError: "restore_verify_failed");
+        TryShowOptionalSuccessToast(intervention, ack);
+        return ack;
     }
 
     private LocalApiInterventionAckRequest VerifyNotificationState(
@@ -212,6 +216,29 @@ internal sealed class UserAgentInterventionExecutor
             Result: result,
             ErrorCode: errorCode,
             AppliedAtUtc: DateTimeOffset.UtcNow);
+    }
+
+    private void TryShowOptionalSuccessToast(
+        LocalApiInterventionPendingResponse intervention,
+        LocalApiInterventionAckRequest ack)
+    {
+        if (!string.Equals(ack.Result, "applied", StringComparison.Ordinal)
+            && !string.Equals(ack.Result, "verified", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (!TryParseToastPayload(intervention.PayloadJson, out string title, out string message, out _))
+        {
+            return;
+        }
+
+        if (!_presentationGate.IsPresentationAvailable(out _))
+        {
+            return;
+        }
+
+        _presenter.TryShow(title, message, out _);
     }
 
     private void RememberInterventionAck(string interventionId, LocalApiInterventionAckRequest ack)

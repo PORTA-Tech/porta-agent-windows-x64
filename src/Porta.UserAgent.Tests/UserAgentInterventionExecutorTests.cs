@@ -49,6 +49,29 @@ public sealed class UserAgentInterventionExecutorTests
     }
 
     [Fact]
+    public void ExecuteOrReplay_StatusToast_AcksApplied()
+    {
+        var presenter = new FakePresenter { ShowResult = true };
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController();
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        LocalApiInterventionPendingResponse intervention = BuildPending(
+            "intv-overload",
+            "inform_overload_risk",
+            "show_status_toast",
+            """{"title":"Ari","message":"Overload is rising. Slow down or take a short break."}""");
+
+        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+
+        Assert.Equal("applied", ack.Result);
+        Assert.Null(ack.ErrorCode);
+        Assert.Equal(1, presenter.ShowCalls);
+        Assert.Equal("Ari", presenter.LastTitle);
+        Assert.Contains("Overload is rising", presenter.LastMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExecuteOrReplay_DeepWorkStart_SuppressesNotifications()
     {
         var presenter = new FakePresenter();
@@ -68,6 +91,27 @@ public sealed class UserAgentInterventionExecutorTests
         Assert.Equal(2, notificationController.GetSnapshotCalls);
         Assert.Equal(1, notificationController.ApplyCalls);
         Assert.True(snapshotStore.SavedSnapshot.HasValue);
+    }
+
+    [Fact]
+    public void ExecuteOrReplay_DeepWorkStart_ShowsSuccessToastWithoutChangingAck()
+    {
+        var presenter = new FakePresenter { ShowResult = true };
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController();
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        LocalApiInterventionPendingResponse intervention = BuildPending(
+            "intv-dw-on",
+            "deep_work_notifications_suppressed",
+            "suppress_notifications",
+            """{"title":"Ari","message":"Deep work started. Ari muted Windows notification banners to protect your focus."}""");
+
+        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+
+        Assert.Equal("verified", ack.Result);
+        Assert.Equal(1, presenter.ShowCalls);
+        Assert.Contains("muted Windows notification banners", presenter.LastMessage, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -217,11 +261,13 @@ public sealed class UserAgentInterventionExecutorTests
         public bool ShowResult { get; init; }
         public string ErrorCode { get; init; } = string.Empty;
         public int ShowCalls { get; private set; }
+        public string LastTitle { get; private set; } = string.Empty;
+        public string LastMessage { get; private set; } = string.Empty;
 
         public bool TryShow(string title, string message, out string errorCode)
         {
-            _ = title;
-            _ = message;
+            LastTitle = title;
+            LastMessage = message;
             ShowCalls++;
             errorCode = ShowResult ? string.Empty : ErrorCode;
             return ShowResult;

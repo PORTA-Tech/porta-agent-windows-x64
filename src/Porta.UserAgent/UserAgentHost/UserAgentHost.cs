@@ -31,6 +31,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private readonly string _agentInstanceId = BuildAgentInstanceId();
     private DateTimeOffset _windowStartUtc = DateTimeOffset.UtcNow;
     private long _lastRecoveryEventId;
+    private long _lastCommunicationEventId;
+    private string? _lastCaptureDegradedToastKey;
     private UserInterventionToastRenderer.UserTrayVisualState? _lastTrayState;
     private bool _hooksInstalled;
     private bool _keyboardCaptureAvailable;
@@ -174,9 +176,38 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             DateTimeOffset.UtcNow,
             _lastRecoveryEventId);
 
+        UserCommunicationToast? captureDegradedToast = UserCommunicationRouter.ResolveCaptureDegradedState(status, snapshot);
+        if (captureDegradedToast == null)
+        {
+            _lastCaptureDegradedToastKey = null;
+        }
+
         UpdateTrayState(new(
             MapTrayMode(signals.Mode),
             signals.TooltipText));
+
+        if (captureDegradedToast != null
+            && !string.Equals(captureDegradedToast.Key, _lastCaptureDegradedToastKey, StringComparison.Ordinal))
+        {
+            if (TryShowCommunicationToast(captureDegradedToast))
+            {
+                _lastCaptureDegradedToastKey = captureDegradedToast.Key;
+                return;
+            }
+        }
+
+        UserCommunicationToast? recentEventToast = UserCommunicationRouter.ResolveRecentEventToast(
+            recentEvents,
+            DateTimeOffset.UtcNow,
+            _lastCommunicationEventId);
+        if (recentEventToast != null)
+        {
+            if (TryShowCommunicationToast(recentEventToast))
+            {
+                _lastCommunicationEventId = recentEventToast.EventId;
+                return;
+            }
+        }
 
         if (!signals.ShowRecoveryToast || signals.RecoveryEventId <= 0)
         {
@@ -590,6 +621,25 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 "Failed to present capture self-test warning toast. Error={ErrorCode}",
                 errorCode);
         }
+    }
+
+    private bool TryShowCommunicationToast(UserCommunicationToast communication)
+    {
+        if (!UserSessionNativeSignals.IsInterventionPresentationAvailable(out _))
+        {
+            return false;
+        }
+
+        if (_toastRenderer.TryShow(communication.Title, communication.Message, out string errorCode))
+        {
+            return true;
+        }
+
+        _logger.LogDebug(
+            "Failed to present Ari communication toast {CommunicationKey}. Error={ErrorCode}",
+            communication.Key,
+            errorCode);
+        return false;
     }
 
     private void UpdateTrayState(UserInterventionToastRenderer.UserTrayVisualState state)
