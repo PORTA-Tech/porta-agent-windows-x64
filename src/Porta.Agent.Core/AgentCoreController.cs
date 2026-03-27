@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Collections.Generic;
 using Porta.Agent.Common;
 using Porta.Agent.Common.Contracts;
 using Porta.Agent.Common.UserAgent;
@@ -32,7 +33,11 @@ public sealed class AgentCoreController : IAgentCoreController
     private const string CaptureContextServiceSession = UserAgentCaptureContexts.ServiceSession;
     private const string CaptureFailureReasonUnknown = "CAPTURE_CONTEXT_UNKNOWN";
     private const string CaptureFailureReasonServiceSession = "CAPTURE_CONTEXT_SERVICE_SESSION";
+    private const string CaptureFailureReasonHeartbeatStale = "USER_AGENT_HEARTBEAT_STALE";
+    private const string CaptureFailureReasonSessionSwitched = "USER_AGENT_SESSION_SWITCHED";
     private const string CaptureFailureReasonInputSelfTestFailed = "USER_AGENT_INPUT_SELF_TEST_FAILED";
+    private const string CaptureFailureReasonKeyboardSignalMissing = "USER_AGENT_KEYBOARD_SIGNAL_MISSING";
+    private const string CaptureFailureReasonMouseSignalMissing = "USER_AGENT_MOUSE_SIGNAL_MISSING";
     private const string CaptureSelfTestStateFailed = "failed";
     private const string OwnershipWarningHeartbeatMissing = "USER_AGENT_HEARTBEAT_MISSING";
     private const string OwnershipWarningAgentInstanceMismatch = "USER_AGENT_INSTANCE_MISMATCH";
@@ -43,6 +48,7 @@ public sealed class AgentCoreController : IAgentCoreController
     private const string InputSignalsSourceSessionMismatch = "input_signals_source_session_mismatch";
     private static readonly TimeSpan SignalHealthActiveWindow = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CaptureContextFreshnessWindow = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan OwnershipReconciliationGraceWindow = TimeSpan.FromSeconds(20);
     private static readonly string ConsentDisclosureHash = ComputeSha256Hex(ConsentDisclosureText);
     private static readonly Regex IdPattern = new(@"^[A-Za-z0-9._-]+$", RegexOptions.Compiled);
     private static readonly Regex FocusHashPattern = new(@"^[a-fA-F0-9-_.:]+$", RegexOptions.Compiled);
@@ -189,6 +195,7 @@ public sealed class AgentCoreController : IAgentCoreController
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
             UserAgentSessionContextSnapshot? observedSessionContext = _userAgentSessionContextStore.ReadCurrent();
             string captureContext = ResolveCaptureContextLocked(nowUtc, out UserAgentSessionContextSnapshot? sessionContext);
+            ReconcileStaleLastAcceptedOwnershipLocked(nowUtc, sessionContext);
             bool keyboardSignalActive = IsSignalActive(_lastKeyboardSignalUtc, nowUtc);
             bool mouseSignalActive = IsSignalActive(_lastMouseSignalUtc, nowUtc);
             string? userAgentInstanceId = NormalizeIdentifier(sessionContext?.AgentInstanceId);
@@ -208,7 +215,12 @@ public sealed class AgentCoreController : IAgentCoreController
             string? captureSelfTestState = NormalizeCaptureSelfTestState(sessionContext?.CaptureSelfTestState);
             string? captureSelfTestErrorCode = NormalizeIdentifier(sessionContext?.CaptureSelfTestErrorCode);
             string? ownershipWarning = ResolveOwnershipWarning(sessionContext);
-            string? captureFailureReason = ResolveCaptureFailureReason(captureContext, captureSelfTestState);
+            string? captureFailureReason = ResolveCaptureFailureReasonLocked(
+                captureContext,
+                observedSessionContext,
+                latestState,
+                ownershipWarning,
+                captureSelfTestState);
             string? effectiveLastError = ResolveEffectiveLastError(
                 _lastError,
                 _latestSnapshot.StateFlagsJson,
@@ -2052,12 +2064,53 @@ public sealed class AgentCoreController : IAgentCoreController
         return string.Equals(captureContext, CaptureContextUserSession, StringComparison.Ordinal);
     }
 
-    private static string? ResolveCaptureFailureReason(string captureContext, string? captureSelfTestState)
+    private string? ResolveCaptureFailureReasonLocked(
+        string captureContext,
+        UserAgentSessionContextSnapshot? observedSessionContext,
+        AgentLatestStateDetails? latestState,
+        string? ownershipWarning,
+        string? captureSelfTestState)
     {
         if (string.Equals(captureContext, CaptureContextUserSession, StringComparison.Ordinal)
             && string.Equals(captureSelfTestState, CaptureSelfTestStateFailed, StringComparison.Ordinal))
         {
             return CaptureFailureReasonInputSelfTestFailed;
+        }
+
+        if (string.Equals(captureContext, CaptureContextUserSession, StringComparison.Ordinal))
+        {
+            if (string.Equals(ownershipWarning, OwnershipWarningSessionMismatch, StringComparison.Ordinal))
+            {
+                return CaptureFailureReasonSessionSwitched;
+            }
+
+            if (string.Equals(ownershipWarning, OwnershipWarningAgentInstanceMismatch, StringComparison.Ordinal))
+            {
+                return OwnershipWarningAgentInstanceMismatch;
+            }
+
+            if (HasMissingMajorChannel(latestState, "keyboard") && !HasMissingMajorChannel(latestState, "mouse"))
+            {
+                return CaptureFailureReasonKeyboardSignalMissing;
+            }
+
+            if (HasMissingMajorChannel(latestState, "mouse") && !HasMissingMajorChannel(latestState, "keyboard"))
+            {
+                return CaptureFailureReasonMouseSignalMissing;
+            }
+
+            return null;
+        }
+
+        string observedCaptureContext = NormalizeCaptureContext(observedSessionContext?.CaptureContext);
+        if (string.Equals(observedCaptureContext, CaptureContextUserSession, StringComparison.Ordinal))
+        {
+            if (IsObservedSessionDifferentFromLastAcceptedOwner(observedSessionContext))
+            {
+                return CaptureFailureReasonSessionSwitched;
+            }
+
+            return CaptureFailureReasonHeartbeatStale;
         }
 
         return captureContext switch
@@ -2119,6 +2172,17 @@ public sealed class AgentCoreController : IAgentCoreController
         return value.Trim().ToLowerInvariant();
     }
 
+    private static bool HasMissingMajorChannel(AgentLatestStateDetails? latestState, string channel)
+    {
+        IReadOnlyList<string>? missingChannels = latestState?.MissingMajorChannels;
+        if (missingChannels is null || missingChannels.Count == 0)
+        {
+            return false;
+        }
+
+        return missingChannels.Any(value => string.Equals(value?.Trim(), channel, StringComparison.OrdinalIgnoreCase));
+    }
+
     private UserAgentSessionContextSnapshot? ReadFreshUserAgentSessionContextLocked(DateTimeOffset nowUtc)
     {
         UserAgentSessionContextSnapshot? snapshot = _userAgentSessionContextStore.ReadCurrent();
@@ -2134,6 +2198,57 @@ public sealed class AgentCoreController : IAgentCoreController
         }
 
         return snapshot;
+    }
+
+    private void ReconcileStaleLastAcceptedOwnershipLocked(
+        DateTimeOffset nowUtc,
+        UserAgentSessionContextSnapshot? sessionContext)
+    {
+        if (sessionContext is null
+            || !string.Equals(NormalizeCaptureContext(sessionContext.CaptureContext), CaptureContextUserSession, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        string? lastInputAgentInstanceId = NormalizeIdentifier(_lastInputAgentInstanceId);
+        string? lastInputSessionId = NormalizeIdentifier(_lastInputSessionId);
+        if (lastInputAgentInstanceId is null && lastInputSessionId is null)
+        {
+            return;
+        }
+
+        string? heartbeatAgentInstanceId = NormalizeIdentifier(sessionContext.AgentInstanceId);
+        string heartbeatSessionId = BuildSessionOwnerId(sessionContext.SessionId);
+        bool agentMismatch =
+            heartbeatAgentInstanceId is not null
+            && lastInputAgentInstanceId is not null
+            && !string.Equals(heartbeatAgentInstanceId, lastInputAgentInstanceId, StringComparison.Ordinal);
+        bool sessionMismatch =
+            lastInputSessionId is not null
+            && !string.Equals(heartbeatSessionId, lastInputSessionId, StringComparison.Ordinal);
+        if (!agentMismatch && !sessionMismatch)
+        {
+            return;
+        }
+
+        DateTimeOffset heartbeatUpdatedAtUtc = sessionContext.UpdatedAtUtc.ToUniversalTime();
+        if (heartbeatUpdatedAtUtc > nowUtc
+            || (nowUtc - heartbeatUpdatedAtUtc) < OwnershipReconciliationGraceWindow)
+        {
+            return;
+        }
+
+        DateTimeOffset? lastInputEventUtc = _lastInputEventUtc?.ToUniversalTime();
+        if (lastInputEventUtc.HasValue && heartbeatUpdatedAtUtc <= lastInputEventUtc.Value)
+        {
+            return;
+        }
+
+        _lastInputEventUtc = null;
+        _lastInputAgentInstanceId = null;
+        _lastInputSessionId = null;
+        _lastKeyboardSignalUtc = null;
+        _lastMouseSignalUtc = null;
     }
 
     private void ValidateInputSignalSourceLocked(
@@ -2198,6 +2313,25 @@ public sealed class AgentCoreController : IAgentCoreController
         return null;
     }
 
+    private bool IsObservedSessionDifferentFromLastAcceptedOwner(UserAgentSessionContextSnapshot? observedSessionContext)
+    {
+        if (observedSessionContext is null)
+        {
+            return false;
+        }
+
+        string? lastInputSessionId = NormalizeIdentifier(_lastInputSessionId);
+        if (lastInputSessionId is null)
+        {
+            return false;
+        }
+
+        return !string.Equals(
+            BuildSessionOwnerId(observedSessionContext.SessionId),
+            lastInputSessionId,
+            StringComparison.Ordinal);
+    }
+
     private string BuildDiagnosticsSummaryJson()
     {
         AgentNotificationSuppressionStatus suppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
@@ -2205,6 +2339,7 @@ public sealed class AgentCoreController : IAgentCoreController
         string policyVersion = ResolvePolicyVersion();
         UserAgentSessionContextSnapshot? observedSessionContext = _userAgentSessionContextStore.ReadCurrent();
         string captureContext = ResolveCaptureContextLocked(nowUtc, out UserAgentSessionContextSnapshot? sessionContext);
+        ReconcileStaleLastAcceptedOwnershipLocked(nowUtc, sessionContext);
         string? userAgentInstanceId = NormalizeIdentifier(sessionContext?.AgentInstanceId);
         int? userAgentProcessId = sessionContext?.ProcessId > 0 ? sessionContext.ProcessId : null;
         string? userAgentSessionId = sessionContext is not null
@@ -2221,7 +2356,12 @@ public sealed class AgentCoreController : IAgentCoreController
         string? captureSelfTestState = NormalizeCaptureSelfTestState(sessionContext?.CaptureSelfTestState);
         string? captureSelfTestErrorCode = NormalizeIdentifier(sessionContext?.CaptureSelfTestErrorCode);
         string? ownershipWarning = ResolveOwnershipWarning(sessionContext);
-        string? captureFailureReason = ResolveCaptureFailureReason(captureContext, captureSelfTestState);
+        string? captureFailureReason = ResolveCaptureFailureReasonLocked(
+            captureContext,
+            observedSessionContext,
+            _stateStore.ReadLatestStateDetails(),
+            ownershipWarning,
+            captureSelfTestState);
         string? effectiveLastError = ResolveEffectiveLastError(
             _lastError,
             _latestSnapshot.StateFlagsJson,

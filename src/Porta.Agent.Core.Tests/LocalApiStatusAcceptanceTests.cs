@@ -263,6 +263,187 @@ public sealed class LocalApiStatusAcceptanceTests
     }
 
     [Fact]
+    public void Status_UsesObservedUserHeartbeat_ToReportExplicitStaleHeartbeatFailure()
+    {
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.08d, confidence: 0.21d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: DateTimeOffset.UtcNow,
+                OverloadLikelihood: 0.08d,
+                Confidence: 0.21d,
+                SustainedAttentionDurationSec: 0d,
+                IdleFragmentationIndex: 0d,
+                FocusAppEntropy: 0d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: false,
+                BaselineReadyPct: 0.02d,
+                AvgQuality2m: 0.08d,
+                ColdStart: true,
+                CurrentQualityScore: 0.11d,
+                PartialData: true,
+                MissingMajorChannels: ["keyboard", "mouse"]),
+        };
+
+        var controller = new AgentCoreController(
+            store,
+            new FakeUserAgentSessionContextStore(
+                new UserAgentSessionContextSnapshot(
+                    SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                    CaptureContext: UserAgentCaptureContexts.UserSession,
+                    ProcessId: 7001,
+                    SessionId: 4,
+                    UpdatedAtUtc: DateTimeOffset.UtcNow.AddSeconds(-45),
+                    AgentInstanceId: "agent-4")));
+
+        var dto = StatusMapper.Map(controller.GetStatus(), localApiAuthReady: true, localApiAuthError: null);
+
+        Assert.Equal("Unknown", dto.capture_context);
+        Assert.Equal("USER_AGENT_HEARTBEAT_STALE", dto.CaptureFailureReason);
+        Assert.Equal("USER_AGENT_HEARTBEAT_STALE", dto.capture_failure_reason);
+        Assert.False(dto.keyboard_signal_active);
+        Assert.False(dto.mouse_signal_active);
+    }
+
+    [Fact]
+    public void Status_ReportsSessionSwitched_WhenFreshHeartbeatOwnerDiffersFromLastAcceptedInput()
+    {
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.11d, confidence: 0.42d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: DateTimeOffset.UtcNow,
+                OverloadLikelihood: 0.11d,
+                Confidence: 0.42d,
+                SustainedAttentionDurationSec: 0d,
+                IdleFragmentationIndex: 0d,
+                FocusAppEntropy: 0d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: false,
+                BaselineReadyPct: 0.1d,
+                AvgQuality2m: 0.22d,
+                ColdStart: true,
+                CurrentQualityScore: 0.27d,
+                PartialData: true,
+                MissingMajorChannels: Array.Empty<string>()),
+        };
+
+        var sessionContextStore = new FakeUserAgentSessionContextStore(
+            new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 5001,
+                SessionId: 1,
+                UpdatedAtUtc: DateTimeOffset.UtcNow.AddSeconds(-1),
+                AgentInstanceId: "agent-1"));
+        var controller = new AgentCoreController(store, sessionContextStore);
+        DateTimeOffset lastInputUtc = DateTimeOffset.UtcNow.AddMinutes(-2);
+        controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "agent-1",
+            SessionId: "session-1",
+            WindowStartUtc: lastInputUtc.AddSeconds(-5),
+            WindowEndUtc: lastInputUtc,
+            KeyboardKeydownCount: 3,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0d,
+            MouseMoveDy: 0d,
+            FocusAppHash: "a1b2c3d4",
+            IdleSeconds: 0.1d,
+            LastInputEventUtc: lastInputUtc));
+
+        sessionContextStore.WriteCurrent(new UserAgentSessionContextSnapshot(
+            SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+            CaptureContext: UserAgentCaptureContexts.UserSession,
+            ProcessId: 5002,
+            SessionId: 9,
+            UpdatedAtUtc: DateTimeOffset.UtcNow.AddSeconds(-5),
+            AgentInstanceId: "agent-1"));
+
+        var dto = StatusMapper.Map(controller.GetStatus(), localApiAuthReady: true, localApiAuthError: null);
+
+        Assert.Equal("UserSession", dto.capture_context);
+        Assert.Equal("USER_AGENT_SESSION_MISMATCH", dto.OwnershipWarning);
+        Assert.Equal("USER_AGENT_SESSION_SWITCHED", dto.CaptureFailureReason);
+        Assert.Equal("session-1", dto.LastInputSessionId);
+        Assert.Equal("session-9", dto.UserAgentSessionId);
+    }
+
+    [Fact]
+    public void Status_ClearsStaleOwnership_AfterReplacementHeartbeatStaysHealthyLongEnough()
+    {
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.13d, confidence: 0.61d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: DateTimeOffset.UtcNow,
+                OverloadLikelihood: 0.13d,
+                Confidence: 0.61d,
+                SustainedAttentionDurationSec: 0d,
+                IdleFragmentationIndex: 0d,
+                FocusAppEntropy: 0d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: true,
+                BaselineReadyPct: 1d,
+                AvgQuality2m: 0.91d,
+                ColdStart: false,
+                CurrentQualityScore: 0.93d,
+                PartialData: false,
+                MissingMajorChannels: Array.Empty<string>()),
+        };
+
+        var sessionContextStore = new FakeUserAgentSessionContextStore(
+            new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 5101,
+                SessionId: 1,
+                UpdatedAtUtc: DateTimeOffset.UtcNow.AddSeconds(-1),
+                AgentInstanceId: "agent-1"));
+        var controller = new AgentCoreController(store, sessionContextStore);
+        DateTimeOffset lastInputUtc = DateTimeOffset.UtcNow.AddMinutes(-2);
+        controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "agent-1",
+            SessionId: "session-1",
+            WindowStartUtc: lastInputUtc.AddSeconds(-5),
+            WindowEndUtc: lastInputUtc,
+            KeyboardKeydownCount: 4,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0d,
+            MouseMoveDy: 0d,
+            FocusAppHash: "a1b2c3d4",
+            IdleSeconds: 0.1d,
+            LastInputEventUtc: lastInputUtc));
+
+        sessionContextStore.WriteCurrent(new UserAgentSessionContextSnapshot(
+            SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+            CaptureContext: UserAgentCaptureContexts.UserSession,
+            ProcessId: 5102,
+            SessionId: 9,
+            UpdatedAtUtc: DateTimeOffset.UtcNow.AddSeconds(-25),
+            AgentInstanceId: "agent-9"));
+
+        var dto = StatusMapper.Map(controller.GetStatus(), localApiAuthReady: true, localApiAuthError: null);
+
+        Assert.Equal("UserSession", dto.capture_context);
+        Assert.Null(dto.LastInputEventUtc);
+        Assert.Null(dto.LastInputAgentInstanceId);
+        Assert.Null(dto.LastInputSessionId);
+        Assert.Null(dto.OwnershipWarning);
+        Assert.Null(dto.CaptureFailureReason);
+        Assert.Null(dto.capture_failure_reason);
+    }
+
+    [Fact]
     public void Status_RejectsPackets_WhenHeartbeatReportsServiceSession()
     {
         var store = new LocalApiContractFakeStore

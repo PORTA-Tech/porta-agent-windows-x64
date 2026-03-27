@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Porta.Agent.Common.Identity;
@@ -12,6 +13,11 @@ internal sealed class MachineSummaryMapper
     private const string CaptureFailureReasonNeverStarted = "USER_AGENT_NEVER_STARTED";
     private const string CaptureFailureReasonHeartbeatStale = "USER_AGENT_HEARTBEAT_STALE";
     private const string CaptureFailureReasonSessionSwitched = "USER_AGENT_SESSION_SWITCHED";
+    private const string CaptureFailureReasonInstanceMismatch = "USER_AGENT_INSTANCE_MISMATCH";
+    private const string CaptureFailureReasonKeyboardSignalMissing = "USER_AGENT_KEYBOARD_SIGNAL_MISSING";
+    private const string CaptureFailureReasonMouseSignalMissing = "USER_AGENT_MOUSE_SIGNAL_MISSING";
+    private const string OwnershipWarningAgentInstanceMismatch = "USER_AGENT_INSTANCE_MISMATCH";
+    private const string OwnershipWarningSessionMismatch = "USER_AGENT_SESSION_MISMATCH";
     private const string StartupStateHealthy = "healthy";
     private const string StartupStateIdle = "idle";
     private const string StartupStateNeverStarted = "never_started";
@@ -59,13 +65,12 @@ internal sealed class MachineSummaryMapper
             ?? 0d);
         string continuityState = NormalizeContinuityState(latestState?.ContinuityState);
         bool activityDetected = status.KeyboardSignalActive || status.MouseSignalActive;
-        bool userSessionConnected =
-            string.Equals(status.CaptureContext, "UserSession", StringComparison.Ordinal)
-            && status.UserAgentHeartbeatUpdatedAtUtc.HasValue;
+        string? baseCaptureFailureReason = DeriveBaseCaptureFailureReason(status, latestState);
+        bool userSessionConnected = DeriveUserSessionConnected(status, baseCaptureFailureReason);
         double? heartbeatAgeSeconds = ComputeAgeSeconds(status.UserAgentObservedHeartbeatUpdatedAtUtc, reportedAtUtc);
         double? lastAcceptedInputAgeSeconds = ComputeAgeSeconds(status.LastInputEventUtc, reportedAtUtc);
-        string startupState = DeriveUserAgentStartupState(status, userSessionConnected, activityDetected);
-        string? captureFailureReason = DeriveCaptureFailureReason(status, userSessionConnected, startupState);
+        string startupState = DeriveUserAgentStartupState(status, userSessionConnected, activityDetected, baseCaptureFailureReason);
+        string? captureFailureReason = DeriveCaptureFailureReason(status, userSessionConnected, startupState, baseCaptureFailureReason);
         string? accountId = IsLinked(identityLink) ? identityLink.AccountId : null;
         string? orgId = IsLinked(identityLink) ? identityLink.OrgId : null;
 
@@ -162,11 +167,35 @@ internal sealed class MachineSummaryMapper
             _ => "low"
         };
 
+    private static bool DeriveUserSessionConnected(AgentServiceStatusSnapshot status, string? captureFailureReason)
+    {
+        if (!string.Equals(status.CaptureContext, UserAgentCaptureContexts.UserSession, StringComparison.Ordinal)
+            || !status.UserAgentHeartbeatUpdatedAtUtc.HasValue)
+        {
+            return false;
+        }
+
+        return captureFailureReason switch
+        {
+            CaptureFailureReasonHeartbeatStale => false,
+            CaptureFailureReasonSessionSwitched => false,
+            CaptureFailureReasonInstanceMismatch => false,
+            _ => true
+        };
+    }
+
     private static string DeriveUserAgentStartupState(
         AgentServiceStatusSnapshot status,
         bool userSessionConnected,
-        bool activityDetected)
+        bool activityDetected,
+        string? captureFailureReason)
     {
+        if (string.Equals(captureFailureReason, CaptureFailureReasonSessionSwitched, StringComparison.Ordinal)
+            || string.Equals(captureFailureReason, CaptureFailureReasonInstanceMismatch, StringComparison.Ordinal))
+        {
+            return StartupStateSessionSwitched;
+        }
+
         if (userSessionConnected)
         {
             return activityDetected ? StartupStateHealthy : StartupStateIdle;
@@ -196,14 +225,61 @@ internal sealed class MachineSummaryMapper
         return StartupStateHeartbeatStale;
     }
 
+    private static string? DeriveBaseCaptureFailureReason(
+        AgentServiceStatusSnapshot status,
+        AgentLatestStateDetails? latestState)
+    {
+        string? statusReason = NullIfWhiteSpace(status.CaptureFailureReason);
+        if (!string.IsNullOrWhiteSpace(statusReason))
+        {
+            return statusReason;
+        }
+
+        if (string.Equals(status.OwnershipWarning, OwnershipWarningSessionMismatch, StringComparison.Ordinal))
+        {
+            return CaptureFailureReasonSessionSwitched;
+        }
+
+        if (string.Equals(status.OwnershipWarning, OwnershipWarningAgentInstanceMismatch, StringComparison.Ordinal))
+        {
+            return CaptureFailureReasonInstanceMismatch;
+        }
+
+        bool missingKeyboard = HasMissingMajorChannel(latestState, "keyboard");
+        bool missingMouse = HasMissingMajorChannel(latestState, "mouse");
+        if (missingKeyboard && !missingMouse)
+        {
+            return CaptureFailureReasonKeyboardSignalMissing;
+        }
+
+        if (missingMouse && !missingKeyboard)
+        {
+            return CaptureFailureReasonMouseSignalMissing;
+        }
+
+        return null;
+    }
+
+    private static bool HasMissingMajorChannel(AgentLatestStateDetails? latestState, string channel)
+    {
+        IReadOnlyList<string>? missingChannels = latestState?.MissingMajorChannels;
+        if (missingChannels is null || missingChannels.Count == 0)
+        {
+            return false;
+        }
+
+        return missingChannels.Any(value => string.Equals(value?.Trim(), channel, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static string? DeriveCaptureFailureReason(
         AgentServiceStatusSnapshot status,
         bool userSessionConnected,
-        string startupState)
+        string startupState,
+        string? fallbackReason)
     {
         if (userSessionConnected)
         {
-            return null;
+            return fallbackReason;
         }
 
         return startupState switch
@@ -212,8 +288,8 @@ internal sealed class MachineSummaryMapper
             StartupStateHeartbeatStale => CaptureFailureReasonHeartbeatStale,
             StartupStateSessionSwitched => CaptureFailureReasonSessionSwitched,
             StartupStateServiceSession => "CAPTURE_CONTEXT_SERVICE_SESSION",
-            StartupStateUnknownContext => NullIfWhiteSpace(status.CaptureFailureReason) ?? "CAPTURE_CONTEXT_UNKNOWN",
-            _ => NullIfWhiteSpace(status.CaptureFailureReason)
+            StartupStateUnknownContext => fallbackReason ?? "CAPTURE_CONTEXT_UNKNOWN",
+            _ => fallbackReason
         };
     }
 

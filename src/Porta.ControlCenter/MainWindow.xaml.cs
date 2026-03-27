@@ -5128,6 +5128,12 @@ public partial class MainWindow : Window
     {
         return captureFailureReason switch
         {
+            "USER_AGENT_HEARTBEAT_STALE" => "user-agent heartbeat stopped updating",
+            "USER_AGENT_SESSION_SWITCHED" => "capture is still attached to a previous Windows session",
+            "USER_AGENT_INSTANCE_MISMATCH" => "the current heartbeat owner does not match the last accepted input owner",
+            "USER_AGENT_INPUT_SELF_TEST_FAILED" => "capture self-test failed after real user activity",
+            "USER_AGENT_KEYBOARD_SIGNAL_MISSING" => "keyboard input is missing from live capture",
+            "USER_AGENT_MOUSE_SIGNAL_MISSING" => "mouse input is missing from live capture",
             "CAPTURE_CONTEXT_SERVICE_SESSION" => "capture is running in a service session",
             "CAPTURE_CONTEXT_UNKNOWN" => "user-session capture is not available",
             _ => null
