@@ -1516,6 +1516,27 @@ public partial class MainWindow : Window
             : NotAvailableText;
     }
 
+    private static string FormatAgeLabel(double? ageSeconds)
+    {
+        if (!ageSeconds.HasValue)
+        {
+            return NotAvailableText;
+        }
+
+        double seconds = Math.Max(0d, ageSeconds.Value);
+        if (seconds < 60d)
+        {
+            return $"{seconds:F0}s";
+        }
+
+        if (seconds < 3600d)
+        {
+            return $"{seconds / 60d:F1}m";
+        }
+
+        return $"{seconds / 3600d:F1}h";
+    }
+
     private static string FormatHeartbeatLabel(DateTimeOffset? heartbeatUtc)
     {
         if (!heartbeatUtc.HasValue)
@@ -1545,6 +1566,51 @@ public partial class MainWindow : Window
         string instance = string.IsNullOrWhiteSpace(status.LastInputAgentInstanceId) ? "None" : status.LastInputAgentInstanceId!;
         string session = string.IsNullOrWhiteSpace(status.LastInputSessionId) ? "None" : status.LastInputSessionId!;
         return $"{instance} | {session}";
+    }
+
+    private static string FormatStartupSourceLabel(string? startupSource)
+    {
+        return startupSource?.Trim().ToLowerInvariant() switch
+        {
+            "run-key" => "Windows Run key",
+            "windows-restart" => "Windows restart recovery",
+            "control-center-recovery" => "Control Center recovery",
+            "" or null => NotAvailableText,
+            _ => startupSource!
+        };
+    }
+
+    private static string FormatLaunchReasonLabel(string? launchReason)
+    {
+        return launchReason?.Trim().ToLowerInvariant() switch
+        {
+            "startup" => "startup",
+            "run-key" => "run key",
+            "windows-restart" => "Windows restart",
+            "awaiting_heartbeat" => "awaiting heartbeat",
+            "stale_heartbeat" => "stale heartbeat",
+            "missing_heartbeat" => "missing heartbeat",
+            "session_switched" => "session switched",
+            "" or null => NotAvailableText,
+            _ => launchReason!
+        };
+    }
+
+    private static string BuildRecoveryStateLabel(LocalApiStatusResponse status)
+    {
+        string heartbeatFailures = status.UserAgentHeartbeatWriteFailureCount.HasValue
+            ? status.UserAgentHeartbeatWriteFailureCount.Value.ToString(CultureInfo.InvariantCulture)
+            : "0";
+        string remediations = status.CaptureSelfTestRemediationCount.HasValue
+            ? status.CaptureSelfTestRemediationCount.Value.ToString(CultureInfo.InvariantCulture)
+            : "0";
+        string selfTestState = string.IsNullOrWhiteSpace(status.CaptureSelfTestState)
+            ? "not reported"
+            : status.CaptureSelfTestState!;
+        string selfTestError = string.IsNullOrWhiteSpace(status.CaptureSelfTestErrorCode)
+            ? "none"
+            : status.CaptureSelfTestErrorCode!;
+        return $"heartbeat write failures={heartbeatFailures} | self-test={selfTestState} | self-test error={selfTestError} | recovery attempts={remediations}";
     }
 
     private static EngineHealthView BuildEngineHealthView(
@@ -1750,8 +1816,12 @@ public partial class MainWindow : Window
                 StatusLabel: "Unavailable",
                 ContextLabel: NotAvailableText,
                 HeartbeatLabel: NotAvailableText,
+                ObservedHeartbeatLabel: NotAvailableText,
                 AgentLabel: NotAvailableText,
                 SessionLabel: NotAvailableText,
+                StartupSourceLabel: NotAvailableText,
+                LaunchReasonLabel: NotAvailableText,
+                RecoveryStateLabel: NotAvailableText,
                 WarningText: "Session truth unavailable because the local API is not reachable.",
                 StatusColor: Color.FromRgb(248, 113, 113),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -1759,8 +1829,12 @@ public partial class MainWindow : Window
 
         string contextLabel = FormatCaptureContextLabel(status.CaptureContext);
         string heartbeatLabel = FormatHeartbeatLabel(status.UserAgentHeartbeatUpdatedAtUtc);
+        string observedHeartbeatLabel = FormatHeartbeatLabel(status.UserAgentObservedHeartbeatUpdatedAtUtc);
         string agentLabel = FormatUserAgentIdentity(status.UserAgentInstanceId, status.UserAgentProcessId);
         string sessionLabel = string.IsNullOrWhiteSpace(status.UserAgentSessionId) ? NotAvailableText : status.UserAgentSessionId!;
+        string startupSourceLabel = FormatStartupSourceLabel(status.UserAgentStartupSource);
+        string launchReasonLabel = FormatLaunchReasonLabel(status.UserAgentLaunchReason);
+        string recoveryStateLabel = BuildRecoveryStateLabel(status);
         string? ownershipDetail = DescribeOwnershipWarning(status);
         string? captureFailureDetail = DescribeCaptureFailureReason(status.CaptureFailureReason);
 
@@ -1770,8 +1844,12 @@ public partial class MainWindow : Window
                 StatusLabel: "Stale",
                 ContextLabel: contextLabel,
                 HeartbeatLabel: heartbeatLabel,
+                ObservedHeartbeatLabel: observedHeartbeatLabel,
                 AgentLabel: agentLabel,
                 SessionLabel: sessionLabel,
+                StartupSourceLabel: startupSourceLabel,
+                LaunchReasonLabel: launchReasonLabel,
+                RecoveryStateLabel: recoveryStateLabel,
                 WarningText: "Session truth is stale. Refresh or restore the local API before trusting ownership data.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -1783,8 +1861,12 @@ public partial class MainWindow : Window
                 StatusLabel: "Warning",
                 ContextLabel: contextLabel,
                 HeartbeatLabel: heartbeatLabel,
+                ObservedHeartbeatLabel: observedHeartbeatLabel,
                 AgentLabel: agentLabel,
                 SessionLabel: sessionLabel,
+                StartupSourceLabel: startupSourceLabel,
+                LaunchReasonLabel: launchReasonLabel,
+                RecoveryStateLabel: recoveryStateLabel,
                 WarningText: $"Ownership mismatch detected: {ownershipDetail}.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -1799,8 +1881,12 @@ public partial class MainWindow : Window
                 StatusLabel: "Warning",
                 ContextLabel: contextLabel,
                 HeartbeatLabel: heartbeatLabel,
+                ObservedHeartbeatLabel: observedHeartbeatLabel,
                 AgentLabel: agentLabel,
                 SessionLabel: sessionLabel,
+                StartupSourceLabel: startupSourceLabel,
+                LaunchReasonLabel: launchReasonLabel,
+                RecoveryStateLabel: recoveryStateLabel,
                 WarningText: warning,
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -1812,8 +1898,12 @@ public partial class MainWindow : Window
                 StatusLabel: "Watching",
                 ContextLabel: contextLabel,
                 HeartbeatLabel: heartbeatLabel,
+                ObservedHeartbeatLabel: observedHeartbeatLabel,
                 AgentLabel: agentLabel,
                 SessionLabel: sessionLabel,
+                StartupSourceLabel: startupSourceLabel,
+                LaunchReasonLabel: launchReasonLabel,
+                RecoveryStateLabel: recoveryStateLabel,
                 WarningText: "Waiting for a fresh user-agent heartbeat from the interactive session.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -1823,8 +1913,12 @@ public partial class MainWindow : Window
             StatusLabel: "Healthy",
             ContextLabel: contextLabel,
             HeartbeatLabel: heartbeatLabel,
+            ObservedHeartbeatLabel: observedHeartbeatLabel,
             AgentLabel: agentLabel,
             SessionLabel: sessionLabel,
+            StartupSourceLabel: startupSourceLabel,
+            LaunchReasonLabel: launchReasonLabel,
+            RecoveryStateLabel: recoveryStateLabel,
             WarningText: "Session ownership is healthy and attached to the interactive user session.",
             StatusColor: Color.FromRgb(74, 222, 128),
             DetailColor: Color.FromRgb(148, 163, 184));
@@ -1839,7 +1933,9 @@ public partial class MainWindow : Window
                 KeyboardSignalLabel: NotAvailableText,
                 MouseSignalLabel: NotAvailableText,
                 LastInputLabel: NotAvailableText,
+                LastInputAgeLabel: NotAvailableText,
                 InputOwnerLabel: NotAvailableText,
+                OwnershipReasonLabel: NotAvailableText,
                 WarningText: "Input truth unavailable because the local API is not reachable.",
                 StatusColor: Color.FromRgb(248, 113, 113),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -1848,9 +1944,11 @@ public partial class MainWindow : Window
         string keyboardLabel = FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh);
         string mouseLabel = FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh);
         string lastInputLabel = FormatCaptureLastInputLabel(status.LastInputEventUtc);
+        string lastInputAgeLabel = FormatAgeLabel(status.last_accepted_input_age_seconds);
         string inputOwnerLabel = FormatInputOwnerLabel(status);
         string? captureFailureDetail = DescribeCaptureFailureReason(status.CaptureFailureReason);
         string? ownershipDetail = DescribeOwnershipWarning(status);
+        string ownershipReasonLabel = string.IsNullOrWhiteSpace(ownershipDetail) ? "None" : ownershipDetail;
 
         if (!statusFresh)
         {
@@ -1859,7 +1957,9 @@ public partial class MainWindow : Window
                 KeyboardSignalLabel: keyboardLabel,
                 MouseSignalLabel: mouseLabel,
                 LastInputLabel: lastInputLabel,
+                LastInputAgeLabel: lastInputAgeLabel,
                 InputOwnerLabel: inputOwnerLabel,
+                OwnershipReasonLabel: ownershipReasonLabel,
                 WarningText: "Input truth is stale. Refresh or restore the local API before trusting live signal status.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -1872,7 +1972,9 @@ public partial class MainWindow : Window
                 KeyboardSignalLabel: keyboardLabel,
                 MouseSignalLabel: mouseLabel,
                 LastInputLabel: lastInputLabel,
+                LastInputAgeLabel: lastInputAgeLabel,
                 InputOwnerLabel: inputOwnerLabel,
+                OwnershipReasonLabel: ownershipReasonLabel,
                 WarningText: $"Live input owner does not match the current session: {ownershipDetail}.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -1885,7 +1987,9 @@ public partial class MainWindow : Window
                 KeyboardSignalLabel: keyboardLabel,
                 MouseSignalLabel: mouseLabel,
                 LastInputLabel: lastInputLabel,
+                LastInputAgeLabel: lastInputAgeLabel,
                 InputOwnerLabel: inputOwnerLabel,
+                OwnershipReasonLabel: ownershipReasonLabel,
                 WarningText: $"Live input is not trusted: {captureFailureDetail}.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -1899,7 +2003,9 @@ public partial class MainWindow : Window
                 KeyboardSignalLabel: keyboardLabel,
                 MouseSignalLabel: mouseLabel,
                 LastInputLabel: lastInputLabel,
+                LastInputAgeLabel: lastInputAgeLabel,
                 InputOwnerLabel: inputOwnerLabel,
+                OwnershipReasonLabel: ownershipReasonLabel,
                 WarningText: $"Waiting for fresh {missingSignals} activity from the current user session. State continuity can continue, but trust stays lower until live input returns.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -1910,7 +2016,9 @@ public partial class MainWindow : Window
             KeyboardSignalLabel: keyboardLabel,
             MouseSignalLabel: mouseLabel,
             LastInputLabel: lastInputLabel,
+            LastInputAgeLabel: lastInputAgeLabel,
             InputOwnerLabel: inputOwnerLabel,
+            OwnershipReasonLabel: ownershipReasonLabel,
             WarningText: "Keyboard and mouse signals are arriving from the current user session.",
             StatusColor: Color.FromRgb(74, 222, 128),
             DetailColor: Color.FromRgb(148, 163, 184));
@@ -2275,8 +2383,12 @@ public partial class MainWindow : Window
         HealthSessionStatusValue.Foreground = statusBrush;
         HealthSessionContextValue.Text = view.ContextLabel;
         HealthSessionHeartbeatValue.Text = view.HeartbeatLabel;
+        HealthSessionObservedHeartbeatValue.Text = view.ObservedHeartbeatLabel;
         HealthSessionAgentValue.Text = view.AgentLabel;
         HealthSessionIdValue.Text = view.SessionLabel;
+        HealthSessionStartupSourceValue.Text = view.StartupSourceLabel;
+        HealthSessionLaunchReasonValue.Text = view.LaunchReasonLabel;
+        HealthSessionRecoveryValue.Text = view.RecoveryStateLabel;
         HealthSessionWarningValue.Text = view.WarningText;
         HealthSessionWarningValue.Foreground = detailBrush;
     }
@@ -2292,7 +2404,9 @@ public partial class MainWindow : Window
         HealthKeyboardSignalValue.Text = view.KeyboardSignalLabel;
         HealthMouseSignalValue.Text = view.MouseSignalLabel;
         HealthLastInputValue.Text = view.LastInputLabel;
+        HealthLastInputAgeValue.Text = view.LastInputAgeLabel;
         HealthInputOwnerValue.Text = view.InputOwnerLabel;
+        HealthInputOwnershipReasonValue.Text = view.OwnershipReasonLabel;
         HealthInputWarningValue.Text = view.WarningText;
         HealthInputWarningValue.Foreground = detailBrush;
     }
@@ -5320,10 +5434,21 @@ public partial class MainWindow : Window
             sb.AppendLine($"UserAgent instance: {_latestStatus.UserAgentInstanceId ?? "None"}");
             sb.AppendLine($"UserAgent process: {_latestStatus.UserAgentProcessId?.ToString(CultureInfo.InvariantCulture) ?? "None"}");
             sb.AppendLine($"UserAgent session: {_latestStatus.UserAgentSessionId ?? "None"}");
+            sb.AppendLine($"Observed heartbeat: {_latestStatus.UserAgentObservedHeartbeatUpdatedAtUtc?.ToString("O") ?? "None"}");
+            sb.AppendLine($"Observed capture context: {_latestStatus.UserAgentObservedCaptureContext ?? "None"}");
+            sb.AppendLine($"Observed session: {_latestStatus.UserAgentObservedSessionId ?? "None"}");
+            sb.AppendLine($"Startup source: {FormatStartupSourceLabel(_latestStatus.UserAgentStartupSource)}");
+            sb.AppendLine($"Last launch reason: {FormatLaunchReasonLabel(_latestStatus.UserAgentLaunchReason)}");
+            sb.AppendLine($"Recovery state: {BuildRecoveryStateLabel(_latestStatus)}");
+            sb.AppendLine($"Heartbeat write failures: {_latestStatus.UserAgentHeartbeatWriteFailureCount?.ToString(CultureInfo.InvariantCulture) ?? "0"}");
+            sb.AppendLine($"Capture self-test state: {_latestStatus.CaptureSelfTestState ?? "None"}");
+            sb.AppendLine($"Capture self-test error: {_latestStatus.CaptureSelfTestErrorCode ?? "None"}");
+            sb.AppendLine($"Capture self-test remediation count: {_latestStatus.CaptureSelfTestRemediationCount?.ToString(CultureInfo.InvariantCulture) ?? "0"}");
             sb.AppendLine($"Capture failure: {DescribeCaptureFailureReason(_latestStatus.CaptureFailureReason) ?? "None"}");
             sb.AppendLine($"Keyboard signal: {( _latestStatus.KeyboardSignalActive ? "Active" : "No recent signal")}");
             sb.AppendLine($"Mouse signal: {( _latestStatus.MouseSignalActive ? "Active" : "No recent signal")}");
             sb.AppendLine($"Last input: {_latestStatus.LastInputEventUtc?.ToString("O") ?? "None"}");
+            sb.AppendLine($"Last accepted input age (s): {_latestStatus.last_accepted_input_age_seconds?.ToString("F1", CultureInfo.InvariantCulture) ?? "None"}");
             sb.AppendLine($"Last input owner: {_latestStatus.LastInputAgentInstanceId ?? "None"}");
             sb.AppendLine($"Last input session: {_latestStatus.LastInputSessionId ?? "None"}");
             sb.AppendLine($"Ownership warning: {DescribeOwnershipWarning(_latestStatus) ?? "None"}");
@@ -5364,8 +5489,12 @@ public partial class MainWindow : Window
         string StatusLabel,
         string ContextLabel,
         string HeartbeatLabel,
+        string ObservedHeartbeatLabel,
         string AgentLabel,
         string SessionLabel,
+        string StartupSourceLabel,
+        string LaunchReasonLabel,
+        string RecoveryStateLabel,
         string WarningText,
         Color StatusColor,
         Color DetailColor);
@@ -5374,7 +5503,9 @@ public partial class MainWindow : Window
         string KeyboardSignalLabel,
         string MouseSignalLabel,
         string LastInputLabel,
+        string LastInputAgeLabel,
         string InputOwnerLabel,
+        string OwnershipReasonLabel,
         string WarningText,
         Color StatusColor,
         Color DetailColor);

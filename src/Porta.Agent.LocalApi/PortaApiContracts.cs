@@ -66,7 +66,16 @@ public sealed record LocalApiStatusResponse(
     DateTimeOffset LastUpdatedUtc,
     string CalibrationStage = CalibrationTruth.StageCold,
     bool SystemActionsEnabled = false,
-    string TrustTier = CalibrationTruth.TrustLow)
+    string TrustTier = CalibrationTruth.TrustLow,
+    DateTimeOffset? UserAgentObservedHeartbeatUpdatedAtUtc = null,
+    string? UserAgentObservedCaptureContext = null,
+    string? UserAgentObservedSessionId = null,
+    string? UserAgentStartupSource = null,
+    string? UserAgentLaunchReason = null,
+    int? UserAgentHeartbeatWriteFailureCount = null,
+    string? CaptureSelfTestState = null,
+    string? CaptureSelfTestErrorCode = null,
+    int? CaptureSelfTestRemediationCount = null)
 {
     // Step 18 pinned snake_case aliases for operational truth consumers.
     public bool overload_active => OverloadActive;
@@ -92,6 +101,16 @@ public sealed record LocalApiStatusResponse(
     public string? last_input_session_id => LastInputSessionId;
     public string? ownership_warning => OwnershipWarning;
     public string? capture_failure_reason => CaptureFailureReason;
+    public string? user_agent_observed_heartbeat_utc => ToUtcMsStringOrNull(UserAgentObservedHeartbeatUpdatedAtUtc);
+    public string? user_agent_observed_capture_context => UserAgentObservedCaptureContext;
+    public string? user_agent_observed_session_id => UserAgentObservedSessionId;
+    public string? user_agent_startup_source => UserAgentStartupSource;
+    public string? user_agent_launch_reason => UserAgentLaunchReason;
+    public int? user_agent_heartbeat_write_failure_count => UserAgentHeartbeatWriteFailureCount;
+    public string? capture_self_test_state => CaptureSelfTestState;
+    public string? capture_self_test_error_code => CaptureSelfTestErrorCode;
+    public int? capture_self_test_remediation_count => CaptureSelfTestRemediationCount;
+    public double? last_accepted_input_age_seconds => ComputeAgeSeconds(LastInputEventUtc);
     public int deep_work_streak_sec => DeepWorkStreakSeconds;
     public string last_updated_utc => ToUtcMsString(LastUpdatedUtc);
 
@@ -124,6 +143,17 @@ public sealed record LocalApiStatusResponse(
 
         double seconds = (untilUtc.Value - DateTimeOffset.UtcNow).TotalSeconds;
         return seconds <= 0d ? 0 : (int)Math.Ceiling(seconds);
+    }
+
+    private static double? ComputeAgeSeconds(DateTimeOffset? utc)
+    {
+        if (!utc.HasValue)
+        {
+            return null;
+        }
+
+        double seconds = (DateTimeOffset.UtcNow - utc.Value.ToUniversalTime()).TotalSeconds;
+        return seconds < 0d ? 0d : seconds;
     }
 
     private static string ToUtcMsString(DateTimeOffset utc) =>

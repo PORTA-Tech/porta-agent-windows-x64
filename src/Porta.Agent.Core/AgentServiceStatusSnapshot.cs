@@ -70,4 +70,7 @@ public sealed record AgentServiceStatusSnapshot(
     string? UserAgentObservedSessionId = null,
     string? UserAgentStartupSource = null,
     string? UserAgentLaunchReason = null,
-    int? UserAgentHeartbeatWriteFailureCount = null);
+    int? UserAgentHeartbeatWriteFailureCount = null,
+    string? CaptureSelfTestState = null,
+    string? CaptureSelfTestErrorCode = null,
+    int? CaptureSelfTestRemediationCount = null);

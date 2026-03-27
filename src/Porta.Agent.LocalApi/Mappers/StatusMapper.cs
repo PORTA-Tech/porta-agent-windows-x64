@@ -71,6 +71,15 @@ internal static class StatusMapper
             status.LastUpdatedUtc,
             status.CalibrationStage,
             status.SystemActionsEnabled,
-            status.TrustTier);
+            status.TrustTier,
+            status.UserAgentObservedHeartbeatUpdatedAtUtc,
+            status.UserAgentObservedCaptureContext,
+            status.UserAgentObservedSessionId,
+            status.UserAgentStartupSource,
+            status.UserAgentLaunchReason,
+            status.UserAgentHeartbeatWriteFailureCount,
+            status.CaptureSelfTestState,
+            status.CaptureSelfTestErrorCode,
+            status.CaptureSelfTestRemediationCount);
     }
 }

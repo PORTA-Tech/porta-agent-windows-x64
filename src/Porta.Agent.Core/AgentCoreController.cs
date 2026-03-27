@@ -212,8 +212,9 @@ public sealed class AgentCoreController : IAgentCoreController
             string? userAgentStartupSource = NormalizeIdentifier(observedSessionContext?.StartupSource);
             string? userAgentLaunchReason = NormalizeIdentifier(observedSessionContext?.LaunchReason);
             int? userAgentHeartbeatWriteFailureCount = NormalizeHeartbeatWriteFailureCount(observedSessionContext?.HeartbeatWriteFailureCount);
-            string? captureSelfTestState = NormalizeCaptureSelfTestState(sessionContext?.CaptureSelfTestState);
-            string? captureSelfTestErrorCode = NormalizeIdentifier(sessionContext?.CaptureSelfTestErrorCode);
+            string? captureSelfTestState = NormalizeCaptureSelfTestState(observedSessionContext?.CaptureSelfTestState);
+            string? captureSelfTestErrorCode = NormalizeIdentifier(observedSessionContext?.CaptureSelfTestErrorCode);
+            int? captureSelfTestRemediationCount = NormalizeHeartbeatWriteFailureCount(observedSessionContext?.CaptureSelfTestRemediationCount);
             string? ownershipWarning = ResolveOwnershipWarning(sessionContext);
             string? captureFailureReason = ResolveCaptureFailureReasonLocked(
                 captureContext,
@@ -302,7 +303,10 @@ public sealed class AgentCoreController : IAgentCoreController
                 UserAgentObservedSessionId: userAgentObservedSessionId,
                 UserAgentStartupSource: userAgentStartupSource,
                 UserAgentLaunchReason: userAgentLaunchReason,
-                UserAgentHeartbeatWriteFailureCount: userAgentHeartbeatWriteFailureCount);
+                UserAgentHeartbeatWriteFailureCount: userAgentHeartbeatWriteFailureCount,
+                CaptureSelfTestState: captureSelfTestState,
+                CaptureSelfTestErrorCode: captureSelfTestErrorCode,
+                CaptureSelfTestRemediationCount: captureSelfTestRemediationCount);
         }
     }
 

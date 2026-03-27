@@ -74,7 +74,13 @@ public sealed class LocalApiStatusAcceptanceTests
                     ProcessId: 9876,
                     SessionId: 1,
                     UpdatedAtUtc: DateTimeOffset.UtcNow,
-                    AgentInstanceId: "agent-1")));
+                    AgentInstanceId: "agent-1",
+                    StartupSource: "run-key",
+                    LaunchReason: "stale_heartbeat",
+                    HeartbeatWriteFailureCount: 3,
+                    CaptureSelfTestState: "passed",
+                    CaptureSelfTestErrorCode: null,
+                    CaptureSelfTestRemediationCount: 2)));
         DateTimeOffset lastInputUtc = DateTimeOffset.UtcNow;
         controller.IngestInputSignals(new InputSignalsPacket(
             SchemaVer: 1,
@@ -110,13 +116,33 @@ public sealed class LocalApiStatusAcceptanceTests
         Assert.Equal("UserSession", dto.capture_context);
         Assert.NotNull(dto.UserAgentHeartbeatUpdatedAtUtc);
         Assert.NotNull(dto.user_agent_heartbeat_utc);
+        Assert.NotNull(dto.UserAgentObservedHeartbeatUpdatedAtUtc);
+        Assert.NotNull(dto.user_agent_observed_heartbeat_utc);
         Assert.Equal("agent-1", dto.UserAgentInstanceId);
         Assert.Equal(9876, dto.UserAgentProcessId);
         Assert.Equal("session-1", dto.UserAgentSessionId);
+        Assert.Equal("UserSession", dto.UserAgentObservedCaptureContext);
+        Assert.Equal("UserSession", dto.user_agent_observed_capture_context);
+        Assert.Equal("session-1", dto.UserAgentObservedSessionId);
+        Assert.Equal("session-1", dto.user_agent_observed_session_id);
+        Assert.Equal("run-key", dto.UserAgentStartupSource);
+        Assert.Equal("run-key", dto.user_agent_startup_source);
+        Assert.Equal("stale_heartbeat", dto.UserAgentLaunchReason);
+        Assert.Equal("stale_heartbeat", dto.user_agent_launch_reason);
+        Assert.Equal(3, dto.UserAgentHeartbeatWriteFailureCount);
+        Assert.Equal(3, dto.user_agent_heartbeat_write_failure_count);
+        Assert.Equal("passed", dto.CaptureSelfTestState);
+        Assert.Equal("passed", dto.capture_self_test_state);
+        Assert.Null(dto.CaptureSelfTestErrorCode);
+        Assert.Null(dto.capture_self_test_error_code);
+        Assert.Equal(2, dto.CaptureSelfTestRemediationCount);
+        Assert.Equal(2, dto.capture_self_test_remediation_count);
         Assert.True(dto.keyboard_signal_active);
         Assert.True(dto.mouse_signal_active);
         Assert.NotNull(dto.LastInputEventUtc);
         Assert.NotNull(dto.last_input_event_utc);
+        Assert.NotNull(dto.last_accepted_input_age_seconds);
+        Assert.InRange(dto.last_accepted_input_age_seconds!.Value, 0d, 5d);
         Assert.Equal("agent-1", dto.LastInputAgentInstanceId);
         Assert.Equal("session-1", dto.LastInputSessionId);
         Assert.Null(dto.OwnershipWarning);

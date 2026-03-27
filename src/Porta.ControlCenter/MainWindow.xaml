@@ -1598,6 +1598,10 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Status" Foreground="#CBD5E1" />
@@ -1609,14 +1613,26 @@
                                     <TextBlock Grid.Row="2" Grid.Column="0" Text="Session heartbeat" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="HealthSessionHeartbeatValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="UserAgent instance" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionAgentValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Observed heartbeat" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthSessionObservedHeartbeatValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="UserAgent session" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionIdValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="UserAgent instance" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthSessionAgentValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Explicit warning" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionWarningValue" Grid.Row="5" Grid.Column="1" Text="Session truth unavailable." TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="UserAgent session" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthSessionIdValue" Grid.Row="5" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Startup source" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthSessionStartupSourceValue" Grid.Row="6" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Last launch reason" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthSessionLaunchReasonValue" Grid.Row="7" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+
+                                    <TextBlock Grid.Row="8" Grid.Column="0" Text="Recovery state" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthSessionRecoveryValue" Grid.Row="8" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+
+                                    <TextBlock Grid.Row="9" Grid.Column="0" Text="Explicit warning" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthSessionWarningValue" Grid.Row="9" Grid.Column="1" Text="Session truth unavailable." TextWrapping="Wrap" />
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -1636,6 +1652,8 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Status" Foreground="#CBD5E1" />
@@ -1650,8 +1668,14 @@
                                     <TextBlock Grid.Row="3" Grid.Column="0" Text="Last input event" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="HealthLastInputValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Last input owner" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthInputOwnerValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Last accepted input age" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthLastInputAgeValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Last input owner" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthInputOwnerValue" Grid.Row="5" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Ownership reason" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthInputOwnershipReasonValue" Grid.Row="6" Grid.Column="1" Text="None" TextWrapping="Wrap" />
                                 </Grid>
                                 <TextBlock x:Name="HealthInputWarningValue" Text="Input truth unavailable." TextWrapping="Wrap" Margin="0,10,0,0" />
                             </StackPanel>
