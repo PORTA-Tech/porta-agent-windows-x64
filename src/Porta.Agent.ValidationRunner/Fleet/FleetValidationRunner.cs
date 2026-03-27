@@ -12,6 +12,7 @@ internal static class FleetValidationRunner
     private static readonly TimeSpan SummaryPollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan UserAgentDegradeTimeout = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan UserAgentRecoverTimeout = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan ControlCenterClosureTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan ActivityTimeout = TimeSpan.FromSeconds(25);
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(40);
     private static readonly TimeSpan ActionLifecycleTimeout = TimeSpan.FromSeconds(30);
@@ -97,11 +98,16 @@ internal static class FleetValidationRunner
         {
             results.AddRange(await ValidateUserAgentDegradeAndRecoverAsync(controlPlane, options, summary).ConfigureAwait(false));
             summary = await WaitForMachineSummaryAsync(controlPlane, options.MachineId, TimeSpan.FromSeconds(5)).ConfigureAwait(false) ?? summary;
+            results.AddRange(await ValidateControlCenterClosedAsync(controlPlane, localApi, options.MachineId).ConfigureAwait(false));
+            summary = await WaitForMachineSummaryAsync(controlPlane, options.MachineId, TimeSpan.FromSeconds(5)).ConfigureAwait(false) ?? summary;
         }
         else
         {
             results.Add(Info(
-                "stop Porta.UserAgent -> degraded capture truth",
+                "kill Porta.UserAgent -> service watchdog relaunches interactive session agent",
+                "Skipped because --allow-process-control was not provided."));
+            results.Add(Info(
+                "close Control Center -> capture stays healthy",
                 "Skipped because --allow-process-control was not provided."));
         }
 
@@ -640,28 +646,91 @@ internal static class FleetValidationRunner
 
         bool primaryLaunchConfirmed =
             summary.UserSessionConnected
+            && !string.IsNullOrWhiteSpace(summary.UserAgentHeartbeatUtc)
+            && summary.UserAgentHeartbeatAgeSeconds.HasValue
             && !string.IsNullOrWhiteSpace(summary.UserAgentStartupSource)
             && !string.Equals(summary.UserAgentStartupSource, "control-center-recovery", StringComparison.OrdinalIgnoreCase);
 
         return primaryLaunchConfirmed
             ? Pass(
-                "interactive session startup -> heartbeat comes from a primary OS launch path",
+                "install/login startup -> first heartbeat comes from a primary OS launch path",
                 $"startupSource={startupSource}, startupState={startupState}, launchReason={launchReason}, heartbeatAge={heartbeatAge}.")
             : Fail(
-                "interactive session startup -> heartbeat comes from a primary OS launch path",
-                $"Expected a connected session started by Run key / Windows restart, but got startupSource={startupSource}, startupState={startupState}, launchReason={launchReason}, userSessionConnected={summary.UserSessionConnected}.");
+                "install/login startup -> first heartbeat comes from a primary OS launch path",
+                $"Expected a connected session with a fresh heartbeat started by Run key / Windows restart, but got startupSource={startupSource}, startupState={startupState}, launchReason={launchReason}, heartbeatAge={heartbeatAge}, userSessionConnected={summary.UserSessionConnected}.");
     }
 
     private static async Task<IReadOnlyList<FleetValidationResult>> ValidateUserAgentDegradeAndRecoverAsync(
         ControlPlaneFleetClient controlPlane,
         FleetValidationOptions options,
-        MachineSummaryRow _)
+        MachineSummaryRow baselineSummary)
     {
         var results = new List<FleetValidationResult>();
         Process[] running = Process.GetProcessesByName("Porta.UserAgent");
         if (running.Length == 0)
         {
-            results.Add(Fail("stop Porta.UserAgent -> degraded capture truth", "Porta.UserAgent is not running, so process-control validation cannot stop it."));
+            results.Add(Fail("kill Porta.UserAgent -> service watchdog relaunches interactive session agent", "Porta.UserAgent is not running, so process-control validation cannot stop it."));
+            return results;
+        }
+
+        long baselineReportedAtMs = ParseTimestampUtc(baselineSummary.ReportedAtUtc);
+        foreach (Process process in running)
+        {
+            process.Kill(entireProcessTree: false);
+            process.WaitForExit(10_000);
+            process.Dispose();
+        }
+
+        MachineSummaryRow? recovered = await WaitForConditionAsync(
+            controlPlane,
+            options.MachineId,
+            UserAgentRecoverTimeout,
+            summary =>
+                ParseTimestampUtc(summary.ReportedAtUtc) > baselineReportedAtMs
+                && summary.UserSessionConnected
+                && string.Equals(summary.UserAgentStartupSource, "service-watchdog", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(summary.UserAgentLastLaunchReason, "missing_process", StringComparison.OrdinalIgnoreCase)).ConfigureAwait(false);
+
+        results.Add(recovered is not null
+            ? Pass(
+                "kill Porta.UserAgent -> service watchdog relaunches interactive session agent",
+                $"startupSource={recovered.UserAgentStartupSource}, launchReason={recovered.UserAgentLastLaunchReason}, reportedAt={recovered.ReportedAtUtc}.")
+            : Fail(
+                "kill Porta.UserAgent -> service watchdog relaunches interactive session agent",
+                "Machine summary never showed a service-watchdog recovery launch within 45s after killing Porta.UserAgent."));
+
+        if (recovered is not null)
+        {
+            bool captureHealthy =
+                string.Equals(recovered.CaptureContext, "UserSession", StringComparison.Ordinal)
+                && string.IsNullOrWhiteSpace(recovered.CaptureFailureReason)
+                && recovered.UserAgentHeartbeatAgeSeconds.HasValue
+                && recovered.UserAgentHeartbeatAgeSeconds.Value <= 15d;
+
+            results.Add(captureHealthy
+                ? Pass(
+                    "kill Porta.UserAgent -> capture returns healthy without manual restart",
+                    $"captureContext={recovered.CaptureContext}, heartbeatAge={recovered.UserAgentHeartbeatAgeSeconds:F1}s, captureFailure={recovered.CaptureFailureReason ?? "none"}.")
+                : Fail(
+                    "kill Porta.UserAgent -> capture returns healthy without manual restart",
+                    $"Recovered summary was not fully healthy: captureContext={recovered.CaptureContext}, heartbeatAge={recovered.UserAgentHeartbeatAgeSeconds?.ToString("F1") ?? "missing"}s, captureFailure={recovered.CaptureFailureReason ?? "none"}."));
+        }
+
+        return results;
+    }
+
+    private static async Task<IReadOnlyList<FleetValidationResult>> ValidateControlCenterClosedAsync(
+        ControlPlaneFleetClient controlPlane,
+        LocalApiClient localApi,
+        string machineId)
+    {
+        var results = new List<FleetValidationResult>();
+        Process[] running = Process.GetProcessesByName("Porta.ControlCenter");
+        if (running.Length == 0)
+        {
+            results.Add(Info(
+                "close Control Center -> capture stays healthy",
+                "Skipped because Control Center was not running during validation."));
             return results;
         }
 
@@ -672,60 +741,31 @@ internal static class FleetValidationRunner
             process.Dispose();
         }
 
-        MachineSummaryRow? degraded = await WaitForConditionAsync(
+        await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+
+        LocalApiStatusResponse? localStatus = await localApi.GetStatusAsync().ConfigureAwait(false);
+        MachineSummaryRow? summary = await WaitForConditionAsync(
             controlPlane,
-            options.MachineId,
-            UserAgentDegradeTimeout,
-            summary => !summary.UserSessionConnected).ConfigureAwait(false);
+            machineId,
+            ControlCenterClosureTimeout,
+            row =>
+                row.UserSessionConnected
+                && string.Equals(row.CaptureContext, "UserSession", StringComparison.OrdinalIgnoreCase)
+                && (!row.UserAgentHeartbeatAgeSeconds.HasValue || row.UserAgentHeartbeatAgeSeconds.Value <= 15d)).ConfigureAwait(false);
 
-        results.Add(degraded is not null
-            ? Pass("stop Porta.UserAgent -> Layer 1 degraded capture truth", $"User session disconnected after reporter update ({degraded.ReportedAtUtc}).")
-            : Fail("stop Porta.UserAgent -> Layer 1 degraded capture truth", "Machine summary never reflected a disconnected user session within 60s."));
+        bool localHealthy =
+            localStatus is not null
+            && localStatus.ServiceRunning
+            && string.Equals(localStatus.CaptureContext, "UserSession", StringComparison.Ordinal)
+            && localStatus.UserAgentHeartbeatUpdatedAtUtc.HasValue;
 
-        if (degraded is not null)
-        {
-            results.Add(Pass(
-                "stop Porta.UserAgent -> Layers 2-3 become limited/unavailable",
-                "The summary now has userSessionConnected=false, which is the actual condition the operations console maps to unavailable state for Layers 2 and 3."));
-        }
-
-        if (!File.Exists(options.UserAgentPath))
-        {
-            results.Add(Fail("restart Porta.UserAgent after degradation test", $"Configured user-agent path does not exist: {options.UserAgentPath}"));
-            return results;
-        }
-
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = options.UserAgentPath,
-            Arguments = "--startup-source=validation-runner-recovery --launch-reason=validation-runner-recovery",
-            UseShellExecute = true
-        });
-
-        MachineSummaryRow? recovered = await WaitForConditionAsync(
-            controlPlane,
-            options.MachineId,
-            UserAgentRecoverTimeout,
-            summary => summary.UserSessionConnected).ConfigureAwait(false);
-
-        results.Add(recovered is not null
-            ? Pass("restart Porta.UserAgent -> session recovers", $"User session reconnected and reported at {recovered.ReportedAtUtc}.")
-            : Fail("restart Porta.UserAgent -> session recovers", "Machine summary never returned to a connected user session state within 45s."));
-
-        if (recovered is not null)
-        {
-            bool recoveryTagged =
-                string.Equals(recovered.UserAgentStartupSource, "validation-runner-recovery", StringComparison.OrdinalIgnoreCase)
-                && string.Equals(recovered.UserAgentLastLaunchReason, "validation-runner-recovery", StringComparison.OrdinalIgnoreCase);
-
-            results.Add(recoveryTagged
-                ? Pass(
-                    "restart Porta.UserAgent -> recovery launch is visible in diagnostics",
-                    $"startupSource={recovered.UserAgentStartupSource}, launchReason={recovered.UserAgentLastLaunchReason}.")
-                : Fail(
-                    "restart Porta.UserAgent -> recovery launch is visible in diagnostics",
-                    $"Expected validation-runner-recovery diagnostics after relaunch, got startupSource={recovered.UserAgentStartupSource ?? "(missing)"}, launchReason={recovered.UserAgentLastLaunchReason ?? "(missing)"}."));   
-        }
+        results.Add(localHealthy && summary is not null
+            ? Pass(
+                "close Control Center -> capture stays healthy",
+                $"localHeartbeat={localStatus!.user_agent_heartbeat_utc ?? "missing"}, fleetHeartbeatAge={summary.UserAgentHeartbeatAgeSeconds?.ToString("F1") ?? "missing"}s, captureContext={summary.CaptureContext}.")
+            : Fail(
+                "close Control Center -> capture stays healthy",
+                $"localStatus={(localStatus is null ? "missing" : $"captureContext={localStatus.CaptureContext}, heartbeat={localStatus.user_agent_heartbeat_utc ?? "missing"}")}; fleetSummary={(summary is null ? "missing" : $"captureContext={summary.CaptureContext}, heartbeatAge={summary.UserAgentHeartbeatAgeSeconds?.ToString("F1") ?? "missing"}s, connected={summary.UserSessionConnected}")}."));
 
         return results;
     }

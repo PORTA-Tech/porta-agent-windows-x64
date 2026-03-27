@@ -30,6 +30,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Porta.Agent.Service.Tests",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Porta.Agent.Runtime.Tests", "src\Porta.Agent.Runtime.Tests\Porta.Agent.Runtime.Tests.csproj", "{6D1CCFC7-1AA7-4D56-8D51-12314F1FA64B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Porta.ControlCenter.Tests", "src\Porta.ControlCenter.Tests\Porta.ControlCenter.Tests.csproj", "{C2C955F9-8B29-4A39-8DB7-7D6A5E5E5C51}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -88,6 +90,10 @@ Global
 		{6D1CCFC7-1AA7-4D56-8D51-12314F1FA64B}.Debug|x64.Build.0 = Debug|Any CPU
 		{6D1CCFC7-1AA7-4D56-8D51-12314F1FA64B}.Release|x64.ActiveCfg = Release|Any CPU
 		{6D1CCFC7-1AA7-4D56-8D51-12314F1FA64B}.Release|x64.Build.0 = Release|Any CPU
+		{C2C955F9-8B29-4A39-8DB7-7D6A5E5E5C51}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C2C955F9-8B29-4A39-8DB7-7D6A5E5E5C51}.Debug|x64.Build.0 = Debug|Any CPU
+		{C2C955F9-8B29-4A39-8DB7-7D6A5E5E5C51}.Release|x64.ActiveCfg = Release|Any CPU
+		{C2C955F9-8B29-4A39-8DB7-7D6A5E5E5C51}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -106,6 +112,7 @@ Global
 		{F6D6F3F2-C053-40EB-886E-1C91840BAF66} = {EFF5CA7A-74AE-48FE-A5FC-2827967A2509}
 		{28A5A375-C73E-4C0A-A661-7B11CE04CEDE} = {EFF5CA7A-74AE-48FE-A5FC-2827967A2509}
 		{6D1CCFC7-1AA7-4D56-8D51-12314F1FA64B} = {EFF5CA7A-74AE-48FE-A5FC-2827967A2509}
+		{C2C955F9-8B29-4A39-8DB7-7D6A5E5E5C51} = {EFF5CA7A-74AE-48FE-A5FC-2827967A2509}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {82734A63-F484-4A5C-8841-830BFE7A52B9}

@@ -99,6 +99,35 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         Assert.Empty(runtime.TerminatedSessions);
     }
 
+    [Fact]
+    public void EnsureHealthy_LaunchesIntoNewInteractiveSession_WhenPreviousSessionProcessStillExists()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        var runtime = new FakeRuntime
+        {
+            UtcNowValue = nowUtc,
+            InteractiveSessionId = 9,
+            HasUserAgentBinary = true,
+            RunningProcesses =
+            [
+                new RunningUserAgentProcessSnapshot(3333, 3, nowUtc.AddMinutes(-10))
+            ],
+            SessionContext = new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 3333,
+                SessionId: 3,
+                UpdatedAtUtc: nowUtc.AddSeconds(-4),
+                AgentInstanceId: "previous-session-agent")
+        };
+        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
+
+        coordinator.EnsureHealthy(force: true);
+
+        Assert.Equal([(9, "missing_process")], runtime.LaunchAttempts);
+        Assert.Empty(runtime.TerminatedSessions);
+    }
+
     private sealed class FakeRuntime : ICurrentSessionUserAgentRuntime
     {
         public DateTimeOffset UtcNowValue { get; set; } = DateTimeOffset.UtcNow;

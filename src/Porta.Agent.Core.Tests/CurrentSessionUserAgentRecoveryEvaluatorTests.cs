@@ -106,4 +106,28 @@ public sealed class CurrentSessionUserAgentRecoveryEvaluatorTests
         Assert.Equal(CurrentSessionUserAgentAction.RestartExisting, decision.Action);
         Assert.Equal("process_mismatch", decision.Reason);
     }
+
+    [Fact]
+    public void Evaluate_LaunchesNewProcess_WhenInteractiveSessionHasSwitched()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-20T08:00:00Z");
+
+        CurrentSessionUserAgentDecision decision = CurrentSessionUserAgentRecoveryEvaluator.Evaluate(
+            currentSessionId: 9,
+            processes:
+            [
+                new RunningUserAgentProcessSnapshot(8111, 3, nowUtc.AddMinutes(-15))
+            ],
+            sessionContext: new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 8111,
+                SessionId: 3,
+                UpdatedAtUtc: nowUtc.AddSeconds(-4),
+                AgentInstanceId: "useragent-8111"),
+            nowUtc: nowUtc);
+
+        Assert.Equal(CurrentSessionUserAgentAction.LaunchNew, decision.Action);
+        Assert.Equal("missing_process", decision.Reason);
+    }
 }
