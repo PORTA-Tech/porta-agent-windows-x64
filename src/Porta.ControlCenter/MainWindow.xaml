@@ -15,6 +15,9 @@
         Background="#0F1114"
         Foreground="#E6E9ED"
         FontFamily="Segoe UI Variable, Segoe UI, Inter">
+    <Window.TaskbarItemInfo>
+        <TaskbarItemInfo x:Name="WindowTaskbarItemInfo" Description="PORTA" />
+    </Window.TaskbarItemInfo>
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="46"
                             ResizeBorderThickness="6"
@@ -228,7 +231,34 @@
                 <Button x:Name="InputsNavButton" Content="What I Track" Margin="0,0,0,8" Padding="10,8" Click="InputsNavButton_Click" />
                 <Button x:Name="StatesNavButton" Content="How It Decides" Margin="0,0,0,8" Padding="10,8" Click="StatesNavButton_Click" />
                 <Button x:Name="SettingsNavButton" Content="Controls" Margin="0,0,0,8" Padding="10,8" Click="SettingsNavButton_Click" />
-                <Button x:Name="AccountNavButton" Content="Account" Margin="0,0,0,8" Padding="10,8" Click="AccountNavButton_Click" />
+                <Button x:Name="AccountNavButton" Margin="0,0,0,8" Padding="10,8" Click="AccountNavButton_Click">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Account"
+                                   VerticalAlignment="Center" />
+                        <Border x:Name="AccountNavUpdateBadgeBorder"
+                                Grid.Column="1"
+                                Margin="10,0,0,0"
+                                Background="#C1121F"
+                                BorderBrush="#F87171"
+                                BorderThickness="1"
+                                CornerRadius="9"
+                                Padding="6,1"
+                                VerticalAlignment="Center"
+                                Visibility="Collapsed">
+                            <TextBlock x:Name="AccountNavUpdateBadgeText"
+                                       Text="1"
+                                       FontSize="11"
+                                       FontWeight="Bold"
+                                       Foreground="White"
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Center" />
+                        </Border>
+                    </Grid>
+                </Button>
                 <Button x:Name="DiagnosticsNavButton" Content="Health" Margin="0,0,0,0" Padding="10,8" Click="DiagnosticsNavButton_Click" />
             </StackPanel>
         </Border>
@@ -254,6 +284,40 @@
                     <Border x:Name="TrustBadgeBorder" CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,0">
                         <TextBlock x:Name="TrustBadgeText" Text="Trust: Low" />
                     </Border>
+                    <Button x:Name="GlobalUpdateButton"
+                            Padding="12,6"
+                            Margin="0,0,10,0"
+                            Visibility="Collapsed"
+                            ToolTip="Open update details"
+                            Click="GlobalUpdateButton_Click">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="GlobalUpdateButtonText"
+                                       Text="Update ready"
+                                       VerticalAlignment="Center"
+                                       FontWeight="SemiBold" />
+                            <Border x:Name="GlobalUpdateButtonBadgeBorder"
+                                    Grid.Column="1"
+                                    Margin="10,0,0,0"
+                                    Background="#C1121F"
+                                    BorderBrush="#F87171"
+                                    BorderThickness="1"
+                                    CornerRadius="9"
+                                    Padding="6,1"
+                                    VerticalAlignment="Center">
+                                <TextBlock x:Name="GlobalUpdateButtonBadgeText"
+                                           Text="1"
+                                           FontSize="11"
+                                           FontWeight="Bold"
+                                           Foreground="White"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Center" />
+                            </Border>
+                        </Grid>
+                    </Button>
                     <Button x:Name="WhyDrawerToggleButton" Content="Why" Padding="12,6" Margin="0,0,10,0" Click="WhyDrawerToggleButton_Click" />
                     <Button x:Name="QuickPauseResumeButton" Content="Pause" Padding="12,6" Margin="0,0,10,0" Click="QuickPauseResumeButton_Click" />
                     <Button x:Name="RefreshButton" Content="Refresh" Padding="12,6" Margin="0,0,10,0" Click="RefreshButton_Click" />

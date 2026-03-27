@@ -6,6 +6,8 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Porta.ControlCenter.Identity;
 
 namespace Porta.ControlCenter;
@@ -13,6 +15,7 @@ namespace Porta.ControlCenter;
 public partial class MainWindow
 {
     private static readonly TimeSpan ClientReleaseCheckInterval = TimeSpan.FromMinutes(30);
+    private static readonly ImageSource UpdateTaskbarOverlayImage = BuildUpdateTaskbarOverlayImage();
 
     private ControlPlaneWindowsReleaseManifest? _latestWindowsRelease;
     private DateTimeOffset _lastWindowsReleaseCheckUtc = DateTimeOffset.MinValue;
@@ -86,6 +89,14 @@ public partial class MainWindow
 
         if (!hasUpdate)
         {
+            AccountNavUpdateBadgeBorder.Visibility = Visibility.Collapsed;
+            AccountNavButton.ToolTip = "Account, workspace, devices, and updates";
+            GlobalUpdateButton.Visibility = Visibility.Collapsed;
+            if (WindowTaskbarItemInfo != null)
+            {
+                WindowTaskbarItemInfo.Overlay = null;
+                WindowTaskbarItemInfo.Description = "PORTA";
+            }
             UpdateOverlay.Visibility = Visibility.Collapsed;
             return;
         }
@@ -100,6 +111,9 @@ public partial class MainWindow
         AccountUpdateTitleText.Text = title;
         AccountUpdateBodyText.Text = summary;
         AccountUpdateStatusText.Text = status;
+        AccountNavUpdateBadgeText.Text = "1";
+        AccountNavUpdateBadgeBorder.Visibility = Visibility.Visible;
+        AccountNavButton.ToolTip = $"Ari {release.Version} update available";
 
         UpdateOverlayTitleText.Text = title;
         UpdateOverlayVersionText.Text = $"Current version {_uiVersion} -> {release.Version}";
@@ -108,6 +122,19 @@ public partial class MainWindow
         UpdateOverlayInstallButton.IsEnabled = !_updateInstallInProgress;
         UpdateOverlayLaterButton.IsEnabled = !_updateInstallInProgress;
         UpdateOverlay.Visibility = _updateOverlayOpen ? Visibility.Visible : Visibility.Collapsed;
+
+        GlobalUpdateButtonText.Text = release.Required || IsMinimumVersionRequired(release)
+            ? "Update required"
+            : "Update ready";
+        GlobalUpdateButton.ToolTip = summary;
+        GlobalUpdateButton.Visibility = Visibility.Visible;
+        GlobalUpdateButtonBadgeText.Text = "1";
+
+        if (WindowTaskbarItemInfo != null)
+        {
+            WindowTaskbarItemInfo.Overlay = UpdateTaskbarOverlayImage;
+            WindowTaskbarItemInfo.Description = $"PORTA | Ari {release.Version} update available";
+        }
     }
 
     private static string BuildUpdateTitle(ControlPlaneWindowsReleaseManifest release)
@@ -316,6 +343,25 @@ public partial class MainWindow
         });
     }
 
+    private void GlobalUpdateButton_Click(object sender, RoutedEventArgs e)
+    {
+        OpenUpdateSurface();
+    }
+
+    private void OpenUpdateSurface()
+    {
+        if (_latestWindowsRelease == null)
+        {
+            return;
+        }
+
+        ShowSection(UiSection.Account);
+        _activeAccountSection = AccountSurfaceSection.Summary;
+        _updateOverlayOpen = true;
+        PopulateAccountSurface();
+        Activate();
+    }
+
     private void AccountDismissUpdateButton_Click(object sender, RoutedEventArgs e)
     {
         if (_latestWindowsRelease != null)
@@ -331,5 +377,40 @@ public partial class MainWindow
     private async void AccountInstallUpdateButton_Click(object sender, RoutedEventArgs e)
     {
         await InstallLatestWindowsReleaseAsync().ConfigureAwait(true);
+    }
+
+    private static ImageSource BuildUpdateTaskbarOverlayImage()
+    {
+        const int size = 32;
+        var visual = new DrawingVisual();
+        using (DrawingContext dc = visual.RenderOpen())
+        {
+            var outerBrush = new SolidColorBrush(Color.FromRgb(193, 18, 31));
+            outerBrush.Freeze();
+            var borderPen = new Pen(new SolidColorBrush(Color.FromRgb(248, 113, 113)), 1.5);
+            borderPen.Freeze();
+
+            dc.DrawEllipse(outerBrush, borderPen, new Point(size / 2d, size / 2d), 14d, 14d);
+
+            double pixelsPerDip = 1.0d;
+            var formattedText = new FormattedText(
+                "1",
+                CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight,
+                new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal),
+                16d,
+                Brushes.White,
+                pixelsPerDip);
+
+            Point textOrigin = new(
+                (size - formattedText.Width) / 2d,
+                (size - formattedText.Height) / 2d - 0.5d);
+            dc.DrawText(formattedText, textOrigin);
+        }
+
+        var bitmap = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        bitmap.Freeze();
+        return bitmap;
     }
 }
