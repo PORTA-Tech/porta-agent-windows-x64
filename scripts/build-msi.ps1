@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "1.0.11",
+    [string]$Version = "1.0.12",
     [string]$BackendUrl = "https://porta-control-plane.onrender.com",
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
