@@ -289,13 +289,14 @@ public sealed class LocalApiStatusAcceptanceTests
     }
 
     [Fact]
-    public void Status_DoesNotTreatSingleChannelActivityAsCaptureFailure()
+    public void Status_DoesNotTreatProlongedTypingOnlyActivityAsCaptureFailure()
     {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         var store = new LocalApiContractFakeStore
         {
             LatestSnapshot = CreateSnapshot(overload: 0.10d, confidence: 0.39d),
             LatestStateDetails = new AgentLatestStateDetails(
-                TimestampUtc: DateTimeOffset.UtcNow,
+                TimestampUtc: nowUtc,
                 OverloadLikelihood: 0.10d,
                 Confidence: 0.39d,
                 SustainedAttentionDurationSec: 0d,
@@ -319,16 +320,16 @@ public sealed class LocalApiStatusAcceptanceTests
                 CaptureContext: UserAgentCaptureContexts.UserSession,
                 ProcessId: 5555,
                 SessionId: 4,
-                UpdatedAtUtc: DateTimeOffset.UtcNow,
+                UpdatedAtUtc: nowUtc,
                 AgentInstanceId: "useragent-4"));
 
         var controller = new AgentCoreController(store, sessionContextStore);
-        DateTimeOffset lastInputUtc = DateTimeOffset.UtcNow;
+        DateTimeOffset lastInputUtc = nowUtc;
         controller.IngestInputSignals(new InputSignalsPacket(
             SchemaVer: 1,
             AgentInstanceId: "useragent-4",
             SessionId: "session-4",
-            WindowStartUtc: lastInputUtc.AddSeconds(-5),
+            WindowStartUtc: lastInputUtc.AddSeconds(-90),
             WindowEndUtc: lastInputUtc,
             KeyboardKeydownCount: 12,
             KeyboardBackspaceCount: 1,
@@ -346,6 +347,115 @@ public sealed class LocalApiStatusAcceptanceTests
         Assert.False(dto.mouse_signal_active);
         Assert.Null(dto.CaptureFailureReason);
         Assert.Null(dto.capture_failure_reason);
+    }
+
+    [Fact]
+    public void Status_DoesNotTreatProlongedMouseOnlyActivityAsCaptureFailure()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.10d, confidence: 0.39d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: nowUtc,
+                OverloadLikelihood: 0.10d,
+                Confidence: 0.39d,
+                SustainedAttentionDurationSec: 0d,
+                IdleFragmentationIndex: 0d,
+                FocusAppEntropy: 0d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: false,
+                BaselineReadyPct: 0.05d,
+                AvgQuality2m: 0.18d,
+                ColdStart: true,
+                CurrentQualityScore: 0.24d,
+                PartialData: false,
+                MissingMajorChannels: ["keyboard"]),
+        };
+
+        var sessionContextStore = new FakeUserAgentSessionContextStore(
+            new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 5555,
+                SessionId: 4,
+                UpdatedAtUtc: nowUtc,
+                AgentInstanceId: "useragent-4"));
+
+        var controller = new AgentCoreController(store, sessionContextStore);
+        DateTimeOffset lastInputUtc = nowUtc;
+        controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "useragent-4",
+            SessionId: "session-4",
+            WindowStartUtc: lastInputUtc.AddSeconds(-90),
+            WindowEndUtc: lastInputUtc,
+            KeyboardKeydownCount: 0,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 120,
+            MouseMoveDx: 18d,
+            MouseMoveDy: -6d,
+            FocusAppHash: "a1b2c3d4",
+            IdleSeconds: 0.1d,
+            LastInputEventUtc: lastInputUtc));
+
+        var dto = StatusMapper.Map(controller.GetStatus(), localApiAuthReady: true, localApiAuthError: null);
+
+        Assert.Equal("UserSession", dto.capture_context);
+        Assert.False(dto.keyboard_signal_active);
+        Assert.True(dto.mouse_signal_active);
+        Assert.Null(dto.CaptureFailureReason);
+        Assert.Null(dto.capture_failure_reason);
+    }
+
+    [Fact]
+    public void Status_ReportsSelfTestFailure_WhenHeartbeatIsFresh()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.12d, confidence: 0.44d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: nowUtc,
+                OverloadLikelihood: 0.12d,
+                Confidence: 0.44d,
+                SustainedAttentionDurationSec: 0d,
+                IdleFragmentationIndex: 0d,
+                FocusAppEntropy: 0d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: false,
+                BaselineReadyPct: 0.03d,
+                AvgQuality2m: 0.10d,
+                ColdStart: true,
+                CurrentQualityScore: 0.16d,
+                PartialData: true,
+                MissingMajorChannels: ["keyboard", "mouse"]),
+        };
+
+        var controller = new AgentCoreController(
+            store,
+            new FakeUserAgentSessionContextStore(
+                new UserAgentSessionContextSnapshot(
+                    SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                    CaptureContext: UserAgentCaptureContexts.UserSession,
+                    ProcessId: 7002,
+                    SessionId: 4,
+                    UpdatedAtUtc: nowUtc,
+                    AgentInstanceId: "agent-4",
+                    CaptureSelfTestState: "failed",
+                    CaptureSelfTestErrorCode: "no_live_input_after_user_activity",
+                    CaptureSelfTestRemediationCount: 2)));
+
+        var dto = StatusMapper.Map(controller.GetStatus(), localApiAuthReady: true, localApiAuthError: null);
+
+        Assert.Equal("UserSession", dto.capture_context);
+        Assert.Equal("failed", dto.capture_self_test_state);
+        Assert.Equal("USER_AGENT_INPUT_SELF_TEST_FAILED", dto.CaptureFailureReason);
+        Assert.Equal("USER_AGENT_INPUT_SELF_TEST_FAILED", dto.capture_failure_reason);
     }
 
     [Fact]

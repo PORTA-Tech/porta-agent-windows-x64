@@ -61,12 +61,26 @@ public sealed class UserCommunicationRouterTests
     }
 
     [Fact]
-    public void ResolveCaptureDegradedState_DoesNotToastForSingleChannelInactivityAlone()
+    public void ResolveCaptureDegradedState_DoesNotToastForProlongedTypingOnlyActivity()
     {
         LocalApiStatusResponse inactiveStatus = BuildStatus(
             captureFailureReason: null,
             keyboardSignalActive: false,
             mouseSignalActive: true);
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(partialData: false, missingMajorChannels: []);
+
+        UserCommunicationToast? inactiveToast = UserCommunicationRouter.ResolveCaptureDegradedState(inactiveStatus, snapshot);
+
+        Assert.Null(inactiveToast);
+    }
+
+    [Fact]
+    public void ResolveCaptureDegradedState_DoesNotToastForProlongedMouseOnlyActivity()
+    {
+        LocalApiStatusResponse inactiveStatus = BuildStatus(
+            captureFailureReason: null,
+            keyboardSignalActive: true,
+            mouseSignalActive: false);
         LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(partialData: false, missingMajorChannels: []);
 
         UserCommunicationToast? inactiveToast = UserCommunicationRouter.ResolveCaptureDegradedState(inactiveStatus, snapshot);
@@ -98,6 +112,36 @@ public sealed class UserCommunicationRouterTests
         UserCommunicationToast? toast = UserCommunicationRouter.ResolveCaptureDegradedState(status, snapshot);
 
         Assert.Null(toast);
+    }
+
+    [Fact]
+    public void ResolveCaptureDegradedState_UsesSessionSwitchedReason()
+    {
+        LocalApiStatusResponse status = BuildStatus(captureFailureReason: "USER_AGENT_SESSION_SWITCHED");
+
+        UserCommunicationToast? toast = UserCommunicationRouter.ResolveCaptureDegradedState(
+            status,
+            snapshot: BuildSnapshot(partialData: false, missingMajorChannels: []));
+
+        Assert.NotNull(toast);
+        Assert.Equal("capture:session_handoff", toast.Key);
+        Assert.Equal("capture:session_handoff", toast.DeduplicationKey);
+        Assert.Contains("session handoff", toast.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ResolveCaptureDegradedState_UsesSelfTestFailureReason()
+    {
+        LocalApiStatusResponse status = BuildStatus(captureFailureReason: "USER_AGENT_INPUT_SELF_TEST_FAILED");
+
+        UserCommunicationToast? toast = UserCommunicationRouter.ResolveCaptureDegradedState(
+            status,
+            snapshot: BuildSnapshot(partialData: false, missingMajorChannels: []));
+
+        Assert.NotNull(toast);
+        Assert.Equal("capture:self_test_failed", toast.Key);
+        Assert.Equal("capture:input_pipeline", toast.DeduplicationKey);
+        Assert.Contains("not reaching the core yet", toast.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static LocalApiStatusResponse BuildStatus(
