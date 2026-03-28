@@ -1889,6 +1889,7 @@
         </Border>
 
         <Grid x:Name="OnboardingOverlay"
+              Grid.Row="1"
               Grid.ColumnSpan="2"
               Background="#CC020617"
               Visibility="Collapsed"
@@ -2014,7 +2015,13 @@
             </Grid>
         </Grid>
 
-        <Grid x:Name="UpdateOverlay" Grid.ColumnSpan="2" Background="Transparent" Visibility="Collapsed" Panel.ZIndex="180" IsHitTestVisible="False">
+        <Grid x:Name="UpdateOverlay"
+              Grid.Row="1"
+              Grid.Column="1"
+              Background="Transparent"
+              Visibility="Collapsed"
+              Panel.ZIndex="180"
+              IsHitTestVisible="False">
             <Border Width="420"
                     MaxWidth="420"
                     MaxHeight="340"
@@ -2050,7 +2057,11 @@
             </Border>
         </Grid>
 
-        <Border x:Name="ConsentOverlay" Grid.ColumnSpan="2" Background="#CC020617" Visibility="Collapsed">
+        <Border x:Name="ConsentOverlay"
+                Grid.Row="1"
+                Grid.ColumnSpan="2"
+                Background="#CC020617"
+                Visibility="Collapsed">
             <Grid>
                 <Border Width="820" Padding="24" CornerRadius="12" Background="#111827" BorderBrush="#334155" BorderThickness="1" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <StackPanel>
