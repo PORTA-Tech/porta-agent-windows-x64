@@ -28,11 +28,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private readonly UserKeyboardActivityPoller _keyboardPoller = new();
     private readonly MouseHook _mouseHook = new();
     private readonly CaptureSelfTestCoordinator _captureSelfTest = new();
+    private readonly CaptureDegradedToastGate _captureDegradedToastGate = new();
     private readonly string _agentInstanceId = BuildAgentInstanceId();
     private DateTimeOffset _windowStartUtc = DateTimeOffset.UtcNow;
     private long _lastRecoveryEventId;
     private long _lastCommunicationEventId;
-    private string? _lastCaptureDegradedToastKey;
     private UserInterventionToastRenderer.UserTrayVisualState? _lastTrayState;
     private bool _hooksInstalled;
     private bool _keyboardCaptureAvailable;
@@ -169,17 +169,18 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             .GetRecentEventsAsync(limit: 12, sinceUtc: DateTimeOffset.UtcNow - TimeSpan.FromMinutes(3), token)
             .ConfigureAwait(false);
 
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         UserAgentVisualSignals signals = UserAgentVisualSignalsAdapter.Build(
             status,
             snapshot,
             recentEvents,
-            DateTimeOffset.UtcNow,
+            nowUtc,
             _lastRecoveryEventId);
 
         UserCommunicationToast? captureDegradedToast = UserCommunicationRouter.ResolveCaptureDegradedState(status, snapshot);
         if (captureDegradedToast == null)
         {
-            _lastCaptureDegradedToastKey = null;
+            _captureDegradedToastGate.ObserveHealthyState(nowUtc);
         }
 
         UpdateTrayState(new(
@@ -187,18 +188,18 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             signals.TooltipText));
 
         if (captureDegradedToast != null
-            && !string.Equals(captureDegradedToast.Key, _lastCaptureDegradedToastKey, StringComparison.Ordinal))
+            && _captureDegradedToastGate.ShouldShow(captureDegradedToast, nowUtc))
         {
             if (TryShowCommunicationToast(captureDegradedToast))
             {
-                _lastCaptureDegradedToastKey = captureDegradedToast.Key;
+                _captureDegradedToastGate.MarkShown(captureDegradedToast, nowUtc);
                 return;
             }
         }
 
         UserCommunicationToast? recentEventToast = UserCommunicationRouter.ResolveRecentEventToast(
             recentEvents,
-            DateTimeOffset.UtcNow,
+            nowUtc,
             _lastCommunicationEventId);
         if (recentEventToast != null)
         {

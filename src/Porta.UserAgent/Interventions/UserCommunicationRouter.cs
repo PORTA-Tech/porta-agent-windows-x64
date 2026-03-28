@@ -6,7 +6,13 @@ internal sealed record UserCommunicationToast(
     string Key,
     string Title,
     string Message,
-    long EventId = 0);
+    long EventId = 0,
+    string? SuppressionKey = null)
+{
+    public string DeduplicationKey => string.IsNullOrWhiteSpace(SuppressionKey)
+        ? Key
+        : SuppressionKey;
+}
 
 internal static class UserCommunicationRouter
 {
@@ -58,7 +64,8 @@ internal static class UserCommunicationRouter
             return new UserCommunicationToast(
                 Key: "capture:service_unavailable",
                 Title: "Ari limited",
-                Message: "Ari cannot regulate right now because the core service is unavailable. It will reconnect automatically when the service returns.");
+                Message: "Ari cannot regulate right now because the core service is unavailable. It will reconnect automatically when the service returns.",
+                SuppressionKey: "capture:service");
         }
 
         if (!status.ConsentActive)
@@ -66,7 +73,8 @@ internal static class UserCommunicationRouter
             return new UserCommunicationToast(
                 Key: "capture:consent_required",
                 Title: "Ari limited",
-                Message: "Ari is waiting for consent before it can regulate or explain live states in this session.");
+                Message: "Ari is waiting for consent before it can regulate or explain live states in this session.",
+                SuppressionKey: "capture:consent");
         }
 
         if (!string.Equals(status.CaptureContext, "UserSession", StringComparison.OrdinalIgnoreCase))
@@ -74,7 +82,8 @@ internal static class UserCommunicationRouter
             return new UserCommunicationToast(
                 Key: "capture:non_user_session",
                 Title: "Ari limited",
-                Message: "Ari is not attached to your live Windows session yet. It will keep trying to reconnect in the background.");
+                Message: "Ari is not attached to your live Windows session yet. It will keep trying to reconnect in the background.",
+                SuppressionKey: "capture:session_attach");
         }
 
         string captureFailureReason = (status.CaptureFailureReason ?? string.Empty).Trim().ToUpperInvariant();
@@ -85,27 +94,33 @@ internal static class UserCommunicationRouter
                 "USER_AGENT_HEARTBEAT_STALE" => new UserCommunicationToast(
                     Key: "capture:heartbeat_stale",
                     Title: "Ari limited",
-                    Message: "Ari is running, but the live session heartbeat stopped updating. It is trying to recover in the background."),
+                    Message: "Ari is running, but the live session heartbeat stopped updating. It is trying to recover in the background.",
+                    SuppressionKey: "capture:heartbeat"),
                 "USER_AGENT_SESSION_SWITCHED" or "USER_AGENT_INSTANCE_MISMATCH" => new UserCommunicationToast(
                     Key: "capture:session_handoff",
                     Title: "Ari limited",
-                    Message: "Ari detected a session handoff and is reconnecting live input capture. It should recover automatically."),
+                    Message: "Ari detected a session handoff and is reconnecting live input capture. It should recover automatically.",
+                    SuppressionKey: "capture:session_handoff"),
                 "USER_AGENT_INPUT_SELF_TEST_FAILED" => new UserCommunicationToast(
                     Key: "capture:self_test_failed",
                     Title: "Ari limited",
-                    Message: "Ari is connected, but live keyboard or mouse input is not reaching the core yet. It is retrying in the background."),
+                    Message: "Ari is connected, but live keyboard or mouse input is not reaching the core yet. It is retrying in the background.",
+                    SuppressionKey: "capture:input_pipeline"),
                 "USER_AGENT_KEYBOARD_SIGNAL_MISSING" => new UserCommunicationToast(
                     Key: "capture:keyboard_missing",
                     Title: "Ari limited",
-                    Message: "Ari is only seeing mouse activity right now. Keyboard capture is limited while it retries."),
+                    Message: "Ari is only seeing mouse activity right now. Keyboard capture is limited while it retries.",
+                    SuppressionKey: "capture:keyboard_limited"),
                 "USER_AGENT_MOUSE_SIGNAL_MISSING" => new UserCommunicationToast(
                     Key: "capture:mouse_missing",
                     Title: "Ari limited",
-                    Message: "Ari is only seeing keyboard activity right now. Mouse capture is limited while it retries."),
+                    Message: "Ari is only seeing keyboard activity right now. Mouse capture is limited while it retries.",
+                    SuppressionKey: "capture:mouse_limited"),
                 _ => new UserCommunicationToast(
                     Key: $"capture:{captureFailureReason.ToLowerInvariant()}",
                     Title: "Ari limited",
-                    Message: "Ari is connected, but live input capture is degraded right now. It will keep trying to recover automatically.")
+                    Message: "Ari is connected, but live input capture is degraded right now. It will keep trying to recover automatically.",
+                    SuppressionKey: "capture:degraded")
             };
         }
 
@@ -114,7 +129,8 @@ internal static class UserCommunicationRouter
             return new UserCommunicationToast(
                 Key: "capture:ownership_warning",
                 Title: "Ari limited",
-                Message: "Ari detected a mismatch between the active session heartbeat and the latest accepted input. It is reconciling the live session now.");
+                Message: "Ari detected a mismatch between the active session heartbeat and the latest accepted input. It is reconciling the live session now.",
+                SuppressionKey: "capture:session_handoff");
         }
 
         if (snapshot?.PartialData == true && snapshot.MissingMajorChannels is { Count: > 0 })
@@ -127,7 +143,8 @@ internal static class UserCommunicationRouter
             return new UserCommunicationToast(
                 Key: $"capture:partial:{missingKey}",
                 Title: "Ari limited",
-                Message: $"Ari is receiving partial activity only. Missing {missing}. It will keep trying to restore full capture.");
+                Message: $"Ari is receiving partial activity only. Missing {missing}. It will keep trying to restore full capture.",
+                SuppressionKey: "capture:partial");
         }
 
         if (!status.KeyboardSignalActive && status.MouseSignalActive)
@@ -135,7 +152,8 @@ internal static class UserCommunicationRouter
             return new UserCommunicationToast(
                 Key: "capture:keyboard_inactive",
                 Title: "Ari limited",
-                Message: "Ari is only seeing mouse activity right now. Keyboard capture is limited while it retries.");
+                Message: "Ari is only seeing mouse activity right now. Keyboard capture is limited while it retries.",
+                SuppressionKey: "capture:keyboard_limited");
         }
 
         if (status.KeyboardSignalActive && !status.MouseSignalActive)
@@ -143,7 +161,8 @@ internal static class UserCommunicationRouter
             return new UserCommunicationToast(
                 Key: "capture:mouse_inactive",
                 Title: "Ari limited",
-                Message: "Ari is only seeing keyboard activity right now. Mouse capture is limited while it retries.");
+                Message: "Ari is only seeing keyboard activity right now. Mouse capture is limited while it retries.",
+                SuppressionKey: "capture:mouse_limited");
         }
 
         return null;

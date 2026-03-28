@@ -55,8 +55,28 @@ public sealed class UserCommunicationRouterTests
 
         Assert.NotNull(toast);
         Assert.Equal("capture:heartbeat_stale", toast.Key);
+        Assert.Equal("capture:heartbeat", toast.DeduplicationKey);
         Assert.Equal("Ari limited", toast.Title);
         Assert.Contains("heartbeat stopped updating", toast.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ResolveCaptureDegradedState_UsesSharedKeyboardDeduplicationKey()
+    {
+        LocalApiStatusResponse failureStatus = BuildStatus(captureFailureReason: "USER_AGENT_KEYBOARD_SIGNAL_MISSING");
+        LocalApiStatusResponse inactiveStatus = BuildStatus(
+            captureFailureReason: null,
+            keyboardSignalActive: false,
+            mouseSignalActive: true);
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(partialData: false, missingMajorChannels: []);
+
+        UserCommunicationToast? failureToast = UserCommunicationRouter.ResolveCaptureDegradedState(failureStatus, snapshot);
+        UserCommunicationToast? inactiveToast = UserCommunicationRouter.ResolveCaptureDegradedState(inactiveStatus, snapshot);
+
+        Assert.NotNull(failureToast);
+        Assert.NotNull(inactiveToast);
+        Assert.Equal("capture:keyboard_limited", failureToast.DeduplicationKey);
+        Assert.Equal("capture:keyboard_limited", inactiveToast.DeduplicationKey);
     }
 
     [Fact]
