@@ -140,6 +140,30 @@ public sealed class UserAgentInterventionExecutorTests
     }
 
     [Fact]
+    public void ExecuteOrReplay_DeepWorkExit_ShowsSuccessToastWithoutChangingAck()
+    {
+        var presenter = new FakePresenter { ShowResult = true };
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController();
+        var snapshotStore = new FakeNotificationSnapshotStore
+        {
+            StoredSnapshot = ValidSnapshot()
+        };
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        LocalApiInterventionPendingResponse intervention = BuildPending(
+            "intv-dw-off",
+            "deep_work_notifications_restored",
+            "restore_notifications",
+            """{"title":"Ari","message":"Deep work ended. Ari restored Windows notification banners."}""");
+
+        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+
+        Assert.Equal("verified", ack.Result);
+        Assert.Equal(1, presenter.ShowCalls);
+        Assert.Contains("restored Windows notification banners", presenter.LastMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExecuteOrReplay_NotificationVerificationUnavailable_FallsBackToApplied()
     {
         var presenter = new FakePresenter();

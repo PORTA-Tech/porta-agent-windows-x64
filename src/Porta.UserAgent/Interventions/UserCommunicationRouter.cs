@@ -17,6 +17,16 @@ internal sealed record UserCommunicationToast(
 internal static class UserCommunicationRouter
 {
     private static readonly TimeSpan RecentEventWindow = TimeSpan.FromMinutes(3);
+    private static readonly HashSet<string> DirectToastDeliveredActions = new(StringComparer.Ordinal)
+    {
+        "deep_work_notifications_restored",
+        "overload_brightness_restored",
+        "brightness_unsupported",
+        "brightness_control_failed",
+        "notification_snapshot_failed",
+        "notification_suppress_failed",
+        "notification_restore_failed"
+    };
 
     public static UserCommunicationToast? ResolveRecentEventToast(
         IReadOnlyList<LocalApiEventResponse> recentEvents,
@@ -32,6 +42,14 @@ internal static class UserCommunicationRouter
 
             if ((nowUtc - recentEvent.TsUtc) > RecentEventWindow)
             {
+                continue;
+            }
+
+            string action = NormalizeAction(recentEvent.Action);
+            if (DirectToastDeliveredActions.Contains(action))
+            {
+                // These actions already show a direct toast when the intervention executes.
+                // Replaying them from recent events creates duplicate user-facing messages.
                 continue;
             }
 
@@ -157,36 +175,7 @@ internal static class UserCommunicationRouter
     {
         title = "Ari";
         message = string.Empty;
-
-        string action = (recentEvent.Action ?? string.Empty).Trim().ToLowerInvariant();
-        switch (action)
-        {
-            case "deep_work_notifications_restored":
-                message = "Focus protection ended. Ari restored Windows notification banners.";
-                return true;
-            case "overload_brightness_restored":
-                message = "Overload eased. Ari restored your previous screen brightness.";
-                return true;
-            case "brightness_unsupported":
-                title = "Ari limited";
-                message = "Ari tried to lower screen brightness for overload, but this device does not allow it. Lower brightness manually if needed.";
-                return true;
-            case "brightness_control_failed":
-                title = "Ari limited";
-                message = "Ari tried to lower screen brightness for overload, but Windows did not apply it. Lower brightness manually if needed.";
-                return true;
-            case "notification_snapshot_failed":
-            case "notification_suppress_failed":
-                title = "Ari limited";
-                message = "Ari could not mute Windows notifications for deep work. Silence notifications manually if you need a protected focus block.";
-                return true;
-            case "notification_restore_failed":
-                title = "Ari limited";
-                message = "Ari could not restore Windows notification settings cleanly. Check notification banners if they still look wrong.";
-                return true;
-            default:
-                return false;
-        }
+        return false;
     }
 
     private static string ToDisplayChannelName(string channel)
@@ -197,5 +186,12 @@ internal static class UserCommunicationRouter
             "mouse" => "mouse",
             _ => channel.Trim()
         };
+    }
+
+    private static string NormalizeAction(string? action)
+    {
+        return string.IsNullOrWhiteSpace(action)
+            ? string.Empty
+            : action.Trim().ToLowerInvariant();
     }
 }

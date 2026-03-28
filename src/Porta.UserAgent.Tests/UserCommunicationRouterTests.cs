@@ -7,24 +7,28 @@ namespace Porta.UserAgent.Tests;
 
 public sealed class UserCommunicationRouterTests
 {
-    [Fact]
-    public void ResolveRecentEventToast_RoutesDeepWorkRestoreEvent()
+    [Theory]
+    [InlineData("deep_work_notifications_restored")]
+    [InlineData("overload_brightness_restored")]
+    [InlineData("brightness_unsupported")]
+    [InlineData("brightness_control_failed")]
+    [InlineData("notification_snapshot_failed")]
+    [InlineData("notification_suppress_failed")]
+    [InlineData("notification_restore_failed")]
+    public void ResolveRecentEventToast_DoesNotReplayDirectDeliveryEvent(string action)
     {
         DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-27T10:00:00Z");
-        LocalApiEventResponse restored = BuildEvent(
+        LocalApiEventResponse recentEvent = BuildEvent(
             id: 42,
-            action: "deep_work_notifications_restored",
+            action: action,
             tsUtc: nowUtc.AddSeconds(-15));
 
         UserCommunicationToast? toast = UserCommunicationRouter.ResolveRecentEventToast(
-            [restored],
+            [recentEvent],
             nowUtc,
             lastEventId: 0);
 
-        Assert.NotNull(toast);
-        Assert.Equal(42, toast.EventId);
-        Assert.Equal("Ari", toast.Title);
-        Assert.Contains("restored Windows notification banners", toast.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(toast);
     }
 
     [Fact]
@@ -33,7 +37,7 @@ public sealed class UserCommunicationRouterTests
         DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-27T10:00:00Z");
         LocalApiEventResponse restored = BuildEvent(
             id: 42,
-            action: "deep_work_notifications_restored",
+            action: "break_suggestion",
             tsUtc: nowUtc.AddSeconds(-15));
 
         UserCommunicationToast? toast = UserCommunicationRouter.ResolveRecentEventToast(
