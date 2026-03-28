@@ -61,22 +61,17 @@ public sealed class UserCommunicationRouterTests
     }
 
     [Fact]
-    public void ResolveCaptureDegradedState_UsesSharedKeyboardDeduplicationKey()
+    public void ResolveCaptureDegradedState_DoesNotToastForSingleChannelInactivityAlone()
     {
-        LocalApiStatusResponse failureStatus = BuildStatus(captureFailureReason: "USER_AGENT_KEYBOARD_SIGNAL_MISSING");
         LocalApiStatusResponse inactiveStatus = BuildStatus(
             captureFailureReason: null,
             keyboardSignalActive: false,
             mouseSignalActive: true);
         LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(partialData: false, missingMajorChannels: []);
 
-        UserCommunicationToast? failureToast = UserCommunicationRouter.ResolveCaptureDegradedState(failureStatus, snapshot);
         UserCommunicationToast? inactiveToast = UserCommunicationRouter.ResolveCaptureDegradedState(inactiveStatus, snapshot);
 
-        Assert.NotNull(failureToast);
-        Assert.NotNull(inactiveToast);
-        Assert.Equal("capture:keyboard_limited", failureToast.DeduplicationKey);
-        Assert.Equal("capture:keyboard_limited", inactiveToast.DeduplicationKey);
+        Assert.Null(inactiveToast);
     }
 
     [Fact]

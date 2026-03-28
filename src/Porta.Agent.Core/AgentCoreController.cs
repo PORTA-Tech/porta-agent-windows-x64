@@ -36,8 +36,6 @@ public sealed class AgentCoreController : IAgentCoreController
     private const string CaptureFailureReasonHeartbeatStale = "USER_AGENT_HEARTBEAT_STALE";
     private const string CaptureFailureReasonSessionSwitched = "USER_AGENT_SESSION_SWITCHED";
     private const string CaptureFailureReasonInputSelfTestFailed = "USER_AGENT_INPUT_SELF_TEST_FAILED";
-    private const string CaptureFailureReasonKeyboardSignalMissing = "USER_AGENT_KEYBOARD_SIGNAL_MISSING";
-    private const string CaptureFailureReasonMouseSignalMissing = "USER_AGENT_MOUSE_SIGNAL_MISSING";
     private const string CaptureSelfTestStateFailed = "failed";
     private const string OwnershipWarningHeartbeatMissing = "USER_AGENT_HEARTBEAT_MISSING";
     private const string OwnershipWarningAgentInstanceMismatch = "USER_AGENT_INSTANCE_MISMATCH";
@@ -219,7 +217,6 @@ public sealed class AgentCoreController : IAgentCoreController
             string? captureFailureReason = ResolveCaptureFailureReasonLocked(
                 captureContext,
                 observedSessionContext,
-                latestState,
                 ownershipWarning,
                 captureSelfTestState);
             string? effectiveLastError = ResolveEffectiveLastError(
@@ -2071,7 +2068,6 @@ public sealed class AgentCoreController : IAgentCoreController
     private string? ResolveCaptureFailureReasonLocked(
         string captureContext,
         UserAgentSessionContextSnapshot? observedSessionContext,
-        AgentLatestStateDetails? latestState,
         string? ownershipWarning,
         string? captureSelfTestState)
     {
@@ -2091,16 +2087,6 @@ public sealed class AgentCoreController : IAgentCoreController
             if (string.Equals(ownershipWarning, OwnershipWarningAgentInstanceMismatch, StringComparison.Ordinal))
             {
                 return OwnershipWarningAgentInstanceMismatch;
-            }
-
-            if (HasMissingMajorChannel(latestState, "keyboard") && !HasMissingMajorChannel(latestState, "mouse"))
-            {
-                return CaptureFailureReasonKeyboardSignalMissing;
-            }
-
-            if (HasMissingMajorChannel(latestState, "mouse") && !HasMissingMajorChannel(latestState, "keyboard"))
-            {
-                return CaptureFailureReasonMouseSignalMissing;
             }
 
             return null;
@@ -2174,17 +2160,6 @@ public sealed class AgentCoreController : IAgentCoreController
         }
 
         return value.Trim().ToLowerInvariant();
-    }
-
-    private static bool HasMissingMajorChannel(AgentLatestStateDetails? latestState, string channel)
-    {
-        IReadOnlyList<string>? missingChannels = latestState?.MissingMajorChannels;
-        if (missingChannels is null || missingChannels.Count == 0)
-        {
-            return false;
-        }
-
-        return missingChannels.Any(value => string.Equals(value?.Trim(), channel, StringComparison.OrdinalIgnoreCase));
     }
 
     private UserAgentSessionContextSnapshot? ReadFreshUserAgentSessionContextLocked(DateTimeOffset nowUtc)
@@ -2363,7 +2338,6 @@ public sealed class AgentCoreController : IAgentCoreController
         string? captureFailureReason = ResolveCaptureFailureReasonLocked(
             captureContext,
             observedSessionContext,
-            _stateStore.ReadLatestStateDetails(),
             ownershipWarning,
             captureSelfTestState);
         string? effectiveLastError = ResolveEffectiveLastError(

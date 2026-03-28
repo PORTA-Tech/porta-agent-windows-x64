@@ -421,7 +421,7 @@ public sealed class MachineSummaryMapperTests
     }
 
     [Fact]
-    public void Map_SurfacesMissingKeyboardReason_FromLatestStateTruth()
+    public void Map_DoesNotInventMissingKeyboardFailure_FromLatestStateTruth()
     {
         var mapper = new MachineSummaryMapper();
         DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-10T10:00:00Z");
@@ -523,6 +523,6 @@ public sealed class MachineSummaryMapperTests
 
         Assert.True(payload.UserSessionConnected);
         Assert.True(payload.ActivityDetected);
-        Assert.Equal("USER_AGENT_KEYBOARD_SIGNAL_MISSING", payload.CaptureFailureReason);
+        Assert.Null(payload.CaptureFailureReason);
     }
 }

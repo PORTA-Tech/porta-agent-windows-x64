@@ -1792,7 +1792,7 @@ public partial class MainWindow : Window
                 KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
                 MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
                 LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
-                WarningText: $"Waiting for fresh {missingSignals} activity from the current user session. Continuity can continue, but confidence stays reduced until live input returns.",
+                WarningText: $"Waiting for fresh {missingSignals} activity from the current user session. Single-channel activity is normal here and does not mean capture failed.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -2006,7 +2006,7 @@ public partial class MainWindow : Window
                 LastInputAgeLabel: lastInputAgeLabel,
                 InputOwnerLabel: inputOwnerLabel,
                 OwnershipReasonLabel: ownershipReasonLabel,
-                WarningText: $"Waiting for fresh {missingSignals} activity from the current user session. State continuity can continue, but trust stays lower until live input returns.",
+                WarningText: $"Waiting for fresh {missingSignals} activity from the current user session. This is a watching state, not a capture-failure alert.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }

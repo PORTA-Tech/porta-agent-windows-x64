@@ -289,6 +289,66 @@ public sealed class LocalApiStatusAcceptanceTests
     }
 
     [Fact]
+    public void Status_DoesNotTreatSingleChannelActivityAsCaptureFailure()
+    {
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.10d, confidence: 0.39d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: DateTimeOffset.UtcNow,
+                OverloadLikelihood: 0.10d,
+                Confidence: 0.39d,
+                SustainedAttentionDurationSec: 0d,
+                IdleFragmentationIndex: 0d,
+                FocusAppEntropy: 0d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: false,
+                BaselineReadyPct: 0.05d,
+                AvgQuality2m: 0.18d,
+                ColdStart: true,
+                CurrentQualityScore: 0.24d,
+                PartialData: false,
+                MissingMajorChannels: ["mouse"]),
+        };
+
+        var sessionContextStore = new FakeUserAgentSessionContextStore(
+            new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 5555,
+                SessionId: 4,
+                UpdatedAtUtc: DateTimeOffset.UtcNow,
+                AgentInstanceId: "useragent-4"));
+
+        var controller = new AgentCoreController(store, sessionContextStore);
+        DateTimeOffset lastInputUtc = DateTimeOffset.UtcNow;
+        controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "useragent-4",
+            SessionId: "session-4",
+            WindowStartUtc: lastInputUtc.AddSeconds(-5),
+            WindowEndUtc: lastInputUtc,
+            KeyboardKeydownCount: 12,
+            KeyboardBackspaceCount: 1,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0d,
+            MouseMoveDy: 0d,
+            FocusAppHash: "a1b2c3d4",
+            IdleSeconds: 0.1d,
+            LastInputEventUtc: lastInputUtc));
+
+        var dto = StatusMapper.Map(controller.GetStatus(), localApiAuthReady: true, localApiAuthError: null);
+
+        Assert.Equal("UserSession", dto.capture_context);
+        Assert.True(dto.keyboard_signal_active);
+        Assert.False(dto.mouse_signal_active);
+        Assert.Null(dto.CaptureFailureReason);
+        Assert.Null(dto.capture_failure_reason);
+    }
+
+    [Fact]
     public void Status_UsesObservedUserHeartbeat_ToReportExplicitStaleHeartbeatFailure()
     {
         var store = new LocalApiContractFakeStore

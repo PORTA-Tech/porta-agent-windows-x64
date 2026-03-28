@@ -147,24 +147,6 @@ internal static class UserCommunicationRouter
                 SuppressionKey: "capture:partial");
         }
 
-        if (!status.KeyboardSignalActive && status.MouseSignalActive)
-        {
-            return new UserCommunicationToast(
-                Key: "capture:keyboard_inactive",
-                Title: "Ari limited",
-                Message: "Ari is only seeing mouse activity right now. Keyboard capture is limited while it retries.",
-                SuppressionKey: "capture:keyboard_limited");
-        }
-
-        if (status.KeyboardSignalActive && !status.MouseSignalActive)
-        {
-            return new UserCommunicationToast(
-                Key: "capture:mouse_inactive",
-                Title: "Ari limited",
-                Message: "Ari is only seeing keyboard activity right now. Mouse capture is limited while it retries.",
-                SuppressionKey: "capture:mouse_limited");
-        }
-
         return null;
     }
 

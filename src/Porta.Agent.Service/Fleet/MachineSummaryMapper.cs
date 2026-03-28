@@ -14,8 +14,6 @@ internal sealed class MachineSummaryMapper
     private const string CaptureFailureReasonHeartbeatStale = "USER_AGENT_HEARTBEAT_STALE";
     private const string CaptureFailureReasonSessionSwitched = "USER_AGENT_SESSION_SWITCHED";
     private const string CaptureFailureReasonInstanceMismatch = "USER_AGENT_INSTANCE_MISMATCH";
-    private const string CaptureFailureReasonKeyboardSignalMissing = "USER_AGENT_KEYBOARD_SIGNAL_MISSING";
-    private const string CaptureFailureReasonMouseSignalMissing = "USER_AGENT_MOUSE_SIGNAL_MISSING";
     private const string OwnershipWarningAgentInstanceMismatch = "USER_AGENT_INSTANCE_MISMATCH";
     private const string OwnershipWarningSessionMismatch = "USER_AGENT_SESSION_MISMATCH";
     private const string StartupStateHealthy = "healthy";
@@ -65,7 +63,7 @@ internal sealed class MachineSummaryMapper
             ?? 0d);
         string continuityState = NormalizeContinuityState(latestState?.ContinuityState);
         bool activityDetected = status.KeyboardSignalActive || status.MouseSignalActive;
-        string? baseCaptureFailureReason = DeriveBaseCaptureFailureReason(status, latestState);
+        string? baseCaptureFailureReason = DeriveBaseCaptureFailureReason(status);
         bool userSessionConnected = DeriveUserSessionConnected(status, baseCaptureFailureReason);
         double? heartbeatAgeSeconds = ComputeAgeSeconds(status.UserAgentObservedHeartbeatUpdatedAtUtc, reportedAtUtc);
         double? lastAcceptedInputAgeSeconds = ComputeAgeSeconds(status.LastInputEventUtc, reportedAtUtc);
@@ -225,9 +223,7 @@ internal sealed class MachineSummaryMapper
         return StartupStateHeartbeatStale;
     }
 
-    private static string? DeriveBaseCaptureFailureReason(
-        AgentServiceStatusSnapshot status,
-        AgentLatestStateDetails? latestState)
+    private static string? DeriveBaseCaptureFailureReason(AgentServiceStatusSnapshot status)
     {
         string? statusReason = NullIfWhiteSpace(status.CaptureFailureReason);
         if (!string.IsNullOrWhiteSpace(statusReason))
@@ -245,30 +241,7 @@ internal sealed class MachineSummaryMapper
             return CaptureFailureReasonInstanceMismatch;
         }
 
-        bool missingKeyboard = HasMissingMajorChannel(latestState, "keyboard");
-        bool missingMouse = HasMissingMajorChannel(latestState, "mouse");
-        if (missingKeyboard && !missingMouse)
-        {
-            return CaptureFailureReasonKeyboardSignalMissing;
-        }
-
-        if (missingMouse && !missingKeyboard)
-        {
-            return CaptureFailureReasonMouseSignalMissing;
-        }
-
         return null;
-    }
-
-    private static bool HasMissingMajorChannel(AgentLatestStateDetails? latestState, string channel)
-    {
-        IReadOnlyList<string>? missingChannels = latestState?.MissingMajorChannels;
-        if (missingChannels is null || missingChannels.Count == 0)
-        {
-            return false;
-        }
-
-        return missingChannels.Any(value => string.Equals(value?.Trim(), channel, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string? DeriveCaptureFailureReason(
