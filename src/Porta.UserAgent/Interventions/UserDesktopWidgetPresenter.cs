@@ -3,6 +3,7 @@ namespace Porta.UserAgent.Interventions;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
+using System.Windows;
 using System.Windows.Threading;
 using Porta.Agent.LocalApi;
 
@@ -16,10 +17,13 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private readonly TaskCompletionSource<bool> _widgetReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Thread _widgetThread;
 
+    private Application? _widgetApplication;
     private Dispatcher? _widgetDispatcher;
     private UserDesktopWidgetWindow? _widgetWindow;
     private Action<UserInterventionPromptResponse>? _promptResponseHandler;
     private string? _promptInterventionId;
+    private int _widgetNotReadyLogged;
+    private int _widgetFailedLogged;
     private bool _disposed;
 
     public UserDesktopWidgetPresenter(UserDesktopWidgetRollout? rollout = null)
@@ -33,6 +37,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
         if (_rollout.SupportsWidgetSurface)
         {
+            UserAgentFileLog.Info("desktop_widget_rollout mode=widget_enabled");
             _widgetThread.SetApartmentState(ApartmentState.STA);
             _widgetThread.Start();
             return;
@@ -126,7 +131,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 _widgetDispatcher.BeginInvoke(() =>
                 {
                     _widgetWindow?.Close();
-                    Dispatcher.CurrentDispatcher.InvokeShutdown();
+                    _widgetApplication?.Shutdown();
                 });
             }
             catch
@@ -157,12 +162,22 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
         if (!_widgetReady.Task.Wait(TimeSpan.FromSeconds(3)))
         {
+            if (Interlocked.Exchange(ref _widgetNotReadyLogged, 1) == 0)
+            {
+                UserAgentFileLog.Info("desktop_widget_not_ready timeout_seconds=3");
+            }
+
             errorCode = "widget_presenter_not_ready";
             return false;
         }
 
         if (!_widgetReady.Task.Result || _widgetDispatcher == null)
         {
+            if (Interlocked.Exchange(ref _widgetFailedLogged, 1) == 0)
+            {
+                UserAgentFileLog.Info($"desktop_widget_failed ready={_widgetReady.Task.Result} dispatcher_available={(_widgetDispatcher != null)}");
+            }
+
             errorCode = "widget_presenter_failed";
             return false;
         }
@@ -190,16 +205,46 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     {
         try
         {
-            _widgetDispatcher = Dispatcher.CurrentDispatcher;
-            _widgetWindow = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore);
-            _widgetWindow.Show();
-            _widgetReady.TrySetResult(true);
-            Dispatcher.Run();
+            UserAgentFileLog.Info("desktop_widget_thread_starting");
+            _widgetApplication = new Application
+            {
+                ShutdownMode = ShutdownMode.OnExplicitShutdown
+            };
+            _widgetApplication.DispatcherUnhandledException += (_, eventArgs) =>
+            {
+                UserAgentFileLog.Error("widget_dispatcher_unhandled_exception", eventArgs.Exception);
+            };
+            _widgetApplication.Exit += (_, _) => UserAgentFileLog.Info("desktop_widget_thread_exit");
+            _widgetApplication.Startup += (_, _) =>
+            {
+                try
+                {
+                    UserAgentFileLog.Info("desktop_widget_window_initializing");
+                    _widgetDispatcher = _widgetApplication.Dispatcher;
+                    _widgetWindow = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore);
+                    _widgetWindow.Show();
+                    UserAgentFileLog.Info("desktop_widget_window_shown");
+                    _widgetReady.TrySetResult(true);
+                }
+                catch (Exception ex)
+                {
+                    UserAgentFileLog.Error("widget_window_show_failed", ex);
+                    _widgetReady.TrySetResult(false);
+                    _widgetApplication.Shutdown(-1);
+                }
+            };
+            _widgetApplication.Run();
         }
         catch (Exception ex)
         {
             UserAgentFileLog.Error("widget_thread_failed", ex);
             _widgetReady.TrySetResult(false);
+        }
+        finally
+        {
+            _widgetWindow = null;
+            _widgetDispatcher = null;
+            _widgetApplication = null;
         }
     }
 
