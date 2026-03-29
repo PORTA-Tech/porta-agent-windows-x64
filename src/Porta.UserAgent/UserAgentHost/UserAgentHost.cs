@@ -41,6 +41,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private LocalApiTimelineResponse? _widgetDetailTimeline;
     private LocalApiSettingsResponse? _widgetDetailSettings;
     private DateTimeOffset _lastWidgetDetailRefreshUtc = DateTimeOffset.MinValue;
+    private bool _widgetFallbackLogged;
     private bool _hooksInstalled;
     private bool _keyboardCaptureAvailable;
     private bool _mouseCaptureAvailable;
@@ -178,7 +179,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             .ConfigureAwait(false);
 
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
-        WidgetDetailSnapshot widgetDetails = await RefreshWidgetDetailsAsync(nowUtc, token).ConfigureAwait(false);
+        WidgetDetailSnapshot widgetDetails = _toastRenderer.SupportsWidgetSurface
+            ? await RefreshWidgetDetailsAsync(nowUtc, token).ConfigureAwait(false)
+            : WidgetDetailSnapshot.Empty;
         UserAgentVisualSignals signals = UserAgentVisualSignalsAdapter.Build(
             status,
             snapshot,
@@ -681,7 +684,26 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
     private void UpdateWidgetState(UserDesktopWidgetState state)
     {
-        _interventionExecutor.ObserveWidgetState(state);
+        UserDesktopWidgetState observedState = _toastRenderer.SupportsWidgetSurface
+            ? state
+            : state with { CriticalState = null };
+        _interventionExecutor.ObserveWidgetState(observedState);
+
+        if (!_toastRenderer.SupportsWidgetSurface)
+        {
+            _lastWidgetState = null;
+            if (_widgetFallbackLogged)
+            {
+                return;
+            }
+
+            _widgetFallbackLogged = true;
+            _logger.LogInformation(
+                "Desktop widget disabled for rollout. Keeping tray + urgent toast fallback active. Reason={ReasonCode}",
+                _toastRenderer.WidgetUnavailableReasonCode);
+            UserAgentFileLog.Info($"desktop_widget_rollout_active reason={_toastRenderer.WidgetUnavailableReasonCode}");
+            return;
+        }
 
         if (_lastWidgetState != null && _lastWidgetState.Equals(state))
         {
@@ -767,7 +789,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private sealed record WidgetDetailSnapshot(
         IReadOnlyList<LocalApiEventResponse> RecentEvents,
         LocalApiTimelineResponse? Timeline,
-        LocalApiSettingsResponse? Settings);
+        LocalApiSettingsResponse? Settings)
+    {
+        public static WidgetDetailSnapshot Empty { get; } = new([], null, null);
+    }
 }
 
 internal sealed class CaptureSelfTestCoordinator

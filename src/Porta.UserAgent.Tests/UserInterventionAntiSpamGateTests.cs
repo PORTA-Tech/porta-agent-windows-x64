@@ -96,4 +96,46 @@ public sealed class UserInterventionAntiSpamGateTests
         Assert.Equal("anti_spam_critical_state", promptBlocked.ReasonCode);
         Assert.Equal("anti_spam_critical_state", toastBlocked.ReasonCode);
     }
+
+    [Fact]
+    public void ObserveWidgetState_NonCriticalStateClearsCriticalVisibility()
+    {
+        var gate = new UserInterventionAntiSpamGate();
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T10:05:00Z");
+
+        gate.ObserveWidgetState(new UserDesktopWidgetState(
+            Mode: UserDesktopWidgetMode.Limited,
+            Title: "Ari limited",
+            StatusText: "Critical",
+            PrimaryMetricText: "n/a",
+            SecondaryMetricText: "n/a",
+            FooterText: "Open Health",
+            NotificationsSuppressed: false,
+            BrightnessAdjusted: false,
+            CanPause: false,
+            CanResume: false,
+            CriticalState: new UserDesktopWidgetCriticalState(
+                Title: "Core service offline",
+                Message: "Open Health",
+                PrimaryAction: UserDesktopWidgetAction.OpenHealth,
+                PrimaryLabel: "Open Health",
+                SecondaryAction: UserDesktopWidgetAction.RetryCritical,
+                SecondaryLabel: "Retry")));
+
+        gate.ObserveWidgetState(new UserDesktopWidgetState(
+            Mode: UserDesktopWidgetMode.Monitoring,
+            Title: "Ari",
+            StatusText: "Monitoring",
+            PrimaryMetricText: "Focus 0m",
+            SecondaryMetricText: "Overload 0%",
+            FooterText: "Ready",
+            NotificationsSuppressed: false,
+            BrightnessAdjusted: false,
+            CanPause: true,
+            CanResume: false,
+            CriticalState: null));
+
+        Assert.True(gate.EvaluatePrompt("break_suggestion", nowUtc).Allowed);
+        Assert.True(gate.EvaluateToast("inform_overload_risk", nowUtc).Allowed);
+    }
 }

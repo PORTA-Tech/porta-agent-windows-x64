@@ -11,6 +11,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private readonly UserInterventionToastRenderer _fallbackRenderer = new();
     private readonly LocalApiClient _actionClient = new();
     private readonly UserDesktopWidgetPlacementStore _placementStore = new();
+    private readonly UserDesktopWidgetRollout _rollout;
     private readonly object _promptGate = new();
     private readonly TaskCompletionSource<bool> _widgetReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Thread _widgetThread;
@@ -21,19 +22,36 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private string? _promptInterventionId;
     private bool _disposed;
 
-    public UserDesktopWidgetPresenter()
+    public UserDesktopWidgetPresenter(UserDesktopWidgetRollout? rollout = null)
     {
+        _rollout = rollout ?? UserDesktopWidgetRollout.FromEnvironment();
         _widgetThread = new Thread(WidgetThreadMain)
         {
             IsBackground = true,
             Name = "PORTA.UserAgent.DesktopWidget"
         };
-        _widgetThread.SetApartmentState(ApartmentState.STA);
-        _widgetThread.Start();
+
+        if (_rollout.SupportsWidgetSurface)
+        {
+            _widgetThread.SetApartmentState(ApartmentState.STA);
+            _widgetThread.Start();
+            return;
+        }
+
+        UserAgentFileLog.Info($"desktop_widget_rollout mode=toast_fallback reason={_rollout.UnavailableReasonCode}");
     }
+
+    internal bool SupportsWidgetSurface => _rollout.SupportsWidgetSurface;
+
+    internal string WidgetUnavailableReasonCode => _rollout.UnavailableReasonCode;
 
     public bool TryShow(string title, string message, out string errorCode)
     {
+        if (!_rollout.SupportsWidgetSurface)
+        {
+            return _fallbackRenderer.TryShow(title, message, out errorCode);
+        }
+
         if (TryDispatchToWidget(window => window.PresentAttention(title, message), out errorCode))
         {
             return true;
@@ -47,6 +65,12 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         Action<UserInterventionPromptResponse> onResponse,
         out string errorCode)
     {
+        if (!_rollout.SupportsWidgetSurface)
+        {
+            errorCode = _rollout.UnavailableReasonCode;
+            return false;
+        }
+
         lock (_promptGate)
         {
             _promptInterventionId = prompt.InterventionId;
@@ -75,6 +99,12 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
     public bool TryUpdateWidgetState(UserDesktopWidgetState state, out string errorCode)
     {
+        if (!_rollout.SupportsWidgetSurface)
+        {
+            errorCode = _rollout.UnavailableReasonCode;
+            return false;
+        }
+
         return TryDispatchToWidget(window => window.ApplyState(state), out errorCode);
     }
 
@@ -113,6 +143,12 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private bool TryDispatchToWidget(Action<UserDesktopWidgetWindow> action, out string errorCode)
     {
         errorCode = string.Empty;
+        if (!_rollout.SupportsWidgetSurface)
+        {
+            errorCode = _rollout.UnavailableReasonCode;
+            return false;
+        }
+
         if (_disposed)
         {
             errorCode = "widget_presenter_disposed";

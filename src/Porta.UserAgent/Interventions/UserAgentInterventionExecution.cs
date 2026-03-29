@@ -203,7 +203,11 @@ internal sealed class UserAgentInterventionExecutor
                 }
             }
 
-            return BuildAck(intervention, sessionId, agentInstanceId, result: "failed", shown ? null : renderError);
+            string normalizedRenderError = NormalizeErrorCode(renderError, "prompt_render_failed");
+            string result = ShouldSnoozePromptWhenUnavailable(normalizedRenderError)
+                ? "snoozed"
+                : "failed";
+            return BuildAck(intervention, sessionId, agentInstanceId, result: result, errorCode: normalizedRenderError);
         }
 
         _antiSpamGate.MarkPromptShown(intervention.Action, nowUtc);
@@ -615,6 +619,17 @@ internal sealed class UserAgentInterventionExecutor
         }
 
         return errorCode.Trim().ToLowerInvariant();
+    }
+
+    private static bool ShouldSnoozePromptWhenUnavailable(string normalizedErrorCode)
+    {
+        return normalizedErrorCode is
+            "widget_disabled_by_flag"
+            or "widget_forced_toast_fallback"
+            or "widget_presenter_not_ready"
+            or "widget_presenter_failed"
+            or "widget_dispatch_failed"
+            or "prompt_requires_widget";
     }
 
     private static bool IsPromptCommand(string? commandType)

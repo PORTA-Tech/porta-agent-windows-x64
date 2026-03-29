@@ -146,6 +146,29 @@ public sealed class UserAgentInterventionExecutorTests
     }
 
     [Fact]
+    public void ExecuteOrReplay_PromptUnavailableBecauseWidgetFallback_IsAutoSnoozed()
+    {
+        var presenter = new FakePresenter { PromptShowResult = false, ErrorCode = "widget_forced_toast_fallback" };
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController();
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
+        LocalApiInterventionPendingResponse intervention = BuildPending(
+            "intv-break-fallback",
+            "break_suggestion",
+            "show_break_toast",
+            """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}""");
+
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+
+        Assert.NotNull(ack);
+        Assert.Equal("snoozed", ack.Result);
+        Assert.Equal("widget_forced_toast_fallback", ack.ErrorCode);
+        Assert.Equal(1, presenter.PromptCalls);
+    }
+
+    [Fact]
     public void ExecuteOrReplay_SecondPromptWithinGlobalBudget_IsAutoSnoozed()
     {
         DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T10:00:00Z");

@@ -466,7 +466,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         popupStack.Children.Add(_pauseFifteenButton);
         popupStack.Children.Add(_pauseHourButton);
         popupStack.Children.Add(_resumeButton);
-        popupStack.Children.Add(CreateMenuButton("Recalibrate", UserDesktopWidgetAction.Recalibrate));
+        popupStack.Children.Add(CreateMenuButton("Recalibrate baseline", UserDesktopWidgetAction.Recalibrate));
         popupStack.Children.Add(CreateMenuSeparator());
         popupStack.Children.Add(CreateMenuButton("Reset position", UserDesktopWidgetAction.ResetPosition));
 
