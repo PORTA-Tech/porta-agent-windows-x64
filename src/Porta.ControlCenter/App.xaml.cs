@@ -48,6 +48,7 @@ public partial class App : Application
         };
         _focusThread.Start();
 
+        DesktopWidgetVisibilitySignal.ClearHidden();
         EnsureCurrentSessionUserAgent(force: true);
 
         _userAgentWatchdogTimer = new DispatcherTimer
@@ -169,6 +170,7 @@ public partial class App : Application
                 }
 
                 EnsureCurrentSessionUserAgent(force: true);
+                DesktopWidgetVisibilitySignal.ClearHidden();
                 ControlCenterActivationTarget target = ControlCenterActivationRequestStore.Consume();
                 window.HandleExternalActivation(target);
             });
@@ -198,6 +200,7 @@ public partial class App : Application
             }
 
             EnsureCurrentSessionUserAgent(force: true);
+            DesktopWidgetVisibilitySignal.ClearHidden();
         });
     }
 }

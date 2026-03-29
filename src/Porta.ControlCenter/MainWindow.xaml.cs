@@ -131,6 +131,8 @@ public partial class MainWindow : Window
         InitializeAccountSurface();
         InitializeUnifiedScrollBehavior();
         UpdateWindowChromeButtons();
+        PreviewMouseLeftButtonDown += MainWindow_PreviewMouseLeftButtonDown;
+        PreviewKeyDown += MainWindow_PreviewKeyDown;
         _lastSeenEventId = LoadLastSeenEventId();
         _dismissedRecoveryEventId = LoadRecoveryAckEventId();
         _showOnboardingOverlay = !LoadOnboardingAcknowledged();
@@ -626,6 +628,37 @@ public partial class MainWindow : Window
     private void WhyDrawerCloseButton_Click(object sender, RoutedEventArgs e)
     {
         SetWhyDrawerVisible(false);
+    }
+
+    private void MainWindow_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (WhyDrawerPanel.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        if (e.OriginalSource is not DependencyObject source)
+        {
+            return;
+        }
+
+        if (IsDescendantOf(source, WhyDrawerPanel) || IsDescendantOf(source, WhyDrawerToggleButton))
+        {
+            return;
+        }
+
+        SetWhyDrawerVisible(false);
+    }
+
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || WhyDrawerPanel.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        SetWhyDrawerVisible(false);
+        e.Handled = true;
     }
 
     private void NowDetailCard_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -5401,6 +5434,21 @@ public partial class MainWindow : Window
         }
 
         return null;
+    }
+
+    private static bool IsDescendantOf(DependencyObject? child, DependencyObject ancestor)
+    {
+        while (child != null)
+        {
+            if (ReferenceEquals(child, ancestor))
+            {
+                return true;
+            }
+
+            child = VisualTreeHelper.GetParent(child);
+        }
+
+        return false;
     }
 
     private static NowTruth BuildNowTruth(

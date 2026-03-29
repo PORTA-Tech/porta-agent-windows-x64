@@ -1894,9 +1894,12 @@
                                    FontWeight="SemiBold"
                                    Foreground="#E6E9ED" />
                         <Button DockPanel.Dock="Right"
-                                Content="Close"
-                                Padding="10,4"
-                                MinHeight="30"
+                                Content="×"
+                                Width="30"
+                                Height="30"
+                                FontSize="18"
+                                FontWeight="SemiBold"
+                                ToolTip="Close"
                                 Click="WhyDrawerCloseButton_Click" />
                     </DockPanel>
 

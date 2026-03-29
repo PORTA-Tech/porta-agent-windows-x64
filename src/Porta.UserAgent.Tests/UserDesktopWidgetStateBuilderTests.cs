@@ -1,3 +1,4 @@
+using System.Linq;
 using Porta.Agent.Common.Contracts;
 using Porta.Agent.Core;
 using Porta.Agent.LocalApi;
@@ -37,9 +38,11 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Contains("partial activity", state.StatusText, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("Focus 4m", state.PrimaryMetricText);
         Assert.Equal("Overload 18%", state.SecondaryMetricText);
-        Assert.Equal("Break n/a", state.TertiaryMetricText);
-        Assert.Equal("Ready · High trust", state.QuaternaryMetricText);
-        Assert.Equal("Service healthy", state.FooterText);
+        Assert.Equal("Computer 4m", state.TertiaryMetricText);
+        Assert.Equal(string.Empty, state.QuaternaryMetricText);
+        Assert.Equal(string.Empty, state.FooterText);
+        Assert.False(state.NotificationsSuppressed);
+        Assert.False(state.BrightnessAdjusted);
         Assert.NotNull(state.CriticalState);
         Assert.Equal("Open Health", state.CriticalState!.PrimaryLabel);
         Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.CriticalState.PrimaryAction);
@@ -64,14 +67,15 @@ public sealed class UserDesktopWidgetStateBuilderTests
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot: null, signals, degradedToast: null);
 
         Assert.Equal(UserDesktopWidgetMode.Paused, state.Mode);
-        Assert.Equal("Paused", state.Title);
+        Assert.Equal("Ari Paused", state.Title);
         Assert.True(state.CanResume);
         Assert.False(state.CanPause);
-        Assert.Equal("Tracking paused", state.PrimaryMetricText);
-        Assert.Equal($"Until {pauseUntilUtc.ToLocalTime():h:mm tt}", state.SecondaryMetricText);
-        Assert.Equal("Break now", state.TertiaryMetricText);
-        Assert.Equal("Health healthy", state.QuaternaryMetricText);
-        Assert.Equal("Service healthy", state.FooterText);
+        Assert.Equal($"Paused until {pauseUntilUtc.ToLocalTime():h:mm tt}.", state.StatusText);
+        Assert.Equal("Focus paused", state.PrimaryMetricText);
+        Assert.Equal("Overload paused", state.SecondaryMetricText);
+        Assert.Equal("Computer paused", state.TertiaryMetricText);
+        Assert.Equal(string.Empty, state.QuaternaryMetricText);
+        Assert.Equal(string.Empty, state.FooterText);
     }
 
     [Fact]
@@ -175,18 +179,19 @@ public sealed class UserDesktopWidgetStateBuilderTests
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, signals, degradedToast: null);
 
         Assert.Equal(UserDesktopWidgetMode.Overload, state.Mode);
-        Assert.Equal("Overload", state.Title);
+        Assert.Equal("Ari", state.Title);
+        Assert.Equal("Overload is elevated.", state.StatusText);
         Assert.Equal("Focus 25m", state.PrimaryMetricText);
         Assert.Equal("Overload 74%", state.SecondaryMetricText);
-        Assert.Equal("Break n/a", state.TertiaryMetricText);
-        Assert.Equal("Ready · High trust", state.QuaternaryMetricText);
-        Assert.Equal("Service healthy", state.FooterText);
-        Assert.True(state.NotificationsSuppressed);
-        Assert.True(state.BrightnessAdjusted);
+        Assert.Equal("Computer 25m", state.TertiaryMetricText);
+        Assert.Equal(string.Empty, state.QuaternaryMetricText);
+        Assert.Equal(string.Empty, state.FooterText);
+        Assert.False(state.NotificationsSuppressed);
+        Assert.False(state.BrightnessAdjusted);
     }
 
     [Fact]
-    public void Build_UsesTimelineAndSettingsFactsForExpandedWidget()
+    public void Build_UsesTimelineFactsForExpandedWidget()
     {
         DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T12:00:00Z");
         LocalApiStatusResponse status = BuildStatus();
@@ -204,19 +209,19 @@ public sealed class UserDesktopWidgetStateBuilderTests
             ShowRecoveryToast: false,
             RecoveryEventId: 0,
             RecoveryMessage: string.Empty);
+        LocalApiCurrentSnapshotResponse[] timelineSnapshots = Enumerable
+            .Range(0, 120)
+            .Select(index => snapshot with
+            {
+                TimestampUtc = nowUtc.AddMinutes(-(119 - index)),
+                SustainedAttentionDurationSec = 0
+            })
+            .ToArray();
         LocalApiTimelineResponse timeline = new(
-            FromUtc: nowUtc.AddHours(-4),
+            FromUtc: nowUtc.AddHours(-2),
             ToUtc: nowUtc,
             BucketSeconds: 60,
-            Snapshots:
-            [
-                snapshot with
-                {
-                    TimestampUtc = nowUtc.AddMinutes(-25),
-                    SustainedAttentionDurationSec = 0
-                },
-                snapshot
-            ],
+            Snapshots: timelineSnapshots,
             Interventions: []);
         LocalApiSettingsResponse settings = new(
             RegulationIntensity: "balanced",
@@ -242,10 +247,10 @@ public sealed class UserDesktopWidgetStateBuilderTests
 
         Assert.Equal("Focus 25m", state.PrimaryMetricText);
         Assert.Equal("Overload 42%", state.SecondaryMetricText);
-        Assert.Equal("Break 25m ago", state.TertiaryMetricText);
-        Assert.Equal("Ready · High trust", state.QuaternaryMetricText);
-        Assert.Equal("Service healthy · Focus mode on, Quiet guidance", state.FooterText);
-        Assert.Contains("focus mode enabled", state.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Computer 2h 00m", state.TertiaryMetricText);
+        Assert.Equal(string.Empty, state.QuaternaryMetricText);
+        Assert.Equal(string.Empty, state.FooterText);
+        Assert.Equal(string.Empty, state.StatusText);
     }
 
     private static LocalApiStatusResponse BuildStatus(

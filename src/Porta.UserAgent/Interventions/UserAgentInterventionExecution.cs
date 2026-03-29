@@ -626,6 +626,7 @@ internal sealed class UserAgentInterventionExecutor
         return normalizedErrorCode is
             "widget_disabled_by_flag"
             or "widget_forced_toast_fallback"
+            or "widget_hidden_by_user"
             or "widget_presenter_not_ready"
             or "widget_presenter_failed"
             or "widget_dispatch_failed"

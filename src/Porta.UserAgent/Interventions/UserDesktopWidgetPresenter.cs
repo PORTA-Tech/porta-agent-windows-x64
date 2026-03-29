@@ -12,6 +12,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private readonly UserInterventionToastRenderer _fallbackRenderer = new();
     private readonly LocalApiClient _actionClient = new();
     private readonly UserDesktopWidgetPlacementStore _placementStore = new();
+    private readonly UserDesktopWidgetVisibilityStore _visibilityStore = new();
     private readonly UserDesktopWidgetRollout _rollout;
     private readonly object _promptGate = new();
     private readonly TaskCompletionSource<bool> _widgetReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -57,6 +58,12 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             return _fallbackRenderer.TryShow(title, message, out errorCode);
         }
 
+        if (_visibilityStore.IsHidden())
+        {
+            errorCode = string.Empty;
+            return true;
+        }
+
         if (TryDispatchToWidget(window => window.PresentAttention(title, message), out errorCode))
         {
             return true;
@@ -73,6 +80,12 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         if (!_rollout.SupportsWidgetSurface)
         {
             errorCode = _rollout.UnavailableReasonCode;
+            return false;
+        }
+
+        if (_visibilityStore.IsHidden())
+        {
+            errorCode = "widget_hidden_by_user";
             return false;
         }
 
@@ -109,6 +122,15 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             errorCode = _rollout.UnavailableReasonCode;
             return false;
         }
+
+        if (_visibilityStore.IsHidden())
+        {
+            _ = TryDispatchToWidget(static window => window.HideWidget(), out _);
+            errorCode = string.Empty;
+            return true;
+        }
+
+        _ = TryDispatchToWidget(static window => window.ShowWidgetIfHidden(), out _);
 
         return TryDispatchToWidget(window => window.ApplyState(state), out errorCode);
     }
@@ -317,6 +339,11 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                     _ = TryShow("Ari limited", "Control Center is not available on this device.", out _);
                 }
 
+                break;
+
+            case UserDesktopWidgetAction.HideWidget:
+                _visibilityStore.Hide();
+                _ = TryDispatchToWidget(static window => window.HideWidget(), out _);
                 break;
 
             case UserDesktopWidgetAction.RetryCritical:

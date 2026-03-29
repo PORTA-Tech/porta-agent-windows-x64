@@ -15,6 +15,7 @@ internal enum UserDesktopWidgetAction
     OpenActions,
     OpenHealth,
     OpenSettings,
+    HideWidget,
     RetryCritical,
     PauseFifteenMinutes,
     PauseOneHour,

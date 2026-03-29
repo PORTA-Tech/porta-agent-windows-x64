@@ -16,7 +16,6 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 {
     private static readonly TimeSpan PassiveSamplingPeriod = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan WidgetDetailRefreshInterval = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan WidgetTimelineLookback = TimeSpan.FromHours(4);
     private readonly ILogger<UserAgentHost> _logger;
     private readonly IUserAgentSessionContextStore _sessionContextStore;
     private readonly UserAgentStartupMetadata _startupMetadata;
@@ -724,6 +723,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         return Environment.UserInteractive && sessionId > 0;
     }
 
+    private static DateTimeOffset ResolveWidgetTimelineStartUtc(DateTimeOffset nowUtc)
+    {
+        DateTimeOffset localNow = nowUtc.ToLocalTime();
+        DateTimeOffset startOfDayLocal = new(localNow.Year, localNow.Month, localNow.Day, 0, 0, 0, localNow.Offset);
+        return startOfDayLocal.ToUniversalTime();
+    }
+
     private async Task<WidgetDetailSnapshot> RefreshWidgetDetailsAsync(DateTimeOffset nowUtc, CancellationToken token)
     {
         bool shouldRefresh = _widgetDetailTimeline == null
@@ -731,11 +737,12 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             || (nowUtc - _lastWidgetDetailRefreshUtc) >= WidgetDetailRefreshInterval;
         if (shouldRefresh && _localApiClient.IsConfigured)
         {
+            DateTimeOffset widgetTimelineStartUtc = ResolveWidgetTimelineStartUtc(nowUtc);
             IReadOnlyList<LocalApiEventResponse> events = await _localApiClient
                 .GetRecentEventsAsync(limit: 40, token: token)
                 .ConfigureAwait(false);
             LocalApiTimelineResponse? timeline = await _localApiClient
-                .GetTimelineAsync(nowUtc - WidgetTimelineLookback, nowUtc, bucketSeconds: 60, token)
+                .GetTimelineAsync(widgetTimelineStartUtc, nowUtc, bucketSeconds: 60, token)
                 .ConfigureAwait(false);
             LocalApiSettingsResponse? settings = await _localApiClient
                 .GetEffectiveSettingsAsync(token)
