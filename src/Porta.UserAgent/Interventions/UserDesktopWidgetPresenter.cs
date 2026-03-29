@@ -10,6 +10,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 {
     private readonly UserInterventionToastRenderer _fallbackRenderer = new();
     private readonly LocalApiClient _actionClient = new();
+    private readonly UserDesktopWidgetPlacementStore _placementStore = new();
     private readonly TaskCompletionSource<bool> _widgetReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Thread _widgetThread;
 
@@ -125,7 +126,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         try
         {
             _widgetDispatcher = Dispatcher.CurrentDispatcher;
-            _widgetWindow = new UserDesktopWidgetWindow(OnWidgetActionRequested);
+            _widgetWindow = new UserDesktopWidgetWindow(OnWidgetActionRequested, _placementStore);
             _widgetWindow.Show();
             _widgetReady.TrySetResult(true);
             Dispatcher.Run();
@@ -157,12 +158,32 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     {
         switch (action)
         {
-            case UserDesktopWidgetAction.OpenControlCenter:
-                if (TryOpenControlCenter())
+            case UserDesktopWidgetAction.OpenNow:
+                if (!TryOpenControlCenter("now"))
                 {
-                    _ = TryShow("Ari", "Control Center opened.", out _);
+                    _ = TryShow("Ari limited", "Control Center is not available on this device.", out _);
                 }
-                else
+
+                break;
+
+            case UserDesktopWidgetAction.OpenActions:
+                if (!TryOpenControlCenter("actions"))
+                {
+                    _ = TryShow("Ari limited", "Control Center is not available on this device.", out _);
+                }
+
+                break;
+
+            case UserDesktopWidgetAction.OpenControls:
+                if (!TryOpenControlCenter("controls"))
+                {
+                    _ = TryShow("Ari limited", "Control Center is not available on this device.", out _);
+                }
+
+                break;
+
+            case UserDesktopWidgetAction.OpenHealth:
+                if (!TryOpenControlCenter("health"))
                 {
                     _ = TryShow("Ari limited", "Control Center is not available on this device.", out _);
                 }
@@ -220,10 +241,22 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 }
 
                 break;
+
+            case UserDesktopWidgetAction.ResetPosition:
+                if (TryDispatchToWidget(window => window.ResetToDefaultPosition(), out _))
+                {
+                    _ = TryShow("Ari", "Widget reset to the top-right corner.", out _);
+                }
+                else
+                {
+                    _ = TryShow("Ari limited", "The widget could not reset its position right now.", out _);
+                }
+
+                break;
         }
     }
 
-    private static bool TryOpenControlCenter()
+    private static bool TryOpenControlCenter(string? section)
     {
         try
         {
@@ -236,6 +269,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             Process.Start(new ProcessStartInfo
             {
                 FileName = path,
+                Arguments = string.IsNullOrWhiteSpace(section) ? string.Empty : $"--section={section}",
                 WorkingDirectory = Path.GetDirectoryName(path) ?? AppContext.BaseDirectory,
                 UseShellExecute = true
             });

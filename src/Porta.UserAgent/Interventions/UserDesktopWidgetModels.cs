@@ -11,11 +11,15 @@ internal enum UserDesktopWidgetMode
 
 internal enum UserDesktopWidgetAction
 {
-    OpenControlCenter,
+    OpenNow,
+    OpenActions,
+    OpenHealth,
+    OpenControls,
     PauseFifteenMinutes,
     PauseOneHour,
     Resume,
-    Recalibrate
+    Recalibrate,
+    ResetPosition
 }
 
 internal sealed record UserDesktopWidgetState(

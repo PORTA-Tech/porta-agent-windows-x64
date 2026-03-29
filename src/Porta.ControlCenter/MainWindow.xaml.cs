@@ -201,8 +201,13 @@ public partial class MainWindow : Window
         WindowState = WindowState.Normal;
     }
 
-    internal void HandleExternalActivation()
+    internal void HandleExternalActivation(ControlCenterActivationTarget target = ControlCenterActivationTarget.Default)
     {
+        if (TryResolveActivationSection(target, out UiSection section))
+        {
+            ShowSection(section);
+        }
+
         if (!IsWindowPlacementVisible())
         {
             ApplyStartupBounds();
@@ -217,6 +222,28 @@ public partial class MainWindow : Window
         Topmost = true;
         Topmost = false;
         Focus();
+    }
+
+    private static bool TryResolveActivationSection(ControlCenterActivationTarget target, out UiSection section)
+    {
+        switch (target)
+        {
+            case ControlCenterActivationTarget.Now:
+                section = UiSection.Overview;
+                return true;
+            case ControlCenterActivationTarget.Actions:
+                section = UiSection.Interventions;
+                return true;
+            case ControlCenterActivationTarget.Controls:
+                section = UiSection.Settings;
+                return true;
+            case ControlCenterActivationTarget.Health:
+                section = UiSection.Diagnostics;
+                return true;
+            default:
+                section = UiSection.Overview;
+                return false;
+        }
     }
 
     private bool IsWindowPlacementVisible()

@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -14,7 +15,7 @@ using FormsCursor = System.Windows.Forms.Cursor;
 internal sealed class UserDesktopWidgetWindow : Window
 {
     private const double ExpandedWidth = 392d;
-    private const double CollapsedWidth = 54d;
+    private const double CollapsedWidth = 68d;
     private const double BaseHeight = 114d;
     private const double AttentionHeight = 70d;
     private const double TopMargin = 18d;
@@ -22,10 +23,14 @@ internal sealed class UserDesktopWidgetWindow : Window
     private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan AttentionDuration = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ReexpandPollInterval = TimeSpan.FromMilliseconds(220);
+    private static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(180);
 
     private readonly Action<UserDesktopWidgetAction> _actionRequested;
+    private readonly UserDesktopWidgetPlacementStore _placementStore;
     private readonly DispatcherTimer _attentionTimer;
     private readonly DispatcherTimer _reexpandTimer;
+    private readonly DispatcherTimer _collapseTimer;
+    private readonly Border _rootBorder;
     private readonly Border _accentBar;
     private readonly StackPanel _expandedStack;
     private readonly TextBlock _titleText;
@@ -44,14 +49,21 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly Button _pauseHourButton;
     private readonly Button _resumeButton;
 
+    private HwndSource? _hwndSource;
     private bool _collapsed;
     private bool _menuOpen;
-    private bool _attentionVisible;
+    private bool _dragInProgress;
+    private bool _placementInitialized;
+    private double _expandedAnchorLeft;
+    private double _expandedAnchorTop;
     private UserDesktopWidgetState? _currentState;
 
-    public UserDesktopWidgetWindow(Action<UserDesktopWidgetAction> actionRequested)
+    public UserDesktopWidgetWindow(
+        Action<UserDesktopWidgetAction> actionRequested,
+        UserDesktopWidgetPlacementStore placementStore)
     {
         _actionRequested = actionRequested;
+        _placementStore = placementStore;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
         AllowsTransparency = true;
@@ -83,7 +95,19 @@ internal sealed class UserDesktopWidgetWindow : Window
             }
         };
 
-        var rootBorder = new Border
+        _collapseTimer = new DispatcherTimer { Interval = CollapseDelay };
+        _collapseTimer.Tick += (_, _) =>
+        {
+            _collapseTimer.Stop();
+            if (_menuOpen || _collapsed || _dragInProgress || !IsPointerNearWidget())
+            {
+                return;
+            }
+
+            Collapse();
+        };
+
+        _rootBorder = new Border
         {
             CornerRadius = new CornerRadius(16),
             Background = new SolidColorBrush(Color.FromRgb(17, 21, 26)),
@@ -97,8 +121,10 @@ internal sealed class UserDesktopWidgetWindow : Window
                 Color = Color.FromRgb(6, 9, 12)
             }
         };
+        _rootBorder.MouseEnter += (_, _) => ScheduleCollapse();
+        _rootBorder.MouseLeave += (_, _) => HandlePointerLeave();
 
-        var shellGrid = new Grid();
+        Grid shellGrid = new();
         shellGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(4) });
         shellGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -110,7 +136,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         Grid.SetRow(_accentBar, 0);
         shellGrid.Children.Add(_accentBar);
 
-        var bodyGrid = new Grid
+        Grid bodyGrid = new()
         {
             Margin = new Thickness(14, 12, 12, 12)
         };
@@ -127,13 +153,27 @@ internal sealed class UserDesktopWidgetWindow : Window
         Grid.SetColumn(_expandedStack, 0);
         bodyGrid.Children.Add(_expandedStack);
 
+        Border headerDragSurface = new()
+        {
+            Background = Brushes.Transparent,
+            Cursor = Cursors.SizeAll
+        };
+        headerDragSurface.PreviewMouseLeftButtonDown += BeginDragFromHeader;
+        _expandedStack.Children.Add(headerDragSurface);
+
+        StackPanel headerStack = new()
+        {
+            Orientation = Orientation.Vertical
+        };
+        headerDragSurface.Child = headerStack;
+
         _titleText = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
             FontWeight = FontWeights.SemiBold,
             FontSize = 16
         };
-        _expandedStack.Children.Add(_titleText);
+        headerStack.Children.Add(_titleText);
 
         _statusText = new TextBlock
         {
@@ -143,9 +183,9 @@ internal sealed class UserDesktopWidgetWindow : Window
             Margin = new Thickness(0, 4, 0, 0),
             MaxWidth = ExpandedWidth - 110d
         };
-        _expandedStack.Children.Add(_statusText);
+        headerStack.Children.Add(_statusText);
 
-        var metricsPanel = new WrapPanel
+        WrapPanel metricsPanel = new()
         {
             Margin = new Thickness(0, 10, 0, 0)
         };
@@ -180,7 +220,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             Margin = new Thickness(0, 10, 0, 0),
             Visibility = Visibility.Collapsed
         };
-        var attentionStack = new StackPanel();
+        StackPanel attentionStack = new();
         _attentionCard.Child = attentionStack;
         _attentionTitleText = new TextBlock
         {
@@ -208,7 +248,8 @@ internal sealed class UserDesktopWidgetWindow : Window
             BorderThickness = new Thickness(0),
             Background = new SolidColorBrush(Color.FromRgb(28, 35, 43)),
             Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
-            Cursor = System.Windows.Input.Cursors.Hand,
+            Cursor = Cursors.Hand,
+            ToolTip = "Widget menu",
             Content = new TextBlock
             {
                 Text = "\u2630",
@@ -232,11 +273,25 @@ internal sealed class UserDesktopWidgetWindow : Window
         _menuPopup.Opened += (_, _) =>
         {
             _menuOpen = true;
+            _collapseTimer.Stop();
             Collapse();
         };
         _menuPopup.Closed += (_, _) =>
         {
             _menuOpen = false;
+            if (!_collapsed)
+            {
+                return;
+            }
+
+            if (!IsPointerNearWidget())
+            {
+                Expand();
+            }
+            else
+            {
+                _reexpandTimer.Start();
+            }
         };
 
         Border popupChrome = new()
@@ -254,11 +309,17 @@ internal sealed class UserDesktopWidgetWindow : Window
                 Color = Color.FromRgb(6, 9, 12)
             }
         };
-        var popupStack = new StackPanel { MinWidth = 190 };
+        StackPanel popupStack = new() { MinWidth = 208 };
         popupChrome.Child = popupStack;
         _menuPopup.Child = popupChrome;
 
-        popupStack.Children.Add(CreateMenuButton("Open Control Center", UserDesktopWidgetAction.OpenControlCenter));
+        popupStack.Children.Add(CreateMenuSectionLabel("Navigate"));
+        popupStack.Children.Add(CreateMenuButton("Open Now", UserDesktopWidgetAction.OpenNow));
+        popupStack.Children.Add(CreateMenuButton("Open Actions", UserDesktopWidgetAction.OpenActions));
+        popupStack.Children.Add(CreateMenuButton("Open Controls", UserDesktopWidgetAction.OpenControls));
+        popupStack.Children.Add(CreateMenuButton("Open Health", UserDesktopWidgetAction.OpenHealth));
+        popupStack.Children.Add(CreateMenuSeparator());
+        popupStack.Children.Add(CreateMenuSectionLabel("Quick actions"));
         _pauseFifteenButton = CreateMenuButton("Pause for 15m", UserDesktopWidgetAction.PauseFifteenMinutes);
         _pauseHourButton = CreateMenuButton("Pause for 1h", UserDesktopWidgetAction.PauseOneHour);
         _resumeButton = CreateMenuButton("Resume", UserDesktopWidgetAction.Resume);
@@ -266,19 +327,13 @@ internal sealed class UserDesktopWidgetWindow : Window
         popupStack.Children.Add(_pauseHourButton);
         popupStack.Children.Add(_resumeButton);
         popupStack.Children.Add(CreateMenuButton("Recalibrate", UserDesktopWidgetAction.Recalibrate));
+        popupStack.Children.Add(CreateMenuSeparator());
+        popupStack.Children.Add(CreateMenuButton("Reset position", UserDesktopWidgetAction.ResetPosition));
 
-        rootBorder.Child = shellGrid;
-        Content = rootBorder;
-
-        MouseEnter += (_, _) =>
-        {
-            if (!_menuOpen)
-            {
-                Collapse();
-            }
-        };
-        SourceInitialized += (_, _) => PositionTopRight();
-        SizeChanged += (_, _) => PositionTopRight();
+        _rootBorder.Child = shellGrid;
+        Content = _rootBorder;
+        SourceInitialized += (_, _) => InitializePlacement();
+        SizeChanged += (_, _) => ApplyAnchorPosition();
     }
 
     public void ApplyState(UserDesktopWidgetState state)
@@ -311,11 +366,23 @@ internal sealed class UserDesktopWidgetWindow : Window
         _attentionTimer.Start();
     }
 
+    public void ResetToDefaultPosition()
+    {
+        _placementStore.Clear();
+        UserDesktopWidgetPlacement placement = GetDefaultPlacement();
+        _expandedAnchorLeft = placement.Left;
+        _expandedAnchorTop = placement.Top;
+        _placementInitialized = true;
+        ApplyAnchorPosition();
+    }
+
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
 
         IntPtr hwnd = new WindowInteropHelper(this).Handle;
+        _hwndSource = HwndSource.FromHwnd(hwnd);
+        _hwndSource?.AddHook(WndProc);
         IntPtr extendedStyle = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GwlExStyle);
         long updatedStyle = extendedStyle.ToInt64()
             | NativeMethods.WsExToolWindow
@@ -365,6 +432,29 @@ internal sealed class UserDesktopWidgetWindow : Window
         };
     }
 
+    private static TextBlock CreateMenuSectionLabel(string text)
+    {
+        return new TextBlock
+        {
+            Text = text,
+            Margin = new Thickness(4, 0, 4, 8),
+            Foreground = new SolidColorBrush(Color.FromRgb(138, 151, 166)),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
+        };
+    }
+
+    private static Border CreateMenuSeparator()
+    {
+        return new Border
+        {
+            Height = 1,
+            Margin = new Thickness(0, 4, 0, 10),
+            Background = new SolidColorBrush(Color.FromRgb(40, 51, 63))
+        };
+    }
+
     private Button CreateMenuButton(string text, UserDesktopWidgetAction action)
     {
         Button button = new()
@@ -377,7 +467,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
             BorderBrush = new SolidColorBrush(Color.FromRgb(47, 58, 71)),
             BorderThickness = new Thickness(1),
-            Cursor = System.Windows.Input.Cursors.Hand
+            Cursor = Cursors.Hand
         };
         button.Click += (_, _) =>
         {
@@ -424,7 +514,6 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void SetAttentionVisible(bool visible)
     {
-        _attentionVisible = visible;
         _attentionCard.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         AnimateWindowHeight(visible ? BaseHeight + AttentionHeight : BaseHeight);
     }
@@ -445,18 +534,137 @@ internal sealed class UserDesktopWidgetWindow : Window
         });
     }
 
-    private void PositionTopRight()
+    private void BeginDragFromHeader(object sender, MouseButtonEventArgs e)
+    {
+        if (_collapsed || _menuOpen)
+        {
+            return;
+        }
+
+        _collapseTimer.Stop();
+        try
+        {
+            _dragInProgress = true;
+            DragMove();
+            SaveCurrentPlacement();
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        finally
+        {
+            _dragInProgress = false;
+            if (!_menuOpen && IsPointerNearWidget())
+            {
+                ScheduleCollapse();
+            }
+        }
+    }
+
+    private void ScheduleCollapse()
+    {
+        if (_collapsed || _menuOpen || _dragInProgress)
+        {
+            return;
+        }
+
+        _collapseTimer.Stop();
+        _collapseTimer.Start();
+    }
+
+    private void HandlePointerLeave()
+    {
+        _collapseTimer.Stop();
+        if (_menuOpen)
+        {
+            return;
+        }
+
+        if (_collapsed && !IsPointerNearWidget())
+        {
+            Expand();
+        }
+    }
+
+    private void InitializePlacement()
+    {
+        UserDesktopWidgetPlacement placement = _placementStore.Load() ?? GetDefaultPlacement();
+        double currentHeight = ActualHeight > 0d ? ActualHeight : Height;
+        UserDesktopWidgetPlacement normalized = NormalizePlacement(placement.Left, placement.Top, currentHeight);
+        _expandedAnchorLeft = normalized.Left;
+        _expandedAnchorTop = normalized.Top;
+        _placementInitialized = true;
+        ApplyAnchorPosition();
+    }
+
+    private void ApplyAnchorPosition()
+    {
+        if (!_placementInitialized)
+        {
+            return;
+        }
+
+        double currentHeight = ActualHeight > 0d ? ActualHeight : Height;
+        UserDesktopWidgetPlacement normalized = NormalizePlacement(_expandedAnchorLeft, _expandedAnchorTop, currentHeight);
+        _expandedAnchorLeft = normalized.Left;
+        _expandedAnchorTop = normalized.Top;
+
+        double currentWidth = ActualWidth > 0d ? ActualWidth : Width;
+        Left = _collapsed
+            ? _expandedAnchorLeft + (ExpandedWidth - currentWidth)
+            : _expandedAnchorLeft;
+        Top = _expandedAnchorTop;
+    }
+
+    private void SaveCurrentPlacement()
+    {
+        double currentHeight = ActualHeight > 0d ? ActualHeight : Height;
+        double currentWidth = ActualWidth > 0d ? ActualWidth : Width;
+        double expandedLeft = _collapsed
+            ? Left - (ExpandedWidth - currentWidth)
+            : Left;
+
+        UserDesktopWidgetPlacement normalized = NormalizePlacement(expandedLeft, Top, currentHeight);
+        _expandedAnchorLeft = normalized.Left;
+        _expandedAnchorTop = normalized.Top;
+        _placementInitialized = true;
+        _placementStore.Save(normalized);
+        ApplyAnchorPosition();
+    }
+
+    private UserDesktopWidgetPlacement GetDefaultPlacement()
     {
         Rect workArea = SystemParameters.WorkArea;
-        double width = ActualWidth > 0d ? ActualWidth : Width;
         double height = ActualHeight > 0d ? ActualHeight : Height;
+        return NormalizePlacement(
+            workArea.Right - ExpandedWidth - RightMargin,
+            workArea.Top + TopMargin,
+            height);
+    }
 
-        Left = workArea.Right - width - RightMargin;
-        Top = workArea.Top + TopMargin;
-        if (Top + height > workArea.Bottom - TopMargin)
+    private static UserDesktopWidgetPlacement NormalizePlacement(double left, double top, double height)
+    {
+        Rect workArea = SystemParameters.WorkArea;
+        double minLeft = workArea.Left + RightMargin;
+        double maxLeft = workArea.Right - ExpandedWidth - RightMargin;
+        double minTop = workArea.Top + TopMargin;
+        double maxTop = workArea.Bottom - height - TopMargin;
+
+        if (maxLeft < minLeft)
         {
-            Top = Math.Max(workArea.Top + TopMargin, workArea.Bottom - height - TopMargin);
+            minLeft = workArea.Left;
+            maxLeft = workArea.Right - ExpandedWidth;
         }
+
+        if (maxTop < minTop)
+        {
+            minTop = workArea.Top;
+            maxTop = workArea.Bottom - height;
+        }
+
+        return new UserDesktopWidgetPlacement(
+            Left: Math.Min(Math.Max(left, minLeft), maxLeft),
+            Top: Math.Min(Math.Max(top, minTop), maxTop));
     }
 
     private bool IsPointerNearWidget()
@@ -470,6 +678,62 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         System.Drawing.Point cursor = FormsCursor.Position;
         return bounds.Contains(new Point(cursor.X, cursor.Y));
+    }
+
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == NativeMethods.WmNcHitTest
+            && ShouldUseTransparentHitTest(GetScreenPointFromLParam(lParam)))
+        {
+            handled = true;
+            return new IntPtr(NativeMethods.HtTransparent);
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private bool ShouldUseTransparentHitTest(Point screenPoint)
+    {
+        if (!_collapsed || _menuOpen || !_placementInitialized)
+        {
+            return false;
+        }
+
+        try
+        {
+            Point localPoint = PointFromScreen(screenPoint);
+            Rect menuButtonBounds = GetLocalBounds(_menuButton);
+            if (menuButtonBounds.IsEmpty)
+            {
+                return false;
+            }
+
+            menuButtonBounds.Inflate(8d, 8d);
+            return !menuButtonBounds.Contains(localPoint);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private Rect GetLocalBounds(FrameworkElement element)
+    {
+        if (!element.IsLoaded || element.ActualWidth <= 0d || element.ActualHeight <= 0d)
+        {
+            return Rect.Empty;
+        }
+
+        GeneralTransform transform = element.TransformToAncestor(this);
+        return transform.TransformBounds(new Rect(0d, 0d, element.ActualWidth, element.ActualHeight));
+    }
+
+    private static Point GetScreenPointFromLParam(IntPtr lParam)
+    {
+        long value = lParam.ToInt64();
+        int x = unchecked((short)(value & 0xffff));
+        int y = unchecked((short)((value >> 16) & 0xffff));
+        return new Point(x, y);
     }
 
     private void ApplyModeChrome(UserDesktopWidgetMode mode)
@@ -490,6 +754,8 @@ internal sealed class UserDesktopWidgetWindow : Window
     private static class NativeMethods
     {
         internal const int GwlExStyle = -20;
+        internal const int WmNcHitTest = 0x0084;
+        internal const int HtTransparent = -1;
         internal const long WsExToolWindow = 0x00000080L;
         internal const long WsExNoActivate = 0x08000000L;
 

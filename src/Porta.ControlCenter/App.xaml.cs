@@ -21,6 +21,7 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        ControlCenterActivationTarget startupTarget = ControlCenterActivationRequestStore.ParseArgs(e.Args);
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
             Exception? ex = args.ExceptionObject as Exception;
@@ -32,11 +33,13 @@ public partial class App : Application
         if (!createdNew)
         {
             ControlCenterFileLog.Info("second_instance_signal_existing");
+            ControlCenterActivationRequestStore.Save(startupTarget);
             TrySignalExistingWindow();
             Shutdown();
             return;
         }
 
+        ControlCenterActivationRequestStore.Clear();
         _focusEvent = new EventWaitHandle(false, EventResetMode.AutoReset, FocusEventName);
         _focusThread = new Thread(FocusLoop)
         {
@@ -60,7 +63,7 @@ public partial class App : Application
         MainWindow window = new();
         MainWindow = window;
         window.Show();
-        window.HandleExternalActivation();
+        window.HandleExternalActivation(startupTarget);
         ControlCenterFileLog.Info("startup");
         base.OnStartup(e);
     }
@@ -166,7 +169,8 @@ public partial class App : Application
                 }
 
                 EnsureCurrentSessionUserAgent(force: true);
-                window.HandleExternalActivation();
+                ControlCenterActivationTarget target = ControlCenterActivationRequestStore.Consume();
+                window.HandleExternalActivation(target);
             });
         }
     }
