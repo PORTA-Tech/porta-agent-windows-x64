@@ -41,6 +41,8 @@ internal sealed class UserAgentInterventionExecutor
     private readonly INotificationController _notificationController;
     private readonly IUserAgentNotificationSnapshotStore _notificationSnapshotStore;
     private readonly IUserInterventionPreferenceStore _preferenceStore;
+    private readonly UserInterventionAntiSpamGate _antiSpamGate;
+    private readonly Func<DateTimeOffset> _utcNowProvider;
     private readonly object _gate = new();
     private readonly Dictionary<string, LocalApiInterventionAckRequest> _ackCache = new(StringComparer.Ordinal);
     private readonly Queue<LocalApiInterventionAckRequest> _completedPromptAcks = new();
@@ -51,13 +53,22 @@ internal sealed class UserAgentInterventionExecutor
         IUserSessionPresentationGate presentationGate,
         INotificationController notificationController,
         IUserAgentNotificationSnapshotStore notificationSnapshotStore,
-        IUserInterventionPreferenceStore preferenceStore)
+        IUserInterventionPreferenceStore preferenceStore,
+        UserInterventionAntiSpamGate? antiSpamGate = null,
+        Func<DateTimeOffset>? utcNowProvider = null)
     {
         _presenter = presenter;
         _presentationGate = presentationGate;
         _notificationController = notificationController;
         _notificationSnapshotStore = notificationSnapshotStore;
         _preferenceStore = preferenceStore;
+        _antiSpamGate = antiSpamGate ?? new UserInterventionAntiSpamGate();
+        _utcNowProvider = utcNowProvider ?? (() => DateTimeOffset.UtcNow);
+    }
+
+    public void ObserveWidgetState(UserDesktopWidgetState state)
+    {
+        _antiSpamGate.ObserveWidgetState(state);
     }
 
     public LocalApiInterventionAckRequest? ExecuteOrReplay(
@@ -72,7 +83,9 @@ internal sealed class UserAgentInterventionExecutor
                 return cachedAck;
             }
 
-            if (_activePrompt != null && IsPromptCommand(intervention.CommandType))
+            if (_activePrompt != null
+                && IsPromptCommand(intervention.CommandType)
+                && string.Equals(_activePrompt.Intervention.InterventionId, intervention.InterventionId, StringComparison.Ordinal))
             {
                 return null;
             }
@@ -120,6 +133,7 @@ internal sealed class UserAgentInterventionExecutor
         string sessionId,
         string agentInstanceId)
     {
+        DateTimeOffset nowUtc = _utcNowProvider();
         if (!TryParsePromptPayload(intervention, out UserInterventionPrompt prompt, out string errorCode))
         {
             return BuildAck(intervention, sessionId, agentInstanceId, result: "failed", errorCode);
@@ -128,6 +142,38 @@ internal sealed class UserAgentInterventionExecutor
         if (_preferenceStore.IsTipSuppressed(prompt.TipKey))
         {
             return BuildAck(intervention, sessionId, agentInstanceId, result: "suppressed_by_preference", errorCode: null);
+        }
+
+        if (_preferenceStore.IsTipSnoozed(prompt.TipKey, nowUtc))
+        {
+            return BuildAck(intervention, sessionId, agentInstanceId, result: "snoozed", errorCode: "tip_snoozed_active");
+        }
+
+        if (_antiSpamGate.IsCriticalStateVisible())
+        {
+            return BuildAck(intervention, sessionId, agentInstanceId, result: "snoozed", errorCode: "anti_spam_critical_state");
+        }
+
+        ActivePromptState? activePrompt = null;
+        lock (_gate)
+        {
+            activePrompt = _activePrompt;
+        }
+
+        if (activePrompt != null)
+        {
+            int activePriority = ResolvePromptPriority(activePrompt.Intervention.Action);
+            int incomingPriority = ResolvePromptPriority(intervention.Action);
+            if (incomingPriority <= activePriority)
+            {
+                return BuildAck(intervention, sessionId, agentInstanceId, result: "snoozed", errorCode: "anti_spam_active_prompt");
+            }
+        }
+
+        UserInterventionGateDecision antiSpamDecision = _antiSpamGate.EvaluatePrompt(intervention.Action, nowUtc);
+        if (!antiSpamDecision.Allowed)
+        {
+            return BuildAck(intervention, sessionId, agentInstanceId, result: "snoozed", errorCode: antiSpamDecision.ReasonCode);
         }
 
         if (!_presentationGate.IsPresentationAvailable(out string sessionError))
@@ -160,6 +206,7 @@ internal sealed class UserAgentInterventionExecutor
             return BuildAck(intervention, sessionId, agentInstanceId, result: "failed", shown ? null : renderError);
         }
 
+        _antiSpamGate.MarkPromptShown(intervention.Action, nowUtc);
         return null;
     }
 
@@ -168,9 +215,16 @@ internal sealed class UserAgentInterventionExecutor
         string sessionId,
         string agentInstanceId)
     {
+        DateTimeOffset nowUtc = _utcNowProvider();
         if (!TryParseToastPayload(intervention.PayloadJson, out string title, out string message, out string errorCode))
         {
             return BuildAck(intervention, sessionId, agentInstanceId, result: "failed", errorCode);
+        }
+
+        UserInterventionGateDecision antiSpamDecision = _antiSpamGate.EvaluateToast(intervention.Action, nowUtc);
+        if (!antiSpamDecision.Allowed)
+        {
+            return BuildAck(intervention, sessionId, agentInstanceId, result: "applied", errorCode: null);
         }
 
         if (!_presentationGate.IsPresentationAvailable(out string sessionError))
@@ -179,6 +233,11 @@ internal sealed class UserAgentInterventionExecutor
         }
 
         bool shown = _presenter.TryShow(title, message, out string renderError);
+        if (shown)
+        {
+            _antiSpamGate.MarkToastShown(intervention.Action, nowUtc);
+        }
+
         return BuildAck(intervention, sessionId, agentInstanceId, shown ? "applied" : "failed", shown ? null : renderError);
     }
 
@@ -320,12 +379,21 @@ internal sealed class UserAgentInterventionExecutor
             return;
         }
 
+        DateTimeOffset nowUtc = _utcNowProvider();
+        if (!_antiSpamGate.EvaluateToast(intervention.Action, nowUtc).Allowed)
+        {
+            return;
+        }
+
         if (!_presentationGate.IsPresentationAvailable(out _))
         {
             return;
         }
 
-        _presenter.TryShow(title, message, out _);
+        if (_presenter.TryShow(title, message, out _))
+        {
+            _antiSpamGate.MarkToastShown(intervention.Action, nowUtc);
+        }
     }
 
     private void RememberInterventionAck(string interventionId, LocalApiInterventionAckRequest ack)
@@ -363,16 +431,28 @@ internal sealed class UserAgentInterventionExecutor
 
         string result = MapPromptResult(response.Kind);
         LocalApiInterventionAckRequest ack;
+        DateTimeOffset nowUtc = _utcNowProvider();
 
         if (response.Kind == UserInterventionPromptResponseKind.SuppressedByPreference)
         {
-            bool persisted = _preferenceStore.TrySuppressTip(response.TipKey, DateTimeOffset.UtcNow);
+            bool persisted = _preferenceStore.TrySuppressTip(response.TipKey, nowUtc);
             ack = BuildAck(
                 activePrompt.Intervention,
                 activePrompt.SessionId,
                 activePrompt.AgentInstanceId,
                 persisted ? result : "failed",
                 persisted ? null : "tip_preference_persist_failed");
+        }
+        else if (response.Kind == UserInterventionPromptResponseKind.Snoozed)
+        {
+            DateTimeOffset snoozeUntilUtc = ResolvePromptSnoozeUntilUtc(activePrompt.Intervention.Action, nowUtc);
+            bool persisted = _preferenceStore.TrySnoozeTip(response.TipKey, snoozeUntilUtc, nowUtc);
+            ack = BuildAck(
+                activePrompt.Intervention,
+                activePrompt.SessionId,
+                activePrompt.AgentInstanceId,
+                persisted ? result : "failed",
+                persisted ? null : "tip_snooze_persist_failed");
         }
         else
         {
@@ -558,6 +638,28 @@ internal sealed class UserAgentInterventionExecutor
     private static string ResolveTipKey(string? action)
     {
         return NormalizeTipKey(action, fallback: "general_tip");
+    }
+
+    private static int ResolvePromptPriority(string? action)
+    {
+        return (action ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "break_suggestion" => 30,
+            "stretch_break_suggestion" => 20,
+            "focus_lock_in_suggestion" => 10,
+            _ => 0
+        };
+    }
+
+    private static DateTimeOffset ResolvePromptSnoozeUntilUtc(string? action, DateTimeOffset nowUtc)
+    {
+        TimeSpan duration = (action ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "break_suggestion" or "stretch_break_suggestion" => TimeSpan.FromMinutes(30),
+            "focus_lock_in_suggestion" => TimeSpan.FromMinutes(15),
+            _ => TimeSpan.FromMinutes(12)
+        };
+        return nowUtc.Add(duration);
     }
 
     private static string NormalizeTipKey(string? tipKey, string? fallback)

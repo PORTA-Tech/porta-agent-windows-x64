@@ -120,8 +120,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 if ((nowUtc - _windowStartUtc) >= TimeSpan.FromSeconds(Time.bucketSeconds))
                 {
                     await FlushSignalsAsync(stoppingToken).ConfigureAwait(false);
-                    await PollPendingInterventionsAsync(stoppingToken).ConfigureAwait(false);
                     await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
+                    await PollPendingInterventionsAsync(stoppingToken).ConfigureAwait(false);
                 }
             }
 
@@ -681,6 +681,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
     private void UpdateWidgetState(UserDesktopWidgetState state)
     {
+        _interventionExecutor.ObserveWidgetState(state);
+
         if (_lastWidgetState != null && _lastWidgetState.Equals(state))
         {
             return;

@@ -83,6 +83,44 @@ public sealed class UserAgentInterventionExecutorTests
     }
 
     [Fact]
+    public void ExecuteOrReplay_SnoozedPrompt_PersistsAndSuppressesFuturePrompt()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T10:00:00Z");
+        var presenter = new FakePresenter { PromptShowResult = true };
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController();
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore, () => nowUtc);
+        LocalApiInterventionPendingResponse first = BuildPending(
+            "intv-break-1",
+            "break_suggestion",
+            "show_break_toast",
+            """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}""");
+
+        Assert.Null(executor.ExecuteOrReplay(first, "session-1", "agent-1"));
+        presenter.CompletePrompt(UserInterventionPromptResponseKind.Snoozed);
+
+        Assert.True(executor.TryDequeueCompletedAck(out LocalApiInterventionAckRequest firstAck));
+        Assert.Equal("snoozed", firstAck.Result);
+        Assert.True(preferenceStore.IsTipSnoozed("break_suggestion", nowUtc.AddMinutes(5)));
+
+        nowUtc = nowUtc.AddMinutes(5);
+        LocalApiInterventionPendingResponse second = BuildPending(
+            "intv-break-2",
+            "break_suggestion",
+            "show_break_toast",
+            """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}""");
+
+        LocalApiInterventionAckRequest? blockedAck = executor.ExecuteOrReplay(second, "session-1", "agent-1");
+
+        Assert.NotNull(blockedAck);
+        Assert.Equal("snoozed", blockedAck.Result);
+        Assert.Equal("tip_snoozed_active", blockedAck.ErrorCode);
+        Assert.Equal(1, presenter.PromptCalls);
+    }
+
+    [Fact]
     public void ExecuteOrReplay_StatusToast_AcksApplied()
     {
         var presenter = new FakePresenter { ShowResult = true };
@@ -105,6 +143,154 @@ public sealed class UserAgentInterventionExecutorTests
         Assert.Equal(1, presenter.ShowCalls);
         Assert.Equal("Ari", presenter.LastTitle);
         Assert.Contains("Overload is rising", presenter.LastMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExecuteOrReplay_SecondPromptWithinGlobalBudget_IsAutoSnoozed()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T10:00:00Z");
+        var presenter = new FakePresenter { PromptShowResult = true };
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController();
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore, () => nowUtc);
+
+        Assert.Null(executor.ExecuteOrReplay(
+            BuildPending(
+                "intv-focus-1",
+                "focus_lock_in_suggestion",
+                "show_focus_lock_in_toast",
+                """{"title":"Ari","message":"Keep your focus?","tip_key":"focus_lock_in_suggestion"}"""),
+            "session-1",
+            "agent-1"));
+        presenter.CompletePrompt(UserInterventionPromptResponseKind.Dismissed);
+        Assert.True(executor.TryDequeueCompletedAck(out _));
+
+        nowUtc = nowUtc.AddMinutes(5);
+        LocalApiInterventionAckRequest? blockedAck = executor.ExecuteOrReplay(
+            BuildPending(
+                "intv-break-2",
+                "break_suggestion",
+                "show_break_toast",
+                """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}"""),
+            "session-1",
+            "agent-1");
+
+        Assert.NotNull(blockedAck);
+        Assert.Equal("snoozed", blockedAck.Result);
+        Assert.Equal("anti_spam_global_prompt_budget", blockedAck.ErrorCode);
+        Assert.Equal(1, presenter.PromptCalls);
+    }
+
+    [Fact]
+    public void ExecuteOrReplay_WeakerPromptWhileStrongerPromptVisible_IsAutoSnoozed()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T10:00:00Z");
+        var presenter = new FakePresenter { PromptShowResult = true };
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController();
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore, () => nowUtc);
+
+        Assert.Null(executor.ExecuteOrReplay(
+            BuildPending(
+                "intv-break-1",
+                "break_suggestion",
+                "show_break_toast",
+                """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}"""),
+            "session-1",
+            "agent-1"));
+
+        LocalApiInterventionAckRequest? blockedAck = executor.ExecuteOrReplay(
+            BuildPending(
+                "intv-focus-1",
+                "focus_lock_in_suggestion",
+                "show_focus_lock_in_toast",
+                """{"title":"Ari","message":"Keep your focus?","tip_key":"focus_lock_in_suggestion"}"""),
+            "session-1",
+            "agent-1");
+
+        Assert.NotNull(blockedAck);
+        Assert.Equal("snoozed", blockedAck.Result);
+        Assert.Equal("anti_spam_active_prompt", blockedAck.ErrorCode);
+        Assert.Equal(1, presenter.PromptCalls);
+    }
+
+    [Fact]
+    public void ExecuteOrReplay_CriticalWidgetState_AutoSnoozesPromptAndSuppressesToast()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T10:00:00Z");
+        var presenter = new FakePresenter { PromptShowResult = true, ShowResult = true };
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController();
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore, () => nowUtc);
+        executor.ObserveWidgetState(BuildWidgetState(hasCriticalState: true));
+
+        LocalApiInterventionAckRequest? promptAck = executor.ExecuteOrReplay(
+            BuildPending(
+                "intv-break-1",
+                "break_suggestion",
+                "show_break_toast",
+                """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}"""),
+            "session-1",
+            "agent-1");
+        LocalApiInterventionAckRequest? toastAck = executor.ExecuteOrReplay(
+            BuildPending(
+                "intv-overload-1",
+                "inform_overload_risk",
+                "show_status_toast",
+                """{"title":"Ari","message":"Overload is rising."}"""),
+            "session-1",
+            "agent-1");
+
+        Assert.NotNull(promptAck);
+        Assert.Equal("snoozed", promptAck.Result);
+        Assert.Equal("anti_spam_critical_state", promptAck.ErrorCode);
+        Assert.NotNull(toastAck);
+        Assert.Equal("applied", toastAck.Result);
+        Assert.Equal(0, presenter.PromptCalls);
+        Assert.Equal(0, presenter.ShowCalls);
+    }
+
+    [Fact]
+    public void ExecuteOrReplay_WeakerStatusToastAfterStrongerFamilyToast_IsSuppressed()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T10:00:00Z");
+        var presenter = new FakePresenter { ShowResult = true };
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController();
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore, () => nowUtc);
+
+        LocalApiInterventionAckRequest? first = executor.ExecuteOrReplay(
+            BuildPending(
+                "intv-restrict-1",
+                "temporary_app_restriction_enabled",
+                "show_status_toast",
+                """{"title":"Ari","message":"Stay off distracting apps for a few minutes."}"""),
+            "session-1",
+            "agent-1");
+
+        nowUtc = nowUtc.AddMinutes(5);
+        LocalApiInterventionAckRequest? second = executor.ExecuteOrReplay(
+            BuildPending(
+                "intv-inform-1",
+                "inform_overload_risk",
+                "show_status_toast",
+                """{"title":"Ari","message":"Overload is rising."}"""),
+            "session-1",
+            "agent-1");
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.Equal("applied", first.Result);
+        Assert.Equal("applied", second.Result);
+        Assert.Equal(1, presenter.ShowCalls);
     }
 
     [Fact]
@@ -287,14 +473,17 @@ public sealed class UserAgentInterventionExecutorTests
         FakePresentationGate gate,
         FakeNotificationController notificationController,
         FakeNotificationSnapshotStore snapshotStore,
-        InMemoryPreferenceStore preferenceStore)
+        InMemoryPreferenceStore preferenceStore,
+        Func<DateTimeOffset>? utcNowProvider = null)
     {
         return new UserAgentInterventionExecutor(
             presenter,
             gate,
             notificationController,
             snapshotStore,
-            preferenceStore);
+            preferenceStore,
+            antiSpamGate: new UserInterventionAntiSpamGate(),
+            utcNowProvider: utcNowProvider);
     }
 
     private static LocalApiInterventionPendingResponse BuildPending(
@@ -445,6 +634,30 @@ public sealed class UserAgentInterventionExecutorTests
         }
     }
 
+    private static UserDesktopWidgetState BuildWidgetState(bool hasCriticalState)
+    {
+        return new UserDesktopWidgetState(
+            Mode: UserDesktopWidgetMode.Monitoring,
+            Title: "Ari",
+            StatusText: "Monitoring",
+            PrimaryMetricText: "Focus 0m",
+            SecondaryMetricText: "Overload 0%",
+            FooterText: "Ready",
+            NotificationsSuppressed: false,
+            BrightnessAdjusted: false,
+            CanPause: true,
+            CanResume: false,
+            CriticalState: hasCriticalState
+                ? new UserDesktopWidgetCriticalState(
+                    Title: "Core service offline",
+                    Message: "Open Health.",
+                    PrimaryAction: UserDesktopWidgetAction.OpenHealth,
+                    PrimaryLabel: "Open Health",
+                    SecondaryAction: UserDesktopWidgetAction.RetryCritical,
+                    SecondaryLabel: "Retry")
+                : null);
+    }
+
     private sealed class FakeNotificationSnapshotStore : IUserAgentNotificationSnapshotStore
     {
         public NotificationControllerSnapshot? StoredSnapshot { get; set; }
@@ -472,16 +685,30 @@ public sealed class UserAgentInterventionExecutorTests
     private sealed class InMemoryPreferenceStore : IUserInterventionPreferenceStore
     {
         private readonly HashSet<string> _suppressed = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, DateTimeOffset> _snoozedUntilUtc = new(StringComparer.Ordinal);
 
         public bool IsTipSuppressed(string tipKey)
         {
             return _suppressed.Contains(tipKey.Trim().ToLowerInvariant());
         }
 
+        public bool IsTipSnoozed(string tipKey, DateTimeOffset nowUtc)
+        {
+            return _snoozedUntilUtc.TryGetValue(tipKey.Trim().ToLowerInvariant(), out DateTimeOffset snoozeUntilUtc)
+                && snoozeUntilUtc > nowUtc;
+        }
+
         public bool TrySuppressTip(string tipKey, DateTimeOffset updatedAtUtc)
         {
             _ = updatedAtUtc;
             _suppressed.Add(tipKey.Trim().ToLowerInvariant());
+            return true;
+        }
+
+        public bool TrySnoozeTip(string tipKey, DateTimeOffset snoozeUntilUtc, DateTimeOffset updatedAtUtc)
+        {
+            _ = updatedAtUtc;
+            _snoozedUntilUtc[tipKey.Trim().ToLowerInvariant()] = snoozeUntilUtc;
             return true;
         }
     }
