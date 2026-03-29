@@ -8,7 +8,7 @@ internal enum ControlCenterActivationTarget
     Default,
     Now,
     Actions,
-    Controls,
+    Settings,
     Health
 }
 
@@ -118,7 +118,7 @@ internal static class ControlCenterActivationRequestStore
         {
             "now" or "overview" => ControlCenterActivationTarget.Now,
             "actions" or "interventions" => ControlCenterActivationTarget.Actions,
-            "controls" or "settings" => ControlCenterActivationTarget.Controls,
+            "controls" or "settings" => ControlCenterActivationTarget.Settings,
             "health" or "diagnostics" => ControlCenterActivationTarget.Health,
             _ => ControlCenterActivationTarget.Default
         };

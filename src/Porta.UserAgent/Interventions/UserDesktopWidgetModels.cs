@@ -14,7 +14,7 @@ internal enum UserDesktopWidgetAction
     OpenNow,
     OpenActions,
     OpenHealth,
-    OpenControls,
+    OpenSettings,
     PauseFifteenMinutes,
     PauseOneHour,
     Resume,

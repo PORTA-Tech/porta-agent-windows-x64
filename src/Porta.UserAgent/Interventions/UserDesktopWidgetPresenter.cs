@@ -174,8 +174,8 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
                 break;
 
-            case UserDesktopWidgetAction.OpenControls:
-                if (!TryOpenControlCenter("controls"))
+            case UserDesktopWidgetAction.OpenSettings:
+                if (!TryOpenControlCenter("settings"))
                 {
                     _ = TryShow("Ari limited", "Control Center is not available on this device.", out _);
                 }

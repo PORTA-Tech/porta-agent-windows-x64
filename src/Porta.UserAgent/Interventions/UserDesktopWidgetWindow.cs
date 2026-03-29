@@ -326,7 +326,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         popupStack.Children.Add(CreateMenuSectionLabel("Navigate"));
         popupStack.Children.Add(CreateMenuButton("Open Now", UserDesktopWidgetAction.OpenNow));
         popupStack.Children.Add(CreateMenuButton("Open Actions", UserDesktopWidgetAction.OpenActions));
-        popupStack.Children.Add(CreateMenuButton("Open Controls", UserDesktopWidgetAction.OpenControls));
+        popupStack.Children.Add(CreateMenuButton("Open Settings", UserDesktopWidgetAction.OpenSettings));
         popupStack.Children.Add(CreateMenuButton("Open Health", UserDesktopWidgetAction.OpenHealth));
         popupStack.Children.Add(CreateMenuSeparator());
         popupStack.Children.Add(CreateMenuSectionLabel("Quick actions"));

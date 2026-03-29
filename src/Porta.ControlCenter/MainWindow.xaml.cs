@@ -234,7 +234,7 @@ public partial class MainWindow : Window
             case ControlCenterActivationTarget.Actions:
                 section = UiSection.Interventions;
                 return true;
-            case ControlCenterActivationTarget.Controls:
+            case ControlCenterActivationTarget.Settings:
                 section = UiSection.Settings;
                 return true;
             case ControlCenterActivationTarget.Health:
