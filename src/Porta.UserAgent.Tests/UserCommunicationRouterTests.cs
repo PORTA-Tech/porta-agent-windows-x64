@@ -148,16 +148,58 @@ public sealed class UserCommunicationRouterTests
         Assert.Contains("not reaching the core yet", toast.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void ResolveCriticalWidgetState_UsesServiceOfflineState()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-27T10:00:00Z");
+        LocalApiStatusResponse status = BuildStatus(serviceRunning: false);
+
+        UserDesktopWidgetCriticalState? state = UserCommunicationRouter.ResolveCriticalWidgetState(
+            status,
+            snapshot: BuildSnapshot(partialData: false, missingMajorChannels: []),
+            recentEvents: [],
+            nowUtc: nowUtc);
+
+        Assert.NotNull(state);
+        Assert.Equal("Core service offline", state!.Title);
+        Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.PrimaryAction);
+        Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.SecondaryAction);
+    }
+
+    [Fact]
+    public void ResolveCriticalWidgetState_UsesRecentNotificationFailure()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-27T10:00:00Z");
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiEventResponse failure = BuildEvent(
+            id: 90,
+            action: "notification_restore_failed",
+            tsUtc: nowUtc.AddMinutes(-5));
+
+        UserDesktopWidgetCriticalState? state = UserCommunicationRouter.ResolveCriticalWidgetState(
+            status,
+            snapshot: BuildSnapshot(partialData: false, missingMajorChannels: []),
+            recentEvents: [failure],
+            nowUtc: nowUtc);
+
+        Assert.NotNull(state);
+        Assert.Equal("Notifications need attention", state!.Title);
+        Assert.Equal(UserDesktopWidgetAction.OpenSettings, state.PrimaryAction);
+        Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.SecondaryAction);
+        Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.TertiaryAction);
+    }
+
     private static LocalApiStatusResponse BuildStatus(
         string? captureFailureReason = null,
         string? ownershipWarning = null,
         bool keyboardSignalActive = true,
         bool mouseSignalActive = true,
-        string captureContext = "UserSession")
+        string captureContext = "UserSession",
+        bool serviceRunning = true)
     {
         return new LocalApiStatusResponse(
             Status: AgentStatus.Running,
-            ServiceRunning: true,
+            ServiceRunning: serviceRunning,
             Paused: false,
             PauseUntilUtc: null,
             ConsentActive: true,

@@ -11,11 +11,14 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private readonly UserInterventionToastRenderer _fallbackRenderer = new();
     private readonly LocalApiClient _actionClient = new();
     private readonly UserDesktopWidgetPlacementStore _placementStore = new();
+    private readonly object _promptGate = new();
     private readonly TaskCompletionSource<bool> _widgetReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Thread _widgetThread;
 
     private Dispatcher? _widgetDispatcher;
     private UserDesktopWidgetWindow? _widgetWindow;
+    private Action<UserInterventionPromptResponse>? _promptResponseHandler;
+    private string? _promptInterventionId;
     private bool _disposed;
 
     public UserDesktopWidgetPresenter()
@@ -37,6 +40,32 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         }
 
         return _fallbackRenderer.TryShow(title, message, out errorCode);
+    }
+
+    public bool TryPresentPrompt(
+        UserInterventionPrompt prompt,
+        Action<UserInterventionPromptResponse> onResponse,
+        out string errorCode)
+    {
+        lock (_promptGate)
+        {
+            _promptInterventionId = prompt.InterventionId;
+            _promptResponseHandler = onResponse;
+        }
+
+        bool dispatched = TryDispatchToWidget(window => window.PresentPrompt(prompt), out errorCode);
+        if (dispatched)
+        {
+            return true;
+        }
+
+        lock (_promptGate)
+        {
+            _promptInterventionId = null;
+            _promptResponseHandler = null;
+        }
+
+        return false;
     }
 
     public bool TryUpdateTrayState(UserInterventionToastRenderer.UserTrayVisualState state, out string errorCode)
@@ -126,7 +155,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         try
         {
             _widgetDispatcher = Dispatcher.CurrentDispatcher;
-            _widgetWindow = new UserDesktopWidgetWindow(OnWidgetActionRequested, _placementStore);
+            _widgetWindow = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore);
             _widgetWindow.Show();
             _widgetReady.TrySetResult(true);
             Dispatcher.Run();
@@ -152,6 +181,25 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 _ = TryShow("Ari limited", "The widget action failed. Try again from Control Center.", out _);
             }
         });
+    }
+
+    private void OnPromptResponseRequested(UserInterventionPromptResponse response)
+    {
+        Action<UserInterventionPromptResponse>? handler = null;
+
+        lock (_promptGate)
+        {
+            if (!string.Equals(_promptInterventionId, response.InterventionId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            handler = _promptResponseHandler;
+            _promptInterventionId = null;
+            _promptResponseHandler = null;
+        }
+
+        handler?.Invoke(response);
     }
 
     private async Task ExecuteWidgetActionAsync(UserDesktopWidgetAction action)
@@ -188,6 +236,10 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                     _ = TryShow("Ari limited", "Control Center is not available on this device.", out _);
                 }
 
+                break;
+
+            case UserDesktopWidgetAction.RetryCritical:
+                await ExecuteCriticalRetryAsync().ConfigureAwait(false);
                 break;
 
             case UserDesktopWidgetAction.PauseFifteenMinutes:
@@ -254,6 +306,33 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
                 break;
         }
+    }
+
+    private async Task ExecuteCriticalRetryAsync()
+    {
+        LocalApiStatusResponse? status = await _actionClient.GetStatusAsync().ConfigureAwait(false);
+        if (status?.ServiceRunning == true
+            && status.LocalApiAuthReady
+            && status.ConsentActive
+            && string.Equals(status.CaptureContext, "UserSession", StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrWhiteSpace(status.CaptureFailureReason)
+            && string.IsNullOrWhiteSpace(status.OwnershipWarning))
+        {
+            _ = TryShow("Ari", "Ari rechecked the runtime. Core services are reachable again.", out _);
+            return;
+        }
+
+        if (status == null || !status.ServiceRunning)
+        {
+            LocalApiAckResponse? restart = await _actionClient.RestartServiceAsync().ConfigureAwait(false);
+            if (restart?.Success == true)
+            {
+                _ = TryShow("Ari", "Runtime restart requested. Check Health if recovery takes longer than expected.", out _);
+                return;
+            }
+        }
+
+        _ = TryShow("Ari limited", "Ari retried the runtime check, but the issue is still active. Open Health for details.", out _);
     }
 
     private static bool TryOpenControlCenter(string? section)

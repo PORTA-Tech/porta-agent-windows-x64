@@ -18,6 +18,8 @@ internal sealed class UserDesktopWidgetWindow : Window
     private const double CollapsedWidth = 68d;
     private const double BaseHeight = 114d;
     private const double AttentionHeight = 70d;
+    private const double PromptHeight = 116d;
+    private const double CriticalHeight = 108d;
     private const double TopMargin = 18d;
     private const double RightMargin = 18d;
     private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(180);
@@ -26,8 +28,10 @@ internal sealed class UserDesktopWidgetWindow : Window
     private static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(180);
 
     private readonly Action<UserDesktopWidgetAction> _actionRequested;
+    private readonly Action<UserInterventionPromptResponse> _promptResponseRequested;
     private readonly UserDesktopWidgetPlacementStore _placementStore;
     private readonly DispatcherTimer _attentionTimer;
+    private readonly DispatcherTimer _promptTimer;
     private readonly DispatcherTimer _reexpandTimer;
     private readonly DispatcherTimer _collapseTimer;
     private readonly Border _rootBorder;
@@ -49,6 +53,19 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly Border _attentionCard;
     private readonly TextBlock _attentionTitleText;
     private readonly TextBlock _attentionMessageText;
+    private readonly Border _criticalCard;
+    private readonly TextBlock _criticalTitleText;
+    private readonly TextBlock _criticalMessageText;
+    private readonly Button _criticalPrimaryButton;
+    private readonly Button _criticalSecondaryButton;
+    private readonly Button _criticalTertiaryButton;
+    private readonly Border _promptCard;
+    private readonly TextBlock _promptTitleText;
+    private readonly TextBlock _promptMessageText;
+    private readonly Button _promptAcceptButton;
+    private readonly Button _promptDismissButton;
+    private readonly Button _promptSnoozeButton;
+    private readonly Button _promptSuppressButton;
     private readonly Button _menuButton;
     private readonly Popup _menuPopup;
     private readonly Button _pauseFifteenButton;
@@ -63,12 +80,15 @@ internal sealed class UserDesktopWidgetWindow : Window
     private double _expandedAnchorLeft;
     private double _expandedAnchorTop;
     private UserDesktopWidgetState? _currentState;
+    private UserInterventionPrompt? _activePrompt;
 
     public UserDesktopWidgetWindow(
         Action<UserDesktopWidgetAction> actionRequested,
+        Action<UserInterventionPromptResponse> promptResponseRequested,
         UserDesktopWidgetPlacementStore placementStore)
     {
         _actionRequested = actionRequested;
+        _promptResponseRequested = promptResponseRequested;
         _placementStore = placementStore;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
@@ -85,6 +105,13 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             _attentionTimer.Stop();
             SetAttentionVisible(false);
+        };
+
+        _promptTimer = new DispatcherTimer();
+        _promptTimer.Tick += (_, _) =>
+        {
+            _promptTimer.Stop();
+            ResolvePrompt(UserInterventionPromptResponseKind.Dismissed);
         };
 
         _reexpandTimer = new DispatcherTimer { Interval = ReexpandPollInterval };
@@ -250,6 +277,109 @@ internal sealed class UserDesktopWidgetWindow : Window
         attentionStack.Children.Add(_attentionMessageText);
         _expandedStack.Children.Add(_attentionCard);
 
+        _criticalCard = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(38, 25, 25)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(111, 58, 52)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10, 10, 10, 8),
+            Margin = new Thickness(0, 10, 0, 0),
+            Visibility = Visibility.Collapsed
+        };
+        StackPanel criticalStack = new();
+        _criticalCard.Child = criticalStack;
+        _criticalTitleText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(244, 231, 229)),
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 12.5
+        };
+        _criticalMessageText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(226, 204, 199)),
+            FontSize = 11.5,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0),
+            MaxWidth = ExpandedWidth - 110d
+        };
+        criticalStack.Children.Add(_criticalTitleText);
+        criticalStack.Children.Add(_criticalMessageText);
+        WrapPanel criticalActions = new()
+        {
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        _criticalPrimaryButton = CreatePromptButton();
+        _criticalPrimaryButton.Click += (_, _) => TriggerCriticalAction(_criticalPrimaryButton.Tag);
+        _criticalSecondaryButton = CreatePromptButton();
+        _criticalSecondaryButton.Click += (_, _) => TriggerCriticalAction(_criticalSecondaryButton.Tag);
+        _criticalTertiaryButton = CreatePromptButton();
+        _criticalTertiaryButton.Click += (_, _) => TriggerCriticalAction(_criticalTertiaryButton.Tag);
+        criticalActions.Children.Add(_criticalPrimaryButton);
+        criticalActions.Children.Add(_criticalSecondaryButton);
+        criticalActions.Children.Add(_criticalTertiaryButton);
+        criticalStack.Children.Add(criticalActions);
+        _expandedStack.Children.Add(_criticalCard);
+
+        _promptCard = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(23, 31, 40)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(55, 70, 88)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10, 10, 10, 8),
+            Margin = new Thickness(0, 10, 0, 0),
+            Visibility = Visibility.Collapsed
+        };
+        StackPanel promptStack = new();
+        _promptCard.Child = promptStack;
+        _promptTitleText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 12.5
+        };
+        _promptMessageText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(177, 186, 196)),
+            FontSize = 11.5,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0),
+            MaxWidth = ExpandedWidth - 110d
+        };
+        promptStack.Children.Add(_promptTitleText);
+        promptStack.Children.Add(_promptMessageText);
+
+        WrapPanel promptActions = new()
+        {
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        _promptAcceptButton = CreatePromptButton();
+        _promptAcceptButton.Click += (_, _) => ResolvePrompt(UserInterventionPromptResponseKind.Accepted);
+        _promptDismissButton = CreatePromptButton();
+        _promptDismissButton.Click += (_, _) => ResolvePrompt(UserInterventionPromptResponseKind.Dismissed);
+        _promptSnoozeButton = CreatePromptButton();
+        _promptSnoozeButton.Click += (_, _) => ResolvePrompt(UserInterventionPromptResponseKind.Snoozed);
+        promptActions.Children.Add(_promptAcceptButton);
+        promptActions.Children.Add(_promptDismissButton);
+        promptActions.Children.Add(_promptSnoozeButton);
+        promptStack.Children.Add(promptActions);
+
+        _promptSuppressButton = new Button
+        {
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Cursor = Cursors.Hand,
+            Foreground = new SolidColorBrush(Color.FromRgb(153, 167, 183)),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(0, 6, 0, 0),
+            FontSize = 11.2
+        };
+        _promptSuppressButton.Click += (_, _) => ResolvePrompt(UserInterventionPromptResponseKind.SuppressedByPreference);
+        promptStack.Children.Add(_promptSuppressButton);
+        _expandedStack.Children.Add(_promptCard);
+
         _menuButton = new Button
         {
             Width = 30,
@@ -365,6 +495,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _pauseHourButton.IsEnabled = state.CanPause;
         _resumeButton.IsEnabled = state.CanResume;
 
+        ApplyCriticalState(state.CriticalState);
         ApplyModeChrome(state.Mode);
     }
 
@@ -376,6 +507,24 @@ internal sealed class UserDesktopWidgetWindow : Window
         Expand();
         _attentionTimer.Stop();
         _attentionTimer.Start();
+    }
+
+    public void PresentPrompt(UserInterventionPrompt prompt)
+    {
+        _activePrompt = prompt;
+        _promptTitleText.Text = string.IsNullOrWhiteSpace(prompt.Title) ? "Ari" : prompt.Title.Trim();
+        _promptMessageText.Text = string.IsNullOrWhiteSpace(prompt.Message) ? "Ari has a suggestion." : prompt.Message.Trim();
+        _promptAcceptButton.Content = prompt.AcceptLabel;
+        _promptDismissButton.Content = prompt.DismissLabel;
+        _promptSnoozeButton.Content = prompt.SnoozeLabel;
+        _promptSuppressButton.Content = prompt.SuppressLabel;
+        _promptCard.Visibility = Visibility.Visible;
+        Expand();
+        _collapseTimer.Stop();
+        _promptTimer.Stop();
+        _promptTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(prompt.DurationSeconds, 30, 300));
+        _promptTimer.Start();
+        UpdateWindowHeight();
     }
 
     public void ResetToDefaultPosition()
@@ -457,6 +606,21 @@ internal sealed class UserDesktopWidgetWindow : Window
         };
     }
 
+    private static Button CreatePromptButton()
+    {
+        return new Button
+        {
+            Padding = new Thickness(10, 6, 10, 6),
+            Margin = new Thickness(0, 0, 8, 8),
+            Background = new SolidColorBrush(Color.FromRgb(29, 38, 47)),
+            Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(53, 67, 82)),
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand,
+            MinWidth = 68
+        };
+    }
+
     private static TextBlock CreateMenuSectionLabel(string text)
     {
         return new TextBlock
@@ -510,7 +674,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void Collapse()
     {
-        if (_collapsed)
+        if (_collapsed || _activePrompt != null)
         {
             _reexpandTimer.Start();
             return;
@@ -540,7 +704,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private void SetAttentionVisible(bool visible)
     {
         _attentionCard.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        AnimateWindowHeight(visible ? BaseHeight + AttentionHeight : BaseHeight);
+        UpdateWindowHeight();
     }
 
     private void AnimateWindowWidth(double targetWidth)
@@ -588,7 +752,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void ScheduleCollapse()
     {
-        if (_collapsed || _menuOpen || _dragInProgress)
+        if (_collapsed || _menuOpen || _dragInProgress || _activePrompt != null)
         {
             return;
         }
@@ -609,6 +773,27 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             Expand();
         }
+    }
+
+    private void UpdateWindowHeight()
+    {
+        double targetHeight = BaseHeight;
+        if (_attentionCard.Visibility == Visibility.Visible)
+        {
+            targetHeight += AttentionHeight;
+        }
+
+        if (_criticalCard.Visibility == Visibility.Visible)
+        {
+            targetHeight += CriticalHeight;
+        }
+
+        if (_promptCard.Visibility == Visibility.Visible)
+        {
+            targetHeight += PromptHeight;
+        }
+
+        AnimateWindowHeight(targetHeight);
     }
 
     private void InitializePlacement()
@@ -719,7 +904,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private bool ShouldUseTransparentHitTest(Point screenPoint)
     {
-        if (!_collapsed || _menuOpen || !_placementInitialized)
+        if (!_collapsed || _menuOpen || !_placementInitialized || _activePrompt != null)
         {
             return false;
         }
@@ -774,6 +959,75 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         _accentBar.Background = new SolidColorBrush(palette.Accent);
         _menuButton.Background = new SolidColorBrush(palette.Button);
+    }
+
+    private void ApplyCriticalState(UserDesktopWidgetCriticalState? criticalState)
+    {
+        if (criticalState == null)
+        {
+            _criticalCard.Visibility = Visibility.Collapsed;
+            UpdateWindowHeight();
+            return;
+        }
+
+        _criticalTitleText.Text = criticalState.Title;
+        _criticalMessageText.Text = criticalState.Message;
+        ConfigureCriticalButton(_criticalPrimaryButton, criticalState.PrimaryLabel, criticalState.PrimaryAction);
+        ConfigureCriticalButton(_criticalSecondaryButton, criticalState.SecondaryLabel, criticalState.SecondaryAction);
+        ConfigureCriticalButton(_criticalTertiaryButton, criticalState.TertiaryLabel, criticalState.TertiaryAction);
+        _criticalCard.Visibility = Visibility.Visible;
+        UpdateWindowHeight();
+    }
+
+    private void ConfigureCriticalButton(
+        Button button,
+        string? label,
+        UserDesktopWidgetAction? action)
+    {
+        if (action == null || string.IsNullOrWhiteSpace(label))
+        {
+            button.Visibility = Visibility.Collapsed;
+            button.Tag = null;
+            button.Content = string.Empty;
+            return;
+        }
+
+        button.Visibility = Visibility.Visible;
+        button.Tag = action.Value;
+        button.Content = label.Trim();
+    }
+
+    private void TriggerCriticalAction(object? tag)
+    {
+        if (tag is not UserDesktopWidgetAction action)
+        {
+            return;
+        }
+
+        _actionRequested(action);
+    }
+
+    private void ResolvePrompt(UserInterventionPromptResponseKind kind)
+    {
+        UserInterventionPrompt? prompt = _activePrompt;
+        if (prompt == null)
+        {
+            return;
+        }
+
+        _activePrompt = null;
+        _promptTimer.Stop();
+        _promptCard.Visibility = Visibility.Collapsed;
+        UpdateWindowHeight();
+        if (!_menuOpen && IsPointerNearWidget())
+        {
+            ScheduleCollapse();
+        }
+
+        _promptResponseRequested(new UserInterventionPromptResponse(
+            InterventionId: prompt.InterventionId,
+            TipKey: prompt.TipKey,
+            Kind: kind));
     }
 
     private static class NativeMethods

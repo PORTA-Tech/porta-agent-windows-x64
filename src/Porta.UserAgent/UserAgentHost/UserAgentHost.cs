@@ -24,13 +24,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private readonly UserDesktopWidgetPresenter _toastRenderer = new();
     private readonly UserSessionWindowsNotificationController _notificationController = new();
     private readonly UserAgentNotificationSnapshotStore _notificationSnapshotStore = new();
+    private readonly UserInterventionPreferenceStore _interventionPreferenceStore = new();
     private readonly UserAgentInterventionExecutor _interventionExecutor;
     private readonly UserSessionSignalAggregator _signalAggregator = new();
     private readonly KeyboardHook _keyboardHook = new();
     private readonly UserKeyboardActivityPoller _keyboardPoller = new();
     private readonly MouseHook _mouseHook = new();
     private readonly CaptureSelfTestCoordinator _captureSelfTest = new();
-    private readonly CaptureDegradedToastGate _captureDegradedToastGate = new();
     private readonly string _agentInstanceId = BuildAgentInstanceId();
     private DateTimeOffset _windowStartUtc = DateTimeOffset.UtcNow;
     private long _lastRecoveryEventId;
@@ -63,7 +63,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             _toastRenderer,
             new UserSessionPresentationGate(),
             _notificationController,
-            _notificationSnapshotStore);
+            _notificationSnapshotStore,
+            _interventionPreferenceStore);
         _keyboardHook.KeyChanged += OnKeyboardChanged;
         _keyboardPoller.KeyChanged += OnKeyboardChanged;
         _mouseHook.MouseMoved += OnMouseMoved;
@@ -186,10 +187,6 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             _lastRecoveryEventId);
 
         UserCommunicationToast? captureDegradedToast = UserCommunicationRouter.ResolveCaptureDegradedState(status, snapshot);
-        if (captureDegradedToast == null)
-        {
-            _captureDegradedToastGate.ObserveHealthyState(nowUtc);
-        }
 
         UpdateTrayState(new(
             MapTrayMode(signals.Mode),
@@ -203,16 +200,6 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             widgetDetails.Timeline,
             widgetDetails.Settings,
             nowUtc));
-
-        if (captureDegradedToast != null
-            && _captureDegradedToastGate.ShouldShow(captureDegradedToast, nowUtc))
-        {
-            if (TryShowCommunicationToast(captureDegradedToast))
-            {
-                _captureDegradedToastGate.MarkShown(captureDegradedToast, nowUtc);
-                return;
-            }
-        }
 
         UserCommunicationToast? recentEventToast = UserCommunicationRouter.ResolveRecentEventToast(
             recentEvents,
@@ -347,11 +334,14 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             return;
         }
 
+        await FlushCompletedInterventionAcksAsync(token).ConfigureAwait(false);
+
         string sessionId = BuildSessionId(_sessionId);
         IReadOnlyList<LocalApiInterventionPendingResponse> pending =
             await _localApiClient.GetPendingInterventionsAsync(sessionId, limit: 12, token).ConfigureAwait(false);
         if (pending.Count == 0)
         {
+            await FlushCompletedInterventionAcksAsync(token).ConfigureAwait(false);
             return;
         }
 
@@ -359,15 +349,28 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         {
             await ExecuteInterventionAsync(intervention, token).ConfigureAwait(false);
         }
+
+        await FlushCompletedInterventionAcksAsync(token).ConfigureAwait(false);
     }
 
     private async Task ExecuteInterventionAsync(LocalApiInterventionPendingResponse intervention, CancellationToken token)
     {
-        LocalApiInterventionAckRequest ack = _interventionExecutor.ExecuteOrReplay(
+        LocalApiInterventionAckRequest? ack = _interventionExecutor.ExecuteOrReplay(
             intervention,
             BuildSessionId(_sessionId),
             _agentInstanceId);
-        await SendInterventionAckAsync(ack, token).ConfigureAwait(false);
+        if (ack != null)
+        {
+            await SendInterventionAckAsync(ack, token).ConfigureAwait(false);
+        }
+    }
+
+    private async Task FlushCompletedInterventionAcksAsync(CancellationToken token)
+    {
+        while (_interventionExecutor.TryDequeueCompletedAck(out LocalApiInterventionAckRequest ack))
+        {
+            await SendInterventionAckAsync(ack, token).ConfigureAwait(false);
+        }
     }
 
     private async Task SendInterventionAckAsync(LocalApiInterventionAckRequest ack, CancellationToken token)

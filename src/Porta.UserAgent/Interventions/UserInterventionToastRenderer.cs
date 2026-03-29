@@ -57,6 +57,17 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
         }
     }
 
+    public bool TryPresentPrompt(
+        UserInterventionPrompt prompt,
+        Action<UserInterventionPromptResponse> onResponse,
+        out string errorCode)
+    {
+        _ = prompt;
+        _ = onResponse;
+        errorCode = "prompt_requires_widget";
+        return false;
+    }
+
     public bool TryUpdateTrayState(UserTrayVisualState state, out string errorCode)
     {
         errorCode = string.Empty;

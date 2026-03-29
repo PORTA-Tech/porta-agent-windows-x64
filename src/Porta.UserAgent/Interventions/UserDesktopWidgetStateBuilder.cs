@@ -25,10 +25,16 @@ internal static class UserDesktopWidgetStateBuilder
     {
         DateTimeOffset now = nowUtc ?? DateTimeOffset.UtcNow;
         IReadOnlyList<LocalApiEventResponse> events = recentEvents ?? [];
+        UserDesktopWidgetCriticalState? criticalState = UserCommunicationRouter.ResolveCriticalWidgetState(
+            status,
+            snapshot,
+            events,
+            now);
+        criticalState ??= BuildFallbackCriticalState(degradedToast);
         bool paused = status?.Paused == true;
         bool limited = paused
             ? false
-            : degradedToast != null
+            : criticalState != null
             || status == null
             || snapshot == null
             || !status.ServiceRunning
@@ -49,7 +55,7 @@ internal static class UserDesktopWidgetStateBuilder
         return new UserDesktopWidgetState(
             Mode: mode,
             Title: BuildTitle(mode),
-            StatusText: BuildStatusText(status, snapshot, signals, degradedToast, mode, settings),
+            StatusText: BuildStatusText(status, snapshot, signals, degradedToast, criticalState, mode, settings),
             PrimaryMetricText: BuildPrimaryMetric(status, snapshot, mode),
             SecondaryMetricText: BuildSecondaryMetric(status, snapshot, mode),
             FooterText: BuildFooterText(status, snapshot, settings),
@@ -58,7 +64,8 @@ internal static class UserDesktopWidgetStateBuilder
             CanPause: status?.ServiceRunning == true && status.ConsentActive && !paused,
             CanResume: paused,
             TertiaryMetricText: BuildTertiaryMetric(status, snapshot, events, timeline, mode, now),
-            QuaternaryMetricText: BuildQuaternaryMetric(status, snapshot, mode));
+            QuaternaryMetricText: BuildQuaternaryMetric(status, snapshot, mode),
+            CriticalState: criticalState);
     }
 
     private static string BuildTitle(UserDesktopWidgetMode mode)
@@ -78,6 +85,7 @@ internal static class UserDesktopWidgetStateBuilder
         LocalApiCurrentSnapshotResponse? snapshot,
         UserAgentVisualSignals signals,
         UserCommunicationToast? degradedToast,
+        UserDesktopWidgetCriticalState? criticalState,
         UserDesktopWidgetMode mode,
         LocalApiSettingsResponse? settings)
     {
@@ -94,6 +102,11 @@ internal static class UserDesktopWidgetStateBuilder
         if (degradedToast != null)
         {
             return degradedToast.Message;
+        }
+
+        if (criticalState != null)
+        {
+            return criticalState.Message;
         }
 
         if (status == null || snapshot == null)
@@ -156,6 +169,24 @@ internal static class UserDesktopWidgetStateBuilder
         return settings?.FocusModeEnabled == true
             ? "Ari is monitoring your session with focus mode enabled."
             : "Ari is monitoring your session.";
+    }
+
+    private static UserDesktopWidgetCriticalState? BuildFallbackCriticalState(UserCommunicationToast? degradedToast)
+    {
+        if (degradedToast == null)
+        {
+            return null;
+        }
+
+        return new UserDesktopWidgetCriticalState(
+            Title: degradedToast.Title,
+            Message: degradedToast.Message,
+            PrimaryAction: UserDesktopWidgetAction.OpenHealth,
+            PrimaryLabel: "Open Health",
+            SecondaryAction: UserDesktopWidgetAction.RetryCritical,
+            SecondaryLabel: "Retry",
+            TertiaryAction: UserDesktopWidgetAction.OpenSettings,
+            TertiaryLabel: "Settings");
     }
 
     private static string BuildPrimaryMetric(

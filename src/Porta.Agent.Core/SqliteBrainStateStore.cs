@@ -1819,7 +1819,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         END,
                         execution_state = $execution_state,
                         applied_at_utc = CASE
-                            WHEN $execution_state IN ('applied', 'verified') THEN $applied_at_utc
+                            WHEN $execution_state IN ('applied', 'verified', 'accepted') THEN $applied_at_utc
                             ELSE applied_at_utc
                         END,
                         acked_at_utc = $applied_at_utc,
@@ -1837,7 +1837,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 update.Parameters.AddWithValue("$session_id", sessionId);
                 update.Parameters.AddWithValue("$execution_state", normalizedResult);
                 update.Parameters.AddWithValue("$applied_at_utc", appliedAtUtc);
-                    update.Parameters.AddWithValue("$error_code", normalizedResult == "failed"
+                update.Parameters.AddWithValue("$error_code", normalizedResult == "failed"
                     ? (ack.ErrorCode?.Trim() ?? string.Empty)
                     : string.Empty);
                 update.Parameters.AddWithValue("$agent_instance_id", agentInstanceId);
@@ -6247,9 +6247,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             command_type = commandType,
             title,
             message,
+            tip_key = ResolveInterventionTipKey(action),
+            interaction_kind = ResolveInterventionInteractionKind(action),
+            accept_label = ResolveInterventionAcceptLabel(action),
+            dismiss_label = ResolveInterventionDismissLabel(action),
+            snooze_label = ResolveInterventionSnoozeLabel(action),
+            suppress_label = ResolveInterventionSuppressLabel(action),
             what_changed = controlEvent.WhatChanged ?? string.Empty,
             how_to_undo = controlEvent.HowToUndo ?? string.Empty,
-            duration_seconds = controlEvent.DurationSeconds ?? 8,
+            duration_seconds = ResolveInterventionPromptDurationSeconds(controlEvent, action),
             confidence = controlEvent.Confidence,
             policy_id = controlEvent.PolicyId,
             domain = controlEvent.Domain,
@@ -6328,7 +6334,79 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             "applied" => "applied",
             "verified" => "verified",
             "failed" => "failed",
+            "accepted" => "accepted",
+            "dismissed" => "dismissed",
+            "snoozed" => "snoozed",
+            "suppressed_by_preference" => "suppressed_by_preference",
             _ => string.Empty
+        };
+    }
+
+    private static string ResolveInterventionTipKey(string action)
+    {
+        return action switch
+        {
+            "break_suggestion" => "break_suggestion",
+            "focus_lock_in_suggestion" => "focus_lock_in_suggestion",
+            "stretch_break_suggestion" => "stretch_break_suggestion",
+            _ => string.Empty
+        };
+    }
+
+    private static string ResolveInterventionInteractionKind(string action)
+    {
+        return action switch
+        {
+            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion" => "choice_prompt",
+            _ => "status"
+        };
+    }
+
+    private static string ResolveInterventionAcceptLabel(string action)
+    {
+        return action switch
+        {
+            "break_suggestion" => "Yes",
+            "focus_lock_in_suggestion" => "Yes",
+            "stretch_break_suggestion" => "Yes",
+            _ => string.Empty
+        };
+    }
+
+    private static string ResolveInterventionDismissLabel(string action)
+    {
+        return action switch
+        {
+            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion" => "No",
+            _ => string.Empty
+        };
+    }
+
+    private static string ResolveInterventionSnoozeLabel(string action)
+    {
+        return action switch
+        {
+            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion" => "Later",
+            _ => string.Empty
+        };
+    }
+
+    private static string ResolveInterventionSuppressLabel(string action)
+    {
+        return action switch
+        {
+            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion" => "Turn off this tip",
+            _ => string.Empty
+        };
+    }
+
+    private static int ResolveInterventionPromptDurationSeconds(AgentControlEvent controlEvent, string action)
+    {
+        return action switch
+        {
+            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion"
+                => Math.Clamp(controlEvent.DurationSeconds ?? 120, 30, 300),
+            _ => controlEvent.DurationSeconds ?? 8
         };
     }
 

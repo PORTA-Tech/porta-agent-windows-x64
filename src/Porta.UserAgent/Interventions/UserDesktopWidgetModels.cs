@@ -15,12 +15,23 @@ internal enum UserDesktopWidgetAction
     OpenActions,
     OpenHealth,
     OpenSettings,
+    RetryCritical,
     PauseFifteenMinutes,
     PauseOneHour,
     Resume,
     Recalibrate,
     ResetPosition
 }
+
+internal sealed record UserDesktopWidgetCriticalState(
+    string Title,
+    string Message,
+    UserDesktopWidgetAction PrimaryAction,
+    string PrimaryLabel,
+    UserDesktopWidgetAction SecondaryAction,
+    string SecondaryLabel,
+    UserDesktopWidgetAction? TertiaryAction = null,
+    string TertiaryLabel = "");
 
 internal sealed record UserDesktopWidgetState(
     UserDesktopWidgetMode Mode,
@@ -34,4 +45,5 @@ internal sealed record UserDesktopWidgetState(
     bool CanPause,
     bool CanResume,
     string TertiaryMetricText = "",
-    string QuaternaryMetricText = "");
+    string QuaternaryMetricText = "",
+    UserDesktopWidgetCriticalState? CriticalState = null);

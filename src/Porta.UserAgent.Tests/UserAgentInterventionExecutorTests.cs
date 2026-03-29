@@ -7,45 +7,79 @@ namespace Porta.UserAgent.Tests;
 public sealed class UserAgentInterventionExecutorTests
 {
     [Fact]
-    public void ExecuteOrReplay_BreakSuggestionToast_AcksApplied()
+    public void ExecuteOrReplay_BreakSuggestionPrompt_QueuesAcceptedAckAfterUserResponse()
     {
-        var presenter = new FakePresenter { ShowResult = true };
+        var presenter = new FakePresenter { PromptShowResult = true };
         var gate = new FakePresentationGate { Available = true };
         var notificationController = new FakeNotificationController();
         var snapshotStore = new FakeNotificationSnapshotStore();
-        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
         LocalApiInterventionPendingResponse intervention = BuildPending(
             "intv-break",
             "break_suggestion",
             "show_break_toast",
-            """{"title":"PORTA","message":"Take a short break."}""");
+            """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}""");
 
-        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
-        Assert.Equal("applied", ack.Result);
-        Assert.Null(ack.ErrorCode);
-        Assert.Equal(1, presenter.ShowCalls);
+        Assert.Null(ack);
+        Assert.Equal(1, presenter.PromptCalls);
+
+        presenter.CompletePrompt(UserInterventionPromptResponseKind.Accepted);
+
+        Assert.True(executor.TryDequeueCompletedAck(out LocalApiInterventionAckRequest completedAck));
+        Assert.Equal("accepted", completedAck.Result);
+        Assert.Null(completedAck.ErrorCode);
     }
 
     [Fact]
-    public void ExecuteOrReplay_ToastFailure_AcksFailed()
+    public void ExecuteOrReplay_BreakSuggestionPrompt_UsesStoredPreference()
     {
-        var presenter = new FakePresenter { ShowResult = false, ErrorCode = "toast_unavailable" };
+        var presenter = new FakePresenter { PromptShowResult = true };
         var gate = new FakePresentationGate { Available = true };
         var notificationController = new FakeNotificationController();
         var snapshotStore = new FakeNotificationSnapshotStore();
-        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        var preferenceStore = new InMemoryPreferenceStore();
+        preferenceStore.TrySuppressTip("break_suggestion", DateTimeOffset.UtcNow);
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
         LocalApiInterventionPendingResponse intervention = BuildPending(
             "intv-break",
             "break_suggestion",
             "show_break_toast",
-            """{"title":"PORTA","message":"Take a short break."}""");
+            """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}""");
 
-        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
-        Assert.Equal("failed", ack.Result);
-        Assert.Equal("toast_unavailable", ack.ErrorCode);
-        Assert.Equal(1, presenter.ShowCalls);
+        Assert.NotNull(ack);
+        Assert.Equal("suppressed_by_preference", ack.Result);
+        Assert.Null(ack.ErrorCode);
+        Assert.Equal(0, presenter.PromptCalls);
+    }
+
+    [Fact]
+    public void ExecuteOrReplay_BreakSuggestionPrompt_PersistsTurnOffTipResponse()
+    {
+        var presenter = new FakePresenter { PromptShowResult = true };
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController();
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
+        LocalApiInterventionPendingResponse intervention = BuildPending(
+            "intv-break",
+            "break_suggestion",
+            "show_break_toast",
+            """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}""");
+
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+
+        Assert.Null(ack);
+        presenter.CompletePrompt(UserInterventionPromptResponseKind.SuppressedByPreference);
+
+        Assert.True(executor.TryDequeueCompletedAck(out LocalApiInterventionAckRequest completedAck));
+        Assert.Equal("suppressed_by_preference", completedAck.Result);
+        Assert.True(preferenceStore.IsTipSuppressed("break_suggestion"));
     }
 
     [Fact]
@@ -55,15 +89,17 @@ public sealed class UserAgentInterventionExecutorTests
         var gate = new FakePresentationGate { Available = true };
         var notificationController = new FakeNotificationController();
         var snapshotStore = new FakeNotificationSnapshotStore();
-        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
         LocalApiInterventionPendingResponse intervention = BuildPending(
             "intv-overload",
             "inform_overload_risk",
             "show_status_toast",
             """{"title":"Ari","message":"Overload is rising. Slow down or take a short break."}""");
 
-        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
+        Assert.NotNull(ack);
         Assert.Equal("applied", ack.Result);
         Assert.Null(ack.ErrorCode);
         Assert.Equal(1, presenter.ShowCalls);
@@ -78,15 +114,17 @@ public sealed class UserAgentInterventionExecutorTests
         var gate = new FakePresentationGate { Available = true };
         var notificationController = new FakeNotificationController();
         var snapshotStore = new FakeNotificationSnapshotStore();
-        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
         LocalApiInterventionPendingResponse intervention = BuildPending(
             "intv-dw-on",
             "deep_work_notifications_suppressed",
             "suppress_notifications",
             "{}");
 
-        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
+        Assert.NotNull(ack);
         Assert.Equal("verified", ack.Result);
         Assert.Equal(2, notificationController.GetSnapshotCalls);
         Assert.Equal(1, notificationController.ApplyCalls);
@@ -100,15 +138,17 @@ public sealed class UserAgentInterventionExecutorTests
         var gate = new FakePresentationGate { Available = true };
         var notificationController = new FakeNotificationController();
         var snapshotStore = new FakeNotificationSnapshotStore();
-        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
         LocalApiInterventionPendingResponse intervention = BuildPending(
             "intv-dw-on",
             "deep_work_notifications_suppressed",
             "suppress_notifications",
             """{"title":"Ari","message":"Deep work started. Ari muted Windows notification banners to protect your focus."}""");
 
-        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
+        Assert.NotNull(ack);
         Assert.Equal("verified", ack.Result);
         Assert.Equal(1, presenter.ShowCalls);
         Assert.Contains("muted Windows notification banners", presenter.LastMessage, StringComparison.Ordinal);
@@ -124,15 +164,17 @@ public sealed class UserAgentInterventionExecutorTests
         {
             StoredSnapshot = ValidSnapshot()
         };
-        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
         LocalApiInterventionPendingResponse intervention = BuildPending(
             "intv-dw-off",
             "deep_work_notifications_restored",
             "restore_notifications",
             "{}");
 
-        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
+        Assert.NotNull(ack);
         Assert.Equal("verified", ack.Result);
         Assert.Equal(1, notificationController.GetSnapshotCalls);
         Assert.Equal(1, notificationController.RestoreCalls);
@@ -149,15 +191,17 @@ public sealed class UserAgentInterventionExecutorTests
         {
             StoredSnapshot = ValidSnapshot()
         };
-        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
         LocalApiInterventionPendingResponse intervention = BuildPending(
             "intv-dw-off",
             "deep_work_notifications_restored",
             "restore_notifications",
             """{"title":"Ari","message":"Deep work ended. Ari restored Windows notification banners."}""");
 
-        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
+        Assert.NotNull(ack);
         Assert.Equal("verified", ack.Result);
         Assert.Equal(1, presenter.ShowCalls);
         Assert.Contains("restored Windows notification banners", presenter.LastMessage, StringComparison.Ordinal);
@@ -173,15 +217,17 @@ public sealed class UserAgentInterventionExecutorTests
             FailVerificationSnapshot = true
         };
         var snapshotStore = new FakeNotificationSnapshotStore();
-        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
         LocalApiInterventionPendingResponse intervention = BuildPending(
             "intv-dw-on",
             "deep_work_notifications_suppressed",
             "suppress_notifications",
             "{}");
 
-        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
+        Assert.NotNull(ack);
         Assert.Equal("applied", ack.Result);
         Assert.Equal(2, notificationController.GetSnapshotCalls);
     }
@@ -196,36 +242,41 @@ public sealed class UserAgentInterventionExecutorTests
             VerificationToastsEnabled = true
         };
         var snapshotStore = new FakeNotificationSnapshotStore();
-        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
         LocalApiInterventionPendingResponse intervention = BuildPending(
             "intv-dw-on",
             "deep_work_notifications_suppressed",
             "suppress_notifications",
             "{}");
 
-        LocalApiInterventionAckRequest ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
+        Assert.NotNull(ack);
         Assert.Equal("failed", ack.Result);
         Assert.Equal("suppression_verify_failed", ack.ErrorCode);
     }
 
     [Fact]
-    public void ExecuteOrReplay_DuplicateIntervention_ReplaysCachedAckWithoutSecondExecution()
+    public void ExecuteOrReplay_DuplicateStatusIntervention_ReplaysCachedAckWithoutSecondExecution()
     {
         var presenter = new FakePresenter { ShowResult = true };
         var gate = new FakePresentationGate { Available = true };
         var notificationController = new FakeNotificationController();
         var snapshotStore = new FakeNotificationSnapshotStore();
-        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore);
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
         LocalApiInterventionPendingResponse intervention = BuildPending(
             "intv-break",
-            "break_suggestion",
-            "show_break_toast",
-            """{"title":"PORTA","message":"Take a short break."}""");
+            "inform_overload_risk",
+            "show_status_toast",
+            """{"title":"PORTA","message":"Overload is rising."}""");
 
-        LocalApiInterventionAckRequest first = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
-        LocalApiInterventionAckRequest second = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+        LocalApiInterventionAckRequest? first = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+        LocalApiInterventionAckRequest? second = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
+        Assert.NotNull(first);
+        Assert.NotNull(second);
         Assert.Equal("applied", first.Result);
         Assert.Equal(first.AppliedAtUtc, second.AppliedAtUtc);
         Assert.Equal(1, presenter.ShowCalls);
@@ -235,13 +286,15 @@ public sealed class UserAgentInterventionExecutorTests
         FakePresenter presenter,
         FakePresentationGate gate,
         FakeNotificationController notificationController,
-        FakeNotificationSnapshotStore snapshotStore)
+        FakeNotificationSnapshotStore snapshotStore,
+        InMemoryPreferenceStore preferenceStore)
     {
         return new UserAgentInterventionExecutor(
             presenter,
             gate,
             notificationController,
-            snapshotStore);
+            snapshotStore,
+            preferenceStore);
     }
 
     private static LocalApiInterventionPendingResponse BuildPending(
@@ -283,10 +336,14 @@ public sealed class UserAgentInterventionExecutorTests
     private sealed class FakePresenter : IUserInterventionPresenter
     {
         public bool ShowResult { get; init; }
+        public bool PromptShowResult { get; init; }
         public string ErrorCode { get; init; } = string.Empty;
         public int ShowCalls { get; private set; }
+        public int PromptCalls { get; private set; }
         public string LastTitle { get; private set; } = string.Empty;
         public string LastMessage { get; private set; } = string.Empty;
+        public UserInterventionPrompt? LastPrompt { get; private set; }
+        public Action<UserInterventionPromptResponse>? PromptResponseHandler { get; private set; }
 
         public bool TryShow(string title, string message, out string errorCode)
         {
@@ -295,6 +352,28 @@ public sealed class UserAgentInterventionExecutorTests
             ShowCalls++;
             errorCode = ShowResult ? string.Empty : ErrorCode;
             return ShowResult;
+        }
+
+        public bool TryPresentPrompt(
+            UserInterventionPrompt prompt,
+            Action<UserInterventionPromptResponse> onResponse,
+            out string errorCode)
+        {
+            LastPrompt = prompt;
+            PromptResponseHandler = onResponse;
+            PromptCalls++;
+            errorCode = PromptShowResult ? string.Empty : ErrorCode;
+            return PromptShowResult;
+        }
+
+        public void CompletePrompt(UserInterventionPromptResponseKind kind)
+        {
+            Assert.NotNull(LastPrompt);
+            Assert.NotNull(PromptResponseHandler);
+            PromptResponseHandler!(new UserInterventionPromptResponse(
+                InterventionId: LastPrompt!.InterventionId,
+                TipKey: LastPrompt.TipKey,
+                Kind: kind));
         }
     }
 
@@ -387,6 +466,23 @@ public sealed class UserAgentInterventionExecutorTests
         {
             Cleared = true;
             StoredSnapshot = null;
+        }
+    }
+
+    private sealed class InMemoryPreferenceStore : IUserInterventionPreferenceStore
+    {
+        private readonly HashSet<string> _suppressed = new(StringComparer.Ordinal);
+
+        public bool IsTipSuppressed(string tipKey)
+        {
+            return _suppressed.Contains(tipKey.Trim().ToLowerInvariant());
+        }
+
+        public bool TrySuppressTip(string tipKey, DateTimeOffset updatedAtUtc)
+        {
+            _ = updatedAtUtc;
+            _suppressed.Add(tipKey.Trim().ToLowerInvariant());
+            return true;
         }
     }
 }

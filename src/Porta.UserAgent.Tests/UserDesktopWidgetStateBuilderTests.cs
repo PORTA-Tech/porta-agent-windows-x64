@@ -40,6 +40,9 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Equal("Break n/a", state.TertiaryMetricText);
         Assert.Equal("Ready · High trust", state.QuaternaryMetricText);
         Assert.Equal("Service healthy", state.FooterText);
+        Assert.NotNull(state.CriticalState);
+        Assert.Equal("Open Health", state.CriticalState!.PrimaryLabel);
+        Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.CriticalState.PrimaryAction);
     }
 
     [Fact]
@@ -69,6 +72,83 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Equal("Break now", state.TertiaryMetricText);
         Assert.Equal("Health healthy", state.QuaternaryMetricText);
         Assert.Equal("Service healthy", state.FooterText);
+    }
+
+    [Fact]
+    public void Build_UsesCriticalStateWhenServiceIsOffline()
+    {
+        LocalApiStatusResponse status = BuildStatus(serviceRunning: false);
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.12,
+            sustainedAttentionSeconds: 180,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false);
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Unavailable,
+            TooltipText: "PORTA | Waiting for service data",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status,
+            snapshot,
+            signals,
+            degradedToast: null);
+
+        Assert.Equal(UserDesktopWidgetMode.Limited, state.Mode);
+        Assert.NotNull(state.CriticalState);
+        Assert.Equal("Core service offline", state.CriticalState!.Title);
+        Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.CriticalState.PrimaryAction);
+        Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.CriticalState.SecondaryAction);
+        Assert.Equal(UserDesktopWidgetAction.OpenSettings, state.CriticalState.TertiaryAction);
+        Assert.Contains("core service", state.StatusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Build_UsesCriticalStateForRecentNotificationFailure()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T12:00:00Z");
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.32,
+            sustainedAttentionSeconds: 600,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false);
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+        LocalApiEventResponse recentFailure = BuildEvent(
+            id: 77,
+            action: "notification_restore_failed",
+            tsUtc: nowUtc.AddMinutes(-4));
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status,
+            snapshot,
+            signals,
+            degradedToast: null,
+            recentEvents: [recentFailure],
+            timeline: null,
+            settings: null,
+            nowUtc: nowUtc);
+
+        Assert.Equal(UserDesktopWidgetMode.Limited, state.Mode);
+        Assert.NotNull(state.CriticalState);
+        Assert.Equal("Notifications need attention", state.CriticalState!.Title);
+        Assert.Equal(UserDesktopWidgetAction.OpenSettings, state.CriticalState.PrimaryAction);
+        Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.CriticalState.SecondaryAction);
+        Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.CriticalState.TertiaryAction);
+        Assert.Contains("restore windows notification settings", state.StatusText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -172,11 +252,12 @@ public sealed class UserDesktopWidgetStateBuilderTests
         bool paused = false,
         DateTimeOffset? pauseUntilUtc = null,
         bool overloadActive = false,
-        string trustTier = CalibrationTruth.TrustMedium)
+        string trustTier = CalibrationTruth.TrustMedium,
+        bool serviceRunning = true)
     {
         return new LocalApiStatusResponse(
             Status: AgentStatus.Running,
-            ServiceRunning: true,
+            ServiceRunning: serviceRunning,
             Paused: paused,
             PauseUntilUtc: pauseUntilUtc,
             ConsentActive: true,
@@ -287,5 +368,44 @@ public sealed class UserDesktopWidgetStateBuilderTests
             FComponent: 0.2,
             IComponent: 0.45,
             VComponent: 0.18);
+    }
+
+    private static LocalApiEventResponse BuildEvent(long id, string action, DateTimeOffset tsUtc)
+    {
+        return new LocalApiEventResponse(
+            Id: id,
+            Type: action.ToUpperInvariant(),
+            TsUtc: tsUtc,
+            IdempotencyKey: $"event-{id}",
+            WhyJson: "{}",
+            StateFlagsJson: null,
+            TimestampUtc: tsUtc,
+            Action: action,
+            TriggerState: "runtime",
+            TriggerValue: 0.0,
+            Confidence: 0.8,
+            DurationSeconds: null,
+            EscalationLevel: "Inform",
+            Reversible: false,
+            Reason: string.Empty,
+            Contributors: [],
+            InterventionId: $"intv-{id}",
+            PolicyId: "policy-v1",
+            Domain: "runtime",
+            PlannedEndTimestampUtc: null,
+            ActualEndTimestampUtc: null,
+            PreviousSystemStateJson: "{}",
+            WhatChanged: action,
+            HowToUndo: string.Empty,
+            ReversalApplied: false,
+            CooldownEndTimestampUtc: null,
+            LifecycleState: "activated",
+            CommandType: string.Empty,
+            ExecutionState: "applied",
+            DecidedAtUtc: tsUtc,
+            AppliedAtUtc: tsUtc,
+            AckedAtUtc: tsUtc,
+            ExecutionErrorCode: string.Empty,
+            ExecutorAgentInstanceId: "ua-1");
     }
 }

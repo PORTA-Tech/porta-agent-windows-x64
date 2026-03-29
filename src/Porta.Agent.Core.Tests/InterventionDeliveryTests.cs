@@ -184,6 +184,64 @@ public sealed class InterventionDeliveryTests
     }
 
     [Fact]
+    public void SqliteStore_AcceptsPromptOutcomes_AsTerminalExecutionStates()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"porta-interventions-accepted-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new SqliteBrainStateStore(
+                new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
+                new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+                dbPath);
+
+            DateTimeOffset eventUtc = DateTimeOffset.UtcNow;
+            store.WriteControlEvent(new AgentControlEvent(
+                TimestampUtc: eventUtc,
+                Action: "break_suggestion",
+                TriggerState: "fatigue",
+                TriggerValue: 0.82d,
+                Confidence: 0.91d,
+                DurationSeconds: 300,
+                EscalationLevel: "Suggest",
+                Reversible: false,
+                Reason: "test",
+                Contributors: ["test"],
+                InterventionId: "break-accepted-1",
+                PolicyId: "break-policy-v1",
+                Domain: "fatigue",
+                WhatChanged: "Break suggestion displayed to user."));
+
+            bool acked = store.AcknowledgeIntervention(new AgentInterventionAck(
+                InterventionId: "break-accepted-1",
+                SessionId: "session-9",
+                AgentInstanceId: "agent-9",
+                Result: "accepted",
+                ErrorCode: null,
+                AppliedAtUtc: eventUtc.AddSeconds(2)));
+
+            Assert.True(acked);
+            Assert.Empty(store.ReadPendingInterventions("session-9", 10));
+
+            AgentControlEvent storedEvent = Assert.Single(store.ReadRecentEvents(10));
+            Assert.Equal("accepted", storedEvent.ExecutionState);
+            Assert.NotNull(storedEvent.AppliedAtUtc);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(dbPath))
+                {
+                    File.Delete(dbPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
     public void SqliteStore_DeactivatedSuggestion_DoesNotQueueSecondToast()
     {
         string dbPath = Path.Combine(Path.GetTempPath(), $"porta-interventions-deactivated-{Guid.NewGuid():N}.db");
@@ -349,6 +407,56 @@ public sealed class InterventionDeliveryTests
             AgentPendingIntervention pending = Assert.Single(store.ReadPendingInterventions("session-14", 10));
             Assert.Equal("suppress_notifications", pending.CommandType);
             Assert.Contains("Deep work started", pending.PayloadJson, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(dbPath))
+                {
+                    File.Delete(dbPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void SqliteStore_QueuesSuggestionPayload_WithPromptMetadata()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"porta-suggestion-prompt-payload-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new SqliteBrainStateStore(
+                new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
+                new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+                dbPath);
+
+            DateTimeOffset eventUtc = DateTimeOffset.UtcNow;
+            store.WriteControlEvent(new AgentControlEvent(
+                TimestampUtc: eventUtc,
+                Action: "focus_lock_in_suggestion",
+                TriggerState: "focus",
+                TriggerValue: 0.68d,
+                Confidence: 0.89d,
+                DurationSeconds: null,
+                EscalationLevel: "Suggest",
+                Reversible: false,
+                Reason: "test",
+                Contributors: ["test"],
+                InterventionId: "focus-prompt-1",
+                PolicyId: "focus-v1",
+                Domain: "focus",
+                WhatChanged: "Focus lock-in suggestion displayed to user."));
+
+            AgentPendingIntervention pending = Assert.Single(store.ReadPendingInterventions("session-21", 10));
+            Assert.Contains("\"tip_key\":\"focus_lock_in_suggestion\"", pending.PayloadJson, StringComparison.Ordinal);
+            Assert.Contains("\"interaction_kind\":\"choice_prompt\"", pending.PayloadJson, StringComparison.Ordinal);
+            Assert.Contains("\"accept_label\":\"Yes\"", pending.PayloadJson, StringComparison.Ordinal);
+            Assert.Contains("\"dismiss_label\":\"No\"", pending.PayloadJson, StringComparison.Ordinal);
+            Assert.Contains("\"snooze_label\":\"Later\"", pending.PayloadJson, StringComparison.Ordinal);
         }
         finally
         {

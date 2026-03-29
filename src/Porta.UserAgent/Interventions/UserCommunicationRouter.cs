@@ -17,10 +17,19 @@ internal sealed record UserCommunicationToast(
 internal static class UserCommunicationRouter
 {
     private static readonly TimeSpan RecentEventWindow = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan CriticalEventWindow = TimeSpan.FromMinutes(15);
     private static readonly HashSet<string> DirectToastDeliveredActions = new(StringComparer.Ordinal)
     {
         "deep_work_notifications_restored",
         "overload_brightness_restored",
+        "brightness_unsupported",
+        "brightness_control_failed",
+        "notification_snapshot_failed",
+        "notification_suppress_failed",
+        "notification_restore_failed"
+    };
+    private static readonly HashSet<string> PersistentCriticalEventActions = new(StringComparer.Ordinal)
+    {
         "brightness_unsupported",
         "brightness_control_failed",
         "notification_snapshot_failed",
@@ -168,6 +177,81 @@ internal static class UserCommunicationRouter
         return null;
     }
 
+    public static UserDesktopWidgetCriticalState? ResolveCriticalWidgetState(
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        IReadOnlyList<LocalApiEventResponse>? recentEvents,
+        DateTimeOffset nowUtc)
+    {
+        if (status == null)
+        {
+            return BuildCriticalState(
+                title: "Core connection lost",
+                message: "Ari cannot reach the core service right now. Open Health to check the runtime, or retry the connection.",
+                primaryAction: UserDesktopWidgetAction.OpenHealth,
+                primaryLabel: "Open Health",
+                secondaryAction: UserDesktopWidgetAction.RetryCritical,
+                secondaryLabel: "Retry",
+                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
+                tertiaryLabel: "Settings");
+        }
+
+        if (!status.LocalApiAuthReady)
+        {
+            return BuildCriticalState(
+                title: "Local API blocked",
+                message: "Ari is running, but local API access is not ready yet. Open Health for details or retry the runtime check.",
+                primaryAction: UserDesktopWidgetAction.OpenHealth,
+                primaryLabel: "Open Health",
+                secondaryAction: UserDesktopWidgetAction.RetryCritical,
+                secondaryLabel: "Retry",
+                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
+                tertiaryLabel: "Settings");
+        }
+
+        if (!status.ServiceRunning)
+        {
+            return BuildCriticalState(
+                title: "Core service offline",
+                message: "Ari cannot regulate right now because the core service is unavailable. Open Health to inspect the runtime, or retry the connection.",
+                primaryAction: UserDesktopWidgetAction.OpenHealth,
+                primaryLabel: "Open Health",
+                secondaryAction: UserDesktopWidgetAction.RetryCritical,
+                secondaryLabel: "Retry",
+                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
+                tertiaryLabel: "Settings");
+        }
+
+        if (status.DbMigrationFailed)
+        {
+            return BuildCriticalState(
+                title: "Database needs attention",
+                message: "Ari could not finish a required database migration. Open Health to inspect the failure before relying on live regulation.",
+                primaryAction: UserDesktopWidgetAction.OpenHealth,
+                primaryLabel: "Open Health",
+                secondaryAction: UserDesktopWidgetAction.RetryCritical,
+                secondaryLabel: "Retry",
+                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
+                tertiaryLabel: "Settings");
+        }
+
+        UserCommunicationToast? degradedToast = ResolveCaptureDegradedState(status, snapshot);
+        if (degradedToast != null)
+        {
+            return BuildCriticalState(
+                title: degradedToast.Title,
+                message: degradedToast.Message,
+                primaryAction: UserDesktopWidgetAction.OpenHealth,
+                primaryLabel: "Open Health",
+                secondaryAction: UserDesktopWidgetAction.RetryCritical,
+                secondaryLabel: "Retry",
+                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
+                tertiaryLabel: "Settings");
+        }
+
+        return ResolveCriticalEventState(recentEvents ?? [], nowUtc);
+    }
+
     private static bool TryBuildRecentEventToast(
         LocalApiEventResponse recentEvent,
         out string title,
@@ -193,5 +277,137 @@ internal static class UserCommunicationRouter
         return string.IsNullOrWhiteSpace(action)
             ? string.Empty
             : action.Trim().ToLowerInvariant();
+    }
+
+    private static UserDesktopWidgetCriticalState? ResolveCriticalEventState(
+        IReadOnlyList<LocalApiEventResponse> recentEvents,
+        DateTimeOffset nowUtc)
+    {
+        bool notificationsRecovered = false;
+        bool brightnessRecovered = false;
+
+        foreach (LocalApiEventResponse recentEvent in recentEvents.OrderByDescending(static evt => evt.TsUtc))
+        {
+            if ((nowUtc - recentEvent.TsUtc) > CriticalEventWindow)
+            {
+                continue;
+            }
+
+            string action = NormalizeAction(recentEvent.Action);
+            if (action == "deep_work_notifications_restored")
+            {
+                notificationsRecovered = true;
+                continue;
+            }
+
+            if (action == "overload_brightness_restored")
+            {
+                brightnessRecovered = true;
+                continue;
+            }
+
+            if (!PersistentCriticalEventActions.Contains(action))
+            {
+                continue;
+            }
+
+            if (notificationsRecovered
+                && action is "notification_snapshot_failed" or "notification_suppress_failed" or "notification_restore_failed")
+            {
+                continue;
+            }
+
+            if (brightnessRecovered
+                && action is "brightness_unsupported" or "brightness_control_failed")
+            {
+                continue;
+            }
+
+            return BuildCriticalStateForEvent(action);
+        }
+
+        return null;
+    }
+
+    private static UserDesktopWidgetCriticalState BuildCriticalStateForEvent(string action)
+    {
+        return action switch
+        {
+            "notification_restore_failed" => BuildCriticalState(
+                title: "Notifications need attention",
+                message: "Ari could not restore Windows notification settings cleanly. Open Settings to verify banners, or inspect Health before continuing.",
+                primaryAction: UserDesktopWidgetAction.OpenSettings,
+                primaryLabel: "Open Settings",
+                secondaryAction: UserDesktopWidgetAction.OpenHealth,
+                secondaryLabel: "Open Health",
+                tertiaryAction: UserDesktopWidgetAction.RetryCritical,
+                tertiaryLabel: "Retry"),
+            "notification_suppress_failed" => BuildCriticalState(
+                title: "Notifications stayed on",
+                message: "Ari could not mute Windows notification banners for deep work. Open Settings to adjust them manually, or inspect Health for the failure.",
+                primaryAction: UserDesktopWidgetAction.OpenSettings,
+                primaryLabel: "Open Settings",
+                secondaryAction: UserDesktopWidgetAction.OpenHealth,
+                secondaryLabel: "Open Health",
+                tertiaryAction: UserDesktopWidgetAction.RetryCritical,
+                tertiaryLabel: "Retry"),
+            "notification_snapshot_failed" => BuildCriticalState(
+                title: "Notification state unavailable",
+                message: "Ari could not read the current Windows notification state. Open Health to inspect the runtime, or retry the connection.",
+                primaryAction: UserDesktopWidgetAction.OpenHealth,
+                primaryLabel: "Open Health",
+                secondaryAction: UserDesktopWidgetAction.RetryCritical,
+                secondaryLabel: "Retry",
+                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
+                tertiaryLabel: "Settings"),
+            "brightness_control_failed" => BuildCriticalState(
+                title: "Brightness control failed",
+                message: "Ari could not adjust screen brightness automatically. Open Health to inspect the failure, or retry the device check.",
+                primaryAction: UserDesktopWidgetAction.OpenHealth,
+                primaryLabel: "Open Health",
+                secondaryAction: UserDesktopWidgetAction.RetryCritical,
+                secondaryLabel: "Retry",
+                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
+                tertiaryLabel: "Settings"),
+            "brightness_unsupported" => BuildCriticalState(
+                title: "Brightness control unavailable",
+                message: "This device does not expose the controls Ari needs for automatic brightness changes. Open Settings or Health for details.",
+                primaryAction: UserDesktopWidgetAction.OpenSettings,
+                primaryLabel: "Open Settings",
+                secondaryAction: UserDesktopWidgetAction.OpenHealth,
+                secondaryLabel: "Open Health",
+                tertiaryAction: UserDesktopWidgetAction.RetryCritical,
+                tertiaryLabel: "Retry"),
+            _ => BuildCriticalState(
+                title: "Ari limited",
+                message: "Ari hit a runtime issue that needs attention. Open Health for details or retry the connection.",
+                primaryAction: UserDesktopWidgetAction.OpenHealth,
+                primaryLabel: "Open Health",
+                secondaryAction: UserDesktopWidgetAction.RetryCritical,
+                secondaryLabel: "Retry",
+                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
+                tertiaryLabel: "Settings")
+        };
+    }
+
+    private static UserDesktopWidgetCriticalState BuildCriticalState(
+        string title,
+        string message,
+        UserDesktopWidgetAction primaryAction,
+        string primaryLabel,
+        UserDesktopWidgetAction secondaryAction,
+        string secondaryLabel,
+        UserDesktopWidgetAction? tertiaryAction = null,
+        string tertiaryLabel = "")
+    {
+        return new UserDesktopWidgetCriticalState(
+            Title: title,
+            Message: message,
+            PrimaryAction: primaryAction,
+            PrimaryLabel: primaryLabel,
+            SecondaryAction: secondaryAction,
+            SecondaryLabel: secondaryLabel,
+            TertiaryAction: tertiaryAction,
+            TertiaryLabel: tertiaryLabel);
     }
 }
