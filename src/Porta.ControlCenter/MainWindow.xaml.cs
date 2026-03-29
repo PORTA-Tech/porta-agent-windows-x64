@@ -620,15 +620,32 @@ public partial class MainWindow : Window
 
     private void WhyDrawerToggleButton_Click(object sender, RoutedEventArgs e)
     {
-        bool show = WhyDrawerPanel.Visibility != Visibility.Visible;
-        WhyDrawerPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        WhyDrawerToggleButton.Content = show ? "Hide Why" : "Why";
+        SetWhyDrawerVisible(WhyDrawerPanel.Visibility != Visibility.Visible);
     }
 
     private void WhyDrawerCloseButton_Click(object sender, RoutedEventArgs e)
     {
-        WhyDrawerPanel.Visibility = Visibility.Collapsed;
-        WhyDrawerToggleButton.Content = "Why";
+        SetWhyDrawerVisible(false);
+    }
+
+    private void NowDetailCard_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement card)
+        {
+            return;
+        }
+
+        DependencyObject? source = e.OriginalSource as DependencyObject;
+        if (source != null
+            && (FindAncestor<Expander>(source) != null
+                || FindAncestor<Button>(source) != null
+                || FindAncestor<CheckBox>(source) != null))
+        {
+            return;
+        }
+
+        ActivateNowDetailCard(card.Tag as string);
+        e.Handled = true;
     }
 
     private void NowRecoveryDismissButton_Click(object sender, RoutedEventArgs e)
@@ -721,6 +738,66 @@ public partial class MainWindow : Window
     private void DiagnosticsNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Diagnostics);
+    }
+
+    private void ActivateNowDetailCard(string? cardKey)
+    {
+        switch (cardKey)
+        {
+            case "overload":
+                OpenNowOverloadDetail();
+                break;
+            case "focus":
+                OpenNowFocusDetail();
+                break;
+            case "calibration":
+                OpenNowCalibrationDetail();
+                break;
+            case "data-quality":
+                OpenNowDataQualityDetail();
+                break;
+        }
+    }
+
+    private void OpenNowOverloadDetail()
+    {
+        ShowSection(UiSection.Overview);
+        SetWhyDrawerVisible(true);
+        ScrollIntoViewDeferred(WhyDrawerPanel);
+    }
+
+    private void OpenNowFocusDetail()
+    {
+        _historyRange = HistoryRange.Today;
+        ShowSection(UiSection.Timeline);
+        UpdateHistoryControls();
+        PopulateTimeline(GetSelectedHistoryTimeline());
+        ScrollIntoViewDeferred(TimelineFocusScrollViewer);
+    }
+
+    private void OpenNowCalibrationDetail()
+    {
+        ShowSection(UiSection.States);
+        ScrollIntoViewDeferred(CalibrationStatusPill);
+    }
+
+    private void OpenNowDataQualityDetail()
+    {
+        ShowSection(UiSection.States);
+        ScrollIntoViewDeferred(SignalsStatusPill);
+    }
+
+    private void SetWhyDrawerVisible(bool show)
+    {
+        WhyDrawerPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        WhyDrawerToggleButton.Content = show ? "Hide Why" : "Why";
+    }
+
+    private void ScrollIntoViewDeferred(FrameworkElement element)
+    {
+        Dispatcher.BeginInvoke(
+            () => element.BringIntoView(),
+            DispatcherPriority.Background);
     }
 
     private async void QuickPauseResumeButton_Click(object sender, RoutedEventArgs e)
@@ -909,6 +986,11 @@ public partial class MainWindow : Window
         ApplyNavState(SettingsNavButton, section == UiSection.Settings);
         ApplyNavState(DiagnosticsNavButton, section == UiSection.Diagnostics);
 
+        if (section != UiSection.Overview && WhyDrawerPanel.Visibility == Visibility.Visible)
+        {
+            SetWhyDrawerVisible(false);
+        }
+
         if (section == UiSection.Interventions)
         {
             UpdateActionsTabControls();
@@ -1030,9 +1112,11 @@ public partial class MainWindow : Window
             NowOverloadValueText.Text = $"Overload: {NotAvailableText}";
             NowOverloadActiveText.Text = $"Active: {NotAvailableText}";
             NowOverloadTrustText.Text = $"Trust level: {NotAvailableText}";
+            NowOverloadSummaryText.Text = BuildNowOverloadSummary(null);
             NowFocusStreakValueText.Text = visualState.FocusStreakText;
             NowDeepWorkStreakText.Visibility = Visibility.Collapsed;
             NowFocusChoppinessText.Text = $"Choppiness: {NotAvailableText}";
+            NowFocusSummaryText.Text = BuildNowFocusSummary(null);
             NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
             NowFocusStatusText.Text = visualState.FocusStatusText;
             NowFocusStatusText.Visibility = Visibility.Visible;
@@ -1044,10 +1128,12 @@ public partial class MainWindow : Window
             NowCalibrationProgressText.Text = $"Progress: {NotAvailableText}";
             NowCalibrationQualityText.Text = $"Recent data quality: {NotAvailableText} (last 2 min)";
             NowCalibrationColdStartText.Text = $"Stage: {NotAvailableText}";
+            NowCalibrationSummaryText.Text = BuildNowCalibrationSummary(null);
             NowCalibrationTrustCapText.Visibility = Visibility.Visible;
 
             NowDataQualityScoreText.Text = $"Quality score: {NotAvailableText}";
             NowDataQualityPartialText.Text = $"Partial data: {NotAvailableText}";
+            NowDataQualitySummaryText.Text = BuildNowDataQualitySummary(null);
             NowDataQualityMissingText.Visibility = Visibility.Collapsed;
 
             NowLastActionTitleText.Text = "No actions recently";
@@ -1086,6 +1172,7 @@ public partial class MainWindow : Window
             metricKey: "now_trust",
             targetValue: Math.Clamp(snapshot.Confidence * 100d, 0d, 100d),
             applyValue: value => NowOverloadTrustText.Text = $"Trust level: {value:F0}%");
+        NowOverloadSummaryText.Text = BuildNowOverloadSummary(snapshot);
         // Source: GET /v1/snapshot/current -> sustained_attention_duration_sec
         AnimateTopMetric(
             metricKey: "now_focus",
@@ -1102,6 +1189,7 @@ public partial class MainWindow : Window
         }
         // Source: GET /v1/snapshot/current -> idle_fragmentation_index
         NowFocusChoppinessText.Text = $"Choppiness: {MapChoppiness(snapshot.IdleFragmentationIndex)} ({snapshot.IdleFragmentationIndex:F2})";
+        NowFocusSummaryText.Text = BuildNowFocusSummary(snapshot);
         NowFocusFootnoteText.Text = "Short pauses and quick app checks do not break the streak.";
         string focusStatus = visualState.FocusStatusText;
         NowFocusStatusText.Text = focusStatus;
@@ -1129,6 +1217,7 @@ public partial class MainWindow : Window
             : $"Recent data quality: {NotAvailableText} (last 2 min)";
         // Source: GET /v1/snapshot/current -> cold_start
         NowCalibrationColdStartText.Text = $"Stage: {ToCalibrationStageLabel(calibrationStage)} | Cold start: {MapOnOff(snapshot.ColdStart)}";
+        NowCalibrationSummaryText.Text = BuildNowCalibrationSummary(snapshot);
         NowCalibrationTrustCapText.Text = string.Equals(calibrationStage, CalibrationStageProvisional, StringComparison.Ordinal)
             ? "Suggestions are active while stronger system actions remain gated."
             : "Trust is capped until enough baseline data accumulates.";
@@ -1140,6 +1229,7 @@ public partial class MainWindow : Window
             : $"Quality score: {NotAvailableText}";
         // Source: GET /v1/snapshot/current -> partial_data
         NowDataQualityPartialText.Text = $"Partial data: {MapYesNo(snapshot.PartialData)}";
+        NowDataQualitySummaryText.Text = BuildNowDataQualitySummary(snapshot);
         // Source: GET /v1/snapshot/current -> missing_major_channels[]
         if (snapshot.MissingMajorChannels != null && snapshot.MissingMajorChannels.Count > 0)
         {
@@ -1181,6 +1271,105 @@ public partial class MainWindow : Window
             _activeRecoveryEventId = 0;
             NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
         }
+    }
+
+    private string BuildNowOverloadSummary(LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = _todayTimeline?.Snapshots ?? [];
+        if (snapshots.Count == 0)
+        {
+            return snapshot == null
+                ? "Open Why for current contributors as soon as live overload data arrives."
+                : $"Current level: {(Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d) * 100d):F0}%. Click for Why.";
+        }
+
+        string peakText = $"{(snapshots.Max(s => Math.Clamp(s.OverloadLikelihood, 0d, 1d)) * 100d):F0}%";
+        string volatileHour = ComputeMostVolatileHour(snapshots);
+        return volatileHour == NotAvailableText
+            ? $"Today peak: {peakText}. Click for Why."
+            : $"Today peak: {peakText} | Volatile hour: {volatileHour}. Click for Why.";
+    }
+
+    private string BuildNowFocusSummary(LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = _todayTimeline?.Snapshots ?? [];
+        if (snapshots.Count == 0)
+        {
+            return snapshot == null
+                ? "Open History once live focus buckets arrive."
+                : $"Current streak: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}. Click for History.";
+        }
+
+        double maxStreakSeconds = snapshots.Max(s => Math.Max(0d, s.SustainedAttentionDurationSec));
+        double averageFocusPercent = snapshots.Average(s => Math.Clamp(s.FocusStrength, 0d, 1d)) * 100d;
+        return $"Today max streak: {FormatFocusedTime(maxStreakSeconds)} | Avg focus: {averageFocusPercent:F0}%. Click for History.";
+    }
+
+    private string BuildNowCalibrationSummary(LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        if (snapshot == null)
+        {
+            return "Open How It Decides for live calibration blockers.";
+        }
+
+        string trustTier = ToTrustLabel(NormalizeTrustTier(snapshot.TrustTier, snapshot.ModelConfidence ?? snapshot.Confidence));
+        string systemActions = snapshot.SystemActionsEnabled == true ? "enabled" : "gated";
+        string progressText = snapshot.BaselineReadyPct.HasValue
+            ? $"{(Math.Clamp(snapshot.BaselineReadyPct.Value, 0d, 1d) * 100d):F0}% ready"
+            : "progress pending";
+        return $"Trust tier: {trustTier} | System actions: {systemActions} | {progressText}. Click for How It Decides.";
+    }
+
+    private string BuildNowDataQualitySummary(LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = _todayTimeline?.Snapshots ?? [];
+        if (snapshot?.MissingMajorChannels is { Count: > 0 })
+        {
+            string missing = string.Join(" / ", snapshot.MissingMajorChannels.Select(ToDisplayChannelName));
+            return $"Missing now: {missing}. Click for signal details.";
+        }
+
+        if (snapshot?.PartialData == true)
+        {
+            return TryBuildTodayQualityRange(snapshots, out string range)
+                ? $"Recent buckets are partial | Today quality range: {range}. Click for signal details."
+                : "Recent buckets are partial, so quality is conservative. Click for signal details.";
+        }
+
+        if (TryBuildTodayQualityRange(snapshots, out string todayRange))
+        {
+            return $"Today quality range: {todayRange}. Click for signal details.";
+        }
+
+        if (snapshot == null)
+        {
+            return "Open How It Decides once live quality buckets arrive.";
+        }
+
+        return "All major channels are currently available. Click for signal details.";
+    }
+
+    private static bool TryBuildTodayQualityRange(
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots,
+        out string range)
+    {
+        List<double> qualityValues = snapshots
+            .Where(static snapshot => snapshot.CurrentQualityScore.HasValue)
+            .Select(static snapshot => snapshot.CurrentQualityScore!.Value)
+            .ToList();
+
+        if (qualityValues.Count == 0)
+        {
+            range = string.Empty;
+            return false;
+        }
+
+        double min = qualityValues.Min();
+        double max = qualityValues.Max();
+        range = Math.Abs(min - max) < 0.005d
+            ? $"{max:F2}"
+            : $"{min:F2}-{max:F2}";
+        return true;
     }
 
     private void PopulateWhyDrawer(
