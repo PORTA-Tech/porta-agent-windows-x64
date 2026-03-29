@@ -1,5 +1,6 @@
 namespace Porta.UserAgent.Interventions;
 
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -78,6 +79,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private bool _placementInitialized;
     private double _expandedAnchorLeft;
     private double _expandedAnchorTop;
+    private bool _allowClose;
     private UserDesktopWidgetState? _currentState;
     private UserInterventionPrompt? _activePrompt;
 
@@ -627,6 +629,11 @@ internal sealed class UserDesktopWidgetWindow : Window
         UpdateWindowHeight();
     }
 
+    public void AllowCloseForShutdown()
+    {
+        _allowClose = true;
+    }
+
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
@@ -639,6 +646,27 @@ internal sealed class UserDesktopWidgetWindow : Window
             | NativeMethods.WsExToolWindow
             | NativeMethods.WsExNoActivate;
         _ = NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GwlExStyle, new IntPtr(updatedStyle));
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (!_allowClose)
+        {
+            e.Cancel = true;
+            if (_hiddenByUser)
+            {
+                Hide();
+            }
+            else
+            {
+                Show();
+                ApplyAnchorPosition();
+            }
+
+            return;
+        }
+
+        base.OnClosing(e);
     }
 
     private static Border CreateMetricChip(out TextBlock textBlock)

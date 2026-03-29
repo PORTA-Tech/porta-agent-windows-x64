@@ -47,6 +47,8 @@ public sealed class AgentCoreController : IAgentCoreController
     private static readonly TimeSpan SignalHealthActiveWindow = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CaptureContextFreshnessWindow = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan OwnershipReconciliationGraceWindow = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan StatusReadLockTimeout = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan LatestStateReadLockTimeout = TimeSpan.FromMilliseconds(150);
     private static readonly string ConsentDisclosureHash = ComputeSha256Hex(ConsentDisclosureText);
     private static readonly Regex IdPattern = new(@"^[A-Za-z0-9._-]+$", RegexOptions.Compiled);
     private static readonly Regex FocusHashPattern = new(@"^[a-fA-F0-9-_.:]+$", RegexOptions.Compiled);
@@ -101,6 +103,8 @@ public sealed class AgentCoreController : IAgentCoreController
     private readonly string _agentVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "1.0.0";
     private ConsentStateRecord _consentState = CreateDefaultConsentState();
     private SettingsStateRecord _settingsState = CreateDefaultSettingsState();
+    private AgentServiceStatusSnapshot? _lastStatusSnapshot;
+    private AgentLatestStateDetails? _lastLatestStateDetails;
 
     public AgentCoreController()
         : this(
@@ -154,157 +158,24 @@ public sealed class AgentCoreController : IAgentCoreController
         }
 
         _latestSnapshot = _stateStore.ReadLatestSnapshot() ?? _latestSnapshot;
+        _lastStatusSnapshot = CreateFallbackStatusSnapshot(DateTimeOffset.UtcNow);
     }
 
     public AgentServiceStatusSnapshot GetStatus()
     {
-        lock (_gate)
+        if (System.Threading.Monitor.TryEnter(_gate, StatusReadLockTimeout))
         {
-            TryAutoResumeLocked();
-            UpdateRecalibrationStateLocked();
-            AgentNotificationSuppressionStatus suppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
-            AgentBrightnessActionStatus brightnessStatus = _stateStore.ReadBrightnessActionStatus();
-            AgentLatestStateDetails? latestState = _stateStore.ReadLatestStateDetails();
-            string stateFlagsJson = latestState?.StateFlagsJson ?? _latestSnapshot.StateFlagsJson;
-            bool overloadActive = latestState?.OverloadActive
-                ?? (TryReadBoolFromStateFlags(stateFlagsJson, "overload_active", out bool parsedOverloadActive)
-                    && parsedOverloadActive);
-            bool deepWorkActive = TryReadBoolFromStateFlags(stateFlagsJson, "deep_work_active", out bool parsedDeepWorkActive)
-                && parsedDeepWorkActive;
-            long deepWorkStartedAtUtcMs = ReadInt64FromStateFlags(stateFlagsJson, "deep_work_started_at_utc_ms");
-            double fallbackSustainedAttentionSeconds = latestState?.SustainedAttentionDurationSec ?? _latestSnapshot.SustainedAttentionDurationSec;
-            int deepWorkStreakSeconds = ComputeDeepWorkStreakSeconds(
-                deepWorkActive,
-                deepWorkStartedAtUtcMs,
-                fallbackSustainedAttentionSeconds);
-            PresentedVisualMode visualMode = PresentedVisualModeMapper.Map(overloadActive, deepWorkActive);
-            string? latestContributorsJson = latestState?.ContributorsJson;
-            string? latestWhyJson = _stateStore.ReadRecentEvents(1).FirstOrDefault()?.WhyJson;
-            bool baselineReady = latestState?.BaselineReady ?? false;
-            bool coldStart = latestState?.ColdStart ?? false;
-            string calibrationStage = latestState?.CalibrationStage
-                ?? (baselineReady ? CalibrationTruth.StageCalibrated : (coldStart ? CalibrationTruth.StageCold : CalibrationTruth.StageProvisional));
-            bool systemActionsEnabled = latestState?.SystemActionsEnabled ?? CalibrationTruth.AllowsSystemActions(calibrationStage);
-            string trustTier = latestState?.TrustTier ?? CalibrationTruth.ResolveTrustTier(
-                calibrationStage,
-                latestState?.Confidence ?? _latestSnapshot.Confidence,
-                latestState?.CurrentQualityScore ?? 0d,
-                latestState?.PartialData == true);
-            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
-            UserAgentSessionContextSnapshot? observedSessionContext = _userAgentSessionContextStore.ReadCurrent();
-            string captureContext = ResolveCaptureContextLocked(nowUtc, out UserAgentSessionContextSnapshot? sessionContext);
-            ReconcileStaleLastAcceptedOwnershipLocked(nowUtc, sessionContext);
-            bool keyboardSignalActive = IsSignalActive(_lastKeyboardSignalUtc, nowUtc);
-            bool mouseSignalActive = IsSignalActive(_lastMouseSignalUtc, nowUtc);
-            string? userAgentInstanceId = NormalizeIdentifier(sessionContext?.AgentInstanceId);
-            int? userAgentProcessId = sessionContext?.ProcessId > 0 ? sessionContext.ProcessId : null;
-            string? userAgentSessionId = sessionContext is not null
-                ? BuildSessionOwnerId(sessionContext.SessionId)
-                : null;
-            DateTimeOffset? userAgentHeartbeatUpdatedAtUtc = sessionContext?.UpdatedAtUtc;
-            DateTimeOffset? userAgentObservedHeartbeatUpdatedAtUtc = observedSessionContext?.UpdatedAtUtc;
-            string? userAgentObservedCaptureContext = NormalizeObservedCaptureContext(observedSessionContext?.CaptureContext);
-            string? userAgentObservedSessionId = observedSessionContext is not null
-                ? BuildSessionOwnerId(observedSessionContext.SessionId)
-                : null;
-            string? userAgentStartupSource = NormalizeIdentifier(observedSessionContext?.StartupSource);
-            string? userAgentLaunchReason = NormalizeIdentifier(observedSessionContext?.LaunchReason);
-            int? userAgentHeartbeatWriteFailureCount = NormalizeHeartbeatWriteFailureCount(observedSessionContext?.HeartbeatWriteFailureCount);
-            string? captureSelfTestState = NormalizeCaptureSelfTestState(observedSessionContext?.CaptureSelfTestState);
-            string? captureSelfTestErrorCode = NormalizeIdentifier(observedSessionContext?.CaptureSelfTestErrorCode);
-            int? captureSelfTestRemediationCount = NormalizeHeartbeatWriteFailureCount(observedSessionContext?.CaptureSelfTestRemediationCount);
-            string? ownershipWarning = ResolveOwnershipWarning(sessionContext);
-            string? captureFailureReason = ResolveCaptureFailureReasonLocked(
-                captureContext,
-                observedSessionContext,
-                ownershipWarning,
-                captureSelfTestState);
-            string? effectiveLastError = ResolveEffectiveLastError(
-                _lastError,
-                _latestSnapshot.StateFlagsJson,
-                captureSelfTestState,
-                captureSelfTestErrorCode);
-            bool dbMigrationFailedFromStore = _stateStore.ReadDbMigrationFailed();
-            bool dbMigrationFailed = IsDbMigrationFailure(effectiveLastError);
-            dbMigrationFailed = dbMigrationFailed || dbMigrationFailedFromStore;
-            AgentStatus status = effectiveLastError is null
-                ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
-                : AgentStatus.Degraded;
-            string policyVersion = ResolvePolicyVersion();
-
-            return new AgentServiceStatusSnapshot(
-                Status: status,
-                ServiceRunning: true,
-                Paused: _paused,
-                PauseUntilUtc: _pauseUntilUtc,
-                ConsentActive: _consentActive,
-                ConsentVersion: _consentState.Version,
-                ConsentTimestampUtc: _consentState.TimestampUtc,
-                ConsentDisclosureHash: _consentState.DisclosureHash,
-                BackendConnected: _backendConnected,
-                FocusStrength: _latestSnapshot.FocusStrength,
-                OverloadLikelihood: _latestSnapshot.OverloadLikelihood,
-                LastAction: _latestSnapshot.LastAction,
-                AgentVersion: _agentVersion,
-                SchemaVersion: DefaultSchemaVersion,
-                PolicyVersion: policyVersion,
-                LastEventTimestampUtc: _lastEventTimestampUtc,
-                BackendInstanceId: _backendInstanceId,
-                BackendProcessId: Environment.ProcessId,
-                CaptureContext: captureContext,
-                UserAgentHeartbeatUpdatedAtUtc: userAgentHeartbeatUpdatedAtUtc,
-                UserAgentInstanceId: userAgentInstanceId,
-                UserAgentProcessId: userAgentProcessId,
-                UserAgentSessionId: userAgentSessionId,
-                KeyboardSignalActive: keyboardSignalActive,
-                MouseSignalActive: mouseSignalActive,
-                LastInputEventUtc: _lastInputEventUtc,
-                LastInputAgentInstanceId: _lastInputAgentInstanceId,
-                LastInputSessionId: _lastInputSessionId,
-                OwnershipWarning: ownershipWarning,
-                CaptureFailureReason: captureFailureReason,
-                LastError: effectiveLastError,
-                LocalApiAuthReady: _localApiAuthReady,
-                LocalApiAuthError: _localApiAuthError,
-                NotificationSuppressionActive: suppressionStatus.Active,
-                NotificationSuppressionReady: suppressionStatus.Ready,
-                NotificationSuppressionLastError: suppressionStatus.LastError,
-                NotificationSuppressionError: suppressionStatus.LastError,
-                NotificationSuppressionBackoffUntilUtc: suppressionStatus.BackoffUntilUtc,
-                NotificationBackoffUntilUtc: suppressionStatus.BackoffUntilUtc,
-                NotificationsSuppressed: suppressionStatus.Active,
-                BrightnessActionReady: brightnessStatus.ActionReady,
-                BrightnessActionActive: brightnessStatus.Active,
-                BrightnessAdjusted: brightnessStatus.Active,
-                BrightnessSupported: brightnessStatus.Supported,
-                BrightnessCurrentLevel: brightnessStatus.CurrentLevel,
-                BrightnessTargetLevel: brightnessStatus.TargetLevel,
-                BrightnessLastError: brightnessStatus.LastError,
-                BrightnessError: brightnessStatus.LastError,
-                BrightnessBackoffUntilUtc: brightnessStatus.BackoffUntilUtc,
-                DbMigrationFailed: dbMigrationFailed,
-                BaselineReady: baselineReady,
-                ColdStart: coldStart,
-                CalibrationStage: calibrationStage,
-                SystemActionsEnabled: systemActionsEnabled,
-                TrustTier: trustTier,
-                OverloadActive: overloadActive,
-                DeepWorkActive: deepWorkActive,
-                DeepWorkStreakSeconds: deepWorkStreakSeconds,
-                VisualMode: PresentedVisualModeMapper.ToToken(visualMode),
-                LatestContributorsJson: latestContributorsJson,
-                LatestWhyJson: latestWhyJson,
-                LastUpdatedUtc: nowUtc,
-                UserAgentObservedHeartbeatUpdatedAtUtc: userAgentObservedHeartbeatUpdatedAtUtc,
-                UserAgentObservedCaptureContext: userAgentObservedCaptureContext,
-                UserAgentObservedSessionId: userAgentObservedSessionId,
-                UserAgentStartupSource: userAgentStartupSource,
-                UserAgentLaunchReason: userAgentLaunchReason,
-                UserAgentHeartbeatWriteFailureCount: userAgentHeartbeatWriteFailureCount,
-                CaptureSelfTestState: captureSelfTestState,
-                CaptureSelfTestErrorCode: captureSelfTestErrorCode,
-                CaptureSelfTestRemediationCount: captureSelfTestRemediationCount);
+            try
+            {
+                return BuildAndCacheStatusSnapshotLocked();
+            }
+            finally
+            {
+                System.Threading.Monitor.Exit(_gate);
+            }
         }
+
+        return GetCachedStatusSnapshot();
     }
 
     public void SetLocalApiAuthState(bool ready, string? errorCode)
@@ -336,18 +207,313 @@ public sealed class AgentCoreController : IAgentCoreController
 
     public AgentBrainSnapshot GetCurrentSnapshot()
     {
-        lock (_gate)
+        if (System.Threading.Monitor.TryEnter(_gate, LatestStateReadLockTimeout))
         {
-            return _latestSnapshot;
+            try
+            {
+                return _latestSnapshot;
+            }
+            finally
+            {
+                System.Threading.Monitor.Exit(_gate);
+            }
         }
+
+        return _latestSnapshot;
     }
 
     public AgentLatestStateDetails? GetLatestStateDetails()
     {
-        lock (_gate)
+        if (System.Threading.Monitor.TryEnter(_gate, LatestStateReadLockTimeout))
         {
-            return _stateStore.ReadLatestStateDetails();
+            try
+            {
+                _lastLatestStateDetails = _stateStore.ReadLatestStateDetails();
+                return _lastLatestStateDetails;
+            }
+            finally
+            {
+                System.Threading.Monitor.Exit(_gate);
+            }
         }
+
+        return _lastLatestStateDetails;
+    }
+
+    private AgentServiceStatusSnapshot BuildAndCacheStatusSnapshotLocked()
+    {
+        TryAutoResumeLocked();
+        UpdateRecalibrationStateLocked();
+        AgentNotificationSuppressionStatus suppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
+        AgentBrightnessActionStatus brightnessStatus = _stateStore.ReadBrightnessActionStatus();
+        AgentLatestStateDetails? latestState = _stateStore.ReadLatestStateDetails();
+        _lastLatestStateDetails = latestState;
+
+        string stateFlagsJson = latestState?.StateFlagsJson ?? _latestSnapshot.StateFlagsJson;
+        bool overloadActive = latestState?.OverloadActive
+            ?? (TryReadBoolFromStateFlags(stateFlagsJson, "overload_active", out bool parsedOverloadActive)
+                && parsedOverloadActive);
+        bool deepWorkActive = TryReadBoolFromStateFlags(stateFlagsJson, "deep_work_active", out bool parsedDeepWorkActive)
+            && parsedDeepWorkActive;
+        long deepWorkStartedAtUtcMs = ReadInt64FromStateFlags(stateFlagsJson, "deep_work_started_at_utc_ms");
+        double fallbackSustainedAttentionSeconds = latestState?.SustainedAttentionDurationSec ?? _latestSnapshot.SustainedAttentionDurationSec;
+        int deepWorkStreakSeconds = ComputeDeepWorkStreakSeconds(
+            deepWorkActive,
+            deepWorkStartedAtUtcMs,
+            fallbackSustainedAttentionSeconds);
+        PresentedVisualMode visualMode = PresentedVisualModeMapper.Map(overloadActive, deepWorkActive);
+        string? latestContributorsJson = latestState?.ContributorsJson;
+        string? latestWhyJson = _lastStatusSnapshot?.LatestWhyJson;
+        bool baselineReady = latestState?.BaselineReady ?? false;
+        bool coldStart = latestState?.ColdStart ?? false;
+        string calibrationStage = latestState?.CalibrationStage
+            ?? (baselineReady ? CalibrationTruth.StageCalibrated : (coldStart ? CalibrationTruth.StageCold : CalibrationTruth.StageProvisional));
+        bool systemActionsEnabled = latestState?.SystemActionsEnabled ?? CalibrationTruth.AllowsSystemActions(calibrationStage);
+        string trustTier = latestState?.TrustTier ?? CalibrationTruth.ResolveTrustTier(
+            calibrationStage,
+            latestState?.Confidence ?? _latestSnapshot.Confidence,
+            latestState?.CurrentQualityScore ?? 0d,
+            latestState?.PartialData == true);
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        UserAgentSessionContextSnapshot? observedSessionContext = _userAgentSessionContextStore.ReadCurrent();
+        string captureContext = ResolveCaptureContextLocked(nowUtc, out UserAgentSessionContextSnapshot? sessionContext);
+        ReconcileStaleLastAcceptedOwnershipLocked(nowUtc, sessionContext);
+        bool keyboardSignalActive = IsSignalActive(_lastKeyboardSignalUtc, nowUtc);
+        bool mouseSignalActive = IsSignalActive(_lastMouseSignalUtc, nowUtc);
+        string? userAgentInstanceId = NormalizeIdentifier(sessionContext?.AgentInstanceId);
+        int? userAgentProcessId = sessionContext?.ProcessId > 0 ? sessionContext.ProcessId : null;
+        string? userAgentSessionId = sessionContext is not null
+            ? BuildSessionOwnerId(sessionContext.SessionId)
+            : null;
+        DateTimeOffset? userAgentHeartbeatUpdatedAtUtc = sessionContext?.UpdatedAtUtc;
+        DateTimeOffset? userAgentObservedHeartbeatUpdatedAtUtc = observedSessionContext?.UpdatedAtUtc;
+        string? userAgentObservedCaptureContext = NormalizeObservedCaptureContext(observedSessionContext?.CaptureContext);
+        string? userAgentObservedSessionId = observedSessionContext is not null
+            ? BuildSessionOwnerId(observedSessionContext.SessionId)
+            : null;
+        string? userAgentStartupSource = NormalizeIdentifier(observedSessionContext?.StartupSource);
+        string? userAgentLaunchReason = NormalizeIdentifier(observedSessionContext?.LaunchReason);
+        int? userAgentHeartbeatWriteFailureCount = NormalizeHeartbeatWriteFailureCount(observedSessionContext?.HeartbeatWriteFailureCount);
+        string? captureSelfTestState = NormalizeCaptureSelfTestState(observedSessionContext?.CaptureSelfTestState);
+        string? captureSelfTestErrorCode = NormalizeIdentifier(observedSessionContext?.CaptureSelfTestErrorCode);
+        int? captureSelfTestRemediationCount = NormalizeHeartbeatWriteFailureCount(observedSessionContext?.CaptureSelfTestRemediationCount);
+        string? ownershipWarning = ResolveOwnershipWarning(sessionContext);
+        string? captureFailureReason = ResolveCaptureFailureReasonLocked(
+            captureContext,
+            observedSessionContext,
+            ownershipWarning,
+            captureSelfTestState);
+        string? effectiveLastError = ResolveEffectiveLastError(
+            _lastError,
+            _latestSnapshot.StateFlagsJson,
+            captureSelfTestState,
+            captureSelfTestErrorCode);
+        bool dbMigrationFailedFromStore = _stateStore.ReadDbMigrationFailed();
+        bool dbMigrationFailed = IsDbMigrationFailure(effectiveLastError) || dbMigrationFailedFromStore;
+        AgentStatus status = effectiveLastError is null
+            ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
+            : AgentStatus.Degraded;
+        string policyVersion = ResolvePolicyVersion();
+
+        AgentServiceStatusSnapshot snapshot = new(
+            Status: status,
+            ServiceRunning: true,
+            Paused: _paused,
+            PauseUntilUtc: _pauseUntilUtc,
+            ConsentActive: _consentActive,
+            ConsentVersion: _consentState.Version,
+            ConsentTimestampUtc: _consentState.TimestampUtc,
+            ConsentDisclosureHash: _consentState.DisclosureHash,
+            BackendConnected: _backendConnected,
+            FocusStrength: _latestSnapshot.FocusStrength,
+            OverloadLikelihood: _latestSnapshot.OverloadLikelihood,
+            LastAction: _latestSnapshot.LastAction,
+            AgentVersion: _agentVersion,
+            SchemaVersion: DefaultSchemaVersion,
+            PolicyVersion: policyVersion,
+            LastEventTimestampUtc: _lastEventTimestampUtc,
+            BackendInstanceId: _backendInstanceId,
+            BackendProcessId: Environment.ProcessId,
+            CaptureContext: captureContext,
+            UserAgentHeartbeatUpdatedAtUtc: userAgentHeartbeatUpdatedAtUtc,
+            UserAgentInstanceId: userAgentInstanceId,
+            UserAgentProcessId: userAgentProcessId,
+            UserAgentSessionId: userAgentSessionId,
+            KeyboardSignalActive: keyboardSignalActive,
+            MouseSignalActive: mouseSignalActive,
+            LastInputEventUtc: _lastInputEventUtc,
+            LastInputAgentInstanceId: _lastInputAgentInstanceId,
+            LastInputSessionId: _lastInputSessionId,
+            OwnershipWarning: ownershipWarning,
+            CaptureFailureReason: captureFailureReason,
+            LastError: effectiveLastError,
+            LocalApiAuthReady: _localApiAuthReady,
+            LocalApiAuthError: _localApiAuthError,
+            NotificationSuppressionActive: suppressionStatus.Active,
+            NotificationSuppressionReady: suppressionStatus.Ready,
+            NotificationSuppressionLastError: suppressionStatus.LastError,
+            NotificationSuppressionError: suppressionStatus.LastError,
+            NotificationSuppressionBackoffUntilUtc: suppressionStatus.BackoffUntilUtc,
+            NotificationBackoffUntilUtc: suppressionStatus.BackoffUntilUtc,
+            NotificationsSuppressed: suppressionStatus.Active,
+            BrightnessActionReady: brightnessStatus.ActionReady,
+            BrightnessActionActive: brightnessStatus.Active,
+            BrightnessAdjusted: brightnessStatus.Active,
+            BrightnessSupported: brightnessStatus.Supported,
+            BrightnessCurrentLevel: brightnessStatus.CurrentLevel,
+            BrightnessTargetLevel: brightnessStatus.TargetLevel,
+            BrightnessLastError: brightnessStatus.LastError,
+            BrightnessError: brightnessStatus.LastError,
+            BrightnessBackoffUntilUtc: brightnessStatus.BackoffUntilUtc,
+            DbMigrationFailed: dbMigrationFailed,
+            BaselineReady: baselineReady,
+            ColdStart: coldStart,
+            CalibrationStage: calibrationStage,
+            SystemActionsEnabled: systemActionsEnabled,
+            TrustTier: trustTier,
+            OverloadActive: overloadActive,
+            DeepWorkActive: deepWorkActive,
+            DeepWorkStreakSeconds: deepWorkStreakSeconds,
+            VisualMode: PresentedVisualModeMapper.ToToken(visualMode),
+            LatestContributorsJson: latestContributorsJson,
+            LatestWhyJson: latestWhyJson,
+            LastUpdatedUtc: nowUtc,
+            UserAgentObservedHeartbeatUpdatedAtUtc: userAgentObservedHeartbeatUpdatedAtUtc,
+            UserAgentObservedCaptureContext: userAgentObservedCaptureContext,
+            UserAgentObservedSessionId: userAgentObservedSessionId,
+            UserAgentStartupSource: userAgentStartupSource,
+            UserAgentLaunchReason: userAgentLaunchReason,
+            UserAgentHeartbeatWriteFailureCount: userAgentHeartbeatWriteFailureCount,
+            CaptureSelfTestState: captureSelfTestState,
+            CaptureSelfTestErrorCode: captureSelfTestErrorCode,
+            CaptureSelfTestRemediationCount: captureSelfTestRemediationCount);
+
+        _lastStatusSnapshot = snapshot;
+        return snapshot;
+    }
+
+    private AgentServiceStatusSnapshot GetCachedStatusSnapshot()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        if (_lastStatusSnapshot is AgentServiceStatusSnapshot cached)
+        {
+            AgentStatus status = _lastError is null
+                ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
+                : AgentStatus.Degraded;
+            return cached with
+            {
+                Status = status,
+                Paused = _paused,
+                PauseUntilUtc = _pauseUntilUtc,
+                ConsentActive = _consentActive,
+                ConsentVersion = _consentState.Version,
+                ConsentTimestampUtc = _consentState.TimestampUtc,
+                ConsentDisclosureHash = _consentState.DisclosureHash,
+                BackendConnected = _backendConnected,
+                FocusStrength = _latestSnapshot.FocusStrength,
+                OverloadLikelihood = _latestSnapshot.OverloadLikelihood,
+                LastAction = _latestSnapshot.LastAction,
+                LastEventTimestampUtc = _lastEventTimestampUtc,
+                LastError = _lastError,
+                LocalApiAuthReady = _localApiAuthReady,
+                LocalApiAuthError = _localApiAuthError,
+                LastUpdatedUtc = nowUtc
+            };
+        }
+
+        return CreateFallbackStatusSnapshot(nowUtc);
+    }
+
+    private AgentServiceStatusSnapshot CreateFallbackStatusSnapshot(DateTimeOffset nowUtc)
+    {
+        AgentStatus status = _lastError is null
+            ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
+            : AgentStatus.Degraded;
+        string policyVersion = _lastStatusSnapshot?.PolicyVersion ?? ResolvePolicyVersion();
+        string calibrationStage = _lastLatestStateDetails?.CalibrationStage
+            ?? (_lastLatestStateDetails?.BaselineReady == true
+                ? CalibrationTruth.StageCalibrated
+                : (_lastLatestStateDetails?.ColdStart == true ? CalibrationTruth.StageCold : CalibrationTruth.StageProvisional));
+        string trustTier = _lastLatestStateDetails?.TrustTier
+            ?? CalibrationTruth.ResolveTrustTier(
+                calibrationStage,
+                _lastLatestStateDetails?.Confidence ?? _latestSnapshot.Confidence,
+                _lastLatestStateDetails?.CurrentQualityScore ?? 0d,
+                _lastLatestStateDetails?.PartialData == true);
+
+        return new AgentServiceStatusSnapshot(
+            Status: status,
+            ServiceRunning: true,
+            Paused: _paused,
+            PauseUntilUtc: _pauseUntilUtc,
+            ConsentActive: _consentActive,
+            ConsentVersion: _consentState.Version,
+            ConsentTimestampUtc: _consentState.TimestampUtc,
+            ConsentDisclosureHash: _consentState.DisclosureHash,
+            BackendConnected: _backendConnected,
+            FocusStrength: _latestSnapshot.FocusStrength,
+            OverloadLikelihood: _latestSnapshot.OverloadLikelihood,
+            LastAction: _latestSnapshot.LastAction,
+            AgentVersion: _agentVersion,
+            SchemaVersion: DefaultSchemaVersion,
+            PolicyVersion: policyVersion,
+            LastEventTimestampUtc: _lastEventTimestampUtc,
+            BackendInstanceId: _backendInstanceId,
+            BackendProcessId: Environment.ProcessId,
+            CaptureContext: _lastStatusSnapshot?.CaptureContext ?? _captureContext,
+            UserAgentHeartbeatUpdatedAtUtc: _lastStatusSnapshot?.UserAgentHeartbeatUpdatedAtUtc,
+            UserAgentInstanceId: _lastStatusSnapshot?.UserAgentInstanceId,
+            UserAgentProcessId: _lastStatusSnapshot?.UserAgentProcessId,
+            UserAgentSessionId: _lastStatusSnapshot?.UserAgentSessionId,
+            KeyboardSignalActive: _lastStatusSnapshot?.KeyboardSignalActive ?? false,
+            MouseSignalActive: _lastStatusSnapshot?.MouseSignalActive ?? false,
+            LastInputEventUtc: _lastInputEventUtc,
+            LastInputAgentInstanceId: _lastInputAgentInstanceId,
+            LastInputSessionId: _lastInputSessionId,
+            OwnershipWarning: _lastStatusSnapshot?.OwnershipWarning,
+            CaptureFailureReason: _lastStatusSnapshot?.CaptureFailureReason,
+            LastError: _lastError,
+            LocalApiAuthReady: _localApiAuthReady,
+            LocalApiAuthError: _localApiAuthError,
+            NotificationSuppressionActive: _lastStatusSnapshot?.NotificationSuppressionActive ?? false,
+            NotificationSuppressionReady: _lastStatusSnapshot?.NotificationSuppressionReady ?? true,
+            NotificationSuppressionLastError: _lastStatusSnapshot?.NotificationSuppressionLastError,
+            NotificationSuppressionError: _lastStatusSnapshot?.NotificationSuppressionError,
+            NotificationSuppressionBackoffUntilUtc: _lastStatusSnapshot?.NotificationSuppressionBackoffUntilUtc,
+            NotificationBackoffUntilUtc: _lastStatusSnapshot?.NotificationBackoffUntilUtc,
+            NotificationsSuppressed: _lastStatusSnapshot?.NotificationsSuppressed ?? false,
+            BrightnessActionReady: _lastStatusSnapshot?.BrightnessActionReady ?? true,
+            BrightnessActionActive: _lastStatusSnapshot?.BrightnessActionActive ?? false,
+            BrightnessAdjusted: _lastStatusSnapshot?.BrightnessAdjusted ?? false,
+            BrightnessSupported: _lastStatusSnapshot?.BrightnessSupported ?? true,
+            BrightnessCurrentLevel: _lastStatusSnapshot?.BrightnessCurrentLevel ?? -1,
+            BrightnessTargetLevel: _lastStatusSnapshot?.BrightnessTargetLevel ?? -1,
+            BrightnessLastError: _lastStatusSnapshot?.BrightnessLastError,
+            BrightnessError: _lastStatusSnapshot?.BrightnessError,
+            BrightnessBackoffUntilUtc: _lastStatusSnapshot?.BrightnessBackoffUntilUtc,
+            DbMigrationFailed: _lastStatusSnapshot?.DbMigrationFailed ?? false,
+            BaselineReady: _lastLatestStateDetails?.BaselineReady ?? false,
+            ColdStart: _lastLatestStateDetails?.ColdStart ?? false,
+            CalibrationStage: calibrationStage,
+            SystemActionsEnabled: _lastLatestStateDetails?.SystemActionsEnabled ?? CalibrationTruth.AllowsSystemActions(calibrationStage),
+            TrustTier: trustTier,
+            OverloadActive: _lastLatestStateDetails?.OverloadActive
+                ?? (TryReadBoolFromStateFlags(_latestSnapshot.StateFlagsJson, "overload_active", out bool overloadActive) && overloadActive),
+            DeepWorkActive: TryReadBoolFromStateFlags(_latestSnapshot.StateFlagsJson, "deep_work_active", out bool deepWorkActive) && deepWorkActive,
+            DeepWorkStreakSeconds: _lastStatusSnapshot?.DeepWorkStreakSeconds ?? 0,
+            VisualMode: _lastStatusSnapshot?.VisualMode ?? PresentedVisualModeMapper.ToToken(PresentedVisualMode.NORMAL),
+            LatestContributorsJson: _lastLatestStateDetails?.ContributorsJson ?? _lastStatusSnapshot?.LatestContributorsJson,
+            LatestWhyJson: _lastStatusSnapshot?.LatestWhyJson,
+            LastUpdatedUtc: nowUtc,
+            UserAgentObservedHeartbeatUpdatedAtUtc: _lastStatusSnapshot?.UserAgentObservedHeartbeatUpdatedAtUtc,
+            UserAgentObservedCaptureContext: _lastStatusSnapshot?.UserAgentObservedCaptureContext,
+            UserAgentObservedSessionId: _lastStatusSnapshot?.UserAgentObservedSessionId,
+            UserAgentStartupSource: _lastStatusSnapshot?.UserAgentStartupSource,
+            UserAgentLaunchReason: _lastStatusSnapshot?.UserAgentLaunchReason,
+            UserAgentHeartbeatWriteFailureCount: _lastStatusSnapshot?.UserAgentHeartbeatWriteFailureCount,
+            CaptureSelfTestState: _lastStatusSnapshot?.CaptureSelfTestState,
+            CaptureSelfTestErrorCode: _lastStatusSnapshot?.CaptureSelfTestErrorCode,
+            CaptureSelfTestRemediationCount: _lastStatusSnapshot?.CaptureSelfTestRemediationCount);
     }
 
     public AgentInputSummary GetInputsSummary(int windowSeconds = 60)

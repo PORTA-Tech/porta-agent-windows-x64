@@ -34,11 +34,13 @@ internal static class CurrentSessionUserAgentLauncher
             int currentSessionId = Process.GetCurrentProcess().SessionId;
             List<RunningUserAgentProcessSnapshot> runningProcesses = EnumerateRunningProcesses();
             UserAgentSessionContextSnapshot? sessionContext = SessionContextStore.ReadCurrent();
+            string? expectedBinaryVersion = TryReadBinaryVersion(userAgentPath);
             CurrentSessionUserAgentDecision decision = CurrentSessionUserAgentRecoveryEvaluator.Evaluate(
                 currentSessionId,
                 runningProcesses,
                 sessionContext,
-                nowUtc);
+                nowUtc,
+                expectedBinaryVersion);
             LogDecisionIfChanged(force, currentSessionId, runningProcesses, sessionContext, decision, nowUtc);
 
             if (decision.Action == CurrentSessionUserAgentAction.KeepExisting
@@ -179,6 +181,21 @@ internal static class CurrentSessionUserAgentLauncher
         catch
         {
             return -1;
+        }
+    }
+
+    private static string? TryReadBinaryVersion(string executablePath)
+    {
+        try
+        {
+            FileVersionInfo version = FileVersionInfo.GetVersionInfo(executablePath);
+            return string.IsNullOrWhiteSpace(version.FileVersion)
+                ? null
+                : version.FileVersion.Trim();
+        }
+        catch
+        {
+            return null;
         }
     }
 

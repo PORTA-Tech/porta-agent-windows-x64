@@ -30,11 +30,18 @@ public static class Secrets
     private static readonly byte[] InstallSecretEntropy = Encoding.UTF8.GetBytes(InstallSecretEntropyContext);
     private static readonly byte[] ApiTokenEntropy = Encoding.UTF8.GetBytes(ApiTokenEntropyContext);
     private static readonly object Gate = new();
+    private static byte[]? CachedInstallSecret;
+    private static byte[]? CachedApiToken;
 
     public static byte[] GetInstallSecret()
     {
         lock (Gate)
         {
+            if (CachedInstallSecret is { Length: 32 })
+            {
+                return CachedInstallSecret.ToArray();
+            }
+
             byte[] secret = ReadOrCreateSecretBytes(
                 secretName: "install_secret",
                 GetInstallSecretPath(),
@@ -44,6 +51,7 @@ public static class Secrets
                 writeErrorCode: "INSTALL_SECRET_WRITE_FAILED",
                 TryLoadLegacyInstallSecretBytes);
 
+            CachedInstallSecret = secret.ToArray();
             return secret;
         }
     }
@@ -52,6 +60,14 @@ public static class Secrets
     {
         lock (Gate)
         {
+            if (CachedApiToken is { Length: 32 })
+            {
+                return new ApiTokenReadResult(
+                    Success: true,
+                    TokenBytes: CachedApiToken.ToArray(),
+                    ErrorCode: null);
+            }
+
             try
             {
                 byte[] token = ReadOrCreateSecretBytes(
@@ -63,6 +79,7 @@ public static class Secrets
                     writeErrorCode: "TOKEN_WRITE_FAILED",
                     TryLoadLegacyApiTokenBytes);
 
+                CachedApiToken = token.ToArray();
                 return new ApiTokenReadResult(
                     Success: true,
                     TokenBytes: token,

@@ -24,6 +24,8 @@ internal interface ICurrentSessionUserAgentRuntime
 
     UserAgentSessionContextSnapshot? ReadSessionContext();
 
+    string? ReadExpectedBinaryVersion();
+
     int TerminateProcessesInSession(int sessionId, ILogger logger);
 
     bool HasRunningProcessInSession(int sessionId);
@@ -74,11 +76,13 @@ internal sealed class CurrentSessionUserAgentWatchdogCoordinator
 
             IReadOnlyList<RunningUserAgentProcessSnapshot> runningProcesses = _runtime.EnumerateRunningProcesses();
             UserAgentSessionContextSnapshot? sessionContext = _runtime.ReadSessionContext();
+            string? expectedBinaryVersion = _runtime.ReadExpectedBinaryVersion();
             CurrentSessionUserAgentDecision decision = CurrentSessionUserAgentRecoveryEvaluator.Evaluate(
                 currentSessionId,
                 runningProcesses,
                 sessionContext,
-                nowUtc);
+                nowUtc,
+                expectedBinaryVersion);
             LogDecisionIfChanged(force, currentSessionId, runningProcesses, sessionContext, decision, nowUtc);
 
             if (decision.Action == CurrentSessionUserAgentAction.KeepExisting
@@ -314,6 +318,21 @@ internal sealed class WindowsCurrentSessionUserAgentRuntime : ICurrentSessionUse
     public UserAgentSessionContextSnapshot? ReadSessionContext()
     {
         return SessionContextStore.ReadCurrent();
+    }
+
+    public string? ReadExpectedBinaryVersion()
+    {
+        try
+        {
+            FileVersionInfo version = FileVersionInfo.GetVersionInfo(_userAgentPath);
+            return string.IsNullOrWhiteSpace(version.FileVersion)
+                ? null
+                : version.FileVersion.Trim();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public int TerminateProcessesInSession(int sessionId, ILogger logger)

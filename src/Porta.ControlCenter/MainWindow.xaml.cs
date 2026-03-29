@@ -158,7 +158,8 @@ public partial class MainWindow : Window
             IsTrayRunning(),
             apiReachable: false,
             status: null,
-            statusFresh: false);
+            statusFresh: false,
+            statusHttpCode: null);
         _settingsAutoSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
         _settingsAutoSaveTimer.Tick += async (_, _) =>
         {
@@ -425,6 +426,7 @@ public partial class MainWindow : Window
         LocalApiRuntimeSettings? runtimeSettings = LocalApiRuntimeSettingsStore.Load();
         ServiceProbeResult serviceProbe = ProbeServiceStatus();
         _latestStatus = await _apiClient.GetStatusAsync().ConfigureAwait(true);
+        int? statusHttpCode = _apiClient.LastStatusHttpCode;
         if (_latestStatus != null)
         {
             _lastStatusSuccessUtc = DateTimeOffset.UtcNow;
@@ -435,18 +437,19 @@ public partial class MainWindow : Window
             && (DateTimeOffset.UtcNow - _lastStatusSuccessUtc.Value) <= StatusFreshnessWindow
             && (DateTimeOffset.UtcNow - _latestStatus.LastUpdatedUtc) <= StatusFreshnessWindow;
 
-        bool apiReachable = _latestStatus != null;
+        bool apiReachable = statusHttpCode.HasValue;
+        bool statusAvailable = _latestStatus != null;
         LocalApiCurrentSnapshotResponse? previousSnapshot = _lastSnapshot;
-        LocalApiCurrentSnapshotResponse? snapshot = apiReachable
+        LocalApiCurrentSnapshotResponse? snapshot = statusAvailable
             ? await _apiClient.GetCurrentSnapshotAsync().ConfigureAwait(true)
             : null;
-        bool snapshotFresh = !apiReachable
+        bool snapshotFresh = !statusAvailable
             || !statusFresh
             || !IsSnapshotStale(_latestStatus, snapshot, DateTimeOffset.UtcNow);
-        LocalApiInputsSummaryResponse? inputSummary = apiReachable
+        LocalApiInputsSummaryResponse? inputSummary = statusAvailable
             ? await _apiClient.GetInputsSummaryAsync(60).ConfigureAwait(true)
             : null;
-        if (apiReachable)
+        if (statusAvailable)
         {
             if (_allRecentEvents.Count == 0)
             {
@@ -477,7 +480,7 @@ public partial class MainWindow : Window
         _recentEvents = _allRecentEvents.Take(5).ToArray();
         _lastSnapshot = snapshot;
         await RefreshAccountSurfaceAsync().ConfigureAwait(true);
-        NowTruth nowTruth = BuildNowTruth(serviceProbe, runtimeSettings, _latestStatus, snapshot, statusFresh, snapshotFresh);
+        NowTruth nowTruth = BuildNowTruth(serviceProbe, runtimeSettings, _latestStatus, snapshot, statusFresh, snapshotFresh, statusHttpCode);
         _latestVisualState = VisualStateAdapter.Build(
             _latestStatus,
             nowTruth.Snapshot,
@@ -485,7 +488,7 @@ public partial class MainWindow : Window
             nowTruth.Explanation,
             DateTimeOffset.UtcNow);
 
-        bool needsSlowRefresh = apiReachable
+        bool needsSlowRefresh = statusAvailable
             && (forceSlowRefresh
                 || (DateTimeOffset.UtcNow - _lastSlowRefreshUtc) >= SlowRefreshInterval);
         if (needsSlowRefresh)
@@ -515,7 +518,7 @@ public partial class MainWindow : Window
         ApiReachableValue.Text = apiReachable ? "Yes" : "No";
         ApiPortValue.Text = endpoint?.Port.ToString(CultureInfo.InvariantCulture) ?? "Unavailable";
         UpdateDebugFooter(nowTruth, statusFresh);
-        PopulateOnboardingSurface(serviceProbe, trayRunning, apiReachable, _latestStatus, statusFresh);
+        PopulateOnboardingSurface(serviceProbe, trayRunning, apiReachable, _latestStatus, statusFresh, statusHttpCode);
 
         if (_latestStatus == null)
         {
@@ -531,7 +534,7 @@ public partial class MainWindow : Window
             ConsentVersionValue.Text = NotAvailableText;
             ConsentTimestampValue.Text = NotAvailableText;
             ConsentHashValue.Text = NotAvailableText;
-            LastErrorValue.Text = BuildOfflineErrorMessage(serviceProbe, endpoint);
+            LastErrorValue.Text = BuildOfflineErrorMessage(serviceProbe, endpoint, runtimeSettings, statusHttpCode);
             SnapshotConfidenceValue.Text = NotAvailableText;
             OverloadActiveValue.Text = NotAvailableText;
             SustainedAttentionValue.Text = NotAvailableText;
@@ -633,7 +636,7 @@ public partial class MainWindow : Window
         await RefreshDiagnosticsAsync(manual: true).ConfigureAwait(true);
         bool snapshotFresh = !IsSnapshotStale(_latestStatus, _lastSnapshot, DateTimeOffset.UtcNow);
         ControlCenterFileLog.Info(
-            $"manual_refresh_completed api_reachable={(_latestStatus != null).ToString().ToLowerInvariant()} snapshot_fresh={snapshotFresh.ToString().ToLowerInvariant()}");
+            $"manual_refresh_completed api_reachable={_apiClient.LastStatusHttpCode.HasValue.ToString().ToLowerInvariant()} snapshot_fresh={snapshotFresh.ToString().ToLowerInvariant()}");
     }
 
     private void VersionsButton_Click(object sender, RoutedEventArgs e)
@@ -5904,18 +5907,12 @@ public partial class MainWindow : Window
         ServiceProbeResult serviceProbe,
         LocalApiRuntimeSettings? runtimeSettings,
         LocalApiStatusResponse? status,
-        bool statusFresh)
+        bool statusFresh,
+        int? statusHttpCode)
     {
         if (status == null)
         {
-            if (runtimeSettings is { LocalApiAuthReady: false })
-            {
-                return $"Local API auth error: {runtimeSettings.LocalApiAuthError ?? "TOKEN_READ_FAILED"}";
-            }
-
-            return serviceProbe.Running
-                ? "Not updating: Local API unreachable"
-                : "Not updating: Service offline";
+            return BuildLocalApiConnectionExplanation(serviceProbe, runtimeSettings, statusHttpCode);
         }
 
         if (!status.LocalApiAuthReady)
@@ -6007,23 +6004,14 @@ public partial class MainWindow : Window
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
         bool statusFresh,
-        bool snapshotFresh)
+        bool snapshotFresh,
+        int? statusHttpCode)
     {
         if (status == null)
         {
-            if (runtimeSettings is { LocalApiAuthReady: false })
-            {
-                return new NowTruth(
-                    Snapshot: null,
-                    Explanation: $"Local API auth error: {runtimeSettings.LocalApiAuthError ?? "TOKEN_READ_FAILED"}");
-            }
-
-            string explanation = serviceProbe.Running
-                ? "Not updating: Local API unreachable"
-                : "Not updating: Service offline";
             return new NowTruth(
                 Snapshot: null,
-                Explanation: explanation);
+                Explanation: BuildLocalApiConnectionExplanation(serviceProbe, runtimeSettings, statusHttpCode));
         }
 
         if (!status.LocalApiAuthReady)
@@ -6190,8 +6178,22 @@ public partial class MainWindow : Window
             || errorText.Contains("migration", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string BuildOfflineErrorMessage(ServiceProbeResult serviceProbe, LocalApiEndpointSettings? endpoint)
+    private static string BuildOfflineErrorMessage(
+        ServiceProbeResult serviceProbe,
+        LocalApiEndpointSettings? endpoint,
+        LocalApiRuntimeSettings? runtimeSettings,
+        int? statusHttpCode)
     {
+        if (runtimeSettings is { LocalApiAuthReady: false })
+        {
+            return $"local_api_auth_error ({runtimeSettings.LocalApiAuthError ?? "TOKEN_READ_FAILED"})";
+        }
+
+        if (statusHttpCode.HasValue)
+        {
+            return $"local_api_http_error (status={statusHttpCode.Value})";
+        }
+
         string endpointText = endpoint == null
             ? "endpoint=missing"
             : $"endpoint={endpoint.Host}:{endpoint.Port}";
@@ -6201,6 +6203,27 @@ public partial class MainWindow : Window
             : "service=not_installed";
 
         return $"local_api_unreachable ({serviceText}, {endpointText})";
+    }
+
+    private static string BuildLocalApiConnectionExplanation(
+        ServiceProbeResult serviceProbe,
+        LocalApiRuntimeSettings? runtimeSettings,
+        int? statusHttpCode)
+    {
+        if (runtimeSettings is { LocalApiAuthReady: false })
+        {
+            return $"Local API auth error: {runtimeSettings.LocalApiAuthError ?? "TOKEN_READ_FAILED"}";
+        }
+
+        return statusHttpCode switch
+        {
+            401 or 403 => "Not updating: Control Center auth mismatch",
+            503 => "Not updating: Local API starting",
+            int code => $"Not updating: Local API returned HTTP {code}",
+            _ => serviceProbe.Running
+                ? "Not updating: Local API unreachable"
+                : "Not updating: Service offline"
+        };
     }
 
     private static string BuildOnlineErrorMessage(string? apiError, ServiceProbeResult serviceProbe, bool statusFresh)

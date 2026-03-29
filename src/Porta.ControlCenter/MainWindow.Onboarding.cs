@@ -10,7 +10,8 @@ public partial class MainWindow
         bool trayRunning,
         bool apiReachable,
         LocalApiStatusResponse? status,
-        bool statusFresh)
+        bool statusFresh,
+        int? statusHttpCode)
     {
         if (OnboardingOverlay == null)
         {
@@ -27,9 +28,9 @@ public partial class MainWindow
             ? BuildCaptureContextHint(status)
             : null;
 
-        OnboardingCurrentStatusText.Text = BuildOnboardingStatusText(serviceProbe, trayRunning, apiReachable, status, statusFresh, captureHint);
-        OnboardingCurrentHealthText.Text = BuildOnboardingHealthText(serviceProbe, trayRunning, apiReachable, status, statusFresh, captureHint);
-        OnboardingCurrentGuidanceText.Text = BuildOnboardingGuidanceText(serviceProbe, trayRunning, apiReachable, status, statusFresh, captureHint);
+        OnboardingCurrentStatusText.Text = BuildOnboardingStatusText(serviceProbe, trayRunning, apiReachable, status, statusFresh, captureHint, statusHttpCode);
+        OnboardingCurrentHealthText.Text = BuildOnboardingHealthText(serviceProbe, trayRunning, apiReachable, status, statusFresh, captureHint, statusHttpCode);
+        OnboardingCurrentGuidanceText.Text = BuildOnboardingGuidanceText(serviceProbe, trayRunning, apiReachable, status, statusFresh, captureHint, statusHttpCode);
         OnboardingOverlay.Visibility = Visibility.Visible;
     }
 
@@ -39,7 +40,8 @@ public partial class MainWindow
         bool apiReachable,
         LocalApiStatusResponse? status,
         bool statusFresh,
-        string? captureHint)
+        string? captureHint,
+        int? statusHttpCode)
     {
         if (!serviceProbe.Running)
         {
@@ -51,9 +53,16 @@ public partial class MainWindow
             return "Background runtime is limited because the live desktop session agent is not running yet.";
         }
 
-        if (!apiReachable || status == null)
+        if (!apiReachable)
         {
             return "Ari is starting up in the background and waiting for live health from the local API.";
+        }
+
+        if (status == null)
+        {
+            return statusHttpCode is 401 or 403
+                ? "Ari reached the local API, but Control Center needs refreshed local credentials."
+                : "Ari reached the local API, but the health payload is not ready yet.";
         }
 
         if (!statusFresh)
@@ -75,11 +84,16 @@ public partial class MainWindow
         bool apiReachable,
         LocalApiStatusResponse? status,
         bool statusFresh,
-        string? captureHint)
+        string? captureHint,
+        int? statusHttpCode)
     {
         string serviceState = serviceProbe.Running ? "service on" : "service off";
         string trayState = trayRunning ? "session agent on" : "session agent off";
-        string apiState = apiReachable ? "API reachable" : "API not ready";
+        string apiState = !apiReachable
+            ? "API not ready"
+            : status == null && statusHttpCode is 401 or 403
+                ? "API auth mismatch"
+                : "API reachable";
         string captureState = string.IsNullOrWhiteSpace(captureHint)
             ? (status != null && statusFresh ? "capture flowing" : "capture not verified yet")
             : "capture limited";
@@ -93,7 +107,8 @@ public partial class MainWindow
         bool apiReachable,
         LocalApiStatusResponse? status,
         bool statusFresh,
-        string? captureHint)
+        string? captureHint,
+        int? statusHttpCode)
     {
         if (!serviceProbe.Running)
         {
@@ -105,9 +120,16 @@ public partial class MainWindow
             return "What to do: sign out and back in to Windows if the desktop session agent does not appear within a minute.";
         }
 
-        if (!apiReachable || status == null)
+        if (!apiReachable)
         {
             return "What to do: wait a few seconds while Ari finishes starting in the background. Open Health if it stays stuck.";
+        }
+
+        if (status == null)
+        {
+            return statusHttpCode is 401 or 403
+                ? "What to do: close and reopen Control Center once so it reloads local API credentials. If it still shows this, open Health."
+                : "What to do: wait a few seconds and refresh once. If the health payload stays unavailable, open Health.";
         }
 
         if (!statusFresh)

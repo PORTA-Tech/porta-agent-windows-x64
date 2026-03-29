@@ -26,7 +26,8 @@ public static class CurrentSessionUserAgentRecoveryEvaluator
         int currentSessionId,
         IReadOnlyList<RunningUserAgentProcessSnapshot> processes,
         UserAgentSessionContextSnapshot? sessionContext,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        string? expectedBinaryVersion = null)
     {
         RunningUserAgentProcessSnapshot[] sameSessionProcesses = processes
             .Where(process => process.SessionId == currentSessionId)
@@ -37,7 +38,7 @@ public static class CurrentSessionUserAgentRecoveryEvaluator
             return new(CurrentSessionUserAgentAction.LaunchNew, "missing_process");
         }
 
-        if (HasHealthyHeartbeat(currentSessionId, sameSessionProcesses, sessionContext, nowUtc))
+        if (HasHealthyHeartbeat(currentSessionId, sameSessionProcesses, sessionContext, nowUtc, expectedBinaryVersion))
         {
             return new(CurrentSessionUserAgentAction.KeepExisting, "healthy");
         }
@@ -47,14 +48,15 @@ public static class CurrentSessionUserAgentRecoveryEvaluator
             return new(CurrentSessionUserAgentAction.WaitForHeartbeat, "awaiting_heartbeat");
         }
 
-        return new(CurrentSessionUserAgentAction.RestartExisting, ResolveRestartReason(currentSessionId, sameSessionProcesses, sessionContext, nowUtc));
+        return new(CurrentSessionUserAgentAction.RestartExisting, ResolveRestartReason(currentSessionId, sameSessionProcesses, sessionContext, nowUtc, expectedBinaryVersion));
     }
 
     private static bool HasHealthyHeartbeat(
         int currentSessionId,
         IReadOnlyList<RunningUserAgentProcessSnapshot> sameSessionProcesses,
         UserAgentSessionContextSnapshot? sessionContext,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        string? expectedBinaryVersion)
     {
         if (sessionContext is null)
         {
@@ -72,6 +74,16 @@ public static class CurrentSessionUserAgentRecoveryEvaluator
         }
 
         if (sessionContext.ProcessId <= 0)
+        {
+            return false;
+        }
+
+        if (sessionContext.DesktopWidgetReady == false)
+        {
+            return false;
+        }
+
+        if (IsVersionMismatch(sessionContext.BinaryVersion, expectedBinaryVersion))
         {
             return false;
         }
@@ -99,7 +111,8 @@ public static class CurrentSessionUserAgentRecoveryEvaluator
         int currentSessionId,
         IReadOnlyList<RunningUserAgentProcessSnapshot> sameSessionProcesses,
         UserAgentSessionContextSnapshot? sessionContext,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        string? expectedBinaryVersion)
     {
         if (sessionContext is null)
         {
@@ -127,6 +140,31 @@ public static class CurrentSessionUserAgentRecoveryEvaluator
             return "process_mismatch";
         }
 
+        if (IsVersionMismatch(sessionContext.BinaryVersion, expectedBinaryVersion))
+        {
+            return "version_mismatch";
+        }
+
+        if (sessionContext.DesktopWidgetReady == false)
+        {
+            return "widget_unavailable";
+        }
+
         return "unhealthy_existing_process";
+    }
+
+    private static bool IsVersionMismatch(string? actualVersion, string? expectedVersion)
+    {
+        if (string.IsNullOrWhiteSpace(expectedVersion))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(actualVersion))
+        {
+            return true;
+        }
+
+        return !string.Equals(actualVersion.Trim(), expectedVersion.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 }

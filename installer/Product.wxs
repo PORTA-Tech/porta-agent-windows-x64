@@ -18,6 +18,24 @@
     <Property Id="PORTA_BACKEND_URL" Value="$(var.AriBackendUrlDefault)" />
     <Property Id="WixUnelevatedShellExecTarget" Value="[#ControlCenterExeFile]" />
 
+    <util:CloseApplication Id="CloseUserAgent"
+                           Target="Porta.UserAgent.exe"
+                           Description="Closing the Ari desktop widget before upgrade."
+                           CloseMessage="yes"
+                           ElevatedCloseMessage="yes"
+                           RebootPrompt="no"
+                           Timeout="10"
+                           TerminateProcess="0" />
+
+    <util:CloseApplication Id="CloseControlCenter"
+                           Target="Porta.ControlCenter.exe"
+                           Description="Closing PORTA Control Center before upgrade."
+                           CloseMessage="yes"
+                           ElevatedCloseMessage="yes"
+                           RebootPrompt="no"
+                           Timeout="10"
+                           TerminateProcess="0" />
+
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Ari">
         <Component Id="AriExeComponent" Guid="0364a772-0f3d-4440-a3df-89fcfd474226">

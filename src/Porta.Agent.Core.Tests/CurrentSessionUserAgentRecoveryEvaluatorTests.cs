@@ -34,8 +34,10 @@ public sealed class CurrentSessionUserAgentRecoveryEvaluatorTests
                 ProcessId: 4012,
                 SessionId: 2,
                 UpdatedAtUtc: nowUtc.AddSeconds(-4),
-                AgentInstanceId: "useragent-4012"),
-            nowUtc: nowUtc);
+                AgentInstanceId: "useragent-4012",
+                BinaryVersion: "1.0.21.0"),
+            nowUtc: nowUtc,
+            expectedBinaryVersion: "1.0.21.0");
 
         Assert.Equal(CurrentSessionUserAgentAction.KeepExisting, decision.Action);
         Assert.Equal("healthy", decision.Reason);
@@ -53,7 +55,8 @@ public sealed class CurrentSessionUserAgentRecoveryEvaluatorTests
                 new RunningUserAgentProcessSnapshot(9021, 5, nowUtc.AddSeconds(-3))
             ],
             sessionContext: null,
-            nowUtc: nowUtc);
+            nowUtc: nowUtc,
+            expectedBinaryVersion: "1.0.21.0");
 
         Assert.Equal(CurrentSessionUserAgentAction.WaitForHeartbeat, decision.Action);
         Assert.Equal("awaiting_heartbeat", decision.Reason);
@@ -76,8 +79,10 @@ public sealed class CurrentSessionUserAgentRecoveryEvaluatorTests
                 ProcessId: 6111,
                 SessionId: 4,
                 UpdatedAtUtc: nowUtc.AddMinutes(-40),
-                AgentInstanceId: "useragent-6111"),
-            nowUtc: nowUtc);
+                AgentInstanceId: "useragent-6111",
+                BinaryVersion: "1.0.21.0"),
+            nowUtc: nowUtc,
+            expectedBinaryVersion: "1.0.21.0");
 
         Assert.Equal(CurrentSessionUserAgentAction.RestartExisting, decision.Action);
         Assert.Equal("stale_heartbeat", decision.Reason);
@@ -100,11 +105,40 @@ public sealed class CurrentSessionUserAgentRecoveryEvaluatorTests
                 ProcessId: 7001,
                 SessionId: 7,
                 UpdatedAtUtc: nowUtc.AddSeconds(-5),
-                AgentInstanceId: "useragent-7001"),
-            nowUtc: nowUtc);
+                AgentInstanceId: "useragent-7001",
+                BinaryVersion: "1.0.21.0"),
+            nowUtc: nowUtc,
+            expectedBinaryVersion: "1.0.21.0");
 
         Assert.Equal(CurrentSessionUserAgentAction.RestartExisting, decision.Action);
         Assert.Equal("process_mismatch", decision.Reason);
+    }
+
+    [Fact]
+    public void Evaluate_Restarts_WhenWidgetIsUnavailableForFreshHeartbeat()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-20T08:00:00Z");
+
+        CurrentSessionUserAgentDecision decision = CurrentSessionUserAgentRecoveryEvaluator.Evaluate(
+            currentSessionId: 7,
+            processes:
+            [
+                new RunningUserAgentProcessSnapshot(7111, 7, nowUtc.AddMinutes(-20))
+            ],
+            sessionContext: new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 7111,
+                SessionId: 7,
+                UpdatedAtUtc: nowUtc.AddSeconds(-5),
+                AgentInstanceId: "useragent-7111",
+                BinaryVersion: "1.0.21.0",
+                DesktopWidgetReady: false),
+            nowUtc: nowUtc,
+            expectedBinaryVersion: "1.0.21.0");
+
+        Assert.Equal(CurrentSessionUserAgentAction.RestartExisting, decision.Action);
+        Assert.Equal("widget_unavailable", decision.Reason);
     }
 
     [Fact]
@@ -124,10 +158,38 @@ public sealed class CurrentSessionUserAgentRecoveryEvaluatorTests
                 ProcessId: 8111,
                 SessionId: 3,
                 UpdatedAtUtc: nowUtc.AddSeconds(-4),
-                AgentInstanceId: "useragent-8111"),
-            nowUtc: nowUtc);
+                AgentInstanceId: "useragent-8111",
+                BinaryVersion: "1.0.21.0"),
+            nowUtc: nowUtc,
+            expectedBinaryVersion: "1.0.21.0");
 
         Assert.Equal(CurrentSessionUserAgentAction.LaunchNew, decision.Action);
         Assert.Equal("missing_process", decision.Reason);
+    }
+
+    [Fact]
+    public void Evaluate_Restarts_WhenBinaryVersionDoesNotMatchExpected()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-20T08:00:00Z");
+
+        CurrentSessionUserAgentDecision decision = CurrentSessionUserAgentRecoveryEvaluator.Evaluate(
+            currentSessionId: 2,
+            processes:
+            [
+                new RunningUserAgentProcessSnapshot(4012, 2, nowUtc.AddMinutes(-5))
+            ],
+            sessionContext: new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 4012,
+                SessionId: 2,
+                UpdatedAtUtc: nowUtc.AddSeconds(-4),
+                AgentInstanceId: "useragent-4012",
+                BinaryVersion: "1.0.20.0"),
+            nowUtc: nowUtc,
+            expectedBinaryVersion: "1.0.21.0");
+
+        Assert.Equal(CurrentSessionUserAgentAction.RestartExisting, decision.Action);
+        Assert.Equal("version_mismatch", decision.Reason);
     }
 }

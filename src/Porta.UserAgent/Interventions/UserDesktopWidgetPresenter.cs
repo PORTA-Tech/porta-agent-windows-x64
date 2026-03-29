@@ -46,6 +46,44 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
     internal string WidgetUnavailableReasonCode => _rollout.UnavailableReasonCode;
 
+    internal bool IsWidgetHealthyForSessionHeartbeat
+    {
+        get
+        {
+            if (!_rollout.SupportsWidgetSurface || _visibilityStore.IsHidden())
+            {
+                return true;
+            }
+
+            lock (_widgetLifecycleGate)
+            {
+                return IsWidgetOperationalLocked();
+            }
+        }
+    }
+
+    internal void MaintainWidgetSurface()
+    {
+        if (_disposed || !_rollout.SupportsWidgetSurface || _visibilityStore.IsHidden())
+        {
+            return;
+        }
+
+        bool needsRestart;
+        lock (_widgetLifecycleGate)
+        {
+            needsRestart = !IsWidgetOperationalLocked();
+        }
+
+        if (!needsRestart)
+        {
+            return;
+        }
+
+        UserAgentFileLog.Info("desktop_widget_recovery_requested");
+        EnsureWidgetThreadStarted(forceRestart: true);
+    }
+
     public bool TryShow(string title, string message, out string errorCode)
     {
         if (!_rollout.SupportsWidgetSurface)
@@ -159,6 +197,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             {
                 dispatcher.BeginInvoke(() =>
                 {
+                    widgetWindow?.AllowCloseForShutdown();
                     widgetWindow?.Close();
                     widgetApplication?.Shutdown();
                 });
@@ -286,6 +325,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             {
                 priorDispatcher.BeginInvoke(() =>
                 {
+                    priorWindow?.AllowCloseForShutdown();
                     priorWindow?.Close();
                     priorApplication?.Shutdown();
                 });
@@ -363,6 +403,13 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 }
             }
         }
+    }
+
+    private bool IsWidgetOperationalLocked()
+    {
+        return _widgetThread is { IsAlive: true }
+            && _widgetDispatcher is { HasShutdownStarted: false, HasShutdownFinished: false }
+            && _widgetWindow != null;
     }
 
     private void OnWidgetActionRequested(UserDesktopWidgetAction action)

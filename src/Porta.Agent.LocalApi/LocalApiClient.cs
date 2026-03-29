@@ -10,8 +10,10 @@ namespace Porta.Agent.LocalApi;
 public sealed class LocalApiClient : IDisposable
 {
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(3);
+    private const string TokenHeader = "X-PORTA-TOKEN";
     private readonly HttpClient _httpClient;
-    private readonly LocalApiRuntimeSettings? _settings;
+    private LocalApiRuntimeSettings? _settings;
+    private string? _authToken;
     private string _host = "127.0.0.1";
     private int _port;
     public int? LastStatusHttpCode { get; private set; }
@@ -21,32 +23,19 @@ public sealed class LocalApiClient : IDisposable
 
     public LocalApiClient()
     {
-        _settings = LocalApiRuntimeSettingsStore.Load();
-        if (_settings == null)
-        {
-            _httpClient = new HttpClient { Timeout = RequestTimeout };
-            return;
-        }
-
-        LocalApiEndpointSettings? endpoint = LocalApiRuntimeSettingsStore.LoadEndpoint();
-        _port = endpoint?.Port ?? _settings.Port;
-        _host = endpoint?.Host ?? "127.0.0.1";
         _httpClient = new HttpClient
         {
-            BaseAddress = new Uri($"http://{_host}:{_port}"),
             Timeout = RequestTimeout
         };
-        if (_settings.LocalApiAuthReady && !string.IsNullOrWhiteSpace(_settings.AuthToken))
-        {
-            _httpClient.DefaultRequestHeaders.Add("X-PORTA-TOKEN", _settings.AuthToken);
-        }
+        _settings = LocalApiRuntimeSettingsStore.Load();
+        _ = RefreshEndpointBinding();
     }
 
-    public bool IsConfigured => _settings != null;
+    public bool IsConfigured => HasRuntimeSettings();
 
     public async Task<LocalApiStatusResponse?> GetStatusAsync(CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             LastStatusProbeUtc = DateTimeOffset.UtcNow;
             LastStatusHttpCode = null;
@@ -76,7 +65,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<LocalApiCurrentSnapshotResponse?> GetCurrentSnapshotAsync(CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             LastSnapshotProbeUtc = DateTimeOffset.UtcNow;
             LastSnapshotHttpCode = null;
@@ -106,7 +95,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<LocalApiInputsSummaryResponse?> GetInputsSummaryAsync(int windowSeconds = 60, CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -127,7 +116,7 @@ public sealed class LocalApiClient : IDisposable
         LocalApiInputSignalsRequest request,
         CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -164,7 +153,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<IReadOnlyList<LocalApiEventResponse>> GetRecentEventsAsync(int limit = 50, DateTimeOffset? sinceUtc = null, CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return [];
         }
@@ -191,7 +180,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<IReadOnlyList<LocalApiEventResponse>> GetEventsSinceIdAsync(long sinceIdExclusive, int limit = 200, CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return [];
         }
@@ -218,7 +207,7 @@ public sealed class LocalApiClient : IDisposable
         int bucketSeconds = Time.bucketSeconds,
         CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -240,7 +229,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<LocalApiSettingsResponse?> GetEffectiveSettingsAsync(CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -258,7 +247,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<LocalApiRetentionResponse?> GetDataRetentionAsync(CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -276,7 +265,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<LocalApiIdentityLinkResponse?> GetIdentityLinkAsync(CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -297,7 +286,7 @@ public sealed class LocalApiClient : IDisposable
         string orgId,
         CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -328,7 +317,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<LocalApiIdentityLinkResponse?> ClearIdentityLinkAsync(CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -373,7 +362,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<LocalApiSettingsResponse?> UpdateSettingsAsync(LocalApiUpdateSettingsRequest request, CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -398,7 +387,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<LocalApiRecalibrationResponse?> RecalibrateBaselineAsync(CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -423,7 +412,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<LocalApiExportResponse?> ExportDataAsync(CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -453,7 +442,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<LocalApiAckResponse?> RestartServiceAsync(CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -478,7 +467,7 @@ public sealed class LocalApiClient : IDisposable
 
     public async Task<LocalApiAckResponse?> TriggerTestInterventionAsync(string action, CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -514,7 +503,7 @@ public sealed class LocalApiClient : IDisposable
         int limit = 20,
         CancellationToken token = default)
     {
-        if (_settings == null || string.IsNullOrWhiteSpace(sessionId))
+        if (!HasRuntimeSettings() || string.IsNullOrWhiteSpace(sessionId))
         {
             return [];
         }
@@ -544,7 +533,7 @@ public sealed class LocalApiClient : IDisposable
         LocalApiInterventionAckRequest request,
         CancellationToken token = default)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return null;
         }
@@ -568,7 +557,7 @@ public sealed class LocalApiClient : IDisposable
 
     private async Task<bool> PostAsync(string path, object? payload, CancellationToken token)
     {
-        if (_settings == null)
+        if (!HasRuntimeSettings())
         {
             return false;
         }
@@ -593,24 +582,49 @@ public sealed class LocalApiClient : IDisposable
         _httpClient.Dispose();
     }
 
-    private void RefreshEndpointBinding()
+    private bool HasRuntimeSettings()
     {
+        return RefreshEndpointBinding();
+    }
+
+    private bool RefreshEndpointBinding()
+    {
+        _settings = LocalApiRuntimeSettingsStore.Load();
         if (_settings == null)
         {
-            return;
+            _authToken = null;
+            _httpClient.DefaultRequestHeaders.Remove(TokenHeader);
+            return false;
         }
 
         LocalApiEndpointSettings? endpoint = LocalApiRuntimeSettingsStore.LoadEndpoint();
         int nextPort = endpoint?.Port ?? _settings.Port;
         string nextHost = endpoint?.Host ?? "127.0.0.1";
+        string? nextAuthToken = string.IsNullOrWhiteSpace(_settings.AuthToken)
+            ? null
+            : _settings.AuthToken.Trim();
 
-        if (nextPort == _port && string.Equals(nextHost, _host, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(nextAuthToken, _authToken, StringComparison.Ordinal))
         {
-            return;
+            _httpClient.DefaultRequestHeaders.Remove(TokenHeader);
+            if (!string.IsNullOrWhiteSpace(nextAuthToken))
+            {
+                _httpClient.DefaultRequestHeaders.TryAddWithoutValidation(TokenHeader, nextAuthToken);
+            }
+
+            _authToken = nextAuthToken;
+        }
+
+        if (nextPort == _port
+            && string.Equals(nextHost, _host, StringComparison.OrdinalIgnoreCase)
+            && _httpClient.BaseAddress != null)
+        {
+            return true;
         }
 
         _port = nextPort;
         _host = nextHost;
         _httpClient.BaseAddress = new Uri($"http://{_host}:{_port}");
+        return true;
     }
 }

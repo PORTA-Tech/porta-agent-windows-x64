@@ -13,7 +13,8 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         {
             InteractiveSessionId = 4,
             HasUserAgentBinary = true,
-            RunningProcesses = []
+            RunningProcesses = [],
+            ExpectedBinaryVersion = "1.0.21.0"
         };
         var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
 
@@ -33,6 +34,7 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
             UtcNowValue = nowUtc,
             InteractiveSessionId = 6,
             HasUserAgentBinary = true,
+            ExpectedBinaryVersion = "1.0.21.0",
             RunningProcesses =
             [
                 new RunningUserAgentProcessSnapshot(1111, 6, nowUtc.AddSeconds(-20))
@@ -43,7 +45,8 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
                 ProcessId: 1111,
                 SessionId: 6,
                 UpdatedAtUtc: nowUtc.AddSeconds(-3),
-                AgentInstanceId: "healthy-agent")
+                AgentInstanceId: "healthy-agent",
+                BinaryVersion: "1.0.21.0")
         };
         var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
 
@@ -62,6 +65,7 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
             UtcNowValue = nowUtc,
             InteractiveSessionId = 8,
             HasUserAgentBinary = true,
+            ExpectedBinaryVersion = "1.0.21.0",
             RunningProcesses =
             [
                 new RunningUserAgentProcessSnapshot(2222, 8, nowUtc.AddMinutes(-3))
@@ -89,7 +93,8 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         var runtime = new FakeRuntime
         {
             InteractiveSessionId = null,
-            HasUserAgentBinary = true
+            HasUserAgentBinary = true,
+            ExpectedBinaryVersion = "1.0.21.0"
         };
         var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
 
@@ -108,6 +113,7 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
             UtcNowValue = nowUtc,
             InteractiveSessionId = 9,
             HasUserAgentBinary = true,
+            ExpectedBinaryVersion = "1.0.21.0",
             RunningProcesses =
             [
                 new RunningUserAgentProcessSnapshot(3333, 3, nowUtc.AddMinutes(-10))
@@ -128,6 +134,38 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         Assert.Empty(runtime.TerminatedSessions);
     }
 
+    [Fact]
+    public void EnsureHealthy_RestartsWhenRunningBinaryVersionIsStale()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        var runtime = new FakeRuntime
+        {
+            UtcNowValue = nowUtc,
+            InteractiveSessionId = 6,
+            HasUserAgentBinary = true,
+            ExpectedBinaryVersion = "1.0.21.0",
+            RunningProcesses =
+            [
+                new RunningUserAgentProcessSnapshot(1111, 6, nowUtc.AddSeconds(-20))
+            ],
+            SessionContext = new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 1111,
+                SessionId: 6,
+                UpdatedAtUtc: nowUtc.AddSeconds(-3),
+                AgentInstanceId: "stale-agent",
+                BinaryVersion: "1.0.20.0")
+        };
+        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
+
+        coordinator.EnsureHealthy(force: true);
+
+        Assert.Equal([6], runtime.TerminatedSessions);
+        Assert.Single(runtime.LaunchAttempts);
+        Assert.Equal((6, "version_mismatch"), runtime.LaunchAttempts[0]);
+    }
+
     private sealed class FakeRuntime : ICurrentSessionUserAgentRuntime
     {
         public DateTimeOffset UtcNowValue { get; set; } = DateTimeOffset.UtcNow;
@@ -135,6 +173,8 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         public int? InteractiveSessionId { get; set; }
 
         public bool HasUserAgentBinary { get; set; }
+
+        public string? ExpectedBinaryVersion { get; set; }
 
         public IReadOnlyList<RunningUserAgentProcessSnapshot> RunningProcesses { get; set; } = [];
 
@@ -161,6 +201,8 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         public IReadOnlyList<RunningUserAgentProcessSnapshot> EnumerateRunningProcesses() => RunningProcesses;
 
         public UserAgentSessionContextSnapshot? ReadSessionContext() => SessionContext;
+
+        public string? ReadExpectedBinaryVersion() => ExpectedBinaryVersion;
 
         public int TerminateProcessesInSession(int sessionId, ILogger logger)
         {

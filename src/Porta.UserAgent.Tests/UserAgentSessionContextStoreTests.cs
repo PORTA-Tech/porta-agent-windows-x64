@@ -18,9 +18,11 @@ public sealed class UserAgentSessionContextStoreTests
                 SessionId: 7,
                 UpdatedAtUtc: DateTimeOffset.UtcNow,
                 AgentInstanceId: "useragent-321",
+                BinaryVersion: "1.0.21.0",
                 StartupSource: "control-center-recovery",
                 LaunchReason: "stale_heartbeat",
                 HeartbeatWriteFailureCount: 2,
+                DesktopWidgetReady: true,
                 CaptureSelfTestState: "failed",
                 CaptureSelfTestErrorCode: "no_live_input_after_user_activity",
                 CaptureSelfTestRemediationCount: 2);
@@ -32,9 +34,11 @@ public sealed class UserAgentSessionContextStoreTests
             Assert.Equal(expected.ProcessId, actual!.ProcessId);
             Assert.Equal(expected.SessionId, actual.SessionId);
             Assert.Equal(expected.AgentInstanceId, actual.AgentInstanceId);
+            Assert.Equal(expected.BinaryVersion, actual.BinaryVersion);
             Assert.Equal(expected.StartupSource, actual.StartupSource);
             Assert.Equal(expected.LaunchReason, actual.LaunchReason);
             Assert.Equal(expected.HeartbeatWriteFailureCount, actual.HeartbeatWriteFailureCount);
+            Assert.Equal(expected.DesktopWidgetReady, actual.DesktopWidgetReady);
             Assert.Equal(expected.CaptureSelfTestState, actual.CaptureSelfTestState);
             Assert.Equal(expected.CaptureSelfTestErrorCode, actual.CaptureSelfTestErrorCode);
             Assert.Equal(expected.CaptureSelfTestRemediationCount, actual.CaptureSelfTestRemediationCount);

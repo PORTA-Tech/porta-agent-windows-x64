@@ -52,6 +52,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private bool _systemEventsSubscribed;
     private int _sessionId;
     private string _captureContext = UserAgentCaptureContexts.Unknown;
+    private readonly string _binaryVersion = ResolveBinaryVersion();
 
     public UserAgentHost(
         ILogger<UserAgentHost> logger,
@@ -406,6 +407,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     {
         try
         {
+            _toastRenderer.MaintainWidgetSurface();
             int heartbeatWriteFailureCount = _heartbeatWriteFailureCount;
             CaptureSelfTestHeartbeatProjection selfTest = _captureSelfTest.GetHeartbeatProjection();
             _sessionContextStore.WriteCurrent(new UserAgentSessionContextSnapshot(
@@ -415,9 +417,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 SessionId: _sessionId,
                 UpdatedAtUtc: DateTimeOffset.UtcNow,
                 AgentInstanceId: _agentInstanceId,
+                BinaryVersion: _binaryVersion,
                 StartupSource: _startupMetadata.Source,
                 LaunchReason: _startupMetadata.EffectiveLaunchReason,
                 HeartbeatWriteFailureCount: heartbeatWriteFailureCount,
+                DesktopWidgetReady: _toastRenderer.IsWidgetHealthyForSessionHeartbeat,
                 CaptureSelfTestState: selfTest.State,
                 CaptureSelfTestErrorCode: selfTest.ErrorCode,
                 CaptureSelfTestRemediationCount: selfTest.RemediationCount));
@@ -792,6 +796,27 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         return _sessionContextStore is UserAgentSessionContextStore fileStore
             ? fileStore.ContextPath
             : "unknown";
+    }
+
+    private static string ResolveBinaryVersion()
+    {
+        try
+        {
+            string? processPath = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(processPath))
+            {
+                FileVersionInfo version = FileVersionInfo.GetVersionInfo(processPath);
+                if (!string.IsNullOrWhiteSpace(version.FileVersion))
+                {
+                    return version.FileVersion.Trim();
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return "unknown";
     }
 
     private static UserInterventionToastRenderer.UserTrayMode MapTrayMode(UserAgentVisualMode mode)
