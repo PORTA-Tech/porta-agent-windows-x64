@@ -35,15 +35,20 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Equal(UserDesktopWidgetMode.Limited, state.Mode);
         Assert.Equal("Ari Limited", state.Title);
         Assert.Contains("partial activity", state.StatusText, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("Confidence 81%", state.SecondaryMetricText);
+        Assert.Equal("Focus 4m", state.PrimaryMetricText);
+        Assert.Equal("Overload 18%", state.SecondaryMetricText);
+        Assert.Equal("Break n/a", state.TertiaryMetricText);
+        Assert.Equal("Ready · High trust", state.QuaternaryMetricText);
+        Assert.Equal("Service healthy", state.FooterText);
     }
 
     [Fact]
     public void Build_UsesPausedModeAndResumeCapability()
     {
+        DateTimeOffset pauseUntilUtc = DateTimeOffset.Parse("2026-03-29T14:15:00Z");
         LocalApiStatusResponse status = BuildStatus(
             paused: true,
-            pauseUntilUtc: DateTimeOffset.Parse("2026-03-29T14:15:00Z"));
+            pauseUntilUtc: pauseUntilUtc);
         UserAgentVisualSignals signals = new(
             Mode: UserAgentVisualMode.Normal,
             TooltipText: "PORTA | Watching activity",
@@ -60,6 +65,10 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.True(state.CanResume);
         Assert.False(state.CanPause);
         Assert.Equal("Tracking paused", state.PrimaryMetricText);
+        Assert.Equal($"Until {pauseUntilUtc.ToLocalTime():h:mm tt}", state.SecondaryMetricText);
+        Assert.Equal("Break now", state.TertiaryMetricText);
+        Assert.Equal("Health healthy", state.QuaternaryMetricText);
+        Assert.Equal("Service healthy", state.FooterText);
     }
 
     [Fact]
@@ -87,11 +96,76 @@ public sealed class UserDesktopWidgetStateBuilderTests
 
         Assert.Equal(UserDesktopWidgetMode.Overload, state.Mode);
         Assert.Equal("Overload", state.Title);
-        Assert.Equal("Overload 74%", state.PrimaryMetricText);
-        Assert.Equal("Confidence 81%", state.SecondaryMetricText);
-        Assert.Equal("Notifications muted and brightness reduced", state.FooterText);
+        Assert.Equal("Focus 25m", state.PrimaryMetricText);
+        Assert.Equal("Overload 74%", state.SecondaryMetricText);
+        Assert.Equal("Break n/a", state.TertiaryMetricText);
+        Assert.Equal("Ready · High trust", state.QuaternaryMetricText);
+        Assert.Equal("Service healthy", state.FooterText);
         Assert.True(state.NotificationsSuppressed);
         Assert.True(state.BrightnessAdjusted);
+    }
+
+    [Fact]
+    public void Build_UsesTimelineAndSettingsFactsForExpandedWidget()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T12:00:00Z");
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.42,
+            sustainedAttentionSeconds: 1500,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false);
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+        LocalApiTimelineResponse timeline = new(
+            FromUtc: nowUtc.AddHours(-4),
+            ToUtc: nowUtc,
+            BucketSeconds: 60,
+            Snapshots:
+            [
+                snapshot with
+                {
+                    TimestampUtc = nowUtc.AddMinutes(-25),
+                    SustainedAttentionDurationSec = 0
+                },
+                snapshot
+            ],
+            Interventions: []);
+        LocalApiSettingsResponse settings = new(
+            RegulationIntensity: "balanced",
+            PrivacyLevel: "patterns_only",
+            NotificationReductionEnabled: true,
+            FocusModeEnabled: true,
+            AnimationReductionEnabled: false,
+            TemporaryAppRestrictionEnabled: false,
+            BaselineRecalibrationActive: false,
+            BaselineRecalibrationStartedUtc: null,
+            BaselineRecalibrationUntilUtc: null,
+            UpdatedAtUtc: nowUtc);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status,
+            snapshot,
+            signals,
+            degradedToast: null,
+            recentEvents: [],
+            timeline: timeline,
+            settings: settings,
+            nowUtc: nowUtc);
+
+        Assert.Equal("Focus 25m", state.PrimaryMetricText);
+        Assert.Equal("Overload 42%", state.SecondaryMetricText);
+        Assert.Equal("Break 25m ago", state.TertiaryMetricText);
+        Assert.Equal("Ready · High trust", state.QuaternaryMetricText);
+        Assert.Equal("Service healthy · Focus mode on, Quiet guidance", state.FooterText);
+        Assert.Contains("focus mode enabled", state.StatusText, StringComparison.OrdinalIgnoreCase);
     }
 
     private static LocalApiStatusResponse BuildStatus(

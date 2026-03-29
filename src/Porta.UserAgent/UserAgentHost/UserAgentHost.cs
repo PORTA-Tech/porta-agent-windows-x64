@@ -15,6 +15,8 @@ using System.Diagnostics;
 public sealed class UserAgentHost : BackgroundService, IDisposable
 {
     private static readonly TimeSpan PassiveSamplingPeriod = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan WidgetDetailRefreshInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan WidgetTimelineLookback = TimeSpan.FromHours(4);
     private readonly ILogger<UserAgentHost> _logger;
     private readonly IUserAgentSessionContextStore _sessionContextStore;
     private readonly UserAgentStartupMetadata _startupMetadata;
@@ -35,6 +37,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private long _lastCommunicationEventId;
     private UserInterventionToastRenderer.UserTrayVisualState? _lastTrayState;
     private UserDesktopWidgetState? _lastWidgetState;
+    private IReadOnlyList<LocalApiEventResponse> _widgetDetailEvents = [];
+    private LocalApiTimelineResponse? _widgetDetailTimeline;
+    private LocalApiSettingsResponse? _widgetDetailSettings;
+    private DateTimeOffset _lastWidgetDetailRefreshUtc = DateTimeOffset.MinValue;
     private bool _hooksInstalled;
     private bool _keyboardCaptureAvailable;
     private bool _mouseCaptureAvailable;
@@ -171,6 +177,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             .ConfigureAwait(false);
 
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        WidgetDetailSnapshot widgetDetails = await RefreshWidgetDetailsAsync(nowUtc, token).ConfigureAwait(false);
         UserAgentVisualSignals signals = UserAgentVisualSignalsAdapter.Build(
             status,
             snapshot,
@@ -187,7 +194,15 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         UpdateTrayState(new(
             MapTrayMode(signals.Mode),
             signals.TooltipText));
-        UpdateWidgetState(UserDesktopWidgetStateBuilder.Build(status, snapshot, signals, captureDegradedToast));
+        UpdateWidgetState(UserDesktopWidgetStateBuilder.Build(
+            status,
+            snapshot,
+            signals,
+            captureDegradedToast,
+            widgetDetails.RecentEvents,
+            widgetDetails.Timeline,
+            widgetDetails.Settings,
+            nowUtc));
 
         if (captureDegradedToast != null
             && _captureDegradedToastGate.ShouldShow(captureDegradedToast, nowUtc))
@@ -682,6 +697,35 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         return Environment.UserInteractive && sessionId > 0;
     }
 
+    private async Task<WidgetDetailSnapshot> RefreshWidgetDetailsAsync(DateTimeOffset nowUtc, CancellationToken token)
+    {
+        bool shouldRefresh = _widgetDetailTimeline == null
+            || _widgetDetailSettings == null
+            || (nowUtc - _lastWidgetDetailRefreshUtc) >= WidgetDetailRefreshInterval;
+        if (shouldRefresh && _localApiClient.IsConfigured)
+        {
+            IReadOnlyList<LocalApiEventResponse> events = await _localApiClient
+                .GetRecentEventsAsync(limit: 40, token: token)
+                .ConfigureAwait(false);
+            LocalApiTimelineResponse? timeline = await _localApiClient
+                .GetTimelineAsync(nowUtc - WidgetTimelineLookback, nowUtc, bucketSeconds: 60, token)
+                .ConfigureAwait(false);
+            LocalApiSettingsResponse? settings = await _localApiClient
+                .GetEffectiveSettingsAsync(token)
+                .ConfigureAwait(false);
+
+            _widgetDetailEvents = events;
+            _widgetDetailTimeline = timeline ?? _widgetDetailTimeline;
+            _widgetDetailSettings = settings ?? _widgetDetailSettings;
+            _lastWidgetDetailRefreshUtc = nowUtc;
+        }
+
+        return new WidgetDetailSnapshot(
+            _widgetDetailEvents,
+            _widgetDetailTimeline,
+            _widgetDetailSettings);
+    }
+
     private static string BuildAgentInstanceId()
     {
         return $"useragent-{Environment.ProcessId}-{Guid.NewGuid():N}";
@@ -714,6 +758,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             _ => UserInterventionToastRenderer.UserTrayMode.Normal
         };
     }
+
+    private sealed record WidgetDetailSnapshot(
+        IReadOnlyList<LocalApiEventResponse> RecentEvents,
+        LocalApiTimelineResponse? Timeline,
+        LocalApiSettingsResponse? Settings);
 }
 
 internal sealed class CaptureSelfTestCoordinator

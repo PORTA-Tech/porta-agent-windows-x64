@@ -35,8 +35,14 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly StackPanel _expandedStack;
     private readonly TextBlock _titleText;
     private readonly TextBlock _statusText;
+    private readonly Border _primaryMetricChip;
     private readonly TextBlock _primaryMetricText;
+    private readonly Border _secondaryMetricChip;
     private readonly TextBlock _secondaryMetricText;
+    private readonly Border _tertiaryMetricChip;
+    private readonly TextBlock _tertiaryMetricText;
+    private readonly Border _quaternaryMetricChip;
+    private readonly TextBlock _quaternaryMetricText;
     private readonly TextBlock _footerText;
     private readonly Border _notificationsChip;
     private readonly Border _brightnessChip;
@@ -191,13 +197,17 @@ internal sealed class UserDesktopWidgetWindow : Window
         };
         _expandedStack.Children.Add(metricsPanel);
 
-        Border primaryMetricChip = CreateMetricChip(out _primaryMetricText);
-        Border secondaryMetricChip = CreateMetricChip(out _secondaryMetricText);
+        _primaryMetricChip = CreateMetricChip(out _primaryMetricText);
+        _secondaryMetricChip = CreateMetricChip(out _secondaryMetricText);
+        _tertiaryMetricChip = CreateMetricChip(out _tertiaryMetricText);
+        _quaternaryMetricChip = CreateMetricChip(out _quaternaryMetricText);
         _notificationsChip = CreateStatusChip("Notifications muted");
         _brightnessChip = CreateStatusChip("Brightness reduced");
 
-        metricsPanel.Children.Add(primaryMetricChip);
-        metricsPanel.Children.Add(secondaryMetricChip);
+        metricsPanel.Children.Add(_primaryMetricChip);
+        metricsPanel.Children.Add(_secondaryMetricChip);
+        metricsPanel.Children.Add(_tertiaryMetricChip);
+        metricsPanel.Children.Add(_quaternaryMetricChip);
         metricsPanel.Children.Add(_notificationsChip);
         metricsPanel.Children.Add(_brightnessChip);
 
@@ -341,8 +351,10 @@ internal sealed class UserDesktopWidgetWindow : Window
         _currentState = state;
         _titleText.Text = state.Title;
         _statusText.Text = state.StatusText;
-        _primaryMetricText.Text = state.PrimaryMetricText;
-        _secondaryMetricText.Text = state.SecondaryMetricText;
+        SetMetricText(_primaryMetricChip, _primaryMetricText, state.PrimaryMetricText);
+        SetMetricText(_secondaryMetricChip, _secondaryMetricText, state.SecondaryMetricText);
+        SetMetricText(_tertiaryMetricChip, _tertiaryMetricText, state.TertiaryMetricText);
+        SetMetricText(_quaternaryMetricChip, _quaternaryMetricText, state.QuaternaryMetricText);
         _footerText.Text = state.FooterText;
         _footerText.Visibility = string.IsNullOrWhiteSpace(state.FooterText)
             ? Visibility.Collapsed
@@ -409,6 +421,19 @@ internal sealed class UserDesktopWidgetWindow : Window
             Margin = new Thickness(0, 0, 8, 6),
             Child = textBlock
         };
+    }
+
+    private static void SetMetricText(Border chip, TextBlock textBlock, string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            textBlock.Text = string.Empty;
+            chip.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        textBlock.Text = text.Trim();
+        chip.Visibility = Visibility.Visible;
     }
 
     private static Border CreateStatusChip(string text)

@@ -32,4 +32,6 @@ internal sealed record UserDesktopWidgetState(
     bool NotificationsSuppressed,
     bool BrightnessAdjusted,
     bool CanPause,
-    bool CanResume);
+    bool CanResume,
+    string TertiaryMetricText = "",
+    string QuaternaryMetricText = "");
