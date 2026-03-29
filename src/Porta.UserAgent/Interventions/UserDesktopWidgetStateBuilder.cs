@@ -200,7 +200,7 @@ internal static class UserDesktopWidgetStateBuilder
     {
         if (mode == UserDesktopWidgetMode.Paused)
         {
-            return "Computer paused";
+            return "Today paused";
         }
 
         if (timeline?.Snapshots is { Count: > 0 } snapshots)
@@ -209,16 +209,16 @@ internal static class UserDesktopWidgetStateBuilder
             TimeSpan activeDuration = TimeSpan.FromSeconds(snapshots.Count * bucketSeconds);
             if (activeDuration > TimeSpan.Zero)
             {
-                return $"Computer {FormatCompactDuration(activeDuration)}";
+                return $"Today {FormatCompactDuration(activeDuration)}";
             }
         }
 
         if (snapshot != null)
         {
-            return $"Computer {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, snapshot.SustainedAttentionDurationSec)))}";
+            return $"Today {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, snapshot.SustainedAttentionDurationSec)))}";
         }
 
-        return "Computer n/a";
+        return "Today n/a";
     }
 
     private static string FormatPercent(double value)

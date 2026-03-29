@@ -772,15 +772,128 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="1.8*" /><ColumnDefinition Width="1.2*" /></Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,12,0">
                             <TextBlock Text="Actions" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock Text="What PORTA did, why it happened, and whether undo is available." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
-                            <WrapPanel Margin="0,0,0,12">
-                                <Border Background="#1E3A8A" CornerRadius="12" Padding="10,4" Margin="0,0,8,0">
-                                    <TextBlock x:Name="SuggestionsCountText" Text="Suggestions: 0" Foreground="#DBEAFE" FontWeight="SemiBold" />
+                            <TextBlock Text="A clearer view of what Ari suggested, what changed, and how those actions are trending." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Suggestions" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock x:Name="SuggestionsCountText" Text="0" FontSize="20" FontWeight="SemiBold" Foreground="#DBEAFE" Margin="0,4,0,0" />
+                                    </StackPanel>
                                 </Border>
-                                <Border Background="#14532D" CornerRadius="12" Padding="10,4" Margin="0,0,8,0">
-                                    <TextBlock x:Name="ChangesCountText" Text="Changes: 0" Foreground="#DCFCE7" FontWeight="SemiBold" />
+                                <Border Grid.Column="1" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Changes" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock x:Name="ChangesCountText" Text="0" FontSize="20" FontWeight="SemiBold" Foreground="#DCFCE7" Margin="0,4,0,0" />
+                                    </StackPanel>
                                 </Border>
-                            </WrapPanel>
+                                <Border Grid.Column="2" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Total" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock x:Name="ActionsTotalCountText" Text="0" FontSize="20" FontWeight="SemiBold" Foreground="#E6E9ED" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Grid.Column="3" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Last activity" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock x:Name="ActionsLastSeenText" Text="No recent actions" FontSize="13" FontWeight="SemiBold" Foreground="#E6E9ED" Margin="0,6,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1.2*" />
+                                    <ColumnDefinition Width="0.8*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,8,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Recent timeline" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                        <TextBlock Text="Newest actions on the right. Hover any point to inspect the moment and reason." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="ActionsTimelineEmptyText" Text="No recent actions yet." Foreground="#CBD5E1" Visibility="Collapsed" />
+                                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                            <StackPanel x:Name="ActionsTimelineStripPanel" Orientation="Horizontal" />
+                                        </ScrollViewer>
+                                    </StackPanel>
+                                </Border>
+                                <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="8,0,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Category mix" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                        <TextBlock Text="Share of recent actions by type." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
+
+                                        <Grid Margin="0,0,0,10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="80" />
+                                                <ColumnDefinition Width="170" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Breaks" Foreground="#CBD5E1" VerticalAlignment="Center" />
+                                            <Border Grid.Column="1" Background="#0F172A" BorderBrush="#243042" BorderThickness="1" CornerRadius="999" Height="10" Margin="10,0,10,0">
+                                                <Border x:Name="ActionCategoryBreakFill" Background="#3B82F6" CornerRadius="999" HorizontalAlignment="Left" Width="0" />
+                                            </Border>
+                                            <TextBlock x:Name="ActionCategoryBreakValue" Grid.Column="2" Text="0%" Foreground="#DBEAFE" VerticalAlignment="Center" />
+                                        </Grid>
+
+                                        <Grid Margin="0,0,0,10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="80" />
+                                                <ColumnDefinition Width="170" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Focus" Foreground="#CBD5E1" VerticalAlignment="Center" />
+                                            <Border Grid.Column="1" Background="#0F172A" BorderBrush="#243042" BorderThickness="1" CornerRadius="999" Height="10" Margin="10,0,10,0">
+                                                <Border x:Name="ActionCategoryFocusFill" Background="#22C55E" CornerRadius="999" HorizontalAlignment="Left" Width="0" />
+                                            </Border>
+                                            <TextBlock x:Name="ActionCategoryFocusValue" Grid.Column="2" Text="0%" Foreground="#DCFCE7" VerticalAlignment="Center" />
+                                        </Grid>
+
+                                        <Grid Margin="0,0,0,10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="80" />
+                                                <ColumnDefinition Width="170" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Alerts" Foreground="#CBD5E1" VerticalAlignment="Center" />
+                                            <Border Grid.Column="1" Background="#0F172A" BorderBrush="#243042" BorderThickness="1" CornerRadius="999" Height="10" Margin="10,0,10,0">
+                                                <Border x:Name="ActionCategoryNotificationsFill" Background="#F59E0B" CornerRadius="999" HorizontalAlignment="Left" Width="0" />
+                                            </Border>
+                                            <TextBlock x:Name="ActionCategoryNotificationsValue" Grid.Column="2" Text="0%" Foreground="#FDE68A" VerticalAlignment="Center" />
+                                        </Grid>
+
+                                        <Grid Margin="0,0,0,10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="80" />
+                                                <ColumnDefinition Width="170" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Protection" Foreground="#CBD5E1" VerticalAlignment="Center" />
+                                            <Border Grid.Column="1" Background="#0F172A" BorderBrush="#243042" BorderThickness="1" CornerRadius="999" Height="10" Margin="10,0,10,0">
+                                                <Border x:Name="ActionCategoryProtectionFill" Background="#A855F7" CornerRadius="999" HorizontalAlignment="Left" Width="0" />
+                                            </Border>
+                                            <TextBlock x:Name="ActionCategoryProtectionValue" Grid.Column="2" Text="0%" Foreground="#E9D5FF" VerticalAlignment="Center" />
+                                        </Grid>
+
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="80" />
+                                                <ColumnDefinition Width="170" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Other" Foreground="#CBD5E1" VerticalAlignment="Center" />
+                                            <Border Grid.Column="1" Background="#0F172A" BorderBrush="#243042" BorderThickness="1" CornerRadius="999" Height="10" Margin="10,0,10,0">
+                                                <Border x:Name="ActionCategoryOtherFill" Background="#64748B" CornerRadius="999" HorizontalAlignment="Left" Width="0" />
+                                            </Border>
+                                            <TextBlock x:Name="ActionCategoryOtherValue" Grid.Column="2" Text="0%" Foreground="#CBD5E1" VerticalAlignment="Center" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
 
                             <!-- Keep these hidden toggles for existing settings/undo wiring. -->
                             <StackPanel Visibility="Collapsed">
@@ -873,24 +986,39 @@
                                                     <Border Background="{Binding RelativeSource={RelativeSource AncestorType=ListViewItem}, Path=Background}"
                                                             BorderBrush="{Binding RelativeSource={RelativeSource AncestorType=ListViewItem}, Path=BorderBrush}"
                                                             BorderThickness="1"
-                                                            CornerRadius="10"
-                                                            Padding="12">
-                                                        <StackPanel>
-                                                            <Grid Margin="0,0,0,6">
-                                                                <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition Width="*" />
-                                                                    <ColumnDefinition Width="Auto" />
-                                                                </Grid.ColumnDefinitions>
-                                                                <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" Foreground="#F8FAFC" />
-                                                                <Border Grid.Column="1" Background="#151B23" BorderBrush="#2B3441" BorderThickness="1" CornerRadius="10" Padding="8,2">
-                                                                    <TextBlock Text="{Binding Time}" Foreground="#CBD5E1" FontSize="11" />
-                                                                </Border>
-                                                            </Grid>
-                                                            <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" />
-                                                            <TextBlock Text="{Binding Classification}" Foreground="#FDE68A" TextWrapping="Wrap" FontSize="11" Margin="0,6,0,0" />
-                                                            <TextBlock Text="{Binding Decision}" Foreground="#93C5FD" TextWrapping="Wrap" FontSize="11" Margin="0,4,0,0" />
-                                                            <TextBlock Text="{Binding Execution}" Foreground="#93C5FD" TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0" />
-                                                        </StackPanel>
+                                                            CornerRadius="12"
+                                                            Padding="0">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="4" />
+                                                                <ColumnDefinition Width="*" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Border Background="#3B82F6" CornerRadius="12,0,0,12" />
+                                                            <StackPanel Grid.Column="1" Margin="12">
+                                                                <Grid Margin="0,0,0,8">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="*" />
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                                    <Border Grid.Column="1" Background="#151B23" BorderBrush="#2B3441" BorderThickness="1" CornerRadius="10" Padding="8,2" Margin="8,0,0,0">
+                                                                        <TextBlock Text="{Binding Time}" Foreground="#CBD5E1" FontSize="11" />
+                                                                    </Border>
+                                                                </Grid>
+                                                                <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" />
+                                                                <WrapPanel Margin="0,8,0,0">
+                                                                    <Border Background="#2A1B0C" BorderBrush="#6B4A14" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                                                        <TextBlock Text="{Binding Classification}" Foreground="#FDE68A" FontSize="11" />
+                                                                    </Border>
+                                                                    <Border Background="#13293D" BorderBrush="#244866" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                                                        <TextBlock Text="{Binding Decision}" Foreground="#BFDBFE" FontSize="11" />
+                                                                    </Border>
+                                                                    <Border Background="#14213D" BorderBrush="#334155" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                                                        <TextBlock Text="{Binding Execution}" Foreground="#CBD5E1" FontSize="11" />
+                                                                    </Border>
+                                                                </WrapPanel>
+                                                            </StackPanel>
+                                                        </Grid>
                                                     </Border>
                                                 </DataTemplate>
                                             </ListView.ItemTemplate>
@@ -938,25 +1066,42 @@
                                                     <Border Background="{Binding RelativeSource={RelativeSource AncestorType=ListViewItem}, Path=Background}"
                                                             BorderBrush="{Binding RelativeSource={RelativeSource AncestorType=ListViewItem}, Path=BorderBrush}"
                                                             BorderThickness="1"
-                                                            CornerRadius="10"
-                                                            Padding="12">
-                                                        <StackPanel>
-                                                            <Grid Margin="0,0,0,6">
-                                                                <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition Width="*" />
-                                                                    <ColumnDefinition Width="Auto" />
-                                                                </Grid.ColumnDefinitions>
-                                                                <TextBlock Text="{Binding WhatChanged}" FontSize="14" FontWeight="SemiBold" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                                                <Border Grid.Column="1" Background="#064E3B" CornerRadius="10" Padding="8,2" Margin="8,0,0,0">
-                                                                    <TextBlock Text="{Binding Undo}" Foreground="#D1FAE5" FontSize="11" />
-                                                                </Border>
-                                                            </Grid>
-                                                            <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,6" />
-                                                            <TextBlock Text="{Binding Classification}" Foreground="#FDE68A" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,4" />
-                                                            <TextBlock Text="{Binding Decision}" Foreground="#93C5FD" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,2" />
-                                                            <TextBlock Text="{Binding Execution}" Foreground="#93C5FD" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,6" />
-                                                            <TextBlock Text="{Binding When}" Foreground="#94A3B8" FontSize="11" />
-                                                        </StackPanel>
+                                                            CornerRadius="12"
+                                                            Padding="0">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="4" />
+                                                                <ColumnDefinition Width="*" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Border Background="#22C55E" CornerRadius="12,0,0,12" />
+                                                            <StackPanel Grid.Column="1" Margin="12">
+                                                                <Grid Margin="0,0,0,8">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="*" />
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <TextBlock Text="{Binding WhatChanged}" FontSize="14" FontWeight="SemiBold" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                                    <Border Grid.Column="1" Background="#064E3B" CornerRadius="10" Padding="8,2" Margin="8,0,0,0">
+                                                                        <TextBlock Text="{Binding Undo}" Foreground="#D1FAE5" FontSize="11" />
+                                                                    </Border>
+                                                                </Grid>
+                                                                <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                                                <WrapPanel>
+                                                                    <Border Background="#2A1B0C" BorderBrush="#6B4A14" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                                                        <TextBlock Text="{Binding Classification}" Foreground="#FDE68A" FontSize="11" />
+                                                                    </Border>
+                                                                    <Border Background="#13293D" BorderBrush="#244866" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                                                        <TextBlock Text="{Binding Decision}" Foreground="#BFDBFE" FontSize="11" />
+                                                                    </Border>
+                                                                    <Border Background="#14213D" BorderBrush="#334155" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                                                        <TextBlock Text="{Binding Execution}" Foreground="#CBD5E1" FontSize="11" />
+                                                                    </Border>
+                                                                    <Border Background="#151B23" BorderBrush="#2B3441" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                                                        <TextBlock Text="{Binding When}" Foreground="#94A3B8" FontSize="11" />
+                                                                    </Border>
+                                                                </WrapPanel>
+                                                            </StackPanel>
+                                                        </Grid>
                                                     </Border>
                                                 </DataTemplate>
                                             </ListView.ItemTemplate>

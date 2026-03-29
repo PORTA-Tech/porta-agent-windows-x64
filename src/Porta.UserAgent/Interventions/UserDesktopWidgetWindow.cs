@@ -14,7 +14,7 @@ using FormsCursor = System.Windows.Forms.Cursor;
 
 internal sealed class UserDesktopWidgetWindow : Window
 {
-    private const double ExpandedWidth = 280d;
+    private const double ExpandedWidth = 356d;
     private const double CollapsedWidth = 42d;
     private const double BaseHeight = 72d;
     private const double CollapsedHeight = 42d;
@@ -132,7 +132,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _collapseTimer.Tick += (_, _) =>
         {
             _collapseTimer.Stop();
-            if (_menuOpen || _collapsed || _dragInProgress || !IsPointerNearWidget())
+            if (_menuOpen || _collapsed || _dragInProgress || !IsPointerInsideWidget())
             {
                 return;
             }
@@ -159,14 +159,15 @@ internal sealed class UserDesktopWidgetWindow : Window
         _rootBorder.MouseLeave += (_, _) => HandlePointerLeave();
 
         Grid shellGrid = new();
-        shellGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(4) });
+        shellGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
         shellGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         _accentBar = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(61, 148, 255)),
+            Background = new SolidColorBrush(Color.FromRgb(38, 47, 59)),
             CornerRadius = new CornerRadius(16, 16, 0, 0)
         };
+        _accentBar.Visibility = Visibility.Collapsed;
         Grid.SetRow(_accentBar, 0);
         shellGrid.Children.Add(_accentBar);
 
@@ -220,8 +221,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         };
         headerStack.Children.Add(_statusText);
 
-        WrapPanel metricsPanel = new()
+        UniformGrid metricsPanel = new()
         {
+            Columns = 3,
             Margin = new Thickness(0, 6, 0, 0)
         };
         _expandedStack.Children.Add(metricsPanel);
@@ -237,8 +239,6 @@ internal sealed class UserDesktopWidgetWindow : Window
         metricsPanel.Children.Add(_primaryMetricChip);
         metricsPanel.Children.Add(_secondaryMetricChip);
         metricsPanel.Children.Add(_tertiaryMetricChip);
-        metricsPanel.Children.Add(_notificationsChip);
-        metricsPanel.Children.Add(_brightnessChip);
 
         _footerText = new TextBlock
         {
@@ -411,50 +411,75 @@ internal sealed class UserDesktopWidgetWindow : Window
             Placement = PlacementMode.Bottom,
             StaysOpen = false,
             AllowsTransparency = true,
-            PopupAnimation = PopupAnimation.Fade
+            PopupAnimation = PopupAnimation.Fade,
+            VerticalOffset = 10
         };
         _menuPopup.Opened += (_, _) =>
         {
             _menuOpen = true;
             _collapseTimer.Stop();
-            Collapse();
+            _reexpandTimer.Stop();
+            Expand();
         };
         _menuPopup.Closed += (_, _) =>
         {
             _menuOpen = false;
-            if (!_collapsed)
+            if (HasBlockingSurfaceVisible())
             {
                 return;
             }
 
-            if (!IsPointerNearWidget())
+            if (IsPointerInsideWidget())
             {
-                Expand();
-            }
-            else
-            {
-                _reexpandTimer.Start();
+                ScheduleCollapse();
             }
         };
 
         Border popupChrome = new()
         {
-            Background = new SolidColorBrush(Color.FromRgb(21, 24, 28)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(48, 55, 67)),
+            Background = new SolidColorBrush(Color.FromRgb(27, 31, 37)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(59, 70, 85)),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(10),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(12),
             Effect = new DropShadowEffect
             {
-                BlurRadius = 16,
+                BlurRadius = 18,
                 ShadowDepth = 2,
-                Opacity = 0.22,
+                Opacity = 0.24,
                 Color = Color.FromRgb(6, 9, 12)
             }
         };
-        StackPanel popupStack = new() { MinWidth = 214 };
+        StackPanel popupStack = new() { MinWidth = 236 };
         popupChrome.Child = popupStack;
         _menuPopup.Child = popupChrome;
+
+        Border popupHeader = new()
+        {
+            Background = new SolidColorBrush(Color.FromRgb(21, 24, 28)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(48, 55, 67)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12, 10, 12, 10),
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        StackPanel popupHeaderStack = new();
+        popupHeader.Child = popupHeaderStack;
+        popupHeaderStack.Children.Add(new TextBlock
+        {
+            Text = "Ari",
+            Foreground = new SolidColorBrush(Color.FromRgb(230, 233, 237)),
+            FontSize = 15,
+            FontWeight = FontWeights.SemiBold
+        });
+        popupHeaderStack.Children.Add(new TextBlock
+        {
+            Text = "Quick actions and sections",
+            Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
+            FontSize = 11.5,
+            Margin = new Thickness(0, 2, 0, 0)
+        });
+        popupStack.Children.Add(popupHeader);
 
         popupStack.Children.Add(CreateMenuSectionLabel("Navigate"));
         popupStack.Children.Add(CreateMenuButton("Open Now", UserDesktopWidgetAction.OpenNow));
@@ -590,7 +615,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
             FontSize = 11,
-            FontWeight = FontWeights.Medium
+            FontWeight = FontWeights.Medium,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center
         };
 
         return new Border
@@ -600,7 +627,8 @@ internal sealed class UserDesktopWidgetWindow : Window
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(999),
             Padding = new Thickness(9, 4, 9, 4),
-            Margin = new Thickness(0, 0, 6, 6),
+            Margin = new Thickness(0, 0, 6, 0),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             Child = textBlock
         };
     }
@@ -659,9 +687,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         return new TextBlock
         {
             Text = text,
-            Margin = new Thickness(4, 0, 4, 8),
+            Margin = new Thickness(2, 0, 2, 8),
             Foreground = new SolidColorBrush(Color.FromRgb(138, 151, 166)),
-            FontSize = 11,
+            FontSize = 11.2,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap
         };
@@ -679,17 +707,31 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private Button CreateMenuButton(string text, UserDesktopWidgetAction action)
     {
+        SolidColorBrush baseBackground = new(Color.FromRgb(21, 24, 28));
+        SolidColorBrush hoverBackground = new(Color.FromRgb(29, 35, 42));
+        SolidColorBrush baseBorder = new(Color.FromRgb(48, 55, 67));
+        SolidColorBrush hoverBorder = new(Color.FromRgb(80, 94, 114));
         Button button = new()
         {
             Content = text,
             HorizontalContentAlignment = HorizontalAlignment.Left,
-            Padding = new Thickness(10, 8, 10, 8),
-            Margin = new Thickness(0, 0, 0, 6),
-            Background = new SolidColorBrush(Color.FromRgb(26, 33, 41)),
+            Padding = new Thickness(12, 9, 12, 9),
+            Margin = new Thickness(0, 0, 0, 8),
+            Background = baseBackground,
             Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(47, 58, 71)),
+            BorderBrush = baseBorder,
             BorderThickness = new Thickness(1),
             Cursor = Cursors.Hand
+        };
+        button.MouseEnter += (_, _) =>
+        {
+            button.Background = hoverBackground;
+            button.BorderBrush = hoverBorder;
+        };
+        button.MouseLeave += (_, _) =>
+        {
+            button.Background = baseBackground;
+            button.BorderBrush = baseBorder;
         };
         button.Click += (_, _) =>
         {
@@ -715,7 +757,9 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         _collapsed = true;
         _expandedStack.IsHitTestVisible = false;
-        _expandedStack.BeginAnimation(OpacityProperty, new DoubleAnimation(0d, TransitionDuration));
+        _expandedStack.BeginAnimation(OpacityProperty, null);
+        _expandedStack.Opacity = 0d;
+        _expandedStack.Visibility = Visibility.Collapsed;
         AnimateWindowWidth(CollapsedWidth);
         AnimateWindowHeight(CollapsedHeight);
         _reexpandTimer.Start();
@@ -729,8 +773,10 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
 
         _collapsed = false;
+        _expandedStack.Visibility = Visibility.Visible;
         _expandedStack.IsHitTestVisible = true;
-        _expandedStack.BeginAnimation(OpacityProperty, new DoubleAnimation(1d, TransitionDuration));
+        _expandedStack.BeginAnimation(OpacityProperty, null);
+        _expandedStack.Opacity = 1d;
         AnimateWindowWidth(ExpandedWidth);
         UpdateWindowHeight();
         _reexpandTimer.Stop();
@@ -744,9 +790,16 @@ internal sealed class UserDesktopWidgetWindow : Window
             _collapseTimer.Stop();
             Expand();
         }
-        else if (!_menuOpen && IsPointerNearWidget())
+        else if (!_menuOpen && !HasBlockingSurfaceVisible())
         {
-            ScheduleCollapse();
+            if (IsPointerInsideWidget())
+            {
+                ScheduleCollapse();
+            }
+            else if (!_collapsed)
+            {
+                Collapse();
+            }
         }
 
         UpdateWindowHeight();
@@ -818,7 +871,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void ScheduleCollapse()
     {
-        if (_collapsed || _menuOpen || _dragInProgress || HasBlockingSurfaceVisible())
+        if (_collapsed || _menuOpen || _dragInProgress || HasBlockingSurfaceVisible() || !IsPointerInsideWidget())
         {
             return;
         }
@@ -953,6 +1006,20 @@ internal sealed class UserDesktopWidgetWindow : Window
         return bounds.Contains(new Point(cursor.X, cursor.Y));
     }
 
+    private bool IsPointerInsideWidget()
+    {
+        if (!_placementInitialized)
+        {
+            return false;
+        }
+
+        double width = ActualWidth > 0d ? ActualWidth : Width;
+        double height = ActualHeight > 0d ? ActualHeight : Height;
+        Rect bounds = new(Left, Top, width, height);
+        System.Drawing.Point cursor = FormsCursor.Position;
+        return bounds.Contains(new Point(cursor.X, cursor.Y));
+    }
+
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (msg == NativeMethods.WmNcHitTest
@@ -1011,17 +1078,9 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void ApplyModeChrome(UserDesktopWidgetMode mode)
     {
-        (Color Accent, Color Button) palette = mode switch
-        {
-            UserDesktopWidgetMode.DeepWork => (Color.FromRgb(53, 166, 122), Color.FromRgb(22, 66, 51)),
-            UserDesktopWidgetMode.Overload => (Color.FromRgb(232, 97, 64), Color.FromRgb(86, 40, 29)),
-            UserDesktopWidgetMode.Limited => (Color.FromRgb(236, 189, 86), Color.FromRgb(87, 67, 22)),
-            UserDesktopWidgetMode.Paused => (Color.FromRgb(132, 152, 176), Color.FromRgb(45, 58, 71)),
-            _ => (Color.FromRgb(61, 148, 255), Color.FromRgb(28, 53, 78))
-        };
-
-        _accentBar.Background = new SolidColorBrush(palette.Accent);
-        _menuButton.Background = new SolidColorBrush(palette.Button);
+        _ = mode;
+        _accentBar.Background = new SolidColorBrush(Color.FromRgb(38, 47, 59));
+        _menuButton.Background = new SolidColorBrush(Color.FromRgb(28, 35, 43));
     }
 
     private void ApplyCriticalState(UserDesktopWidgetCriticalState? criticalState)
@@ -1029,9 +1088,16 @@ internal sealed class UserDesktopWidgetWindow : Window
         if (criticalState == null)
         {
             _criticalCard.Visibility = Visibility.Collapsed;
-            if (!_menuOpen && IsPointerNearWidget())
+            if (!_menuOpen && !HasBlockingSurfaceVisible())
             {
-                ScheduleCollapse();
+                if (IsPointerInsideWidget())
+                {
+                    ScheduleCollapse();
+                }
+                else if (!_collapsed)
+                {
+                    Collapse();
+                }
             }
 
             UpdateWindowHeight();
@@ -1089,9 +1155,16 @@ internal sealed class UserDesktopWidgetWindow : Window
         _promptTimer.Stop();
         _promptCard.Visibility = Visibility.Collapsed;
         UpdateWindowHeight();
-        if (!_menuOpen && IsPointerNearWidget())
+        if (!_menuOpen && !HasBlockingSurfaceVisible())
         {
-            ScheduleCollapse();
+            if (IsPointerInsideWidget())
+            {
+                ScheduleCollapse();
+            }
+            else if (!_collapsed)
+            {
+                Collapse();
+            }
         }
 
         _promptResponseRequested(new UserInterventionPromptResponse(

@@ -38,7 +38,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Contains("partial activity", state.StatusText, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("Focus 4m", state.PrimaryMetricText);
         Assert.Equal("Overload 18%", state.SecondaryMetricText);
-        Assert.Equal("Computer 4m", state.TertiaryMetricText);
+        Assert.Equal("Today 4m", state.TertiaryMetricText);
         Assert.Equal(string.Empty, state.QuaternaryMetricText);
         Assert.Equal(string.Empty, state.FooterText);
         Assert.False(state.NotificationsSuppressed);
@@ -73,7 +73,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Equal($"Paused until {pauseUntilUtc.ToLocalTime():h:mm tt}.", state.StatusText);
         Assert.Equal("Focus paused", state.PrimaryMetricText);
         Assert.Equal("Overload paused", state.SecondaryMetricText);
-        Assert.Equal("Computer paused", state.TertiaryMetricText);
+        Assert.Equal("Today paused", state.TertiaryMetricText);
         Assert.Equal(string.Empty, state.QuaternaryMetricText);
         Assert.Equal(string.Empty, state.FooterText);
     }
@@ -183,7 +183,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Equal("Overload is elevated.", state.StatusText);
         Assert.Equal("Focus 25m", state.PrimaryMetricText);
         Assert.Equal("Overload 74%", state.SecondaryMetricText);
-        Assert.Equal("Computer 25m", state.TertiaryMetricText);
+        Assert.Equal("Today 25m", state.TertiaryMetricText);
         Assert.Equal(string.Empty, state.QuaternaryMetricText);
         Assert.Equal(string.Empty, state.FooterText);
         Assert.False(state.NotificationsSuppressed);
@@ -247,7 +247,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
 
         Assert.Equal("Focus 25m", state.PrimaryMetricText);
         Assert.Equal("Overload 42%", state.SecondaryMetricText);
-        Assert.Equal("Computer 2h 00m", state.TertiaryMetricText);
+        Assert.Equal("Today 2h 00m", state.TertiaryMetricText);
         Assert.Equal(string.Empty, state.QuaternaryMetricText);
         Assert.Equal(string.Empty, state.FooterText);
         Assert.Equal(string.Empty, state.StatusText);

@@ -47,6 +47,7 @@ public partial class MainWindow : Window
     private const double StartupWindowBottomMargin = 28d;
     private const double StartupWindowTargetWidth = 1280d;
     private const double StartupWindowTargetHeight = 820d;
+    private const double ActionCategoryBarWidth = 170d;
 
     private readonly LocalApiClient _apiClient = new();
     private readonly DispatcherTimer _refreshTimer;
@@ -115,6 +116,15 @@ public partial class MainWindow : Window
     {
         Suggestions,
         Changes
+    }
+
+    private enum ActionCategory
+    {
+        Breaks,
+        Focus,
+        Notifications,
+        Protection,
+        Other
     }
 
     private enum FlowStepState
@@ -3471,8 +3481,9 @@ public partial class MainWindow : Window
 
         SuggestionsListView.ItemsSource = suggestions;
         ChangesListView.ItemsSource = changes;
-        SuggestionsCountText.Text = $"Suggestions: {suggestions.Count}";
-        ChangesCountText.Text = $"Changes: {changes.Count}";
+        SuggestionsCountText.Text = suggestions.Count.ToString(CultureInfo.InvariantCulture);
+        ChangesCountText.Text = changes.Count.ToString(CultureInfo.InvariantCulture);
+        PopulateActionsOverview(ordered, suggestions.Count, changes.Count);
 
         SuggestionsEmptyStateText.Visibility = suggestions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         SuggestionsListView.Visibility = suggestions.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -3495,6 +3506,217 @@ public partial class MainWindow : Window
             _selectedIntervention = latestSelected;
             UpdateInterventionDrawer(_selectedIntervention);
         }
+    }
+
+    private void PopulateActionsOverview(
+        IReadOnlyList<LocalApiEventResponse> ordered,
+        int suggestionCount,
+        int changeCount)
+    {
+        ActionsTotalCountText.Text = ordered.Count.ToString(CultureInfo.InvariantCulture);
+        ActionsLastSeenText.Text = ordered.Count == 0
+            ? "No recent actions"
+            : BuildActionLastSeenText(ordered[0]);
+
+        RenderActionsTimeline(ordered);
+        UpdateActionCategoryBreakdown(ordered);
+    }
+
+    private void RenderActionsTimeline(IReadOnlyList<LocalApiEventResponse> ordered)
+    {
+        ActionsTimelineStripPanel.Children.Clear();
+        if (ordered.Count == 0)
+        {
+            ActionsTimelineEmptyText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        ActionsTimelineEmptyText.Visibility = Visibility.Collapsed;
+        IReadOnlyList<LocalApiEventResponse> timelineItems = ordered
+            .Take(12)
+            .Reverse()
+            .ToList();
+
+        foreach (LocalApiEventResponse ev in timelineItems)
+        {
+            ActionsTimelineStripPanel.Children.Add(BuildTimelineActionChip(ev));
+        }
+    }
+
+    private FrameworkElement BuildTimelineActionChip(LocalApiEventResponse ev)
+    {
+        ActionCategory category = ResolveActionCategory(ev);
+        Brush background = GetActionCategoryBrush(category);
+        Brush border = GetActionCategoryBorderBrush(category);
+        StackPanel stack = new()
+        {
+            Margin = new Thickness(0, 0, 10, 0),
+            Width = 62
+        };
+
+        Border chip = new()
+        {
+            Background = background,
+            BorderBrush = border,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Height = 34,
+            Padding = new Thickness(8, 6, 8, 6),
+            ToolTip = $"{BuildActionTimelineTitle(ev)}{Environment.NewLine}{ev.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}{Environment.NewLine}{BuildActionTimelineSubtitle(ev)}"
+        };
+        chip.Child = new TextBlock
+        {
+            Text = GetActionCategoryShortLabel(category),
+            Foreground = Brushes.White,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center
+        };
+        stack.Children.Add(chip);
+        stack.Children.Add(new TextBlock
+        {
+            Text = BuildRelativeTimeLabel(ev.TimestampUtc),
+            Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
+            FontSize = 10.5,
+            Margin = new Thickness(0, 4, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center
+        });
+
+        return stack;
+    }
+
+    private void UpdateActionCategoryBreakdown(IReadOnlyList<LocalApiEventResponse> ordered)
+    {
+        int total = Math.Max(ordered.Count, 1);
+        int breakCount = ordered.Count(ev => ResolveActionCategory(ev) == ActionCategory.Breaks);
+        int focusCount = ordered.Count(ev => ResolveActionCategory(ev) == ActionCategory.Focus);
+        int notificationCount = ordered.Count(ev => ResolveActionCategory(ev) == ActionCategory.Notifications);
+        int protectionCount = ordered.Count(ev => ResolveActionCategory(ev) == ActionCategory.Protection);
+        int otherCount = ordered.Count(ev => ResolveActionCategory(ev) == ActionCategory.Other);
+
+        SetActionCategoryBar(ActionCategoryBreakFill, ActionCategoryBreakValue, breakCount, total);
+        SetActionCategoryBar(ActionCategoryFocusFill, ActionCategoryFocusValue, focusCount, total);
+        SetActionCategoryBar(ActionCategoryNotificationsFill, ActionCategoryNotificationsValue, notificationCount, total);
+        SetActionCategoryBar(ActionCategoryProtectionFill, ActionCategoryProtectionValue, protectionCount, total);
+        SetActionCategoryBar(ActionCategoryOtherFill, ActionCategoryOtherValue, otherCount, total);
+    }
+
+    private static void SetActionCategoryBar(Border fill, TextBlock valueText, int count, int total)
+    {
+        double ratio = total <= 0 ? 0d : (double)count / total;
+        fill.Width = ActionCategoryBarWidth * ratio;
+        valueText.Text = total <= 0
+            ? "0%"
+            : $"{Math.Round(ratio * 100d, MidpointRounding.AwayFromZero):0}%";
+    }
+
+    private static string BuildActionLastSeenText(LocalApiEventResponse ev)
+    {
+        return $"{BuildActionTimelineTitle(ev)} · {BuildRelativeTimeLabel(ev.TimestampUtc)}";
+    }
+
+    private static string BuildActionTimelineTitle(LocalApiEventResponse ev)
+    {
+        return IsSuggestionEvent(ev.Action)
+            ? BuildSuggestionTitle(ev.Action)
+            : (string.IsNullOrWhiteSpace(ev.WhatChanged) ? HumanizeActionName(ev.Action) : ev.WhatChanged);
+    }
+
+    private static string BuildActionTimelineSubtitle(LocalApiEventResponse ev)
+    {
+        return IsSuggestionEvent(ev.Action)
+            ? BuildSuggestionShortWhy(ev)
+            : BuildChangeShortWhy(ev);
+    }
+
+    private static string BuildRelativeTimeLabel(DateTimeOffset timestampUtc)
+    {
+        TimeSpan age = DateTimeOffset.UtcNow - timestampUtc;
+        if (age <= TimeSpan.FromMinutes(1))
+        {
+            return "now";
+        }
+
+        if (age < TimeSpan.FromHours(1))
+        {
+            return $"{Math.Max(1, (int)Math.Round(age.TotalMinutes, MidpointRounding.AwayFromZero))}m";
+        }
+
+        if (age < TimeSpan.FromDays(1))
+        {
+            return $"{Math.Max(1, (int)Math.Round(age.TotalHours, MidpointRounding.AwayFromZero))}h";
+        }
+
+        return $"{Math.Max(1, (int)Math.Round(age.TotalDays, MidpointRounding.AwayFromZero))}d";
+    }
+
+    private static ActionCategory ResolveActionCategory(LocalApiEventResponse ev)
+    {
+        string action = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (action.Contains("break", StringComparison.Ordinal))
+        {
+            return ActionCategory.Breaks;
+        }
+
+        if (action.Contains("focus", StringComparison.Ordinal))
+        {
+            return ActionCategory.Focus;
+        }
+
+        if (action.Contains("notification", StringComparison.Ordinal)
+            || action.Contains("alert", StringComparison.Ordinal))
+        {
+            return ActionCategory.Notifications;
+        }
+
+        if (action.Contains("restrict", StringComparison.Ordinal)
+            || action.Contains("app", StringComparison.Ordinal)
+            || action.Contains("animation", StringComparison.Ordinal)
+            || action.Contains("brightness", StringComparison.Ordinal))
+        {
+            return ActionCategory.Protection;
+        }
+
+        return ActionCategory.Other;
+    }
+
+    private static string GetActionCategoryShortLabel(ActionCategory category)
+    {
+        return category switch
+        {
+            ActionCategory.Breaks => "Break",
+            ActionCategory.Focus => "Focus",
+            ActionCategory.Notifications => "Alert",
+            ActionCategory.Protection => "Protect",
+            _ => "Other"
+        };
+    }
+
+    private static Brush GetActionCategoryBrush(ActionCategory category)
+    {
+        return category switch
+        {
+            ActionCategory.Breaks => new SolidColorBrush(Color.FromRgb(30, 58, 138)),
+            ActionCategory.Focus => new SolidColorBrush(Color.FromRgb(6, 95, 70)),
+            ActionCategory.Notifications => new SolidColorBrush(Color.FromRgb(146, 64, 14)),
+            ActionCategory.Protection => new SolidColorBrush(Color.FromRgb(91, 33, 182)),
+            _ => new SolidColorBrush(Color.FromRgb(51, 65, 85))
+        };
+    }
+
+    private static Brush GetActionCategoryBorderBrush(ActionCategory category)
+    {
+        return category switch
+        {
+            ActionCategory.Breaks => new SolidColorBrush(Color.FromRgb(96, 165, 250)),
+            ActionCategory.Focus => new SolidColorBrush(Color.FromRgb(74, 222, 128)),
+            ActionCategory.Notifications => new SolidColorBrush(Color.FromRgb(251, 191, 36)),
+            ActionCategory.Protection => new SolidColorBrush(Color.FromRgb(196, 181, 253)),
+            _ => new SolidColorBrush(Color.FromRgb(148, 163, 184))
+        };
     }
 
     private void SuggestionsListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -5430,7 +5652,7 @@ public partial class MainWindow : Window
                 return match;
             }
 
-            child = VisualTreeHelper.GetParent(child);
+            child = GetParentObject(child);
         }
 
         return null;
@@ -5445,10 +5667,34 @@ public partial class MainWindow : Window
                 return true;
             }
 
-            child = VisualTreeHelper.GetParent(child);
+            child = GetParentObject(child);
         }
 
         return false;
+    }
+
+    private static DependencyObject? GetParentObject(DependencyObject? child)
+    {
+        if (child == null)
+        {
+            return null;
+        }
+
+        if (child is ContentElement contentElement)
+        {
+            return ContentOperations.GetParent(contentElement)
+                ?? (contentElement as FrameworkContentElement)?.Parent
+                ?? (contentElement as FrameworkContentElement)?.TemplatedParent;
+        }
+
+        if (child is FrameworkElement frameworkElement && frameworkElement.Parent != null)
+        {
+            return frameworkElement.Parent;
+        }
+
+        return child is Visual or System.Windows.Media.Media3D.Visual3D
+            ? VisualTreeHelper.GetParent(child)
+            : LogicalTreeHelper.GetParent(child);
     }
 
     private static NowTruth BuildNowTruth(
