@@ -769,10 +769,10 @@
                               HorizontalScrollBarVisibility="Disabled"
                               PanningMode="None">
                     <Grid Margin="20">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="1.8*" /><ColumnDefinition Width="1.2*" /></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="2.15*" /><ColumnDefinition Width="0.85*" /></Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,12,0">
                             <TextBlock Text="Actions" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock Text="Suggestions are ideas from Ari. Changes are the things Ari actually changed for you." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                            <TextBlock Text="Suggestions are ideas. Changes are the settings Ari actually changed for you." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
 
                             <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
@@ -903,7 +903,7 @@
                                 <CheckBox x:Name="InterventionAppRestrictionToggle" Content="Allow temporary app restriction (auto)" Click="InterventionCategoryToggle_Click" />
                             </StackPanel>
 
-                            <TextBlock Text="Pick one row to see the full reason, decision state, and exact timing." Foreground="#94A3B8" Margin="0,0,0,8" TextWrapping="Wrap" />
+                            <TextBlock Text="Pick a row to see the reason, timing, and what changed in plain language." Foreground="#94A3B8" Margin="0,0,0,8" TextWrapping="Wrap" />
                             <WrapPanel Margin="0,0,0,8">
                                 <Button x:Name="ActionsSuggestionsTabButton" Content="Suggestions" Padding="12,6" Margin="0,0,8,0" Click="ActionsSuggestionsTabButton_Click" />
                                 <Button x:Name="ActionsChangesTabButton" Content="Changes" Padding="12,6" Click="ActionsChangesTabButton_Click" />
@@ -922,7 +922,9 @@
                                                   SelectionChanged="SuggestionsListView_SelectionChanged"
                                                   Background="#0B1220"
                                                   Foreground="#E2E8F0"
-                                                  BorderBrush="#1F2937">
+                                                  BorderBrush="#1F2937"
+                                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                                  ScrollViewer.CanContentScroll="False">
                                             <ListView.Resources>
                                                 <Style TargetType="ListViewItem">
                                                     <Setter Property="Foreground" Value="#E2E8F0" />
@@ -1007,17 +1009,6 @@
                                                                     </Border>
                                                                 </Grid>
                                                                 <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" />
-                                                                <WrapPanel Margin="0,8,0,0">
-                                                                    <Border Background="#2A1B0C" BorderBrush="#6B4A14" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                                                        <TextBlock Text="{Binding Classification}" Foreground="#FDE68A" FontSize="11" />
-                                                                    </Border>
-                                                                    <Border Background="#13293D" BorderBrush="#244866" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                                                        <TextBlock Text="{Binding Decision}" Foreground="#BFDBFE" FontSize="11" />
-                                                                    </Border>
-                                                                    <Border Background="#14213D" BorderBrush="#334155" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                                                        <TextBlock Text="{Binding Execution}" Foreground="#CBD5E1" FontSize="11" />
-                                                                    </Border>
-                                                                </WrapPanel>
                                                             </StackPanel>
                                                         </Grid>
                                                     </Border>
@@ -1039,6 +1030,7 @@
                                                   Background="#0B1220"
                                                   Foreground="#E2E8F0"
                                                   BorderBrush="#1F2937"
+                                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                                                   ScrollViewer.CanContentScroll="False">
                                             <ListView.Resources>
                                                 <Style TargetType="ListViewItem">
@@ -1088,15 +1080,6 @@
                                                                 </Grid>
                                                                 <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,8" />
                                                                 <WrapPanel>
-                                                                    <Border Background="#2A1B0C" BorderBrush="#6B4A14" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                                                        <TextBlock Text="{Binding Classification}" Foreground="#FDE68A" FontSize="11" />
-                                                                    </Border>
-                                                                    <Border Background="#13293D" BorderBrush="#244866" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                                                        <TextBlock Text="{Binding Decision}" Foreground="#BFDBFE" FontSize="11" />
-                                                                    </Border>
-                                                                    <Border Background="#14213D" BorderBrush="#334155" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                                                        <TextBlock Text="{Binding Execution}" Foreground="#CBD5E1" FontSize="11" />
-                                                                    </Border>
                                                                     <Border Background="#151B23" BorderBrush="#2B3441" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
                                                                         <TextBlock Text="{Binding When}" Foreground="#94A3B8" FontSize="11" />
                                                                     </Border>
@@ -1158,23 +1141,23 @@
                                     </Style>
                                 </ScrollViewer.Resources>
                                 <StackPanel>
-                                    <TextBlock Text="Selected action" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock Text="Selected item" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock x:Name="ActionDrawerTitle" Text="Choose one suggestion or change" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,10" />
                                     <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,10">
                                         <StackPanel>
                                             <TextBlock x:Name="ActionDrawerWhen" Text="When: Not available" Margin="0,0,0,6" Foreground="#CBD5E1" />
-                                            <TextBlock x:Name="ActionDrawerClassification" Text="Type: Not available" Margin="0,0,0,6" Foreground="#FDE68A" TextWrapping="Wrap" />
-                                            <TextBlock x:Name="ActionDrawerDecisionState" Text="Decision: Not available" Margin="0,0,0,6" Foreground="#93C5FD" TextWrapping="Wrap" />
-                                            <TextBlock x:Name="ActionDrawerExecutionState" Text="Execution: Not available" Margin="0,0,0,6" Foreground="#93C5FD" TextWrapping="Wrap" />
-                                            <TextBlock x:Name="ActionDrawerCooldown" Text="Cooldown remaining: Not available" Margin="0,0,0,6" Foreground="#CBD5E1" />
+                                            <TextBlock x:Name="ActionDrawerClassification" Text="Type: Not available" Margin="0,0,0,6" Foreground="#FDE68A" TextWrapping="Wrap" Visibility="Collapsed" />
+                                            <TextBlock x:Name="ActionDrawerDecisionState" Text="Decision: Not available" Margin="0,0,0,6" Foreground="#93C5FD" TextWrapping="Wrap" Visibility="Collapsed" />
+                                            <TextBlock x:Name="ActionDrawerExecutionState" Text="Execution: Not available" Margin="0,0,0,6" Foreground="#93C5FD" TextWrapping="Wrap" Visibility="Collapsed" />
+                                            <TextBlock x:Name="ActionDrawerCooldown" Text="Cooldown remaining: Not available" Margin="0,0,0,6" Foreground="#CBD5E1" Visibility="Collapsed" />
                                             <TextBlock x:Name="ActionDrawerUndo" Text="Undo: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#CBD5E1" />
-                                            <TextBlock x:Name="ActionDrawerShortWhy" Text="Why: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" MaxHeight="58" />
+                                            <TextBlock x:Name="ActionDrawerShortWhy" Text="Why: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" />
                                             <TextBlock x:Name="ActionDrawerRepeat" Text="" Foreground="#93C5FD" TextWrapping="Wrap" Margin="0,0,0,6" Visibility="Collapsed" />
-                                            <TextBlock x:Name="ActionDrawerWhatChanged" Text="What changed: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" MaxHeight="58" />
+                                            <TextBlock x:Name="ActionDrawerWhatChanged" Text="What changed: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" />
                                         </StackPanel>
                                     </Border>
-                                    <TextBlock Text="Raw details" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,4" />
-                                    <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8">
+                                    <TextBlock Text="Raw details" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,4" Visibility="Collapsed" />
+                                    <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Visibility="Collapsed">
                                         <ScrollViewer VerticalScrollBarVisibility="Disabled" Height="190">
                                             <TextBlock x:Name="ActionDrawerWhyJson" Text="Not available" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" />
                                         </ScrollViewer>
@@ -1389,11 +1372,12 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="2.3*" /><ColumnDefinition Width="1.3*" /></Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,12,0">
                             <TextBlock Text="History" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock Text="Read this like a day view: pressure, trust, focus, and action markers across the selected range." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+                            <TextBlock Text="Read this like a chart: time runs left to right, and focus is measured against your best retained streak." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
                             <WrapPanel Margin="0,0,0,10">
                                 <Button x:Name="HistoryRange1hButton" Content="Last 1h" Padding="10,4" Margin="0,0,8,0" Click="HistoryRange1hButton_Click" />
                                 <Button x:Name="HistoryRange4hButton" Content="Last 4h" Padding="10,4" Margin="0,0,8,0" Click="HistoryRange4hButton_Click" />
-                                <Button x:Name="HistoryRangeTodayButton" Content="Today" Padding="10,4" Margin="0,0,14,0" Click="HistoryRangeTodayButton_Click" />
+                                <Button x:Name="HistoryRangeTodayButton" Content="Today" Padding="10,4" Margin="0,0,8,0" Click="HistoryRangeTodayButton_Click" />
+                                <Button x:Name="HistoryRangeAllTimeButton" Content="All time" Padding="10,4" Margin="0,0,14,0" Click="HistoryRangeAllTimeButton_Click" />
                                 <CheckBox x:Name="HistoryExplainModeCheckBox" Content="Technical view" VerticalAlignment="Center" Foreground="#E5E7EB" Checked="HistoryExplainModeCheckBox_Changed" Unchecked="HistoryExplainModeCheckBox_Changed" />
                             </WrapPanel>
 
@@ -1438,25 +1422,65 @@
                                            TextWrapping="Wrap" />
                             </Border>
 
-                            <TextBlock Text="Pressure (overload)" FontWeight="SemiBold" />
-                            <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
-                                <ScrollViewer x:Name="TimelineOverloadScrollViewer" Height="56" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                    <StackPanel x:Name="TimelineOverloadTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
-                                </ScrollViewer>
-                            </Border>
+                            <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <TextBlock Text="Focus / overload / trust chart" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                    <TextBlock Text="X axis is time. Y axis is percentage, with focus measured against your best stored streak." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                    <WrapPanel Margin="0,0,0,10">
+                                        <Border Background="#123524" BorderBrush="#1B6B3A" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Focus" Foreground="#86EFAC" FontSize="11" />
+                                        </Border>
+                                        <Border Background="#3A1212" BorderBrush="#7F1D1D" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Overload" Foreground="#FCA5A5" FontSize="11" />
+                                        </Border>
+                                        <Border Background="#132C4A" BorderBrush="#1D4ED8" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Trust" Foreground="#BFDBFE" FontSize="11" />
+                                        </Border>
+                                    </WrapPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="36" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
 
-                            <TextBlock Text="Trust confidence" FontWeight="SemiBold" />
-                            <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
-                                <ScrollViewer x:Name="TimelineTrustScrollViewer" Height="56" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                    <StackPanel x:Name="TimelineTrustTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
-                                </ScrollViewer>
-                            </Border>
+                                        <StackPanel Grid.Column="0" Grid.Row="0" Height="220" VerticalAlignment="Stretch" Margin="0,4,8,0">
+                                            <TextBlock Text="100" Foreground="#94A3B8" FontSize="10" />
+                                            <TextBlock Text="75" Foreground="#64748B" FontSize="10" Margin="0,42,0,0" />
+                                            <TextBlock Text="50" Foreground="#64748B" FontSize="10" Margin="0,42,0,0" />
+                                            <TextBlock Text="25" Foreground="#64748B" FontSize="10" Margin="0,42,0,0" />
+                                            <TextBlock Text="0" Foreground="#94A3B8" FontSize="10" Margin="0,42,0,0" />
+                                        </StackPanel>
 
-                            <TextBlock Text="Focused time" FontWeight="SemiBold" />
-                            <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
-                                <ScrollViewer x:Name="TimelineFocusScrollViewer" Height="72" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                    <StackPanel x:Name="TimelineFocusTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
-                                </ScrollViewer>
+                                        <Grid Grid.Column="1" Grid.Row="0">
+                                            <Border Background="#0B1220" BorderBrush="#243042" BorderThickness="1" CornerRadius="12">
+                                                <ScrollViewer x:Name="HistoryCoordinateScrollViewer"
+                                                              Height="236"
+                                                              HorizontalScrollBarVisibility="Auto"
+                                                              VerticalScrollBarVisibility="Disabled">
+                                                    <Canvas x:Name="HistoryCoordinateCanvas" Height="220" />
+                                                </ScrollViewer>
+                                            </Border>
+                                            <TextBlock x:Name="HistoryCoordinateEmptyText"
+                                                       Text="No history chart data yet."
+                                                       Foreground="#CBD5E1"
+                                                       FontWeight="SemiBold"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"
+                                                       Visibility="Collapsed" />
+                                        </Grid>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Grid.Row="1"
+                                                   x:Name="HistoryCoordinateXAxisText"
+                                                   Text="Oldest on the left, newest on the right"
+                                                   Foreground="#94A3B8"
+                                                   Margin="6,8,0,0" />
+                                    </Grid>
+                                </StackPanel>
                             </Border>
 
                             <TextBlock Text="Action markers" FontWeight="SemiBold" />
@@ -1466,19 +1490,42 @@
                                 </ScrollViewer>
                             </Border>
 
-                            <TextBlock Text="Overload-active windows" FontWeight="SemiBold" />
-                            <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
-                                <ScrollViewer x:Name="TimelineOverloadActiveScrollViewer" Height="24" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                    <StackPanel x:Name="TimelineOverloadActiveOverlayPanel" Orientation="Horizontal" VerticalAlignment="Center" />
-                                </ScrollViewer>
-                            </Border>
+                            <StackPanel Visibility="Collapsed">
+                                <TextBlock Text="Pressure (overload)" FontWeight="SemiBold" />
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
+                                    <ScrollViewer x:Name="TimelineOverloadScrollViewer" Height="56" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="TimelineOverloadTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
+                                    </ScrollViewer>
+                                </Border>
+
+                                <TextBlock Text="Trust confidence" FontWeight="SemiBold" />
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
+                                    <ScrollViewer x:Name="TimelineTrustScrollViewer" Height="56" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="TimelineTrustTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
+                                    </ScrollViewer>
+                                </Border>
+
+                                <TextBlock Text="Focused time" FontWeight="SemiBold" />
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
+                                    <ScrollViewer x:Name="TimelineFocusScrollViewer" Height="72" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="TimelineFocusTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
+                                    </ScrollViewer>
+                                </Border>
+
+                                <TextBlock Text="Overload-active windows" FontWeight="SemiBold" />
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
+                                    <ScrollViewer x:Name="TimelineOverloadActiveScrollViewer" Height="24" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="TimelineOverloadActiveOverlayPanel" Orientation="Horizontal" VerticalAlignment="Center" />
+                                    </ScrollViewer>
+                                </Border>
+                            </StackPanel>
 
                         </StackPanel>
                         <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}">
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel>
                                     <TextBlock Text="Selected point" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                    <TextBlock Text="Click any bar or action marker on the left to inspect that exact moment." Foreground="#94A3B8" Margin="0,0,0,12" TextWrapping="Wrap" />
+                                    <TextBlock Text="Click the chart or an action marker on the left to inspect that exact moment." Foreground="#94A3B8" Margin="0,0,0,12" TextWrapping="Wrap" />
                                     <TextBlock x:Name="TimelineDetailTimestamp" Text="Timestamp: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
                                     <TextBlock x:Name="TimelineDetailOverload" Text="Overload: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
                                     <TextBlock x:Name="TimelineDetailTrust" Text="Trust level: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
@@ -2081,7 +2128,7 @@
         <Border x:Name="WhyDrawerPanel"
                 Grid.Column="1"
                 Grid.RowSpan="2"
-                Width="380"
+                Width="420"
                 HorizontalAlignment="Right"
                 Margin="0,8,8,8"
                 Padding="12"
@@ -2101,11 +2148,16 @@
                                    FontWeight="SemiBold"
                                    Foreground="#E6E9ED" />
                         <Button DockPanel.Dock="Right"
-                                Content="×"
-                                Width="30"
-                                Height="30"
-                                FontSize="18"
+                                Content="Close"
+                                MinWidth="72"
+                                Height="32"
+                                Padding="12,4"
+                                FontSize="12"
                                 FontWeight="SemiBold"
+                                Background="#1F2937"
+                                Foreground="#E6E9ED"
+                                BorderBrush="#475569"
+                                BorderThickness="1"
                                 ToolTip="Close"
                                 Click="WhyDrawerCloseButton_Click" />
                     </DockPanel>

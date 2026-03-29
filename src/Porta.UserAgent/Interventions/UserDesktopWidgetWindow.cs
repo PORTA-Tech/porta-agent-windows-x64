@@ -14,7 +14,7 @@ using FormsCursor = System.Windows.Forms.Cursor;
 
 internal sealed class UserDesktopWidgetWindow : Window
 {
-    private const double ExpandedWidth = 356d;
+    private const double ExpandedWidth = 392d;
     private const double CollapsedWidth = 42d;
     private const double BaseHeight = 72d;
     private const double CollapsedHeight = 42d;
@@ -33,7 +33,6 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly DispatcherTimer _reexpandTimer;
     private readonly DispatcherTimer _collapseTimer;
     private readonly Border _rootBorder;
-    private readonly Border _accentBar;
     private readonly StackPanel _expandedStack;
     private readonly TextBlock _titleText;
     private readonly TextBlock _statusText;
@@ -155,35 +154,28 @@ internal sealed class UserDesktopWidgetWindow : Window
             }
         };
         _rootBorder.PreviewMouseLeftButtonDown += BeginDragFromSurface;
-        _rootBorder.MouseEnter += (_, _) => ScheduleCollapse();
+        _rootBorder.MouseEnter += (_, _) =>
+        {
+            _collapseTimer.Stop();
+            _reexpandTimer.Stop();
+            Expand();
+        };
         _rootBorder.MouseLeave += (_, _) => HandlePointerLeave();
 
         Grid shellGrid = new();
-        shellGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
-        shellGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-        _accentBar = new Border
-        {
-            Background = new SolidColorBrush(Color.FromRgb(38, 47, 59)),
-            CornerRadius = new CornerRadius(16, 16, 0, 0)
-        };
-        _accentBar.Visibility = Visibility.Collapsed;
-        Grid.SetRow(_accentBar, 0);
-        shellGrid.Children.Add(_accentBar);
 
         Grid bodyGrid = new()
         {
-            Margin = new Thickness(10, 8, 8, 8)
+            Margin = new Thickness(10, 7, 8, 7)
         };
         bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetRow(bodyGrid, 1);
         shellGrid.Children.Add(bodyGrid);
 
         _expandedStack = new StackPanel
         {
             Orientation = Orientation.Vertical,
-            Margin = new Thickness(0, 0, 6, 0)
+            Margin = new Thickness(0, 0, 8, 0)
         };
         Grid.SetColumn(_expandedStack, 0);
         bodyGrid.Children.Add(_expandedStack);
@@ -206,16 +198,17 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
             FontWeight = FontWeights.SemiBold,
-            FontSize = 14
+            FontSize = 13,
+            Visibility = Visibility.Collapsed
         };
         headerStack.Children.Add(_titleText);
 
         _statusText = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(163, 172, 184)),
-            FontSize = 11,
+            FontSize = 11.5,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 2, 0, 0),
+            Margin = new Thickness(0, 0, 0, 0),
             MaxWidth = ExpandedWidth - 76d,
             Visibility = Visibility.Collapsed
         };
@@ -224,7 +217,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         UniformGrid metricsPanel = new()
         {
             Columns = 3,
-            Margin = new Thickness(0, 6, 0, 0)
+            Margin = new Thickness(0, 4, 0, 0)
         };
         _expandedStack.Children.Add(metricsPanel);
 
@@ -244,7 +237,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             Foreground = new SolidColorBrush(Color.FromRgb(125, 137, 152)),
             FontSize = 10.8,
-            Margin = new Thickness(0, 5, 0, 0),
+            Margin = new Thickness(0, 4, 0, 0),
             TextWrapping = TextWrapping.Wrap,
             Visibility = Visibility.Collapsed
         };
@@ -463,22 +456,49 @@ internal sealed class UserDesktopWidgetWindow : Window
             Padding = new Thickness(12, 10, 12, 10),
             Margin = new Thickness(0, 0, 0, 10)
         };
-        StackPanel popupHeaderStack = new();
+        Grid popupHeaderStack = new();
+        popupHeaderStack.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        popupHeaderStack.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        popupHeaderStack.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        popupHeaderStack.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         popupHeader.Child = popupHeaderStack;
-        popupHeaderStack.Children.Add(new TextBlock
+        TextBlock popupHeaderTitle = new()
         {
-            Text = "Ari",
+            Text = "Widget menu",
             Foreground = new SolidColorBrush(Color.FromRgb(230, 233, 237)),
-            FontSize = 15,
+            FontSize = 14,
             FontWeight = FontWeights.SemiBold
-        });
-        popupHeaderStack.Children.Add(new TextBlock
+        };
+        Grid.SetRow(popupHeaderTitle, 0);
+        Grid.SetColumn(popupHeaderTitle, 0);
+        popupHeaderStack.Children.Add(popupHeaderTitle);
+        Button closeMenuButton = new()
         {
-            Text = "Quick actions and sections",
+            Content = "Close",
+            Padding = new Thickness(8, 3, 8, 3),
+            Margin = new Thickness(8, 0, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Background = new SolidColorBrush(Color.FromRgb(33, 40, 49)),
+            Foreground = new SolidColorBrush(Color.FromRgb(230, 233, 237)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(58, 72, 88)),
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand
+        };
+        closeMenuButton.Click += (_, _) => _menuPopup.IsOpen = false;
+        Grid.SetRow(closeMenuButton, 0);
+        Grid.SetRowSpan(closeMenuButton, 2);
+        Grid.SetColumn(closeMenuButton, 1);
+        popupHeaderStack.Children.Add(closeMenuButton);
+        TextBlock popupHeaderSubtitle = new()
+        {
+            Text = "Quick actions",
             Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
             FontSize = 11.5,
             Margin = new Thickness(0, 2, 0, 0)
-        });
+        };
+        Grid.SetRow(popupHeaderSubtitle, 1);
+        Grid.SetColumn(popupHeaderSubtitle, 0);
+        popupHeaderStack.Children.Add(popupHeaderSubtitle);
         popupStack.Children.Add(popupHeader);
 
         popupStack.Children.Add(CreateMenuSectionLabel("Navigate"));
@@ -509,7 +529,11 @@ internal sealed class UserDesktopWidgetWindow : Window
     public void ApplyState(UserDesktopWidgetState state)
     {
         _currentState = state;
-        _titleText.Text = state.Title;
+        string normalizedTitle = NormalizeWidgetTitle(state.Title);
+        _titleText.Text = normalizedTitle;
+        _titleText.Visibility = string.IsNullOrWhiteSpace(normalizedTitle)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         _statusText.Text = state.StatusText;
         _statusText.Visibility = string.IsNullOrWhiteSpace(state.StatusText)
             ? Visibility.Collapsed
@@ -534,8 +558,12 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     public void PresentAttention(string title, string message)
     {
-        _attentionTitleText.Text = string.IsNullOrWhiteSpace(title) ? "Ari" : title.Trim();
-        _attentionMessageText.Text = string.IsNullOrWhiteSpace(message) ? "Ari has an update." : message.Trim();
+        string normalizedTitle = NormalizeCardTitle(title, fallback: string.Empty);
+        _attentionTitleText.Text = normalizedTitle;
+        _attentionTitleText.Visibility = string.IsNullOrWhiteSpace(normalizedTitle)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        _attentionMessageText.Text = string.IsNullOrWhiteSpace(message) ? "There is an update." : message.Trim();
         SetAttentionVisible(true);
         Expand();
         _attentionTimer.Stop();
@@ -545,8 +573,12 @@ internal sealed class UserDesktopWidgetWindow : Window
     public void PresentPrompt(UserInterventionPrompt prompt)
     {
         _activePrompt = prompt;
-        _promptTitleText.Text = string.IsNullOrWhiteSpace(prompt.Title) ? "Ari" : prompt.Title.Trim();
-        _promptMessageText.Text = string.IsNullOrWhiteSpace(prompt.Message) ? "Ari has a suggestion." : prompt.Message.Trim();
+        string normalizedTitle = NormalizeCardTitle(prompt.Title, fallback: string.Empty);
+        _promptTitleText.Text = normalizedTitle;
+        _promptTitleText.Visibility = string.IsNullOrWhiteSpace(normalizedTitle)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        _promptMessageText.Text = string.IsNullOrWhiteSpace(prompt.Message) ? "There is a suggestion." : prompt.Message.Trim();
         _promptAcceptButton.Content = prompt.AcceptLabel;
         _promptDismissButton.Content = prompt.DismissLabel;
         _promptSnoozeButton.Content = prompt.SnoozeLabel;
@@ -614,19 +646,18 @@ internal sealed class UserDesktopWidgetWindow : Window
         textBlock = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
-            FontSize = 11,
+            FontSize = 12,
             FontWeight = FontWeights.Medium,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            TextAlignment = TextAlignment.Center
+            HorizontalAlignment = HorizontalAlignment.Left,
+            TextAlignment = TextAlignment.Left
         };
 
         return new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(26, 33, 41)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(48, 61, 76)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(999),
-            Padding = new Thickness(9, 4, 9, 4),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(0),
+            Padding = new Thickness(0),
             Margin = new Thickness(0, 0, 6, 0),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Child = textBlock
@@ -665,6 +696,40 @@ internal sealed class UserDesktopWidgetWindow : Window
                 FontWeight = FontWeights.Medium
             }
         };
+    }
+
+    private static string NormalizeWidgetTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return string.Empty;
+        }
+
+        string trimmed = title.Trim();
+        return trimmed.Equals("Ari", StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : trimmed;
+    }
+
+    private static string NormalizeCardTitle(string? title, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return fallback;
+        }
+
+        string trimmed = title.Trim();
+        if (trimmed.Equals("Ari", StringComparison.OrdinalIgnoreCase))
+        {
+            return fallback;
+        }
+
+        if (trimmed.Equals("Ari limited", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Attention";
+        }
+
+        return trimmed;
     }
 
     private static Button CreatePromptButton()
@@ -749,20 +814,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void Collapse()
     {
-        if (_collapsed || HasBlockingSurfaceVisible())
-        {
-            _reexpandTimer.Start();
-            return;
-        }
-
-        _collapsed = true;
-        _expandedStack.IsHitTestVisible = false;
-        _expandedStack.BeginAnimation(OpacityProperty, null);
-        _expandedStack.Opacity = 0d;
-        _expandedStack.Visibility = Visibility.Collapsed;
-        AnimateWindowWidth(CollapsedWidth);
-        AnimateWindowHeight(CollapsedHeight);
-        _reexpandTimer.Start();
+        return;
     }
 
     private void Expand()
@@ -789,17 +841,6 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             _collapseTimer.Stop();
             Expand();
-        }
-        else if (!_menuOpen && !HasBlockingSurfaceVisible())
-        {
-            if (IsPointerInsideWidget())
-            {
-                ScheduleCollapse();
-            }
-            else if (!_collapsed)
-            {
-                Collapse();
-            }
         }
 
         UpdateWindowHeight();
@@ -871,27 +912,12 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void ScheduleCollapse()
     {
-        if (_collapsed || _menuOpen || _dragInProgress || HasBlockingSurfaceVisible() || !IsPointerInsideWidget())
-        {
-            return;
-        }
-
         _collapseTimer.Stop();
-        _collapseTimer.Start();
     }
 
     private void HandlePointerLeave()
     {
         _collapseTimer.Stop();
-        if (_menuOpen)
-        {
-            return;
-        }
-
-        if (_collapsed && !IsPointerNearWidget())
-        {
-            Expand();
-        }
     }
 
     private void UpdateWindowHeight()
@@ -1079,7 +1105,6 @@ internal sealed class UserDesktopWidgetWindow : Window
     private void ApplyModeChrome(UserDesktopWidgetMode mode)
     {
         _ = mode;
-        _accentBar.Background = new SolidColorBrush(Color.FromRgb(38, 47, 59));
         _menuButton.Background = new SolidColorBrush(Color.FromRgb(28, 35, 43));
     }
 
@@ -1088,23 +1113,15 @@ internal sealed class UserDesktopWidgetWindow : Window
         if (criticalState == null)
         {
             _criticalCard.Visibility = Visibility.Collapsed;
-            if (!_menuOpen && !HasBlockingSurfaceVisible())
-            {
-                if (IsPointerInsideWidget())
-                {
-                    ScheduleCollapse();
-                }
-                else if (!_collapsed)
-                {
-                    Collapse();
-                }
-            }
-
             UpdateWindowHeight();
             return;
         }
 
-        _criticalTitleText.Text = criticalState.Title;
+        string normalizedTitle = NormalizeCardTitle(criticalState.Title, fallback: "Attention");
+        _criticalTitleText.Text = normalizedTitle;
+        _criticalTitleText.Visibility = string.IsNullOrWhiteSpace(normalizedTitle)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         _criticalMessageText.Text = criticalState.Message;
         ConfigureCriticalButton(_criticalPrimaryButton, criticalState.PrimaryLabel, criticalState.PrimaryAction);
         ConfigureCriticalButton(_criticalSecondaryButton, criticalState.SecondaryLabel, criticalState.SecondaryAction);
@@ -1155,17 +1172,6 @@ internal sealed class UserDesktopWidgetWindow : Window
         _promptTimer.Stop();
         _promptCard.Visibility = Visibility.Collapsed;
         UpdateWindowHeight();
-        if (!_menuOpen && !HasBlockingSurfaceVisible())
-        {
-            if (IsPointerInsideWidget())
-            {
-                ScheduleCollapse();
-            }
-            else if (!_collapsed)
-            {
-                Collapse();
-            }
-        }
 
         _promptResponseRequested(new UserInterventionPromptResponse(
             InterventionId: prompt.InterventionId,

@@ -34,7 +34,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, signals, degraded);
 
         Assert.Equal(UserDesktopWidgetMode.Limited, state.Mode);
-        Assert.Equal("Ari Limited", state.Title);
+        Assert.Equal("Attention", state.Title);
         Assert.Contains("partial activity", state.StatusText, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("Focus 4m", state.PrimaryMetricText);
         Assert.Equal("Overload 18%", state.SecondaryMetricText);
@@ -67,7 +67,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot: null, signals, degradedToast: null);
 
         Assert.Equal(UserDesktopWidgetMode.Paused, state.Mode);
-        Assert.Equal("Ari Paused", state.Title);
+        Assert.Equal("Paused", state.Title);
         Assert.True(state.CanResume);
         Assert.False(state.CanPause);
         Assert.Equal($"Paused until {pauseUntilUtc.ToLocalTime():h:mm tt}.", state.StatusText);
@@ -179,7 +179,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, signals, degradedToast: null);
 
         Assert.Equal(UserDesktopWidgetMode.Overload, state.Mode);
-        Assert.Equal("Ari", state.Title);
+        Assert.Equal(string.Empty, state.Title);
         Assert.Equal("Overload is elevated.", state.StatusText);
         Assert.Equal("Focus 25m", state.PrimaryMetricText);
         Assert.Equal("Overload 74%", state.SecondaryMetricText);

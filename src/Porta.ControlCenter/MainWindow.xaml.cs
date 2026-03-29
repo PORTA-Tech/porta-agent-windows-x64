@@ -12,6 +12,8 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shell;
 using System.Windows.Threading;
+using Line = System.Windows.Shapes.Line;
+using Polyline = System.Windows.Shapes.Polyline;
 using Porta.Agent.Common;
 using Porta.Agent.LocalApi;
 using Porta.ControlCenter.Identity;
@@ -36,6 +38,7 @@ public partial class MainWindow : Window
     private static readonly TimeSpan ManualRefreshThrottle = TimeSpan.FromMilliseconds(700);
     private static readonly TimeSpan SnapshotFreshnessWindow = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan StatusFreshnessWindow = TimeSpan.FromSeconds(12);
+    private static readonly TimeSpan AllTimeHistoryRefreshInterval = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan TopMetricAnimationDuration = TimeSpan.FromMilliseconds(220);
     private static readonly TimeSpan TopMetricAnimationFrameInterval = TimeSpan.FromMilliseconds(16);
     private const string EventCursorFileName = "control-center.events.cursor";
@@ -59,11 +62,13 @@ public partial class MainWindow : Window
     private LocalApiTimelineResponse? _todayTimeline;
     private LocalApiTimelineResponse? _hourTimeline;
     private LocalApiTimelineResponse? _fourHourTimeline;
+    private LocalApiTimelineResponse? _allTimeTimeline;
     private LocalApiSettingsResponse? _effectiveSettings;
     private LocalApiRetentionResponse? _retention;
     private bool _suppressSettingsEvents;
     private LocalApiEventResponse? _selectedIntervention;
     private DateTimeOffset _lastSlowRefreshUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastAllTimeHistoryRefreshUtc = DateTimeOffset.MinValue;
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private int _manualRefreshPending;
     private long _lastSeenEventId;
@@ -109,7 +114,8 @@ public partial class MainWindow : Window
     {
         Last1Hour,
         Last4Hours,
-        Today
+        Today,
+        AllTime
     }
 
     private enum ActionsView
@@ -488,8 +494,14 @@ public partial class MainWindow : Window
             _todayTimeline = await _apiClient.GetTimelineAsync(fromUtc, DateTimeOffset.UtcNow, 60).ConfigureAwait(true);
             _hourTimeline = await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow, 5).ConfigureAwait(true);
             _fourHourTimeline = await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddHours(-4), DateTimeOffset.UtcNow, 15).ConfigureAwait(true);
-            _effectiveSettings = await _apiClient.GetEffectiveSettingsAsync().ConfigureAwait(true);
             _retention = await _apiClient.GetDataRetentionAsync().ConfigureAwait(true);
+            if (ShouldRefreshAllTimeTimeline(forceSlowRefresh))
+            {
+                _allTimeTimeline = await GetAllTimeTimelineAsync(DateTimeOffset.UtcNow).ConfigureAwait(true);
+                _lastAllTimeHistoryRefreshUtc = DateTimeOffset.UtcNow;
+            }
+
+            _effectiveSettings = await _apiClient.GetEffectiveSettingsAsync().ConfigureAwait(true);
             _lastSlowRefreshUtc = DateTimeOffset.UtcNow;
         }
 
@@ -721,6 +733,13 @@ public partial class MainWindow : Window
     private void HistoryRangeTodayButton_Click(object sender, RoutedEventArgs e)
     {
         _historyRange = HistoryRange.Today;
+        UpdateHistoryControls();
+        PopulateTimeline(GetSelectedHistoryTimeline());
+    }
+
+    private void HistoryRangeAllTimeButton_Click(object sender, RoutedEventArgs e)
+    {
+        _historyRange = HistoryRange.AllTime;
         UpdateHistoryControls();
         PopulateTimeline(GetSelectedHistoryTimeline());
     }
@@ -1062,7 +1081,53 @@ public partial class MainWindow : Window
             HistoryRange.Last1Hour => _hourTimeline,
             HistoryRange.Last4Hours => _fourHourTimeline,
             HistoryRange.Today => _todayTimeline,
+            HistoryRange.AllTime => _allTimeTimeline,
             _ => _hourTimeline
+        };
+    }
+
+    private bool ShouldRefreshAllTimeTimeline(bool forceSlowRefresh)
+    {
+        if (_retention == null || _retention.RetentionDays <= 0)
+        {
+            return false;
+        }
+
+        if (_allTimeTimeline == null)
+        {
+            return true;
+        }
+
+        if (_historyRange == HistoryRange.AllTime)
+        {
+            return true;
+        }
+
+        return forceSlowRefresh
+            && (DateTimeOffset.UtcNow - _lastAllTimeHistoryRefreshUtc) >= AllTimeHistoryRefreshInterval;
+    }
+
+    private async Task<LocalApiTimelineResponse?> GetAllTimeTimelineAsync(DateTimeOffset nowUtc)
+    {
+        if (_retention == null || _retention.RetentionDays <= 0)
+        {
+            return null;
+        }
+
+        int retentionDays = Math.Max(1, _retention.RetentionDays);
+        DateTimeOffset fromUtc = nowUtc.AddDays(-retentionDays);
+        int bucketSeconds = ResolveAllTimeBucketSeconds(retentionDays);
+        return await _apiClient.GetTimelineAsync(fromUtc, nowUtc, bucketSeconds).ConfigureAwait(true);
+    }
+
+    private static int ResolveAllTimeBucketSeconds(int retentionDays)
+    {
+        return retentionDays switch
+        {
+            <= 2 => 300,
+            <= 7 => 900,
+            <= 30 => 1800,
+            _ => 3600
         };
     }
 
@@ -1076,6 +1141,7 @@ public partial class MainWindow : Window
         ApplyHistoryButtonState(HistoryRange1hButton, _historyRange == HistoryRange.Last1Hour);
         ApplyHistoryButtonState(HistoryRange4hButton, _historyRange == HistoryRange.Last4Hours);
         ApplyHistoryButtonState(HistoryRangeTodayButton, _historyRange == HistoryRange.Today);
+        ApplyHistoryButtonState(HistoryRangeAllTimeButton, _historyRange == HistoryRange.AllTime);
     }
 
     private static void ApplyHistoryButtonState(Button button, bool selected)
@@ -3836,18 +3902,19 @@ public partial class MainWindow : Window
         if (item == null)
         {
             ActionDrawerTitle.Text = "Choose one suggestion or change";
-            ActionDrawerWhen.Text = $"When: {NotAvailableText}";
+            ActionDrawerWhen.Text = "Timing: Pick a row on the left.";
             ActionDrawerClassification.Text = $"Type: {NotAvailableText}";
             ActionDrawerDecisionState.Text = $"Decision: {NotAvailableText}";
             ActionDrawerExecutionState.Text = $"Execution: {NotAvailableText}";
-            ActionDrawerShortWhy.Text = "Why: Pick a row on the left to see the short reason in plain language.";
+            ActionDrawerShortWhy.Text = "Why it happened: Pick a row on the left to see the reason in plain language.";
             ActionDrawerCooldown.Text = $"Cooldown remaining: {NotAvailableText}";
             ActionDrawerRepeat.Text = string.Empty;
             ActionDrawerRepeat.Visibility = Visibility.Collapsed;
-            ActionDrawerWhatChanged.Text = $"What changed: {NotAvailableText}";
-            ActionDrawerUndo.Text = $"Undo: {NotAvailableText}";
+            ActionDrawerWhatChanged.Text = "What happened: Suggestions are ideas. Changes are settings Ari actually changed for you.";
+            ActionDrawerUndo.Text = "Undo: Choose a change to see whether it can be reversed.";
             ActionDrawerWhyJson.Text = NotAvailableText;
             ActionDrawerUndoButton.IsEnabled = false;
+            ActionDrawerUndoButton.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -3855,23 +3922,32 @@ public partial class MainWindow : Window
         ActionDrawerTitle.Text = isSuggestion
             ? BuildSuggestionTitle(item.Action)
             : (string.IsNullOrWhiteSpace(item.WhatChanged) ? HumanizeActionName(item.Action) : item.WhatChanged);
-        ActionDrawerWhen.Text = $"When: {item.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
+        ActionDrawerWhen.Text = isSuggestion
+            ? $"Suggested at: {item.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
+            : $"Changed at: {item.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
         ActionDrawerClassification.Text = BuildActionClassificationText(item);
         ActionDrawerDecisionState.Text = BuildDecisionStateText(item);
         ActionDrawerExecutionState.Text = BuildExecutionStateText(item);
-        ActionDrawerShortWhy.Text = $"Why: {(isSuggestion ? BuildSuggestionShortWhy(item) : BuildChangeShortWhy(item))}";
+        ActionDrawerShortWhy.Text = isSuggestion
+            ? $"Why Ari suggested it: {BuildSuggestionShortWhy(item)}"
+            : $"Why Ari changed it: {BuildChangeShortWhy(item)}";
         ActionDrawerCooldown.Text = $"Cooldown remaining: {FormatCooldownRemaining(item.CooldownEndTimestampUtc)}";
         ActionDrawerRepeat.Text = isSuggestion
             ? BuildSuggestionRepeatLine(item)
             : string.Empty;
         ActionDrawerRepeat.Visibility = isSuggestion ? Visibility.Visible : Visibility.Collapsed;
-        ActionDrawerWhatChanged.Text = $"What changed: {(string.IsNullOrWhiteSpace(item.WhatChanged) ? HumanizeActionName(item.Action) : item.WhatChanged)}";
+        ActionDrawerWhatChanged.Text = isSuggestion
+            ? "What happens if you ignore it: nothing changes right away. Ari may suggest it again later if the pattern continues."
+            : $"Change made: {(string.IsNullOrWhiteSpace(item.WhatChanged) ? HumanizeActionName(item.Action) : item.WhatChanged)}";
         ActionDrawerUndo.Text = isSuggestion
-            ? "Undo: Not needed for suggestions."
+            ? "Undo: Not needed. This was only a suggestion."
             : $"Undo: {BuildUndoDetails(item)}";
         ActionDrawerUndo.Visibility = Visibility.Visible;
         ActionDrawerWhyJson.Text = FormatWhyJsonForDisplay(item.WhyJson);
         ActionDrawerUndoButton.IsEnabled = !isSuggestion && item.Reversible;
+        ActionDrawerUndoButton.Visibility = !isSuggestion && item.Reversible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private async void InterventionCategoryToggle_Click(object sender, RoutedEventArgs e)
@@ -4892,6 +4968,7 @@ public partial class MainWindow : Window
     private void PopulateTimeline(LocalApiTimelineResponse? timeline)
     {
         UpdateHistoryControls();
+        HistoryCoordinateCanvas.Children.Clear();
         TimelineOverloadTrackPanel.Children.Clear();
         TimelineTrustTrackPanel.Children.Clear();
         TimelineFocusTrackPanel.Children.Clear();
@@ -4900,6 +4977,9 @@ public partial class MainWindow : Window
 
         if (timeline == null || timeline.Snapshots.Count == 0)
         {
+            HistoryCoordinateCanvas.Width = 320d;
+            HistoryCoordinateEmptyText.Visibility = Visibility.Visible;
+            HistoryCoordinateXAxisText.Text = BuildHistoryXAxisText(null);
             TimelineOverloadTrackPanel.Children.Add(new TextBlock { Text = "No timeline data.", Foreground = Brushes.Gainsboro });
             TimelineTrustTrackPanel.Children.Add(new TextBlock { Text = "No timeline data.", Foreground = Brushes.Gainsboro });
             TimelineFocusTrackPanel.Children.Add(new TextBlock { Text = "No timeline data.", Foreground = Brushes.Gainsboro });
@@ -4914,10 +4994,12 @@ public partial class MainWindow : Window
         {
             HistoryRange.Last1Hour => 360,
             HistoryRange.Last4Hours => 480,
+            HistoryRange.AllTime => 720,
             _ => 600
         };
         IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = DownsampleSnapshots(timeline.Snapshots, maxPoints);
         PopulateHistorySummary(timeline, snapshots);
+        RenderHistoryCoordinateChart(timeline, snapshots);
 
         foreach (LocalApiCurrentSnapshotResponse snapshot in snapshots)
         {
@@ -4986,23 +5068,27 @@ public partial class MainWindow : Window
         LocalApiCurrentSnapshotResponse latest = snapshots[^1];
         double peakOverload = snapshots.Max(static s => Math.Clamp(s.OverloadLikelihood, 0d, 1d));
         double averageTrust = snapshots.Average(static s => Math.Clamp(s.Confidence, 0d, 1d));
-        int maxFocusSeconds = (int)Math.Round(
+        int rangeBestFocusSeconds = (int)Math.Round(
             snapshots.Max(static s => Math.Max(0d, s.SustainedAttentionDurationSec)),
+            MidpointRounding.AwayFromZero);
+        int retainedBestFocusSeconds = (int)Math.Round(
+            GetRetainedFocusMaxSeconds(),
             MidpointRounding.AwayFromZero);
         int overloadActiveMoments = snapshots.Count(static s => s.OverloadActive || s.ActivationWindowOpen);
         int suggestions = timeline.Interventions.Count(static ev => IsSuggestionEvent(ev.Action));
         int changes = timeline.Interventions.Count(static ev => IsSystemChangeEvent(ev));
 
-        LocalApiCurrentSnapshotResponse first = snapshots[0];
-        string rangeLabel = $"{first.TimestampUtc.ToLocalTime():HH:mm} to {latest.TimestampUtc.ToLocalTime():HH:mm}";
+        string rangeLabel = BuildHistoryRangeLabel(timeline, snapshots);
         HistoryRangeSummaryText.Text = rangeLabel;
-        HistoryFocusSummaryText.Text = $"Now {FormatFocusedTime(latest.SustainedAttentionDurationSec)} | Best {FormatFocusedTime(maxFocusSeconds)}";
+        HistoryFocusSummaryText.Text = _historyRange == HistoryRange.AllTime
+            ? $"Now {FormatFocusedTime(latest.SustainedAttentionDurationSec)} | Best retained {FormatFocusedTime(retainedBestFocusSeconds)}"
+            : $"Now {FormatFocusedTime(latest.SustainedAttentionDurationSec)} | Range best {FormatFocusedTime(rangeBestFocusSeconds)} | Retained best {FormatFocusedTime(retainedBestFocusSeconds)}";
         HistoryOverloadSummaryText.Text = $"Now {(latest.OverloadLikelihood * 100d):F0}% | Peak {(peakOverload * 100d):F0}%";
         HistoryTrustSummaryText.Text = $"Trust {(latest.Confidence * 100d):F0}% | Avg {(averageTrust * 100d):F0}%";
         HistoryActionsSummaryText.Text = $"{suggestions} suggestions | {changes} changes | {overloadActiveMoments} active moments";
         HistoryGuideText.Text = _historyExplainMode
-            ? "Technical view is on. Click any bar or marker to inspect the raw explanation for that moment."
-            : "Click any bar or action marker below to inspect one exact moment in plain language.";
+            ? "Technical view is on. Click any point or action marker to inspect the raw explanation for that moment."
+            : "Click any point or action marker to inspect one exact moment in plain language.";
     }
 
     private static IReadOnlyList<LocalApiCurrentSnapshotResponse> DownsampleSnapshots(
@@ -5028,6 +5114,181 @@ public partial class MainWindow : Window
         }
 
         return reduced;
+    }
+
+    private void RenderHistoryCoordinateChart(
+        LocalApiTimelineResponse timeline,
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots)
+    {
+        HistoryCoordinateCanvas.Children.Clear();
+        HistoryCoordinateEmptyText.Visibility = snapshots.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        HistoryCoordinateXAxisText.Text = BuildHistoryXAxisText(timeline);
+        if (snapshots.Count == 0)
+        {
+            HistoryCoordinateCanvas.Width = 320d;
+            return;
+        }
+
+        const double chartHeight = 220d;
+        double xSpacing = _historyRange switch
+        {
+            HistoryRange.Last1Hour => 7d,
+            HistoryRange.Last4Hours => 6d,
+            HistoryRange.Today => 5.6d,
+            HistoryRange.AllTime => 4.8d,
+            _ => 6d
+        };
+        double chartWidth = Math.Max(320d, 16d + ((snapshots.Count - 1) * xSpacing) + 16d);
+        HistoryCoordinateCanvas.Width = chartWidth;
+
+        AddHistoryGridLine(0d, chartWidth, chartHeight, 0d, true);
+        AddHistoryGridLine(0d, chartWidth, chartHeight, 25d);
+        AddHistoryGridLine(0d, chartWidth, chartHeight, 50d);
+        AddHistoryGridLine(0d, chartWidth, chartHeight, 75d);
+        AddHistoryGridLine(0d, chartWidth, chartHeight, 100d, true);
+
+        double retainedFocusMaxSeconds = GetRetainedFocusMaxSeconds();
+        Polyline focusLine = CreateHistoryPolyline(Color.FromRgb(34, 197, 94));
+        Polyline overloadLine = CreateHistoryPolyline(Color.FromRgb(239, 68, 68));
+        Polyline trustLine = CreateHistoryPolyline(Color.FromRgb(59, 130, 246));
+
+        for (int index = 0; index < snapshots.Count; index++)
+        {
+            LocalApiCurrentSnapshotResponse snapshot = snapshots[index];
+            double x = 12d + (index * xSpacing);
+            double focusPercent = retainedFocusMaxSeconds <= 0d
+                ? 0d
+                : Math.Clamp(snapshot.SustainedAttentionDurationSec / retainedFocusMaxSeconds, 0d, 1d) * 100d;
+            double overloadPercent = Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d) * 100d;
+            double trustPercent = Math.Clamp(snapshot.Confidence, 0d, 1d) * 100d;
+
+            focusLine.Points.Add(new Point(x, ToHistoryCanvasY(focusPercent, chartHeight)));
+            overloadLine.Points.Add(new Point(x, ToHistoryCanvasY(overloadPercent, chartHeight)));
+            trustLine.Points.Add(new Point(x, ToHistoryCanvasY(trustPercent, chartHeight)));
+
+            Button selectionButton = new()
+            {
+                Width = Math.Max(12d, xSpacing + 4d),
+                Height = chartHeight,
+                Tag = snapshot,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand,
+                ToolTip = BuildHistorySliceTooltip(snapshot, focusPercent)
+            };
+            selectionButton.Click += TimelineSnapshotButton_Click;
+            Canvas.SetLeft(selectionButton, Math.Max(0d, x - (selectionButton.Width / 2d)));
+            Canvas.SetTop(selectionButton, 0d);
+            HistoryCoordinateCanvas.Children.Add(selectionButton);
+        }
+
+        HistoryCoordinateCanvas.Children.Add(overloadLine);
+        HistoryCoordinateCanvas.Children.Add(trustLine);
+        HistoryCoordinateCanvas.Children.Add(focusLine);
+    }
+
+    private void AddHistoryGridLine(
+        double left,
+        double width,
+        double height,
+        double percent,
+        bool emphasize = false)
+    {
+        Line line = new()
+        {
+            X1 = left,
+            X2 = width,
+            Y1 = ToHistoryCanvasY(percent, height),
+            Y2 = ToHistoryCanvasY(percent, height),
+            Stroke = emphasize
+                ? new SolidColorBrush(Color.FromRgb(71, 85, 105))
+                : new SolidColorBrush(Color.FromRgb(36, 48, 66)),
+            StrokeThickness = emphasize ? 1d : 0.8d,
+            SnapsToDevicePixels = true
+        };
+        HistoryCoordinateCanvas.Children.Add(line);
+    }
+
+    private static Polyline CreateHistoryPolyline(Color color)
+    {
+        return new Polyline
+        {
+            Stroke = new SolidColorBrush(color),
+            StrokeThickness = 2.2d,
+            StrokeLineJoin = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            IsHitTestVisible = false
+        };
+    }
+
+    private static double ToHistoryCanvasY(double percent, double height)
+    {
+        double clampedPercent = Math.Clamp(percent, 0d, 100d);
+        return Math.Max(0d, Math.Min(height, height - ((clampedPercent / 100d) * height)));
+    }
+
+    private string BuildHistoryXAxisText(LocalApiTimelineResponse? timeline)
+    {
+        if (timeline == null)
+        {
+            return "Oldest on the left, newest on the right";
+        }
+
+        return _historyRange switch
+        {
+            HistoryRange.Last1Hour => "Last hour, left to right",
+            HistoryRange.Last4Hours => "Last 4 hours, left to right",
+            HistoryRange.Today => $"Today from {timeline.FromUtc.ToLocalTime():HH:mm} to {timeline.ToUtc.ToLocalTime():HH:mm}",
+            HistoryRange.AllTime => _retention == null
+                ? "Retained history, oldest on the left"
+                : $"Retained history ({_retention.RetentionDays} days), oldest on the left",
+            _ => "Oldest on the left, newest on the right"
+        };
+    }
+
+    private double GetRetainedFocusMaxSeconds()
+    {
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> retainedSnapshots = _allTimeTimeline?.Snapshots ?? [];
+        if (retainedSnapshots.Count > 0)
+        {
+            return retainedSnapshots.Max(static snapshot => Math.Max(0d, snapshot.SustainedAttentionDurationSec));
+        }
+
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> todaySnapshots = _todayTimeline?.Snapshots ?? [];
+        if (todaySnapshots.Count > 0)
+        {
+            return todaySnapshots.Max(static snapshot => Math.Max(0d, snapshot.SustainedAttentionDurationSec));
+        }
+
+        return 0d;
+    }
+
+    private string BuildHistoryRangeLabel(
+        LocalApiTimelineResponse timeline,
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots)
+    {
+        if (_historyRange == HistoryRange.AllTime)
+        {
+            return _retention == null
+                ? "Retained history"
+                : $"Retained {_retention.RetentionDays} days";
+        }
+
+        LocalApiCurrentSnapshotResponse first = snapshots[0];
+        LocalApiCurrentSnapshotResponse latest = snapshots[^1];
+        return $"{first.TimestampUtc.ToLocalTime():HH:mm} to {latest.TimestampUtc.ToLocalTime():HH:mm}";
+    }
+
+    private string BuildHistorySliceTooltip(LocalApiCurrentSnapshotResponse snapshot, double focusPercent)
+    {
+        string time = snapshot.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        if (_historyExplainMode)
+        {
+            return $"{time}{Environment.NewLine}focus_norm={focusPercent:F1}%{Environment.NewLine}overload={(snapshot.OverloadLikelihood * 100d):F1}%{Environment.NewLine}trust={(snapshot.Confidence * 100d):F1}%";
+        }
+
+        return $"{time}{Environment.NewLine}Focus {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}{Environment.NewLine}Overload {(snapshot.OverloadLikelihood * 100d):F0}%{Environment.NewLine}Trust {(snapshot.Confidence * 100d):F0}%";
     }
 
     private UIElement BuildTrackPoint(

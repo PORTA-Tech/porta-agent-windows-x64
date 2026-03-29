@@ -66,9 +66,9 @@ internal static class UserDesktopWidgetStateBuilder
     {
         return mode switch
         {
-            UserDesktopWidgetMode.Paused => "Ari Paused",
-            UserDesktopWidgetMode.Limited => "Ari Limited",
-            _ => "Ari"
+            UserDesktopWidgetMode.Paused => "Paused",
+            UserDesktopWidgetMode.Limited => "Attention",
+            _ => string.Empty
         };
     }
 

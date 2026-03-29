@@ -15,6 +15,7 @@ using System.Diagnostics;
 public sealed class UserAgentHost : BackgroundService, IDisposable
 {
     private static readonly TimeSpan PassiveSamplingPeriod = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan UiRefreshInterval = TimeSpan.FromSeconds(4);
     private static readonly TimeSpan WidgetDetailRefreshInterval = TimeSpan.FromSeconds(30);
     private readonly ILogger<UserAgentHost> _logger;
     private readonly IUserAgentSessionContextStore _sessionContextStore;
@@ -40,6 +41,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private LocalApiTimelineResponse? _widgetDetailTimeline;
     private LocalApiSettingsResponse? _widgetDetailSettings;
     private DateTimeOffset _lastWidgetDetailRefreshUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastUiRefreshUtc = DateTimeOffset.MinValue;
     private bool _widgetFallbackLogged;
     private bool _hooksInstalled;
     private bool _keyboardCaptureAvailable;
@@ -106,6 +108,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             UserInterventionToastRenderer.UserTrayMode.Normal,
             "PORTA | Starting"));
 
+        await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
+        _lastUiRefreshUtc = DateTimeOffset.UtcNow;
+
         using var timer = new PeriodicTimer(PassiveSamplingPeriod);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -117,10 +122,17 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
                 SampleAmbientSignals(nowUtc);
                 await EvaluateCaptureSelfTestAsync(nowUtc, stoppingToken).ConfigureAwait(false);
+                if ((nowUtc - _lastUiRefreshUtc) >= UiRefreshInterval)
+                {
+                    await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
+                    _lastUiRefreshUtc = nowUtc;
+                }
+
                 if ((nowUtc - _windowStartUtc) >= TimeSpan.FromSeconds(Time.bucketSeconds))
                 {
                     await FlushSignalsAsync(stoppingToken).ConfigureAwait(false);
                     await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
+                    _lastUiRefreshUtc = DateTimeOffset.UtcNow;
                     await PollPendingInterventionsAsync(stoppingToken).ConfigureAwait(false);
                 }
             }
