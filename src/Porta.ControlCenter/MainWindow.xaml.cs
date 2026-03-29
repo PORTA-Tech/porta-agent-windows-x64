@@ -141,7 +141,6 @@ public partial class MainWindow : Window
         InitializeAccountSurface();
         InitializeUnifiedScrollBehavior();
         UpdateWindowChromeButtons();
-        PreviewMouseLeftButtonDown += MainWindow_PreviewMouseLeftButtonDown;
         PreviewKeyDown += MainWindow_PreviewKeyDown;
         _lastSeenEventId = LoadLastSeenEventId();
         _dismissedRecoveryEventId = LoadRecoveryAckEventId();
@@ -640,24 +639,10 @@ public partial class MainWindow : Window
         SetWhyDrawerVisible(false);
     }
 
-    private void MainWindow_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void WhyDrawerBackdrop_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (WhyDrawerPanel.Visibility != Visibility.Visible)
-        {
-            return;
-        }
-
-        if (e.OriginalSource is not DependencyObject source)
-        {
-            return;
-        }
-
-        if (IsDescendantOf(source, WhyDrawerPanel) || IsDescendantOf(source, WhyDrawerToggleButton))
-        {
-            return;
-        }
-
         SetWhyDrawerVisible(false);
+        e.Handled = true;
     }
 
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -832,6 +817,7 @@ public partial class MainWindow : Window
 
     private void SetWhyDrawerVisible(bool show)
     {
+        WhyDrawerBackdrop.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         WhyDrawerPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         WhyDrawerToggleButton.Content = show ? "Hide Why" : "Why";
     }
@@ -3849,12 +3835,12 @@ public partial class MainWindow : Window
     {
         if (item == null)
         {
-            ActionDrawerTitle.Text = "Select an action event";
+            ActionDrawerTitle.Text = "Choose one suggestion or change";
             ActionDrawerWhen.Text = $"When: {NotAvailableText}";
             ActionDrawerClassification.Text = $"Type: {NotAvailableText}";
             ActionDrawerDecisionState.Text = $"Decision: {NotAvailableText}";
             ActionDrawerExecutionState.Text = $"Execution: {NotAvailableText}";
-            ActionDrawerShortWhy.Text = $"Why: {NotAvailableText}";
+            ActionDrawerShortWhy.Text = "Why: Pick a row on the left to see the short reason in plain language.";
             ActionDrawerCooldown.Text = $"Cooldown remaining: {NotAvailableText}";
             ActionDrawerRepeat.Text = string.Empty;
             ActionDrawerRepeat.Visibility = Visibility.Collapsed;
@@ -4909,6 +4895,7 @@ public partial class MainWindow : Window
         TimelineOverloadTrackPanel.Children.Clear();
         TimelineTrustTrackPanel.Children.Clear();
         TimelineFocusTrackPanel.Children.Clear();
+        TimelineInterventionTrackPanel.Children.Clear();
         TimelineOverloadActiveOverlayPanel.Children.Clear();
 
         if (timeline == null || timeline.Snapshots.Count == 0)
@@ -4916,7 +4903,9 @@ public partial class MainWindow : Window
             TimelineOverloadTrackPanel.Children.Add(new TextBlock { Text = "No timeline data.", Foreground = Brushes.Gainsboro });
             TimelineTrustTrackPanel.Children.Add(new TextBlock { Text = "No timeline data.", Foreground = Brushes.Gainsboro });
             TimelineFocusTrackPanel.Children.Add(new TextBlock { Text = "No timeline data.", Foreground = Brushes.Gainsboro });
+            TimelineInterventionTrackPanel.Children.Add(new TextBlock { Text = "No action markers.", Foreground = Brushes.Gainsboro });
             TimelineOverloadActiveOverlayPanel.Children.Add(new TextBlock { Text = "No overload-active data.", Foreground = Brushes.Gainsboro });
+            PopulateHistorySummary(null, []);
             SetTimelineDetail(null, null);
             return;
         }
@@ -4928,6 +4917,7 @@ public partial class MainWindow : Window
             _ => 600
         };
         IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = DownsampleSnapshots(timeline.Snapshots, maxPoints);
+        PopulateHistorySummary(timeline, snapshots);
 
         foreach (LocalApiCurrentSnapshotResponse snapshot in snapshots)
         {
@@ -4936,6 +4926,22 @@ public partial class MainWindow : Window
             double focusNormalized = Math.Clamp(snapshot.SustainedAttentionDurationSec / 3600d, 0d, 1d);
             TimelineFocusTrackPanel.Children.Add(BuildTrackPoint(snapshot, focusNormalized, Color.FromRgb(34, 197, 94), "Focus streak"));
             TimelineOverloadActiveOverlayPanel.Children.Add(BuildOverloadActiveMarker(snapshot));
+        }
+
+        if (timeline.Interventions.Count == 0)
+        {
+            TimelineInterventionTrackPanel.Children.Add(new TextBlock
+            {
+                Text = "No action markers in this range.",
+                Foreground = Brushes.Gainsboro
+            });
+        }
+        else
+        {
+            foreach (LocalApiEventResponse intervention in timeline.Interventions.OrderBy(static ev => ev.TimestampUtc))
+            {
+                TimelineInterventionTrackPanel.Children.Add(BuildInterventionMarker(intervention));
+            }
         }
 
         if (_historySelectionExpiresUtc.HasValue
@@ -4960,6 +4966,43 @@ public partial class MainWindow : Window
             : null;
 
         SetTimelineDetail(selectedSnapshot ?? snapshots.LastOrDefault(), null);
+    }
+
+    private void PopulateHistorySummary(
+        LocalApiTimelineResponse? timeline,
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots)
+    {
+        if (timeline == null || snapshots.Count == 0)
+        {
+            HistoryRangeSummaryText.Text = "No data yet";
+            HistoryFocusSummaryText.Text = "No data yet";
+            HistoryOverloadSummaryText.Text = "No data yet";
+            HistoryTrustSummaryText.Text = "No data yet";
+            HistoryActionsSummaryText.Text = "No actions yet";
+            HistoryGuideText.Text = "This view fills in once Ari has live timeline data for the selected range.";
+            return;
+        }
+
+        LocalApiCurrentSnapshotResponse latest = snapshots[^1];
+        double peakOverload = snapshots.Max(static s => Math.Clamp(s.OverloadLikelihood, 0d, 1d));
+        double averageTrust = snapshots.Average(static s => Math.Clamp(s.Confidence, 0d, 1d));
+        int maxFocusSeconds = (int)Math.Round(
+            snapshots.Max(static s => Math.Max(0d, s.SustainedAttentionDurationSec)),
+            MidpointRounding.AwayFromZero);
+        int overloadActiveMoments = snapshots.Count(static s => s.OverloadActive || s.ActivationWindowOpen);
+        int suggestions = timeline.Interventions.Count(static ev => IsSuggestionEvent(ev.Action));
+        int changes = timeline.Interventions.Count(static ev => IsSystemChangeEvent(ev));
+
+        LocalApiCurrentSnapshotResponse first = snapshots[0];
+        string rangeLabel = $"{first.TimestampUtc.ToLocalTime():HH:mm} to {latest.TimestampUtc.ToLocalTime():HH:mm}";
+        HistoryRangeSummaryText.Text = rangeLabel;
+        HistoryFocusSummaryText.Text = $"Now {FormatFocusedTime(latest.SustainedAttentionDurationSec)} | Best {FormatFocusedTime(maxFocusSeconds)}";
+        HistoryOverloadSummaryText.Text = $"Now {(latest.OverloadLikelihood * 100d):F0}% | Peak {(peakOverload * 100d):F0}%";
+        HistoryTrustSummaryText.Text = $"Trust {(latest.Confidence * 100d):F0}% | Avg {(averageTrust * 100d):F0}%";
+        HistoryActionsSummaryText.Text = $"{suggestions} suggestions | {changes} changes | {overloadActiveMoments} active moments";
+        HistoryGuideText.Text = _historyExplainMode
+            ? "Technical view is on. Click any bar or marker to inspect the raw explanation for that moment."
+            : "Click any bar or action marker below to inspect one exact moment in plain language.";
     }
 
     private static IReadOnlyList<LocalApiCurrentSnapshotResponse> DownsampleSnapshots(
@@ -5115,8 +5158,8 @@ public partial class MainWindow : Window
             TimelineDetailOverload.Text = $"Overload: {NotAvailableText}";
             TimelineDetailTrust.Text = $"Trust level: {NotAvailableText}";
             TimelineDetailFocus.Text = $"Focus streak: {NotAvailableText}";
-            TimelineDetailClassification.Text = $"Type: {NotAvailableText}";
-            TimelineDetailExecution.Text = $"Decision/Execution: {NotAvailableText}";
+            TimelineDetailClassification.Text = $"Moment type: {NotAvailableText}";
+            TimelineDetailExecution.Text = $"Decision / execution: {NotAvailableText}";
             TimelineDetailWhyHeader.Text = $"Why: {NotAvailableText}";
             TimelineDetailWhyFiv.Text = $"Clarity/Pressure/Jitter: {NotAvailableText}";
             TimelineDetailWhyReasons.Text = $"Top reasons: {NotAvailableText}";
@@ -5138,8 +5181,8 @@ public partial class MainWindow : Window
             TimelineDetailOverload.Text = $"Overload: {(snapshot.OverloadLikelihood * 100d):F0}% | Active: {(overloadActive ? "Yes" : "No")}";
             TimelineDetailTrust.Text = $"Trust level: {(snapshot.Confidence * 100d):F0}%";
             TimelineDetailFocus.Text = $"Focus streak: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
-            TimelineDetailClassification.Text = $"Type: {NotAvailableText}";
-            TimelineDetailExecution.Text = $"Decision/Execution: {NotAvailableText}";
+            TimelineDetailClassification.Text = "Moment type: Activity snapshot";
+            TimelineDetailExecution.Text = "Decision / execution: No direct action at this exact moment. Click an action marker to inspect a suggestion or change.";
             TimelineDetailWhyHeader.Text = _historyExplainMode
                 ? "Why? (Detailed)"
                 : "Why?";
@@ -5160,7 +5203,7 @@ public partial class MainWindow : Window
         TimelineDetailOverload.Text = $"Action trigger: {intervention.TriggerState}={intervention.TriggerValue:F2}";
         TimelineDetailTrust.Text = $"Trust level: {(intervention.Confidence * 100d):F0}%";
         TimelineDetailFocus.Text = $"Focus streak: {NotAvailableText} (event marker)";
-        TimelineDetailClassification.Text = BuildActionClassificationText(intervention);
+        TimelineDetailClassification.Text = $"Moment type: {BuildActionClassificationText(intervention)}";
         TimelineDetailExecution.Text = $"{BuildDecisionStateText(intervention)}{Environment.NewLine}{BuildExecutionStateText(intervention)}";
         TimelineDetailWhyHeader.Text = _historyExplainMode
             ? "Why? (Detailed)"

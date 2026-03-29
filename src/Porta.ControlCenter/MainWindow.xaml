@@ -772,9 +772,9 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="1.8*" /><ColumnDefinition Width="1.2*" /></Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,12,0">
                             <TextBlock Text="Actions" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock Text="A clearer view of what Ari suggested, what changed, and how those actions are trending." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+                            <TextBlock Text="Suggestions are ideas from Ari. Changes are the things Ari actually changed for you." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
 
-                            <Grid Margin="0,0,0,12">
+                            <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
@@ -807,7 +807,7 @@
                                 </Border>
                             </Grid>
 
-                            <Grid Margin="0,0,0,12">
+                            <Grid Margin="0,0,0,12" Visibility="Collapsed">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="1.2*" />
                                     <ColumnDefinition Width="0.8*" />
@@ -903,11 +903,12 @@
                                 <CheckBox x:Name="InterventionAppRestrictionToggle" Content="Allow temporary app restriction (auto)" Click="InterventionCategoryToggle_Click" />
                             </StackPanel>
 
+                            <TextBlock Text="Pick one row to see the full reason, decision state, and exact timing." Foreground="#94A3B8" Margin="0,0,0,8" TextWrapping="Wrap" />
                             <WrapPanel Margin="0,0,0,8">
                                 <Button x:Name="ActionsSuggestionsTabButton" Content="Suggestions" Padding="12,6" Margin="0,0,8,0" Click="ActionsSuggestionsTabButton_Click" />
                                 <Button x:Name="ActionsChangesTabButton" Content="Changes" Padding="12,6" Click="ActionsChangesTabButton_Click" />
                             </WrapPanel>
-                            <Border Style="{StaticResource QuietHoverCardStyle}" Padding="10" Height="540">
+                            <Border Style="{StaticResource QuietHoverCardStyle}" Padding="10" Height="620">
                                 <Grid>
                                     <Grid x:Name="SuggestionsTabContent" Margin="4">
                                         <TextBlock x:Name="SuggestionsEmptyStateText"
@@ -1110,7 +1111,7 @@
                                 </Grid>
                             </Border>
                         </StackPanel>
-                        <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Height="540" VerticalAlignment="Top">
+                        <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Height="620" VerticalAlignment="Top">
                             <ScrollViewer x:Name="ActionDetailsScrollViewer"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled"
@@ -1157,8 +1158,8 @@
                                     </Style>
                                 </ScrollViewer.Resources>
                                 <StackPanel>
-                                    <TextBlock Text="Details" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="ActionDrawerTitle" Text="Select an action event" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,10" />
+                                    <TextBlock Text="Selected action" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="ActionDrawerTitle" Text="Choose one suggestion or change" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,10" />
                                     <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,10">
                                         <StackPanel>
                                             <TextBlock x:Name="ActionDrawerWhen" Text="When: Not available" Margin="0,0,0,6" Foreground="#CBD5E1" />
@@ -1172,7 +1173,7 @@
                                             <TextBlock x:Name="ActionDrawerWhatChanged" Text="What changed: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" MaxHeight="58" />
                                         </StackPanel>
                                     </Border>
-                                    <TextBlock Text="Technical details (why_json)" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,4" />
+                                    <TextBlock Text="Raw details" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,4" />
                                     <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8">
                                         <ScrollViewer VerticalScrollBarVisibility="Disabled" Height="190">
                                             <TextBlock x:Name="ActionDrawerWhyJson" Text="Not available" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" />
@@ -1387,36 +1388,85 @@
                     <Grid Margin="20">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="2.3*" /><ColumnDefinition Width="1.3*" /></Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                            <TextBlock Text="History" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12" />
+                            <TextBlock Text="History" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <TextBlock Text="Read this like a day view: pressure, trust, focus, and action markers across the selected range." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
                             <WrapPanel Margin="0,0,0,10">
                                 <Button x:Name="HistoryRange1hButton" Content="Last 1h" Padding="10,4" Margin="0,0,8,0" Click="HistoryRange1hButton_Click" />
                                 <Button x:Name="HistoryRange4hButton" Content="Last 4h" Padding="10,4" Margin="0,0,8,0" Click="HistoryRange4hButton_Click" />
                                 <Button x:Name="HistoryRangeTodayButton" Content="Today" Padding="10,4" Margin="0,0,14,0" Click="HistoryRangeTodayButton_Click" />
-                                <CheckBox x:Name="HistoryExplainModeCheckBox" Content="Explain mode" VerticalAlignment="Center" Foreground="#E5E7EB" Checked="HistoryExplainModeCheckBox_Changed" Unchecked="HistoryExplainModeCheckBox_Changed" />
+                                <CheckBox x:Name="HistoryExplainModeCheckBox" Content="Technical view" VerticalAlignment="Center" Foreground="#E5E7EB" Checked="HistoryExplainModeCheckBox_Changed" Unchecked="HistoryExplainModeCheckBox_Changed" />
                             </WrapPanel>
 
-                            <TextBlock Text="Overload" FontWeight="SemiBold" />
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Range" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock x:Name="HistoryRangeSummaryText" Text="No data yet" Foreground="#F8FAFC" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Grid.Column="1" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Focus" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock x:Name="HistoryFocusSummaryText" Text="No data yet" Foreground="#DCFCE7" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Grid.Column="2" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Overload" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock x:Name="HistoryOverloadSummaryText" Text="No data yet" Foreground="#FECACA" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Grid.Column="3" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Trust + actions" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock x:Name="HistoryTrustSummaryText" Text="No data yet" Foreground="#DBEAFE" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="HistoryActionsSummaryText" Text="No data yet" Foreground="#CBD5E1" FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+
+                            <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
+                                <TextBlock x:Name="HistoryGuideText"
+                                           Text="Click any bar or marker below to inspect one exact moment."
+                                           Foreground="#CBD5E1"
+                                           TextWrapping="Wrap" />
+                            </Border>
+
+                            <TextBlock Text="Pressure (overload)" FontWeight="SemiBold" />
                             <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
                                 <ScrollViewer x:Name="TimelineOverloadScrollViewer" Height="56" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                     <StackPanel x:Name="TimelineOverloadTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
                                 </ScrollViewer>
                             </Border>
 
-                            <TextBlock Text="Trust level" FontWeight="SemiBold" />
+                            <TextBlock Text="Trust confidence" FontWeight="SemiBold" />
                             <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
                                 <ScrollViewer x:Name="TimelineTrustScrollViewer" Height="56" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                     <StackPanel x:Name="TimelineTrustTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
                                 </ScrollViewer>
                             </Border>
 
-                            <TextBlock Text="Focus streak" FontWeight="SemiBold" />
+                            <TextBlock Text="Focused time" FontWeight="SemiBold" />
                             <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
                                 <ScrollViewer x:Name="TimelineFocusScrollViewer" Height="72" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                     <StackPanel x:Name="TimelineFocusTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
                                 </ScrollViewer>
                             </Border>
 
-                            <TextBlock Text="Overload active windows" FontWeight="SemiBold" />
+                            <TextBlock Text="Action markers" FontWeight="SemiBold" />
+                            <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
+                                <ScrollViewer x:Name="TimelineInterventionsScrollViewer" Height="36" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="TimelineInterventionTrackPanel" Orientation="Horizontal" VerticalAlignment="Center" />
+                                </ScrollViewer>
+                            </Border>
+
+                            <TextBlock Text="Overload-active windows" FontWeight="SemiBold" />
                             <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
                                 <ScrollViewer x:Name="TimelineOverloadActiveScrollViewer" Height="24" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                     <StackPanel x:Name="TimelineOverloadActiveOverlayPanel" Orientation="Horizontal" VerticalAlignment="Center" />
@@ -1425,19 +1475,23 @@
 
                         </StackPanel>
                         <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}">
-                            <StackPanel>
-                                <TextBlock x:Name="TimelineDetailTimestamp" Text="Timestamp: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailOverload" Text="Overload: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailTrust" Text="Trust level: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailFocus" Text="Focus streak: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailClassification" Text="Type: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
-                                <TextBlock x:Name="TimelineDetailExecution" Text="Decision/Execution: Not available" TextWrapping="Wrap" Margin="0,0,0,10" Foreground="#93C5FD" />
-                                <TextBlock x:Name="TimelineDetailWhyHeader" Text="Why: Not available" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
-                                <TextBlock x:Name="TimelineDetailWhyFiv" Text="Clarity/Pressure/Jitter: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock x:Name="TimelineDetailWhyReasons" Text="Top reasons: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock x:Name="TimelineDetailWhyQuality" Text="Quality: Not available | Agreement: Not available" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock x:Name="TimelineDetailStabilization" Text="Stabilization: Not available" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
-                            </StackPanel>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel>
+                                    <TextBlock Text="Selected point" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                    <TextBlock Text="Click any bar or action marker on the left to inspect that exact moment." Foreground="#94A3B8" Margin="0,0,0,12" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="TimelineDetailTimestamp" Text="Timestamp: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                    <TextBlock x:Name="TimelineDetailOverload" Text="Overload: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                    <TextBlock x:Name="TimelineDetailTrust" Text="Trust level: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                    <TextBlock x:Name="TimelineDetailFocus" Text="Focus streak: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                    <TextBlock x:Name="TimelineDetailClassification" Text="Type: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
+                                    <TextBlock x:Name="TimelineDetailExecution" Text="Decision/Execution: Not available" TextWrapping="Wrap" Margin="0,0,0,10" Foreground="#93C5FD" />
+                                    <TextBlock x:Name="TimelineDetailWhyHeader" Text="Why: Not available" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
+                                    <TextBlock x:Name="TimelineDetailWhyFiv" Text="Clarity/Pressure/Jitter: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
+                                    <TextBlock x:Name="TimelineDetailWhyReasons" Text="Top reasons: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
+                                    <TextBlock x:Name="TimelineDetailWhyQuality" Text="Quality: Not available | Agreement: Not available" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
+                                    <TextBlock x:Name="TimelineDetailStabilization" Text="Stabilization: Not available" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
+                                </StackPanel>
+                            </ScrollViewer>
                         </Border>
                     </Grid>
                 </ScrollViewer>
@@ -2015,6 +2069,14 @@
                 </ScrollViewer>
             </Grid>
         </Grid>
+
+        <Grid x:Name="WhyDrawerBackdrop"
+              Grid.ColumnSpan="2"
+              Grid.RowSpan="2"
+              Background="#6B020617"
+              Visibility="Collapsed"
+              Panel.ZIndex="190"
+              MouseLeftButtonDown="WhyDrawerBackdrop_MouseLeftButtonDown" />
 
         <Border x:Name="WhyDrawerPanel"
                 Grid.Column="1"

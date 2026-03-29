@@ -15,14 +15,15 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private readonly UserDesktopWidgetVisibilityStore _visibilityStore = new();
     private readonly UserDesktopWidgetRollout _rollout;
     private readonly object _promptGate = new();
-    private readonly TaskCompletionSource<bool> _widgetReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly Thread _widgetThread;
+    private readonly object _widgetLifecycleGate = new();
 
     private Application? _widgetApplication;
     private Dispatcher? _widgetDispatcher;
     private UserDesktopWidgetWindow? _widgetWindow;
     private Action<UserInterventionPromptResponse>? _promptResponseHandler;
     private string? _promptInterventionId;
+    private TaskCompletionSource<bool> _widgetReady = CreateWidgetReadySource();
+    private Thread? _widgetThread;
     private int _widgetNotReadyLogged;
     private int _widgetFailedLogged;
     private bool _disposed;
@@ -30,17 +31,11 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     public UserDesktopWidgetPresenter(UserDesktopWidgetRollout? rollout = null)
     {
         _rollout = rollout ?? UserDesktopWidgetRollout.FromEnvironment();
-        _widgetThread = new Thread(WidgetThreadMain)
-        {
-            IsBackground = true,
-            Name = "PORTA.UserAgent.DesktopWidget"
-        };
 
         if (_rollout.SupportsWidgetSurface)
         {
             UserAgentFileLog.Info("desktop_widget_rollout mode=widget_enabled");
-            _widgetThread.SetApartmentState(ApartmentState.STA);
-            _widgetThread.Start();
+            EnsureWidgetThreadStarted(forceRestart: false);
             return;
         }
 
@@ -146,14 +141,26 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         _fallbackRenderer.Dispose();
         _actionClient.Dispose();
 
-        if (_widgetDispatcher != null)
+        Dispatcher? dispatcher;
+        Application? widgetApplication;
+        UserDesktopWidgetWindow? widgetWindow;
+        Thread? widgetThread;
+        lock (_widgetLifecycleGate)
+        {
+            dispatcher = _widgetDispatcher;
+            widgetApplication = _widgetApplication;
+            widgetWindow = _widgetWindow;
+            widgetThread = _widgetThread;
+        }
+
+        if (dispatcher != null)
         {
             try
             {
-                _widgetDispatcher.BeginInvoke(() =>
+                dispatcher.BeginInvoke(() =>
                 {
-                    _widgetWindow?.Close();
-                    _widgetApplication?.Shutdown();
+                    widgetWindow?.Close();
+                    widgetApplication?.Shutdown();
                 });
             }
             catch
@@ -161,9 +168,9 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             }
         }
 
-        if (_widgetThread.IsAlive)
+        if (widgetThread is { IsAlive: true })
         {
-            _widgetThread.Join(TimeSpan.FromSeconds(2));
+            widgetThread.Join(TimeSpan.FromSeconds(2));
         }
     }
 
@@ -182,7 +189,8 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             return false;
         }
 
-        if (!_widgetReady.Task.Wait(TimeSpan.FromSeconds(3)))
+        EnsureWidgetThreadStarted(forceRestart: false);
+        if (!WaitForWidgetReady())
         {
             if (Interlocked.Exchange(ref _widgetNotReadyLogged, 1) == 0)
             {
@@ -193,15 +201,19 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             return false;
         }
 
-        if (!_widgetReady.Task.Result || _widgetDispatcher == null)
+        if (!_widgetReady.Task.Result || _widgetDispatcher == null || _widgetWindow == null)
         {
-            if (Interlocked.Exchange(ref _widgetFailedLogged, 1) == 0)
+            EnsureWidgetThreadStarted(forceRestart: true);
+            if (!WaitForWidgetReady() || !_widgetReady.Task.Result || _widgetDispatcher == null || _widgetWindow == null)
             {
-                UserAgentFileLog.Info($"desktop_widget_failed ready={_widgetReady.Task.Result} dispatcher_available={(_widgetDispatcher != null)}");
-            }
+                if (Interlocked.Exchange(ref _widgetFailedLogged, 1) == 0)
+                {
+                    UserAgentFileLog.Info($"desktop_widget_failed ready={_widgetReady.Task.Result} dispatcher_available={(_widgetDispatcher != null)}");
+                }
 
-            errorCode = "widget_presenter_failed";
-            return false;
+                errorCode = "widget_presenter_failed";
+                return false;
+            }
         }
 
         try
@@ -223,8 +235,81 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         }
     }
 
+    private static TaskCompletionSource<bool> CreateWidgetReadySource()
+    {
+        return new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private bool WaitForWidgetReady()
+    {
+        return _widgetReady.Task.Wait(TimeSpan.FromSeconds(3));
+    }
+
+    private void EnsureWidgetThreadStarted(bool forceRestart)
+    {
+        if (_disposed || !_rollout.SupportsWidgetSurface)
+        {
+            return;
+        }
+
+        Thread? priorThread = null;
+        Dispatcher? priorDispatcher = null;
+        Application? priorApplication = null;
+        UserDesktopWidgetWindow? priorWindow = null;
+        lock (_widgetLifecycleGate)
+        {
+            bool threadAlive = _widgetThread is { IsAlive: true };
+            if (!forceRestart && (threadAlive || (_widgetDispatcher != null && _widgetWindow != null)))
+            {
+                return;
+            }
+
+            priorThread = forceRestart ? _widgetThread : null;
+            priorDispatcher = forceRestart ? _widgetDispatcher : null;
+            priorApplication = forceRestart ? _widgetApplication : null;
+            priorWindow = forceRestart ? _widgetWindow : null;
+            _widgetReady = CreateWidgetReadySource();
+            _widgetNotReadyLogged = 0;
+            _widgetFailedLogged = 0;
+            _widgetThread = new Thread(WidgetThreadMain)
+            {
+                IsBackground = true,
+                Name = "PORTA.UserAgent.DesktopWidget"
+            };
+            _widgetThread.SetApartmentState(ApartmentState.STA);
+            _widgetThread.Start();
+        }
+
+        if (priorDispatcher != null)
+        {
+            try
+            {
+                priorDispatcher.BeginInvoke(() =>
+                {
+                    priorWindow?.Close();
+                    priorApplication?.Shutdown();
+                });
+            }
+            catch
+            {
+            }
+        }
+
+        if (priorThread is { IsAlive: true })
+        {
+            try
+            {
+                priorThread.Join(TimeSpan.FromSeconds(1));
+            }
+            catch
+            {
+            }
+        }
+    }
+
     private void WidgetThreadMain()
     {
+        Thread currentThread = Thread.CurrentThread;
         try
         {
             UserAgentFileLog.Info("desktop_widget_thread_starting");
@@ -264,9 +349,19 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         }
         finally
         {
-            _widgetWindow = null;
-            _widgetDispatcher = null;
-            _widgetApplication = null;
+            lock (_widgetLifecycleGate)
+            {
+                if (ReferenceEquals(_widgetThread, currentThread))
+                {
+                    _widgetWindow = null;
+                    _widgetDispatcher = null;
+                    _widgetApplication = null;
+                    if (!_disposed)
+                    {
+                        _widgetReady = CreateWidgetReadySource();
+                    }
+                }
+            }
         }
     }
 
