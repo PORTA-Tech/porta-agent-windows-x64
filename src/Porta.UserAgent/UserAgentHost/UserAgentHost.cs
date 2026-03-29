@@ -19,7 +19,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private readonly IUserAgentSessionContextStore _sessionContextStore;
     private readonly UserAgentStartupMetadata _startupMetadata;
     private readonly LocalApiClient _localApiClient = new();
-    private readonly UserInterventionToastRenderer _toastRenderer = new();
+    private readonly UserDesktopWidgetPresenter _toastRenderer = new();
     private readonly UserSessionWindowsNotificationController _notificationController = new();
     private readonly UserAgentNotificationSnapshotStore _notificationSnapshotStore = new();
     private readonly UserAgentInterventionExecutor _interventionExecutor;
@@ -34,6 +34,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private long _lastRecoveryEventId;
     private long _lastCommunicationEventId;
     private UserInterventionToastRenderer.UserTrayVisualState? _lastTrayState;
+    private UserDesktopWidgetState? _lastWidgetState;
     private bool _hooksInstalled;
     private bool _keyboardCaptureAvailable;
     private bool _mouseCaptureAvailable;
@@ -186,6 +187,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         UpdateTrayState(new(
             MapTrayMode(signals.Mode),
             signals.TooltipText));
+        UpdateWidgetState(UserDesktopWidgetStateBuilder.Build(status, snapshot, signals, captureDegradedToast));
 
         if (captureDegradedToast != null
             && _captureDegradedToastGate.ShouldShow(captureDegradedToast, nowUtc))
@@ -657,6 +659,22 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         }
 
         _logger.LogDebug("Failed to update PORTA tray state. Error={ErrorCode}", errorCode);
+    }
+
+    private void UpdateWidgetState(UserDesktopWidgetState state)
+    {
+        if (_lastWidgetState != null && _lastWidgetState.Equals(state))
+        {
+            return;
+        }
+
+        if (_toastRenderer.TryUpdateWidgetState(state, out string errorCode))
+        {
+            _lastWidgetState = state;
+            return;
+        }
+
+        _logger.LogDebug("Failed to update desktop widget state. Error={ErrorCode}", errorCode);
     }
 
     private static bool IsInteractiveUserSession(int sessionId)

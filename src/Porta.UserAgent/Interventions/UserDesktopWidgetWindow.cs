@@ -1,0 +1,502 @@
+namespace Porta.UserAgent.Interventions;
+
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
+using System.Windows.Threading;
+using FormsCursor = System.Windows.Forms.Cursor;
+
+internal sealed class UserDesktopWidgetWindow : Window
+{
+    private const double ExpandedWidth = 392d;
+    private const double CollapsedWidth = 54d;
+    private const double BaseHeight = 114d;
+    private const double AttentionHeight = 70d;
+    private const double TopMargin = 18d;
+    private const double RightMargin = 18d;
+    private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(180);
+    private static readonly TimeSpan AttentionDuration = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ReexpandPollInterval = TimeSpan.FromMilliseconds(220);
+
+    private readonly Action<UserDesktopWidgetAction> _actionRequested;
+    private readonly DispatcherTimer _attentionTimer;
+    private readonly DispatcherTimer _reexpandTimer;
+    private readonly Border _accentBar;
+    private readonly StackPanel _expandedStack;
+    private readonly TextBlock _titleText;
+    private readonly TextBlock _statusText;
+    private readonly TextBlock _primaryMetricText;
+    private readonly TextBlock _secondaryMetricText;
+    private readonly TextBlock _footerText;
+    private readonly Border _notificationsChip;
+    private readonly Border _brightnessChip;
+    private readonly Border _attentionCard;
+    private readonly TextBlock _attentionTitleText;
+    private readonly TextBlock _attentionMessageText;
+    private readonly Button _menuButton;
+    private readonly Popup _menuPopup;
+    private readonly Button _pauseFifteenButton;
+    private readonly Button _pauseHourButton;
+    private readonly Button _resumeButton;
+
+    private bool _collapsed;
+    private bool _menuOpen;
+    private bool _attentionVisible;
+    private UserDesktopWidgetState? _currentState;
+
+    public UserDesktopWidgetWindow(Action<UserDesktopWidgetAction> actionRequested)
+    {
+        _actionRequested = actionRequested;
+        WindowStyle = WindowStyle.None;
+        ResizeMode = ResizeMode.NoResize;
+        AllowsTransparency = true;
+        Background = Brushes.Transparent;
+        ShowInTaskbar = false;
+        ShowActivated = false;
+        Topmost = true;
+        Width = ExpandedWidth;
+        Height = BaseHeight;
+
+        _attentionTimer = new DispatcherTimer { Interval = AttentionDuration };
+        _attentionTimer.Tick += (_, _) =>
+        {
+            _attentionTimer.Stop();
+            SetAttentionVisible(false);
+        };
+
+        _reexpandTimer = new DispatcherTimer { Interval = ReexpandPollInterval };
+        _reexpandTimer.Tick += (_, _) =>
+        {
+            if (_menuOpen || !_collapsed)
+            {
+                return;
+            }
+
+            if (!IsPointerNearWidget())
+            {
+                Expand();
+            }
+        };
+
+        var rootBorder = new Border
+        {
+            CornerRadius = new CornerRadius(16),
+            Background = new SolidColorBrush(Color.FromRgb(17, 21, 26)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(38, 47, 59)),
+            BorderThickness = new Thickness(1),
+            Effect = new DropShadowEffect
+            {
+                BlurRadius = 18,
+                ShadowDepth = 0,
+                Opacity = 0.25,
+                Color = Color.FromRgb(6, 9, 12)
+            }
+        };
+
+        var shellGrid = new Grid();
+        shellGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(4) });
+        shellGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        _accentBar = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(61, 148, 255)),
+            CornerRadius = new CornerRadius(16, 16, 0, 0)
+        };
+        Grid.SetRow(_accentBar, 0);
+        shellGrid.Children.Add(_accentBar);
+
+        var bodyGrid = new Grid
+        {
+            Margin = new Thickness(14, 12, 12, 12)
+        };
+        bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetRow(bodyGrid, 1);
+        shellGrid.Children.Add(bodyGrid);
+
+        _expandedStack = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            Margin = new Thickness(0, 0, 10, 0)
+        };
+        Grid.SetColumn(_expandedStack, 0);
+        bodyGrid.Children.Add(_expandedStack);
+
+        _titleText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 16
+        };
+        _expandedStack.Children.Add(_titleText);
+
+        _statusText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(163, 172, 184)),
+            FontSize = 12.5,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0),
+            MaxWidth = ExpandedWidth - 110d
+        };
+        _expandedStack.Children.Add(_statusText);
+
+        var metricsPanel = new WrapPanel
+        {
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        _expandedStack.Children.Add(metricsPanel);
+
+        Border primaryMetricChip = CreateMetricChip(out _primaryMetricText);
+        Border secondaryMetricChip = CreateMetricChip(out _secondaryMetricText);
+        _notificationsChip = CreateStatusChip("Notifications muted");
+        _brightnessChip = CreateStatusChip("Brightness reduced");
+
+        metricsPanel.Children.Add(primaryMetricChip);
+        metricsPanel.Children.Add(secondaryMetricChip);
+        metricsPanel.Children.Add(_notificationsChip);
+        metricsPanel.Children.Add(_brightnessChip);
+
+        _footerText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(125, 137, 152)),
+            FontSize = 11.5,
+            Margin = new Thickness(0, 8, 0, 0),
+            TextWrapping = TextWrapping.Wrap
+        };
+        _expandedStack.Children.Add(_footerText);
+
+        _attentionCard = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(21, 28, 36)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(48, 61, 76)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 10, 0, 0),
+            Visibility = Visibility.Collapsed
+        };
+        var attentionStack = new StackPanel();
+        _attentionCard.Child = attentionStack;
+        _attentionTitleText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 12.5
+        };
+        _attentionMessageText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(177, 186, 196)),
+            FontSize = 11.5,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0),
+            MaxWidth = ExpandedWidth - 110d
+        };
+        attentionStack.Children.Add(_attentionTitleText);
+        attentionStack.Children.Add(_attentionMessageText);
+        _expandedStack.Children.Add(_attentionCard);
+
+        _menuButton = new Button
+        {
+            Width = 30,
+            Height = 30,
+            Padding = new Thickness(0),
+            BorderThickness = new Thickness(0),
+            Background = new SolidColorBrush(Color.FromRgb(28, 35, 43)),
+            Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Content = new TextBlock
+            {
+                Text = "\u2630",
+                FontSize = 14,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        _menuButton.Click += (_, _) => ToggleMenu();
+        Grid.SetColumn(_menuButton, 1);
+        bodyGrid.Children.Add(_menuButton);
+
+        _menuPopup = new Popup
+        {
+            PlacementTarget = _menuButton,
+            Placement = PlacementMode.Bottom,
+            StaysOpen = false,
+            AllowsTransparency = true,
+            PopupAnimation = PopupAnimation.Fade
+        };
+        _menuPopup.Opened += (_, _) =>
+        {
+            _menuOpen = true;
+            Collapse();
+        };
+        _menuPopup.Closed += (_, _) =>
+        {
+            _menuOpen = false;
+        };
+
+        Border popupChrome = new()
+        {
+            Background = new SolidColorBrush(Color.FromRgb(18, 24, 30)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(40, 51, 63)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(10),
+            Effect = new DropShadowEffect
+            {
+                BlurRadius = 16,
+                ShadowDepth = 2,
+                Opacity = 0.22,
+                Color = Color.FromRgb(6, 9, 12)
+            }
+        };
+        var popupStack = new StackPanel { MinWidth = 190 };
+        popupChrome.Child = popupStack;
+        _menuPopup.Child = popupChrome;
+
+        popupStack.Children.Add(CreateMenuButton("Open Control Center", UserDesktopWidgetAction.OpenControlCenter));
+        _pauseFifteenButton = CreateMenuButton("Pause for 15m", UserDesktopWidgetAction.PauseFifteenMinutes);
+        _pauseHourButton = CreateMenuButton("Pause for 1h", UserDesktopWidgetAction.PauseOneHour);
+        _resumeButton = CreateMenuButton("Resume", UserDesktopWidgetAction.Resume);
+        popupStack.Children.Add(_pauseFifteenButton);
+        popupStack.Children.Add(_pauseHourButton);
+        popupStack.Children.Add(_resumeButton);
+        popupStack.Children.Add(CreateMenuButton("Recalibrate", UserDesktopWidgetAction.Recalibrate));
+
+        rootBorder.Child = shellGrid;
+        Content = rootBorder;
+
+        MouseEnter += (_, _) =>
+        {
+            if (!_menuOpen)
+            {
+                Collapse();
+            }
+        };
+        SourceInitialized += (_, _) => PositionTopRight();
+        SizeChanged += (_, _) => PositionTopRight();
+    }
+
+    public void ApplyState(UserDesktopWidgetState state)
+    {
+        _currentState = state;
+        _titleText.Text = state.Title;
+        _statusText.Text = state.StatusText;
+        _primaryMetricText.Text = state.PrimaryMetricText;
+        _secondaryMetricText.Text = state.SecondaryMetricText;
+        _footerText.Text = state.FooterText;
+        _footerText.Visibility = string.IsNullOrWhiteSpace(state.FooterText)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        _notificationsChip.Visibility = state.NotificationsSuppressed ? Visibility.Visible : Visibility.Collapsed;
+        _brightnessChip.Visibility = state.BrightnessAdjusted ? Visibility.Visible : Visibility.Collapsed;
+        _pauseFifteenButton.IsEnabled = state.CanPause;
+        _pauseHourButton.IsEnabled = state.CanPause;
+        _resumeButton.IsEnabled = state.CanResume;
+
+        ApplyModeChrome(state.Mode);
+    }
+
+    public void PresentAttention(string title, string message)
+    {
+        _attentionTitleText.Text = string.IsNullOrWhiteSpace(title) ? "Ari" : title.Trim();
+        _attentionMessageText.Text = string.IsNullOrWhiteSpace(message) ? "Ari has an update." : message.Trim();
+        SetAttentionVisible(true);
+        Expand();
+        _attentionTimer.Stop();
+        _attentionTimer.Start();
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+
+        IntPtr hwnd = new WindowInteropHelper(this).Handle;
+        IntPtr extendedStyle = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GwlExStyle);
+        long updatedStyle = extendedStyle.ToInt64()
+            | NativeMethods.WsExToolWindow
+            | NativeMethods.WsExNoActivate;
+        _ = NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GwlExStyle, new IntPtr(updatedStyle));
+    }
+
+    private static Border CreateMetricChip(out TextBlock textBlock)
+    {
+        textBlock = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            FontSize = 11.5,
+            FontWeight = FontWeights.Medium
+        };
+
+        return new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(26, 33, 41)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(48, 61, 76)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(999),
+            Padding = new Thickness(10, 5, 10, 5),
+            Margin = new Thickness(0, 0, 8, 6),
+            Child = textBlock
+        };
+    }
+
+    private static Border CreateStatusChip(string text)
+    {
+        return new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(22, 30, 38)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(58, 72, 88)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(999),
+            Padding = new Thickness(10, 5, 10, 5),
+            Margin = new Thickness(0, 0, 8, 6),
+            Visibility = Visibility.Collapsed,
+            Child = new TextBlock
+            {
+                Text = text,
+                Foreground = new SolidColorBrush(Color.FromRgb(178, 192, 206)),
+                FontSize = 11.2,
+                FontWeight = FontWeights.Medium
+            }
+        };
+    }
+
+    private Button CreateMenuButton(string text, UserDesktopWidgetAction action)
+    {
+        Button button = new()
+        {
+            Content = text,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 0, 6),
+            Background = new SolidColorBrush(Color.FromRgb(26, 33, 41)),
+            Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(47, 58, 71)),
+            BorderThickness = new Thickness(1),
+            Cursor = System.Windows.Input.Cursors.Hand
+        };
+        button.Click += (_, _) =>
+        {
+            _menuPopup.IsOpen = false;
+            _actionRequested(action);
+        };
+
+        return button;
+    }
+
+    private void ToggleMenu()
+    {
+        _menuPopup.IsOpen = !_menuPopup.IsOpen;
+    }
+
+    private void Collapse()
+    {
+        if (_collapsed)
+        {
+            _reexpandTimer.Start();
+            return;
+        }
+
+        _collapsed = true;
+        _expandedStack.IsHitTestVisible = false;
+        _expandedStack.BeginAnimation(OpacityProperty, new DoubleAnimation(0d, TransitionDuration));
+        AnimateWindowWidth(CollapsedWidth);
+        _reexpandTimer.Start();
+    }
+
+    private void Expand()
+    {
+        if (!_collapsed)
+        {
+            return;
+        }
+
+        _collapsed = false;
+        _expandedStack.IsHitTestVisible = true;
+        _expandedStack.BeginAnimation(OpacityProperty, new DoubleAnimation(1d, TransitionDuration));
+        AnimateWindowWidth(ExpandedWidth);
+        _reexpandTimer.Stop();
+    }
+
+    private void SetAttentionVisible(bool visible)
+    {
+        _attentionVisible = visible;
+        _attentionCard.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        AnimateWindowHeight(visible ? BaseHeight + AttentionHeight : BaseHeight);
+    }
+
+    private void AnimateWindowWidth(double targetWidth)
+    {
+        BeginAnimation(WidthProperty, new DoubleAnimation(targetWidth, TransitionDuration)
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
+    }
+
+    private void AnimateWindowHeight(double targetHeight)
+    {
+        BeginAnimation(HeightProperty, new DoubleAnimation(targetHeight, TransitionDuration)
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
+    }
+
+    private void PositionTopRight()
+    {
+        Rect workArea = SystemParameters.WorkArea;
+        double width = ActualWidth > 0d ? ActualWidth : Width;
+        double height = ActualHeight > 0d ? ActualHeight : Height;
+
+        Left = workArea.Right - width - RightMargin;
+        Top = workArea.Top + TopMargin;
+        if (Top + height > workArea.Bottom - TopMargin)
+        {
+            Top = Math.Max(workArea.Top + TopMargin, workArea.Bottom - height - TopMargin);
+        }
+    }
+
+    private bool IsPointerNearWidget()
+    {
+        Point topLeft = PointToScreen(new Point(0, 0));
+        double width = ActualWidth > 0d ? ActualWidth : Width;
+        double height = ActualHeight > 0d ? ActualHeight : Height;
+
+        Rect bounds = new(topLeft.X, topLeft.Y, width, height);
+        bounds.Inflate(48d, 36d);
+
+        System.Drawing.Point cursor = FormsCursor.Position;
+        return bounds.Contains(new Point(cursor.X, cursor.Y));
+    }
+
+    private void ApplyModeChrome(UserDesktopWidgetMode mode)
+    {
+        (Color Accent, Color Button) palette = mode switch
+        {
+            UserDesktopWidgetMode.DeepWork => (Color.FromRgb(53, 166, 122), Color.FromRgb(22, 66, 51)),
+            UserDesktopWidgetMode.Overload => (Color.FromRgb(232, 97, 64), Color.FromRgb(86, 40, 29)),
+            UserDesktopWidgetMode.Limited => (Color.FromRgb(236, 189, 86), Color.FromRgb(87, 67, 22)),
+            UserDesktopWidgetMode.Paused => (Color.FromRgb(132, 152, 176), Color.FromRgb(45, 58, 71)),
+            _ => (Color.FromRgb(61, 148, 255), Color.FromRgb(28, 53, 78))
+        };
+
+        _accentBar.Background = new SolidColorBrush(palette.Accent);
+        _menuButton.Background = new SolidColorBrush(palette.Button);
+    }
+
+    private static class NativeMethods
+    {
+        internal const int GwlExStyle = -20;
+        internal const long WsExToolWindow = 0x00000080L;
+        internal const long WsExNoActivate = 0x08000000L;
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+        internal static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+        internal static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+    }
+}
