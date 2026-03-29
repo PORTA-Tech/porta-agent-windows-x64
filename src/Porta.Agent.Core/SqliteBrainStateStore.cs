@@ -6267,6 +6267,20 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         return action switch
         {
+            "break_suggestion" => "Break suggestion",
+            "focus_lock_in_suggestion" => "Focus suggestion",
+            "stretch_break_suggestion" => "Stretch suggestion",
+            "inform_overload_risk" => "Overload watch",
+            "inform_focus_protection" => "Focus watch",
+            "inform_fatigue_prevention" => "Fatigue watch",
+            "focus_mode_enabled" or "focus_assist_enabled" => "Focus guidance",
+            "fatigue_relief_enabled" => "Fatigue guidance",
+            "temporary_app_restriction_enabled" => "Temporary app limit",
+            "deep_work_notifications_suppressed" => "Deep work notifications",
+            "deep_work_notifications_restored" => "Notifications restored",
+            "overload_brightness_reduced" => "Brightness reduced",
+            "overload_brightness_restored" => "Brightness restored",
+            "overload_recovered" => "Overload recovered",
             "brightness_unsupported" or "brightness_control_failed" or "notification_snapshot_failed"
                 or "notification_suppress_failed" or "notification_restore_failed"
                 => "Ari limited",
@@ -6279,45 +6293,45 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return action switch
         {
             "break_suggestion"
-                => "Overload is rising. Take a short break now.",
+                => "Ari sees a long work run and rising strain. Ready for a short break now? Choose Later if now is not a good time, or turn off this tip.",
             "focus_lock_in_suggestion"
-                => "Deep work is building. Stay with this task and protect your focus.",
+                => "Ari sees steady focus building and thinks staying on one task will help. Keep this task in front of you for a bit? Choose Later if not now, or turn off this tip.",
             "stretch_break_suggestion"
-                => "Fatigue is rising. Take a short stretch break.",
+                => "Ari sees a long steady run and thinks a quick stretch could reduce strain. Take a short stretch break now? Choose Later if not now, or turn off this tip.",
             "inform_overload_risk"
-                => "Overload is rising. Ari has not changed Windows yet. Slow down or take a short break if this keeps building.",
+                => "Ari sees overload rising, but the signal has not stayed high long enough to change anything yet. Slow down or open Now for details. You can mute this guidance in Settings.",
             "inform_focus_protection"
-                => "Focus is building. Ari has not changed Windows yet. Keep this task open and avoid switching if you can.",
+                => "Ari sees focus building, but it is only watching for interruptions right now. Stay on one task or open Now for details. You can mute this guidance in Settings.",
             "inform_fatigue_prevention"
-                => "Fatigue is building. Ari has not taken direct action yet. Stretch, blink, or stand up briefly if needed.",
+                => "Ari sees fatigue building, but it has not stepped in yet. Take a quick reset or open Now for details. You can mute this guidance in Settings.",
             "focus_mode_enabled"
-                => "Ari tightened focus protection because overload is rising. Reduce switching and keep one task in front of you.",
+                => "Ari saw overload stay elevated long enough to turn on focus guidance for this block. Keep one task in front of you or open Settings to change this feature. You can turn it off in Settings.",
             "focus_assist_enabled"
-                => "Ari started focus protection for this work block. Keep this task open and avoid interruptions if you can.",
+                => "Ari saw steady focus long enough to turn on focus guidance for this block. Keep distractions low or open Settings to change this feature. You can turn it off in Settings.",
             "fatigue_relief_enabled"
-                => "Ari switched into fatigue relief. Slow down, stretch, and give your eyes a short reset.",
+                => "Ari saw fatigue stay elevated long enough to turn on fatigue relief guidance. Slow down or take a quick reset, or open Settings to change this feature. You can turn it off in Settings.",
             "temporary_app_restriction_enabled"
-                => "Ari escalated focus protection because overload stayed high. Stay off distracting apps for a few minutes.",
+                => "Ari saw the risk stay high long enough to limit distracting apps for a short block. Stay on task or open Settings to change this feature. You can turn it off in Settings.",
             "deep_work_notifications_suppressed"
-                => "Deep work started. Ari muted Windows notification banners to protect your focus.",
+                => "Ari detected a sustained focus block and muted Windows notification banners to reduce interruptions. Keep this block going or restore notifications when you are ready. You can turn this feature off in Settings.",
             "deep_work_notifications_restored"
-                => "Deep work ended. Ari restored Windows notification banners.",
+                => "Ari saw the focus block end and restored your Windows notification settings. No action is needed, or open Settings to change this feature. You can turn this feature off in Settings.",
             "overload_brightness_reduced"
-                => "Overload is rising. Ari lowered screen brightness to reduce strain.",
+                => "Ari saw overload stay high and lowered screen brightness to reduce strain. Keep it if helpful or restore brightness if not. You can turn this feature off in Settings.",
             "overload_brightness_restored"
-                => "Overload eased. Ari restored your previous screen brightness.",
+                => "Ari saw overload ease and restored your previous brightness. No action is needed, or open Settings to change this feature. You can turn this feature off in Settings.",
             "brightness_unsupported"
-                => "Ari tried to lower screen brightness for overload, but this device does not allow it. Lower brightness manually if needed.",
+                => "Ari tried to lower brightness because overload stayed high, but this device does not expose that control. Lower brightness manually or open Health for details. You can turn this feature off in Settings.",
             "brightness_control_failed"
-                => "Ari tried to lower screen brightness for overload, but Windows did not apply it. Lower brightness manually if needed.",
+                => "Ari tried to lower brightness because overload stayed high, but Windows did not apply the change. Lower brightness manually or open Health for details. You can turn this feature off in Settings.",
             "notification_snapshot_failed"
-                => "Ari could not read the current Windows notification state. If focus protection matters right now, mute notifications manually.",
+                => "Ari entered deep work but could not read your current Windows notification state, so it cannot guarantee a clean restore. Mute banners manually or open Health for details. You can turn this feature off in Settings.",
             "notification_suppress_failed"
-                => "Ari could not mute Windows notifications for deep work. Silence notifications manually if you need a protected focus block.",
+                => "Ari entered deep work but could not mute Windows notifications. Mute them manually or open Health for details. You can turn this feature off in Settings.",
             "notification_restore_failed"
-                => "Ari could not restore Windows notification settings cleanly. Check notification banners if they still look wrong.",
+                => "Ari ended a focus block but could not restore Windows notification settings cleanly. Check banners or open Health for details. You can turn this feature off in Settings.",
             "overload_recovered"
-                => "Overload eased. Ari returned to normal monitoring.",
+                => "Ari saw overload drop back to normal and returned to monitoring. No action is needed, or open Now for details. You can mute recovery updates in Settings.",
             _ when !string.IsNullOrWhiteSpace(controlEvent.WhatChanged)
                 => controlEvent.WhatChanged!,
             _ => "Ari recorded a new state change."

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Porta.Agent.Common.UserAgent;
 using Porta.Agent.Core.Outputs;
@@ -358,7 +359,10 @@ public sealed class InterventionDeliveryTests
 
             AgentPendingIntervention pending = Assert.Single(store.ReadPendingInterventions("session-13", 10));
             Assert.Equal("show_status_toast", pending.CommandType);
-            Assert.Contains("Overload is rising", pending.PayloadJson, StringComparison.Ordinal);
+            Assert.Equal("Overload watch", ReadPayloadString(pending, "title"));
+            Assert.Equal(
+                "Ari sees overload rising, but the signal has not stayed high long enough to change anything yet. Slow down or open Now for details. You can mute this guidance in Settings.",
+                ReadPayloadString(pending, "message"));
         }
         finally
         {
@@ -406,7 +410,10 @@ public sealed class InterventionDeliveryTests
 
             AgentPendingIntervention pending = Assert.Single(store.ReadPendingInterventions("session-14", 10));
             Assert.Equal("suppress_notifications", pending.CommandType);
-            Assert.Contains("Deep work started", pending.PayloadJson, StringComparison.Ordinal);
+            Assert.Equal("Deep work notifications", ReadPayloadString(pending, "title"));
+            Assert.Equal(
+                "Ari detected a sustained focus block and muted Windows notification banners to reduce interruptions. Keep this block going or restore notifications when you are ready. You can turn this feature off in Settings.",
+                ReadPayloadString(pending, "message"));
         }
         finally
         {
@@ -452,11 +459,67 @@ public sealed class InterventionDeliveryTests
                 WhatChanged: "Focus lock-in suggestion displayed to user."));
 
             AgentPendingIntervention pending = Assert.Single(store.ReadPendingInterventions("session-21", 10));
-            Assert.Contains("\"tip_key\":\"focus_lock_in_suggestion\"", pending.PayloadJson, StringComparison.Ordinal);
-            Assert.Contains("\"interaction_kind\":\"choice_prompt\"", pending.PayloadJson, StringComparison.Ordinal);
-            Assert.Contains("\"accept_label\":\"Yes\"", pending.PayloadJson, StringComparison.Ordinal);
-            Assert.Contains("\"dismiss_label\":\"No\"", pending.PayloadJson, StringComparison.Ordinal);
-            Assert.Contains("\"snooze_label\":\"Later\"", pending.PayloadJson, StringComparison.Ordinal);
+            Assert.Equal("Focus suggestion", ReadPayloadString(pending, "title"));
+            Assert.Equal(
+                "Ari sees steady focus building and thinks staying on one task will help. Keep this task in front of you for a bit? Choose Later if not now, or turn off this tip.",
+                ReadPayloadString(pending, "message"));
+            Assert.Equal("focus_lock_in_suggestion", ReadPayloadString(pending, "tip_key"));
+            Assert.Equal("choice_prompt", ReadPayloadString(pending, "interaction_kind"));
+            Assert.Equal("Yes", ReadPayloadString(pending, "accept_label"));
+            Assert.Equal("No", ReadPayloadString(pending, "dismiss_label"));
+            Assert.Equal("Later", ReadPayloadString(pending, "snooze_label"));
+            Assert.Equal("Turn off this tip", ReadPayloadString(pending, "suppress_label"));
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(dbPath))
+                {
+                    File.Delete(dbPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void SqliteStore_QueuesOverloadRestriction_WithPlainLanguageCopy()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), $"porta-overload-restrict-payload-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new SqliteBrainStateStore(
+                new DeepWorkOutputActionCoordinator(new NoOpNotificationController()),
+                new OverloadBrightnessActionCoordinator(new NoOpBrightnessController()),
+                dbPath);
+
+            DateTimeOffset eventUtc = DateTimeOffset.UtcNow;
+            store.WriteControlEvent(new AgentControlEvent(
+                TimestampUtc: eventUtc,
+                Action: "temporary_app_restriction_enabled",
+                TriggerState: "overload",
+                TriggerValue: 0.83d,
+                Confidence: 0.92d,
+                DurationSeconds: 180,
+                EscalationLevel: "Restrict",
+                Reversible: true,
+                Reason: "test",
+                Contributors: ["test"],
+                InterventionId: "overload-restrict-1",
+                PolicyId: "overload-relief-v1",
+                Domain: "overload",
+                WhatChanged: "Temporary app restriction became active.",
+                HowToUndo: "Open Settings to disable temporary app restriction."));
+
+            AgentPendingIntervention pending = Assert.Single(store.ReadPendingInterventions("session-31", 10));
+            Assert.Equal("show_status_toast", pending.CommandType);
+            Assert.Equal("Temporary app limit", ReadPayloadString(pending, "title"));
+            Assert.Equal(
+                "Ari saw the risk stay high long enough to limit distracting apps for a short block. Stay on task or open Settings to change this feature. You can turn it off in Settings.",
+                ReadPayloadString(pending, "message"));
         }
         finally
         {
@@ -755,6 +818,13 @@ public sealed class InterventionDeliveryTests
             {
             }
         }
+    }
+
+    private static string ReadPayloadString(AgentPendingIntervention pending, string propertyName)
+    {
+        using JsonDocument document = JsonDocument.Parse(pending.PayloadJson);
+        Assert.True(document.RootElement.TryGetProperty(propertyName, out JsonElement node));
+        return node.GetString() ?? string.Empty;
     }
 
     private sealed class FakeUserAgentSessionContextStore : IUserAgentSessionContextStore
