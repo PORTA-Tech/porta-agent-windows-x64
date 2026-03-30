@@ -118,9 +118,29 @@ public sealed record LocalApiStatusResponse(
     public string? runtime_state_last_successful_refresh_utc => ToUtcMsStringOrNull(RuntimeStateLastSuccessfulRefreshUtc);
     public string? runtime_state_last_attempt_utc => ToUtcMsStringOrNull(RuntimeStateLastAttemptUtc);
     public string? runtime_state_refresh_error => RuntimeStateRefreshError;
+    public string status_generated_at_utc => ToUtcMsString(LastUpdatedUtc);
+    public string? last_successful_db_refresh_utc => runtime_state_last_successful_refresh_utc;
+    public string freshness_state => LocalApiFreshnessHelpers.ResolveFreshnessState(RuntimeStateFreshness);
+    public string? degraded_reason => LocalApiFreshnessHelpers.ResolveStatusDegradedReason(
+        serviceRunning: ServiceRunning,
+        localApiAuthReady: LocalApiAuthReady,
+        localApiAuthError: LocalApiAuthError,
+        dbMigrationFailed: DbMigrationFailed,
+        runtimeStateFreshness: RuntimeStateFreshness,
+        runtimeStateRefreshError: RuntimeStateRefreshError,
+        notificationSuppressionReady: NotificationSuppressionReady,
+        brightnessActionReady: BrightnessActionReady,
+        lastError: LastError);
     public double? last_accepted_input_age_seconds => ComputeAgeSeconds(LastInputEventUtc);
     public int deep_work_streak_sec => DeepWorkStreakSeconds;
     public string last_updated_utc => ToUtcMsString(LastUpdatedUtc);
+    public LocalApiFreshnessView freshness => new(
+        generated_at_utc: status_generated_at_utc,
+        captured_at_utc: null,
+        last_successful_db_refresh_utc: last_successful_db_refresh_utc,
+        last_attempt_utc: runtime_state_last_attempt_utc,
+        freshness_state: freshness_state,
+        degraded_reason: degraded_reason);
     public LocalApiRuntimeStateView runtime_state => new(
         freshness: RuntimeStateFreshness,
         stale: !string.Equals(RuntimeStateFreshness, "fresh", StringComparison.OrdinalIgnoreCase),
@@ -278,7 +298,20 @@ public sealed record LocalApiCurrentSnapshotResponse(
     public string? runtime_state_last_successful_refresh_utc => ToUtcMsStringOrNull(RuntimeStateLastSuccessfulRefreshUtc);
     public string? runtime_state_last_attempt_utc => ToUtcMsStringOrNull(RuntimeStateLastAttemptUtc);
     public string? runtime_state_refresh_error => RuntimeStateRefreshError;
+    public string snapshot_captured_at_utc => ToUtcMsString(TimestampUtc);
+    public string? last_successful_db_refresh_utc => runtime_state_last_successful_refresh_utc;
+    public string freshness_state => LocalApiFreshnessHelpers.ResolveFreshnessState(RuntimeStateFreshness);
+    public string? degraded_reason => LocalApiFreshnessHelpers.ResolveSnapshotDegradedReason(
+        runtimeStateFreshness: RuntimeStateFreshness,
+        runtimeStateRefreshError: RuntimeStateRefreshError);
     public string timestamp_utc => TimestampUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+    public LocalApiFreshnessView freshness => new(
+        generated_at_utc: null,
+        captured_at_utc: snapshot_captured_at_utc,
+        last_successful_db_refresh_utc: last_successful_db_refresh_utc,
+        last_attempt_utc: runtime_state_last_attempt_utc,
+        freshness_state: freshness_state,
+        degraded_reason: degraded_reason);
     public LocalApiRuntimeStateView runtime_state => new(
         freshness: RuntimeStateFreshness,
         stale: !string.Equals(RuntimeStateFreshness, "fresh", StringComparison.OrdinalIgnoreCase),
@@ -311,6 +344,7 @@ public sealed record LocalApiCurrentSnapshotResponse(
 
     private static string? ToUtcMsStringOrNull(DateTimeOffset? utc) =>
         utc.HasValue ? ToUtcMsString(utc.Value) : null;
+
 }
 
 public sealed record LocalApiCooldownsRemainingResponse(
@@ -365,6 +399,94 @@ public sealed record LocalApiRuntimeStateView(
     string? last_successful_refresh_utc,
     string? last_attempt_utc,
     string? error);
+
+public sealed record LocalApiFreshnessView(
+    string? generated_at_utc,
+    string? captured_at_utc,
+    string? last_successful_db_refresh_utc,
+    string? last_attempt_utc,
+    string freshness_state,
+    string? degraded_reason);
+
+internal static class LocalApiFreshnessHelpers
+{
+    internal static string ResolveFreshnessState(string runtimeStateFreshness) =>
+        string.Equals(runtimeStateFreshness, "fresh", StringComparison.OrdinalIgnoreCase)
+            ? "fresh"
+            : "stale";
+
+    internal static string? ResolveSnapshotDegradedReason(
+        string runtimeStateFreshness,
+        string? runtimeStateRefreshError)
+    {
+        if (!string.Equals(runtimeStateFreshness, "fresh", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.IsNullOrWhiteSpace(runtimeStateRefreshError)
+                ? "snapshot_stale"
+                : NormalizeReasonToken(runtimeStateRefreshError);
+        }
+
+        return null;
+    }
+
+    internal static string? ResolveStatusDegradedReason(
+        bool serviceRunning,
+        bool localApiAuthReady,
+        string? localApiAuthError,
+        bool dbMigrationFailed,
+        string runtimeStateFreshness,
+        string? runtimeStateRefreshError,
+        bool notificationSuppressionReady,
+        bool brightnessActionReady,
+        string? lastError)
+    {
+        if (!serviceRunning)
+        {
+            return "service_unavailable";
+        }
+
+        if (!localApiAuthReady)
+        {
+            return string.IsNullOrWhiteSpace(localApiAuthError)
+                ? "api_auth_not_ready"
+                : NormalizeReasonToken(localApiAuthError);
+        }
+
+        if (dbMigrationFailed)
+        {
+            return "db_migration_failed";
+        }
+
+        if (!string.Equals(runtimeStateFreshness, "fresh", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.IsNullOrWhiteSpace(runtimeStateRefreshError)
+                ? "status_stale"
+                : NormalizeReasonToken(runtimeStateRefreshError);
+        }
+
+        if (!notificationSuppressionReady)
+        {
+            return "notification_outputs_degraded";
+        }
+
+        if (!brightnessActionReady)
+        {
+            return "brightness_outputs_degraded";
+        }
+
+        return string.IsNullOrWhiteSpace(lastError) ? null : "runtime_error";
+    }
+
+    private static string NormalizeReasonToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return value.Trim().Replace('-', '_').ToLowerInvariant();
+    }
+}
 
 public sealed record LocalApiSnapshotCurrentView(
     bool overload_active,

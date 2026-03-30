@@ -47,6 +47,13 @@ public sealed class LocalApiSnapshotAcceptanceTests
         Assert.InRange(dto.overload_likelihood - 0.84d, -0.000001d, 0.000001d);
         Assert.InRange(dto.Confidence - 0.91d, -0.000001d, 0.000001d);
         Assert.InRange(dto.sustained_attention_duration_sec - 1810d, -0.000001d, 0.000001d);
+        Assert.False(string.IsNullOrWhiteSpace(dto.snapshot_captured_at_utc));
+        Assert.Equal(dto.timestamp_utc, dto.snapshot_captured_at_utc);
+        Assert.Equal(dto.runtime_state_freshness == "fresh" ? "fresh" : "stale", dto.freshness_state);
+        Assert.Equal(dto.runtime_state_freshness == "fresh" ? null : "snapshot_stale", dto.degraded_reason);
+        Assert.Equal(dto.snapshot_captured_at_utc, dto.freshness.captured_at_utc);
+        Assert.Equal(dto.freshness_state, dto.freshness.freshness_state);
+        Assert.Equal(dto.degraded_reason, dto.freshness.degraded_reason);
         Assert.True(dto.overload_active);
         Assert.True(dto.deep_work_active);
         Assert.InRange((dto.F ?? 0d) - 0.2d, -0.000001d, 0.000001d);
