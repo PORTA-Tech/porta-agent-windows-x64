@@ -8,7 +8,7 @@ internal static class DbOpen
     private const string PinnedJournalMode = "wal";
     private const int PinnedSynchronousMode = 2; // FULL
     private const int PinnedForeignKeys = 1; // ON
-    private const int BusyTimeoutMs = 5000;
+    private const int DefaultBusyTimeoutMs = 5000;
     private static int _bootPragmasLogged;
 
     internal static string BuildConnectionString(string dbPath)
@@ -16,11 +16,14 @@ internal static class DbOpen
         return $"Data Source={dbPath}";
     }
 
-    internal static SqliteConnection OpenConnection(string connectionString, bool logPragmasAtBoot = false)
+    internal static SqliteConnection OpenConnection(
+        string connectionString,
+        bool logPragmasAtBoot = false,
+        int? busyTimeoutMs = null)
     {
         var connection = new SqliteConnection(connectionString);
         connection.Open();
-        PragmaSnapshot snapshot = ApplyPinnedPragmas(connection);
+        PragmaSnapshot snapshot = ApplyPinnedPragmas(connection, busyTimeoutMs ?? DefaultBusyTimeoutMs);
         if (logPragmasAtBoot && Interlocked.CompareExchange(ref _bootPragmasLogged, 1, 0) == 0)
         {
             Console.WriteLine(
@@ -30,7 +33,22 @@ internal static class DbOpen
         return connection;
     }
 
-    private static PragmaSnapshot ApplyPinnedPragmas(SqliteConnection connection)
+    internal static SqliteConnection OpenReadConnection(
+        string connectionString,
+        int? busyTimeoutMs = null)
+    {
+        var builder = new SqliteConnectionStringBuilder(connectionString)
+        {
+            Mode = SqliteOpenMode.ReadOnly
+        };
+
+        var connection = new SqliteConnection(builder.ToString());
+        connection.Open();
+        ApplyReadSessionPragmas(connection, busyTimeoutMs ?? DefaultBusyTimeoutMs);
+        return connection;
+    }
+
+    private static PragmaSnapshot ApplyPinnedPragmas(SqliteConnection connection, int busyTimeoutMs)
     {
         string requestedJournalMode = ExecuteScalarString(connection, "PRAGMA journal_mode=WAL;");
         if (!string.Equals(requestedJournalMode, PinnedJournalMode, StringComparison.OrdinalIgnoreCase))
@@ -41,7 +59,7 @@ internal static class DbOpen
 
         ExecuteNonQuery(connection, "PRAGMA synchronous=FULL;");
         ExecuteNonQuery(connection, "PRAGMA foreign_keys=ON;");
-        ExecuteNonQuery(connection, $"PRAGMA busy_timeout={BusyTimeoutMs};");
+        ExecuteNonQuery(connection, $"PRAGMA busy_timeout={Math.Max(0, busyTimeoutMs)};");
 
         string journalMode = ExecuteScalarString(connection, "PRAGMA journal_mode;");
         int synchronous = ExecuteScalarInt(connection, "PRAGMA synchronous;");
@@ -66,13 +84,25 @@ internal static class DbOpen
                 $"SQLite foreign_keys contract violation. Expected '{PinnedForeignKeys}', got '{foreignKeys}'.");
         }
 
-        if (busyTimeout != BusyTimeoutMs)
+        if (busyTimeout != Math.Max(0, busyTimeoutMs))
         {
             throw new InvalidOperationException(
-                $"SQLite busy_timeout contract violation. Expected '{BusyTimeoutMs}', got '{busyTimeout}'.");
+                $"SQLite busy_timeout contract violation. Expected '{Math.Max(0, busyTimeoutMs)}', got '{busyTimeout}'.");
         }
 
         return new PragmaSnapshot(journalMode, synchronous, foreignKeys, busyTimeout);
+    }
+
+    private static void ApplyReadSessionPragmas(SqliteConnection connection, int busyTimeoutMs)
+    {
+        ExecuteNonQuery(connection, $"PRAGMA busy_timeout={Math.Max(0, busyTimeoutMs)};");
+
+        int busyTimeout = ExecuteScalarInt(connection, "PRAGMA busy_timeout;");
+        if (busyTimeout != Math.Max(0, busyTimeoutMs))
+        {
+            throw new InvalidOperationException(
+                $"SQLite read busy_timeout contract violation. Expected '{Math.Max(0, busyTimeoutMs)}', got '{busyTimeout}'.");
+        }
     }
 
     private static void ExecuteNonQuery(SqliteConnection connection, string sql)

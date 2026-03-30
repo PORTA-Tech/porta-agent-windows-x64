@@ -16,6 +16,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 {
     private const int DefaultRetentionDays = 90;
     private const int DefaultEventCooldownSeconds = 20;
+    private const int ResponsiveReadBusyTimeoutMs = 250;
     private static readonly Lazy<string> BreakInstallIdHash = new(ResolveBreakInstallIdHash, isThreadSafe: true);
 
     private readonly object _gate = new();
@@ -607,7 +608,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         lock (_gate)
         {
-            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var connection = DbOpen.OpenReadConnection(_connectionString);
             using var cmd = connection.CreateCommand();
             cmd.CommandText =
                 """
@@ -682,7 +683,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         lock (_gate)
         {
-            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var connection = DbOpen.OpenReadConnection(_connectionString);
             using var cmd = connection.CreateCommand();
             cmd.CommandText =
                 """
@@ -778,83 +779,90 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         lock (_gate)
         {
-            using var connection = DbOpen.OpenConnection(_connectionString);
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText =
-                """
-                SELECT
-                    b.timestamp_utc,
-                    b.typing_burst_intensity,
-                    b.scroll_velocity_index,
-                    b.focus_switch_rate,
-                    b.smoothed_typing_burst_intensity,
-                    b.smoothed_scroll_velocity_index,
-                    b.smoothed_focus_switch_rate,
-                    b.focus_strength,
-                    b.overload_likelihood,
-                    b.fatigue_probability,
-                    b.cognitive_stability,
-                    b.dominant_state_name,
-                    b.dominant_state_value,
-                    b.confidence,
-                    b.last_action,
-                    b.activation_window_triggered,
-                    b.cooldown_triggered,
-                    b.activation_window_open,
-                    b.contributors_json,
-                    b.policy_id,
-                    b.domain,
-                    b.escalation_level,
-                    b.planned_end_timestamp_utc,
-                    b.actual_end_timestamp_utc,
-                    b.cooldown_end_timestamp_utc,
-                    sb.sustained_attention_duration_sec,
-                    sb.idle_fragmentation_index,
-                    sb.state_flags_json,
-                    sb.contributors_json
-                FROM brain_snapshots b
-                LEFT JOIN state_buckets sb ON sb.timestamp_utc = b.timestamp_utc
-                ORDER BY b.id DESC
-                LIMIT 1;
-                """;
+            try
+            {
+                using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText =
+                    """
+                    SELECT
+                        b.timestamp_utc,
+                        b.typing_burst_intensity,
+                        b.scroll_velocity_index,
+                        b.focus_switch_rate,
+                        b.smoothed_typing_burst_intensity,
+                        b.smoothed_scroll_velocity_index,
+                        b.smoothed_focus_switch_rate,
+                        b.focus_strength,
+                        b.overload_likelihood,
+                        b.fatigue_probability,
+                        b.cognitive_stability,
+                        b.dominant_state_name,
+                        b.dominant_state_value,
+                        b.confidence,
+                        b.last_action,
+                        b.activation_window_triggered,
+                        b.cooldown_triggered,
+                        b.activation_window_open,
+                        b.contributors_json,
+                        b.policy_id,
+                        b.domain,
+                        b.escalation_level,
+                        b.planned_end_timestamp_utc,
+                        b.actual_end_timestamp_utc,
+                        b.cooldown_end_timestamp_utc,
+                        sb.sustained_attention_duration_sec,
+                        sb.idle_fragmentation_index,
+                        sb.state_flags_json,
+                        sb.contributors_json
+                    FROM brain_snapshots b
+                    LEFT JOIN state_buckets sb ON sb.timestamp_utc = b.timestamp_utc
+                    ORDER BY b.id DESC
+                    LIMIT 1;
+                    """;
 
-            using SqliteDataReader reader = cmd.ExecuteReader();
-            if (!reader.Read())
+                using SqliteDataReader reader = cmd.ExecuteReader();
+                if (!reader.Read())
+                {
+                    return null;
+                }
+
+                return new AgentBrainSnapshot(
+                    TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
+                    TypingBurstIntensity: reader.GetDouble(1),
+                    ScrollVelocityIndex: reader.GetDouble(2),
+                    FocusSwitchRate: reader.GetDouble(3),
+                    SmoothedTypingBurstIntensity: ReadDoubleOrFallback(reader, 4, fallback: reader.GetDouble(1)),
+                    SmoothedScrollVelocityIndex: ReadDoubleOrFallback(reader, 5, fallback: reader.GetDouble(2)),
+                    SmoothedFocusSwitchRate: ReadDoubleOrFallback(reader, 6, fallback: reader.GetDouble(3)),
+                    FocusStrength: reader.GetDouble(7),
+                    OverloadLikelihood: reader.GetDouble(8),
+                    FatigueProbability: reader.GetDouble(9),
+                    CognitiveStability: reader.GetDouble(10),
+                    DominantStateName: ReadStringOrFallback(reader, 11, ResolveDominantStateName(reader.GetDouble(7), reader.GetDouble(8), reader.GetDouble(9))),
+                    DominantStateValue: ReadDoubleOrFallback(reader, 12, Math.Max(reader.GetDouble(7), Math.Max(reader.GetDouble(8), reader.GetDouble(9)))),
+                    Confidence: reader.GetDouble(13),
+                    LastAction: reader.GetString(14),
+                    ActivationWindowTriggered: ReadBoolOrFallback(reader, 15, false),
+                    CooldownTriggered: ReadBoolOrFallback(reader, 16, false),
+                    ActivationWindowOpen: ReadBoolOrFallback(reader, 17, false),
+                    Contributors: DeserializeContributors(reader.GetString(18)),
+                    PolicyId: ReadStringOrFallback(reader, 19, "n/a"),
+                    Domain: ReadStringOrFallback(reader, 20, "control"),
+                    EscalationLevel: ReadStringOrFallback(reader, 21, "Inform"),
+                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 22, string.Empty)),
+                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 23, string.Empty)),
+                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 24, string.Empty)),
+                    SustainedAttentionDurationSec: ReadDoubleOrFallback(reader, 25, 0d),
+                    IdleFragmentationIndex: ReadDoubleOrFallback(reader, 26, 0d),
+                    OverloadActive: ParseOverloadActive(ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}")),
+                    StateFlagsJson: ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}"),
+                    ContributorsJson: ReadStringOrFallback(reader, 28, "{\"schema_ver\":1}"));
+            }
+            catch
             {
                 return null;
             }
-
-            return new AgentBrainSnapshot(
-                TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
-                TypingBurstIntensity: reader.GetDouble(1),
-                ScrollVelocityIndex: reader.GetDouble(2),
-                FocusSwitchRate: reader.GetDouble(3),
-                SmoothedTypingBurstIntensity: ReadDoubleOrFallback(reader, 4, fallback: reader.GetDouble(1)),
-                SmoothedScrollVelocityIndex: ReadDoubleOrFallback(reader, 5, fallback: reader.GetDouble(2)),
-                SmoothedFocusSwitchRate: ReadDoubleOrFallback(reader, 6, fallback: reader.GetDouble(3)),
-                FocusStrength: reader.GetDouble(7),
-                OverloadLikelihood: reader.GetDouble(8),
-                FatigueProbability: reader.GetDouble(9),
-                CognitiveStability: reader.GetDouble(10),
-                DominantStateName: ReadStringOrFallback(reader, 11, ResolveDominantStateName(reader.GetDouble(7), reader.GetDouble(8), reader.GetDouble(9))),
-                DominantStateValue: ReadDoubleOrFallback(reader, 12, Math.Max(reader.GetDouble(7), Math.Max(reader.GetDouble(8), reader.GetDouble(9)))),
-                Confidence: reader.GetDouble(13),
-                LastAction: reader.GetString(14),
-                ActivationWindowTriggered: ReadBoolOrFallback(reader, 15, false),
-                CooldownTriggered: ReadBoolOrFallback(reader, 16, false),
-                ActivationWindowOpen: ReadBoolOrFallback(reader, 17, false),
-                Contributors: DeserializeContributors(reader.GetString(18)),
-                PolicyId: ReadStringOrFallback(reader, 19, "n/a"),
-                Domain: ReadStringOrFallback(reader, 20, "control"),
-                EscalationLevel: ReadStringOrFallback(reader, 21, "Inform"),
-                PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 22, string.Empty)),
-                ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 23, string.Empty)),
-                CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 24, string.Empty)),
-                SustainedAttentionDurationSec: ReadDoubleOrFallback(reader, 25, 0d),
-                IdleFragmentationIndex: ReadDoubleOrFallback(reader, 26, 0d),
-                OverloadActive: ParseOverloadActive(ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}")),
-                StateFlagsJson: ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}"),
-                ContributorsJson: ReadStringOrFallback(reader, 28, "{\"schema_ver\":1}"));
         }
     }
 
@@ -862,7 +870,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         lock (_gate)
         {
-            using var connection = DbOpen.OpenConnection(_connectionString);
+            try
+            {
+            using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
             bool? baselineReady = null;
             double? baselineReadyPct = null;
             double? avgQuality2m = null;
@@ -1151,6 +1161,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 TaskContinuityScore: taskContinuityScore,
                 TaskContinuitySeconds: taskContinuitySeconds,
                 ContinuityState: continuityState);
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 
@@ -1169,7 +1184,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             int bucket = Math.Clamp(bucketSeconds, 1, 3600);
             var rawRows = new List<AgentBrainSnapshot>();
 
-            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var connection = DbOpen.OpenReadConnection(_connectionString);
             using var cmd = connection.CreateCommand();
             cmd.CommandText =
                 """
@@ -1281,7 +1296,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             int boundedLimit = Math.Clamp(limit, 1, 200000);
             var rows = new List<AgentInputSignalWindow>(Math.Min(boundedLimit, 4096));
 
-            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var connection = DbOpen.OpenReadConnection(_connectionString);
             using var cmd = connection.CreateCommand();
             cmd.CommandText =
                 """
@@ -1397,7 +1412,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             int boundedLimit = Math.Clamp(limit, 1, 500);
             var rows = new List<AgentControlEvent>(boundedLimit);
 
-            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var connection = DbOpen.OpenReadConnection(_connectionString);
             using var cmd = connection.CreateCommand();
             cmd.CommandText =
                 """
@@ -1463,7 +1478,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             long safeSinceId = Math.Max(0, sinceIdExclusive);
             var rows = new List<AgentControlEvent>(boundedLimit);
 
-            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var connection = DbOpen.OpenReadConnection(_connectionString);
             using var cmd = connection.CreateCommand();
             cmd.CommandText =
                 """
@@ -1533,7 +1548,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             int boundedLimit = Math.Clamp(limit, 1, 10000);
             var rows = new List<AgentControlEvent>();
 
-            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var connection = DbOpen.OpenReadConnection(_connectionString);
             using var cmd = connection.CreateCommand();
             cmd.CommandText =
                 """
@@ -1894,7 +1909,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             DateTimeOffset startUtc = new(day.Year, day.Month, day.Day, 0, 0, 0, TimeSpan.Zero);
             DateTimeOffset endUtc = startUtc.AddDays(1);
 
-            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var connection = DbOpen.OpenReadConnection(_connectionString);
 
             int totalInterventions = ReadSingleInt(connection,
                 """
@@ -2841,23 +2856,52 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         lock (_gate)
         {
-            using var connection = DbOpen.OpenConnection(_connectionString);
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText =
-                """
-                SELECT value_json
-                FROM runtime_state
-                WHERE key = $key
-                LIMIT 1;
-                """;
-            cmd.Parameters.AddWithValue("$key", PortaExecutionConstants.NotificationSuppression.RuntimeStateKey);
-            object? scalar = cmd.ExecuteScalar();
-            string? json = scalar == null || scalar == DBNull.Value
-                ? null
-                : Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture);
+            try
+            {
+                using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText =
+                    """
+                    SELECT value_json
+                    FROM runtime_state
+                    WHERE key = $key
+                    LIMIT 1;
+                    """;
+                cmd.Parameters.AddWithValue("$key", PortaExecutionConstants.NotificationSuppression.RuntimeStateKey);
+                object? scalar = cmd.ExecuteScalar();
+                string? json = scalar == null || scalar == DBNull.Value
+                    ? null
+                    : Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture);
 
-            if (string.IsNullOrWhiteSpace(json)
-                || !TryParseNotificationSuppressionRuntimeState(json, out NotificationSuppressionRuntimeState parsed))
+                if (string.IsNullOrWhiteSpace(json)
+                    || !TryParseNotificationSuppressionRuntimeState(json, out NotificationSuppressionRuntimeState parsed))
+                {
+                    return new AgentNotificationSuppressionStatus(
+                        Active: false,
+                        Ready: true,
+                        ActionState: "inactive",
+                        LastError: null,
+                        BackoffUntilUtc: null,
+                        EnableCooldownUntilUtc: null,
+                        MinOnUntilUtc: null,
+                        RestorePending: false);
+                }
+
+                DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+                bool inBackoff = parsed.BackoffUntilUtcMs > nowUtc.ToUnixTimeMilliseconds();
+                string? lastError = string.IsNullOrWhiteSpace(parsed.LastErrorCode) ? null : parsed.LastErrorCode;
+                bool ready = !inBackoff && string.IsNullOrWhiteSpace(lastError);
+                return new AgentNotificationSuppressionStatus(
+                    Active: parsed.Active,
+                    Ready: ready,
+                    ActionState: parsed.ActionState,
+                    LastError: lastError,
+                    BackoffUntilUtc: ToOptionalUtc(parsed.BackoffUntilUtcMs),
+                    EnableCooldownUntilUtc: ToOptionalUtc(parsed.EnableCooldownUntilUtcMs),
+                    MinOnUntilUtc: ToOptionalUtc(parsed.MinOnUntilUtcMs),
+                    RestorePending: parsed.RestorePending);
+            }
+            catch
             {
                 return new AgentNotificationSuppressionStatus(
                     Active: false,
@@ -2869,20 +2913,6 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     MinOnUntilUtc: null,
                     RestorePending: false);
             }
-
-            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
-            bool inBackoff = parsed.BackoffUntilUtcMs > nowUtc.ToUnixTimeMilliseconds();
-            string? lastError = string.IsNullOrWhiteSpace(parsed.LastErrorCode) ? null : parsed.LastErrorCode;
-            bool ready = !inBackoff && string.IsNullOrWhiteSpace(lastError);
-            return new AgentNotificationSuppressionStatus(
-                Active: parsed.Active,
-                Ready: ready,
-                ActionState: parsed.ActionState,
-                LastError: lastError,
-                BackoffUntilUtc: ToOptionalUtc(parsed.BackoffUntilUtcMs),
-                EnableCooldownUntilUtc: ToOptionalUtc(parsed.EnableCooldownUntilUtcMs),
-                MinOnUntilUtc: ToOptionalUtc(parsed.MinOnUntilUtcMs),
-                RestorePending: parsed.RestorePending);
         }
     }
 
@@ -2890,23 +2920,56 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         lock (_gate)
         {
-            using var connection = DbOpen.OpenConnection(_connectionString);
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText =
-                """
-                SELECT value_json
-                FROM runtime_state
-                WHERE key = $key
-                LIMIT 1;
-                """;
-            cmd.Parameters.AddWithValue("$key", PortaExecutionConstants.BrightnessAdjustment.RuntimeStateKey);
-            object? scalar = cmd.ExecuteScalar();
-            string? json = scalar == null || scalar == DBNull.Value
-                ? null
-                : Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture);
+            try
+            {
+                using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText =
+                    """
+                    SELECT value_json
+                    FROM runtime_state
+                    WHERE key = $key
+                    LIMIT 1;
+                    """;
+                cmd.Parameters.AddWithValue("$key", PortaExecutionConstants.BrightnessAdjustment.RuntimeStateKey);
+                object? scalar = cmd.ExecuteScalar();
+                string? json = scalar == null || scalar == DBNull.Value
+                    ? null
+                    : Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture);
 
-            if (string.IsNullOrWhiteSpace(json)
-                || !TryParseBrightnessActionRuntimeState(json, out BrightnessActionRuntimeState parsed))
+                if (string.IsNullOrWhiteSpace(json)
+                    || !TryParseBrightnessActionRuntimeState(json, out BrightnessActionRuntimeState parsed))
+                {
+                    return new AgentBrightnessActionStatus(
+                        Supported: true,
+                        ActionReady: true,
+                        Active: false,
+                        RampDirection: "idle",
+                        PreviousLevel: -1,
+                        TargetLevel: -1,
+                        CurrentLevel: -1,
+                        LastError: null,
+                        BackoffUntilUtc: null,
+                        CooldownUntilUtc: null);
+                }
+
+                DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+                bool inBackoff = parsed.BackoffUntilUtcMs > nowUtc.ToUnixTimeMilliseconds();
+                string? lastError = string.IsNullOrWhiteSpace(parsed.LastErrorCode) ? null : parsed.LastErrorCode;
+                bool actionReady = parsed.BrightnessSupported && !inBackoff && lastError is null;
+                return new AgentBrightnessActionStatus(
+                    Supported: parsed.BrightnessSupported,
+                    ActionReady: actionReady,
+                    Active: parsed.Active,
+                    RampDirection: parsed.RampDirection,
+                    PreviousLevel: parsed.PreviousLevel,
+                    TargetLevel: parsed.TargetLevel,
+                    CurrentLevel: parsed.CurrentLevel,
+                    LastError: lastError,
+                    BackoffUntilUtc: ToOptionalUtc(parsed.BackoffUntilUtcMs),
+                    CooldownUntilUtc: ToOptionalUtc(parsed.CooldownUntilUtcMs));
+            }
+            catch
             {
                 return new AgentBrightnessActionStatus(
                     Supported: true,
@@ -2920,22 +2983,6 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     BackoffUntilUtc: null,
                     CooldownUntilUtc: null);
             }
-
-            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
-            bool inBackoff = parsed.BackoffUntilUtcMs > nowUtc.ToUnixTimeMilliseconds();
-            string? lastError = string.IsNullOrWhiteSpace(parsed.LastErrorCode) ? null : parsed.LastErrorCode;
-            bool actionReady = parsed.BrightnessSupported && !inBackoff && lastError is null;
-            return new AgentBrightnessActionStatus(
-                Supported: parsed.BrightnessSupported,
-                ActionReady: actionReady,
-                Active: parsed.Active,
-                RampDirection: parsed.RampDirection,
-                PreviousLevel: parsed.PreviousLevel,
-                TargetLevel: parsed.TargetLevel,
-                CurrentLevel: parsed.CurrentLevel,
-                LastError: lastError,
-                BackoffUntilUtc: ToOptionalUtc(parsed.BackoffUntilUtcMs),
-                CooldownUntilUtc: ToOptionalUtc(parsed.CooldownUntilUtcMs));
         }
     }
 
@@ -2943,7 +2990,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         lock (_gate)
         {
-            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var connection = DbOpen.OpenReadConnection(_connectionString);
             using var cmd = connection.CreateCommand();
             cmd.CommandText =
                 """
