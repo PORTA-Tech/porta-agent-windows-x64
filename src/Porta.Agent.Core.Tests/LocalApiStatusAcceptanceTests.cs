@@ -153,6 +153,194 @@ public sealed class LocalApiStatusAcceptanceTests
     }
 
     [Fact]
+    public void Status_AndSnapshot_UseCachedRuntimeState_WhenStoreReadsFailAfterStartup()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.34d, confidence: 0.78d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: nowUtc,
+                OverloadLikelihood: 0.81d,
+                Confidence: 0.78d,
+                SustainedAttentionDurationSec: 1800d,
+                IdleFragmentationIndex: 0.14d,
+                FocusAppEntropy: 0.06d,
+                OverloadActive: true,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":true,\"deep_work_active\":true}",
+                ContributorsJson: "{\"schema_ver\":1,\"top\":[\"focus_load\"]}",
+                BaselineReady: true,
+                BaselineReadyPct: 1d,
+                AvgQuality2m: 0.92d,
+                ColdStart: false,
+                CurrentQualityScore: 0.95d,
+                PartialData: false,
+                MissingMajorChannels: []),
+            NotificationStatus = new AgentNotificationSuppressionStatus(
+                Active: true,
+                Ready: true,
+                ActionState: "active",
+                LastError: null,
+                BackoffUntilUtc: nowUtc.AddMinutes(2),
+                EnableCooldownUntilUtc: nowUtc.AddMinutes(5),
+                MinOnUntilUtc: nowUtc.AddMinutes(1),
+                RestorePending: false),
+            BrightnessStatus = new AgentBrightnessActionStatus(
+                Supported: true,
+                ActionReady: true,
+                Active: true,
+                RampDirection: "down",
+                PreviousLevel: 68,
+                TargetLevel: 55,
+                CurrentLevel: 60,
+                LastError: null,
+                BackoffUntilUtc: null,
+                CooldownUntilUtc: nowUtc.AddMinutes(10)),
+            DbMigrationFailed = true
+        };
+
+        var controller = new AgentCoreController(store, new FakeUserAgentSessionContextStore(null));
+        store.ThrowOnReadLatestStateDetails = true;
+        store.ThrowOnReadNotificationSuppressionStatus = true;
+        store.ThrowOnReadBrightnessActionStatus = true;
+        store.ThrowOnReadDbMigrationFailed = true;
+
+        AgentServiceStatusSnapshot status = controller.GetStatus();
+        AgentLatestStateDetails? latestState = controller.GetLatestStateDetails();
+        var statusDto = StatusMapper.Map(status, localApiAuthReady: true, localApiAuthError: null);
+        var snapshotDto = SnapshotMapper.Map(controller.GetCurrentSnapshot(), latestState);
+
+        Assert.NotNull(latestState);
+        Assert.True(statusDto.overload_active);
+        Assert.True(statusDto.deep_work_active);
+        Assert.True(statusDto.notifications_suppressed);
+        Assert.True(statusDto.brightness_adjusted);
+        Assert.True(statusDto.db_migration_failed);
+        Assert.Equal(0.81d, snapshotDto.OverloadLikelihood);
+        Assert.Equal(0.78d, snapshotDto.Confidence);
+        Assert.True(snapshotDto.OverloadActive);
+    }
+
+    [Fact]
+    public void ApplyBrainSnapshot_RefreshesCachedRuntimeState_BeforeStoreReadsFail()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.21d, confidence: 0.55d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: nowUtc.AddMinutes(-5),
+                OverloadLikelihood: 0.21d,
+                Confidence: 0.55d,
+                SustainedAttentionDurationSec: 300d,
+                IdleFragmentationIndex: 0.2d,
+                FocusAppEntropy: 0.1d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: false,
+                BaselineReadyPct: 0.4d,
+                AvgQuality2m: 0.5d,
+                ColdStart: true,
+                CurrentQualityScore: 0.52d,
+                PartialData: true,
+                MissingMajorChannels: ["keyboard"]),
+            NotificationStatus = new AgentNotificationSuppressionStatus(
+                Active: false,
+                Ready: true,
+                ActionState: "inactive",
+                LastError: null,
+                BackoffUntilUtc: null,
+                EnableCooldownUntilUtc: null,
+                MinOnUntilUtc: null,
+                RestorePending: false),
+            BrightnessStatus = new AgentBrightnessActionStatus(
+                Supported: true,
+                ActionReady: true,
+                Active: false,
+                RampDirection: "idle",
+                PreviousLevel: -1,
+                TargetLevel: -1,
+                CurrentLevel: -1,
+                LastError: null,
+                BackoffUntilUtc: null,
+                CooldownUntilUtc: null),
+            DbMigrationFailed = false
+        };
+
+        var controller = new AgentCoreController(store, new FakeUserAgentSessionContextStore(null));
+
+        store.LatestStateDetails = new AgentLatestStateDetails(
+            TimestampUtc: nowUtc,
+            OverloadLikelihood: 0.88d,
+            Confidence: 0.84d,
+            SustainedAttentionDurationSec: 2400d,
+            IdleFragmentationIndex: 0.07d,
+            FocusAppEntropy: 0.03d,
+            OverloadActive: true,
+            StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":true,\"deep_work_active\":true}",
+            ContributorsJson: "{\"schema_ver\":1,\"top\":[\"overload\"]}",
+            BaselineReady: true,
+            BaselineReadyPct: 1d,
+            AvgQuality2m: 0.93d,
+            ColdStart: false,
+            CurrentQualityScore: 0.94d,
+            PartialData: false,
+            MissingMajorChannels: []);
+        store.NotificationStatus = new AgentNotificationSuppressionStatus(
+            Active: true,
+            Ready: true,
+            ActionState: "active",
+            LastError: null,
+            BackoffUntilUtc: nowUtc.AddMinutes(3),
+            EnableCooldownUntilUtc: nowUtc.AddMinutes(6),
+            MinOnUntilUtc: nowUtc.AddMinutes(2),
+            RestorePending: false);
+        store.BrightnessStatus = new AgentBrightnessActionStatus(
+            Supported: true,
+            ActionReady: true,
+            Active: true,
+            RampDirection: "down",
+            PreviousLevel: 70,
+            TargetLevel: 58,
+            CurrentLevel: 60,
+            LastError: null,
+            BackoffUntilUtc: null,
+            CooldownUntilUtc: nowUtc.AddMinutes(12));
+        store.DbMigrationFailed = true;
+
+        AgentBrainSnapshot refreshedSnapshot = CreateSnapshot(overload: 0.88d, confidence: 0.84d) with
+        {
+            TimestampUtc = nowUtc,
+            LastAction = "focus_protection_tightened",
+            StateFlagsJson = "{\"schema_ver\":1,\"overload_active\":true,\"deep_work_active\":true}"
+        };
+
+        controller.ApplyBrainSnapshot(refreshedSnapshot, backendConnected: true);
+
+        store.ThrowOnReadLatestStateDetails = true;
+        store.ThrowOnReadNotificationSuppressionStatus = true;
+        store.ThrowOnReadBrightnessActionStatus = true;
+        store.ThrowOnReadDbMigrationFailed = true;
+
+        AgentServiceStatusSnapshot status = controller.GetStatus();
+        AgentLatestStateDetails? latestState = controller.GetLatestStateDetails();
+        var statusDto = StatusMapper.Map(status, localApiAuthReady: true, localApiAuthError: null);
+        var snapshotDto = SnapshotMapper.Map(controller.GetCurrentSnapshot(), latestState);
+
+        Assert.NotNull(latestState);
+        Assert.Equal("focus_protection_tightened", status.LastAction);
+        Assert.True(statusDto.overload_active);
+        Assert.True(statusDto.deep_work_active);
+        Assert.True(statusDto.notifications_suppressed);
+        Assert.True(statusDto.brightness_adjusted);
+        Assert.True(statusDto.db_migration_failed);
+        Assert.Equal(0.88d, snapshotDto.OverloadLikelihood);
+        Assert.Equal(0.84d, snapshotDto.Confidence);
+        Assert.True(snapshotDto.OverloadActive);
+    }
+
+    [Fact]
     public void Status_ReturnsDbMigrationFailedFlag_FromDiagnosticsSource()
     {
         var store = new LocalApiContractFakeStore

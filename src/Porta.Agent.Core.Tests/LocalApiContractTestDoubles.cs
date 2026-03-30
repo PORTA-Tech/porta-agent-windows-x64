@@ -13,6 +13,10 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
 
     public AgentBrainSnapshot? LatestSnapshot { get; set; }
     public AgentLatestStateDetails? LatestStateDetails { get; set; }
+    public bool ThrowOnReadLatestStateDetails { get; set; }
+    public bool ThrowOnReadNotificationSuppressionStatus { get; set; }
+    public bool ThrowOnReadBrightnessActionStatus { get; set; }
+    public bool ThrowOnReadDbMigrationFailed { get; set; }
     public AgentNotificationSuppressionStatus NotificationStatus { get; set; } = new(
         Active: false,
         Ready: true,
@@ -72,10 +76,45 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     public AgentSettingsRecord? ReadLatestSettings() => LatestSettings;
     public void DeleteLocalData() { }
     public AgentBrainSnapshot? ReadLatestSnapshot() => LatestSnapshot;
-    public AgentLatestStateDetails? ReadLatestStateDetails() => LatestStateDetails;
-    public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus() => NotificationStatus;
-    public AgentBrightnessActionStatus ReadBrightnessActionStatus() => BrightnessStatus;
-    public bool ReadDbMigrationFailed() => DbMigrationFailed;
+    public AgentLatestStateDetails? ReadLatestStateDetails()
+    {
+        if (ThrowOnReadLatestStateDetails)
+        {
+            throw new InvalidOperationException("latest_state_details_unavailable");
+        }
+
+        return LatestStateDetails;
+    }
+
+    public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus()
+    {
+        if (ThrowOnReadNotificationSuppressionStatus)
+        {
+            throw new InvalidOperationException("notification_status_unavailable");
+        }
+
+        return NotificationStatus;
+    }
+
+    public AgentBrightnessActionStatus ReadBrightnessActionStatus()
+    {
+        if (ThrowOnReadBrightnessActionStatus)
+        {
+            throw new InvalidOperationException("brightness_status_unavailable");
+        }
+
+        return BrightnessStatus;
+    }
+
+    public bool ReadDbMigrationFailed()
+    {
+        if (ThrowOnReadDbMigrationFailed)
+        {
+            throw new InvalidOperationException("db_migration_status_unavailable");
+        }
+
+        return DbMigrationFailed;
+    }
     public IReadOnlyList<AgentBrainSnapshot> ReadTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, int bucketSeconds = Time.bucketSeconds) => [];
     public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null) => RecentEvents.Take(limit).ToList();
     public IReadOnlyList<AgentControlEvent> ReadEventsSinceId(long sinceIdExclusive, int limit = 200) => [];

@@ -49,6 +49,26 @@ public sealed class AgentCoreController : IAgentCoreController
     private static readonly TimeSpan OwnershipReconciliationGraceWindow = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan StatusReadLockTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan LatestStateReadLockTimeout = TimeSpan.FromMilliseconds(150);
+    private static readonly AgentNotificationSuppressionStatus DefaultNotificationSuppressionStatus = new(
+        Active: false,
+        Ready: true,
+        ActionState: "inactive",
+        LastError: null,
+        BackoffUntilUtc: null,
+        EnableCooldownUntilUtc: null,
+        MinOnUntilUtc: null,
+        RestorePending: false);
+    private static readonly AgentBrightnessActionStatus DefaultBrightnessActionStatus = new(
+        Supported: true,
+        ActionReady: true,
+        Active: false,
+        RampDirection: "idle",
+        PreviousLevel: -1,
+        TargetLevel: -1,
+        CurrentLevel: -1,
+        LastError: null,
+        BackoffUntilUtc: null,
+        CooldownUntilUtc: null);
     private static readonly string ConsentDisclosureHash = ComputeSha256Hex(ConsentDisclosureText);
     private static readonly Regex IdPattern = new(@"^[A-Za-z0-9._-]+$", RegexOptions.Compiled);
     private static readonly Regex FocusHashPattern = new(@"^[a-fA-F0-9-_.:]+$", RegexOptions.Compiled);
@@ -105,6 +125,9 @@ public sealed class AgentCoreController : IAgentCoreController
     private SettingsStateRecord _settingsState = CreateDefaultSettingsState();
     private AgentServiceStatusSnapshot? _lastStatusSnapshot;
     private AgentLatestStateDetails? _lastLatestStateDetails;
+    private AgentNotificationSuppressionStatus _lastNotificationSuppressionStatus = DefaultNotificationSuppressionStatus;
+    private AgentBrightnessActionStatus _lastBrightnessActionStatus = DefaultBrightnessActionStatus;
+    private bool _lastDbMigrationFailed;
 
     public AgentCoreController()
         : this(
@@ -158,6 +181,7 @@ public sealed class AgentCoreController : IAgentCoreController
         }
 
         _latestSnapshot = _stateStore.ReadLatestSnapshot() ?? _latestSnapshot;
+        RefreshRuntimeStateCacheFromStoreLocked();
         _lastStatusSnapshot = CreateFallbackStatusSnapshot(DateTimeOffset.UtcNow);
     }
 
@@ -228,7 +252,6 @@ public sealed class AgentCoreController : IAgentCoreController
         {
             try
             {
-                _lastLatestStateDetails = _stateStore.ReadLatestStateDetails();
                 return _lastLatestStateDetails;
             }
             finally
@@ -244,10 +267,9 @@ public sealed class AgentCoreController : IAgentCoreController
     {
         TryAutoResumeLocked();
         UpdateRecalibrationStateLocked();
-        AgentNotificationSuppressionStatus suppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
-        AgentBrightnessActionStatus brightnessStatus = _stateStore.ReadBrightnessActionStatus();
-        AgentLatestStateDetails? latestState = _stateStore.ReadLatestStateDetails();
-        _lastLatestStateDetails = latestState;
+        AgentNotificationSuppressionStatus suppressionStatus = _lastNotificationSuppressionStatus;
+        AgentBrightnessActionStatus brightnessStatus = _lastBrightnessActionStatus;
+        AgentLatestStateDetails? latestState = _lastLatestStateDetails;
 
         string stateFlagsJson = latestState?.StateFlagsJson ?? _latestSnapshot.StateFlagsJson;
         bool overloadActive = latestState?.OverloadActive
@@ -308,7 +330,7 @@ public sealed class AgentCoreController : IAgentCoreController
             _latestSnapshot.StateFlagsJson,
             captureSelfTestState,
             captureSelfTestErrorCode);
-        bool dbMigrationFailedFromStore = _stateStore.ReadDbMigrationFailed();
+        bool dbMigrationFailedFromStore = _lastDbMigrationFailed;
         bool dbMigrationFailed = IsDbMigrationFailure(effectiveLastError) || dbMigrationFailedFromStore;
         AgentStatus status = effectiveLastError is null
             ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
@@ -400,6 +422,21 @@ public sealed class AgentCoreController : IAgentCoreController
             AgentStatus status = _lastError is null
                 ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
                 : AgentStatus.Degraded;
+            string calibrationStage = _lastLatestStateDetails?.CalibrationStage
+                ?? (_lastLatestStateDetails?.BaselineReady == true
+                    ? CalibrationTruth.StageCalibrated
+                    : (_lastLatestStateDetails?.ColdStart == true ? CalibrationTruth.StageCold : CalibrationTruth.StageProvisional));
+            string trustTier = _lastLatestStateDetails?.TrustTier
+                ?? CalibrationTruth.ResolveTrustTier(
+                    calibrationStage,
+                    _lastLatestStateDetails?.Confidence ?? _latestSnapshot.Confidence,
+                    _lastLatestStateDetails?.CurrentQualityScore ?? 0d,
+                    _lastLatestStateDetails?.PartialData == true);
+            bool overloadActive = _lastLatestStateDetails?.OverloadActive
+                ?? (TryReadBoolFromStateFlags(_latestSnapshot.StateFlagsJson, "overload_active", out bool parsedOverloadActive)
+                    && parsedOverloadActive);
+            bool deepWorkActive = TryReadBoolFromStateFlags(_latestSnapshot.StateFlagsJson, "deep_work_active", out bool parsedDeepWorkActive)
+                && parsedDeepWorkActive;
             return cached with
             {
                 Status = status,
@@ -417,6 +454,31 @@ public sealed class AgentCoreController : IAgentCoreController
                 LastError = _lastError,
                 LocalApiAuthReady = _localApiAuthReady,
                 LocalApiAuthError = _localApiAuthError,
+                NotificationSuppressionActive = _lastNotificationSuppressionStatus.Active,
+                NotificationSuppressionReady = _lastNotificationSuppressionStatus.Ready,
+                NotificationSuppressionLastError = _lastNotificationSuppressionStatus.LastError,
+                NotificationSuppressionError = _lastNotificationSuppressionStatus.LastError,
+                NotificationSuppressionBackoffUntilUtc = _lastNotificationSuppressionStatus.BackoffUntilUtc,
+                NotificationBackoffUntilUtc = _lastNotificationSuppressionStatus.BackoffUntilUtc,
+                NotificationsSuppressed = _lastNotificationSuppressionStatus.Active,
+                BrightnessActionReady = _lastBrightnessActionStatus.ActionReady,
+                BrightnessActionActive = _lastBrightnessActionStatus.Active,
+                BrightnessAdjusted = _lastBrightnessActionStatus.Active,
+                BrightnessSupported = _lastBrightnessActionStatus.Supported,
+                BrightnessCurrentLevel = _lastBrightnessActionStatus.CurrentLevel,
+                BrightnessTargetLevel = _lastBrightnessActionStatus.TargetLevel,
+                BrightnessLastError = _lastBrightnessActionStatus.LastError,
+                BrightnessError = _lastBrightnessActionStatus.LastError,
+                BrightnessBackoffUntilUtc = _lastBrightnessActionStatus.BackoffUntilUtc,
+                DbMigrationFailed = _lastDbMigrationFailed,
+                BaselineReady = _lastLatestStateDetails?.BaselineReady ?? cached.BaselineReady,
+                ColdStart = _lastLatestStateDetails?.ColdStart ?? cached.ColdStart,
+                CalibrationStage = calibrationStage,
+                SystemActionsEnabled = _lastLatestStateDetails?.SystemActionsEnabled ?? CalibrationTruth.AllowsSystemActions(calibrationStage),
+                TrustTier = trustTier,
+                OverloadActive = overloadActive,
+                DeepWorkActive = deepWorkActive,
+                LatestContributorsJson = _lastLatestStateDetails?.ContributorsJson ?? cached.LatestContributorsJson,
                 LastUpdatedUtc = nowUtc
             };
         }
@@ -475,23 +537,23 @@ public sealed class AgentCoreController : IAgentCoreController
             LastError: _lastError,
             LocalApiAuthReady: _localApiAuthReady,
             LocalApiAuthError: _localApiAuthError,
-            NotificationSuppressionActive: _lastStatusSnapshot?.NotificationSuppressionActive ?? false,
-            NotificationSuppressionReady: _lastStatusSnapshot?.NotificationSuppressionReady ?? true,
-            NotificationSuppressionLastError: _lastStatusSnapshot?.NotificationSuppressionLastError,
-            NotificationSuppressionError: _lastStatusSnapshot?.NotificationSuppressionError,
-            NotificationSuppressionBackoffUntilUtc: _lastStatusSnapshot?.NotificationSuppressionBackoffUntilUtc,
-            NotificationBackoffUntilUtc: _lastStatusSnapshot?.NotificationBackoffUntilUtc,
-            NotificationsSuppressed: _lastStatusSnapshot?.NotificationsSuppressed ?? false,
-            BrightnessActionReady: _lastStatusSnapshot?.BrightnessActionReady ?? true,
-            BrightnessActionActive: _lastStatusSnapshot?.BrightnessActionActive ?? false,
-            BrightnessAdjusted: _lastStatusSnapshot?.BrightnessAdjusted ?? false,
-            BrightnessSupported: _lastStatusSnapshot?.BrightnessSupported ?? true,
-            BrightnessCurrentLevel: _lastStatusSnapshot?.BrightnessCurrentLevel ?? -1,
-            BrightnessTargetLevel: _lastStatusSnapshot?.BrightnessTargetLevel ?? -1,
-            BrightnessLastError: _lastStatusSnapshot?.BrightnessLastError,
-            BrightnessError: _lastStatusSnapshot?.BrightnessError,
-            BrightnessBackoffUntilUtc: _lastStatusSnapshot?.BrightnessBackoffUntilUtc,
-            DbMigrationFailed: _lastStatusSnapshot?.DbMigrationFailed ?? false,
+            NotificationSuppressionActive: _lastNotificationSuppressionStatus.Active,
+            NotificationSuppressionReady: _lastNotificationSuppressionStatus.Ready,
+            NotificationSuppressionLastError: _lastNotificationSuppressionStatus.LastError,
+            NotificationSuppressionError: _lastNotificationSuppressionStatus.LastError,
+            NotificationSuppressionBackoffUntilUtc: _lastNotificationSuppressionStatus.BackoffUntilUtc,
+            NotificationBackoffUntilUtc: _lastNotificationSuppressionStatus.BackoffUntilUtc,
+            NotificationsSuppressed: _lastNotificationSuppressionStatus.Active,
+            BrightnessActionReady: _lastBrightnessActionStatus.ActionReady,
+            BrightnessActionActive: _lastBrightnessActionStatus.Active,
+            BrightnessAdjusted: _lastBrightnessActionStatus.Active,
+            BrightnessSupported: _lastBrightnessActionStatus.Supported,
+            BrightnessCurrentLevel: _lastBrightnessActionStatus.CurrentLevel,
+            BrightnessTargetLevel: _lastBrightnessActionStatus.TargetLevel,
+            BrightnessLastError: _lastBrightnessActionStatus.LastError,
+            BrightnessError: _lastBrightnessActionStatus.LastError,
+            BrightnessBackoffUntilUtc: _lastBrightnessActionStatus.BackoffUntilUtc,
+            DbMigrationFailed: _lastDbMigrationFailed,
             BaselineReady: _lastLatestStateDetails?.BaselineReady ?? false,
             ColdStart: _lastLatestStateDetails?.ColdStart ?? false,
             CalibrationStage: calibrationStage,
@@ -1070,6 +1132,7 @@ public sealed class AgentCoreController : IAgentCoreController
             _pauseUntilUtc = null;
             _lastError = null;
             _lastEventTimestampUtc = nowUtc;
+            ResetRuntimeStateCacheLocked();
             _latestSnapshot = _latestSnapshot with { LastAction = "local_data_deleted" };
             WriteConsentStateToStoreLocked(_consentState, nowUtc);
             WriteSettingsStateToStoreLocked(_settingsState, nowUtc);
@@ -1149,6 +1212,7 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             _latestSnapshot = snapshot;
+            RefreshRuntimeStateCacheFromStoreLocked();
             _backendConnected = backendConnected;
             if (backendConnected)
             {
@@ -1185,6 +1249,7 @@ public sealed class AgentCoreController : IAgentCoreController
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
             _latestSnapshot = BuildTestSnapshot(_latestSnapshot, normalizedAction, nowUtc);
             _stateStore.WriteSnapshot(_latestSnapshot);
+            RefreshRuntimeStateCacheFromStoreLocked();
 
             (string triggerState, double triggerValue, string escalation, bool reversible, int? durationSeconds) =
                 ResolveTestInterventionMetadata(normalizedAction);
@@ -2479,7 +2544,7 @@ public sealed class AgentCoreController : IAgentCoreController
 
     private string BuildDiagnosticsSummaryJson()
     {
-        AgentNotificationSuppressionStatus suppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
+        AgentNotificationSuppressionStatus suppressionStatus = _lastNotificationSuppressionStatus;
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         string policyVersion = ResolvePolicyVersion();
         UserAgentSessionContextSnapshot? observedSessionContext = _userAgentSessionContextStore.ReadCurrent();
@@ -2574,6 +2639,51 @@ public sealed class AgentCoreController : IAgentCoreController
         };
 
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    // Refresh DB-derived status enrichments when runtime state advances, not on UI request paths.
+    private void RefreshRuntimeStateCacheFromStoreLocked()
+    {
+        try
+        {
+            _lastLatestStateDetails = _stateStore.ReadLatestStateDetails();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            _lastNotificationSuppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            _lastBrightnessActionStatus = _stateStore.ReadBrightnessActionStatus();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            _lastDbMigrationFailed = _stateStore.ReadDbMigrationFailed();
+        }
+        catch
+        {
+        }
+    }
+
+    private void ResetRuntimeStateCacheLocked()
+    {
+        _lastLatestStateDetails = null;
+        _lastNotificationSuppressionStatus = DefaultNotificationSuppressionStatus;
+        _lastBrightnessActionStatus = DefaultBrightnessActionStatus;
+        _lastDbMigrationFailed = false;
+        _lastStatusSnapshot = null;
     }
 
     private static string? ResolveEffectiveLastError(
