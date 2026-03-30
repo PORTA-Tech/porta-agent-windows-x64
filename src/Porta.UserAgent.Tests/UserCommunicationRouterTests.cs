@@ -167,6 +167,24 @@ public sealed class UserCommunicationRouterTests
     }
 
     [Fact]
+    public void ResolveCriticalWidgetState_UsesAuthMismatchWhenStatusRequestReturns401()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-27T10:00:00Z");
+
+        UserDesktopWidgetCriticalState? state = UserCommunicationRouter.ResolveCriticalWidgetState(
+            status: null,
+            snapshot: null,
+            recentEvents: [],
+            nowUtc: nowUtc,
+            statusHttpCode: 401);
+
+        Assert.NotNull(state);
+        Assert.Equal("API auth mismatch", state!.Title);
+        Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.PrimaryAction);
+        Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.SecondaryAction);
+    }
+
+    [Fact]
     public void ResolveCriticalWidgetState_UsesRecentNotificationFailure()
     {
         DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-27T10:00:00Z");

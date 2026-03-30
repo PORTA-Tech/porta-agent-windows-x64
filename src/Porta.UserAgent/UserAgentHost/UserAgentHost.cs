@@ -214,6 +214,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             widgetDetails.RecentEvents,
             widgetDetails.Timeline,
             widgetDetails.Settings,
+            _localApiClient.LastStatusHttpCode,
             nowUtc));
 
         UserCommunicationToast? recentEventToast = UserCommunicationRouter.ResolveRecentEventToast(

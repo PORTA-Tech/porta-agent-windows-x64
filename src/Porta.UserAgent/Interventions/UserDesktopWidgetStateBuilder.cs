@@ -13,6 +13,7 @@ internal static class UserDesktopWidgetStateBuilder
         IReadOnlyList<LocalApiEventResponse>? recentEvents = null,
         LocalApiTimelineResponse? timeline = null,
         LocalApiSettingsResponse? settings = null,
+        int? statusHttpCode = null,
         DateTimeOffset? nowUtc = null)
     {
         _ = settings;
@@ -22,7 +23,8 @@ internal static class UserDesktopWidgetStateBuilder
             status,
             snapshot,
             events,
-            now);
+            now,
+            statusHttpCode);
         criticalState ??= BuildFallbackCriticalState(degradedToast);
 
         bool paused = status?.Paused == true;
@@ -49,7 +51,7 @@ internal static class UserDesktopWidgetStateBuilder
         return new UserDesktopWidgetState(
             Mode: mode,
             Title: BuildTitle(mode),
-            StatusText: BuildStatusText(status, degradedToast, criticalState, mode),
+            StatusText: BuildStatusText(status, snapshot, degradedToast, criticalState, mode, statusHttpCode),
             PrimaryMetricText: BuildFocusMetric(status, snapshot, mode),
             SecondaryMetricText: BuildOverloadMetric(status, snapshot, mode),
             FooterText: string.Empty,
@@ -74,9 +76,11 @@ internal static class UserDesktopWidgetStateBuilder
 
     private static string BuildStatusText(
         LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
         UserCommunicationToast? degradedToast,
         UserDesktopWidgetCriticalState? criticalState,
-        UserDesktopWidgetMode mode)
+        UserDesktopWidgetMode mode,
+        int? statusHttpCode)
     {
         if (mode == UserDesktopWidgetMode.Paused)
         {
@@ -100,17 +104,32 @@ internal static class UserDesktopWidgetStateBuilder
 
         if (status == null)
         {
-            return "Waiting for the core service.";
+            return statusHttpCode switch
+            {
+                401 or 403 => "API auth mismatch.",
+                int _ => "Waiting for service status.",
+                _ => "Local API unreachable."
+            };
         }
 
         if (!status.ServiceRunning)
         {
-            return "Ari cannot guide this session because the core service is unavailable.";
+            return "Service offline.";
         }
 
         if (!status.LocalApiAuthReady)
         {
-            return "Ari is waiting for local API access.";
+            return "API auth mismatch.";
+        }
+
+        if (!IsFresh(status.freshness_state))
+        {
+            return BuildFreshnessStatusText(status, snapshot);
+        }
+
+        if (snapshot != null && !IsFresh(snapshot.freshness_state))
+        {
+            return BuildFreshnessStatusText(status, snapshot);
         }
 
         if (!status.ConsentActive)
@@ -134,6 +153,22 @@ internal static class UserDesktopWidgetStateBuilder
             UserDesktopWidgetMode.Overload => "Overload is elevated.",
             _ => string.Empty
         };
+    }
+
+    private static string BuildFreshnessStatusText(
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        bool dbBusy = string.Equals(status?.runtime_state_refresh_error, "db_busy", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(snapshot?.runtime_state_refresh_error, "db_busy", StringComparison.OrdinalIgnoreCase);
+        return snapshot != null
+            ? (dbBusy ? "Cached snapshot. DB busy, retrying." : "Using cached snapshot.")
+            : (dbBusy ? "Status stale. DB busy, retrying." : "Status stale.");
+    }
+
+    private static bool IsFresh(string? freshnessState)
+    {
+        return string.Equals(freshnessState, "fresh", StringComparison.OrdinalIgnoreCase);
     }
 
     private static UserDesktopWidgetCriticalState? BuildFallbackCriticalState(UserCommunicationToast? degradedToast)

@@ -109,7 +109,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.CriticalState.PrimaryAction);
         Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.CriticalState.SecondaryAction);
         Assert.Equal(UserDesktopWidgetAction.OpenSettings, state.CriticalState.TertiaryAction);
-        Assert.Contains("core service", state.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("service offline", state.StatusText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -253,12 +253,43 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Equal(string.Empty, state.StatusText);
     }
 
+    [Fact]
+    public void Build_UsesCachedSnapshotVocabularyWhenRuntimeStateIsStale()
+    {
+        LocalApiStatusResponse status = BuildStatus(
+            runtimeStateFreshness: "stale",
+            runtimeStateRefreshError: "db_busy");
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.42,
+            sustainedAttentionSeconds: 900,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false,
+            runtimeStateFreshness: "stale",
+            runtimeStateRefreshError: "db_busy");
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, signals, degradedToast: null);
+
+        Assert.Equal("Cached snapshot. DB busy, retrying.", state.StatusText);
+        Assert.Null(state.CriticalState);
+    }
+
     private static LocalApiStatusResponse BuildStatus(
         bool paused = false,
         DateTimeOffset? pauseUntilUtc = null,
         bool overloadActive = false,
         string trustTier = CalibrationTruth.TrustMedium,
-        bool serviceRunning = true)
+        bool serviceRunning = true,
+        string runtimeStateFreshness = "fresh",
+        string? runtimeStateRefreshError = null)
     {
         return new LocalApiStatusResponse(
             Status: AgentStatus.Running,
@@ -320,7 +351,9 @@ public sealed class UserDesktopWidgetStateBuilderTests
             LatestContributorsJson: null,
             LatestWhyJson: null,
             LastUpdatedUtc: DateTimeOffset.Parse("2026-03-29T12:00:00Z"),
-            TrustTier: trustTier);
+            TrustTier: trustTier,
+            RuntimeStateFreshness: runtimeStateFreshness,
+            RuntimeStateRefreshError: runtimeStateRefreshError);
     }
 
     private static LocalApiCurrentSnapshotResponse BuildSnapshot(
@@ -328,7 +361,9 @@ public sealed class UserDesktopWidgetStateBuilderTests
         double sustainedAttentionSeconds,
         bool deepWorkActive,
         bool notificationsSuppressed,
-        bool brightnessAdjusted)
+        bool brightnessAdjusted,
+        string runtimeStateFreshness = "fresh",
+        string? runtimeStateRefreshError = null)
     {
         return new LocalApiCurrentSnapshotResponse(
             TimestampUtc: DateTimeOffset.Parse("2026-03-29T12:00:00Z"),
@@ -372,7 +407,9 @@ public sealed class UserDesktopWidgetStateBuilderTests
             BrightnessAdjusted: brightnessAdjusted,
             FComponent: 0.2,
             IComponent: 0.45,
-            VComponent: 0.18);
+            VComponent: 0.18,
+            RuntimeStateFreshness: runtimeStateFreshness,
+            RuntimeStateRefreshError: runtimeStateRefreshError);
     }
 
     private static LocalApiEventResponse BuildEvent(long id, string action, DateTimeOffset tsUtc)

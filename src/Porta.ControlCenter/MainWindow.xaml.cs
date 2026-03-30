@@ -36,8 +36,6 @@ public partial class MainWindow : Window
     private const double UiBreakFocusThresholdSeconds = 1800d;
     private static readonly TimeSpan SlowRefreshInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ManualRefreshThrottle = TimeSpan.FromMilliseconds(700);
-    private static readonly TimeSpan SnapshotFreshnessWindow = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan StatusFreshnessWindow = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan AllTimeHistoryRefreshInterval = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan TopMetricAnimationDuration = TimeSpan.FromMilliseconds(220);
     private static readonly TimeSpan TopMetricAnimationFrameInterval = TimeSpan.FromMilliseconds(16);
@@ -75,7 +73,6 @@ public partial class MainWindow : Window
     private long _dismissedRecoveryEventId;
     private long _activeRecoveryEventId;
     private DateTimeOffset _lastManualRefreshUtc = DateTimeOffset.MinValue;
-    private DateTimeOffset? _lastStatusSuccessUtc;
     private HistoryRange _historyRange = HistoryRange.Last1Hour;
     private bool _historyExplainMode;
     private ActionsView _actionsView = ActionsView.Suggestions;
@@ -427,15 +424,7 @@ public partial class MainWindow : Window
         ServiceProbeResult serviceProbe = ProbeServiceStatus();
         _latestStatus = await _apiClient.GetStatusAsync().ConfigureAwait(true);
         int? statusHttpCode = _apiClient.LastStatusHttpCode;
-        if (_latestStatus != null)
-        {
-            _lastStatusSuccessUtc = DateTimeOffset.UtcNow;
-        }
-
-        bool statusFresh = _latestStatus != null
-            && _lastStatusSuccessUtc.HasValue
-            && (DateTimeOffset.UtcNow - _lastStatusSuccessUtc.Value) <= StatusFreshnessWindow
-            && (DateTimeOffset.UtcNow - _latestStatus.LastUpdatedUtc) <= StatusFreshnessWindow;
+        bool statusFresh = IsStatusFresh(_latestStatus);
 
         bool apiReachable = statusHttpCode.HasValue;
         bool statusAvailable = _latestStatus != null;
@@ -443,9 +432,7 @@ public partial class MainWindow : Window
         LocalApiCurrentSnapshotResponse? snapshot = statusAvailable
             ? await _apiClient.GetCurrentSnapshotAsync().ConfigureAwait(true)
             : null;
-        bool snapshotFresh = !statusAvailable
-            || !statusFresh
-            || !IsSnapshotStale(_latestStatus, snapshot, DateTimeOffset.UtcNow);
+        bool snapshotFresh = snapshot == null || IsSnapshotFresh(snapshot);
         LocalApiInputsSummaryResponse? inputSummary = statusAvailable
             ? await _apiClient.GetInputsSummaryAsync(60).ConfigureAwait(true)
             : null;
@@ -546,8 +533,8 @@ public partial class MainWindow : Window
             UpdateCaptureHealthCards(null, statusFresh: false);
             UpdateSessionTruthCards(null, statusFresh: false);
             UpdateInputTruthCards(null, statusFresh: false);
-            UpdateStateTruthCards(null, null, statusFresh: false);
-            UpdateActionTruthCards([], statusFresh: false);
+            UpdateStateTruthCards(null, null, statusFresh: false, snapshotFresh: false);
+            UpdateActionTruthCards([], null, null, statusFresh: false);
             PopulateOverview(nowTruth, null, [], previousSnapshot);
             PopulateInputs(null, null, null);
             PopulateInterventions([], null);
@@ -556,7 +543,7 @@ public partial class MainWindow : Window
             PopulateTimeline(null);
             PopulateWhyDrawer(nowTruth, [], _latestVisualState);
             UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
-            UpdateEngineHealthCards(serviceProbe, apiReachable, snapshot: null, statusFresh: false);
+            UpdateEngineHealthCards(serviceProbe, apiReachable, snapshot: null, statusFresh: false, snapshotFresh: false, statusHttpCode: statusHttpCode);
             return;
         }
 
@@ -588,7 +575,7 @@ public partial class MainWindow : Window
         ConsentTimestampValue.Text = _latestStatus.ConsentTimestampUtc?.ToString("O") ?? NotAvailableText;
         ConsentHashValue.Text = _latestStatus.ConsentDisclosureHash;
         LastErrorValue.Text = string.IsNullOrWhiteSpace(nowTruth.Explanation)
-            ? BuildOnlineErrorMessage(_latestStatus.LastError, serviceProbe, statusFresh)
+            ? BuildOnlineErrorMessage(_latestStatus, truthSnapshot, serviceProbe, statusFresh)
             : nowTruth.Explanation;
         SnapshotConfidenceValue.Text = truthSnapshot != null
             ? truthSnapshot.Confidence.ToString("F2", CultureInfo.InvariantCulture)
@@ -609,8 +596,8 @@ public partial class MainWindow : Window
         UpdateCaptureHealthCards(_latestStatus, statusFresh);
         UpdateSessionTruthCards(_latestStatus, statusFresh);
         UpdateInputTruthCards(_latestStatus, statusFresh);
-        UpdateStateTruthCards(_latestStatus, truthSnapshot, statusFresh);
-        UpdateActionTruthCards(_allRecentEvents, statusFresh);
+        UpdateStateTruthCards(_latestStatus, truthSnapshot, statusFresh, snapshotFresh);
+        UpdateActionTruthCards(_allRecentEvents, _latestStatus, truthSnapshot, statusFresh);
 
         PopulateOverview(nowTruth, inputSummary, _recentEvents, previousSnapshot);
         PopulateInputs(inputSummary, _retention, truthSnapshot);
@@ -620,7 +607,7 @@ public partial class MainWindow : Window
         PopulateTimeline(GetSelectedHistoryTimeline());
         PopulateWhyDrawer(nowTruth, _allRecentEvents, _latestVisualState);
         UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
-        UpdateEngineHealthCards(serviceProbe, apiReachable, truthSnapshot, statusFresh);
+        UpdateEngineHealthCards(serviceProbe, apiReachable, truthSnapshot, statusFresh, snapshotFresh, statusHttpCode);
     }
 
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)
@@ -1932,11 +1919,13 @@ public partial class MainWindow : Window
         bool apiReachable,
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
-        bool statusFresh)
+        bool statusFresh,
+        bool snapshotFresh,
+        int? statusHttpCode)
     {
         string serviceLabel = BuildEngineServiceLabel(serviceProbe, status, apiReachable);
         string databaseLabel = BuildEngineDatabaseLabel(status);
-        string snapshotLabel = BuildEngineSnapshotLabel(snapshot, statusFresh);
+        string snapshotLabel = BuildEngineSnapshotLabel(snapshot, statusFresh, snapshotFresh);
         string policyLabel = BuildEnginePolicyLabel(status);
         string apiLabel = apiReachable ? "Yes" : "No";
         string lastUpdateLabel = status == null
@@ -1955,8 +1944,40 @@ public partial class MainWindow : Window
                 ApiLabel: apiLabel,
                 LastUpdateLabel: lastUpdateLabel,
                 LastErrorLabel: lastErrorLabel,
-                WarningText: "Engine status unavailable because the local API is not reachable.",
+                WarningText: BuildLocalApiConnectionExplanation(serviceProbe, runtimeSettings: null, statusHttpCode),
                 StatusColor: Color.FromRgb(248, 113, 113),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!status.ServiceRunning)
+        {
+            return new EngineHealthView(
+                StatusLabel: "Offline",
+                ServiceLabel: serviceLabel,
+                DatabaseLabel: databaseLabel,
+                SnapshotLabel: snapshotLabel,
+                PolicyLabel: policyLabel,
+                ApiLabel: apiLabel,
+                LastUpdateLabel: lastUpdateLabel,
+                LastErrorLabel: lastErrorLabel,
+                WarningText: "Service offline.",
+                StatusColor: Color.FromRgb(248, 113, 113),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!status.LocalApiAuthReady)
+        {
+            return new EngineHealthView(
+                StatusLabel: "Blocked",
+                ServiceLabel: serviceLabel,
+                DatabaseLabel: databaseLabel,
+                SnapshotLabel: snapshotLabel,
+                PolicyLabel: policyLabel,
+                ApiLabel: apiLabel,
+                LastUpdateLabel: lastUpdateLabel,
+                LastErrorLabel: lastErrorLabel,
+                WarningText: "API auth mismatch. Reopen Control Center or refresh local credentials.",
+                StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
 
@@ -1971,7 +1992,7 @@ public partial class MainWindow : Window
                 ApiLabel: apiLabel,
                 LastUpdateLabel: lastUpdateLabel,
                 LastErrorLabel: lastErrorLabel,
-                WarningText: "Engine status is stale. Refresh or restore the local API before trusting backend state.",
+                WarningText: BuildFreshnessExplanation(status, snapshot),
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -2003,7 +2024,23 @@ public partial class MainWindow : Window
                 ApiLabel: apiLabel,
                 LastUpdateLabel: lastUpdateLabel,
                 LastErrorLabel: lastErrorLabel,
-                WarningText: "Backend is reachable, but there is no current snapshot yet.",
+                WarningText: "Service alive, waiting for current snapshot.",
+                StatusColor: Color.FromRgb(251, 191, 36),
+                DetailColor: Color.FromRgb(245, 158, 11));
+        }
+
+        if (!snapshotFresh)
+        {
+            return new EngineHealthView(
+                StatusLabel: "Watching",
+                ServiceLabel: serviceLabel,
+                DatabaseLabel: databaseLabel,
+                SnapshotLabel: snapshotLabel,
+                PolicyLabel: policyLabel,
+                ApiLabel: apiLabel,
+                LastUpdateLabel: lastUpdateLabel,
+                LastErrorLabel: lastErrorLabel,
+                WarningText: BuildFreshnessExplanation(status, snapshot),
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -2033,7 +2070,7 @@ public partial class MainWindow : Window
             ApiLabel: apiLabel,
             LastUpdateLabel: lastUpdateLabel,
             LastErrorLabel: lastErrorLabel,
-            WarningText: "Engine state is live and policy evaluation is available.",
+            WarningText: "Service alive, status fresh.",
             StatusColor: Color.FromRgb(74, 222, 128),
             DetailColor: Color.FromRgb(148, 163, 184));
     }
@@ -2048,7 +2085,7 @@ public partial class MainWindow : Window
                 KeyboardSignalLabel: NotAvailableText,
                 MouseSignalLabel: NotAvailableText,
                 LastInputLabel: NotAvailableText,
-                WarningText: "Capture status unavailable because the local API is not reachable.",
+                WarningText: "Capture status is unavailable because the local API did not return a live status payload.",
                 StatusColor: Color.FromRgb(248, 113, 113),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -2066,7 +2103,7 @@ public partial class MainWindow : Window
                 KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
                 MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
                 LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
-                WarningText: "Capture status is stale. Refresh or restore the local API before trusting these values.",
+                WarningText: BuildFreshnessExplanation(status, snapshot: null),
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -2136,7 +2173,7 @@ public partial class MainWindow : Window
                 StartupSourceLabel: NotAvailableText,
                 LaunchReasonLabel: NotAvailableText,
                 RecoveryStateLabel: NotAvailableText,
-                WarningText: "Session truth unavailable because the local API is not reachable.",
+                WarningText: "Session truth is unavailable because the local API did not return a live status payload.",
                 StatusColor: Color.FromRgb(248, 113, 113),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -2164,7 +2201,7 @@ public partial class MainWindow : Window
                 StartupSourceLabel: startupSourceLabel,
                 LaunchReasonLabel: launchReasonLabel,
                 RecoveryStateLabel: recoveryStateLabel,
-                WarningText: "Session truth is stale. Refresh or restore the local API before trusting ownership data.",
+                WarningText: BuildFreshnessExplanation(status, snapshot: null),
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -2250,7 +2287,7 @@ public partial class MainWindow : Window
                 LastInputAgeLabel: NotAvailableText,
                 InputOwnerLabel: NotAvailableText,
                 OwnershipReasonLabel: NotAvailableText,
-                WarningText: "Input truth unavailable because the local API is not reachable.",
+                WarningText: "Input truth is unavailable because the local API did not return a live status payload.",
                 StatusColor: Color.FromRgb(248, 113, 113),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -2274,7 +2311,7 @@ public partial class MainWindow : Window
                 LastInputAgeLabel: lastInputAgeLabel,
                 InputOwnerLabel: inputOwnerLabel,
                 OwnershipReasonLabel: ownershipReasonLabel,
-                WarningText: "Input truth is stale. Refresh or restore the local API before trusting live signal status.",
+                WarningText: BuildFreshnessExplanation(status, snapshot: null),
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -2341,13 +2378,14 @@ public partial class MainWindow : Window
     private StateTruthView BuildStateTruthView(
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
-        bool statusFresh)
+        bool statusFresh,
+        bool snapshotFresh)
     {
         if (snapshot == null)
         {
             string warning = statusFresh
                 ? "State truth unavailable because no current snapshot was returned."
-                : "State truth unavailable because the local API is stale or unreachable.";
+                : BuildFreshnessExplanation(status, snapshot);
             return new StateTruthView(
                 ContinuityLabel: NotAvailableText,
                 ConfidenceLabel: NotAvailableText,
@@ -2390,9 +2428,9 @@ public partial class MainWindow : Window
         string? captureHint = status == null ? null : BuildCaptureContextHint(status);
         string warningText;
         Color detailColor;
-        if (!statusFresh)
+        if (!statusFresh || !snapshotFresh)
         {
-            warningText = "State may be historical because the local API is stale.";
+            warningText = BuildFreshnessExplanation(status, snapshot);
             detailColor = Color.FromRgb(245, 158, 11);
         }
         else if (!string.IsNullOrWhiteSpace(captureHint))
@@ -2416,7 +2454,11 @@ public partial class MainWindow : Window
             DetailColor: detailColor);
     }
 
-    private static ActionTruthView BuildActionTruthView(IReadOnlyList<LocalApiEventResponse> recentEvents, bool statusFresh)
+    private static ActionTruthView BuildActionTruthView(
+        IReadOnlyList<LocalApiEventResponse> recentEvents,
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        bool statusFresh)
     {
         LocalApiEventResponse? latestEvent = recentEvents.FirstOrDefault();
         if (latestEvent == null)
@@ -2429,7 +2471,7 @@ public partial class MainWindow : Window
                 WhenLabel: NotAvailableText,
                 WarningText: statusFresh
                     ? "No recent action decisions are available yet."
-                    : "Action truth may be stale because the local API is stale or unreachable.",
+                    : BuildFreshnessExplanation(status, snapshot),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
 
@@ -2561,16 +2603,19 @@ public partial class MainWindow : Window
             : NotAvailableText;
     }
 
-    private static string BuildEngineSnapshotLabel(LocalApiCurrentSnapshotResponse? snapshot, bool statusFresh)
+    private static string BuildEngineSnapshotLabel(
+        LocalApiCurrentSnapshotResponse? snapshot,
+        bool statusFresh,
+        bool snapshotFresh)
     {
-        if (!statusFresh)
-        {
-            return "Stale";
-        }
-
         if (snapshot == null)
         {
             return "Unavailable";
+        }
+
+        if (!statusFresh || !snapshotFresh)
+        {
+            return "Cached";
         }
 
         return $"Live ({(snapshot.Confidence * 100d):F0}% confidence)";
@@ -2728,9 +2773,10 @@ public partial class MainWindow : Window
     private void UpdateStateTruthCards(
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
-        bool statusFresh)
+        bool statusFresh,
+        bool snapshotFresh)
     {
-        StateTruthView view = BuildStateTruthView(status, snapshot, statusFresh);
+        StateTruthView view = BuildStateTruthView(status, snapshot, statusFresh, snapshotFresh);
         var detailBrush = new SolidColorBrush(view.DetailColor);
 
         HealthStateContinuityValue.Text = view.ContinuityLabel;
@@ -2742,9 +2788,13 @@ public partial class MainWindow : Window
         HealthStateWarningValue.Foreground = detailBrush;
     }
 
-    private void UpdateActionTruthCards(IReadOnlyList<LocalApiEventResponse> recentEvents, bool statusFresh)
+    private void UpdateActionTruthCards(
+        IReadOnlyList<LocalApiEventResponse> recentEvents,
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        bool statusFresh)
     {
-        ActionTruthView view = BuildActionTruthView(recentEvents, statusFresh);
+        ActionTruthView view = BuildActionTruthView(recentEvents, status, snapshot, statusFresh);
         var detailBrush = new SolidColorBrush(view.DetailColor);
 
         HealthActionTitleValue.Text = view.TitleLabel;
@@ -5603,9 +5653,11 @@ public partial class MainWindow : Window
         ServiceProbeResult serviceProbe,
         bool apiReachable,
         LocalApiCurrentSnapshotResponse? snapshot,
-        bool statusFresh)
+        bool statusFresh,
+        bool snapshotFresh,
+        int? statusHttpCode)
     {
-        EngineHealthView view = BuildEngineHealthView(serviceProbe, apiReachable, _latestStatus, snapshot, statusFresh);
+        EngineHealthView view = BuildEngineHealthView(serviceProbe, apiReachable, _latestStatus, snapshot, statusFresh, snapshotFresh, statusHttpCode);
         var statusBrush = new SolidColorBrush(view.StatusColor);
         var detailBrush = new SolidColorBrush(view.DetailColor);
 
@@ -5907,6 +5959,7 @@ public partial class MainWindow : Window
         ServiceProbeResult serviceProbe,
         LocalApiRuntimeSettings? runtimeSettings,
         LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
         bool statusFresh,
         int? statusHttpCode)
     {
@@ -5917,12 +5970,17 @@ public partial class MainWindow : Window
 
         if (!status.LocalApiAuthReady)
         {
-            return $"Local API auth error: {status.LocalApiAuthError ?? "TOKEN_READ_FAILED"}";
+            return "API auth mismatch";
+        }
+
+        if (!status.ServiceRunning)
+        {
+            return "Service offline";
         }
 
         if (!statusFresh)
         {
-            return "Not updating: Status stale";
+            return BuildFreshnessExplanation(status, snapshot);
         }
 
         if (!status.ConsentActive)
@@ -6018,28 +6076,35 @@ public partial class MainWindow : Window
         {
             return new NowTruth(
                 Snapshot: null,
-                Explanation: $"Local API auth error: {status.LocalApiAuthError ?? "TOKEN_READ_FAILED"}");
+                Explanation: "API auth mismatch");
+        }
+
+        if (!status.ServiceRunning)
+        {
+            return new NowTruth(
+                Snapshot: null,
+                Explanation: "Service offline");
         }
 
         if (!statusFresh)
         {
             return new NowTruth(
-                Snapshot: null,
-                Explanation: "Not updating: Status stale");
+                Snapshot: snapshot,
+                Explanation: BuildFreshnessExplanation(status, snapshot));
         }
 
         if (snapshot == null)
         {
             return new NowTruth(
                 Snapshot: null,
-                Explanation: "Not updating: Snapshot unavailable");
+                Explanation: "Service alive, waiting for current snapshot.");
         }
 
         if (!snapshotFresh)
         {
             return new NowTruth(
-                Snapshot: null,
-                Explanation: "Not updating: Snapshot stale");
+                Snapshot: snapshot,
+                Explanation: BuildFreshnessExplanation(status, snapshot));
         }
 
         string? captureHint = BuildCaptureContextHint(status);
@@ -6053,24 +6118,23 @@ public partial class MainWindow : Window
         LocalApiCurrentSnapshotResponse? snapshot,
         DateTimeOffset nowUtc)
     {
-        if (status == null || snapshot == null)
+        _ = nowUtc;
+        if (snapshot == null)
         {
             return true;
         }
 
-        DateTimeOffset referenceUtc = status.LastUpdatedUtc;
-        if (status.LastInputEventUtc is DateTimeOffset lastInputEventUtc
-            && lastInputEventUtc > referenceUtc)
+        if (!string.IsNullOrWhiteSpace(snapshot.freshness_state))
         {
-            referenceUtc = lastInputEventUtc;
+            return !IsFreshState(snapshot.freshness_state);
         }
 
-        if ((referenceUtc - snapshot.TimestampUtc) > SnapshotFreshnessWindow)
+        if (status != null && !string.IsNullOrWhiteSpace(status.freshness_state))
         {
-            return true;
+            return !IsFreshState(status.freshness_state);
         }
 
-        return (nowUtc - snapshot.TimestampUtc) > SnapshotFreshnessWindow;
+        return false;
     }
 
     private static string? BuildCaptureContextHint(LocalApiStatusResponse status)
@@ -6178,31 +6242,61 @@ public partial class MainWindow : Window
             || errorText.Contains("migration", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool IsFreshState(string? freshnessState)
+    {
+        return string.Equals(freshnessState, "fresh", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsStatusFresh(LocalApiStatusResponse? status)
+    {
+        return status != null && IsFreshState(status.freshness_state);
+    }
+
+    private static bool IsSnapshotFresh(LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        return snapshot != null && IsFreshState(snapshot.freshness_state);
+    }
+
+    private static bool IsDbBusyRetrying(LocalApiStatusResponse? status, LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        return string.Equals(status?.runtime_state_refresh_error, "db_busy", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(snapshot?.runtime_state_refresh_error, "db_busy", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status?.degraded_reason, "db_busy", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(snapshot?.degraded_reason, "db_busy", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildFreshnessExplanation(
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        if (status == null)
+        {
+            return "Local API status unavailable.";
+        }
+
+        bool hasSnapshot = snapshot != null;
+        bool dbBusy = IsDbBusyRetrying(status, snapshot);
+
+        if (hasSnapshot)
+        {
+            return dbBusy
+                ? "Service alive, using cached snapshot. DB busy, retrying."
+                : "Service alive, using cached snapshot.";
+        }
+
+        return dbBusy
+            ? "Service alive, status stale. DB busy, retrying."
+            : "Service alive, status stale.";
+    }
+
     private static string BuildOfflineErrorMessage(
         ServiceProbeResult serviceProbe,
         LocalApiEndpointSettings? endpoint,
         LocalApiRuntimeSettings? runtimeSettings,
         int? statusHttpCode)
     {
-        if (runtimeSettings is { LocalApiAuthReady: false })
-        {
-            return $"local_api_auth_error ({runtimeSettings.LocalApiAuthError ?? "TOKEN_READ_FAILED"})";
-        }
-
-        if (statusHttpCode.HasValue)
-        {
-            return $"local_api_http_error (status={statusHttpCode.Value})";
-        }
-
-        string endpointText = endpoint == null
-            ? "endpoint=missing"
-            : $"endpoint={endpoint.Host}:{endpoint.Port}";
-
-        string serviceText = serviceProbe.Exists
-            ? $"service={serviceProbe.StatusText}"
-            : "service=not_installed";
-
-        return $"local_api_unreachable ({serviceText}, {endpointText})";
+        _ = endpoint;
+        return BuildLocalApiConnectionExplanation(serviceProbe, runtimeSettings, statusHttpCode);
     }
 
     private static string BuildLocalApiConnectionExplanation(
@@ -6210,37 +6304,55 @@ public partial class MainWindow : Window
         LocalApiRuntimeSettings? runtimeSettings,
         int? statusHttpCode)
     {
-        if (runtimeSettings is { LocalApiAuthReady: false })
+        if (runtimeSettings is { LocalApiAuthReady: false } || statusHttpCode is 401 or 403)
         {
-            return $"Local API auth error: {runtimeSettings.LocalApiAuthError ?? "TOKEN_READ_FAILED"}";
+            return "API auth mismatch";
         }
 
-        return statusHttpCode switch
+        if (statusHttpCode == 503)
         {
-            401 or 403 => "Not updating: Control Center auth mismatch",
-            503 => "Not updating: Local API starting",
-            int code => $"Not updating: Local API returned HTTP {code}",
-            _ => serviceProbe.Running
-                ? "Not updating: Local API unreachable"
-                : "Not updating: Service offline"
-        };
-    }
-
-    private static string BuildOnlineErrorMessage(string? apiError, ServiceProbeResult serviceProbe, bool statusFresh)
-    {
-        if (!string.IsNullOrWhiteSpace(apiError))
-        {
-            return apiError;
+            return serviceProbe.Running
+                ? "Service alive, waiting for local API status."
+                : "Service offline";
         }
 
-        if (!statusFresh)
+        if (statusHttpCode.HasValue)
         {
-            return "status_stale";
+            return $"Service alive, local API returned HTTP {statusHttpCode.Value}.";
         }
 
         return serviceProbe.Running
-            ? "None"
-            : $"Service not running ({serviceProbe.StatusText}).";
+            ? "Local API unreachable"
+            : "Service offline";
+    }
+
+    private static string BuildOnlineErrorMessage(
+        LocalApiStatusResponse status,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        ServiceProbeResult serviceProbe,
+        bool statusFresh)
+    {
+        if (!status.ServiceRunning || !serviceProbe.Running)
+        {
+            return "Service offline";
+        }
+
+        if (!status.LocalApiAuthReady)
+        {
+            return "API auth mismatch";
+        }
+
+        if (!statusFresh || (snapshot != null && !IsSnapshotFresh(snapshot)))
+        {
+            return BuildFreshnessExplanation(status, snapshot);
+        }
+
+        if (!string.IsNullOrWhiteSpace(status.LastError))
+        {
+            return status.LastError!;
+        }
+
+        return "Service alive, status fresh.";
     }
 
     private string BuildDiagnosticsSummary()

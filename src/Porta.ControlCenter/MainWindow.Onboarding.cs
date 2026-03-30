@@ -55,19 +55,29 @@ public partial class MainWindow
 
         if (!apiReachable)
         {
-            return "Ari is starting up in the background and waiting for live health from the local API.";
+            return serviceProbe.Running ? "Local API unreachable." : "Service offline.";
         }
 
         if (status == null)
         {
             return statusHttpCode is 401 or 403
-                ? "Ari reached the local API, but Control Center needs refreshed local credentials."
-                : "Ari reached the local API, but the health payload is not ready yet.";
+                ? "API auth mismatch."
+                : "Service alive, waiting for current status.";
+        }
+
+        if (!status.ServiceRunning)
+        {
+            return "Service offline.";
+        }
+
+        if (!status.LocalApiAuthReady)
+        {
+            return "API auth mismatch.";
         }
 
         if (!statusFresh)
         {
-            return "Ari is running, but the current health snapshot is stale.";
+            return BuildFreshnessExplanation(status, snapshot: null);
         }
 
         if (!string.IsNullOrWhiteSpace(captureHint))
@@ -90,7 +100,7 @@ public partial class MainWindow
         string serviceState = serviceProbe.Running ? "service on" : "service off";
         string trayState = trayRunning ? "session agent on" : "session agent off";
         string apiState = !apiReachable
-            ? "API not ready"
+            ? (serviceProbe.Running ? "API unreachable" : "service offline")
             : status == null && statusHttpCode is 401 or 403
                 ? "API auth mismatch"
                 : "API reachable";
@@ -122,19 +132,33 @@ public partial class MainWindow
 
         if (!apiReachable)
         {
-            return "What to do: wait a few seconds while Ari finishes starting in the background. Open Health if it stays stuck.";
+            return serviceProbe.Running
+                ? "What to do: open Health or refresh once if Local API unreachable stays on screen."
+                : "What to do: open Health if the service stays offline.";
         }
 
         if (status == null)
         {
             return statusHttpCode is 401 or 403
                 ? "What to do: close and reopen Control Center once so it reloads local API credentials. If it still shows this, open Health."
-                : "What to do: wait a few seconds and refresh once. If the health payload stays unavailable, open Health.";
+                : "What to do: wait a few seconds and refresh once. If status still does not load, open Health.";
+        }
+
+        if (!status.ServiceRunning)
+        {
+            return "What to do: open Health and restart the service if it stays offline.";
+        }
+
+        if (!status.LocalApiAuthReady)
+        {
+            return "What to do: reopen Control Center so it reloads local API credentials. If it still shows this, open Health.";
         }
 
         if (!statusFresh)
         {
-            return "What to do: open Health and refresh once. If the snapshot stays stale, sign out and back in.";
+            return IsDbBusyRetrying(status, snapshot: null)
+                ? "What to do: wait a few seconds while Ari retries the database refresh, then refresh once."
+                : "What to do: open Health and refresh once. If status stays stale, sign out and back in.";
         }
 
         if (!string.IsNullOrWhiteSpace(captureHint))

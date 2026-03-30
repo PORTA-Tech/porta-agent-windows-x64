@@ -181,13 +181,27 @@ internal static class UserCommunicationRouter
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
         IReadOnlyList<LocalApiEventResponse>? recentEvents,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        int? statusHttpCode = null)
     {
         if (status == null)
         {
+            if (statusHttpCode is 401 or 403)
+            {
+                return BuildCriticalState(
+                    title: "API auth mismatch",
+                    message: "Ari can see the local runtime, but this session needs refreshed local API credentials. Open Health or retry.",
+                    primaryAction: UserDesktopWidgetAction.OpenHealth,
+                    primaryLabel: "Open Health",
+                    secondaryAction: UserDesktopWidgetAction.RetryCritical,
+                    secondaryLabel: "Retry",
+                    tertiaryAction: UserDesktopWidgetAction.OpenSettings,
+                    tertiaryLabel: "Settings");
+            }
+
             return BuildCriticalState(
-                title: "Core connection lost",
-                message: "Ari cannot reach the core service right now. Open Health to check the runtime, or retry the connection.",
+                title: "Local API unreachable",
+                message: "Ari could not complete the local API request. Open Health to check the runtime, or retry the connection.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
                 primaryLabel: "Open Health",
                 secondaryAction: UserDesktopWidgetAction.RetryCritical,
@@ -199,8 +213,8 @@ internal static class UserCommunicationRouter
         if (!status.LocalApiAuthReady)
         {
             return BuildCriticalState(
-                title: "Local API blocked",
-                message: "Ari is running, but local API access is not ready yet. Open Health for details or retry the runtime check.",
+                title: "API auth mismatch",
+                message: "Ari is alive, but this session cannot read the local API yet. Open Health for details or retry the runtime check.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
                 primaryLabel: "Open Health",
                 secondaryAction: UserDesktopWidgetAction.RetryCritical,
@@ -213,7 +227,7 @@ internal static class UserCommunicationRouter
         {
             return BuildCriticalState(
                 title: "Core service offline",
-                message: "Ari cannot regulate right now because the core service is unavailable. Open Health to inspect the runtime, or retry the connection.",
+                message: "Service offline. Open Health to inspect the runtime, or retry the connection.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
                 primaryLabel: "Open Health",
                 secondaryAction: UserDesktopWidgetAction.RetryCritical,
