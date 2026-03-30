@@ -10,7 +10,8 @@ internal static class SnapshotMapper
 
     public static LocalApiCurrentSnapshotResponse Map(
         AgentBrainSnapshot snapshot,
-        AgentLatestStateDetails? latestState)
+        AgentLatestStateDetails? latestState,
+        AgentServiceStatusSnapshot? status = null)
     {
         double overloadLikelihood = latestState?.OverloadLikelihood ?? snapshot.OverloadLikelihood;
         double confidence = latestState?.Confidence ?? snapshot.Confidence;
@@ -118,7 +119,11 @@ internal static class SnapshotMapper
             latestState?.BreakDeliveryBoundaryReached,
             latestState?.BreakDeliveryBoundaryKind,
             latestState?.BreakMicrobreakEffectiveFocusSeconds,
-            latestState?.BreakShortBreakEffectiveFocusSeconds);
+            latestState?.BreakShortBreakEffectiveFocusSeconds,
+            status?.RuntimeStateFreshness ?? "unknown",
+            status?.RuntimeStateLastSuccessfulRefreshUtc,
+            status?.RuntimeStateLastAttemptUtc,
+            status?.RuntimeStateRefreshError);
     }
 
     private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(string? stateFlagsJson)

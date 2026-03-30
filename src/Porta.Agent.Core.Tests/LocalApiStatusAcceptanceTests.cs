@@ -153,7 +153,7 @@ public sealed class LocalApiStatusAcceptanceTests
     }
 
     [Fact]
-    public void Status_AndSnapshot_UseCachedRuntimeState_WhenStoreReadsFailAfterStartup()
+    public void Status_AndSnapshot_UseCachedRuntimeState_AndMarkStale_WhenBackgroundRefreshFails()
     {
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         var store = new LocalApiContractFakeStore
@@ -201,14 +201,19 @@ public sealed class LocalApiStatusAcceptanceTests
 
         var controller = new AgentCoreController(store, new FakeUserAgentSessionContextStore(null));
         store.ThrowOnReadLatestStateDetails = true;
+        store.ReadLatestStateDetailsFailureMessage = "database is locked";
         store.ThrowOnReadNotificationSuppressionStatus = true;
+        store.ReadNotificationSuppressionStatusFailureMessage = "database is locked";
         store.ThrowOnReadBrightnessActionStatus = true;
+        store.ReadBrightnessActionStatusFailureMessage = "database is locked";
         store.ThrowOnReadDbMigrationFailed = true;
+        store.ReadDbMigrationFailedFailureMessage = "database is locked";
+        controller.RefreshRuntimeStateCache();
 
         AgentServiceStatusSnapshot status = controller.GetStatus();
         AgentLatestStateDetails? latestState = controller.GetLatestStateDetails();
         var statusDto = StatusMapper.Map(status, localApiAuthReady: true, localApiAuthError: null);
-        var snapshotDto = SnapshotMapper.Map(controller.GetCurrentSnapshot(), latestState);
+        var snapshotDto = SnapshotMapper.Map(controller.GetCurrentSnapshot(), latestState, status);
 
         Assert.NotNull(latestState);
         Assert.True(statusDto.overload_active);
@@ -216,13 +221,18 @@ public sealed class LocalApiStatusAcceptanceTests
         Assert.True(statusDto.notifications_suppressed);
         Assert.True(statusDto.brightness_adjusted);
         Assert.True(statusDto.db_migration_failed);
+        Assert.Equal("stale", statusDto.runtime_state_freshness);
+        Assert.Equal("db_busy", statusDto.runtime_state_refresh_error);
+        Assert.True(statusDto.degraded.runtime_state_stale);
+        Assert.Equal("stale", snapshotDto.runtime_state_freshness);
+        Assert.Equal("db_busy", snapshotDto.runtime_state_refresh_error);
         Assert.Equal(0.81d, snapshotDto.OverloadLikelihood);
         Assert.Equal(0.78d, snapshotDto.Confidence);
         Assert.True(snapshotDto.OverloadActive);
     }
 
     [Fact]
-    public void ApplyBrainSnapshot_RefreshesCachedRuntimeState_BeforeStoreReadsFail()
+    public void RefreshRuntimeStateCache_RecoversFreshness_WhenStoreReadsResume()
     {
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         var store = new LocalApiContractFakeStore
@@ -269,7 +279,21 @@ public sealed class LocalApiStatusAcceptanceTests
         };
 
         var controller = new AgentCoreController(store, new FakeUserAgentSessionContextStore(null));
+        controller.RefreshRuntimeStateCache();
+        store.ThrowOnReadLatestStateDetails = true;
+        store.ReadLatestStateDetailsFailureMessage = "database is locked";
+        store.ThrowOnReadNotificationSuppressionStatus = true;
+        store.ReadNotificationSuppressionStatusFailureMessage = "database is locked";
+        store.ThrowOnReadBrightnessActionStatus = true;
+        store.ReadBrightnessActionStatusFailureMessage = "database is locked";
+        store.ThrowOnReadDbMigrationFailed = true;
+        store.ReadDbMigrationFailedFailureMessage = "database is locked";
+        controller.RefreshRuntimeStateCache();
 
+        store.ThrowOnReadLatestStateDetails = false;
+        store.ThrowOnReadNotificationSuppressionStatus = false;
+        store.ThrowOnReadBrightnessActionStatus = false;
+        store.ThrowOnReadDbMigrationFailed = false;
         store.LatestStateDetails = new AgentLatestStateDetails(
             TimestampUtc: nowUtc,
             OverloadLikelihood: 0.88d,
@@ -308,25 +332,19 @@ public sealed class LocalApiStatusAcceptanceTests
             BackoffUntilUtc: null,
             CooldownUntilUtc: nowUtc.AddMinutes(12));
         store.DbMigrationFailed = true;
-
         AgentBrainSnapshot refreshedSnapshot = CreateSnapshot(overload: 0.88d, confidence: 0.84d) with
         {
             TimestampUtc = nowUtc,
             LastAction = "focus_protection_tightened",
             StateFlagsJson = "{\"schema_ver\":1,\"overload_active\":true,\"deep_work_active\":true}"
         };
-
         controller.ApplyBrainSnapshot(refreshedSnapshot, backendConnected: true);
-
-        store.ThrowOnReadLatestStateDetails = true;
-        store.ThrowOnReadNotificationSuppressionStatus = true;
-        store.ThrowOnReadBrightnessActionStatus = true;
-        store.ThrowOnReadDbMigrationFailed = true;
+        controller.RefreshRuntimeStateCache();
 
         AgentServiceStatusSnapshot status = controller.GetStatus();
         AgentLatestStateDetails? latestState = controller.GetLatestStateDetails();
         var statusDto = StatusMapper.Map(status, localApiAuthReady: true, localApiAuthError: null);
-        var snapshotDto = SnapshotMapper.Map(controller.GetCurrentSnapshot(), latestState);
+        var snapshotDto = SnapshotMapper.Map(controller.GetCurrentSnapshot(), latestState, status);
 
         Assert.NotNull(latestState);
         Assert.Equal("focus_protection_tightened", status.LastAction);
@@ -335,6 +353,11 @@ public sealed class LocalApiStatusAcceptanceTests
         Assert.True(statusDto.notifications_suppressed);
         Assert.True(statusDto.brightness_adjusted);
         Assert.True(statusDto.db_migration_failed);
+        Assert.Equal("fresh", statusDto.runtime_state_freshness);
+        Assert.Null(statusDto.runtime_state_refresh_error);
+        Assert.False(statusDto.degraded.runtime_state_stale);
+        Assert.Equal("fresh", snapshotDto.runtime_state_freshness);
+        Assert.Null(snapshotDto.runtime_state_refresh_error);
         Assert.Equal(0.88d, snapshotDto.OverloadLikelihood);
         Assert.Equal(0.84d, snapshotDto.Confidence);
         Assert.True(snapshotDto.OverloadActive);

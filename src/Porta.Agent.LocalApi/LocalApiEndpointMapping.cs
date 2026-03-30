@@ -139,7 +139,8 @@ public static class LocalApiEndpointMapping
         {
             AgentBrainSnapshot snapshot = controller.GetCurrentSnapshot();
             AgentLatestStateDetails? latestState = controller.GetLatestStateDetails();
-            return ToSnapshotResponse(snapshot, latestState);
+            AgentServiceStatusSnapshot status = controller.GetStatus();
+            return ToSnapshotResponse(snapshot, latestState, status);
         });
 
         api.MapGet("/inputs/summary", (IAgentCoreController controller, int? window) =>
@@ -592,9 +593,10 @@ public static class LocalApiEndpointMapping
 
     private static LocalApiCurrentSnapshotResponse ToSnapshotResponse(
         AgentBrainSnapshot snapshot,
-        AgentLatestStateDetails? latestState = null)
+        AgentLatestStateDetails? latestState = null,
+        AgentServiceStatusSnapshot? status = null)
     {
-        return SnapshotMapper.Map(snapshot, latestState);
+        return SnapshotMapper.Map(snapshot, latestState, status);
     }
 
     private static LocalApiSettingsResponse ToSettingsResponse(AgentSettingsState state)

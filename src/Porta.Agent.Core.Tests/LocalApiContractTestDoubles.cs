@@ -17,6 +17,10 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     public bool ThrowOnReadNotificationSuppressionStatus { get; set; }
     public bool ThrowOnReadBrightnessActionStatus { get; set; }
     public bool ThrowOnReadDbMigrationFailed { get; set; }
+    public string ReadLatestStateDetailsFailureMessage { get; set; } = "latest_state_details_unavailable";
+    public string ReadNotificationSuppressionStatusFailureMessage { get; set; } = "notification_status_unavailable";
+    public string ReadBrightnessActionStatusFailureMessage { get; set; } = "brightness_status_unavailable";
+    public string ReadDbMigrationFailedFailureMessage { get; set; } = "db_migration_status_unavailable";
     public AgentNotificationSuppressionStatus NotificationStatus { get; set; } = new(
         Active: false,
         Ready: true,
@@ -80,7 +84,7 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     {
         if (ThrowOnReadLatestStateDetails)
         {
-            throw new InvalidOperationException("latest_state_details_unavailable");
+            throw new InvalidOperationException(ReadLatestStateDetailsFailureMessage);
         }
 
         return LatestStateDetails;
@@ -90,7 +94,7 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     {
         if (ThrowOnReadNotificationSuppressionStatus)
         {
-            throw new InvalidOperationException("notification_status_unavailable");
+            throw new InvalidOperationException(ReadNotificationSuppressionStatusFailureMessage);
         }
 
         return NotificationStatus;
@@ -100,7 +104,7 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     {
         if (ThrowOnReadBrightnessActionStatus)
         {
-            throw new InvalidOperationException("brightness_status_unavailable");
+            throw new InvalidOperationException(ReadBrightnessActionStatusFailureMessage);
         }
 
         return BrightnessStatus;
@@ -110,7 +114,7 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     {
         if (ThrowOnReadDbMigrationFailed)
         {
-            throw new InvalidOperationException("db_migration_status_unavailable");
+            throw new InvalidOperationException(ReadDbMigrationFailedFailureMessage);
         }
 
         return DbMigrationFailed;

@@ -49,6 +49,8 @@ public sealed class AgentCoreController : IAgentCoreController
     private static readonly TimeSpan OwnershipReconciliationGraceWindow = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan StatusReadLockTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan LatestStateReadLockTimeout = TimeSpan.FromMilliseconds(150);
+    private static readonly TimeSpan RuntimeStateRefreshLockTimeout = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan RuntimeStateStaleAfter = TimeSpan.FromSeconds(15);
     private static readonly AgentNotificationSuppressionStatus DefaultNotificationSuppressionStatus = new(
         Active: false,
         Ready: true,
@@ -128,6 +130,9 @@ public sealed class AgentCoreController : IAgentCoreController
     private AgentNotificationSuppressionStatus _lastNotificationSuppressionStatus = DefaultNotificationSuppressionStatus;
     private AgentBrightnessActionStatus _lastBrightnessActionStatus = DefaultBrightnessActionStatus;
     private bool _lastDbMigrationFailed;
+    private DateTimeOffset? _runtimeStateLastSuccessfulRefreshUtc;
+    private DateTimeOffset? _runtimeStateLastAttemptUtc;
+    private string? _runtimeStateRefreshError;
 
     public AgentCoreController()
         : this(
@@ -181,7 +186,7 @@ public sealed class AgentCoreController : IAgentCoreController
         }
 
         _latestSnapshot = _stateStore.ReadLatestSnapshot() ?? _latestSnapshot;
-        RefreshRuntimeStateCacheFromStoreLocked();
+        RefreshRuntimeStateCacheFromStoreLocked(DateTimeOffset.UtcNow);
         _lastStatusSnapshot = CreateFallbackStatusSnapshot(DateTimeOffset.UtcNow);
     }
 
@@ -263,6 +268,23 @@ public sealed class AgentCoreController : IAgentCoreController
         return _lastLatestStateDetails;
     }
 
+    public void RefreshRuntimeStateCache()
+    {
+        if (!System.Threading.Monitor.TryEnter(_gate, RuntimeStateRefreshLockTimeout))
+        {
+            return;
+        }
+
+        try
+        {
+            RefreshRuntimeStateCacheFromStoreLocked(DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            System.Threading.Monitor.Exit(_gate);
+        }
+    }
+
     private AgentServiceStatusSnapshot BuildAndCacheStatusSnapshotLocked()
     {
         TryAutoResumeLocked();
@@ -336,6 +358,8 @@ public sealed class AgentCoreController : IAgentCoreController
             ? (_paused ? AgentStatus.Degraded : AgentStatus.Running)
             : AgentStatus.Degraded;
         string policyVersion = ResolvePolicyVersion();
+        (string runtimeStateFreshness, DateTimeOffset? runtimeStateLastSuccessfulRefreshUtc, DateTimeOffset? runtimeStateLastAttemptUtc, string? runtimeStateRefreshError) =
+            GetRuntimeStateFreshnessMetadataLocked(nowUtc);
 
         AgentServiceStatusSnapshot snapshot = new(
             Status: status,
@@ -408,7 +432,11 @@ public sealed class AgentCoreController : IAgentCoreController
             UserAgentHeartbeatWriteFailureCount: userAgentHeartbeatWriteFailureCount,
             CaptureSelfTestState: captureSelfTestState,
             CaptureSelfTestErrorCode: captureSelfTestErrorCode,
-            CaptureSelfTestRemediationCount: captureSelfTestRemediationCount);
+            CaptureSelfTestRemediationCount: captureSelfTestRemediationCount,
+            RuntimeStateFreshness: runtimeStateFreshness,
+            RuntimeStateLastSuccessfulRefreshUtc: runtimeStateLastSuccessfulRefreshUtc,
+            RuntimeStateLastAttemptUtc: runtimeStateLastAttemptUtc,
+            RuntimeStateRefreshError: runtimeStateRefreshError);
 
         _lastStatusSnapshot = snapshot;
         return snapshot;
@@ -437,6 +465,8 @@ public sealed class AgentCoreController : IAgentCoreController
                     && parsedOverloadActive);
             bool deepWorkActive = TryReadBoolFromStateFlags(_latestSnapshot.StateFlagsJson, "deep_work_active", out bool parsedDeepWorkActive)
                 && parsedDeepWorkActive;
+            (string runtimeStateFreshness, DateTimeOffset? runtimeStateLastSuccessfulRefreshUtc, DateTimeOffset? runtimeStateLastAttemptUtc, string? runtimeStateRefreshError) =
+                GetRuntimeStateFreshnessMetadataLocked(nowUtc);
             return cached with
             {
                 Status = status,
@@ -479,6 +509,10 @@ public sealed class AgentCoreController : IAgentCoreController
                 OverloadActive = overloadActive,
                 DeepWorkActive = deepWorkActive,
                 LatestContributorsJson = _lastLatestStateDetails?.ContributorsJson ?? cached.LatestContributorsJson,
+                RuntimeStateFreshness = runtimeStateFreshness,
+                RuntimeStateLastSuccessfulRefreshUtc = runtimeStateLastSuccessfulRefreshUtc,
+                RuntimeStateLastAttemptUtc = runtimeStateLastAttemptUtc,
+                RuntimeStateRefreshError = runtimeStateRefreshError,
                 LastUpdatedUtc = nowUtc
             };
         }
@@ -502,6 +536,8 @@ public sealed class AgentCoreController : IAgentCoreController
                 _lastLatestStateDetails?.Confidence ?? _latestSnapshot.Confidence,
                 _lastLatestStateDetails?.CurrentQualityScore ?? 0d,
                 _lastLatestStateDetails?.PartialData == true);
+        (string runtimeStateFreshness, DateTimeOffset? runtimeStateLastSuccessfulRefreshUtc, DateTimeOffset? runtimeStateLastAttemptUtc, string? runtimeStateRefreshError) =
+            GetRuntimeStateFreshnessMetadataLocked(nowUtc);
 
         return new AgentServiceStatusSnapshot(
             Status: status,
@@ -575,7 +611,11 @@ public sealed class AgentCoreController : IAgentCoreController
             UserAgentHeartbeatWriteFailureCount: _lastStatusSnapshot?.UserAgentHeartbeatWriteFailureCount,
             CaptureSelfTestState: _lastStatusSnapshot?.CaptureSelfTestState,
             CaptureSelfTestErrorCode: _lastStatusSnapshot?.CaptureSelfTestErrorCode,
-            CaptureSelfTestRemediationCount: _lastStatusSnapshot?.CaptureSelfTestRemediationCount);
+            CaptureSelfTestRemediationCount: _lastStatusSnapshot?.CaptureSelfTestRemediationCount,
+            RuntimeStateFreshness: runtimeStateFreshness,
+            RuntimeStateLastSuccessfulRefreshUtc: runtimeStateLastSuccessfulRefreshUtc,
+            RuntimeStateLastAttemptUtc: runtimeStateLastAttemptUtc,
+            RuntimeStateRefreshError: runtimeStateRefreshError);
     }
 
     public AgentInputSummary GetInputsSummary(int windowSeconds = 60)
@@ -1212,7 +1252,7 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             _latestSnapshot = snapshot;
-            RefreshRuntimeStateCacheFromStoreLocked();
+            RefreshRuntimeStateCacheFromStoreLocked(snapshot.TimestampUtc);
             _backendConnected = backendConnected;
             if (backendConnected)
             {
@@ -1249,7 +1289,7 @@ public sealed class AgentCoreController : IAgentCoreController
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
             _latestSnapshot = BuildTestSnapshot(_latestSnapshot, normalizedAction, nowUtc);
             _stateStore.WriteSnapshot(_latestSnapshot);
-            RefreshRuntimeStateCacheFromStoreLocked();
+            RefreshRuntimeStateCacheFromStoreLocked(nowUtc);
 
             (string triggerState, double triggerValue, string escalation, bool reversible, int? durationSeconds) =
                 ResolveTestInterventionMetadata(normalizedAction);
@@ -2547,6 +2587,8 @@ public sealed class AgentCoreController : IAgentCoreController
         AgentNotificationSuppressionStatus suppressionStatus = _lastNotificationSuppressionStatus;
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         string policyVersion = ResolvePolicyVersion();
+        (string runtimeStateFreshness, DateTimeOffset? runtimeStateLastSuccessfulRefreshUtc, DateTimeOffset? runtimeStateLastAttemptUtc, string? runtimeStateRefreshError) =
+            GetRuntimeStateFreshnessMetadataLocked(nowUtc);
         UserAgentSessionContextSnapshot? observedSessionContext = _userAgentSessionContextStore.ReadCurrent();
         string captureContext = ResolveCaptureContextLocked(nowUtc, out UserAgentSessionContextSnapshot? sessionContext);
         ReconcileStaleLastAcceptedOwnershipLocked(nowUtc, sessionContext);
@@ -2623,6 +2665,13 @@ public sealed class AgentCoreController : IAgentCoreController
                 min_on_until_utc = suppressionStatus.MinOnUntilUtc,
                 restore_pending = suppressionStatus.RestorePending
             },
+            runtime_state = new
+            {
+                freshness = runtimeStateFreshness,
+                last_successful_refresh_utc = runtimeStateLastSuccessfulRefreshUtc,
+                last_attempt_utc = runtimeStateLastAttemptUtc,
+                refresh_error = runtimeStateRefreshError
+            },
             last_action = _latestSnapshot.LastAction,
             focus_strength = _latestSnapshot.FocusStrength,
             overload_likelihood = _latestSnapshot.OverloadLikelihood,
@@ -2642,38 +2691,55 @@ public sealed class AgentCoreController : IAgentCoreController
     }
 
     // Refresh DB-derived status enrichments when runtime state advances, not on UI request paths.
-    private void RefreshRuntimeStateCacheFromStoreLocked()
+    private void RefreshRuntimeStateCacheFromStoreLocked(DateTimeOffset nowUtc)
     {
+        string? refreshError = null;
+
         try
         {
             _lastLatestStateDetails = _stateStore.ReadLatestStateDetails();
         }
-        catch
+        catch (Exception ex)
         {
+            refreshError ??= ClassifyRuntimeStateRefreshError(ex);
         }
 
         try
         {
             _lastNotificationSuppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
         }
-        catch
+        catch (Exception ex)
         {
+            refreshError ??= ClassifyRuntimeStateRefreshError(ex);
         }
 
         try
         {
             _lastBrightnessActionStatus = _stateStore.ReadBrightnessActionStatus();
         }
-        catch
+        catch (Exception ex)
         {
+            refreshError ??= ClassifyRuntimeStateRefreshError(ex);
         }
 
         try
         {
             _lastDbMigrationFailed = _stateStore.ReadDbMigrationFailed();
         }
-        catch
+        catch (Exception ex)
         {
+            refreshError ??= ClassifyRuntimeStateRefreshError(ex);
+        }
+
+        _runtimeStateLastAttemptUtc = nowUtc;
+        if (refreshError is null)
+        {
+            _runtimeStateLastSuccessfulRefreshUtc = nowUtc;
+            _runtimeStateRefreshError = null;
+        }
+        else
+        {
+            _runtimeStateRefreshError = refreshError;
         }
     }
 
@@ -2683,7 +2749,44 @@ public sealed class AgentCoreController : IAgentCoreController
         _lastNotificationSuppressionStatus = DefaultNotificationSuppressionStatus;
         _lastBrightnessActionStatus = DefaultBrightnessActionStatus;
         _lastDbMigrationFailed = false;
+        _runtimeStateLastSuccessfulRefreshUtc = null;
+        _runtimeStateLastAttemptUtc = null;
+        _runtimeStateRefreshError = null;
         _lastStatusSnapshot = null;
+    }
+
+    private (string Freshness, DateTimeOffset? LastSuccessfulRefreshUtc, DateTimeOffset? LastAttemptUtc, string? RefreshError)
+        GetRuntimeStateFreshnessMetadataLocked(DateTimeOffset nowUtc)
+    {
+        bool stale = !_runtimeStateLastSuccessfulRefreshUtc.HasValue
+            || !string.IsNullOrWhiteSpace(_runtimeStateRefreshError)
+            || (nowUtc - _runtimeStateLastSuccessfulRefreshUtc.Value) > RuntimeStateStaleAfter;
+
+        return (
+            Freshness: stale ? "stale" : "fresh",
+            LastSuccessfulRefreshUtc: _runtimeStateLastSuccessfulRefreshUtc,
+            LastAttemptUtc: _runtimeStateLastAttemptUtc,
+            RefreshError: _runtimeStateRefreshError);
+    }
+
+    private static string ClassifyRuntimeStateRefreshError(Exception ex)
+    {
+        string message = ex.Message ?? string.Empty;
+        if (message.Contains("database is locked", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("database is busy", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("busy", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("locked", StringComparison.OrdinalIgnoreCase))
+        {
+            return "db_busy";
+        }
+
+        if (message.Contains("readonly", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("disk i/o", StringComparison.OrdinalIgnoreCase))
+        {
+            return "db_unavailable";
+        }
+
+        return $"refresh_failed:{ex.GetType().Name}";
     }
 
     private static string? ResolveEffectiveLastError(

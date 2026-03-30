@@ -75,7 +75,11 @@ public sealed record LocalApiStatusResponse(
     int? UserAgentHeartbeatWriteFailureCount = null,
     string? CaptureSelfTestState = null,
     string? CaptureSelfTestErrorCode = null,
-    int? CaptureSelfTestRemediationCount = null)
+    int? CaptureSelfTestRemediationCount = null,
+    string RuntimeStateFreshness = "unknown",
+    DateTimeOffset? RuntimeStateLastSuccessfulRefreshUtc = null,
+    DateTimeOffset? RuntimeStateLastAttemptUtc = null,
+    string? RuntimeStateRefreshError = null)
 {
     // Step 18 pinned snake_case aliases for operational truth consumers.
     public bool overload_active => OverloadActive;
@@ -110,9 +114,19 @@ public sealed record LocalApiStatusResponse(
     public string? capture_self_test_state => CaptureSelfTestState;
     public string? capture_self_test_error_code => CaptureSelfTestErrorCode;
     public int? capture_self_test_remediation_count => CaptureSelfTestRemediationCount;
+    public string runtime_state_freshness => RuntimeStateFreshness;
+    public string? runtime_state_last_successful_refresh_utc => ToUtcMsStringOrNull(RuntimeStateLastSuccessfulRefreshUtc);
+    public string? runtime_state_last_attempt_utc => ToUtcMsStringOrNull(RuntimeStateLastAttemptUtc);
+    public string? runtime_state_refresh_error => RuntimeStateRefreshError;
     public double? last_accepted_input_age_seconds => ComputeAgeSeconds(LastInputEventUtc);
     public int deep_work_streak_sec => DeepWorkStreakSeconds;
     public string last_updated_utc => ToUtcMsString(LastUpdatedUtc);
+    public LocalApiRuntimeStateView runtime_state => new(
+        freshness: RuntimeStateFreshness,
+        stale: !string.Equals(RuntimeStateFreshness, "fresh", StringComparison.OrdinalIgnoreCase),
+        last_successful_refresh_utc: runtime_state_last_successful_refresh_utc,
+        last_attempt_utc: runtime_state_last_attempt_utc,
+        error: RuntimeStateRefreshError);
 
     // Step 18H/J: product-facing grouped contract blocks.
     public LocalApiStatusAuthView auth => new(LocalApiAuthReady, LocalApiAuthError);
@@ -132,7 +146,11 @@ public sealed record LocalApiStatusResponse(
         db_migration_failed: DbMigrationFailed,
         auth_ready: LocalApiAuthReady,
         notification_ready: NotificationSuppressionReady,
-        brightness_ready: BrightnessActionReady);
+        brightness_ready: BrightnessActionReady,
+        runtime_state_stale: !string.Equals(RuntimeStateFreshness, "fresh", StringComparison.OrdinalIgnoreCase),
+        runtime_state_refresh_error: RuntimeStateRefreshError,
+        runtime_state_last_successful_refresh_utc: runtime_state_last_successful_refresh_utc,
+        runtime_state_last_attempt_utc: runtime_state_last_attempt_utc);
 
     private static int ToRemainingSeconds(DateTimeOffset? untilUtc)
     {
@@ -219,7 +237,11 @@ public sealed record LocalApiCurrentSnapshotResponse(
     bool? BreakDeliveryBoundaryReached = null,
     string? BreakDeliveryBoundaryKind = null,
     double? BreakMicrobreakEffectiveFocusSeconds = null,
-    double? BreakShortBreakEffectiveFocusSeconds = null)
+    double? BreakShortBreakEffectiveFocusSeconds = null,
+    string RuntimeStateFreshness = "unknown",
+    DateTimeOffset? RuntimeStateLastSuccessfulRefreshUtc = null,
+    DateTimeOffset? RuntimeStateLastAttemptUtc = null,
+    string? RuntimeStateRefreshError = null)
 {
     // Step 18D pinned snake_case aliases for snapshot consumers.
     public double overload_likelihood => OverloadLikelihood;
@@ -252,7 +274,17 @@ public sealed record LocalApiCurrentSnapshotResponse(
     public string? break_delivery_boundary_kind => BreakDeliveryBoundaryKind;
     public double? break_microbreak_effective_focus_s => BreakMicrobreakEffectiveFocusSeconds;
     public double? break_short_break_effective_focus_s => BreakShortBreakEffectiveFocusSeconds;
+    public string runtime_state_freshness => RuntimeStateFreshness;
+    public string? runtime_state_last_successful_refresh_utc => ToUtcMsStringOrNull(RuntimeStateLastSuccessfulRefreshUtc);
+    public string? runtime_state_last_attempt_utc => ToUtcMsStringOrNull(RuntimeStateLastAttemptUtc);
+    public string? runtime_state_refresh_error => RuntimeStateRefreshError;
     public string timestamp_utc => TimestampUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+    public LocalApiRuntimeStateView runtime_state => new(
+        freshness: RuntimeStateFreshness,
+        stale: !string.Equals(RuntimeStateFreshness, "fresh", StringComparison.OrdinalIgnoreCase),
+        last_successful_refresh_utc: runtime_state_last_successful_refresh_utc,
+        last_attempt_utc: runtime_state_last_attempt_utc,
+        error: RuntimeStateRefreshError);
     public LocalApiSnapshotCurrentView current => new(
         overload_active: overload_active,
         deep_work_active: deep_work_active,
@@ -273,6 +305,12 @@ public sealed record LocalApiCurrentSnapshotResponse(
         f: F,
         i: I,
         v: V);
+
+    private static string ToUtcMsString(DateTimeOffset utc) =>
+        utc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+
+    private static string? ToUtcMsStringOrNull(DateTimeOffset? utc) =>
+        utc.HasValue ? ToUtcMsString(utc.Value) : null;
 }
 
 public sealed record LocalApiCooldownsRemainingResponse(
@@ -315,7 +353,18 @@ public sealed record LocalApiStatusDegradedView(
     bool db_migration_failed,
     bool auth_ready,
     bool notification_ready,
-    bool brightness_ready);
+    bool brightness_ready,
+    bool runtime_state_stale = false,
+    string? runtime_state_refresh_error = null,
+    string? runtime_state_last_successful_refresh_utc = null,
+    string? runtime_state_last_attempt_utc = null);
+
+public sealed record LocalApiRuntimeStateView(
+    string freshness,
+    bool stale,
+    string? last_successful_refresh_utc,
+    string? last_attempt_utc,
+    string? error);
 
 public sealed record LocalApiSnapshotCurrentView(
     bool overload_active,

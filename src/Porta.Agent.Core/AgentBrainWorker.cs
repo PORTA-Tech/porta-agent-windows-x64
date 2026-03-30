@@ -12,10 +12,13 @@ public sealed class AgentBrainWorker(
     IBrainStateStore store,
     IBackendConnectivityProbe backendProbe) : BackgroundService
 {
+    private static readonly TimeSpan RuntimeStateRefreshInterval = TimeSpan.FromSeconds(5);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         bool backendConnected = false;
         DateTimeOffset lastBackendProbeUtc = DateTimeOffset.MinValue;
+        DateTimeOffset lastRuntimeStateRefreshUtc = DateTimeOffset.MinValue;
         PrimitiveSignalSnapshot? previousSmoothedPrimitive = null;
 
         while (!stoppingToken.IsCancellationRequested)
@@ -23,6 +26,12 @@ public sealed class AgentBrainWorker(
             try
             {
                 DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+                if ((nowUtc - lastRuntimeStateRefreshUtc) >= RuntimeStateRefreshInterval)
+                {
+                    controller.RefreshRuntimeStateCache();
+                    lastRuntimeStateRefreshUtc = nowUtc;
+                }
+
                 if ((nowUtc - lastBackendProbeUtc) >= TimeSpan.FromSeconds(15))
                 {
                     backendConnected = await backendProbe.IsConnectedAsync(stoppingToken).ConfigureAwait(false);

@@ -73,4 +73,8 @@ public sealed record AgentServiceStatusSnapshot(
     int? UserAgentHeartbeatWriteFailureCount = null,
     string? CaptureSelfTestState = null,
     string? CaptureSelfTestErrorCode = null,
-    int? CaptureSelfTestRemediationCount = null);
+    int? CaptureSelfTestRemediationCount = null,
+    string RuntimeStateFreshness = "unknown",
+    DateTimeOffset? RuntimeStateLastSuccessfulRefreshUtc = null,
+    DateTimeOffset? RuntimeStateLastAttemptUtc = null,
+    string? RuntimeStateRefreshError = null);

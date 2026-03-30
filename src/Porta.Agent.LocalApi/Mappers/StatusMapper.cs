@@ -80,6 +80,10 @@ internal static class StatusMapper
             status.UserAgentHeartbeatWriteFailureCount,
             status.CaptureSelfTestState,
             status.CaptureSelfTestErrorCode,
-            status.CaptureSelfTestRemediationCount);
+            status.CaptureSelfTestRemediationCount,
+            status.RuntimeStateFreshness,
+            status.RuntimeStateLastSuccessfulRefreshUtc,
+            status.RuntimeStateLastAttemptUtc,
+            status.RuntimeStateRefreshError);
     }
 }
