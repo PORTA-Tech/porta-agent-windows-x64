@@ -1,4 +1,5 @@
 using Porta.Agent.Core;
+using System.Threading;
 
 namespace Porta.Agent.Core.Tests;
 
@@ -64,13 +65,26 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
         TemporaryAppRestrictionEnabled: false,
         BaselineRecalibrationStartedUtc: null,
         BaselineRecalibrationUntilUtc: null);
+    public ManualResetEventSlim? IngestInputSignalsEntered { get; set; }
+    public ManualResetEventSlim? IngestInputSignalsRelease { get; set; }
+    public TimeSpan IngestInputSignalsDelay { get; set; }
 
     public void WriteSnapshot(AgentBrainSnapshot snapshot)
     {
         _writtenSnapshots.Add(snapshot);
         LatestSnapshot = snapshot;
     }
-    public void IngestInputSignals(InputSignalsPacket packet) => _ingestedInputSignals.Add(packet);
+    public void IngestInputSignals(InputSignalsPacket packet)
+    {
+        IngestInputSignalsEntered?.Set();
+        if (IngestInputSignalsDelay > TimeSpan.Zero)
+        {
+            Thread.Sleep(IngestInputSignalsDelay);
+        }
+
+        IngestInputSignalsRelease?.Wait();
+        _ingestedInputSignals.Add(packet);
+    }
     public void WriteControlEvent(AgentControlEvent controlEvent) { }
     public void WriteSystemChange(AgentSystemChange change) { }
     public void WriteDiagnostics(AgentDiagnosticsSnapshot diagnostics) { }

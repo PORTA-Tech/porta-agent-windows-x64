@@ -408,6 +408,18 @@ public sealed record LocalApiFreshnessView(
     string freshness_state,
     string? degraded_reason);
 
+public sealed record LocalApiHealthResponse(
+    bool Alive,
+    DateTimeOffset TimestampUtc,
+    int ProcessId,
+    string AgentVersion)
+{
+    public bool alive => Alive;
+    public string timestamp_utc => TimestampUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+    public int process_id => ProcessId;
+    public string agent_version => AgentVersion;
+}
+
 internal static class LocalApiFreshnessHelpers
 {
     internal static string ResolveFreshnessState(string runtimeStateFreshness) =>

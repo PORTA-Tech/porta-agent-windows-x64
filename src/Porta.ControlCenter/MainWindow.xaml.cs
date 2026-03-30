@@ -422,21 +422,44 @@ public partial class MainWindow : Window
         LocalApiEndpointSettings? endpoint = LocalApiRuntimeSettingsStore.LoadEndpoint();
         LocalApiRuntimeSettings? runtimeSettings = LocalApiRuntimeSettingsStore.Load();
         ServiceProbeResult serviceProbe = ProbeServiceStatus();
-        _latestStatus = await _apiClient.GetStatusAsync().ConfigureAwait(true);
-        int? statusHttpCode = _apiClient.LastStatusHttpCode;
-        bool statusFresh = IsStatusFresh(_latestStatus);
-
-        bool apiReachable = statusHttpCode.HasValue;
-        bool statusAvailable = _latestStatus != null;
+        LocalApiStatusResponse? previousStatus = _latestStatus;
         LocalApiCurrentSnapshotResponse? previousSnapshot = _lastSnapshot;
-        LocalApiCurrentSnapshotResponse? snapshot = statusAvailable
+
+        LocalApiStatusResponse? fetchedStatus = await _apiClient.GetStatusAsync().ConfigureAwait(true);
+        int? statusHttpCode = _apiClient.LastStatusHttpCode;
+        bool statusFresh = fetchedStatus != null && IsStatusFresh(fetchedStatus);
+
+        LocalApiCurrentSnapshotResponse? fetchedSnapshot = serviceProbe.Running
             ? await _apiClient.GetCurrentSnapshotAsync().ConfigureAwait(true)
             : null;
-        bool snapshotFresh = snapshot == null || IsSnapshotFresh(snapshot);
-        LocalApiInputsSummaryResponse? inputSummary = statusAvailable
+        int? snapshotHttpCode = _apiClient.LastSnapshotHttpCode;
+        bool snapshotFresh = fetchedSnapshot != null && IsSnapshotFresh(fetchedSnapshot);
+        bool healthReachable = false;
+        if (!statusHttpCode.HasValue && !snapshotHttpCode.HasValue && serviceProbe.Running)
+        {
+            healthReachable = await _apiClient.GetHealthAsync().ConfigureAwait(true) != null;
+        }
+
+        _latestStatus = fetchedStatus ?? previousStatus;
+        _lastSnapshot = fetchedSnapshot ?? previousSnapshot;
+
+        if (fetchedStatus == null && _latestStatus != null)
+        {
+            statusFresh = false;
+        }
+
+        if (fetchedSnapshot == null && _lastSnapshot != null)
+        {
+            snapshotFresh = false;
+        }
+
+        bool apiReachable = statusHttpCode.HasValue || snapshotHttpCode.HasValue || healthReachable;
+        bool dataEndpointsResponsive = fetchedStatus != null || fetchedSnapshot != null;
+        bool statusAvailable = _latestStatus != null;
+        LocalApiInputsSummaryResponse? inputSummary = dataEndpointsResponsive
             ? await _apiClient.GetInputsSummaryAsync(60).ConfigureAwait(true)
             : null;
-        if (statusAvailable)
+        if (dataEndpointsResponsive)
         {
             if (_allRecentEvents.Count == 0)
             {
@@ -459,15 +482,10 @@ public partial class MainWindow : Window
                 UpdateLastSeenEventId(Math.Max(_lastSeenEventId, newEvents.Max(static evt => evt.Id)));
             }
         }
-        else
-        {
-            _allRecentEvents = [];
-        }
 
         _recentEvents = _allRecentEvents.Take(5).ToArray();
-        _lastSnapshot = snapshot;
         await RefreshAccountSurfaceAsync().ConfigureAwait(true);
-        NowTruth nowTruth = BuildNowTruth(serviceProbe, runtimeSettings, _latestStatus, snapshot, statusFresh, snapshotFresh, statusHttpCode);
+        NowTruth nowTruth = BuildNowTruth(serviceProbe, runtimeSettings, _latestStatus, _lastSnapshot, statusFresh, snapshotFresh, statusHttpCode, apiReachable);
         _latestVisualState = VisualStateAdapter.Build(
             _latestStatus,
             nowTruth.Snapshot,
@@ -475,7 +493,7 @@ public partial class MainWindow : Window
             nowTruth.Explanation,
             DateTimeOffset.UtcNow);
 
-        bool needsSlowRefresh = statusAvailable
+        bool needsSlowRefresh = (statusAvailable || _lastSnapshot != null)
             && (forceSlowRefresh
                 || (DateTimeOffset.UtcNow - _lastSlowRefreshUtc) >= SlowRefreshInterval);
         if (needsSlowRefresh)
@@ -521,7 +539,7 @@ public partial class MainWindow : Window
             ConsentVersionValue.Text = NotAvailableText;
             ConsentTimestampValue.Text = NotAvailableText;
             ConsentHashValue.Text = NotAvailableText;
-            LastErrorValue.Text = BuildOfflineErrorMessage(serviceProbe, endpoint, runtimeSettings, statusHttpCode);
+            LastErrorValue.Text = BuildOfflineErrorMessage(serviceProbe, endpoint, runtimeSettings, statusHttpCode, apiReachable);
             SnapshotConfidenceValue.Text = NotAvailableText;
             OverloadActiveValue.Text = NotAvailableText;
             SustainedAttentionValue.Text = NotAvailableText;
@@ -1944,7 +1962,11 @@ public partial class MainWindow : Window
                 ApiLabel: apiLabel,
                 LastUpdateLabel: lastUpdateLabel,
                 LastErrorLabel: lastErrorLabel,
-                WarningText: BuildLocalApiConnectionExplanation(serviceProbe, runtimeSettings: null, statusHttpCode),
+                WarningText: BuildLocalApiConnectionExplanation(
+                    serviceProbe,
+                    runtimeSettings: null,
+                    statusHttpCode,
+                    apiReachable),
                 StatusColor: Color.FromRgb(248, 113, 113),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -5961,11 +5983,12 @@ public partial class MainWindow : Window
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
         bool statusFresh,
-        int? statusHttpCode)
+        int? statusHttpCode,
+        bool apiReachable)
     {
         if (status == null)
         {
-            return BuildLocalApiConnectionExplanation(serviceProbe, runtimeSettings, statusHttpCode);
+            return BuildLocalApiConnectionExplanation(serviceProbe, runtimeSettings, statusHttpCode, apiReachable);
         }
 
         if (!status.LocalApiAuthReady)
@@ -6063,13 +6086,23 @@ public partial class MainWindow : Window
         LocalApiCurrentSnapshotResponse? snapshot,
         bool statusFresh,
         bool snapshotFresh,
-        int? statusHttpCode)
+        int? statusHttpCode,
+        bool apiReachable)
     {
         if (status == null)
         {
+            if (snapshot != null)
+            {
+                return new NowTruth(
+                    Snapshot: snapshot,
+                    Explanation: snapshotFresh
+                        ? "Service alive, using current snapshot while status refresh retries."
+                        : BuildFreshnessExplanation(status, snapshot));
+            }
+
             return new NowTruth(
                 Snapshot: null,
-                Explanation: BuildLocalApiConnectionExplanation(serviceProbe, runtimeSettings, statusHttpCode));
+                Explanation: BuildLocalApiConnectionExplanation(serviceProbe, runtimeSettings, statusHttpCode, apiReachable));
         }
 
         if (!status.LocalApiAuthReady)
@@ -6293,16 +6326,18 @@ public partial class MainWindow : Window
         ServiceProbeResult serviceProbe,
         LocalApiEndpointSettings? endpoint,
         LocalApiRuntimeSettings? runtimeSettings,
-        int? statusHttpCode)
+        int? statusHttpCode,
+        bool apiReachable)
     {
         _ = endpoint;
-        return BuildLocalApiConnectionExplanation(serviceProbe, runtimeSettings, statusHttpCode);
+        return BuildLocalApiConnectionExplanation(serviceProbe, runtimeSettings, statusHttpCode, apiReachable);
     }
 
     private static string BuildLocalApiConnectionExplanation(
         ServiceProbeResult serviceProbe,
         LocalApiRuntimeSettings? runtimeSettings,
-        int? statusHttpCode)
+        int? statusHttpCode,
+        bool apiReachable)
     {
         if (runtimeSettings is { LocalApiAuthReady: false } || statusHttpCode is 401 or 403)
         {
@@ -6319,6 +6354,11 @@ public partial class MainWindow : Window
         if (statusHttpCode.HasValue)
         {
             return $"Service alive, local API returned HTTP {statusHttpCode.Value}.";
+        }
+
+        if (apiReachable && serviceProbe.Running)
+        {
+            return "Service alive, waiting for local API status.";
         }
 
         return serviceProbe.Running

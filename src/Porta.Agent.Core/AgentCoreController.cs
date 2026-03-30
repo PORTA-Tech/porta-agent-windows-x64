@@ -97,8 +97,8 @@ public sealed class AgentCoreController : IAgentCoreController
     private string? _lastInputAgentInstanceId;
     private string? _lastInputSessionId;
     private string? _lastError;
-    private bool _localApiAuthReady = true;
-    private string? _localApiAuthError;
+    private volatile bool _localApiAuthReady = true;
+    private volatile string? _localApiAuthError;
     private bool _backendConnected;
     private DateTimeOffset? _lastBackendOkUtc;
     private DateTimeOffset _lastDiagnosticsWriteUtc = DateTimeOffset.MinValue;
@@ -209,11 +209,12 @@ public sealed class AgentCoreController : IAgentCoreController
 
     public void SetLocalApiAuthState(bool ready, string? errorCode)
     {
-        lock (_gate)
-        {
-            _localApiAuthReady = ready;
-            _localApiAuthError = ready ? null : string.IsNullOrWhiteSpace(errorCode) ? "TOKEN_READ_FAILED" : errorCode;
-        }
+        _localApiAuthReady = ready;
+        _localApiAuthError = ready
+            ? null
+            : string.IsNullOrWhiteSpace(errorCode)
+                ? "TOKEN_READ_FAILED"
+                : errorCode.Trim();
     }
 
     public AgentControlState GetControlState()
@@ -815,6 +816,8 @@ public sealed class AgentCoreController : IAgentCoreController
         double microIdleSeconds = ClampNonNegativeNullableDouble(packet.MicroIdleSeconds, 1800d);
         double breakSecondsWithinWindow = ClampNonNegativeNullableDouble(packet.BreakSecondsWithinWindow, 1800d);
 
+        InputSignalsPacket? normalizedPacket = null;
+
         lock (_gate)
         {
             TryAutoResumeLocked();
@@ -843,7 +846,7 @@ public sealed class AgentCoreController : IAgentCoreController
                 throw new InvalidOperationException("input_signals_ingress_unavailable");
             }
 
-            _inputSignalsIngress.IngestInputSignals(new InputSignalsPacket(
+            normalizedPacket = new InputSignalsPacket(
                 SchemaVer: schemaVer,
                 AgentInstanceId: agentInstanceId,
                 SessionId: sessionId,
@@ -884,16 +887,16 @@ public sealed class AgentCoreController : IAgentCoreController
                 MicroIdleSeconds: microIdleSeconds,
                 BreakSecondsWithinWindow: breakSecondsWithinWindow,
                 ShortIdleBoundaryObserved: packet.ShortIdleBoundaryObserved,
-                NotificationToastsEnabled: packet.NotificationToastsEnabled));
+                NotificationToastsEnabled: packet.NotificationToastsEnabled);
+        }
 
-            if (packet.LastInputEventUtc is DateTimeOffset lastInputEventUtc)
-            {
-                _lastEventTimestampUtc = lastInputEventUtc;
-            }
-            else
-            {
-                _lastEventTimestampUtc = fallbackEventUtc;
-            }
+        _inputSignalsIngress.IngestInputSignals(normalizedPacket);
+
+        lock (_gate)
+        {
+            _lastEventTimestampUtc = packet.LastInputEventUtc is DateTimeOffset lastInputEventUtc
+                ? lastInputEventUtc
+                : fallbackEventUtc;
         }
     }
 

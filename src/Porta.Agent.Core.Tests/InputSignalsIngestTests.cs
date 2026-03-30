@@ -1,5 +1,8 @@
 using Porta.Agent.Common.UserAgent;
 using Porta.Agent.Core;
+using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Porta.Agent.Core.Tests;
 
@@ -407,6 +410,52 @@ public sealed class InputSignalsIngestTests
         Assert.Equal("agent-1", status.LastInputAgentInstanceId);
         Assert.Equal("session-1", status.LastInputSessionId);
         Assert.Null(status.OwnershipWarning);
+    }
+
+    [Fact]
+    public async Task StatusPath_DoesNotBlockOnAuthStateUpdate_While_InputIngressIsBusy()
+    {
+        using var ingestEntered = new ManualResetEventSlim(false);
+        using var ingestRelease = new ManualResetEventSlim(false);
+        var store = new LocalApiContractFakeStore
+        {
+            IngestInputSignalsEntered = ingestEntered,
+            IngestInputSignalsRelease = ingestRelease
+        };
+        AgentCoreController controller = CreateController(store);
+        DateTimeOffset lastInputUtc = DateTimeOffset.UtcNow;
+
+        Task ingestTask = Task.Run(() => controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 1,
+            AgentInstanceId: "agent-1",
+            SessionId: "session-1",
+            WindowStartUtc: lastInputUtc.AddSeconds(-5),
+            WindowEndUtc: lastInputUtc,
+            KeyboardKeydownCount: 2,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0,
+            MouseMoveDy: 0,
+            FocusAppHash: null,
+            IdleSeconds: 0,
+            LastInputEventUtc: lastInputUtc)));
+
+        Assert.True(ingestEntered.Wait(TimeSpan.FromSeconds(2)), "Timed out waiting for fake ingress to block.");
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        controller.SetLocalApiAuthState(false, "TOKEN_READ_FAILED");
+        AgentServiceStatusSnapshot status = controller.GetStatus();
+        stopwatch.Stop();
+
+        ingestRelease.Set();
+        await ingestTask;
+
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromMilliseconds(500),
+            $"Expected status path to stay fast while ingress was blocked, but it took {stopwatch.Elapsed.TotalMilliseconds:F0}ms.");
+        Assert.False(status.LocalApiAuthReady);
+        Assert.Equal("TOKEN_READ_FAILED", status.LocalApiAuthError);
+        Assert.Equal("agent-1", status.LastInputAgentInstanceId);
+        Assert.Equal("session-1", status.LastInputSessionId);
     }
 
     private static AgentCoreController CreateController(LocalApiContractFakeStore store)

@@ -58,6 +58,14 @@ public static class LocalApiEndpointMapping
     {
         app.UseRateLimiter();
 
+        string agentVersion = typeof(AgentCoreController).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+
+        app.MapGet("/healthz", () => Results.Ok(new LocalApiHealthResponse(
+            Alive: true,
+            TimestampUtc: DateTimeOffset.UtcNow,
+            ProcessId: Environment.ProcessId,
+            AgentVersion: agentVersion)));
+
         app.Use(async (context, next) =>
         {
             if (!context.Request.Path.StartsWithSegments("/v1", StringComparison.OrdinalIgnoreCase))
@@ -122,9 +130,7 @@ public static class LocalApiEndpointMapping
 
         api.MapGet("/status", (IAgentCoreController controller, HttpContext httpContext) =>
         {
-            Secrets.ApiTokenReadResult tokenResult = Secrets.GetApiToken();
-            bool localApiAuthReady = tokenResult.Success && tokenResult.TokenBytes is { Length: 32 };
-            string? localApiAuthError = localApiAuthReady ? null : "TOKEN_READ_FAILED";
+            (bool localApiAuthReady, string? localApiAuthError) = ReadLocalApiAuthState(httpContext);
 
             if (controller is AgentCoreController concreteController)
             {
@@ -135,8 +141,15 @@ public static class LocalApiEndpointMapping
             return StatusMapper.Map(status, localApiAuthReady, localApiAuthError);
         });
 
-        api.MapGet("/snapshot/current", (IAgentCoreController controller) =>
+        api.MapGet("/snapshot/current", (IAgentCoreController controller, HttpContext httpContext) =>
         {
+            (bool localApiAuthReady, string? localApiAuthError) = ReadLocalApiAuthState(httpContext);
+
+            if (controller is AgentCoreController concreteController)
+            {
+                concreteController.SetLocalApiAuthState(localApiAuthReady, localApiAuthError);
+            }
+
             AgentBrainSnapshot snapshot = controller.GetCurrentSnapshot();
             AgentLatestStateDetails? latestState = controller.GetLatestStateDetails();
             AgentServiceStatusSnapshot status = controller.GetStatus();
@@ -597,6 +610,17 @@ public static class LocalApiEndpointMapping
         AgentServiceStatusSnapshot? status = null)
     {
         return SnapshotMapper.Map(snapshot, latestState, status);
+    }
+
+    private static (bool LocalApiAuthReady, string? LocalApiAuthError) ReadLocalApiAuthState(HttpContext httpContext)
+    {
+        bool localApiAuthReady = httpContext.Items.TryGetValue("local_api_auth_ready", out object? readyValue)
+            && readyValue is bool ready
+            && ready;
+        string? localApiAuthError = httpContext.Items.TryGetValue("local_api_auth_error", out object? errorValue)
+            ? errorValue as string
+            : null;
+        return (localApiAuthReady, localApiAuthError);
     }
 
     private static LocalApiSettingsResponse ToSettingsResponse(AgentSettingsState state)

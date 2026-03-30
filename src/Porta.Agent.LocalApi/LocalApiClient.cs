@@ -20,6 +20,8 @@ public sealed class LocalApiClient : IDisposable
     public DateTimeOffset? LastStatusProbeUtc { get; private set; }
     public int? LastSnapshotHttpCode { get; private set; }
     public DateTimeOffset? LastSnapshotProbeUtc { get; private set; }
+    public int? LastHealthHttpCode { get; private set; }
+    public DateTimeOffset? LastHealthProbeUtc { get; private set; }
 
     public LocalApiClient()
     {
@@ -89,6 +91,36 @@ public sealed class LocalApiClient : IDisposable
         {
             LastSnapshotProbeUtc = DateTimeOffset.UtcNow;
             LastSnapshotHttpCode = null;
+            return null;
+        }
+    }
+
+    public async Task<LocalApiHealthResponse?> GetHealthAsync(CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            LastHealthProbeUtc = DateTimeOffset.UtcNow;
+            LastHealthHttpCode = null;
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            LastHealthProbeUtc = DateTimeOffset.UtcNow;
+            using HttpResponseMessage response = await _httpClient.GetAsync("/healthz", token).ConfigureAwait(false);
+            LastHealthHttpCode = (int)response.StatusCode;
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<LocalApiHealthResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            LastHealthProbeUtc = DateTimeOffset.UtcNow;
+            LastHealthHttpCode = null;
             return null;
         }
     }
