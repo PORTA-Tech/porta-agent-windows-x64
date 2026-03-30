@@ -323,6 +323,8 @@ internal static class Schema
             CREATE INDEX IF NOT EXISTS ix_interventions_ts ON interventions(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_interventions_delivery_pending
                 ON interventions(session_id, execution_state, decided_at_utc, id);
+            CREATE INDEX IF NOT EXISTS ix_interventions_delivery_latest
+                ON interventions(intervention_id, id DESC);
             CREATE INDEX IF NOT EXISTS ix_diagnostics_ts ON diagnostics_snapshots(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_brain_snapshots_ts ON brain_snapshots(timestamp_utc);
             CREATE INDEX IF NOT EXISTS ix_input_signal_windows_range ON input_signal_windows(window_start_utc, window_end_utc);
@@ -414,6 +416,9 @@ internal static class Schema
 
                 CREATE INDEX IF NOT EXISTS ix_interventions_delivery_pending
                     ON interventions(session_id, execution_state, decided_at_utc, id);
+
+                CREATE INDEX IF NOT EXISTS ix_interventions_delivery_latest
+                    ON interventions(intervention_id, id DESC);
                 """;
             cmd.ExecuteNonQuery();
         }

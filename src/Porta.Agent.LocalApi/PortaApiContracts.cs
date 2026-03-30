@@ -409,16 +409,10 @@ public sealed record LocalApiFreshnessView(
     string? degraded_reason);
 
 public sealed record LocalApiHealthResponse(
-    bool Alive,
-    DateTimeOffset TimestampUtc,
-    int ProcessId,
-    string AgentVersion)
-{
-    public bool alive => Alive;
-    public string timestamp_utc => TimestampUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-    public int process_id => ProcessId;
-    public string agent_version => AgentVersion;
-}
+    [property: JsonPropertyName("alive")] bool Alive,
+    [property: JsonPropertyName("timestamp_utc")] DateTimeOffset TimestampUtc,
+    [property: JsonPropertyName("process_id")] int ProcessId,
+    [property: JsonPropertyName("agent_version")] string AgentVersion);
 
 internal static class LocalApiFreshnessHelpers
 {

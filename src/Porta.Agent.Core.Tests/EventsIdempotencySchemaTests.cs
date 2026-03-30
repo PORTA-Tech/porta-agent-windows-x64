@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Porta.Agent.Core.Db;
+using System.Text.Json;
+using Porta.Agent.LocalApi;
 
 namespace Porta.Agent.Core.Tests;
 
@@ -15,6 +17,48 @@ public sealed class EventsIdempotencySchemaTests
         InsertEvent(connection, idempotencyKey: "dup_key_v1");
         var ex = Assert.Throws<SqliteException>(() => InsertEvent(connection, idempotencyKey: "dup_key_v1"));
         Assert.True(ex.SqliteErrorCode == 19 || ex.SqliteExtendedErrorCode == 2067);
+    }
+
+    [Fact]
+    public void Migrate_CreatesLatestInterventionLookupIndex()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        Migrations.Migrate(connection);
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "PRAGMA index_list('interventions');";
+        using SqliteDataReader reader = cmd.ExecuteReader();
+
+        var indexNames = new List<string>();
+        while (reader.Read())
+        {
+            indexNames.Add(reader.GetString(1));
+        }
+
+        Assert.Contains("ix_interventions_delivery_latest", indexNames);
+    }
+
+    [Fact]
+    public void LocalApiHealthResponse_UsesStableSnakeCaseJson()
+    {
+        var dto = new LocalApiHealthResponse(
+            Alive: true,
+            TimestampUtc: DateTimeOffset.Parse("2026-03-30T16:00:00Z"),
+            ProcessId: 1234,
+            AgentVersion: "1.0.25");
+
+        string json = JsonSerializer.Serialize(dto);
+        Assert.Contains("\"alive\":true", json, StringComparison.Ordinal);
+        Assert.Contains("\"timestamp_utc\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"process_id\":1234", json, StringComparison.Ordinal);
+        Assert.Contains("\"agent_version\":\"1.0.25\"", json, StringComparison.Ordinal);
+
+        LocalApiHealthResponse? roundTrip = JsonSerializer.Deserialize<LocalApiHealthResponse>(json);
+        Assert.NotNull(roundTrip);
+        Assert.True(roundTrip!.Alive);
+        Assert.Equal(1234, roundTrip.ProcessId);
+        Assert.Equal("1.0.25", roundTrip.AgentVersion);
     }
 
     private static void InsertEvent(SqliteConnection connection, string idempotencyKey)

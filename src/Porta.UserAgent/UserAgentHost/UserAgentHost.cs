@@ -15,7 +15,9 @@ using System.Diagnostics;
 public sealed class UserAgentHost : BackgroundService, IDisposable
 {
     private static readonly TimeSpan PassiveSamplingPeriod = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan SessionHeartbeatInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan UiRefreshInterval = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan RecentEventsRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan WidgetDetailRefreshInterval = TimeSpan.FromSeconds(30);
     private readonly ILogger<UserAgentHost> _logger;
     private readonly IUserAgentSessionContextStore _sessionContextStore;
@@ -37,6 +39,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private long _lastCommunicationEventId;
     private UserInterventionToastRenderer.UserTrayVisualState? _lastTrayState;
     private UserDesktopWidgetState? _lastWidgetState;
+    private IReadOnlyList<LocalApiEventResponse> _recentEvents = [];
+    private DateTimeOffset _lastRecentEventsRefreshUtc = DateTimeOffset.MinValue;
     private IReadOnlyList<LocalApiEventResponse> _widgetDetailEvents = [];
     private LocalApiTimelineResponse? _widgetDetailTimeline;
     private LocalApiSettingsResponse? _widgetDetailSettings;
@@ -105,49 +109,62 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             ArmCaptureSelfTest(_startupMetadata.EffectiveLaunchReason);
         }
 
+        Task heartbeatTask = RunHeartbeatLoopAsync(stoppingToken);
+
         UpdateTrayState(new(
             UserInterventionToastRenderer.UserTrayMode.Normal,
             "PORTA | Starting"));
 
-        await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
-        _lastUiRefreshUtc = DateTimeOffset.UtcNow;
-
-        using var timer = new PeriodicTimer(PassiveSamplingPeriod);
-
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            PublishSessionContext();
+            await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
+            _lastUiRefreshUtc = DateTimeOffset.UtcNow;
 
-            if (_captureContext == UserAgentCaptureContexts.UserSession)
+            using var timer = new PeriodicTimer(PassiveSamplingPeriod);
+
+            while (!stoppingToken.IsCancellationRequested)
             {
-                DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
-                SampleAmbientSignals(nowUtc);
-                await EvaluateCaptureSelfTestAsync(nowUtc, stoppingToken).ConfigureAwait(false);
-                if ((nowUtc - _lastUiRefreshUtc) >= UiRefreshInterval)
+                if (_captureContext == UserAgentCaptureContexts.UserSession)
                 {
-                    await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
-                    _lastUiRefreshUtc = nowUtc;
+                    DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+                    SampleAmbientSignals(nowUtc);
+                    await EvaluateCaptureSelfTestAsync(nowUtc, stoppingToken).ConfigureAwait(false);
+                    if ((nowUtc - _lastUiRefreshUtc) >= UiRefreshInterval)
+                    {
+                        await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
+                        _lastUiRefreshUtc = nowUtc;
+                    }
+
+                    if ((nowUtc - _windowStartUtc) >= TimeSpan.FromSeconds(Time.bucketSeconds))
+                    {
+                        await FlushSignalsAsync(stoppingToken).ConfigureAwait(false);
+                        await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
+                        _lastUiRefreshUtc = DateTimeOffset.UtcNow;
+                        await PollPendingInterventionsAsync(stoppingToken).ConfigureAwait(false);
+                    }
                 }
 
-                if ((nowUtc - _windowStartUtc) >= TimeSpan.FromSeconds(Time.bucketSeconds))
+                try
                 {
-                    await FlushSignalsAsync(stoppingToken).ConfigureAwait(false);
-                    await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
-                    _lastUiRefreshUtc = DateTimeOffset.UtcNow;
-                    await PollPendingInterventionsAsync(stoppingToken).ConfigureAwait(false);
+                    if (!await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+                    {
+                        break;
+                    }
                 }
-            }
-
-            try
-            {
-                if (!await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+                catch (OperationCanceledException)
                 {
                     break;
                 }
             }
+        }
+        finally
+        {
+            try
+            {
+                await heartbeatTask.ConfigureAwait(false);
+            }
             catch (OperationCanceledException)
             {
-                break;
             }
         }
     }
@@ -184,13 +201,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             return;
         }
 
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         LocalApiStatusResponse? status = await _localApiClient.GetStatusAsync(token).ConfigureAwait(false);
         LocalApiCurrentSnapshotResponse? snapshot = await _localApiClient.GetCurrentSnapshotAsync(token).ConfigureAwait(false);
-        IReadOnlyList<LocalApiEventResponse> recentEvents = await _localApiClient
-            .GetRecentEventsAsync(limit: 12, sinceUtc: DateTimeOffset.UtcNow - TimeSpan.FromMinutes(3), token)
-            .ConfigureAwait(false);
-
-        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        IReadOnlyList<LocalApiEventResponse> recentEvents = await RefreshRecentEventsAsync(nowUtc, token).ConfigureAwait(false);
         WidgetDetailSnapshot widgetDetails = _toastRenderer.SupportsWidgetSurface
             ? await RefreshWidgetDetailsAsync(nowUtc, token).ConfigureAwait(false)
             : WidgetDetailSnapshot.Empty;
@@ -247,6 +261,29 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 "Failed to present overload recovery message for event {EventId}. Error={ErrorCode}",
                 signals.RecoveryEventId,
                 errorCode);
+        }
+    }
+
+    private async Task RunHeartbeatLoopAsync(CancellationToken token)
+    {
+        PublishSessionContext();
+
+        using var timer = new PeriodicTimer(SessionHeartbeatInterval);
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                if (!await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
+                {
+                    break;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            PublishSessionContext();
         }
     }
 
@@ -747,17 +784,37 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         return startOfDayLocal.ToUniversalTime();
     }
 
+    private async Task<IReadOnlyList<LocalApiEventResponse>> RefreshRecentEventsAsync(DateTimeOffset nowUtc, CancellationToken token)
+    {
+        bool shouldRefresh = _recentEvents.Count == 0
+            || (nowUtc - _lastRecentEventsRefreshUtc) >= RecentEventsRefreshInterval;
+        if (!shouldRefresh || !_localApiClient.IsConfigured)
+        {
+            return _recentEvents;
+        }
+
+        IReadOnlyList<LocalApiEventResponse> events = await _localApiClient
+            .GetRecentEventsAsync(limit: 40, token: token)
+            .ConfigureAwait(false);
+
+        if (events.Count > 0 || _recentEvents.Count == 0)
+        {
+            _recentEvents = events;
+        }
+
+        _lastRecentEventsRefreshUtc = nowUtc;
+        return _recentEvents;
+    }
+
     private async Task<WidgetDetailSnapshot> RefreshWidgetDetailsAsync(DateTimeOffset nowUtc, CancellationToken token)
     {
+        IReadOnlyList<LocalApiEventResponse> recentEvents = await RefreshRecentEventsAsync(nowUtc, token).ConfigureAwait(false);
         bool shouldRefresh = _widgetDetailTimeline == null
             || _widgetDetailSettings == null
             || (nowUtc - _lastWidgetDetailRefreshUtc) >= WidgetDetailRefreshInterval;
         if (shouldRefresh && _localApiClient.IsConfigured)
         {
             DateTimeOffset widgetTimelineStartUtc = ResolveWidgetTimelineStartUtc(nowUtc);
-            IReadOnlyList<LocalApiEventResponse> events = await _localApiClient
-                .GetRecentEventsAsync(limit: 40, token: token)
-                .ConfigureAwait(false);
             LocalApiTimelineResponse? timeline = await _localApiClient
                 .GetTimelineAsync(widgetTimelineStartUtc, nowUtc, bucketSeconds: 60, token)
                 .ConfigureAwait(false);
@@ -765,14 +822,15 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 .GetEffectiveSettingsAsync(token)
                 .ConfigureAwait(false);
 
-            _widgetDetailEvents = events;
             _widgetDetailTimeline = timeline ?? _widgetDetailTimeline;
             _widgetDetailSettings = settings ?? _widgetDetailSettings;
             _lastWidgetDetailRefreshUtc = nowUtc;
         }
 
+        _widgetDetailEvents = recentEvents;
+
         return new WidgetDetailSnapshot(
-            _widgetDetailEvents,
+            recentEvents,
             _widgetDetailTimeline,
             _widgetDetailSettings);
     }
