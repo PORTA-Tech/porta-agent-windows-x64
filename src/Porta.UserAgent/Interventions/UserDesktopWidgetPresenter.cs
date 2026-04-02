@@ -9,6 +9,9 @@ using Porta.Agent.LocalApi;
 
 internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, IDisposable
 {
+    private const int WidgetHealthUnavailable = 0;
+    private const int WidgetHealthStarting = 1;
+    private const int WidgetHealthReady = 2;
     private static readonly TimeSpan WidgetReadyTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan WidgetStartupGracePeriod = TimeSpan.FromSeconds(10);
     private readonly UserInterventionToastRenderer _fallbackRenderer = new();
@@ -26,6 +29,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private TaskCompletionSource<bool> _widgetReady = CreateWidgetReadySource();
     private Thread? _widgetThread;
     private DateTimeOffset _widgetStartRequestedUtc = DateTimeOffset.MinValue;
+    private int _widgetHealthState = WidgetHealthUnavailable;
     private int _widgetNotReadyLogged;
     private int _widgetFailedLogged;
     private bool _disposed;
@@ -57,10 +61,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 return true;
             }
 
-            lock (_widgetLifecycleGate)
-            {
-                return IsWidgetOperationalLocked() || IsWidgetStartingLocked(DateTimeOffset.UtcNow);
-            }
+            return IsWidgetHealthyForHeartbeat();
         }
     }
 
@@ -71,13 +72,8 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             return;
         }
 
-        bool isStarting;
-        bool needsRestart;
-        lock (_widgetLifecycleGate)
-        {
-            isStarting = IsWidgetStartingLocked(DateTimeOffset.UtcNow);
-            needsRestart = !IsWidgetOperationalLocked();
-        }
+        bool isStarting = IsWidgetStartingForHeartbeat();
+        bool needsRestart = !IsWidgetHealthyForHeartbeat();
 
         if (!needsRestart || isStarting)
         {
@@ -308,6 +304,8 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             _widgetStartRequestedUtc = DateTimeOffset.UtcNow;
         }
 
+        SetWidgetHealthState(WidgetHealthStarting);
+
         try
         {
             dispatcher.BeginInvoke(new Action(EnsureWidgetWindowOnCurrentDispatcher), DispatcherPriority.Send);
@@ -315,6 +313,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         }
         catch (Exception ex)
         {
+            SetWidgetHealthState(WidgetHealthUnavailable);
             UserAgentFileLog.Error("widget_recovery_dispatch_failed", ex);
             _widgetReady.TrySetResult(false);
             return false;
@@ -325,6 +324,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     {
         if (_disposed)
         {
+            SetWidgetHealthState(WidgetHealthUnavailable);
             _widgetReady.TrySetResult(false);
             return;
         }
@@ -348,11 +348,13 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                     currentWindow.ShowWidgetIfHidden();
                 }
 
+                SetWidgetHealthState(WidgetHealthReady);
                 _widgetReady.TrySetResult(true);
                 return;
             }
             catch (Exception ex)
             {
+                SetWidgetHealthState(WidgetHealthUnavailable);
                 UserAgentFileLog.Error("widget_window_reuse_failed", ex);
             }
         }
@@ -379,11 +381,13 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 window.HideWidget();
             }
 
+            SetWidgetHealthState(WidgetHealthReady);
             UserAgentFileLog.Info("desktop_widget_window_shown");
             _widgetReady.TrySetResult(true);
         }
         catch (Exception ex)
         {
+            SetWidgetHealthState(WidgetHealthUnavailable);
             UserAgentFileLog.Error("widget_window_show_failed", ex);
             _widgetReady.TrySetResult(false);
             try
@@ -405,6 +409,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 _widgetWindow = null;
             }
 
+            SetWidgetHealthState(WidgetHealthUnavailable);
             if (!_disposed)
             {
                 _widgetReady = CreateWidgetReadySource();
@@ -510,6 +515,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             _widgetNotReadyLogged = 0;
             _widgetFailedLogged = 0;
             _widgetStartRequestedUtc = DateTimeOffset.UtcNow;
+            SetWidgetHealthState(WidgetHealthStarting);
             _widgetThread = widgetThread;
         }
 
@@ -542,6 +548,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         }
         catch (Exception ex)
         {
+            SetWidgetHealthState(WidgetHealthUnavailable);
             UserAgentFileLog.Error("widget_thread_failed", ex);
             _widgetReady.TrySetResult(false);
         }
@@ -554,6 +561,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                     _widgetWindow = null;
                     _widgetDispatcher = null;
                     _widgetThread = null;
+                    SetWidgetHealthState(WidgetHealthUnavailable);
                     if (!_disposed)
                     {
                         _widgetReady = CreateWidgetReadySource();
@@ -567,7 +575,8 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     {
         return _widgetThread is { IsAlive: true }
             && _widgetDispatcher is { HasShutdownStarted: false, HasShutdownFinished: false }
-            && _widgetWindow is { IsLoaded: true };
+            && _widgetWindow != null
+            && GetWidgetHealthState() == WidgetHealthReady;
     }
 
     private bool IsWidgetStartingLocked(DateTimeOffset nowUtc)
@@ -576,6 +585,24 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             && !_widgetReady.Task.IsCompleted
             && (nowUtc - _widgetStartRequestedUtc) < WidgetStartupGracePeriod;
     }
+
+    private bool IsWidgetHealthyForHeartbeat()
+    {
+        int state = GetWidgetHealthState();
+        return state == WidgetHealthReady || (state == WidgetHealthStarting && IsWidgetStartingForHeartbeat());
+    }
+
+    private bool IsWidgetStartingForHeartbeat()
+    {
+        lock (_widgetLifecycleGate)
+        {
+            return IsWidgetStartingLocked(DateTimeOffset.UtcNow);
+        }
+    }
+
+    private int GetWidgetHealthState() => Volatile.Read(ref _widgetHealthState);
+
+    private void SetWidgetHealthState(int state) => Interlocked.Exchange(ref _widgetHealthState, state);
 
     private void OnWidgetActionRequested(UserDesktopWidgetAction action)
     {
