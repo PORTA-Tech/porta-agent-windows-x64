@@ -17,6 +17,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private static readonly TimeSpan PassiveSamplingPeriod = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan SessionHeartbeatInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan WidgetMaintenanceInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan LiveSignalPublishInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan LiveSignalActiveWindow = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan UiRefreshInterval = TimeSpan.FromSeconds(4);
     private static readonly TimeSpan RecentEventsRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan WidgetDetailRefreshInterval = TimeSpan.FromSeconds(30);
@@ -30,12 +32,15 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private readonly UserInterventionPreferenceStore _interventionPreferenceStore = new();
     private readonly UserAgentInterventionExecutor _interventionExecutor;
     private readonly UserSessionSignalAggregator _signalAggregator = new();
+    private readonly object _liveSignalGate = new();
     private readonly KeyboardHook _keyboardHook = new();
     private readonly UserKeyboardActivityPoller _keyboardPoller = new();
     private readonly MouseHook _mouseHook = new();
     private readonly CaptureSelfTestCoordinator _captureSelfTest = new();
     private readonly string _agentInstanceId = BuildAgentInstanceId();
+    private DateTimeOffset _sessionStartedUtc = DateTimeOffset.UtcNow;
     private DateTimeOffset _windowStartUtc = DateTimeOffset.UtcNow;
+    private DateTimeOffset _lastLiveSignalPublishUtc = DateTimeOffset.MinValue;
     private long _lastRecoveryEventId;
     private long _lastCommunicationEventId;
     private UserInterventionToastRenderer.UserTrayVisualState? _lastTrayState;
@@ -58,6 +63,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private int _sessionId;
     private string _captureContext = UserAgentCaptureContexts.Unknown;
     private readonly string _binaryVersion = ResolveBinaryVersion();
+    private DateTimeOffset? _lastLiveKeyboardUtc;
+    private DateTimeOffset? _lastLiveMouseUtc;
+    private DateTimeOffset? _lastLiveInputUtc;
+    private string? _lastLiveFocusAppHash;
+    private double _lastLiveIdleSeconds;
 
     public UserAgentHost(
         ILogger<UserAgentHost> logger,
@@ -86,7 +96,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         _captureContext = IsInteractiveUserSession(_sessionId)
             ? UserAgentCaptureContexts.UserSession
             : UserAgentCaptureContexts.ServiceSession;
-        _windowStartUtc = DateTimeOffset.UtcNow;
+        _sessionStartedUtc = DateTimeOffset.UtcNow;
+        _windowStartUtc = _sessionStartedUtc;
 
         _logger.LogInformation(
             "Porta.UserAgent running in process {ProcessId} with session {SessionId}, capture context {CaptureContext}, agent instance {AgentInstanceId}.",
@@ -130,6 +141,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 {
                     DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
                     SampleAmbientSignals(nowUtc);
+                    await PublishLiveSessionStateIfDueAsync(nowUtc, stoppingToken).ConfigureAwait(false);
                     await EvaluateCaptureSelfTestAsync(nowUtc, stoppingToken).ConfigureAwait(false);
                     if ((nowUtc - _lastUiRefreshUtc) >= UiRefreshInterval)
                     {
@@ -620,6 +632,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         DateTimeOffset observedAtUtc = DateTimeOffset.UtcNow;
         _captureSelfTest.RecordRawInput(observedAtUtc);
         _signalAggregator.RecordKeyboard(isBackspace, observedAtUtc);
+        RecordLiveInput(observedAtUtc, keyboard: true, mouse: false);
     }
 
     private void OnMouseMoved(int dx, int dy)
@@ -627,6 +640,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         DateTimeOffset observedAtUtc = DateTimeOffset.UtcNow;
         _captureSelfTest.RecordRawInput(observedAtUtc);
         _signalAggregator.RecordMouseMove(dx, dy, observedAtUtc);
+        RecordLiveInput(observedAtUtc, keyboard: false, mouse: true);
     }
 
     private void OnMouseWheelChanged(int delta, bool _)
@@ -634,12 +648,96 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         DateTimeOffset observedAtUtc = DateTimeOffset.UtcNow;
         _captureSelfTest.RecordRawInput(observedAtUtc);
         _signalAggregator.RecordMouseWheel(delta, observedAtUtc);
+        RecordLiveInput(observedAtUtc, keyboard: false, mouse: true);
     }
 
     private void SampleAmbientSignals(DateTimeOffset sampleUtc)
     {
-        _signalAggregator.RecordFocusObservation(UserSessionNativeSignals.TryGetForegroundAppHash(), sampleUtc);
-        _signalAggregator.RecordIdleObservation(UserSessionNativeSignals.ReadIdleDurationSeconds(), sampleUtc);
+        string? focusAppHash = UserSessionNativeSignals.TryGetForegroundAppHash();
+        double idleSeconds = UserSessionNativeSignals.ReadIdleDurationSeconds();
+        _signalAggregator.RecordFocusObservation(focusAppHash, sampleUtc);
+        _signalAggregator.RecordIdleObservation(idleSeconds, sampleUtc);
+        lock (_liveSignalGate)
+        {
+            _lastLiveFocusAppHash = focusAppHash;
+            _lastLiveIdleSeconds = idleSeconds;
+        }
+    }
+
+    private void RecordLiveInput(DateTimeOffset observedAtUtc, bool keyboard, bool mouse)
+    {
+        lock (_liveSignalGate)
+        {
+            _lastLiveInputUtc = observedAtUtc;
+            if (keyboard)
+            {
+                _lastLiveKeyboardUtc = observedAtUtc;
+            }
+
+            if (mouse)
+            {
+                _lastLiveMouseUtc = observedAtUtc;
+            }
+        }
+    }
+
+    private async Task PublishLiveSessionStateIfDueAsync(DateTimeOffset nowUtc, CancellationToken token)
+    {
+        if (_captureContext != UserAgentCaptureContexts.UserSession)
+        {
+            return;
+        }
+
+        if ((nowUtc - _lastLiveSignalPublishUtc) < LiveSignalPublishInterval)
+        {
+            return;
+        }
+
+        _lastLiveSignalPublishUtc = nowUtc;
+        if (!_localApiClient.IsConfigured)
+        {
+            return;
+        }
+
+        LiveSessionSignalSnapshot snapshot = CaptureLiveSessionSignalSnapshot(nowUtc);
+        LocalApiAckResponse? ack = await _localApiClient.SendLiveSessionStateAsync(
+            new LocalApiLiveSessionStateRequest(
+                SchemaVer: 1,
+                AgentInstanceId: _agentInstanceId,
+                SessionId: BuildSessionId(_sessionId),
+                UpdatedAtUtc: nowUtc,
+                SessionStartedAtUtc: _sessionStartedUtc,
+                LastInputEventUtc: snapshot.LastInputEventUtc,
+                KeyboardActive: snapshot.KeyboardActive,
+                MouseActive: snapshot.MouseActive,
+                IdleSeconds: snapshot.IdleSeconds,
+                FocusAppHash: snapshot.FocusAppHash),
+            token).ConfigureAwait(false);
+
+        if (ack?.Success != true)
+        {
+            _logger.LogDebug(
+                "Failed to publish live session state. Response={ResponseMessage}",
+                ack?.Message ?? "null");
+        }
+    }
+
+    private LiveSessionSignalSnapshot CaptureLiveSessionSignalSnapshot(DateTimeOffset nowUtc)
+    {
+        lock (_liveSignalGate)
+        {
+            bool keyboardActive = _lastLiveKeyboardUtc.HasValue
+                && (nowUtc - _lastLiveKeyboardUtc.Value) <= LiveSignalActiveWindow;
+            bool mouseActive = _lastLiveMouseUtc.HasValue
+                && (nowUtc - _lastLiveMouseUtc.Value) <= LiveSignalActiveWindow;
+
+            return new LiveSessionSignalSnapshot(
+                LastInputEventUtc: _lastLiveInputUtc,
+                KeyboardActive: keyboardActive,
+                MouseActive: mouseActive,
+                IdleSeconds: _lastLiveIdleSeconds,
+                FocusAppHash: _lastLiveFocusAppHash);
+        }
     }
 
     private bool? ReadNotificationToastsEnabled()
@@ -956,6 +1054,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     {
         public static WidgetDetailSnapshot Empty { get; } = new([], null, null);
     }
+
+    private sealed record LiveSessionSignalSnapshot(
+        DateTimeOffset? LastInputEventUtc,
+        bool KeyboardActive,
+        bool MouseActive,
+        double IdleSeconds,
+        string? FocusAppHash);
 }
 
 internal sealed class CaptureSelfTestCoordinator

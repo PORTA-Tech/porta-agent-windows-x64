@@ -158,6 +158,12 @@ public static class LocalApiEndpointMapping
             return ToSnapshotResponse(snapshot, latestState, status);
         });
 
+        api.MapGet("/session/live", (IAgentCoreController controller) =>
+        {
+            AgentLiveSessionState state = controller.GetLiveSessionState();
+            return LiveSessionMapper.Map(state);
+        });
+
         api.MapGet("/inputs/summary", (IAgentCoreController controller, int? window) =>
         {
             AgentInputSummary summary = controller.GetInputsSummary(window ?? 60);
@@ -277,6 +283,77 @@ public static class LocalApiEndpointMapping
             catch (Exception)
             {
                 return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            }
+        });
+
+        api.MapPost("/session/live", (IAgentCoreController controller, LocalApiLiveSessionStateRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_payload_or_schema",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            string agentInstanceId = request.AgentInstanceId?.Trim() ?? string.Empty;
+            if (!IsValidIdentifier(agentInstanceId))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_agent_instance_id",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            string sessionId = request.SessionId?.Trim() ?? string.Empty;
+            if (!IsValidIdentifier(sessionId))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_session_id",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            string focusAppHash = request.FocusAppHash?.Trim() ?? string.Empty;
+            if (!IsValidFocusHash(focusAppHash))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_focus_app_hash",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            try
+            {
+                controller.PublishLiveSessionState(new AgentLiveSessionSignalPacket(
+                    AgentInstanceId: agentInstanceId,
+                    SessionId: sessionId,
+                    UpdatedAtUtc: request.UpdatedAtUtc,
+                    SessionStartedAtUtc: request.SessionStartedAtUtc,
+                    LastInputEventUtc: request.LastInputEventUtc,
+                    KeyboardActive: request.KeyboardActive,
+                    MouseActive: request.MouseActive,
+                    IdleSeconds: request.IdleSeconds,
+                    FocusAppHash: string.IsNullOrWhiteSpace(focusAppHash) ? null : focusAppHash));
+
+                return Results.Ok(new LocalApiAckResponse(
+                    Success: true,
+                    Message: "live_session_state_accepted",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: ex.Message,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new LocalApiAckResponse(
+                    Success: false,
+                    Message: ex.Message,
+                    TimestampUtc: DateTimeOffset.UtcNow));
             }
         });
 

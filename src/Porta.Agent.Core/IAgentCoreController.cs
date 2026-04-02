@@ -3,6 +3,7 @@ namespace Porta.Agent.Core;
 public interface IAgentCoreController
 {
     AgentServiceStatusSnapshot GetStatus();
+    AgentLiveSessionState GetLiveSessionState();
     AgentControlState GetControlState();
     AgentBrainSnapshot GetCurrentSnapshot();
     AgentLatestStateDetails? GetLatestStateDetails();
@@ -15,6 +16,7 @@ public interface IAgentCoreController
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,
         int bucketSeconds = Time.bucketSeconds);
+    void PublishLiveSessionState(AgentLiveSessionSignalPacket packet);
     void IngestInputSignals(InputSignalsPacket packet);
     AgentSettingsState GetEffectiveSettings();
     AgentDataRetentionInfo GetDataRetention();

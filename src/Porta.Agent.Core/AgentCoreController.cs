@@ -51,6 +51,9 @@ public sealed class AgentCoreController : IAgentCoreController
     private static readonly TimeSpan LatestStateReadLockTimeout = TimeSpan.FromMilliseconds(150);
     private static readonly TimeSpan RuntimeStateRefreshLockTimeout = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan RuntimeStateStaleAfter = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan LiveSessionStateFreshnessWindow = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan LiveSessionUserActiveWindow = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan LiveSessionIdleThreshold = TimeSpan.FromSeconds(5);
     private static readonly AgentNotificationSuppressionStatus DefaultNotificationSuppressionStatus = new(
         Active: false,
         Ready: true,
@@ -126,6 +129,20 @@ public sealed class AgentCoreController : IAgentCoreController
     private ConsentStateRecord _consentState = CreateDefaultConsentState();
     private SettingsStateRecord _settingsState = CreateDefaultSettingsState();
     private AgentServiceStatusSnapshot? _lastStatusSnapshot;
+    private AgentLiveSessionState _lastLiveSessionState = new(
+        UpdatedAtUtc: null,
+        SessionStartedAtUtc: null,
+        LastInputEventUtc: null,
+        AgentInstanceId: null,
+        SessionId: null,
+        KeyboardActive: false,
+        MouseActive: false,
+        UserActive: false,
+        Idle: false,
+        IdleSeconds: 0d,
+        FocusAppHash: null,
+        Freshness: "stale",
+        DegradedReason: "live_session_missing");
     private AgentLatestStateDetails? _lastLatestStateDetails;
     private AgentNotificationSuppressionStatus _lastNotificationSuppressionStatus = DefaultNotificationSuppressionStatus;
     private AgentBrightnessActionStatus _lastBrightnessActionStatus = DefaultBrightnessActionStatus;
@@ -283,6 +300,29 @@ public sealed class AgentCoreController : IAgentCoreController
         finally
         {
             System.Threading.Monitor.Exit(_gate);
+        }
+    }
+
+    public AgentLiveSessionState GetLiveSessionState()
+    {
+        lock (_gate)
+        {
+            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+            bool hasUpdate = _lastLiveSessionState.UpdatedAtUtc.HasValue;
+            bool stale = !hasUpdate
+                || (nowUtc - _lastLiveSessionState.UpdatedAtUtc!.Value.ToUniversalTime()) > LiveSessionStateFreshnessWindow;
+            DateTimeOffset? lastInputEventUtc = _lastLiveSessionState.LastInputEventUtc?.ToUniversalTime();
+            bool userActive = lastInputEventUtc.HasValue
+                && (nowUtc - lastInputEventUtc.Value) <= LiveSessionUserActiveWindow;
+            bool idle = _lastLiveSessionState.IdleSeconds >= LiveSessionIdleThreshold.TotalSeconds;
+
+            return _lastLiveSessionState with
+            {
+                UserActive = userActive,
+                Idle = idle,
+                Freshness = stale ? "stale" : "fresh",
+                DegradedReason = stale ? "live_session_stale" : null
+            };
         }
     }
 
@@ -708,6 +748,70 @@ public sealed class AgentCoreController : IAgentCoreController
             }
 
             return _stateStore.ReadPendingInterventions(normalizedSessionId, Math.Clamp(limit, 1, 50));
+        }
+    }
+
+    public void PublishLiveSessionState(AgentLiveSessionSignalPacket packet)
+    {
+        ArgumentNullException.ThrowIfNull(packet);
+
+        string agentInstanceId = packet.AgentInstanceId?.Trim() ?? string.Empty;
+        if (!IsValidIdentifier(agentInstanceId))
+        {
+            throw new ArgumentException("missing_agent_instance_id", nameof(packet.AgentInstanceId));
+        }
+
+        string sessionId = packet.SessionId?.Trim() ?? string.Empty;
+        if (!IsValidIdentifier(sessionId))
+        {
+            throw new ArgumentException("missing_session_id", nameof(packet.SessionId));
+        }
+
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        DateTimeOffset updatedAtUtc = packet.UpdatedAtUtc.ToUniversalTime();
+        DateTimeOffset sessionStartedAtUtc = packet.SessionStartedAtUtc.ToUniversalTime();
+        if (sessionStartedAtUtc > updatedAtUtc)
+        {
+            sessionStartedAtUtc = updatedAtUtc;
+        }
+
+        if ((updatedAtUtc - sessionStartedAtUtc) > TimeSpan.FromDays(7))
+        {
+            sessionStartedAtUtc = updatedAtUtc.AddDays(-7);
+        }
+
+        DateTimeOffset? lastInputEventUtc = packet.LastInputEventUtc?.ToUniversalTime();
+        if (lastInputEventUtc.HasValue && lastInputEventUtc.Value > updatedAtUtc)
+        {
+            lastInputEventUtc = updatedAtUtc;
+        }
+
+        string focusAppHash = NormalizeFocusHash(packet.FocusAppHash);
+        if (!IsValidFocusHash(focusAppHash))
+        {
+            throw new ArgumentException("invalid_focus_app_hash", nameof(packet.FocusAppHash));
+        }
+
+        double idleSeconds = ClampNonNegativeDouble(packet.IdleSeconds, 1800d);
+
+        lock (_gate)
+        {
+            TryAutoResumeLocked();
+            ValidateInputSignalSourceLocked(nowUtc, agentInstanceId, sessionId);
+            _lastLiveSessionState = new AgentLiveSessionState(
+                UpdatedAtUtc: updatedAtUtc,
+                SessionStartedAtUtc: sessionStartedAtUtc,
+                LastInputEventUtc: lastInputEventUtc,
+                AgentInstanceId: agentInstanceId,
+                SessionId: sessionId,
+                KeyboardActive: packet.KeyboardActive,
+                MouseActive: packet.MouseActive,
+                UserActive: false,
+                Idle: false,
+                IdleSeconds: idleSeconds,
+                FocusAppHash: string.IsNullOrWhiteSpace(focusAppHash) ? null : focusAppHash,
+                Freshness: "fresh",
+                DegradedReason: null);
         }
     }
 

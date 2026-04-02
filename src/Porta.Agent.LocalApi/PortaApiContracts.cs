@@ -414,6 +414,74 @@ public sealed record LocalApiHealthResponse(
     [property: JsonPropertyName("process_id")] int ProcessId,
     [property: JsonPropertyName("agent_version")] string AgentVersion);
 
+public sealed record LocalApiLiveSessionStateRequest(
+    int SchemaVer,
+    string AgentInstanceId,
+    string SessionId,
+    DateTimeOffset UpdatedAtUtc,
+    DateTimeOffset SessionStartedAtUtc,
+    DateTimeOffset? LastInputEventUtc,
+    bool KeyboardActive,
+    bool MouseActive,
+    double IdleSeconds,
+    string? FocusAppHash);
+
+public sealed record LocalApiLiveSessionStateResponse(
+    DateTimeOffset? UpdatedAtUtc,
+    DateTimeOffset? SessionStartedAtUtc,
+    DateTimeOffset? LastInputEventUtc,
+    string? AgentInstanceId,
+    string? SessionId,
+    bool KeyboardActive,
+    bool MouseActive,
+    bool UserActive,
+    bool Idle,
+    double IdleSeconds,
+    string? FocusAppHash,
+    string Freshness,
+    string? DegradedReason)
+{
+    public string? updated_at_utc => ToUtcMsStringOrNull(UpdatedAtUtc);
+    public string? session_started_at_utc => ToUtcMsStringOrNull(SessionStartedAtUtc);
+    public string? last_input_event_utc => ToUtcMsStringOrNull(LastInputEventUtc);
+    public string? agent_instance_id => AgentInstanceId;
+    public string? session_id => SessionId;
+    public bool keyboard_active => KeyboardActive;
+    public bool mouse_active => MouseActive;
+    public bool user_active => UserActive;
+    public bool idle => Idle;
+    public double idle_seconds => IdleSeconds;
+    public string? focus_app_hash => FocusAppHash;
+    public string freshness_state => string.Equals(Freshness, "fresh", StringComparison.OrdinalIgnoreCase) ? "fresh" : "stale";
+    public string? degraded_reason => DegradedReason;
+    public double? session_elapsed_seconds => ComputeAgeSecondsFrom(SessionStartedAtUtc);
+    public double? last_input_age_seconds => ComputeAgeSecondsFrom(LastInputEventUtc);
+    public LocalApiFreshnessView freshness => new(
+        generated_at_utc: updated_at_utc,
+        captured_at_utc: null,
+        last_successful_db_refresh_utc: null,
+        last_attempt_utc: updated_at_utc,
+        freshness_state: freshness_state,
+        degraded_reason: degraded_reason);
+
+    private static double? ComputeAgeSecondsFrom(DateTimeOffset? utc)
+    {
+        if (!utc.HasValue)
+        {
+            return null;
+        }
+
+        double seconds = (DateTimeOffset.UtcNow - utc.Value.ToUniversalTime()).TotalSeconds;
+        return seconds < 0d ? 0d : seconds;
+    }
+
+    private static string ToUtcMsString(DateTimeOffset utc) =>
+        utc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+
+    private static string? ToUtcMsStringOrNull(DateTimeOffset? utc) =>
+        utc.HasValue ? ToUtcMsString(utc.Value) : null;
+}
+
 internal static class LocalApiFreshnessHelpers
 {
     internal static string ResolveFreshnessState(string runtimeStateFreshness) =>
