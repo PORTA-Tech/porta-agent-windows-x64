@@ -215,7 +215,7 @@ internal static class UserDesktopWidgetStateBuilder
             return BuildLiveFocusMetric(liveSession!);
         }
 
-        if (snapshot != null)
+        if (snapshot is { analysis_ready: true })
         {
             return $"Focus {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, snapshot.SustainedAttentionDurationSec)))}";
         }
@@ -238,7 +238,12 @@ internal static class UserDesktopWidgetStateBuilder
             return "Overload paused";
         }
 
-        double? overload = snapshot?.OverloadLikelihood ?? status?.OverloadLikelihood;
+        if (snapshot is { analysis_ready: false })
+        {
+            return "Overload pending";
+        }
+
+        double? overload = snapshot?.OverloadLikelihood;
         return overload.HasValue
             ? $"Overload {FormatPercent(overload.Value)}"
             : "Overload n/a";
@@ -309,9 +314,12 @@ internal static class UserDesktopWidgetStateBuilder
         string focusText = string.IsNullOrWhiteSpace(liveSession.focus_app_hash)
             ? "Focus watching"
             : "Focused now";
+        string liveFocusText = liveSession.focus_elapsed_seconds.HasValue
+            ? $"live {FormatAgeShort(liveSession.focus_elapsed_seconds.Value)}"
+            : "live";
         string typingText = liveSession.keyboard_active ? "typing active" : "typing idle";
         string mouseText = liveSession.mouse_active ? "mouse active" : "mouse idle";
-        return $"{focusText} | {typingText} | {mouseText}.";
+        return $"{focusText} | {liveFocusText} | {typingText} | {mouseText}.";
     }
 
     private static string BuildLiveFocusMetric(LocalApiLiveSessionStateResponse liveSession)
@@ -319,6 +327,11 @@ internal static class UserDesktopWidgetStateBuilder
         if (liveSession.idle)
         {
             return $"Idle {FormatAgeShort(liveSession.idle_seconds)}";
+        }
+
+        if (liveSession.focus_elapsed_seconds.HasValue)
+        {
+            return $"Focus {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, liveSession.focus_elapsed_seconds.Value)))}";
         }
 
         if (!string.IsNullOrWhiteSpace(liveSession.focus_app_hash))

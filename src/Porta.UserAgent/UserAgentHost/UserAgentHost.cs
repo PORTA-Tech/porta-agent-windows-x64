@@ -19,6 +19,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private static readonly TimeSpan WidgetMaintenanceInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan LiveSignalPublishInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan LiveSignalActiveWindow = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan LiveFocusIdleResetThreshold = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan UiRefreshInterval = TimeSpan.FromSeconds(4);
     private static readonly TimeSpan RecentEventsRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan WidgetDetailRefreshInterval = TimeSpan.FromSeconds(30);
@@ -68,6 +69,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private DateTimeOffset? _lastLiveInputUtc;
     private string? _lastLiveFocusAppHash;
     private double _lastLiveIdleSeconds;
+    private DateTimeOffset? _liveFocusStartedUtc;
 
     public UserAgentHost(
         ILogger<UserAgentHost> logger,
@@ -661,8 +663,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         _signalAggregator.RecordIdleObservation(idleSeconds, sampleUtc);
         lock (_liveSignalGate)
         {
+            string? previousFocusAppHash = _lastLiveFocusAppHash;
             _lastLiveFocusAppHash = focusAppHash;
             _lastLiveIdleSeconds = idleSeconds;
+            UpdateLiveFocusTimerLocked(sampleUtc, focusAppHash, idleSeconds, previousFocusAppHash);
         }
     }
 
@@ -679,6 +683,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             if (mouse)
             {
                 _lastLiveMouseUtc = observedAtUtc;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_lastLiveFocusAppHash)
+                && _lastLiveIdleSeconds < LiveFocusIdleResetThreshold.TotalSeconds
+                && !_liveFocusStartedUtc.HasValue)
+            {
+                _liveFocusStartedUtc = observedAtUtc;
             }
         }
     }
@@ -713,7 +724,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 KeyboardActive: snapshot.KeyboardActive,
                 MouseActive: snapshot.MouseActive,
                 IdleSeconds: snapshot.IdleSeconds,
-                FocusAppHash: snapshot.FocusAppHash),
+                FocusAppHash: snapshot.FocusAppHash,
+                FocusStartedAtUtc: snapshot.FocusStartedAtUtc),
             token).ConfigureAwait(false);
 
         if (ack?.Success != true)
@@ -738,8 +750,33 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 KeyboardActive: keyboardActive,
                 MouseActive: mouseActive,
                 IdleSeconds: _lastLiveIdleSeconds,
-                FocusAppHash: _lastLiveFocusAppHash);
+                FocusAppHash: _lastLiveFocusAppHash,
+                FocusStartedAtUtc: _liveFocusStartedUtc);
         }
+    }
+
+    private void UpdateLiveFocusTimerLocked(
+        DateTimeOffset observedAtUtc,
+        string? currentFocusAppHash,
+        double idleSeconds,
+        string? previousFocusAppHash)
+    {
+        bool focusEligible = idleSeconds < LiveFocusIdleResetThreshold.TotalSeconds
+            && !string.IsNullOrWhiteSpace(currentFocusAppHash);
+
+        if (!focusEligible)
+        {
+            _liveFocusStartedUtc = null;
+            return;
+        }
+
+        if (!string.Equals(previousFocusAppHash, currentFocusAppHash, StringComparison.Ordinal))
+        {
+            _liveFocusStartedUtc = observedAtUtc;
+            return;
+        }
+
+        _liveFocusStartedUtc ??= observedAtUtc;
     }
 
     private bool? ReadNotificationToastsEnabled()
@@ -1062,7 +1099,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         bool KeyboardActive,
         bool MouseActive,
         double IdleSeconds,
-        string? FocusAppHash);
+        string? FocusAppHash,
+        DateTimeOffset? FocusStartedAtUtc);
 }
 
 internal sealed class CaptureSelfTestCoordinator

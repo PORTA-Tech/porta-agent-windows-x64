@@ -170,7 +170,8 @@ public sealed class LocalApiRouteStartupSmokeTests
                 IdleSeconds: 0.7d,
                 FocusAppHash: "a1b2c3",
                 Freshness: "fresh",
-                DegradedReason: null);
+                DegradedReason: null,
+                FocusStartedAtUtc: _nowUtc.AddMinutes(-4));
         }
 
         public AgentControlState GetControlState() => new(

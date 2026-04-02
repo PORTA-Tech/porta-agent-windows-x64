@@ -184,7 +184,7 @@ public sealed class LocalApiClient : IDisposable
             RefreshEndpointBinding();
             using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
             using HttpResponseMessage response = await _httpClient.PostAsync("/v1/input/signals", content, token).ConfigureAwait(false);
-            LocalApiAckResponse? payload = await response.Content.ReadFromJsonAsync<LocalApiAckResponse>(cancellationToken: token).ConfigureAwait(false);
+            LocalApiAckResponse? payload = await ReadAckResponseAsync(response, token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 return payload ?? new LocalApiAckResponse(
@@ -223,7 +223,7 @@ public sealed class LocalApiClient : IDisposable
             RefreshEndpointBinding();
             using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
             using HttpResponseMessage response = await _httpClient.PostAsync("/v1/session/live", content, token).ConfigureAwait(false);
-            LocalApiAckResponse? payload = await response.Content.ReadFromJsonAsync<LocalApiAckResponse>(cancellationToken: token).ConfigureAwait(false);
+            LocalApiAckResponse? payload = await ReadAckResponseAsync(response, token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 return payload ?? new LocalApiAckResponse(
@@ -632,7 +632,7 @@ public sealed class LocalApiClient : IDisposable
             RefreshEndpointBinding();
             using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
             using HttpResponseMessage response = await _httpClient.PostAsync("/v1/interventions/ack", content, token).ConfigureAwait(false);
-            LocalApiAckResponse? payload = await response.Content.ReadFromJsonAsync<LocalApiAckResponse>(cancellationToken: token).ConfigureAwait(false);
+            LocalApiAckResponse? payload = await ReadAckResponseAsync(response, token).ConfigureAwait(false);
             return payload ?? new LocalApiAckResponse(
                 Success: false,
                 Message: response.IsSuccessStatusCode ? "empty_response" : $"http_{(int)response.StatusCode}",
@@ -669,6 +669,29 @@ public sealed class LocalApiClient : IDisposable
     public void Dispose()
     {
         _httpClient.Dispose();
+    }
+
+    private static async Task<LocalApiAckResponse?> ReadAckResponseAsync(
+        HttpResponseMessage response,
+        CancellationToken token)
+    {
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<LocalApiAckResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            string raw = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return null;
+            }
+
+            return new LocalApiAckResponse(
+                Success: false,
+                Message: response.IsSuccessStatusCode ? "invalid_ack_payload" : $"http_{(int)response.StatusCode}",
+                TimestampUtc: DateTimeOffset.UtcNow);
+        }
     }
 
     private bool HasRuntimeSettings()

@@ -282,7 +282,12 @@ public static class LocalApiEndpointMapping
             }
             catch (Exception)
             {
-                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+                return Results.Json(
+                    new LocalApiAckResponse(
+                        Success: false,
+                        Message: "input_signals_ingest_failed",
+                        TimestampUtc: DateTimeOffset.UtcNow),
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         });
 
@@ -334,7 +339,8 @@ public static class LocalApiEndpointMapping
                     KeyboardActive: request.KeyboardActive,
                     MouseActive: request.MouseActive,
                     IdleSeconds: request.IdleSeconds,
-                    FocusAppHash: string.IsNullOrWhiteSpace(focusAppHash) ? null : focusAppHash));
+                    FocusAppHash: string.IsNullOrWhiteSpace(focusAppHash) ? null : focusAppHash,
+                    FocusStartedAtUtc: request.FocusStartedAtUtc));
 
                 return Results.Ok(new LocalApiAckResponse(
                     Success: true,
@@ -354,6 +360,15 @@ public static class LocalApiEndpointMapping
                     Success: false,
                     Message: ex.Message,
                     TimestampUtc: DateTimeOffset.UtcNow));
+            }
+            catch (Exception)
+            {
+                return Results.Json(
+                    new LocalApiAckResponse(
+                        Success: false,
+                        Message: "live_session_publish_failed",
+                        TimestampUtc: DateTimeOffset.UtcNow),
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         });
 

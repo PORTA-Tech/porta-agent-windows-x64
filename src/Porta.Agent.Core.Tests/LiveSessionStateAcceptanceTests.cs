@@ -29,7 +29,8 @@ public sealed class LiveSessionStateAcceptanceTests
             KeyboardActive: true,
             MouseActive: false,
             IdleSeconds: 0.8d,
-            FocusAppHash: "a1b2c3d4"));
+            FocusAppHash: "a1b2c3d4",
+            FocusStartedAtUtc: nowUtc.AddMinutes(-3)));
 
         AgentLiveSessionState state = controller.GetLiveSessionState();
 
@@ -43,6 +44,7 @@ public sealed class LiveSessionStateAcceptanceTests
         Assert.False(state.Idle);
         Assert.Equal(0.8d, state.IdleSeconds, 3);
         Assert.Equal("a1b2c3d4", state.FocusAppHash);
+        Assert.Equal(nowUtc.AddMinutes(-3), state.FocusStartedAtUtc);
         Assert.Equal(0, store.InputSignalsIngestCount);
     }
 
@@ -70,7 +72,8 @@ public sealed class LiveSessionStateAcceptanceTests
             KeyboardActive: false,
             MouseActive: false,
             IdleSeconds: 14d,
-            FocusAppHash: null));
+            FocusAppHash: null,
+            FocusStartedAtUtc: nowUtc.AddMinutes(-2)));
 
         AgentLiveSessionState state = controller.GetLiveSessionState();
 
@@ -78,6 +81,7 @@ public sealed class LiveSessionStateAcceptanceTests
         Assert.Equal("live_session_stale", state.DegradedReason);
         Assert.False(state.UserActive);
         Assert.True(state.Idle);
+        Assert.Null(state.FocusStartedAtUtc);
     }
 
     private sealed class FakeUserAgentSessionContextStore : IUserAgentSessionContextStore

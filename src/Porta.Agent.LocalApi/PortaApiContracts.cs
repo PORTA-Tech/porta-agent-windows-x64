@@ -261,7 +261,9 @@ public sealed record LocalApiCurrentSnapshotResponse(
     string RuntimeStateFreshness = "unknown",
     DateTimeOffset? RuntimeStateLastSuccessfulRefreshUtc = null,
     DateTimeOffset? RuntimeStateLastAttemptUtc = null,
-    string? RuntimeStateRefreshError = null)
+    string? RuntimeStateRefreshError = null,
+    bool AnalyzedStateAvailable = false,
+    string ModelSource = "brain_fallback")
 {
     // Step 18D pinned snake_case aliases for snapshot consumers.
     public double overload_likelihood => OverloadLikelihood;
@@ -298,6 +300,8 @@ public sealed record LocalApiCurrentSnapshotResponse(
     public string? runtime_state_last_successful_refresh_utc => ToUtcMsStringOrNull(RuntimeStateLastSuccessfulRefreshUtc);
     public string? runtime_state_last_attempt_utc => ToUtcMsStringOrNull(RuntimeStateLastAttemptUtc);
     public string? runtime_state_refresh_error => RuntimeStateRefreshError;
+    public bool analysis_ready => AnalyzedStateAvailable;
+    public string model_source => ModelSource;
     public string snapshot_captured_at_utc => ToUtcMsString(TimestampUtc);
     public string? last_successful_db_refresh_utc => runtime_state_last_successful_refresh_utc;
     public string freshness_state => LocalApiFreshnessHelpers.ResolveFreshnessState(RuntimeStateFreshness);
@@ -424,7 +428,8 @@ public sealed record LocalApiLiveSessionStateRequest(
     bool KeyboardActive,
     bool MouseActive,
     double IdleSeconds,
-    string? FocusAppHash);
+    string? FocusAppHash,
+    DateTimeOffset? FocusStartedAtUtc = null);
 
 public sealed record LocalApiLiveSessionStateResponse(
     DateTimeOffset? UpdatedAtUtc,
@@ -439,7 +444,8 @@ public sealed record LocalApiLiveSessionStateResponse(
     double IdleSeconds,
     string? FocusAppHash,
     [property: JsonPropertyName("freshness_raw")] string Freshness,
-    string? DegradedReason)
+    string? DegradedReason,
+    DateTimeOffset? FocusStartedAtUtc = null)
 {
     public string? updated_at_utc => ToUtcMsStringOrNull(UpdatedAtUtc);
     public string? session_started_at_utc => ToUtcMsStringOrNull(SessionStartedAtUtc);
@@ -453,10 +459,12 @@ public sealed record LocalApiLiveSessionStateResponse(
     public bool idle => Idle;
     public double idle_seconds => IdleSeconds;
     public string? focus_app_hash => FocusAppHash;
+    public string? focus_started_at_utc => ToUtcMsStringOrNull(FocusStartedAtUtc);
     public string freshness_state => string.Equals(Freshness, "fresh", StringComparison.OrdinalIgnoreCase) ? "fresh" : "stale";
     public string? degraded_reason => DegradedReason;
     public double? session_elapsed_seconds => ComputeAgeSecondsFrom(SessionStartedAtUtc);
     public double? last_input_age_seconds => ComputeAgeSecondsFrom(LastInputEventUtc);
+    public double? focus_elapsed_seconds => ComputeAgeSecondsFrom(FocusStartedAtUtc);
     public LocalApiFreshnessView freshness => new(
         generated_at_utc: updated_at_utc,
         captured_at_utc: null,

@@ -123,7 +123,9 @@ internal static class SnapshotMapper
             status?.RuntimeStateFreshness ?? "unknown",
             status?.RuntimeStateLastSuccessfulRefreshUtc,
             status?.RuntimeStateLastAttemptUtc,
-            status?.RuntimeStateRefreshError);
+            status?.RuntimeStateRefreshError,
+            AnalyzedStateAvailable: latestState is not null,
+            ModelSource: latestState is not null ? "analyzed_state" : "brain_fallback");
     }
 
     private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(string? stateFlagsJson)

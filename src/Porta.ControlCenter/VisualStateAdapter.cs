@@ -28,6 +28,8 @@ internal sealed record PortaVisualState(
     string ModeLabel,
     string TrustLabel,
     string FocusStreakText,
+    double? FocusDisplaySeconds,
+    bool SnapshotAnalysisReady,
     string FocusStatusText,
     string OperatingSentence,
     bool OverloadActive,
@@ -78,6 +80,7 @@ internal static class VisualStateAdapter
     public static PortaVisualState Build(
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiLiveSessionStateResponse? liveSession,
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         string fallbackExplanation,
         DateTimeOffset nowUtc)
@@ -93,6 +96,8 @@ internal static class VisualStateAdapter
                 ModeLabel: "Unavailable",
                 TrustLabel: NotAvailableText,
                 FocusStreakText: $"Focused time: {NotAvailableText}",
+                FocusDisplaySeconds: null,
+                SnapshotAnalysisReady: false,
                 FocusStatusText: waitingReason,
                 OperatingSentence: waitingReason,
                 OverloadActive: false,
@@ -116,6 +121,7 @@ internal static class VisualStateAdapter
 
         string focusStatus = BuildFocusStatus(snapshot);
         string operatingSentence = BuildOperatingSentence(status, snapshot, mode, fallbackExplanation);
+        double? focusDisplaySeconds = ResolveDisplayFocusSeconds(snapshot, liveSession);
         (bool showRecoveryBanner, long recoveryEventId, string recoveryBannerText) = BuildRecoveryBanner(mode, recentEvents, nowUtc);
         (bool showDeepWorkStreak, string deepWorkStreakText) = BuildDeepWorkStreak(
             deepWorkActive,
@@ -134,7 +140,9 @@ internal static class VisualStateAdapter
             Theme: theme,
             ModeLabel: ToModeLabel(mode),
             TrustLabel: ResolveTrustLabel(snapshot.TrustTier, snapshot.Confidence),
-            FocusStreakText: $"Focused time: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}",
+            FocusStreakText: BuildFocusStreakText(snapshot, liveSession),
+            FocusDisplaySeconds: focusDisplaySeconds,
+            SnapshotAnalysisReady: snapshot.analysis_ready,
             FocusStatusText: focusStatus,
             OperatingSentence: operatingSentence,
             OverloadActive: overloadActive,
@@ -145,6 +153,62 @@ internal static class VisualStateAdapter
             RecoveryEventId: recoveryEventId,
             RecoveryBannerText: recoveryBannerText,
             WhySummary: whySummary);
+    }
+
+    private static string BuildFocusStreakText(
+        LocalApiCurrentSnapshotResponse snapshot,
+        LocalApiLiveSessionStateResponse? liveSession)
+    {
+        double? liveFocusSeconds = ResolveLiveFocusSeconds(liveSession);
+        if (liveFocusSeconds.HasValue)
+        {
+            return $"Focused time: {FormatFocusedTime(liveFocusSeconds.Value)}";
+        }
+
+        if (snapshot.analysis_ready)
+        {
+            return $"Focused time: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
+        }
+
+        if (IsFreshLiveSession(liveSession) && liveSession!.idle)
+        {
+            return "Focused time: 0 sec";
+        }
+
+        return $"Focused time: {NotAvailableText}";
+    }
+
+    internal static double? ResolveDisplayFocusSeconds(
+        LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiLiveSessionStateResponse? liveSession)
+    {
+        double? liveFocusSeconds = ResolveLiveFocusSeconds(liveSession);
+        if (liveFocusSeconds.HasValue)
+        {
+            return liveFocusSeconds;
+        }
+
+        return snapshot?.analysis_ready == true
+            ? Math.Max(0d, snapshot.SustainedAttentionDurationSec)
+            : null;
+    }
+
+    private static double? ResolveLiveFocusSeconds(LocalApiLiveSessionStateResponse? liveSession)
+    {
+        if (!IsFreshLiveSession(liveSession)
+            || liveSession!.idle
+            || !liveSession.focus_elapsed_seconds.HasValue)
+        {
+            return null;
+        }
+
+        return Math.Max(0d, liveSession.focus_elapsed_seconds.Value);
+    }
+
+    private static bool IsFreshLiveSession(LocalApiLiveSessionStateResponse? liveSession)
+    {
+        return liveSession != null
+            && string.Equals(liveSession.freshness_state, "fresh", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildOperatingSentence(

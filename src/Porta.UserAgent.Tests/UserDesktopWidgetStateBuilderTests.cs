@@ -309,7 +309,8 @@ public sealed class UserDesktopWidgetStateBuilderTests
             IdleSeconds: 1.2d,
             FocusAppHash: "a1b2c3d4",
             Freshness: "fresh",
-            DegradedReason: null);
+            DegradedReason: null,
+            FocusStartedAtUtc: nowUtc.AddMinutes(-3));
         UserAgentVisualSignals signals = new(
             Mode: UserAgentVisualMode.Normal,
             TooltipText: "PORTA | Watching activity",
@@ -327,12 +328,60 @@ public sealed class UserDesktopWidgetStateBuilderTests
             degradedToast: null,
             nowUtc: nowUtc);
 
-        Assert.Equal("Focused now | typing active | mouse idle.", state.StatusText);
-        Assert.Equal("Focus live", state.PrimaryMetricText);
+        Assert.Equal("Focused now | live 3m | typing active | mouse idle.", state.StatusText);
+        Assert.Equal("Focus 3m", state.PrimaryMetricText);
         Assert.Equal("Overload 42%", state.SecondaryMetricText);
         Assert.StartsWith("Input ", state.TertiaryMetricText, StringComparison.Ordinal);
         Assert.StartsWith("Session 17m | Typing active | Mouse idle", state.FooterText, StringComparison.Ordinal);
         Assert.Null(state.CriticalState);
+    }
+
+    [Fact]
+    public void Build_HoldsOverloadMetricPendingUntilAnalyzedSnapshotIsReady()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.50,
+            sustainedAttentionSeconds: 0,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false,
+            analyzedStateAvailable: false);
+        LocalApiLiveSessionStateResponse liveSession = new(
+            UpdatedAtUtc: nowUtc,
+            SessionStartedAtUtc: nowUtc.AddMinutes(-11),
+            LastInputEventUtc: nowUtc.AddSeconds(-1),
+            AgentInstanceId: "ua-1",
+            SessionId: "session-1",
+            KeyboardActive: true,
+            MouseActive: true,
+            UserActive: true,
+            Idle: false,
+            IdleSeconds: 0.4d,
+            FocusAppHash: "abc123",
+            Freshness: "fresh",
+            DegradedReason: null,
+            FocusStartedAtUtc: nowUtc.AddMinutes(-2));
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status,
+            snapshot,
+            liveSession,
+            signals,
+            degradedToast: null,
+            nowUtc: nowUtc);
+
+        Assert.Equal("Focus 2m", state.PrimaryMetricText);
+        Assert.Equal("Overload pending", state.SecondaryMetricText);
     }
 
     [Fact]
@@ -515,7 +564,8 @@ public sealed class UserDesktopWidgetStateBuilderTests
         bool notificationsSuppressed,
         bool brightnessAdjusted,
         string runtimeStateFreshness = "fresh",
-        string? runtimeStateRefreshError = null)
+        string? runtimeStateRefreshError = null,
+        bool analyzedStateAvailable = true)
     {
         return new LocalApiCurrentSnapshotResponse(
             TimestampUtc: DateTimeOffset.Parse("2026-03-29T12:00:00Z"),
@@ -561,7 +611,9 @@ public sealed class UserDesktopWidgetStateBuilderTests
             IComponent: 0.45,
             VComponent: 0.18,
             RuntimeStateFreshness: runtimeStateFreshness,
-            RuntimeStateRefreshError: runtimeStateRefreshError);
+            RuntimeStateRefreshError: runtimeStateRefreshError,
+            AnalyzedStateAvailable: analyzedStateAvailable,
+            ModelSource: analyzedStateAvailable ? "analyzed_state" : "brain_fallback");
     }
 
     private static LocalApiEventResponse BuildEvent(long id, string action, DateTimeOffset tsUtc)

@@ -28,7 +28,8 @@ public sealed class LocalApiJsonContractSmokeTests
             IdleSeconds: 12.5d,
             FocusAppHash: "a1b2c3",
             Freshness: "fresh",
-            DegradedReason: null);
+            DegradedReason: null,
+            FocusStartedAtUtc: DateTimeOffset.Parse("2026-04-02T17:56:00Z"));
 
         string json = JsonSerializer.Serialize(dto, WebJson);
 
@@ -40,6 +41,7 @@ public sealed class LocalApiJsonContractSmokeTests
         Assert.NotNull(roundTrip);
         Assert.True(roundTrip!.Idle);
         Assert.True(roundTrip.idle);
+        Assert.Equal("2026-04-02T17:56:00.000Z", roundTrip.focus_started_at_utc);
     }
 
     [Fact]
@@ -63,6 +65,7 @@ public sealed class LocalApiJsonContractSmokeTests
         Assert.Contains("\"alive\":true", healthJson, StringComparison.Ordinal);
         Assert.Contains("\"freshness\"", statusJson, StringComparison.Ordinal);
         Assert.Contains("\"freshness\"", snapshotJson, StringComparison.Ordinal);
+        Assert.Contains("\"analysis_ready\":false", snapshotJson, StringComparison.Ordinal);
     }
 
     private static AgentServiceStatusSnapshot CreateStatus(DateTimeOffset nowUtc)

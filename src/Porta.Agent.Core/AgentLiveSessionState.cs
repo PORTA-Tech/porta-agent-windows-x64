@@ -9,7 +9,8 @@ public sealed record AgentLiveSessionSignalPacket(
     bool KeyboardActive,
     bool MouseActive,
     double IdleSeconds,
-    string? FocusAppHash);
+    string? FocusAppHash,
+    DateTimeOffset? FocusStartedAtUtc = null);
 
 public sealed record AgentLiveSessionState(
     DateTimeOffset? UpdatedAtUtc,
@@ -23,5 +24,6 @@ public sealed record AgentLiveSessionState(
     bool Idle,
     double IdleSeconds,
     string? FocusAppHash,
+    DateTimeOffset? FocusStartedAtUtc,
     string Freshness,
     string? DegradedReason);

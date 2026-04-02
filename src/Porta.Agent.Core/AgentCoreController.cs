@@ -141,6 +141,7 @@ public sealed class AgentCoreController : IAgentCoreController
         Idle: false,
         IdleSeconds: 0d,
         FocusAppHash: null,
+        FocusStartedAtUtc: null,
         Freshness: "stale",
         DegradedReason: "live_session_missing");
     private AgentLatestStateDetails? _lastLatestStateDetails;
@@ -315,11 +316,22 @@ public sealed class AgentCoreController : IAgentCoreController
             bool userActive = lastInputEventUtc.HasValue
                 && (nowUtc - lastInputEventUtc.Value) <= LiveSessionUserActiveWindow;
             bool idle = _lastLiveSessionState.IdleSeconds >= LiveSessionIdleThreshold.TotalSeconds;
+            DateTimeOffset? focusStartedAtUtc = _lastLiveSessionState.FocusStartedAtUtc?.ToUniversalTime();
+            if (focusStartedAtUtc.HasValue)
+            {
+                if (idle
+                    || string.IsNullOrWhiteSpace(_lastLiveSessionState.FocusAppHash)
+                    || focusStartedAtUtc.Value > nowUtc)
+                {
+                    focusStartedAtUtc = null;
+                }
+            }
 
             return _lastLiveSessionState with
             {
                 UserActive = userActive,
                 Idle = idle,
+                FocusStartedAtUtc = focusStartedAtUtc,
                 Freshness = stale ? "stale" : "fresh",
                 DegradedReason = stale ? "live_session_stale" : null
             };
@@ -780,19 +792,33 @@ public sealed class AgentCoreController : IAgentCoreController
             sessionStartedAtUtc = updatedAtUtc.AddDays(-7);
         }
 
-        DateTimeOffset? lastInputEventUtc = packet.LastInputEventUtc?.ToUniversalTime();
+          DateTimeOffset? lastInputEventUtc = packet.LastInputEventUtc?.ToUniversalTime();
         if (lastInputEventUtc.HasValue && lastInputEventUtc.Value > updatedAtUtc)
         {
             lastInputEventUtc = updatedAtUtc;
         }
 
-        string focusAppHash = NormalizeFocusHash(packet.FocusAppHash);
-        if (!IsValidFocusHash(focusAppHash))
-        {
-            throw new ArgumentException("invalid_focus_app_hash", nameof(packet.FocusAppHash));
-        }
+          string focusAppHash = NormalizeFocusHash(packet.FocusAppHash);
+          if (!IsValidFocusHash(focusAppHash))
+          {
+              throw new ArgumentException("invalid_focus_app_hash", nameof(packet.FocusAppHash));
+          }
 
-        double idleSeconds = ClampNonNegativeDouble(packet.IdleSeconds, 1800d);
+          DateTimeOffset? focusStartedAtUtc = packet.FocusStartedAtUtc?.ToUniversalTime();
+          if (focusStartedAtUtc.HasValue)
+          {
+              if (focusStartedAtUtc.Value > updatedAtUtc)
+              {
+                  focusStartedAtUtc = updatedAtUtc;
+              }
+
+              if (focusStartedAtUtc.Value < sessionStartedAtUtc)
+              {
+                  focusStartedAtUtc = sessionStartedAtUtc;
+              }
+          }
+
+          double idleSeconds = ClampNonNegativeDouble(packet.IdleSeconds, 1800d);
 
         lock (_gate)
         {
@@ -810,10 +836,11 @@ public sealed class AgentCoreController : IAgentCoreController
                 Idle: false,
                 IdleSeconds: idleSeconds,
                 FocusAppHash: string.IsNullOrWhiteSpace(focusAppHash) ? null : focusAppHash,
+                FocusStartedAtUtc: focusStartedAtUtc,
                 Freshness: "fresh",
                 DegradedReason: null);
-        }
-    }
+          }
+      }
 
     public AgentTimelineData GetTimeline(
         DateTimeOffset fromUtc,

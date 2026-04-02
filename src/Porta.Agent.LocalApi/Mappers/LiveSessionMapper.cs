@@ -19,6 +19,7 @@ internal static class LiveSessionMapper
             IdleSeconds: state.IdleSeconds,
             FocusAppHash: state.FocusAppHash,
             Freshness: state.Freshness,
-            DegradedReason: state.DegradedReason);
+            DegradedReason: state.DegradedReason,
+            FocusStartedAtUtc: state.FocusStartedAtUtc);
     }
 }

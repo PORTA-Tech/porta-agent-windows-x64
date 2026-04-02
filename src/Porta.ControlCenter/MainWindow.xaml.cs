@@ -92,6 +92,7 @@ public partial class MainWindow : Window
     private PortaVisualState _latestVisualState = VisualStateAdapter.Build(
         status: null,
         snapshot: null,
+        liveSession: null,
         recentEvents: [],
         fallbackExplanation: string.Empty,
         nowUtc: DateTimeOffset.UtcNow);
@@ -495,6 +496,7 @@ public partial class MainWindow : Window
         _latestVisualState = VisualStateAdapter.Build(
             _latestStatus,
             nowTruth.Snapshot,
+            _latestLiveSession,
             _allRecentEvents,
             nowTruth.Explanation,
             DateTimeOffset.UtcNow);
@@ -1202,8 +1204,24 @@ public partial class MainWindow : Window
         }
 
         double confidence = snapshot.Confidence;
-        SetStateCard(FocusCardValue, FocusCardConfidence, FocusCardTrend, FocusCardBand, snapshot.FocusStrength, confidence, "focus", previousSnapshot);
-        SetStateCard(OverloadCardValue, OverloadCardConfidence, OverloadCardTrend, OverloadCardBand, snapshot.OverloadLikelihood, confidence, "overload", previousSnapshot);
+        SetStateCard(
+            FocusCardValue,
+            FocusCardConfidence,
+            FocusCardTrend,
+            FocusCardBand,
+            snapshot.analysis_ready ? snapshot.FocusStrength : null,
+            snapshot.analysis_ready ? confidence : null,
+            "focus",
+            snapshot.analysis_ready ? previousSnapshot : null);
+        SetStateCard(
+            OverloadCardValue,
+            OverloadCardConfidence,
+            OverloadCardTrend,
+            OverloadCardBand,
+            snapshot.analysis_ready ? snapshot.OverloadLikelihood : null,
+            snapshot.analysis_ready ? confidence : null,
+            "overload",
+            snapshot.analysis_ready ? previousSnapshot : null);
         SetStateCard(FatigueCardValue, FatigueCardConfidence, FatigueCardTrend, FatigueCardBand, snapshot.FatigueProbability, confidence, "fatigue", previousSnapshot);
         SetStateCard(StabilityCardValue, StabilityCardConfidence, StabilityCardTrend, StabilityCardBand, snapshot.CognitiveStability, confidence, "stability", previousSnapshot);
 
@@ -1229,7 +1247,7 @@ public partial class MainWindow : Window
             NowFocusStreakValueText.Text = visualState.FocusStreakText;
             NowDeepWorkStreakText.Visibility = Visibility.Collapsed;
             NowFocusChoppinessText.Text = $"Choppiness: {NotAvailableText}";
-            NowFocusSummaryText.Text = BuildNowFocusSummary(null);
+            NowFocusSummaryText.Text = BuildNowFocusSummary(null, liveSession);
             NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
             NowFocusStatusText.Text = BuildLiveSessionFocusStatus(liveSession) ?? visualState.FocusStatusText;
             NowFocusStatusText.Visibility = Visibility.Visible;
@@ -1273,24 +1291,40 @@ public partial class MainWindow : Window
             NowWaitingDataText.Text = nowTruth.Explanation;
             NowWaitingDataText.Visibility = Visibility.Visible;
         }
-        // Source: GET /v1/snapshot/current -> overload_likelihood
-        AnimateTopMetric(
-            metricKey: "now_overload",
-            targetValue: Math.Clamp(snapshot.OverloadLikelihood * 100d, 0d, 100d),
-            applyValue: value => NowOverloadValueText.Text = $"Overload {value:F0}%");
-        // Source: GET /v1/snapshot/current -> overload_active
-        NowOverloadActiveText.Text = $"Active: {(visualState.OverloadActive ? "Yes" : "No")}";
-        // Source: GET /v1/snapshot/current -> confidence
-        AnimateTopMetric(
-            metricKey: "now_trust",
-            targetValue: Math.Clamp(snapshot.Confidence * 100d, 0d, 100d),
-            applyValue: value => NowOverloadTrustText.Text = $"Trust level: {value:F0}%");
+        if (visualState.SnapshotAnalysisReady)
+        {
+            AnimateTopMetric(
+                metricKey: "now_overload",
+                targetValue: Math.Clamp(snapshot.OverloadLikelihood * 100d, 0d, 100d),
+                applyValue: value => NowOverloadValueText.Text = $"Overload {value:F0}%");
+            NowOverloadActiveText.Text = $"Active: {(visualState.OverloadActive ? "Yes" : "No")}";
+            AnimateTopMetric(
+                metricKey: "now_trust",
+                targetValue: Math.Clamp(snapshot.Confidence * 100d, 0d, 100d),
+                applyValue: value => NowOverloadTrustText.Text = $"Trust level: {value:F0}%");
+        }
+        else
+        {
+            NowOverloadValueText.Text = "Overload analyzing";
+            NowOverloadActiveText.Text = "Active: assessing";
+            NowOverloadTrustText.Text = $"Trust level: {NotAvailableText}";
+        }
+
         NowOverloadSummaryText.Text = BuildNowOverloadSummary(snapshot);
-        // Source: GET /v1/snapshot/current -> sustained_attention_duration_sec
-        AnimateTopMetric(
-            metricKey: "now_focus",
-            targetValue: Math.Max(0d, snapshot.SustainedAttentionDurationSec / 60d),
-            applyValue: value => NowFocusStreakValueText.Text = $"Focused time: {FormatFocusedTime(value * 60d)}");
+
+        double? focusDisplaySeconds = visualState.FocusDisplaySeconds;
+        if (focusDisplaySeconds.HasValue)
+        {
+            AnimateTopMetric(
+                metricKey: "now_focus",
+                targetValue: Math.Max(0d, focusDisplaySeconds.Value / 60d),
+                applyValue: value => NowFocusStreakValueText.Text = $"Focused time: {FormatFocusedTime(value * 60d)}");
+        }
+        else
+        {
+            NowFocusStreakValueText.Text = visualState.FocusStreakText;
+        }
+
         if (visualState.ShowDeepWorkStreak)
         {
             NowDeepWorkStreakText.Text = visualState.DeepWorkStreakText;
@@ -1300,21 +1334,34 @@ public partial class MainWindow : Window
         {
             NowDeepWorkStreakText.Visibility = Visibility.Collapsed;
         }
-        // Source: GET /v1/snapshot/current -> idle_fragmentation_index
-        NowFocusChoppinessText.Text = $"Choppiness: {MapChoppiness(snapshot.IdleFragmentationIndex)} ({snapshot.IdleFragmentationIndex:F2})";
-        NowFocusSummaryText.Text = BuildNowFocusSummary(snapshot);
-        NowFocusFootnoteText.Text = "Short pauses and quick app checks do not break the streak.";
+
+        NowFocusChoppinessText.Text = visualState.SnapshotAnalysisReady
+            ? $"Choppiness: {MapChoppiness(snapshot.IdleFragmentationIndex)} ({snapshot.IdleFragmentationIndex:F2})"
+            : $"Choppiness: {NotAvailableText}";
+        NowFocusSummaryText.Text = BuildNowFocusSummary(snapshot, liveSession);
+        NowFocusFootnoteText.Text = visualState.SnapshotAnalysisReady
+            ? "Short pauses and quick app checks do not break the streak."
+            : "Live focus updates first; history and modeled streaks catch up after processed buckets arrive.";
         string focusStatus = BuildLiveSessionFocusStatus(liveSession) ?? visualState.FocusStatusText;
         NowFocusStatusText.Text = focusStatus;
         NowFocusStatusText.Visibility = string.IsNullOrWhiteSpace(focusStatus)
             ? Visibility.Collapsed
             : Visibility.Visible;
 
-        OverloadExplainView explain = ParseOverloadExplain(snapshot.ContributorsJson);
-        NowOverloadFivText.Text = explain.FivSummary;
-        string topReasons = explain.HasStructuredData ? explain.TopReasons : visualState.WhySummary;
-        NowOverloadTopReasonsText.Text = $"Top reasons: {topReasons}";
-        NowOverloadQualityAgreementText.Text = $"Quality: {explain.Quality} | Agreement: {explain.Agreement}";
+        if (visualState.SnapshotAnalysisReady)
+        {
+            OverloadExplainView explain = ParseOverloadExplain(snapshot.ContributorsJson);
+            NowOverloadFivText.Text = explain.FivSummary;
+            string topReasons = explain.HasStructuredData ? explain.TopReasons : visualState.WhySummary;
+            NowOverloadTopReasonsText.Text = $"Top reasons: {topReasons}";
+            NowOverloadQualityAgreementText.Text = $"Quality: {explain.Quality} | Agreement: {explain.Agreement}";
+        }
+        else
+        {
+            NowOverloadFivText.Text = "Explain will appear once analyzed overload state is ready.";
+            NowOverloadTopReasonsText.Text = "Top reasons: Waiting for analyzed overload state.";
+            NowOverloadQualityAgreementText.Text = $"Quality: {NotAvailableText} | Agreement: {NotAvailableText}";
+        }
 
         // Source: GET /v1/snapshot/current -> baseline_ready
         string calibrationStage = NormalizeCalibrationStage(snapshot.CalibrationStage, snapshot.BaselineReady, snapshot.ColdStart);
@@ -1388,6 +1435,11 @@ public partial class MainWindow : Window
 
     private string BuildNowOverloadSummary(LocalApiCurrentSnapshotResponse? snapshot)
     {
+        if (snapshot is { analysis_ready: false })
+        {
+            return "Waiting for analyzed overload state. Click for Why once the next processed bucket lands.";
+        }
+
         IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = _todayTimeline?.Snapshots ?? [];
         if (snapshots.Count == 0)
         {
@@ -1403,8 +1455,23 @@ public partial class MainWindow : Window
             : $"Today peak: {peakText} | Volatile hour: {volatileHour}. Click for Why.";
     }
 
-    private string BuildNowFocusSummary(LocalApiCurrentSnapshotResponse? snapshot)
+    private string BuildNowFocusSummary(
+        LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiLiveSessionStateResponse? liveSession)
     {
+        double? liveFocusSeconds = VisualStateAdapter.ResolveDisplayFocusSeconds(snapshot, liveSession);
+        if (IsLiveSessionFresh(liveSession)
+            && liveFocusSeconds.HasValue
+            && snapshot is { analysis_ready: false })
+        {
+            return $"Live streak: {FormatFocusedTime(liveFocusSeconds.Value)}. Click for History once processed buckets catch up.";
+        }
+
+        if (snapshot is { analysis_ready: false })
+        {
+            return "Watching live focus now. History will fill in after processed focus buckets arrive.";
+        }
+
         IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = _todayTimeline?.Snapshots ?? [];
         if (snapshots.Count == 0)
         {
@@ -1952,7 +2019,10 @@ public partial class MainWindow : Window
             : liveSession.user_active
                 ? "User active"
                 : "Watching live";
-        return $"{focusText} | typing {(liveSession.keyboard_active ? "active" : "idle")} | mouse {(liveSession.mouse_active ? "active" : "idle")}";
+        string liveStreakText = liveSession.focus_elapsed_seconds.HasValue
+            ? $"live streak {FormatAgeLabel(liveSession.focus_elapsed_seconds)}"
+            : "live streak warming";
+        return $"{focusText} | {liveStreakText} | typing {(liveSession.keyboard_active ? "active" : "idle")} | mouse {(liveSession.mouse_active ? "active" : "idle")}";
     }
 
     private static string? BuildLiveOperatingSentence(LocalApiLiveSessionStateResponse? liveSession)
@@ -1969,12 +2039,16 @@ public partial class MainWindow : Window
 
         if (liveSession.keyboard_active && liveSession.mouse_active)
         {
-            return "Watching live typing and mouse activity.";
+            return liveSession.focus_elapsed_seconds.HasValue
+                ? $"Watching live focus ({FormatAgeLabel(liveSession.focus_elapsed_seconds)}) with typing and mouse activity."
+                : "Watching live typing and mouse activity.";
         }
 
         if (liveSession.keyboard_active)
         {
-            return "Watching live typing activity.";
+            return liveSession.focus_elapsed_seconds.HasValue
+                ? $"Watching live focus ({FormatAgeLabel(liveSession.focus_elapsed_seconds)}) with typing activity."
+                : "Watching live typing activity.";
         }
 
         if (liveSession.mouse_active)
