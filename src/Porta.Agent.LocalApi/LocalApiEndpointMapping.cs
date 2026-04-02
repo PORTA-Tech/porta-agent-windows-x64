@@ -60,11 +60,13 @@ public static class LocalApiEndpointMapping
 
         string agentVersion = typeof(AgentCoreController).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
 
-        app.MapGet("/healthz", () => Results.Ok(new LocalApiHealthResponse(
-            Alive: true,
-            TimestampUtc: DateTimeOffset.UtcNow,
-            ProcessId: Environment.ProcessId,
-            AgentVersion: agentVersion)));
+        app.MapGet("/healthz", () => Results.Json(new
+        {
+            alive = true,
+            timestamp_utc = DateTimeOffset.UtcNow,
+            process_id = Environment.ProcessId,
+            agent_version = agentVersion
+        }));
 
         app.Use(async (context, next) =>
         {

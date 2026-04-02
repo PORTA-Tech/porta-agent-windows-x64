@@ -443,9 +443,22 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
     private void PublishSessionContext()
     {
+        bool widgetHealthyForHeartbeat = true;
+
         try
         {
-            _toastRenderer.MaintainWidgetSurface();
+            try
+            {
+                _toastRenderer.MaintainWidgetSurface();
+                widgetHealthyForHeartbeat = _toastRenderer.IsWidgetHealthyForSessionHeartbeat;
+            }
+            catch (Exception ex)
+            {
+                widgetHealthyForHeartbeat = false;
+                UserAgentFileLog.Error("widget_heartbeat_maintenance_failed", ex);
+                _logger.LogError(ex, "Failed to maintain desktop widget surface during heartbeat publish.");
+            }
+
             int heartbeatWriteFailureCount = _heartbeatWriteFailureCount;
             CaptureSelfTestHeartbeatProjection selfTest = _captureSelfTest.GetHeartbeatProjection();
             _sessionContextStore.WriteCurrent(new UserAgentSessionContextSnapshot(
@@ -459,7 +472,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 StartupSource: _startupMetadata.Source,
                 LaunchReason: _startupMetadata.EffectiveLaunchReason,
                 HeartbeatWriteFailureCount: heartbeatWriteFailureCount,
-                DesktopWidgetReady: _toastRenderer.IsWidgetHealthyForSessionHeartbeat,
+                DesktopWidgetReady: widgetHealthyForHeartbeat,
                 CaptureSelfTestState: selfTest.State,
                 CaptureSelfTestErrorCode: selfTest.ErrorCode,
                 CaptureSelfTestRemediationCount: selfTest.RemediationCount));

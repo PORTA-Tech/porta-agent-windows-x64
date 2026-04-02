@@ -9,6 +9,8 @@ using Porta.Agent.LocalApi;
 
 internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, IDisposable
 {
+    private static readonly TimeSpan WidgetReadyTimeout = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan WidgetStartupGracePeriod = TimeSpan.FromSeconds(10);
     private readonly UserInterventionToastRenderer _fallbackRenderer = new();
     private readonly LocalApiClient _actionClient = new();
     private readonly UserDesktopWidgetPlacementStore _placementStore = new();
@@ -17,13 +19,13 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private readonly object _promptGate = new();
     private readonly object _widgetLifecycleGate = new();
 
-    private Application? _widgetApplication;
     private Dispatcher? _widgetDispatcher;
     private UserDesktopWidgetWindow? _widgetWindow;
     private Action<UserInterventionPromptResponse>? _promptResponseHandler;
     private string? _promptInterventionId;
     private TaskCompletionSource<bool> _widgetReady = CreateWidgetReadySource();
     private Thread? _widgetThread;
+    private DateTimeOffset _widgetStartRequestedUtc = DateTimeOffset.MinValue;
     private int _widgetNotReadyLogged;
     private int _widgetFailedLogged;
     private bool _disposed;
@@ -57,7 +59,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
             lock (_widgetLifecycleGate)
             {
-                return IsWidgetOperationalLocked();
+                return IsWidgetOperationalLocked() || IsWidgetStartingLocked(DateTimeOffset.UtcNow);
             }
         }
     }
@@ -69,14 +71,22 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             return;
         }
 
+        bool isStarting;
         bool needsRestart;
         lock (_widgetLifecycleGate)
         {
+            isStarting = IsWidgetStartingLocked(DateTimeOffset.UtcNow);
             needsRestart = !IsWidgetOperationalLocked();
         }
 
-        if (!needsRestart)
+        if (!needsRestart || isStarting)
         {
+            return;
+        }
+
+        if (TryRecoverWindowOnExistingDispatcher())
+        {
+            UserAgentFileLog.Info("desktop_widget_window_recovery_requested");
             return;
         }
 
@@ -178,39 +188,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         _disposed = true;
         _fallbackRenderer.Dispose();
         _actionClient.Dispose();
-
-        Dispatcher? dispatcher;
-        Application? widgetApplication;
-        UserDesktopWidgetWindow? widgetWindow;
-        Thread? widgetThread;
-        lock (_widgetLifecycleGate)
-        {
-            dispatcher = _widgetDispatcher;
-            widgetApplication = _widgetApplication;
-            widgetWindow = _widgetWindow;
-            widgetThread = _widgetThread;
-        }
-
-        if (dispatcher != null)
-        {
-            try
-            {
-                dispatcher.BeginInvoke(() =>
-                {
-                    widgetWindow?.AllowCloseForShutdown();
-                    widgetWindow?.Close();
-                    widgetApplication?.Shutdown();
-                });
-            }
-            catch
-            {
-            }
-        }
-
-        if (widgetThread is { IsAlive: true })
-        {
-            widgetThread.Join(TimeSpan.FromSeconds(2));
-        }
+        ShutdownWidgetThread(TimeSpan.FromSeconds(2));
     }
 
     private bool TryDispatchToWidget(Action<UserDesktopWidgetWindow> action, out string errorCode)
@@ -231,6 +209,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         EnsureWidgetThreadStarted(forceRestart: false);
         if (!WaitForWidgetReady())
         {
+            TryRecoverWindowOnExistingDispatcher();
             if (Interlocked.Exchange(ref _widgetNotReadyLogged, 1) == 0)
             {
                 UserAgentFileLog.Info("desktop_widget_not_ready timeout_seconds=3");
@@ -242,7 +221,11 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
         if (!_widgetReady.Task.Result || _widgetDispatcher == null || _widgetWindow == null)
         {
-            EnsureWidgetThreadStarted(forceRestart: true);
+            if (!TryRecoverWindowOnExistingDispatcher())
+            {
+                EnsureWidgetThreadStarted(forceRestart: true);
+            }
+
             if (!WaitForWidgetReady() || !_widgetReady.Task.Result || _widgetDispatcher == null || _widgetWindow == null)
             {
                 if (Interlocked.Exchange(ref _widgetFailedLogged, 1) == 0)
@@ -281,7 +264,199 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
     private bool WaitForWidgetReady()
     {
-        return _widgetReady.Task.Wait(TimeSpan.FromSeconds(3));
+        return _widgetReady.Task.Wait(WidgetReadyTimeout);
+    }
+
+    private Thread CreateWidgetThread()
+    {
+        var thread = new Thread(WidgetThreadMain)
+        {
+            IsBackground = true,
+            Name = "PORTA.UserAgent.DesktopWidget"
+        };
+        thread.SetApartmentState(ApartmentState.STA);
+        return thread;
+    }
+
+    private bool TryRecoverWindowOnExistingDispatcher()
+    {
+        if (_disposed || !_rollout.SupportsWidgetSurface)
+        {
+            return false;
+        }
+
+        Dispatcher? dispatcher;
+        lock (_widgetLifecycleGate)
+        {
+            if (_widgetDispatcher is null
+                || _widgetDispatcher.HasShutdownStarted
+                || _widgetDispatcher.HasShutdownFinished
+                || _widgetThread is not { IsAlive: true })
+            {
+                return false;
+            }
+
+            if (IsWidgetOperationalLocked() || IsWidgetStartingLocked(DateTimeOffset.UtcNow))
+            {
+                return true;
+            }
+
+            dispatcher = _widgetDispatcher;
+            _widgetReady = CreateWidgetReadySource();
+            _widgetNotReadyLogged = 0;
+            _widgetFailedLogged = 0;
+            _widgetStartRequestedUtc = DateTimeOffset.UtcNow;
+        }
+
+        try
+        {
+            dispatcher.BeginInvoke(new Action(EnsureWidgetWindowOnCurrentDispatcher), DispatcherPriority.Send);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error("widget_recovery_dispatch_failed", ex);
+            _widgetReady.TrySetResult(false);
+            return false;
+        }
+    }
+
+    private void EnsureWidgetWindowOnCurrentDispatcher()
+    {
+        if (_disposed)
+        {
+            _widgetReady.TrySetResult(false);
+            return;
+        }
+
+        UserDesktopWidgetWindow? currentWindow;
+        lock (_widgetLifecycleGate)
+        {
+            currentWindow = _widgetWindow;
+        }
+
+        if (currentWindow is { IsLoaded: true })
+        {
+            try
+            {
+                if (_visibilityStore.IsHidden())
+                {
+                    currentWindow.HideWidget();
+                }
+                else
+                {
+                    currentWindow.ShowWidgetIfHidden();
+                }
+
+                _widgetReady.TrySetResult(true);
+                return;
+            }
+            catch (Exception ex)
+            {
+                UserAgentFileLog.Error("widget_window_reuse_failed", ex);
+            }
+        }
+
+        try
+        {
+            UserAgentFileLog.Info("desktop_widget_window_initializing");
+            var window = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore);
+            window.Closed += OnWidgetWindowClosed;
+
+            lock (_widgetLifecycleGate)
+            {
+                if (_widgetDispatcher is null || _widgetDispatcher.HasShutdownStarted || _widgetDispatcher.HasShutdownFinished)
+                {
+                    _widgetDispatcher = Dispatcher.CurrentDispatcher;
+                }
+
+                _widgetWindow = window;
+            }
+
+            window.Show();
+            if (_visibilityStore.IsHidden())
+            {
+                window.HideWidget();
+            }
+
+            UserAgentFileLog.Info("desktop_widget_window_shown");
+            _widgetReady.TrySetResult(true);
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error("widget_window_show_failed", ex);
+            _widgetReady.TrySetResult(false);
+            try
+            {
+                Dispatcher.CurrentDispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private void OnWidgetWindowClosed(object? sender, EventArgs e)
+    {
+        lock (_widgetLifecycleGate)
+        {
+            if (ReferenceEquals(_widgetWindow, sender))
+            {
+                _widgetWindow = null;
+            }
+
+            if (!_disposed)
+            {
+                _widgetReady = CreateWidgetReadySource();
+            }
+        }
+    }
+
+    private void ShutdownWidgetThread(TimeSpan joinTimeout)
+    {
+        Dispatcher? dispatcher;
+        UserDesktopWidgetWindow? widgetWindow;
+        Thread? widgetThread;
+        lock (_widgetLifecycleGate)
+        {
+            dispatcher = _widgetDispatcher;
+            widgetWindow = _widgetWindow;
+            widgetThread = _widgetThread;
+        }
+
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.HasShutdownFinished)
+        {
+            try
+            {
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        widgetWindow?.AllowCloseForShutdown();
+                        widgetWindow?.Close();
+                    }
+                    catch
+                    {
+                    }
+
+                    Dispatcher.CurrentDispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
+                }));
+            }
+            catch
+            {
+            }
+        }
+
+        if (widgetThread is { IsAlive: true })
+        {
+            try
+            {
+                widgetThread.Join(joinTimeout);
+            }
+            catch
+            {
+            }
+        }
     }
 
     private void EnsureWidgetThreadStarted(bool forceRestart)
@@ -291,60 +466,54 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             return;
         }
 
+        if (forceRestart && TryRecoverWindowOnExistingDispatcher())
+        {
+            return;
+        }
+
         Thread? priorThread = null;
-        Dispatcher? priorDispatcher = null;
-        Application? priorApplication = null;
-        UserDesktopWidgetWindow? priorWindow = null;
         lock (_widgetLifecycleGate)
         {
-            bool threadAlive = _widgetThread is { IsAlive: true };
-            if (!forceRestart && (threadAlive || (_widgetDispatcher != null && _widgetWindow != null)))
+            if (!forceRestart && (IsWidgetOperationalLocked() || IsWidgetStartingLocked(DateTimeOffset.UtcNow)))
             {
                 return;
             }
 
-            priorThread = forceRestart ? _widgetThread : null;
-            priorDispatcher = forceRestart ? _widgetDispatcher : null;
-            priorApplication = forceRestart ? _widgetApplication : null;
-            priorWindow = forceRestart ? _widgetWindow : null;
-            _widgetReady = CreateWidgetReadySource();
-            _widgetNotReadyLogged = 0;
-            _widgetFailedLogged = 0;
-            _widgetThread = new Thread(WidgetThreadMain)
+            if (forceRestart)
             {
-                IsBackground = true,
-                Name = "PORTA.UserAgent.DesktopWidget"
-            };
-            _widgetThread.SetApartmentState(ApartmentState.STA);
-            _widgetThread.Start();
-        }
-
-        if (priorDispatcher != null)
-        {
-            try
-            {
-                priorDispatcher.BeginInvoke(() =>
-                {
-                    priorWindow?.AllowCloseForShutdown();
-                    priorWindow?.Close();
-                    priorApplication?.Shutdown();
-                });
-            }
-            catch
-            {
+                priorThread = _widgetThread;
             }
         }
 
         if (priorThread is { IsAlive: true })
         {
-            try
+            ShutdownWidgetThread(TimeSpan.FromSeconds(2));
+            lock (_widgetLifecycleGate)
             {
-                priorThread.Join(TimeSpan.FromSeconds(1));
-            }
-            catch
-            {
+                if (_widgetThread is { IsAlive: true })
+                {
+                    UserAgentFileLog.Info("desktop_widget_recovery_deferred reason=prior_thread_still_alive");
+                    return;
+                }
             }
         }
+
+        Thread widgetThread = CreateWidgetThread();
+        lock (_widgetLifecycleGate)
+        {
+            if (!forceRestart && (IsWidgetOperationalLocked() || IsWidgetStartingLocked(DateTimeOffset.UtcNow)))
+            {
+                return;
+            }
+
+            _widgetReady = CreateWidgetReadySource();
+            _widgetNotReadyLogged = 0;
+            _widgetFailedLogged = 0;
+            _widgetStartRequestedUtc = DateTimeOffset.UtcNow;
+            _widgetThread = widgetThread;
+        }
+
+        widgetThread.Start();
     }
 
     private void WidgetThreadMain()
@@ -353,34 +522,23 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         try
         {
             UserAgentFileLog.Info("desktop_widget_thread_starting");
-            _widgetApplication = new Application
-            {
-                ShutdownMode = ShutdownMode.OnExplicitShutdown
-            };
-            _widgetApplication.DispatcherUnhandledException += (_, eventArgs) =>
+            Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
+            Dispatcher.CurrentDispatcher.UnhandledException += (_, eventArgs) =>
             {
                 UserAgentFileLog.Error("widget_dispatcher_unhandled_exception", eventArgs.Exception);
             };
-            _widgetApplication.Exit += (_, _) => UserAgentFileLog.Info("desktop_widget_thread_exit");
-            _widgetApplication.Startup += (_, _) =>
+
+            lock (_widgetLifecycleGate)
             {
-                try
+                if (ReferenceEquals(_widgetThread, currentThread))
                 {
-                    UserAgentFileLog.Info("desktop_widget_window_initializing");
-                    _widgetDispatcher = _widgetApplication.Dispatcher;
-                    _widgetWindow = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore);
-                    _widgetWindow.Show();
-                    UserAgentFileLog.Info("desktop_widget_window_shown");
-                    _widgetReady.TrySetResult(true);
+                    _widgetDispatcher = dispatcher;
                 }
-                catch (Exception ex)
-                {
-                    UserAgentFileLog.Error("widget_window_show_failed", ex);
-                    _widgetReady.TrySetResult(false);
-                    _widgetApplication.Shutdown(-1);
-                }
-            };
-            _widgetApplication.Run();
+            }
+
+            EnsureWidgetWindowOnCurrentDispatcher();
+            Dispatcher.Run();
+            UserAgentFileLog.Info("desktop_widget_thread_exit");
         }
         catch (Exception ex)
         {
@@ -395,7 +553,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 {
                     _widgetWindow = null;
                     _widgetDispatcher = null;
-                    _widgetApplication = null;
+                    _widgetThread = null;
                     if (!_disposed)
                     {
                         _widgetReady = CreateWidgetReadySource();
@@ -409,7 +567,14 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     {
         return _widgetThread is { IsAlive: true }
             && _widgetDispatcher is { HasShutdownStarted: false, HasShutdownFinished: false }
-            && _widgetWindow != null;
+            && _widgetWindow is { IsLoaded: true };
+    }
+
+    private bool IsWidgetStartingLocked(DateTimeOffset nowUtc)
+    {
+        return _widgetThread is { IsAlive: true }
+            && !_widgetReady.Task.IsCompleted
+            && (nowUtc - _widgetStartRequestedUtc) < WidgetStartupGracePeriod;
     }
 
     private void OnWidgetActionRequested(UserDesktopWidgetAction action)
