@@ -137,6 +137,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                         _lastUiRefreshUtc = nowUtc;
                     }
 
+                    // Keep the durable input/analytics flush on the shared bucket cadence.
+                    // Later live-session UI work should add a separate fast path instead of shrinking this window.
                     if ((nowUtc - _windowStartUtc) >= TimeSpan.FromSeconds(Time.bucketSeconds))
                     {
                         await FlushSignalsAsync(stoppingToken).ConfigureAwait(false);

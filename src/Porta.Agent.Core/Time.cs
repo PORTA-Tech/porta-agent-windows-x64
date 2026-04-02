@@ -18,6 +18,8 @@ public static class Time
 {
     private const string UtcIsoWithMillisecondsFormat = "yyyy-MM-dd'T'HH:mm:ss.fff'Z'";
 
+    // This remains the durable analytics/history bucket cadence.
+    // Any future live-session UI path must layer on top of this, not replace it.
     public const int bucketSeconds = 5;
     public const int bucket_ms = 5000;
     public const int maxLateMs = 2000;

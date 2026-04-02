@@ -12,6 +12,8 @@ public sealed class AgentBrainWorker(
     IBrainStateStore store,
     IBackendConnectivityProbe backendProbe) : BackgroundService
 {
+    // Refreshing runtime-state cache is separate from the durable bucket pipeline.
+    // The persisted analytics/history path still runs on the fixed 5-second bucket cadence.
     private static readonly TimeSpan RuntimeStateRefreshInterval = TimeSpan.FromSeconds(5);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
