@@ -1217,6 +1217,8 @@ public partial class MainWindow : Window
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         PortaVisualState visualState)
     {
+        // Live session feeds only the immediate activity text on this surface.
+        // Overload, trust, calibration, quality, history, and recent actions remain snapshot/event driven.
         LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
         if (snapshot == null)
         {
@@ -1885,6 +1887,7 @@ public partial class MainWindow : Window
 
     private static string BuildLiveActivitySummary(LocalApiLiveSessionStateResponse liveSession)
     {
+        // This helper intentionally stays qualitative. Numeric modeled state belongs to snapshot/status.
         string sessionText = liveSession.session_elapsed_seconds.HasValue
             ? $"session {FormatAgeLabel(liveSession.session_elapsed_seconds)}"
             : "session n/a";

@@ -49,6 +49,9 @@ internal static class UserDesktopWidgetStateBuilder
                     _ => UserDesktopWidgetMode.Monitoring
                 };
 
+        // Live session state is only for immediate "what is happening now" activity facts.
+        // Analyzed state such as overload stays on status/snapshot/timeline/event sources.
+
         return new UserDesktopWidgetState(
             Mode: mode,
             Title: BuildTitle(mode),

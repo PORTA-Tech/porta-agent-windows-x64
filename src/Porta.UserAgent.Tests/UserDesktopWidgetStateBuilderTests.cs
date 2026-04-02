@@ -335,6 +335,105 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Null(state.CriticalState);
     }
 
+    [Fact]
+    public void Build_UsesProcessedSnapshotForOverloadEvenWhenLiveSessionIsFresh()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        LocalApiStatusResponse status = BuildStatus(overloadActive: false);
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.74,
+            sustainedAttentionSeconds: 420,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false);
+        LocalApiLiveSessionStateResponse liveSession = new(
+            UpdatedAtUtc: nowUtc,
+            SessionStartedAtUtc: nowUtc.AddMinutes(-9),
+            LastInputEventUtc: nowUtc.AddSeconds(-2),
+            AgentInstanceId: "ua-1",
+            SessionId: "session-1",
+            KeyboardActive: false,
+            MouseActive: true,
+            UserActive: true,
+            Idle: false,
+            IdleSeconds: 0.8d,
+            FocusAppHash: null,
+            Freshness: "fresh",
+            DegradedReason: null);
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status,
+            snapshot,
+            liveSession,
+            signals,
+            degradedToast: null,
+            nowUtc: nowUtc);
+
+        Assert.Equal("Overload 74%", state.SecondaryMetricText);
+        Assert.Equal("Focus active", state.PrimaryMetricText);
+        Assert.StartsWith("Input ", state.TertiaryMetricText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_UsesRecentCriticalEventEvenWhenLiveSessionIsFresh()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.28,
+            sustainedAttentionSeconds: 720,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false);
+        LocalApiLiveSessionStateResponse liveSession = new(
+            UpdatedAtUtc: nowUtc,
+            SessionStartedAtUtc: nowUtc.AddMinutes(-21),
+            LastInputEventUtc: nowUtc.AddSeconds(-1),
+            AgentInstanceId: "ua-1",
+            SessionId: "session-1",
+            KeyboardActive: true,
+            MouseActive: true,
+            UserActive: true,
+            Idle: false,
+            IdleSeconds: 0.5d,
+            FocusAppHash: "a1",
+            Freshness: "fresh",
+            DegradedReason: null);
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+        LocalApiEventResponse recentFailure = BuildEvent(
+            id: 91,
+            action: "notification_restore_failed",
+            tsUtc: nowUtc.AddMinutes(-2));
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status,
+            snapshot,
+            liveSession,
+            signals,
+            degradedToast: null,
+            recentEvents: [recentFailure],
+            nowUtc: nowUtc);
+
+        Assert.NotNull(state.CriticalState);
+        Assert.Equal("Notifications need attention", state.CriticalState!.Title);
+        Assert.Contains("restore windows notification settings", state.StatusText, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static LocalApiStatusResponse BuildStatus(
         bool paused = false,
         DateTimeOffset? pauseUntilUtc = null,
