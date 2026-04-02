@@ -228,6 +228,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         LocalApiStatusResponse? status = await _localApiClient.GetStatusAsync(token).ConfigureAwait(false);
         LocalApiCurrentSnapshotResponse? snapshot = await _localApiClient.GetCurrentSnapshotAsync(token).ConfigureAwait(false);
+        LocalApiLiveSessionStateResponse? liveSession = await _localApiClient.GetLiveSessionStateAsync(token).ConfigureAwait(false);
         IReadOnlyList<LocalApiEventResponse> recentEvents = await RefreshRecentEventsAsync(nowUtc, token).ConfigureAwait(false);
         WidgetDetailSnapshot widgetDetails = _toastRenderer.SupportsWidgetSurface
             ? await RefreshWidgetDetailsAsync(nowUtc, token).ConfigureAwait(false)
@@ -247,6 +248,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         UpdateWidgetState(UserDesktopWidgetStateBuilder.Build(
             status,
             snapshot,
+            liveSession,
             signals,
             captureDegradedToast,
             widgetDetails.RecentEvents,

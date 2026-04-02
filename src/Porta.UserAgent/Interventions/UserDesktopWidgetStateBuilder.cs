@@ -8,6 +8,7 @@ internal static class UserDesktopWidgetStateBuilder
     public static UserDesktopWidgetState Build(
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiLiveSessionStateResponse? liveSession,
         UserAgentVisualSignals signals,
         UserCommunicationToast? degradedToast,
         IReadOnlyList<LocalApiEventResponse>? recentEvents = null,
@@ -51,15 +52,15 @@ internal static class UserDesktopWidgetStateBuilder
         return new UserDesktopWidgetState(
             Mode: mode,
             Title: BuildTitle(mode),
-            StatusText: BuildStatusText(status, snapshot, degradedToast, criticalState, mode, statusHttpCode),
-            PrimaryMetricText: BuildFocusMetric(status, snapshot, mode),
+            StatusText: BuildStatusText(status, snapshot, liveSession, degradedToast, criticalState, mode, statusHttpCode),
+            PrimaryMetricText: BuildFocusMetric(status, snapshot, liveSession, mode),
             SecondaryMetricText: BuildOverloadMetric(status, snapshot, mode),
-            FooterText: string.Empty,
+            FooterText: BuildFooterText(liveSession, mode),
             NotificationsSuppressed: false,
             BrightnessAdjusted: false,
             CanPause: status?.ServiceRunning == true && status.ConsentActive && !paused,
             CanResume: paused,
-            TertiaryMetricText: BuildComputerTimeMetric(snapshot, timeline, mode),
+            TertiaryMetricText: BuildComputerTimeMetric(snapshot, timeline, liveSession, mode),
             QuaternaryMetricText: string.Empty,
             CriticalState: criticalState);
     }
@@ -77,6 +78,7 @@ internal static class UserDesktopWidgetStateBuilder
     private static string BuildStatusText(
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiLiveSessionStateResponse? liveSession,
         UserCommunicationToast? degradedToast,
         UserDesktopWidgetCriticalState? criticalState,
         UserDesktopWidgetMode mode,
@@ -147,6 +149,11 @@ internal static class UserDesktopWidgetStateBuilder
             return "Ari is running locally while backend sync reconnects.";
         }
 
+        if (IsFreshLiveSession(liveSession))
+        {
+            return BuildLiveSessionStatusText(liveSession!);
+        }
+
         return mode switch
         {
             UserDesktopWidgetMode.DeepWork => "Deep work is active.",
@@ -192,11 +199,17 @@ internal static class UserDesktopWidgetStateBuilder
     private static string BuildFocusMetric(
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiLiveSessionStateResponse? liveSession,
         UserDesktopWidgetMode mode)
     {
         if (mode == UserDesktopWidgetMode.Paused)
         {
             return "Focus paused";
+        }
+
+        if (IsFreshLiveSession(liveSession))
+        {
+            return BuildLiveFocusMetric(liveSession!);
         }
 
         if (snapshot != null)
@@ -231,11 +244,17 @@ internal static class UserDesktopWidgetStateBuilder
     private static string BuildComputerTimeMetric(
         LocalApiCurrentSnapshotResponse? snapshot,
         LocalApiTimelineResponse? timeline,
+        LocalApiLiveSessionStateResponse? liveSession,
         UserDesktopWidgetMode mode)
     {
         if (mode == UserDesktopWidgetMode.Paused)
         {
             return "Today paused";
+        }
+
+        if (IsFreshLiveSession(liveSession) && liveSession!.last_input_age_seconds.HasValue)
+        {
+            return $"Input {FormatAgeShort(liveSession.last_input_age_seconds.Value)}";
         }
 
         if (timeline?.Snapshots is { Count: > 0 } snapshots)
@@ -254,6 +273,57 @@ internal static class UserDesktopWidgetStateBuilder
         }
 
         return "Today n/a";
+    }
+
+    private static string BuildFooterText(LocalApiLiveSessionStateResponse? liveSession, UserDesktopWidgetMode mode)
+    {
+        if (mode == UserDesktopWidgetMode.Paused || !IsFreshLiveSession(liveSession))
+        {
+            return string.Empty;
+        }
+
+        string sessionText = liveSession!.session_elapsed_seconds.HasValue
+            ? $"Session {FormatCompactDuration(TimeSpan.FromSeconds(liveSession.session_elapsed_seconds.Value))}"
+            : "Session n/a";
+        string typingText = liveSession.keyboard_active ? "Typing active" : "Typing idle";
+        string mouseText = liveSession.mouse_active ? "Mouse active" : "Mouse idle";
+        return $"{sessionText} | {typingText} | {mouseText}";
+    }
+
+    private static bool IsFreshLiveSession(LocalApiLiveSessionStateResponse? liveSession)
+    {
+        return liveSession != null
+            && string.Equals(liveSession.freshness_state, "fresh", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildLiveSessionStatusText(LocalApiLiveSessionStateResponse liveSession)
+    {
+        if (liveSession.idle)
+        {
+            return $"Idle {FormatAgeShort(liveSession.idle_seconds)}.";
+        }
+
+        string focusText = string.IsNullOrWhiteSpace(liveSession.focus_app_hash)
+            ? "Focus watching"
+            : "Focused now";
+        string typingText = liveSession.keyboard_active ? "typing active" : "typing idle";
+        string mouseText = liveSession.mouse_active ? "mouse active" : "mouse idle";
+        return $"{focusText} | {typingText} | {mouseText}.";
+    }
+
+    private static string BuildLiveFocusMetric(LocalApiLiveSessionStateResponse liveSession)
+    {
+        if (liveSession.idle)
+        {
+            return $"Idle {FormatAgeShort(liveSession.idle_seconds)}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(liveSession.focus_app_hash))
+        {
+            return "Focus live";
+        }
+
+        return liveSession.user_active ? "Focus active" : "Focus watching";
     }
 
     private static string FormatPercent(double value)
@@ -283,5 +353,21 @@ internal static class UserDesktopWidgetStateBuilder
 
         int hours = Math.Max(0, (int)Math.Floor(duration.TotalHours));
         return $"{hours.ToString(CultureInfo.InvariantCulture)}h {duration.Minutes.ToString("00", CultureInfo.InvariantCulture)}m";
+    }
+
+    private static string FormatAgeShort(double seconds)
+    {
+        double value = double.IsFinite(seconds) ? Math.Max(0d, seconds) : 0d;
+        if (value < 60d)
+        {
+            return $"{Math.Round(value, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture)}s";
+        }
+
+        if (value < 3600d)
+        {
+            return $"{(value / 60d).ToString("0.#", CultureInfo.InvariantCulture)}m";
+        }
+
+        return $"{(value / 3600d).ToString("0.#", CultureInfo.InvariantCulture)}h";
     }
 }

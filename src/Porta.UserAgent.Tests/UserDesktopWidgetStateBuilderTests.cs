@@ -31,7 +31,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
             Title: "Ari limited",
             Message: "Ari is receiving partial activity only. Missing keyboard.");
 
-        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, signals, degraded);
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, null, signals, degraded);
 
         Assert.Equal(UserDesktopWidgetMode.Limited, state.Mode);
         Assert.Equal("Attention", state.Title);
@@ -64,7 +64,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
             RecoveryEventId: 0,
             RecoveryMessage: string.Empty);
 
-        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot: null, signals, degradedToast: null);
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, null, null, signals, degradedToast: null);
 
         Assert.Equal(UserDesktopWidgetMode.Paused, state.Mode);
         Assert.Equal("Paused", state.Title);
@@ -100,6 +100,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
             status,
             snapshot,
+            null,
             signals,
             degradedToast: null);
 
@@ -139,6 +140,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
             status,
             snapshot,
+            null,
             signals,
             degradedToast: null,
             recentEvents: [recentFailure],
@@ -176,7 +178,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
             RecoveryEventId: 0,
             RecoveryMessage: string.Empty);
 
-        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, signals, degradedToast: null);
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, null, signals, degradedToast: null);
 
         Assert.Equal(UserDesktopWidgetMode.Overload, state.Mode);
         Assert.Equal(string.Empty, state.Title);
@@ -238,6 +240,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
             status,
             snapshot,
+            null,
             signals,
             degradedToast: null,
             recentEvents: [],
@@ -276,9 +279,59 @@ public sealed class UserDesktopWidgetStateBuilderTests
             RecoveryEventId: 0,
             RecoveryMessage: string.Empty);
 
-        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, signals, degradedToast: null);
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, null, signals, degradedToast: null);
 
         Assert.Equal("Cached snapshot. DB busy, retrying.", state.StatusText);
+        Assert.Null(state.CriticalState);
+    }
+
+    [Fact]
+    public void Build_PrefersFreshLiveSessionFactsForWidgetSurface()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.42,
+            sustainedAttentionSeconds: 900,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false);
+        LocalApiLiveSessionStateResponse liveSession = new(
+            UpdatedAtUtc: nowUtc,
+            SessionStartedAtUtc: nowUtc.AddMinutes(-17),
+            LastInputEventUtc: nowUtc.AddSeconds(-1),
+            AgentInstanceId: "ua-1",
+            SessionId: "session-1",
+            KeyboardActive: true,
+            MouseActive: false,
+            UserActive: true,
+            Idle: false,
+            IdleSeconds: 1.2d,
+            FocusAppHash: "a1b2c3d4",
+            Freshness: "fresh",
+            DegradedReason: null);
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status,
+            snapshot,
+            liveSession,
+            signals,
+            degradedToast: null,
+            nowUtc: nowUtc);
+
+        Assert.Equal("Focused now | typing active | mouse idle.", state.StatusText);
+        Assert.Equal("Focus live", state.PrimaryMetricText);
+        Assert.Equal("Overload 42%", state.SecondaryMetricText);
+        Assert.StartsWith("Input ", state.TertiaryMetricText, StringComparison.Ordinal);
+        Assert.StartsWith("Session 17m | Typing active | Mouse idle", state.FooterText, StringComparison.Ordinal);
         Assert.Null(state.CriticalState);
     }
 

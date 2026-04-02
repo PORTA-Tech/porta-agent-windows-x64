@@ -55,6 +55,7 @@ public partial class MainWindow : Window
     private readonly string _uiVersion = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? NotAvailableText;
     private LocalApiStatusResponse? _latestStatus;
     private LocalApiCurrentSnapshotResponse? _lastSnapshot;
+    private LocalApiLiveSessionStateResponse? _latestLiveSession;
     private IReadOnlyList<LocalApiEventResponse> _recentEvents = [];
     private IReadOnlyList<LocalApiEventResponse> _allRecentEvents = [];
     private LocalApiTimelineResponse? _todayTimeline;
@@ -424,6 +425,7 @@ public partial class MainWindow : Window
         ServiceProbeResult serviceProbe = ProbeServiceStatus();
         LocalApiStatusResponse? previousStatus = _latestStatus;
         LocalApiCurrentSnapshotResponse? previousSnapshot = _lastSnapshot;
+        LocalApiLiveSessionStateResponse? previousLiveSession = _latestLiveSession;
 
         LocalApiStatusResponse? fetchedStatus = await _apiClient.GetStatusAsync().ConfigureAwait(true);
         int? statusHttpCode = _apiClient.LastStatusHttpCode;
@@ -431,6 +433,9 @@ public partial class MainWindow : Window
 
         LocalApiCurrentSnapshotResponse? fetchedSnapshot = serviceProbe.Running
             ? await _apiClient.GetCurrentSnapshotAsync().ConfigureAwait(true)
+            : null;
+        LocalApiLiveSessionStateResponse? fetchedLiveSession = serviceProbe.Running
+            ? await _apiClient.GetLiveSessionStateAsync().ConfigureAwait(true)
             : null;
         int? snapshotHttpCode = _apiClient.LastSnapshotHttpCode;
         bool snapshotFresh = fetchedSnapshot != null && IsSnapshotFresh(fetchedSnapshot);
@@ -442,6 +447,7 @@ public partial class MainWindow : Window
 
         _latestStatus = fetchedStatus ?? previousStatus;
         _lastSnapshot = fetchedSnapshot ?? previousSnapshot;
+        _latestLiveSession = fetchedLiveSession ?? previousLiveSession;
 
         if (fetchedStatus == null && _latestStatus != null)
         {
@@ -548,16 +554,16 @@ public partial class MainWindow : Window
             QuickPauseResumeButton.IsEnabled = false;
             ConsentOverlay.Visibility = Visibility.Collapsed;
             UpdateTopBar(serviceProbe, runtimeSettings, null, nowTruth, _latestVisualState);
-            UpdateCaptureHealthCards(null, statusFresh: false);
-            UpdateSessionTruthCards(null, statusFresh: false);
-            UpdateInputTruthCards(null, statusFresh: false);
+            UpdateCaptureHealthCards(null, _latestLiveSession, statusFresh: false);
+            UpdateSessionTruthCards(null, _latestLiveSession, statusFresh: false);
+            UpdateInputTruthCards(null, _latestLiveSession, statusFresh: false);
             UpdateStateTruthCards(null, null, statusFresh: false, snapshotFresh: false);
             UpdateActionTruthCards([], null, null, statusFresh: false);
-            PopulateOverview(nowTruth, null, [], previousSnapshot);
+            PopulateOverview(nowTruth, _latestLiveSession, null, [], previousSnapshot);
             PopulateInputs(null, null, null);
             PopulateInterventions([], null);
             PopulateSettings(null);
-            PopulateStates(null);
+            PopulateStates(null, _latestLiveSession);
             PopulateTimeline(null);
             PopulateWhyDrawer(nowTruth, [], _latestVisualState);
             UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
@@ -611,17 +617,17 @@ public partial class MainWindow : Window
         QuickPauseResumeButton.IsEnabled = true;
         ConsentOverlay.Visibility = consentMissing ? Visibility.Visible : Visibility.Collapsed;
         UpdateTopBar(serviceProbe, runtimeSettings, _latestStatus, nowTruth, _latestVisualState);
-        UpdateCaptureHealthCards(_latestStatus, statusFresh);
-        UpdateSessionTruthCards(_latestStatus, statusFresh);
-        UpdateInputTruthCards(_latestStatus, statusFresh);
+        UpdateCaptureHealthCards(_latestStatus, _latestLiveSession, statusFresh);
+        UpdateSessionTruthCards(_latestStatus, _latestLiveSession, statusFresh);
+        UpdateInputTruthCards(_latestStatus, _latestLiveSession, statusFresh);
         UpdateStateTruthCards(_latestStatus, truthSnapshot, statusFresh, snapshotFresh);
         UpdateActionTruthCards(_allRecentEvents, _latestStatus, truthSnapshot, statusFresh);
 
-        PopulateOverview(nowTruth, inputSummary, _recentEvents, previousSnapshot);
+        PopulateOverview(nowTruth, _latestLiveSession, inputSummary, _recentEvents, previousSnapshot);
         PopulateInputs(inputSummary, _retention, truthSnapshot);
         PopulateInterventions(_allRecentEvents, _effectiveSettings);
         PopulateSettings(_effectiveSettings);
-        PopulateStates(truthSnapshot);
+        PopulateStates(truthSnapshot, _latestLiveSession);
         PopulateTimeline(GetSelectedHistoryTimeline());
         PopulateWhyDrawer(nowTruth, _allRecentEvents, _latestVisualState);
         UpdatedValue.Text = $"Last refresh: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
@@ -1170,11 +1176,12 @@ public partial class MainWindow : Window
 
     private void PopulateOverview(
         NowTruth nowTruth,
+        LocalApiLiveSessionStateResponse? liveSession,
         LocalApiInputsSummaryResponse? inputSummary,
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         LocalApiCurrentSnapshotResponse? previousSnapshot)
     {
-        PopulateNowCards(nowTruth, recentEvents, _latestVisualState);
+        PopulateNowCards(nowTruth, liveSession, recentEvents, _latestVisualState);
         LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
 
         if (snapshot == null)
@@ -1206,6 +1213,7 @@ public partial class MainWindow : Window
 
     private void PopulateNowCards(
         NowTruth nowTruth,
+        LocalApiLiveSessionStateResponse? liveSession,
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         PortaVisualState visualState)
     {
@@ -1221,7 +1229,7 @@ public partial class MainWindow : Window
             NowFocusChoppinessText.Text = $"Choppiness: {NotAvailableText}";
             NowFocusSummaryText.Text = BuildNowFocusSummary(null);
             NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
-            NowFocusStatusText.Text = visualState.FocusStatusText;
+            NowFocusStatusText.Text = BuildLiveSessionFocusStatus(liveSession) ?? visualState.FocusStatusText;
             NowFocusStatusText.Visibility = Visibility.Visible;
             NowOverloadFivText.Text = "Explain not available (backend field missing).";
             NowOverloadTopReasonsText.Text = $"Top reasons: {visualState.WhySummary}";
@@ -1243,7 +1251,7 @@ public partial class MainWindow : Window
             NowLastActionTimeText.Text = $"Time: {NotAvailableText}";
             NowOpenActionsButton.IsEnabled = false;
 
-            NowWhatPortaDoingText.Text = visualState.OperatingSentence;
+            NowWhatPortaDoingText.Text = BuildLiveOperatingSentence(liveSession) ?? visualState.OperatingSentence;
             NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
             _activeRecoveryEventId = 0;
             NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
@@ -1294,7 +1302,7 @@ public partial class MainWindow : Window
         NowFocusChoppinessText.Text = $"Choppiness: {MapChoppiness(snapshot.IdleFragmentationIndex)} ({snapshot.IdleFragmentationIndex:F2})";
         NowFocusSummaryText.Text = BuildNowFocusSummary(snapshot);
         NowFocusFootnoteText.Text = "Short pauses and quick app checks do not break the streak.";
-        string focusStatus = visualState.FocusStatusText;
+        string focusStatus = BuildLiveSessionFocusStatus(liveSession) ?? visualState.FocusStatusText;
         NowFocusStatusText.Text = focusStatus;
         NowFocusStatusText.Visibility = string.IsNullOrWhiteSpace(focusStatus)
             ? Visibility.Collapsed
@@ -1359,7 +1367,7 @@ public partial class MainWindow : Window
             NowOpenActionsButton.IsEnabled = true;
         }
 
-        NowWhatPortaDoingText.Text = visualState.OperatingSentence;
+        NowWhatPortaDoingText.Text = BuildLiveOperatingSentence(liveSession) ?? visualState.OperatingSentence;
         NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
         if (visualState.ShowRecoveryBanner
             && visualState.RecoveryEventId > 0
@@ -1856,6 +1864,129 @@ public partial class MainWindow : Window
         return $"{seconds / 3600d:F1}h";
     }
 
+    private static bool IsLiveSessionFresh(LocalApiLiveSessionStateResponse? liveSession)
+    {
+        return liveSession != null
+            && string.Equals(liveSession.freshness_state, "fresh", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildLiveContextLabel(string? captureContext, LocalApiLiveSessionStateResponse? liveSession)
+    {
+        string contextLabel = FormatCaptureContextLabel(captureContext);
+        if (!IsLiveSessionFresh(liveSession))
+        {
+            return contextLabel;
+        }
+
+        return liveSession!.session_elapsed_seconds.HasValue
+            ? $"{contextLabel} | live {FormatAgeLabel(liveSession.session_elapsed_seconds)}"
+            : $"{contextLabel} | live";
+    }
+
+    private static string BuildLiveActivitySummary(LocalApiLiveSessionStateResponse liveSession)
+    {
+        string sessionText = liveSession.session_elapsed_seconds.HasValue
+            ? $"session {FormatAgeLabel(liveSession.session_elapsed_seconds)}"
+            : "session n/a";
+        string lastInputText = liveSession.last_input_age_seconds.HasValue
+            ? $"last input {FormatAgeLabel(liveSession.last_input_age_seconds)}"
+            : "last input n/a";
+
+        if (liveSession.idle)
+        {
+            return $"Live session is idle ({FormatAgeLabel(liveSession.idle_seconds)}) | {lastInputText} | {sessionText}";
+        }
+
+        string focusText = !string.IsNullOrWhiteSpace(liveSession.focus_app_hash)
+            ? "focused now"
+            : liveSession.user_active
+                ? "user active"
+                : "watching live session";
+        string typingText = liveSession.keyboard_active ? "typing active" : "typing idle";
+        string mouseText = liveSession.mouse_active ? "mouse active" : "mouse idle";
+        return $"{focusText} | {typingText} | {mouseText} | {lastInputText} | {sessionText}";
+    }
+
+    private static string BuildLiveSignalsCurrentText(LocalApiLiveSessionStateResponse liveSession)
+    {
+        string sessionText = liveSession.session_elapsed_seconds.HasValue
+            ? $"session {FormatAgeLabel(liveSession.session_elapsed_seconds)}"
+            : "session n/a";
+        string lastInputText = liveSession.last_input_age_seconds.HasValue
+            ? $"last input {FormatAgeLabel(liveSession.last_input_age_seconds)}"
+            : "last input n/a";
+
+        if (liveSession.idle)
+        {
+            return $"Current status: typing idle, mouse idle, idle {FormatAgeLabel(liveSession.idle_seconds)}, {lastInputText}, {sessionText}.";
+        }
+
+        string focusText = !string.IsNullOrWhiteSpace(liveSession.focus_app_hash)
+            ? "focused now"
+            : liveSession.user_active
+                ? "user active"
+                : "watching";
+        return $"Current status: typing {(liveSession.keyboard_active ? "active" : "idle")}, mouse {(liveSession.mouse_active ? "active" : "idle")}, {focusText}, {lastInputText}, {sessionText}.";
+    }
+
+    private static string? BuildLiveSessionFocusStatus(LocalApiLiveSessionStateResponse? liveSession)
+    {
+        if (!IsLiveSessionFresh(liveSession))
+        {
+            return null;
+        }
+
+        if (liveSession!.idle)
+        {
+            string lastInputText = liveSession.last_input_age_seconds.HasValue
+                ? $"last input {FormatAgeLabel(liveSession.last_input_age_seconds)}"
+                : "last input n/a";
+            return $"Idle now | {lastInputText}";
+        }
+
+        string focusText = !string.IsNullOrWhiteSpace(liveSession.focus_app_hash)
+            ? "Focused now"
+            : liveSession.user_active
+                ? "User active"
+                : "Watching live";
+        return $"{focusText} | typing {(liveSession.keyboard_active ? "active" : "idle")} | mouse {(liveSession.mouse_active ? "active" : "idle")}";
+    }
+
+    private static string? BuildLiveOperatingSentence(LocalApiLiveSessionStateResponse? liveSession)
+    {
+        if (!IsLiveSessionFresh(liveSession))
+        {
+            return null;
+        }
+
+        if (liveSession!.idle)
+        {
+            return $"Watching live session while you are idle ({FormatAgeLabel(liveSession.idle_seconds)}).";
+        }
+
+        if (liveSession.keyboard_active && liveSession.mouse_active)
+        {
+            return "Watching live typing and mouse activity.";
+        }
+
+        if (liveSession.keyboard_active)
+        {
+            return "Watching live typing activity.";
+        }
+
+        if (liveSession.mouse_active)
+        {
+            return "Watching live mouse activity.";
+        }
+
+        if (liveSession.user_active)
+        {
+            return "Watching live session activity.";
+        }
+
+        return "Watching live session.";
+    }
+
     private static string FormatHeartbeatLabel(DateTimeOffset? heartbeatUtc)
     {
         if (!heartbeatUtc.HasValue)
@@ -2097,7 +2228,7 @@ public partial class MainWindow : Window
             DetailColor: Color.FromRgb(148, 163, 184));
     }
 
-    private static CaptureHealthView BuildCaptureHealthView(LocalApiStatusResponse? status, bool statusFresh)
+    private static CaptureHealthView BuildCaptureHealthView(LocalApiStatusResponse? status, LocalApiLiveSessionStateResponse? liveSession, bool statusFresh)
     {
         if (status == null)
         {
@@ -2114,17 +2245,22 @@ public partial class MainWindow : Window
 
         string? captureFailureDetail = DescribeCaptureFailureReason(status.CaptureFailureReason);
         string? ownershipDetail = DescribeOwnershipWarning(status);
-        bool keyboardSignalActive = statusFresh && status.KeyboardSignalActive;
-        bool mouseSignalActive = statusFresh && status.MouseSignalActive;
+        bool liveFresh = IsLiveSessionFresh(liveSession);
+        bool keyboardSignalActive = liveFresh ? liveSession!.KeyboardActive : statusFresh && status.KeyboardSignalActive;
+        bool mouseSignalActive = liveFresh ? liveSession!.MouseActive : statusFresh && status.MouseSignalActive;
+        string lastInputLabel = liveFresh
+            ? FormatCaptureLastInputLabel(liveSession!.LastInputEventUtc)
+            : FormatCaptureLastInputLabel(status.LastInputEventUtc);
+        string contextLabel = BuildLiveContextLabel(status.CaptureContext, liveSession);
 
         if (!statusFresh)
         {
             return new CaptureHealthView(
                 StatusLabel: "Stale",
-                ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
-                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
-                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
-                LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
+                ContextLabel: contextLabel,
+                KeyboardSignalLabel: FormatCaptureSignalLabel(keyboardSignalActive, liveFresh || statusFresh),
+                MouseSignalLabel: FormatCaptureSignalLabel(mouseSignalActive, liveFresh || statusFresh),
+                LastInputLabel: lastInputLabel,
                 WarningText: BuildFreshnessExplanation(status, snapshot: null),
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -2134,10 +2270,10 @@ public partial class MainWindow : Window
         {
             return new CaptureHealthView(
                 StatusLabel: "Warning",
-                ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
-                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
-                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
-                LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
+                ContextLabel: contextLabel,
+                KeyboardSignalLabel: FormatCaptureSignalLabel(keyboardSignalActive, true),
+                MouseSignalLabel: FormatCaptureSignalLabel(mouseSignalActive, true),
+                LastInputLabel: lastInputLabel,
                 WarningText: $"Ownership mismatch detected: {ownershipDetail}.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -2147,10 +2283,10 @@ public partial class MainWindow : Window
         {
             return new CaptureHealthView(
                 StatusLabel: "Warning",
-                ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
-                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
-                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
-                LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
+                ContextLabel: contextLabel,
+                KeyboardSignalLabel: FormatCaptureSignalLabel(keyboardSignalActive, true),
+                MouseSignalLabel: FormatCaptureSignalLabel(mouseSignalActive, true),
+                LastInputLabel: lastInputLabel,
                 WarningText: $"Live capture is not trusted: {captureFailureDetail}. Start or restart Porta.UserAgent in the interactive session.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -2161,10 +2297,10 @@ public partial class MainWindow : Window
             string missingSignals = BuildMissingSignalList(keyboardSignalActive, mouseSignalActive);
             return new CaptureHealthView(
                 StatusLabel: "Watching",
-                ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
-                KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
-                MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
-                LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
+                ContextLabel: contextLabel,
+                KeyboardSignalLabel: FormatCaptureSignalLabel(keyboardSignalActive, true),
+                MouseSignalLabel: FormatCaptureSignalLabel(mouseSignalActive, true),
+                LastInputLabel: lastInputLabel,
                 WarningText: $"Waiting for fresh {missingSignals} activity from the current user session. Single-channel activity is normal here and does not mean capture failed.",
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
@@ -2172,16 +2308,18 @@ public partial class MainWindow : Window
 
         return new CaptureHealthView(
             StatusLabel: "Healthy",
-            ContextLabel: FormatCaptureContextLabel(status.CaptureContext),
-            KeyboardSignalLabel: FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh),
-            MouseSignalLabel: FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh),
-            LastInputLabel: FormatCaptureLastInputLabel(status.LastInputEventUtc),
-            WarningText: "Signals are coming from the interactive user session.",
+            ContextLabel: contextLabel,
+            KeyboardSignalLabel: FormatCaptureSignalLabel(keyboardSignalActive, true),
+            MouseSignalLabel: FormatCaptureSignalLabel(mouseSignalActive, true),
+            LastInputLabel: lastInputLabel,
+            WarningText: liveFresh
+                ? BuildLiveActivitySummary(liveSession!)
+                : "Signals are coming from the interactive user session.",
             StatusColor: Color.FromRgb(74, 222, 128),
             DetailColor: Color.FromRgb(148, 163, 184));
     }
 
-    private static SessionTruthView BuildSessionTruthView(LocalApiStatusResponse? status, bool statusFresh)
+    private static SessionTruthView BuildSessionTruthView(LocalApiStatusResponse? status, LocalApiLiveSessionStateResponse? liveSession, bool statusFresh)
     {
         if (status == null)
         {
@@ -2200,7 +2338,7 @@ public partial class MainWindow : Window
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
 
-        string contextLabel = FormatCaptureContextLabel(status.CaptureContext);
+        string contextLabel = BuildLiveContextLabel(status.CaptureContext, liveSession);
         string heartbeatLabel = FormatHeartbeatLabel(status.UserAgentHeartbeatUpdatedAtUtc);
         string observedHeartbeatLabel = FormatHeartbeatLabel(status.UserAgentObservedHeartbeatUpdatedAtUtc);
         string agentLabel = FormatUserAgentIdentity(status.UserAgentInstanceId, status.UserAgentProcessId);
@@ -2208,6 +2346,10 @@ public partial class MainWindow : Window
         string startupSourceLabel = FormatStartupSourceLabel(status.UserAgentStartupSource);
         string launchReasonLabel = FormatLaunchReasonLabel(status.UserAgentLaunchReason);
         string recoveryStateLabel = BuildRecoveryStateLabel(status);
+        if (IsLiveSessionFresh(liveSession) && liveSession!.session_elapsed_seconds.HasValue)
+        {
+            recoveryStateLabel = $"{recoveryStateLabel} | live {FormatAgeLabel(liveSession.session_elapsed_seconds)}";
+        }
         string? ownershipDetail = DescribeOwnershipWarning(status);
         string? captureFailureDetail = DescribeCaptureFailureReason(status.CaptureFailureReason);
 
@@ -2297,7 +2439,7 @@ public partial class MainWindow : Window
             DetailColor: Color.FromRgb(148, 163, 184));
     }
 
-    private static InputTruthView BuildInputTruthView(LocalApiStatusResponse? status, bool statusFresh)
+    private static InputTruthView BuildInputTruthView(LocalApiStatusResponse? status, LocalApiLiveSessionStateResponse? liveSession, bool statusFresh)
     {
         if (status == null)
         {
@@ -2314,10 +2456,17 @@ public partial class MainWindow : Window
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
 
-        string keyboardLabel = FormatCaptureSignalLabel(status.KeyboardSignalActive, statusFresh);
-        string mouseLabel = FormatCaptureSignalLabel(status.MouseSignalActive, statusFresh);
-        string lastInputLabel = FormatCaptureLastInputLabel(status.LastInputEventUtc);
-        string lastInputAgeLabel = FormatAgeLabel(status.last_accepted_input_age_seconds);
+        bool liveFresh = IsLiveSessionFresh(liveSession);
+        bool keyboardSignalActive = liveFresh ? liveSession!.KeyboardActive : status.KeyboardSignalActive;
+        bool mouseSignalActive = liveFresh ? liveSession!.MouseActive : status.MouseSignalActive;
+        string keyboardLabel = FormatCaptureSignalLabel(keyboardSignalActive, liveFresh || statusFresh);
+        string mouseLabel = FormatCaptureSignalLabel(mouseSignalActive, liveFresh || statusFresh);
+        string lastInputLabel = liveFresh
+            ? FormatCaptureLastInputLabel(liveSession!.LastInputEventUtc)
+            : FormatCaptureLastInputLabel(status.LastInputEventUtc);
+        string lastInputAgeLabel = liveFresh
+            ? FormatAgeLabel(liveSession!.last_input_age_seconds)
+            : FormatAgeLabel(status.last_accepted_input_age_seconds);
         string inputOwnerLabel = FormatInputOwnerLabel(status);
         string? captureFailureDetail = DescribeCaptureFailureReason(status.CaptureFailureReason);
         string? ownershipDetail = DescribeOwnershipWarning(status);
@@ -2368,9 +2517,9 @@ public partial class MainWindow : Window
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
 
-        if (!status.KeyboardSignalActive || !status.MouseSignalActive)
+        if (!keyboardSignalActive || !mouseSignalActive)
         {
-            string missingSignals = BuildMissingSignalList(status.KeyboardSignalActive, status.MouseSignalActive);
+            string missingSignals = BuildMissingSignalList(keyboardSignalActive, mouseSignalActive);
             return new InputTruthView(
                 StatusLabel: "Watching",
                 KeyboardSignalLabel: keyboardLabel,
@@ -2392,7 +2541,9 @@ public partial class MainWindow : Window
             LastInputAgeLabel: lastInputAgeLabel,
             InputOwnerLabel: inputOwnerLabel,
             OwnershipReasonLabel: ownershipReasonLabel,
-            WarningText: "Keyboard and mouse signals are arriving from the current user session.",
+            WarningText: liveFresh
+                ? BuildLiveActivitySummary(liveSession!)
+                : "Keyboard and mouse signals are arriving from the current user session.",
             StatusColor: Color.FromRgb(74, 222, 128),
             DetailColor: Color.FromRgb(148, 163, 184));
     }
@@ -2738,9 +2889,9 @@ public partial class MainWindow : Window
         return "Ready to regulate in real time.";
     }
 
-    private void UpdateCaptureHealthCards(LocalApiStatusResponse? status, bool statusFresh)
+    private void UpdateCaptureHealthCards(LocalApiStatusResponse? status, LocalApiLiveSessionStateResponse? liveSession, bool statusFresh)
     {
-        CaptureHealthView view = BuildCaptureHealthView(status, statusFresh);
+        CaptureHealthView view = BuildCaptureHealthView(status, liveSession, statusFresh);
         var statusBrush = new SolidColorBrush(view.StatusColor);
         var detailBrush = new SolidColorBrush(view.DetailColor);
 
@@ -2754,9 +2905,9 @@ public partial class MainWindow : Window
         NowCaptureWarningText.Foreground = detailBrush;
     }
 
-    private void UpdateSessionTruthCards(LocalApiStatusResponse? status, bool statusFresh)
+    private void UpdateSessionTruthCards(LocalApiStatusResponse? status, LocalApiLiveSessionStateResponse? liveSession, bool statusFresh)
     {
-        SessionTruthView view = BuildSessionTruthView(status, statusFresh);
+        SessionTruthView view = BuildSessionTruthView(status, liveSession, statusFresh);
         var statusBrush = new SolidColorBrush(view.StatusColor);
         var detailBrush = new SolidColorBrush(view.DetailColor);
 
@@ -2774,9 +2925,9 @@ public partial class MainWindow : Window
         HealthSessionWarningValue.Foreground = detailBrush;
     }
 
-    private void UpdateInputTruthCards(LocalApiStatusResponse? status, bool statusFresh)
+    private void UpdateInputTruthCards(LocalApiStatusResponse? status, LocalApiLiveSessionStateResponse? liveSession, bool statusFresh)
     {
-        InputTruthView view = BuildInputTruthView(status, statusFresh);
+        InputTruthView view = BuildInputTruthView(status, liveSession, statusFresh);
         var statusBrush = new SolidColorBrush(view.StatusColor);
         var detailBrush = new SolidColorBrush(view.DetailColor);
 
@@ -4821,13 +4972,18 @@ public partial class MainWindow : Window
         _settingsAutoSaveTimer.Start();
     }
 
-    private void PopulateStates(LocalApiCurrentSnapshotResponse? snapshot)
+    private void PopulateStates(LocalApiCurrentSnapshotResponse? snapshot, LocalApiLiveSessionStateResponse? liveSession)
     {
         if (snapshot == null)
         {
-            SetFlowStepState(SignalsStatusPill, SignalsStatusText, FlowStepState.Blocked, "Blocked");
-            SignalsBlockersText.Text = "What can block it: service offline / consent needed / auth not ready.";
-            SignalsCurrentText.Text = "Current status: no live signal snapshot.";
+            bool liveFresh = IsLiveSessionFresh(liveSession);
+            SetFlowStepState(SignalsStatusPill, SignalsStatusText, liveFresh ? FlowStepState.Ready : FlowStepState.Blocked, liveFresh ? "Ready" : "Blocked");
+            SignalsBlockersText.Text = liveFresh
+                ? "What can block it: no durable bucket yet; live session is still flowing."
+                : "What can block it: service offline / consent needed / auth not ready.";
+            SignalsCurrentText.Text = liveFresh
+                ? BuildLiveSignalsCurrentText(liveSession!)
+                : "Current status: no live signal snapshot.";
 
             SetFlowStepState(CalibrationStatusPill, CalibrationStatusText, FlowStepState.Blocked, "Blocked");
             CalibrationBlockersText.Text = "What can block it: no live signal snapshot.";
@@ -4881,7 +5037,9 @@ public partial class MainWindow : Window
         SignalsBlockersText.Text = signalBlockers.Count == 0
             ? "What can block it: none detected."
             : $"What can block it: {string.Join(" / ", signalBlockers)}.";
-        SignalsCurrentText.Text = $"Current status: keyboard {ChannelAvailabilityLabel(missingChannels, "keyboard")}, mouse {ChannelAvailabilityLabel(missingChannels, "mouse")}, focus {ChannelAvailabilityLabel(missingChannels, "focus")}, idle {ChannelAvailabilityLabel(missingChannels, "idle")}.";
+        SignalsCurrentText.Text = IsLiveSessionFresh(liveSession)
+            ? BuildLiveSignalsCurrentText(liveSession!)
+            : $"Current status: keyboard {ChannelAvailabilityLabel(missingChannels, "keyboard")}, mouse {ChannelAvailabilityLabel(missingChannels, "mouse")}, focus {ChannelAvailabilityLabel(missingChannels, "focus")}, idle {ChannelAvailabilityLabel(missingChannels, "idle")}.";
 
         string calibrationStage = NormalizeCalibrationStage(snapshot.CalibrationStage, snapshot.BaselineReady, snapshot.ColdStart);
         bool baselineReady = string.Equals(calibrationStage, CalibrationStageCalibrated, StringComparison.Ordinal);
