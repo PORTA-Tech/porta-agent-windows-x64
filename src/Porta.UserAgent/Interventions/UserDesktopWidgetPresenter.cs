@@ -304,8 +304,6 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             _widgetStartRequestedUtc = DateTimeOffset.UtcNow;
         }
 
-        SetWidgetHealthState(WidgetHealthStarting);
-
         try
         {
             dispatcher.BeginInvoke(new Action(EnsureWidgetWindowOnCurrentDispatcher), DispatcherPriority.Send);
@@ -313,7 +311,6 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         }
         catch (Exception ex)
         {
-            SetWidgetHealthState(WidgetHealthUnavailable);
             UserAgentFileLog.Error("widget_recovery_dispatch_failed", ex);
             _widgetReady.TrySetResult(false);
             return false;
@@ -324,7 +321,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     {
         if (_disposed)
         {
-            SetWidgetHealthState(WidgetHealthUnavailable);
+            SetWidgetHealthStateOnWidgetThread(WidgetHealthUnavailable);
             _widgetReady.TrySetResult(false);
             return;
         }
@@ -348,19 +345,20 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                     currentWindow.ShowWidgetIfHidden();
                 }
 
-                SetWidgetHealthState(WidgetHealthReady);
+                SetWidgetHealthStateOnWidgetThread(WidgetHealthReady);
                 _widgetReady.TrySetResult(true);
                 return;
             }
             catch (Exception ex)
             {
-                SetWidgetHealthState(WidgetHealthUnavailable);
+                SetWidgetHealthStateOnWidgetThread(WidgetHealthUnavailable);
                 UserAgentFileLog.Error("widget_window_reuse_failed", ex);
             }
         }
 
         try
         {
+            SetWidgetHealthStateOnWidgetThread(WidgetHealthStarting);
             UserAgentFileLog.Info("desktop_widget_window_initializing");
             var window = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore);
             window.Closed += OnWidgetWindowClosed;
@@ -381,13 +379,13 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 window.HideWidget();
             }
 
-            SetWidgetHealthState(WidgetHealthReady);
+            SetWidgetHealthStateOnWidgetThread(WidgetHealthReady);
             UserAgentFileLog.Info("desktop_widget_window_shown");
             _widgetReady.TrySetResult(true);
         }
         catch (Exception ex)
         {
-            SetWidgetHealthState(WidgetHealthUnavailable);
+            SetWidgetHealthStateOnWidgetThread(WidgetHealthUnavailable);
             UserAgentFileLog.Error("widget_window_show_failed", ex);
             _widgetReady.TrySetResult(false);
             try
@@ -409,7 +407,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 _widgetWindow = null;
             }
 
-            SetWidgetHealthState(WidgetHealthUnavailable);
+            SetWidgetHealthStateOnWidgetThread(WidgetHealthUnavailable);
             if (!_disposed)
             {
                 _widgetReady = CreateWidgetReadySource();
@@ -515,7 +513,6 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             _widgetNotReadyLogged = 0;
             _widgetFailedLogged = 0;
             _widgetStartRequestedUtc = DateTimeOffset.UtcNow;
-            SetWidgetHealthState(WidgetHealthStarting);
             _widgetThread = widgetThread;
         }
 
@@ -542,13 +539,14 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 }
             }
 
+            SetWidgetHealthStateOnWidgetThread(WidgetHealthStarting);
             EnsureWidgetWindowOnCurrentDispatcher();
             Dispatcher.Run();
             UserAgentFileLog.Info("desktop_widget_thread_exit");
         }
         catch (Exception ex)
         {
-            SetWidgetHealthState(WidgetHealthUnavailable);
+            SetWidgetHealthStateOnWidgetThread(WidgetHealthUnavailable);
             UserAgentFileLog.Error("widget_thread_failed", ex);
             _widgetReady.TrySetResult(false);
         }
@@ -561,7 +559,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                     _widgetWindow = null;
                     _widgetDispatcher = null;
                     _widgetThread = null;
-                    SetWidgetHealthState(WidgetHealthUnavailable);
+                    SetWidgetHealthStateOnWidgetThread(WidgetHealthUnavailable);
                     if (!_disposed)
                     {
                         _widgetReady = CreateWidgetReadySource();
@@ -602,7 +600,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
     private int GetWidgetHealthState() => Volatile.Read(ref _widgetHealthState);
 
-    private void SetWidgetHealthState(int state) => Interlocked.Exchange(ref _widgetHealthState, state);
+    private void SetWidgetHealthStateOnWidgetThread(int state) => Interlocked.Exchange(ref _widgetHealthState, state);
 
     private void OnWidgetActionRequested(UserDesktopWidgetAction action)
     {
