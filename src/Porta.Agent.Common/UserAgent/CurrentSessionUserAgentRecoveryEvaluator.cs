@@ -78,11 +78,6 @@ public static class CurrentSessionUserAgentRecoveryEvaluator
             return false;
         }
 
-        if (sessionContext.DesktopWidgetReady == false)
-        {
-            return false;
-        }
-
         if (IsVersionMismatch(sessionContext.BinaryVersion, expectedBinaryVersion))
         {
             return false;
@@ -143,11 +138,6 @@ public static class CurrentSessionUserAgentRecoveryEvaluator
         if (IsVersionMismatch(sessionContext.BinaryVersion, expectedBinaryVersion))
         {
             return "version_mismatch";
-        }
-
-        if (sessionContext.DesktopWidgetReady == false)
-        {
-            return "widget_unavailable";
         }
 
         return "unhealthy_existing_process";

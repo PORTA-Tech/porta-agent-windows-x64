@@ -115,7 +115,7 @@ public sealed class CurrentSessionUserAgentRecoveryEvaluatorTests
     }
 
     [Fact]
-    public void Evaluate_Restarts_WhenWidgetIsUnavailableForFreshHeartbeat()
+    public void Evaluate_KeepsExisting_WhenWidgetIsUnavailableButHeartbeatIsFresh()
     {
         DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-20T08:00:00Z");
 
@@ -137,8 +137,8 @@ public sealed class CurrentSessionUserAgentRecoveryEvaluatorTests
             nowUtc: nowUtc,
             expectedBinaryVersion: "1.0.21.0");
 
-        Assert.Equal(CurrentSessionUserAgentAction.RestartExisting, decision.Action);
-        Assert.Equal("widget_unavailable", decision.Reason);
+        Assert.Equal(CurrentSessionUserAgentAction.KeepExisting, decision.Action);
+        Assert.Equal("healthy", decision.Reason);
     }
 
     [Fact]
