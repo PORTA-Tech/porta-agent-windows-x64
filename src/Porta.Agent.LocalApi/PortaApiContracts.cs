@@ -438,7 +438,7 @@ public sealed record LocalApiLiveSessionStateResponse(
     bool Idle,
     double IdleSeconds,
     string? FocusAppHash,
-    string Freshness,
+    [property: JsonPropertyName("freshness_raw")] string Freshness,
     string? DegradedReason)
 {
     public string? updated_at_utc => ToUtcMsStringOrNull(UpdatedAtUtc);
@@ -449,6 +449,7 @@ public sealed record LocalApiLiveSessionStateResponse(
     public bool keyboard_active => KeyboardActive;
     public bool mouse_active => MouseActive;
     public bool user_active => UserActive;
+    [JsonIgnore]
     public bool idle => Idle;
     public double idle_seconds => IdleSeconds;
     public string? focus_app_hash => FocusAppHash;
