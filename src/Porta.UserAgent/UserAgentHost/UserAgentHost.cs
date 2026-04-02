@@ -16,6 +16,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 {
     private static readonly TimeSpan PassiveSamplingPeriod = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan SessionHeartbeatInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan WidgetMaintenanceInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan UiRefreshInterval = TimeSpan.FromSeconds(4);
     private static readonly TimeSpan RecentEventsRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan WidgetDetailRefreshInterval = TimeSpan.FromSeconds(30);
@@ -110,6 +111,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         }
 
         Task heartbeatTask = RunHeartbeatLoopAsync(stoppingToken);
+        Task widgetMaintenanceTask = RunWidgetMaintenanceLoopAsync(stoppingToken);
 
         UpdateTrayState(new(
             UserInterventionToastRenderer.UserTrayMode.Normal,
@@ -162,6 +164,14 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             try
             {
                 await heartbeatTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            try
+            {
+                await widgetMaintenanceTask.ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -284,6 +294,29 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             }
 
             PublishSessionContext();
+        }
+    }
+
+    private async Task RunWidgetMaintenanceLoopAsync(CancellationToken token)
+    {
+        MaintainWidgetSurface();
+
+        using var timer = new PeriodicTimer(WidgetMaintenanceInterval);
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                if (!await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
+                {
+                    break;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            MaintainWidgetSurface();
         }
     }
 
@@ -449,14 +482,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         {
             try
             {
-                _toastRenderer.MaintainWidgetSurface();
                 widgetHealthyForHeartbeat = _toastRenderer.IsWidgetHealthyForSessionHeartbeat;
             }
             catch (Exception ex)
             {
                 widgetHealthyForHeartbeat = false;
-                UserAgentFileLog.Error("widget_heartbeat_maintenance_failed", ex);
-                _logger.LogError(ex, "Failed to maintain desktop widget surface during heartbeat publish.");
+                UserAgentFileLog.Error("widget_heartbeat_state_read_failed", ex);
+                _logger.LogError(ex, "Failed to read desktop widget heartbeat state.");
             }
 
             int heartbeatWriteFailureCount = _heartbeatWriteFailureCount;
@@ -503,6 +535,19 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                     ex);
             }
             _logger.LogError(ex, "Failed to publish user-session capture context heartbeat.");
+        }
+    }
+
+    private void MaintainWidgetSurface()
+    {
+        try
+        {
+            _toastRenderer.MaintainWidgetSurface();
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error("widget_maintenance_failed", ex);
+            _logger.LogError(ex, "Failed to maintain desktop widget surface.");
         }
     }
 

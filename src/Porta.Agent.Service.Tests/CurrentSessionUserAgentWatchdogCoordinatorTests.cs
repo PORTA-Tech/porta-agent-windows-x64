@@ -166,6 +166,38 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         Assert.Equal((6, "version_mismatch"), runtime.LaunchAttempts[0]);
     }
 
+    [Fact]
+    public void EnsureHealthy_DoesNothingWhenWidgetIsUnavailableButHeartbeatIsFresh()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        var runtime = new FakeRuntime
+        {
+            UtcNowValue = nowUtc,
+            InteractiveSessionId = 6,
+            HasUserAgentBinary = true,
+            ExpectedBinaryVersion = "1.0.21.0",
+            RunningProcesses =
+            [
+                new RunningUserAgentProcessSnapshot(1111, 6, nowUtc.AddSeconds(-20))
+            ],
+            SessionContext = new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 1111,
+                SessionId: 6,
+                UpdatedAtUtc: nowUtc.AddSeconds(-3),
+                AgentInstanceId: "healthy-agent",
+                BinaryVersion: "1.0.21.0",
+                DesktopWidgetReady: false)
+        };
+        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
+
+        coordinator.EnsureHealthy(force: true);
+
+        Assert.Empty(runtime.LaunchAttempts);
+        Assert.Empty(runtime.TerminatedSessions);
+    }
+
     private sealed class FakeRuntime : ICurrentSessionUserAgentRuntime
     {
         public DateTimeOffset UtcNowValue { get; set; } = DateTimeOffset.UtcNow;

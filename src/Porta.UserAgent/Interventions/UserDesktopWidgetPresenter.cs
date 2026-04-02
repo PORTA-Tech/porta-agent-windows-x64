@@ -16,8 +16,8 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private static readonly TimeSpan WidgetStartupGracePeriod = TimeSpan.FromSeconds(10);
     private readonly UserInterventionToastRenderer _fallbackRenderer = new();
     private readonly LocalApiClient _actionClient = new();
-    private readonly UserDesktopWidgetPlacementStore _placementStore = new();
-    private readonly UserDesktopWidgetVisibilityStore _visibilityStore = new();
+    private readonly UserDesktopWidgetPlacementStore _placementStore;
+    private readonly UserDesktopWidgetVisibilityStore _visibilityStore;
     private readonly UserDesktopWidgetRollout _rollout;
     private readonly object _promptGate = new();
     private readonly object _widgetLifecycleGate = new();
@@ -35,17 +35,35 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private bool _disposed;
 
     public UserDesktopWidgetPresenter(UserDesktopWidgetRollout? rollout = null)
+        : this(
+            rollout ?? UserDesktopWidgetRollout.FromEnvironment(),
+            placementStore: null,
+            visibilityStore: null,
+            startWidgetThread: true)
     {
-        _rollout = rollout ?? UserDesktopWidgetRollout.FromEnvironment();
+    }
 
-        if (_rollout.SupportsWidgetSurface)
+    internal UserDesktopWidgetPresenter(
+        UserDesktopWidgetRollout rollout,
+        UserDesktopWidgetPlacementStore? placementStore,
+        UserDesktopWidgetVisibilityStore? visibilityStore,
+        bool startWidgetThread)
+    {
+        _rollout = rollout;
+        _placementStore = placementStore ?? new UserDesktopWidgetPlacementStore();
+        _visibilityStore = visibilityStore ?? new UserDesktopWidgetVisibilityStore();
+
+        if (_rollout.SupportsWidgetSurface && startWidgetThread)
         {
             UserAgentFileLog.Info("desktop_widget_rollout mode=widget_enabled");
             EnsureWidgetThreadStarted(forceRestart: false);
             return;
         }
 
-        UserAgentFileLog.Info($"desktop_widget_rollout mode=toast_fallback reason={_rollout.UnavailableReasonCode}");
+        UserAgentFileLog.Info(
+            _rollout.SupportsWidgetSurface
+                ? "desktop_widget_rollout mode=widget_deferred"
+                : $"desktop_widget_rollout mode=toast_fallback reason={_rollout.UnavailableReasonCode}");
     }
 
     internal bool SupportsWidgetSurface => _rollout.SupportsWidgetSurface;
