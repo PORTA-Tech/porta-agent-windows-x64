@@ -23,6 +23,8 @@ internal sealed class UserDesktopWidgetWindow : Window
     private const double RightMargin = 16d;
     private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(160);
     private static readonly TimeSpan AttentionDuration = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan MinimumCriticalSpotlightDuration = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan MaximumCriticalSpotlightDuration = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan ReexpandPollInterval = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(220);
 
@@ -30,11 +32,14 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly Action<UserInterventionPromptResponse> _promptResponseRequested;
     private readonly UserDesktopWidgetPlacementStore _placementStore;
     private readonly DispatcherTimer _attentionTimer;
+    private readonly DispatcherTimer _criticalSpotlightTimer;
     private readonly DispatcherTimer _promptTimer;
     private readonly DispatcherTimer _reexpandTimer;
     private readonly DispatcherTimer _collapseTimer;
     private readonly Border _rootBorder;
     private readonly StackPanel _expandedStack;
+    private readonly Grid _summaryRow;
+    private readonly UniformGrid _metricsPanel;
     private readonly TextBlock _titleText;
     private readonly TextBlock _statusText;
     private readonly Border _primaryMetricChip;
@@ -80,6 +85,8 @@ internal sealed class UserDesktopWidgetWindow : Window
     private double _expandedAnchorLeft;
     private double _expandedAnchorTop;
     private bool _allowClose;
+    private bool _criticalSpotlightVisible;
+    private string? _criticalSpotlightKey;
     private UserDesktopWidgetState? _currentState;
     private UserInterventionPrompt? _activePrompt;
 
@@ -107,6 +114,8 @@ internal sealed class UserDesktopWidgetWindow : Window
             _attentionTimer.Stop();
             SetAttentionVisible(false);
         };
+
+        _criticalSpotlightTimer = new DispatcherTimer();
 
         _promptTimer = new DispatcherTimer();
         _promptTimer.Tick += (_, _) =>
@@ -171,7 +180,6 @@ internal sealed class UserDesktopWidgetWindow : Window
             Margin = new Thickness(10, 7, 8, 7)
         };
         bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         shellGrid.Children.Add(bodyGrid);
 
         _expandedStack = new StackPanel
@@ -211,17 +219,25 @@ internal sealed class UserDesktopWidgetWindow : Window
             FontSize = 11.5,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 0),
-            MaxWidth = ExpandedWidth - 76d,
+            MaxWidth = ExpandedWidth - 34d,
             Visibility = Visibility.Collapsed
         };
         headerStack.Children.Add(_statusText);
 
-        UniformGrid metricsPanel = new()
+        _summaryRow = new Grid
         {
-            Columns = 3,
             Margin = new Thickness(0, 4, 0, 0)
         };
-        _expandedStack.Children.Add(metricsPanel);
+        _summaryRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _summaryRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _expandedStack.Children.Add(_summaryRow);
+
+        _metricsPanel = new UniformGrid
+        {
+            Columns = 3
+        };
+        Grid.SetColumn(_metricsPanel, 0);
+        _summaryRow.Children.Add(_metricsPanel);
 
         _primaryMetricChip = CreateMetricChip(out _primaryMetricText);
         _secondaryMetricChip = CreateMetricChip(out _secondaryMetricText);
@@ -231,9 +247,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         _notificationsChip = CreateStatusChip("Notifications muted");
         _brightnessChip = CreateStatusChip("Brightness reduced");
 
-        metricsPanel.Children.Add(_primaryMetricChip);
-        metricsPanel.Children.Add(_secondaryMetricChip);
-        metricsPanel.Children.Add(_tertiaryMetricChip);
+        _metricsPanel.Children.Add(_primaryMetricChip);
+        _metricsPanel.Children.Add(_secondaryMetricChip);
+        _metricsPanel.Children.Add(_tertiaryMetricChip);
 
         _footerText = new TextBlock
         {
@@ -269,7 +285,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             FontSize = 11.5,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 0),
-            MaxWidth = ExpandedWidth - 62d
+            MaxWidth = ExpandedWidth - 38d
         };
         attentionStack.Children.Add(_attentionTitleText);
         attentionStack.Children.Add(_attentionMessageText);
@@ -299,7 +315,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             FontSize = 11.5,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 0),
-            MaxWidth = ExpandedWidth - 62d
+            MaxWidth = ExpandedWidth - 38d
         };
         criticalStack.Children.Add(_criticalTitleText);
         criticalStack.Children.Add(_criticalMessageText);
@@ -318,6 +334,14 @@ internal sealed class UserDesktopWidgetWindow : Window
         criticalActions.Children.Add(_criticalTertiaryButton);
         criticalStack.Children.Add(criticalActions);
         _expandedStack.Children.Add(_criticalCard);
+        _criticalSpotlightTimer.Tick += (_, _) =>
+        {
+            _criticalSpotlightTimer.Stop();
+            _criticalSpotlightVisible = false;
+            _criticalCard.Visibility = Visibility.Collapsed;
+            UpdatePrimarySurfaceVisibility();
+            UpdateWindowHeight();
+        };
 
         _promptCard = new Border
         {
@@ -343,7 +367,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             FontSize = 11.5,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 0),
-            MaxWidth = ExpandedWidth - 62d
+            MaxWidth = ExpandedWidth - 38d
         };
         promptStack.Children.Add(_promptTitleText);
         promptStack.Children.Add(_promptMessageText);
@@ -398,7 +422,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         };
         _menuButton.Click += (_, _) => ToggleMenu();
         Grid.SetColumn(_menuButton, 1);
-        bodyGrid.Children.Add(_menuButton);
+        _summaryRow.Children.Add(_menuButton);
 
         _menuPopup = new Popup
         {
@@ -436,7 +460,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             BorderBrush = new SolidColorBrush(Color.FromRgb(59, 70, 85)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(14),
-            Padding = new Thickness(12),
+            Padding = new Thickness(8),
             Effect = new DropShadowEffect
             {
                 BlurRadius = 18,
@@ -445,63 +469,9 @@ internal sealed class UserDesktopWidgetWindow : Window
                 Color = Color.FromRgb(6, 9, 12)
             }
         };
-        StackPanel popupStack = new() { MinWidth = 236 };
+        StackPanel popupStack = new() { MinWidth = 188 };
         popupChrome.Child = popupStack;
         _menuPopup.Child = popupChrome;
-
-        Border popupHeader = new()
-        {
-            Background = new SolidColorBrush(Color.FromRgb(21, 24, 28)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(48, 55, 67)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(12, 10, 12, 10),
-            Margin = new Thickness(0, 0, 0, 10)
-        };
-        Grid popupHeaderStack = new();
-        popupHeaderStack.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        popupHeaderStack.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        popupHeaderStack.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        popupHeaderStack.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        popupHeader.Child = popupHeaderStack;
-        TextBlock popupHeaderTitle = new()
-        {
-            Text = "Widget menu",
-            Foreground = new SolidColorBrush(Color.FromRgb(230, 233, 237)),
-            FontSize = 14,
-            FontWeight = FontWeights.SemiBold
-        };
-        Grid.SetRow(popupHeaderTitle, 0);
-        Grid.SetColumn(popupHeaderTitle, 0);
-        popupHeaderStack.Children.Add(popupHeaderTitle);
-        Button closeMenuButton = new()
-        {
-            Content = "Close",
-            Padding = new Thickness(8, 3, 8, 3),
-            Margin = new Thickness(8, 0, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Background = new SolidColorBrush(Color.FromRgb(33, 40, 49)),
-            Foreground = new SolidColorBrush(Color.FromRgb(230, 233, 237)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(58, 72, 88)),
-            BorderThickness = new Thickness(1),
-            Cursor = Cursors.Hand
-        };
-        closeMenuButton.Click += (_, _) => _menuPopup.IsOpen = false;
-        Grid.SetRow(closeMenuButton, 0);
-        Grid.SetRowSpan(closeMenuButton, 2);
-        Grid.SetColumn(closeMenuButton, 1);
-        popupHeaderStack.Children.Add(closeMenuButton);
-        TextBlock popupHeaderSubtitle = new()
-        {
-            Text = "Quick actions",
-            Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
-            FontSize = 11.5,
-            Margin = new Thickness(0, 2, 0, 0)
-        };
-        Grid.SetRow(popupHeaderSubtitle, 1);
-        Grid.SetColumn(popupHeaderSubtitle, 0);
-        popupHeaderStack.Children.Add(popupHeaderSubtitle);
-        popupStack.Children.Add(popupHeader);
 
         popupStack.Children.Add(CreateMenuSectionLabel("Navigate"));
         popupStack.Children.Add(CreateMenuButton("Open Now", UserDesktopWidgetAction.OpenNow));
@@ -533,20 +503,11 @@ internal sealed class UserDesktopWidgetWindow : Window
         _currentState = state;
         string normalizedTitle = NormalizeWidgetTitle(state.Title);
         _titleText.Text = normalizedTitle;
-        _titleText.Visibility = string.IsNullOrWhiteSpace(normalizedTitle)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
         _statusText.Text = state.StatusText;
-        _statusText.Visibility = string.IsNullOrWhiteSpace(state.StatusText)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
         SetMetricText(_primaryMetricChip, _primaryMetricText, state.PrimaryMetricText);
         SetMetricText(_secondaryMetricChip, _secondaryMetricText, state.SecondaryMetricText);
         SetMetricText(_tertiaryMetricChip, _tertiaryMetricText, state.TertiaryMetricText);
         _footerText.Text = state.FooterText;
-        _footerText.Visibility = string.IsNullOrWhiteSpace(state.FooterText)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
         _notificationsChip.Visibility = state.NotificationsSuppressed ? Visibility.Visible : Visibility.Collapsed;
         _brightnessChip.Visibility = state.BrightnessAdjusted ? Visibility.Visible : Visibility.Collapsed;
         _pauseFifteenButton.IsEnabled = state.CanPause;
@@ -554,6 +515,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _resumeButton.IsEnabled = state.CanResume;
 
         ApplyCriticalState(state.CriticalState);
+        UpdatePrimarySurfaceVisibility();
         ApplyModeChrome(state.Mode);
         UpdateWindowHeight();
     }
@@ -764,8 +726,8 @@ internal sealed class UserDesktopWidgetWindow : Window
     {
         return new Button
         {
-            Padding = new Thickness(10, 6, 10, 6),
-            Margin = new Thickness(0, 0, 8, 8),
+            Padding = new Thickness(9, 5, 9, 5),
+            Margin = new Thickness(0, 0, 6, 6),
             Background = new SolidColorBrush(Color.FromRgb(29, 38, 47)),
             Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
             BorderBrush = new SolidColorBrush(Color.FromRgb(53, 67, 82)),
@@ -780,9 +742,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         return new TextBlock
         {
             Text = text,
-            Margin = new Thickness(2, 0, 2, 8),
+            Margin = new Thickness(4, 2, 4, 4),
             Foreground = new SolidColorBrush(Color.FromRgb(138, 151, 166)),
-            FontSize = 11.2,
+            FontSize = 10.8,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap
         };
@@ -793,38 +755,37 @@ internal sealed class UserDesktopWidgetWindow : Window
         return new Border
         {
             Height = 1,
-            Margin = new Thickness(0, 4, 0, 10),
+            Margin = new Thickness(0, 2, 0, 6),
             Background = new SolidColorBrush(Color.FromRgb(40, 51, 63))
         };
     }
 
     private Button CreateMenuButton(string text, UserDesktopWidgetAction action)
     {
-        SolidColorBrush baseBackground = new(Color.FromRgb(21, 24, 28));
         SolidColorBrush hoverBackground = new(Color.FromRgb(29, 35, 42));
-        SolidColorBrush baseBorder = new(Color.FromRgb(48, 55, 67));
-        SolidColorBrush hoverBorder = new(Color.FromRgb(80, 94, 114));
         Button button = new()
         {
-            Content = text,
+            Content = new TextBlock
+            {
+                Text = text,
+                TextWrapping = TextWrapping.Wrap
+            },
             HorizontalContentAlignment = HorizontalAlignment.Left,
-            Padding = new Thickness(12, 9, 12, 9),
-            Margin = new Thickness(0, 0, 0, 8),
-            Background = baseBackground,
+            Padding = new Thickness(8, 6, 8, 6),
+            Margin = new Thickness(0, 0, 0, 2),
+            Background = Brushes.Transparent,
             Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
-            BorderBrush = baseBorder,
-            BorderThickness = new Thickness(1),
+            BorderBrush = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
             Cursor = Cursors.Hand
         };
         button.MouseEnter += (_, _) =>
         {
             button.Background = hoverBackground;
-            button.BorderBrush = hoverBorder;
         };
         button.MouseLeave += (_, _) =>
         {
-            button.Background = baseBackground;
-            button.BorderBrush = baseBorder;
+            button.Background = Brushes.Transparent;
         };
         button.Click += (_, _) =>
         {
@@ -1140,9 +1101,22 @@ internal sealed class UserDesktopWidgetWindow : Window
     {
         if (criticalState == null)
         {
+            _criticalSpotlightTimer.Stop();
+            _criticalSpotlightVisible = false;
+            _criticalSpotlightKey = null;
             _criticalCard.Visibility = Visibility.Collapsed;
             UpdateWindowHeight();
             return;
+        }
+
+        string criticalSpotlightKey = BuildCriticalSpotlightKey(criticalState);
+        if (!string.Equals(_criticalSpotlightKey, criticalSpotlightKey, StringComparison.Ordinal))
+        {
+            _criticalSpotlightKey = criticalSpotlightKey;
+            _criticalSpotlightVisible = true;
+            _criticalSpotlightTimer.Stop();
+            _criticalSpotlightTimer.Interval = ComputeCriticalSpotlightDuration(criticalState);
+            _criticalSpotlightTimer.Start();
         }
 
         string normalizedTitle = NormalizeCardTitle(criticalState.Title, fallback: "Attention");
@@ -1154,10 +1128,78 @@ internal sealed class UserDesktopWidgetWindow : Window
         ConfigureCriticalButton(_criticalPrimaryButton, criticalState.PrimaryLabel, criticalState.PrimaryAction);
         ConfigureCriticalButton(_criticalSecondaryButton, criticalState.SecondaryLabel, criticalState.SecondaryAction);
         ConfigureCriticalButton(_criticalTertiaryButton, criticalState.TertiaryLabel, criticalState.TertiaryAction);
-        _criticalCard.Visibility = Visibility.Visible;
+        _criticalCard.Visibility = _criticalSpotlightVisible ? Visibility.Visible : Visibility.Collapsed;
         _collapseTimer.Stop();
         Expand();
         UpdateWindowHeight();
+    }
+
+    private void UpdatePrimarySurfaceVisibility()
+    {
+        UserDesktopWidgetState? state = _currentState;
+        if (state == null)
+        {
+            return;
+        }
+
+        bool suppressForCriticalSpotlight = _criticalSpotlightVisible;
+        bool suppressDuplicateStatus = state.CriticalState != null;
+        string normalizedTitle = NormalizeWidgetTitle(state.Title);
+
+        _titleText.Visibility = !suppressForCriticalSpotlight
+            && !suppressDuplicateStatus
+            && !string.IsNullOrWhiteSpace(normalizedTitle)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        _statusText.Visibility = !suppressForCriticalSpotlight
+            && !suppressDuplicateStatus
+            && !string.IsNullOrWhiteSpace(state.StatusText)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        bool summaryMetricsVisible = !suppressForCriticalSpotlight
+            && HasSummaryMetrics(state);
+        _metricsPanel.Visibility = summaryMetricsVisible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        _summaryRow.Visibility = summaryMetricsVisible || _menuButton.Visibility == Visibility.Visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        _footerText.Visibility = !suppressForCriticalSpotlight
+            && !string.IsNullOrWhiteSpace(state.FooterText)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private static bool HasSummaryMetrics(UserDesktopWidgetState state)
+    {
+        return !string.IsNullOrWhiteSpace(state.PrimaryMetricText)
+            || !string.IsNullOrWhiteSpace(state.SecondaryMetricText)
+            || !string.IsNullOrWhiteSpace(state.TertiaryMetricText)
+            || !string.IsNullOrWhiteSpace(state.QuaternaryMetricText);
+    }
+
+    private static string BuildCriticalSpotlightKey(UserDesktopWidgetCriticalState criticalState)
+    {
+        return string.Join(
+            "|",
+            criticalState.Title,
+            criticalState.Message,
+            criticalState.PrimaryLabel,
+            criticalState.SecondaryLabel,
+            criticalState.TertiaryLabel);
+    }
+
+    private static TimeSpan ComputeCriticalSpotlightDuration(UserDesktopWidgetCriticalState criticalState)
+    {
+        int messageLength = (criticalState.Title?.Length ?? 0) + (criticalState.Message?.Length ?? 0);
+        double seconds = 4.5d + Math.Ceiling(messageLength / 55d);
+        return TimeSpan.FromSeconds(Math.Clamp(
+            seconds,
+            MinimumCriticalSpotlightDuration.TotalSeconds,
+            MaximumCriticalSpotlightDuration.TotalSeconds));
     }
 
     private void ConfigureCriticalButton(
