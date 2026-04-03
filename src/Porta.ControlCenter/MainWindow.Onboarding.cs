@@ -122,7 +122,7 @@ public partial class MainWindow
     {
         if (!serviceProbe.Running)
         {
-            return "What to do: keep Control Center open for a moment, then open Health if the service still shows offline.";
+            return "What to do: keep Control Center open for a moment, then open System if the service still shows offline.";
         }
 
         if (!trayRunning)
@@ -133,37 +133,37 @@ public partial class MainWindow
         if (!apiReachable)
         {
             return serviceProbe.Running
-                ? "What to do: open Health or refresh once if Local API unreachable stays on screen."
-                : "What to do: open Health if the service stays offline.";
+                ? "What to do: open System or refresh once if Local API unreachable stays on screen."
+                : "What to do: open System if the service stays offline.";
         }
 
         if (status == null)
         {
             return statusHttpCode is 401 or 403
-                ? "What to do: close and reopen Control Center once so it reloads local API credentials. If it still shows this, open Health."
-                : "What to do: wait a few seconds and refresh once. If status still does not load, open Health.";
+                ? "What to do: close and reopen Control Center once so it reloads local API credentials. If it still shows this, open System."
+                : "What to do: wait a few seconds and refresh once. If status still does not load, open System.";
         }
 
         if (!status.ServiceRunning)
         {
-            return "What to do: open Health and restart the service if it stays offline.";
+            return "What to do: open System and restart the service if it stays offline.";
         }
 
         if (!status.LocalApiAuthReady)
         {
-            return "What to do: reopen Control Center so it reloads local API credentials. If it still shows this, open Health.";
+            return "What to do: reopen Control Center so it reloads local API credentials. If it still shows this, open System.";
         }
 
         if (!statusFresh)
         {
             return IsDbBusyRetrying(status, snapshot: null)
                 ? "What to do: wait a few seconds while Ari retries the database refresh, then refresh once."
-                : "What to do: open Health and refresh once. If status stays stale, sign out and back in.";
+                : "What to do: open System and refresh once. If status stays stale, sign out and back in.";
         }
 
         if (!string.IsNullOrWhiteSpace(captureHint))
         {
-            return "What to do: keep using the keyboard or mouse for a few seconds while Ari retries. If it stays stuck, open Health and then sign out and back in.";
+            return "What to do: keep using the keyboard or mouse for a few seconds while Ari retries. If it stays stuck, open System and then sign out and back in.";
         }
 
         return "What to do: you can close Control Center now. Reopen it any time from Start Menu, the desktop shortcut, or the PORTA tray icon.";

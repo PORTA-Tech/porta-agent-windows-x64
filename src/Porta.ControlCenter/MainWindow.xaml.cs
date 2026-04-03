@@ -793,6 +793,11 @@ public partial class MainWindow : Window
         ShowSection(UiSection.States);
     }
 
+    private void SystemAdvancedButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowSection(UiSection.States);
+    }
+
     private void SettingsNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Settings);
@@ -1030,15 +1035,15 @@ public partial class MainWindow : Window
 
         SectionTitleText.Text = section switch
         {
-            UiSection.Overview => "Now",
+            UiSection.Overview => "Today",
             UiSection.Timeline => "History",
             UiSection.Interventions => "Actions",
-            UiSection.Inputs => "What I Track",
-            UiSection.States => "How It Decides",
+            UiSection.Inputs => "Tracking",
+            UiSection.States => "System > Advanced",
             UiSection.Account => "Account",
-            UiSection.Settings => "Controls",
-            UiSection.Diagnostics => "Health",
-            _ => "Now"
+            UiSection.Settings => "Settings",
+            UiSection.Diagnostics => "System",
+            _ => "Today"
         };
 
         ApplyNavState(OverviewNavButton, section == UiSection.Overview);
@@ -1489,7 +1494,7 @@ public partial class MainWindow : Window
     {
         if (snapshot == null)
         {
-            return "Open How It Decides for live calibration blockers.";
+            return "Open System > Advanced for live calibration blockers.";
         }
 
         string trustTier = ToTrustLabel(NormalizeTrustTier(snapshot.TrustTier, snapshot.ModelConfidence ?? snapshot.Confidence));
@@ -1497,7 +1502,7 @@ public partial class MainWindow : Window
         string progressText = snapshot.BaselineReadyPct.HasValue
             ? $"{(Math.Clamp(snapshot.BaselineReadyPct.Value, 0d, 1d) * 100d):F0}% ready"
             : "progress pending";
-        return $"Trust tier: {trustTier} | System actions: {systemActions} | {progressText}. Click for How It Decides.";
+        return $"Trust tier: {trustTier} | System actions: {systemActions} | {progressText}. Click for System > Advanced.";
     }
 
     private string BuildNowDataQualitySummary(LocalApiCurrentSnapshotResponse? snapshot)
@@ -1523,7 +1528,7 @@ public partial class MainWindow : Window
 
         if (snapshot == null)
         {
-            return "Open How It Decides once live quality buckets arrive.";
+            return "Open System > Advanced once live quality buckets arrive.";
         }
 
         return "All major channels are currently available. Click for signal details.";
@@ -4545,25 +4550,25 @@ public partial class MainWindow : Window
         string normalized = action.Trim().ToLowerInvariant();
         if (normalized.Contains("notification", StringComparison.Ordinal))
         {
-            instruction = "Open Controls and disable Notification reduction.";
+            instruction = "Open Settings and disable Notification reduction.";
             return true;
         }
 
         if (normalized.Contains("focus", StringComparison.Ordinal))
         {
-            instruction = "Open Controls and disable Focus mode nudge.";
+            instruction = "Open Settings and disable Focus mode nudge.";
             return true;
         }
 
         if (normalized.Contains("animation", StringComparison.Ordinal))
         {
-            instruction = "Open Controls and disable Animation reduction.";
+            instruction = "Open Settings and disable Animation reduction.";
             return true;
         }
 
         if (normalized.Contains("app", StringComparison.Ordinal) || normalized.Contains("restrict", StringComparison.Ordinal))
         {
-            instruction = "Open Controls and disable Temporary app restriction.";
+            instruction = "Open Settings and disable Temporary app restriction.";
             return true;
         }
 
@@ -6066,7 +6071,7 @@ public partial class MainWindow : Window
         SectionTitleText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
         if (_activeSection == UiSection.Overview)
         {
-            SectionTitleText.Text = $"Now ({visualState.ModeLabel})";
+            SectionTitleText.Text = $"Today ({visualState.ModeLabel})";
         }
 
         AgentVersionText.Text = status?.AgentVersion ?? NotAvailableText;

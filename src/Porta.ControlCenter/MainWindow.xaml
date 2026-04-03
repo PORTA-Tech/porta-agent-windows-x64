@@ -225,12 +225,12 @@
 
         <Border Grid.Row="1" Grid.Column="0" Background="#0C0E11" BorderBrush="#262B33" BorderThickness="0,0,1,0">
             <StackPanel Margin="16">
-                <Button x:Name="OverviewNavButton" Content="Now" Margin="0,0,0,8" Padding="10,8" Click="OverviewNavButton_Click" />
+                <Button x:Name="OverviewNavButton" Content="Today" Margin="0,0,0,8" Padding="10,8" Click="OverviewNavButton_Click" />
                 <Button x:Name="TimelineNavButton" Content="History" Margin="0,0,0,8" Padding="10,8" Click="TimelineNavButton_Click" />
                 <Button x:Name="InterventionsNavButton" Content="Actions" Margin="0,0,0,8" Padding="10,8" Click="InterventionsNavButton_Click" />
-                <Button x:Name="InputsNavButton" Content="What I Track" Margin="0,0,0,8" Padding="10,8" Click="InputsNavButton_Click" />
-                <Button x:Name="StatesNavButton" Content="How It Decides" Margin="0,0,0,8" Padding="10,8" Click="StatesNavButton_Click" />
-                <Button x:Name="SettingsNavButton" Content="Controls" Margin="0,0,0,8" Padding="10,8" Click="SettingsNavButton_Click" />
+                <Button x:Name="InputsNavButton" Content="Tracking" Margin="0,0,0,8" Padding="10,8" Click="InputsNavButton_Click" />
+                <Button x:Name="StatesNavButton" Content="Advanced" Margin="0,0,0,8" Padding="10,8" Click="StatesNavButton_Click" Visibility="Collapsed" />
+                <Button x:Name="SettingsNavButton" Content="Settings" Margin="0,0,0,8" Padding="10,8" Click="SettingsNavButton_Click" />
                 <Button x:Name="AccountNavButton" Margin="0,0,0,8" Padding="10,8" Click="AccountNavButton_Click">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -259,7 +259,7 @@
                         </Border>
                     </Grid>
                 </Button>
-                <Button x:Name="DiagnosticsNavButton" Content="Health" Margin="0,0,0,0" Padding="10,8" Click="DiagnosticsNavButton_Click" />
+                <Button x:Name="DiagnosticsNavButton" Content="System" Margin="0,0,0,0" Padding="10,8" Click="DiagnosticsNavButton_Click" />
             </StackPanel>
         </Border>
 
@@ -286,7 +286,7 @@
                                 VerticalAlignment="Center"
                                 Margin="0,0,16,0">
                         <TextBlock x:Name="SectionTitleText"
-                                   Text="Now"
+                                   Text="Today"
                                    FontSize="20"
                                    FontWeight="SemiBold"
                                    VerticalAlignment="Center"
@@ -512,7 +512,7 @@
                                     Cursor="Hand"
                                     MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
                                     Tag="calibration"
-                                    ToolTip="Open How It Decides for calibration details">
+                                    ToolTip="Open System > Advanced for calibration details">
                                 <StackPanel>
                                     <TextBlock Text="Calibration" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock x:Name="NowCalibrationStatusText" Text="Bootstrapping" FontSize="20" FontWeight="Bold" />
@@ -520,7 +520,7 @@
                                     <TextBlock x:Name="NowCalibrationQualityText" Text="Recent data quality: Not available (last 2 min)" Margin="0,4,0,0" />
                                     <TextBlock x:Name="NowCalibrationColdStartText" Text="Stage: Not available" Margin="0,4,0,0" />
                                     <TextBlock x:Name="NowCalibrationSummaryText"
-                                               Text="Open How It Decides for calibration blockers."
+                                               Text="Open System > Advanced for calibration blockers."
                                                Margin="0,8,0,0"
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
@@ -534,13 +534,13 @@
                                     Cursor="Hand"
                                     MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
                                     Tag="data-quality"
-                                    ToolTip="Open How It Decides for signal details">
+                                    ToolTip="Open System > Advanced for signal details">
                                 <StackPanel>
                                     <TextBlock Text="Data quality" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock x:Name="NowDataQualityScoreText" Text="Quality score: Not available" FontSize="20" FontWeight="Bold" />
                                     <TextBlock x:Name="NowDataQualityPartialText" Text="Partial data: Not available" Margin="0,6,0,0" />
                                     <TextBlock x:Name="NowDataQualitySummaryText"
-                                               Text="Open How It Decides for signal details."
+                                               Text="Open System > Advanced for signal details."
                                                Margin="0,8,0,0"
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
@@ -666,7 +666,7 @@
                 </ScrollViewer>
                 <ScrollViewer x:Name="InputsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <TextBlock Text="What I Track" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <TextBlock Text="Tracking" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
                         <TextBlock Text="Patterns only. Never content." Foreground="#CBD5E1" Margin="0,0,0,12" />
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
@@ -1213,7 +1213,7 @@
                         </Style>
                     </ScrollViewer.Resources>
                     <StackPanel Margin="20">
-                        <TextBlock Text="Controls" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
                         <TextBlock Text="Adjust behavior without overwhelming settings." Foreground="#CBD5E1" Margin="0,0,0,12" />
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
@@ -1300,8 +1300,8 @@
 
                 <ScrollViewer x:Name="StatesPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <TextBlock Text="How It Decides" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                        <TextBlock Text="Engine flow in plain language." Foreground="#CBD5E1" Margin="0,0,0,12" />
+                        <TextBlock Text="Advanced" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <TextBlock Text="How Ari decides, in plain language." Foreground="#CBD5E1" Margin="0,0,0,12" />
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,10">
                             <StackPanel>
@@ -1853,8 +1853,15 @@
                 </ScrollViewer>
                 <ScrollViewer x:Name="DiagnosticsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <TextBlock Text="Health" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <TextBlock Text="System" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
                         <TextBlock Text="Engine and capture health are shown separately so backend state never looks like live input." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+
+                        <WrapPanel Margin="0,0,0,12">
+                            <Button x:Name="SystemAdvancedButton"
+                                    Content="Open Advanced"
+                                    Padding="12,6"
+                                    Click="SystemAdvancedButton_Click" />
+                        </WrapPanel>
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
@@ -2281,7 +2288,7 @@
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,10" />
                                         <TextBlock x:Name="OnboardingCurrentGuidanceText"
-                                                   Text="If capture is limited, Ari keeps trying to recover in the background. Open Health if it stays stuck."
+                                                   Text="If capture is limited, Ari keeps trying to recover in the background. Open System if it stays stuck."
                                                    Foreground="#FCA5A5"
                                                    TextWrapping="Wrap" />
                                     </StackPanel>
@@ -2302,7 +2309,7 @@
                                     <TextBlock Text="- Keep using the keyboard or mouse for a few seconds while Ari retries."
                                                TextWrapping="Wrap"
                                                Margin="0,0,0,6" />
-                                    <TextBlock Text="- If it still stays at zero, open Health and check the Service, Tray, and Last error cards."
+                                    <TextBlock Text="- If it still stays at zero, open System and check the Service, Tray, and Last error cards."
                                                TextWrapping="Wrap"
                                                Margin="0,0,0,6" />
                                     <TextBlock Text="- If the session agent does not recover, sign out and back in to Windows."
@@ -2311,7 +2318,7 @@
                             </Border>
 
                             <WrapPanel>
-                                <Button Content="Open Health"
+                                <Button Content="Open System"
                                         Padding="14,8"
                                         Margin="0,0,10,0"
                                         Click="OnboardingOpenHealthButton_Click" />
