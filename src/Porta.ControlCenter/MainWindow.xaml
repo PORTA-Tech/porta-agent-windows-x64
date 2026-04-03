@@ -1373,13 +1373,13 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="2.3*" /><ColumnDefinition Width="1.3*" /></Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,12,0">
                             <TextBlock Text="History" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock Text="Read this like a chart: time runs left to right, and focus is measured against your best retained streak." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+                            <TextBlock Text="See when focus stayed steady, when distraction crept in, and where Ari stepped in." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
                             <WrapPanel Margin="0,0,0,10">
                                 <Button x:Name="HistoryRange1hButton" Content="Last 1h" Padding="10,4" Margin="0,0,8,0" Click="HistoryRange1hButton_Click" />
                                 <Button x:Name="HistoryRange4hButton" Content="Last 4h" Padding="10,4" Margin="0,0,8,0" Click="HistoryRange4hButton_Click" />
                                 <Button x:Name="HistoryRangeTodayButton" Content="Today" Padding="10,4" Margin="0,0,8,0" Click="HistoryRangeTodayButton_Click" />
                                 <Button x:Name="HistoryRangeAllTimeButton" Content="All time" Padding="10,4" Margin="0,0,14,0" Click="HistoryRangeAllTimeButton_Click" />
-                                <CheckBox x:Name="HistoryExplainModeCheckBox" Content="Technical view" VerticalAlignment="Center" Foreground="#E5E7EB" Checked="HistoryExplainModeCheckBox_Changed" Unchecked="HistoryExplainModeCheckBox_Changed" />
+                                <CheckBox x:Name="HistoryExplainModeCheckBox" Content="Advanced" VerticalAlignment="Center" Foreground="#E5E7EB" Checked="HistoryExplainModeCheckBox_Changed" Unchecked="HistoryExplainModeCheckBox_Changed" />
                             </WrapPanel>
 
                             <Grid Margin="0,0,0,12">
@@ -1391,25 +1391,25 @@
                                 </Grid.ColumnDefinitions>
                                 <Border Grid.Column="0" Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Range" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Focused time" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="HistoryRangeSummaryText" Text="No data yet" Foreground="#F8FAFC" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="1" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Focus" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Longest block" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="HistoryFocusSummaryText" Text="No data yet" Foreground="#DCFCE7" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="2" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Overload" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Distraction" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="HistoryOverloadSummaryText" Text="No data yet" Foreground="#FECACA" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="3" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,0,0">
                                     <StackPanel>
-                                        <TextBlock Text="Confidence + actions" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Patterns + actions" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="HistoryTrustSummaryText" Text="No data yet" Foreground="#DBEAFE" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                         <TextBlock x:Name="HistoryActionsSummaryText" Text="No data yet" Foreground="#CBD5E1" FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
@@ -1418,21 +1418,21 @@
 
                             <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                                 <TextBlock x:Name="HistoryGuideText"
-                                           Text="Click any bar or marker below to inspect one exact moment."
+                                           Text="Click any point or action marker to inspect that moment in plain language. Turn on Advanced for raw details."
                                            Foreground="#CBD5E1"
                                            TextWrapping="Wrap" />
                             </Border>
 
                             <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                                 <StackPanel>
-                                    <TextBlock Text="Focus / overload / trust chart" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                    <TextBlock Text="X axis is time. Y axis is percentage, with focus measured against your best stored streak." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                    <TextBlock Text="Focus pattern over time" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                    <TextBlock Text="Time runs left to right. Higher focus means steadier work. Action markers show when Ari suggested or changed something." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
                                     <WrapPanel Margin="0,0,0,10">
                                         <Border Background="#123524" BorderBrush="#1B6B3A" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
                                             <TextBlock Text="Focus" Foreground="#86EFAC" FontSize="11" />
                                         </Border>
                                         <Border Background="#3A1212" BorderBrush="#7F1D1D" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Overload" Foreground="#FCA5A5" FontSize="11" />
+                                            <TextBlock Text="Pressure" Foreground="#FCA5A5" FontSize="11" />
                                         </Border>
                                         <Border Background="#132C4A" BorderBrush="#1D4ED8" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
                                             <TextBlock Text="Confidence" Foreground="#BFDBFE" FontSize="11" />
@@ -1526,13 +1526,13 @@
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel>
                                     <TextBlock Text="Selected point" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                    <TextBlock Text="Click the chart or an action marker on the left to inspect that exact moment." Foreground="#94A3B8" Margin="0,0,0,12" TextWrapping="Wrap" />
+                                    <TextBlock Text="Click the chart or an action marker on the left to inspect that moment in context." Foreground="#94A3B8" Margin="0,0,0,12" TextWrapping="Wrap" />
                                     <TextBlock x:Name="TimelineDetailTimestamp" Text="Timestamp: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                    <TextBlock x:Name="TimelineDetailOverload" Text="Overload: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                    <TextBlock x:Name="TimelineDetailOverload" Text="Pressure: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
                                     <TextBlock x:Name="TimelineDetailTrust" Text="Confidence: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                    <TextBlock x:Name="TimelineDetailFocus" Text="Focus streak: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                    <TextBlock x:Name="TimelineDetailClassification" Text="Type: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
-                                    <TextBlock x:Name="TimelineDetailExecution" Text="Decision/Execution: Not available" TextWrapping="Wrap" Margin="0,0,0,10" Foreground="#93C5FD" />
+                                    <TextBlock x:Name="TimelineDetailFocus" Text="Focus block: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                    <TextBlock x:Name="TimelineDetailClassification" Text="Moment: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
+                                    <TextBlock x:Name="TimelineDetailExecution" Text="Action at this moment: Not available" TextWrapping="Wrap" Margin="0,0,0,10" Foreground="#93C5FD" />
                                     <TextBlock x:Name="TimelineDetailWhyHeader" Text="Why: Not available" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
                                     <TextBlock x:Name="TimelineDetailWhyFiv" Text="Clarity/Pressure/Jitter: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
                                     <TextBlock x:Name="TimelineDetailWhyReasons" Text="Top reasons: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />

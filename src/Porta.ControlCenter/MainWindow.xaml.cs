@@ -5525,41 +5525,35 @@ public partial class MainWindow : Window
         LocalApiTimelineResponse? timeline,
         IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots)
     {
-        if (timeline == null || snapshots.Count == 0)
+        HistoryPageInsights insights = HistoryPageInsightsBuilder.Build(timeline);
+        if (!insights.HasTimeline || snapshots.Count == 0)
         {
-            HistoryRangeSummaryText.Text = "No data yet";
-            HistoryFocusSummaryText.Text = "No data yet";
-            HistoryOverloadSummaryText.Text = "No data yet";
-            HistoryTrustSummaryText.Text = "No data yet";
-            HistoryActionsSummaryText.Text = "No actions yet";
-            HistoryGuideText.Text = "This view fills in once Ari has live timeline data for the selected range.";
+            HistoryRangeSummaryText.Text = "Focused time will appear here";
+            HistoryFocusSummaryText.Text = "Longest focus block will appear here";
+            HistoryOverloadSummaryText.Text = "Distraction time will appear here";
+            HistoryTrustSummaryText.Text = "Daily pattern insight will appear here";
+            HistoryActionsSummaryText.Text = "Keep working and action markers will show up here.";
+            HistoryGuideText.Text = "History fills in after Ari has enough processed time in the selected range.";
             return;
         }
 
-        LocalApiCurrentSnapshotResponse latest = snapshots[^1];
-        double peakOverload = snapshots.Max(static s => Math.Clamp(s.OverloadLikelihood, 0d, 1d));
-        double averageTrust = snapshots.Average(static s => Math.Clamp(s.Confidence, 0d, 1d));
-        int rangeBestFocusSeconds = (int)Math.Round(
-            snapshots.Max(static s => Math.Max(0d, s.SustainedAttentionDurationSec)),
-            MidpointRounding.AwayFromZero);
-        int retainedBestFocusSeconds = (int)Math.Round(
-            GetRetainedFocusMaxSeconds(),
-            MidpointRounding.AwayFromZero);
-        int overloadActiveMoments = snapshots.Count(static s => s.OverloadActive || s.ActivationWindowOpen);
-        int suggestions = timeline.Interventions.Count(static ev => IsSuggestionEvent(ev.Action));
-        int changes = timeline.Interventions.Count(static ev => IsSystemChangeEvent(ev));
-
-        string rangeLabel = BuildHistoryRangeLabel(timeline, snapshots);
-        HistoryRangeSummaryText.Text = rangeLabel;
-        HistoryFocusSummaryText.Text = _historyRange == HistoryRange.AllTime
-            ? $"Now {FormatFocusedTime(latest.SustainedAttentionDurationSec)} | Best retained {FormatFocusedTime(retainedBestFocusSeconds)}"
-            : $"Now {FormatFocusedTime(latest.SustainedAttentionDurationSec)} | Range best {FormatFocusedTime(rangeBestFocusSeconds)} | Retained best {FormatFocusedTime(retainedBestFocusSeconds)}";
-        HistoryOverloadSummaryText.Text = $"Now {(latest.OverloadLikelihood * 100d):F0}% | Peak {(peakOverload * 100d):F0}%";
-        HistoryTrustSummaryText.Text = $"Confidence {(latest.Confidence * 100d):F0}% | Avg {(averageTrust * 100d):F0}%";
-        HistoryActionsSummaryText.Text = $"{suggestions} suggestions | {changes} changes | {overloadActiveMoments} active moments";
+        HistoryRangeSummaryText.Text = BuildHistoryFocusedSummary(insights);
+        HistoryFocusSummaryText.Text = $"Longest focus block {FormatReadableDuration(insights.LongestFocusBlockSeconds)}";
+        HistoryOverloadSummaryText.Text = $"Distraction time {FormatReadableDuration(insights.DistractionSeconds)}";
+        HistoryTrustSummaryText.Text = insights.MostDistractedPeriodLabel == NotAvailableText
+            ? $"Viewing {_historyRange switch
+            {
+                HistoryRange.Last1Hour => "the last hour",
+                HistoryRange.Last4Hours => "the last 4 hours",
+                HistoryRange.Today => "today",
+                HistoryRange.AllTime => "retained history",
+                _ => "this range"
+            }}"
+            : $"Most distractions happened in the {insights.MostDistractedPeriodLabel}";
+        HistoryActionsSummaryText.Text = BuildHistoryActionsSummary(insights);
         HistoryGuideText.Text = _historyExplainMode
-            ? "Technical view is on. Click any point or action marker to inspect the raw explanation for that moment."
-            : "Click any point or action marker to inspect one exact moment in plain language.";
+            ? "Advanced is on. Click any point or action marker to inspect the raw explanation and decision details for that moment."
+            : "Read left to right. Click any point or action marker to inspect that moment in plain language.";
     }
 
     private static IReadOnlyList<LocalApiCurrentSnapshotResponse> DownsampleSnapshots(
@@ -5703,18 +5697,18 @@ public partial class MainWindow : Window
     {
         if (timeline == null)
         {
-            return "Oldest on the left, newest on the right";
+            return "Time runs left to right";
         }
 
         return _historyRange switch
         {
-            HistoryRange.Last1Hour => "Last hour, left to right",
-            HistoryRange.Last4Hours => "Last 4 hours, left to right",
+            HistoryRange.Last1Hour => "Last hour, earlier on the left and now on the right",
+            HistoryRange.Last4Hours => "Last 4 hours, earlier on the left and now on the right",
             HistoryRange.Today => $"Today from {timeline.FromUtc.ToLocalTime():HH:mm} to {timeline.ToUtc.ToLocalTime():HH:mm}",
             HistoryRange.AllTime => _retention == null
-                ? "Retained history, oldest on the left"
-                : $"Retained history ({_retention.RetentionDays} days), oldest on the left",
-            _ => "Oldest on the left, newest on the right"
+                ? "Retained history, oldest on the left and newest on the right"
+                : $"Retained {_retention.RetentionDays} days, oldest on the left and newest on the right",
+            _ => "Time runs left to right"
         };
     }
 
@@ -5751,6 +5745,32 @@ public partial class MainWindow : Window
         return $"{first.TimestampUtc.ToLocalTime():HH:mm} to {latest.TimestampUtc.ToLocalTime():HH:mm}";
     }
 
+    private string BuildHistoryFocusedSummary(HistoryPageInsights insights)
+    {
+        string focusedDuration = FormatReadableDuration(insights.FocusedSeconds);
+        return _historyRange switch
+        {
+            HistoryRange.Last1Hour => $"You focused {focusedDuration} in the last hour",
+            HistoryRange.Last4Hours => $"You focused {focusedDuration} in the last 4 hours",
+            HistoryRange.Today => $"You focused {focusedDuration} today",
+            HistoryRange.AllTime => $"You focused {focusedDuration} in retained history",
+            _ => $"You focused {focusedDuration}"
+        };
+    }
+
+    private static string BuildHistoryActionsSummary(HistoryPageInsights insights)
+    {
+        if (insights.ActionMarkerCount == 0)
+        {
+            return "No action markers in this range yet.";
+        }
+
+        string markerLabel = insights.ActionMarkerCount == 1 ? "action marker" : "action markers";
+        string suggestionLabel = insights.SuggestionCount == 1 ? "suggestion" : "suggestions";
+        string changeLabel = insights.ChangeCount == 1 ? "change" : "changes";
+        return $"{insights.ActionMarkerCount} {markerLabel} | {insights.SuggestionCount} {suggestionLabel} | {insights.ChangeCount} {changeLabel}";
+    }
+
     private string BuildHistorySliceTooltip(LocalApiCurrentSnapshotResponse snapshot, double focusPercent)
     {
         string time = snapshot.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
@@ -5759,7 +5779,7 @@ public partial class MainWindow : Window
             return $"{time}{Environment.NewLine}focus_norm={focusPercent:F1}%{Environment.NewLine}overload={(snapshot.OverloadLikelihood * 100d):F1}%{Environment.NewLine}trust={(snapshot.Confidence * 100d):F1}%";
         }
 
-        return $"{time}{Environment.NewLine}Current focus session {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}{Environment.NewLine}Overload {(snapshot.OverloadLikelihood * 100d):F0}%{Environment.NewLine}Confidence {(snapshot.Confidence * 100d):F0}%";
+        return $"{time}{Environment.NewLine}Focus block {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}{Environment.NewLine}Pressure {(snapshot.OverloadLikelihood * 100d):F0}%{Environment.NewLine}Confidence {(snapshot.Confidence * 100d):F0}%";
     }
 
     private UIElement BuildTrackPoint(
@@ -5853,9 +5873,9 @@ public partial class MainWindow : Window
 
         return label switch
         {
-            "Overload" => $"{time} | Overload was {(Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d) * 100d):F0}%.",
+            "Overload" => $"{time} | Pressure was {(Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d) * 100d):F0}%.",
             "Confidence" => $"{time} | Confidence was {(Math.Clamp(snapshot.Confidence, 0d, 1d) * 100d):F0}%.",
-            "Current focus session" => $"{time} | Current focus session was {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}.",
+            "Current focus session" => $"{time} | Focus block was {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}.",
             _ => $"{time} | Value: {normalizedValue:F2}"
         };
     }
@@ -5887,11 +5907,11 @@ public partial class MainWindow : Window
         if (snapshot == null && intervention == null)
         {
             TimelineDetailTimestamp.Text = $"Timestamp: {NotAvailableText}";
-            TimelineDetailOverload.Text = $"Overload: {NotAvailableText}";
+            TimelineDetailOverload.Text = $"Pressure: {NotAvailableText}";
             TimelineDetailTrust.Text = $"Confidence: {NotAvailableText}";
-            TimelineDetailFocus.Text = $"Focus streak: {NotAvailableText}";
-            TimelineDetailClassification.Text = $"Moment type: {NotAvailableText}";
-            TimelineDetailExecution.Text = $"Decision / execution: {NotAvailableText}";
+            TimelineDetailFocus.Text = $"Focus block: {NotAvailableText}";
+            TimelineDetailClassification.Text = $"Moment: {NotAvailableText}";
+            TimelineDetailExecution.Text = $"Action at this moment: {NotAvailableText}";
             TimelineDetailWhyHeader.Text = $"Why: {NotAvailableText}";
             TimelineDetailWhyFiv.Text = $"Clarity/Pressure/Jitter: {NotAvailableText}";
             TimelineDetailWhyReasons.Text = $"Top reasons: {NotAvailableText}";
@@ -5910,11 +5930,17 @@ public partial class MainWindow : Window
                 && explain.Pressure.HasValue
                 && explain.Jitter.HasValue;
             TimelineDetailTimestamp.Text = $"Timestamp: {snapshot.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
-            TimelineDetailOverload.Text = $"Overload: {(snapshot.OverloadLikelihood * 100d):F0}% | Active: {(overloadActive ? "Yes" : "No")}";
+            TimelineDetailOverload.Text = _historyExplainMode
+                ? $"Overload: {(snapshot.OverloadLikelihood * 100d):F0}% | Active: {(overloadActive ? "Yes" : "No")}"
+                : $"Pressure at this moment: {(snapshot.OverloadLikelihood * 100d):F0}%";
             TimelineDetailTrust.Text = $"Confidence: {(snapshot.Confidence * 100d):F0}%";
-            TimelineDetailFocus.Text = $"Focus streak: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
-            TimelineDetailClassification.Text = "Moment type: Activity snapshot";
-            TimelineDetailExecution.Text = "Decision / execution: No direct action at this exact moment. Click an action marker to inspect a suggestion or change.";
+            TimelineDetailFocus.Text = $"Focus block: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
+            TimelineDetailClassification.Text = _historyExplainMode
+                ? "Moment type: Activity snapshot"
+                : "Moment: Activity snapshot";
+            TimelineDetailExecution.Text = _historyExplainMode
+                ? "Decision / execution: No direct action at this exact moment. Click an action marker to inspect a suggestion or change."
+                : "Action at this moment: No direct action here. Click an action marker to inspect a suggestion or change.";
             TimelineDetailWhyHeader.Text = _historyExplainMode
                 ? "Why? (Detailed)"
                 : "Why?";
@@ -5932,11 +5958,17 @@ public partial class MainWindow : Window
         }
 
         TimelineDetailTimestamp.Text = $"Timestamp: {intervention!.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
-        TimelineDetailOverload.Text = $"Action trigger: {intervention.TriggerState}={intervention.TriggerValue:F2}";
+        TimelineDetailOverload.Text = _historyExplainMode
+            ? $"Action trigger: {intervention.TriggerState}={intervention.TriggerValue:F2}"
+            : $"Trigger at this moment: {intervention.TriggerState}={intervention.TriggerValue:F2}";
         TimelineDetailTrust.Text = $"Confidence: {(intervention.Confidence * 100d):F0}%";
-        TimelineDetailFocus.Text = $"Focus streak: {NotAvailableText} (event marker)";
-        TimelineDetailClassification.Text = $"Moment type: {BuildActionClassificationText(intervention)}";
-        TimelineDetailExecution.Text = $"{BuildDecisionStateText(intervention)}{Environment.NewLine}{BuildExecutionStateText(intervention)}";
+        TimelineDetailFocus.Text = $"Focus block: {NotAvailableText} (action marker)";
+        TimelineDetailClassification.Text = _historyExplainMode
+            ? $"Moment type: {BuildActionClassificationText(intervention)}"
+            : $"Action type: {BuildActionClassificationText(intervention)}";
+        TimelineDetailExecution.Text = _historyExplainMode
+            ? $"{BuildDecisionStateText(intervention)}{Environment.NewLine}{BuildExecutionStateText(intervention)}"
+            : $"{BuildDecisionStateText(intervention)}{Environment.NewLine}{BuildExecutionStateText(intervention)}";
         TimelineDetailWhyHeader.Text = _historyExplainMode
             ? "Why? (Detailed)"
             : "Why?";
