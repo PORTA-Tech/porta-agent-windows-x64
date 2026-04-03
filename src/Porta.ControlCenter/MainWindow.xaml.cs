@@ -563,7 +563,7 @@ public partial class MainWindow : Window
             UpdateStateTruthCards(null, null, statusFresh: false, snapshotFresh: false);
             UpdateActionTruthCards([], null, null, statusFresh: false);
             PopulateOverview(nowTruth, _latestLiveSession, null, [], previousSnapshot);
-            PopulateInputs(null, null, null);
+            PopulateInputs(null, null, null, null, null);
             PopulateInterventions([], null);
             PopulateSettings(null);
             PopulateStates(null, _latestLiveSession);
@@ -627,7 +627,7 @@ public partial class MainWindow : Window
         UpdateActionTruthCards(_allRecentEvents, _latestStatus, truthSnapshot, statusFresh);
 
         PopulateOverview(nowTruth, _latestLiveSession, inputSummary, _recentEvents, previousSnapshot);
-        PopulateInputs(inputSummary, _retention, truthSnapshot);
+        PopulateInputs(inputSummary, _retention, truthSnapshot, _latestStatus, _effectiveSettings);
         PopulateInterventions(_allRecentEvents, _effectiveSettings);
         PopulateSettings(_effectiveSettings);
         PopulateStates(truthSnapshot, _latestLiveSession);
@@ -3884,66 +3884,36 @@ public partial class MainWindow : Window
     private void PopulateInputs(
         LocalApiInputsSummaryResponse? inputsSummary,
         LocalApiRetentionResponse? retention,
-        LocalApiCurrentSnapshotResponse? snapshot)
+        LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiStatusResponse? status,
+        LocalApiSettingsResponse? settings)
     {
-        if (inputsSummary == null)
-        {
-            LiveKeyboardMeter.Value = 0;
-            LiveMouseMeter.Value = 0;
-            LiveSwitchMeter.Value = 0;
-            LiveIdleMeter.Value = 0;
-            LiveKeyboardValue.Text = NotAvailableText;
-            LiveMouseValue.Text = NotAvailableText;
-            LiveSwitchValue.Text = NotAvailableText;
-            LiveIdleValue.Text = NotAvailableText;
-        }
-        else
-        {
-            double keyboardNorm = Math.Clamp(inputsSummary.TypingBurstIntensity, 0d, 1d);
-            double mouseNorm = Math.Clamp(inputsSummary.ScrollVelocityIndex, 0d, 1d);
-            double switchesNorm = Math.Clamp(inputsSummary.FocusSwitchRate, 0d, 1d);
-            double idleNorm = Math.Clamp(inputsSummary.IdleFragmentationIndex, 0d, 1d);
-            double idleSeconds = Math.Clamp(idleNorm * inputsSummary.WindowSeconds, 0d, inputsSummary.WindowSeconds);
+        TrackingPagePresentation presentation = TrackingPagePresentationBuilder.Build(
+            status,
+            settings,
+            snapshot,
+            inputsSummary,
+            retention);
 
-            LiveKeyboardMeter.Value = keyboardNorm * 100d;
-            LiveMouseMeter.Value = mouseNorm * 100d;
-            LiveSwitchMeter.Value = switchesNorm * 100d;
-            LiveIdleMeter.Value = idleNorm * 100d;
-
-            LiveKeyboardValue.Text = $"{LiveKeyboardMeter.Value:F0}%";
-            LiveMouseValue.Text = $"{LiveMouseMeter.Value:F0}%";
-            LiveSwitchValue.Text = $"{LiveSwitchMeter.Value:F0}%";
-            LiveIdleValue.Text = $"{idleSeconds:F0}s";
-        }
-
-        if (snapshot == null)
-        {
-            LiveQualityValue.Text = $"Tracking quality: {NotAvailableText}";
-            LivePartialValue.Text = $"Partial data: {NotAvailableText}";
-            LiveMissingChannelsValue.Text = $"Missing: {NotAvailableText}";
-        }
-        else
-        {
-            LiveQualityValue.Text = snapshot.CurrentQualityScore.HasValue
-                ? $"Tracking quality: {snapshot.CurrentQualityScore.Value:F2}"
-                : $"Tracking quality: {NotAvailableText}";
-            LivePartialValue.Text = snapshot.PartialData.HasValue
-                ? $"Partial data: {(snapshot.PartialData.Value ? "Yes" : "No")}"
-                : $"Partial data: {NotAvailableText}";
-            LiveMissingChannelsValue.Text = snapshot.MissingMajorChannels is { Count: > 0 }
-                ? $"Missing: {string.Join(" / ", snapshot.MissingMajorChannels)}"
-                : "Missing: None";
-        }
+        TrackingCollectionSummaryText.Text = presentation.CollectionSummary;
+        TrackingQualityHeadlineText.Text = presentation.QualityHeadline;
+        TrackingQualitySummaryText.Text = presentation.QualitySummary;
+        TrackingQualityHelpText.Text = presentation.QualityHelp;
+        TrackingConsentValue.Text = presentation.ConsentSummary;
+        TrackingPrivacyValue.Text = presentation.PrivacySummary;
+        TrackingControlsValue.Text = presentation.ControlsSummary;
+        TrackingPauseResumeButton.Content = presentation.PauseResumeLabel;
+        TrackingPauseResumeButton.IsEnabled = presentation.PauseResumeEnabled;
 
         if (retention == null)
         {
-            RetentionWindowValue.Text = $"Retention window: {NotAvailableText}";
-            RetentionSizeValue.Text = $"Local data size: {NotAvailableText}";
+            RetentionWindowValue.Text = "Stored on this device: Not available";
+            RetentionSizeValue.Text = "Local storage used: Not available";
             return;
         }
 
-        RetentionWindowValue.Text = $"Retention window: {retention.RetentionDays} days";
-        RetentionSizeValue.Text = $"Local data size: {FormatBytes(retention.TotalBytes)} (db {FormatBytes(retention.DatabaseBytes)}, logs {FormatBytes(retention.LogBytes)})";
+        RetentionWindowValue.Text = $"Stored on this device for {retention.RetentionDays} days";
+        RetentionSizeValue.Text = $"Local storage used: {FormatBytes(retention.TotalBytes)}";
     }
 
     private void PopulateInterventions(IReadOnlyList<LocalApiEventResponse> events, LocalApiSettingsResponse? settings)
