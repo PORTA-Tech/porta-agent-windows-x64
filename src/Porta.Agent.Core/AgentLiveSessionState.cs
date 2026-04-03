@@ -10,7 +10,10 @@ public sealed record AgentLiveSessionSignalPacket(
     bool MouseActive,
     double IdleSeconds,
     string? FocusAppHash,
-    DateTimeOffset? FocusStartedAtUtc = null);
+    DateTimeOffset? FocusStartedAtUtc = null,
+    long? HeartbeatSequence = null,
+    DateTimeOffset? HeartbeatUpdatedAtUtc = null,
+    string? HeartbeatCaptureContext = null);
 
 public sealed record AgentLiveSessionState(
     DateTimeOffset? UpdatedAtUtc,

@@ -429,7 +429,10 @@ public sealed record LocalApiLiveSessionStateRequest(
     bool MouseActive,
     double IdleSeconds,
     string? FocusAppHash,
-    DateTimeOffset? FocusStartedAtUtc = null);
+    DateTimeOffset? FocusStartedAtUtc = null,
+    long? HeartbeatSequence = null,
+    DateTimeOffset? HeartbeatUpdatedAtUtc = null,
+    string? HeartbeatCaptureContext = null);
 
 public sealed record LocalApiLiveSessionStateResponse(
     DateTimeOffset? UpdatedAtUtc,
@@ -772,7 +775,10 @@ public sealed record LocalApiInputSignalsRequest(
     [property: JsonPropertyName("micro_idle_seconds")] double? MicroIdleSeconds = null,
     [property: JsonPropertyName("break_seconds_within_window")] double? BreakSecondsWithinWindow = null,
     [property: JsonPropertyName("short_idle_boundary_observed")] bool ShortIdleBoundaryObserved = false,
-    [property: JsonPropertyName("notification_toasts_enabled")] bool? NotificationToastsEnabled = null);
+    [property: JsonPropertyName("notification_toasts_enabled")] bool? NotificationToastsEnabled = null,
+    [property: JsonPropertyName("heartbeat_sequence")] long? HeartbeatSequence = null,
+    [property: JsonPropertyName("heartbeat_updated_at_utc")] DateTimeOffset? HeartbeatUpdatedAtUtc = null,
+    [property: JsonPropertyName("heartbeat_capture_context")] string? HeartbeatCaptureContext = null);
 
 public sealed record LocalApiAckResponse(
     bool Success,

@@ -41,4 +41,7 @@ public sealed record InputSignalsPacket(
     double? MicroIdleSeconds = null,
     double? BreakSecondsWithinWindow = null,
     bool ShortIdleBoundaryObserved = false,
-    bool? NotificationToastsEnabled = null);
+    bool? NotificationToastsEnabled = null,
+    long? HeartbeatSequence = null,
+    DateTimeOffset? HeartbeatUpdatedAtUtc = null,
+    string? HeartbeatCaptureContext = null);

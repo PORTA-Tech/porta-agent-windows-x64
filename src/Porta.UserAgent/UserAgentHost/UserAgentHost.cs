@@ -64,12 +64,14 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private int _sessionId;
     private string _captureContext = UserAgentCaptureContexts.Unknown;
     private readonly string _binaryVersion = ResolveBinaryVersion();
+    private long _heartbeatSequence;
     private DateTimeOffset? _lastLiveKeyboardUtc;
     private DateTimeOffset? _lastLiveMouseUtc;
     private DateTimeOffset? _lastLiveInputUtc;
     private string? _lastLiveFocusAppHash;
     private double _lastLiveIdleSeconds;
     private DateTimeOffset? _liveFocusStartedUtc;
+    private UserAgentSessionContextSnapshot? _lastPublishedSessionContext;
 
     public UserAgentHost(
         ILogger<UserAgentHost> logger,
@@ -359,6 +361,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         UserSessionIdleTelemetrySummary idle = snapshot.BuildIdleSummary(windowStartUtc, windowEndUtc, fallbackIdleSeconds);
         bool? notificationToastsEnabled = ReadNotificationToastsEnabled();
 
+        UserAgentSessionContextSnapshot heartbeatSnapshot = PublishSessionContext();
+
         var request = new LocalApiInputSignalsRequest(
             SchemaVer: 2,
             AgentInstanceId: _agentInstanceId,
@@ -400,7 +404,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             MicroIdleSeconds: idle.MicroIdleSeconds,
             BreakSecondsWithinWindow: idle.BreakSecondsWithinWindow,
             ShortIdleBoundaryObserved: idle.ShortIdleBoundaryObserved,
-            NotificationToastsEnabled: notificationToastsEnabled);
+            NotificationToastsEnabled: notificationToastsEnabled,
+            HeartbeatSequence: heartbeatSnapshot.HeartbeatSequence,
+            HeartbeatUpdatedAtUtc: heartbeatSnapshot.UpdatedAtUtc,
+            HeartbeatCaptureContext: heartbeatSnapshot.CaptureContext);
 
         if (!_localApiClient.IsConfigured)
         {
@@ -492,9 +499,29 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             response?.Message ?? "null");
     }
 
-    private void PublishSessionContext()
+    private UserAgentSessionContextSnapshot PublishSessionContext()
     {
         bool widgetHealthyForHeartbeat = true;
+        int heartbeatWriteFailureCount = _heartbeatWriteFailureCount;
+        CaptureSelfTestHeartbeatProjection selfTest = _captureSelfTest.GetHeartbeatProjection();
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        long heartbeatSequence = Interlocked.Increment(ref _heartbeatSequence);
+        UserAgentSessionContextSnapshot snapshot = new(
+            SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+            CaptureContext: _captureContext,
+            ProcessId: Environment.ProcessId,
+            SessionId: _sessionId,
+            UpdatedAtUtc: nowUtc,
+            AgentInstanceId: _agentInstanceId,
+            BinaryVersion: _binaryVersion,
+            StartupSource: _startupMetadata.Source,
+            LaunchReason: _startupMetadata.EffectiveLaunchReason,
+            HeartbeatSequence: heartbeatSequence,
+            HeartbeatWriteFailureCount: heartbeatWriteFailureCount,
+            DesktopWidgetReady: widgetHealthyForHeartbeat,
+            CaptureSelfTestState: selfTest.State,
+            CaptureSelfTestErrorCode: selfTest.ErrorCode,
+            CaptureSelfTestRemediationCount: selfTest.RemediationCount);
 
         try
         {
@@ -509,25 +536,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 _logger.LogError(ex, "Failed to read desktop widget heartbeat state.");
             }
 
-            int heartbeatWriteFailureCount = _heartbeatWriteFailureCount;
-            CaptureSelfTestHeartbeatProjection selfTest = _captureSelfTest.GetHeartbeatProjection();
-            _sessionContextStore.WriteCurrent(new UserAgentSessionContextSnapshot(
-                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
-                CaptureContext: _captureContext,
-                ProcessId: Environment.ProcessId,
-                SessionId: _sessionId,
-                UpdatedAtUtc: DateTimeOffset.UtcNow,
-                AgentInstanceId: _agentInstanceId,
-                BinaryVersion: _binaryVersion,
-                StartupSource: _startupMetadata.Source,
-                LaunchReason: _startupMetadata.EffectiveLaunchReason,
-                HeartbeatWriteFailureCount: heartbeatWriteFailureCount,
-                DesktopWidgetReady: widgetHealthyForHeartbeat,
-                CaptureSelfTestState: selfTest.State,
-                CaptureSelfTestErrorCode: selfTest.ErrorCode,
-                CaptureSelfTestRemediationCount: selfTest.RemediationCount));
+            snapshot = snapshot with { DesktopWidgetReady = widgetHealthyForHeartbeat };
+            _lastPublishedSessionContext = snapshot;
+            _sessionContextStore.WriteCurrent(snapshot);
 
-            _captureSelfTest.RecordHeartbeatPublished(DateTimeOffset.UtcNow);
+            _captureSelfTest.RecordHeartbeatPublished(snapshot.UpdatedAtUtc);
 
             if (!_heartbeatReadyLogged)
             {
@@ -546,6 +559,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         catch (Exception ex)
         {
             _heartbeatWriteFailureCount++;
+            _lastPublishedSessionContext = snapshot;
             if (ShouldLogHeartbeatWriteFailure(_heartbeatWriteFailureCount))
             {
                 UserAgentFileLog.Error(
@@ -554,6 +568,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             }
             _logger.LogError(ex, "Failed to publish user-session capture context heartbeat.");
         }
+
+        return snapshot;
     }
 
     private void MaintainWidgetSurface()
@@ -713,6 +729,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         }
 
         LiveSessionSignalSnapshot snapshot = CaptureLiveSessionSignalSnapshot(nowUtc);
+        UserAgentSessionContextSnapshot heartbeatSnapshot = _lastPublishedSessionContext ?? PublishSessionContext();
         LocalApiAckResponse? ack = await _localApiClient.SendLiveSessionStateAsync(
             new LocalApiLiveSessionStateRequest(
                 SchemaVer: 1,
@@ -725,7 +742,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 MouseActive: snapshot.MouseActive,
                 IdleSeconds: snapshot.IdleSeconds,
                 FocusAppHash: snapshot.FocusAppHash,
-                FocusStartedAtUtc: snapshot.FocusStartedAtUtc),
+                FocusStartedAtUtc: snapshot.FocusStartedAtUtc,
+                HeartbeatSequence: heartbeatSnapshot.HeartbeatSequence,
+                HeartbeatUpdatedAtUtc: heartbeatSnapshot.UpdatedAtUtc,
+                HeartbeatCaptureContext: heartbeatSnapshot.CaptureContext),
             token).ConfigureAwait(false);
 
         if (ack?.Success != true)

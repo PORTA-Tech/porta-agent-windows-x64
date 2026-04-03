@@ -823,7 +823,13 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             TryAutoResumeLocked();
-            ValidateInputSignalSourceLocked(nowUtc, agentInstanceId, sessionId);
+            ValidateInputSignalSourceLocked(
+                nowUtc,
+                agentInstanceId,
+                sessionId,
+                packet.HeartbeatSequence,
+                packet.HeartbeatUpdatedAtUtc,
+                packet.HeartbeatCaptureContext);
             _lastLiveSessionState = new AgentLiveSessionState(
                 UpdatedAtUtc: updatedAtUtc,
                 SessionStartedAtUtc: sessionStartedAtUtc,
@@ -952,7 +958,13 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             TryAutoResumeLocked();
-            ValidateInputSignalSourceLocked(nowUtc, agentInstanceId, sessionId);
+            ValidateInputSignalSourceLocked(
+                nowUtc,
+                agentInstanceId,
+                sessionId,
+                packet.HeartbeatSequence,
+                packet.HeartbeatUpdatedAtUtc,
+                packet.HeartbeatCaptureContext);
             _lastInputAgentInstanceId = agentInstanceId;
             _lastInputSessionId = sessionId;
             _lastInputEventUtc = packet.LastInputEventUtc?.ToUniversalTime() ?? fallbackEventUtc;
@@ -1018,7 +1030,10 @@ public sealed class AgentCoreController : IAgentCoreController
                 MicroIdleSeconds: microIdleSeconds,
                 BreakSecondsWithinWindow: breakSecondsWithinWindow,
                 ShortIdleBoundaryObserved: packet.ShortIdleBoundaryObserved,
-                NotificationToastsEnabled: packet.NotificationToastsEnabled);
+                NotificationToastsEnabled: packet.NotificationToastsEnabled,
+                HeartbeatSequence: packet.HeartbeatSequence,
+                HeartbeatUpdatedAtUtc: packet.HeartbeatUpdatedAtUtc?.ToUniversalTime(),
+                HeartbeatCaptureContext: packet.HeartbeatCaptureContext);
         }
 
         _inputSignalsIngress.IngestInputSignals(normalizedPacket);
@@ -2638,8 +2653,23 @@ public sealed class AgentCoreController : IAgentCoreController
     private void ValidateInputSignalSourceLocked(
         DateTimeOffset nowUtc,
         string agentInstanceId,
-        string sessionId)
+        string sessionId,
+        long? heartbeatSequence = null,
+        DateTimeOffset? heartbeatUpdatedAtUtc = null,
+        string? heartbeatCaptureContext = null)
     {
+        if (HasRequestBoundHeartbeatProof(heartbeatSequence, heartbeatUpdatedAtUtc, heartbeatCaptureContext))
+        {
+            ValidateRequestBoundHeartbeatProofLocked(
+                nowUtc,
+                heartbeatSequence!.Value,
+                heartbeatUpdatedAtUtc!.Value,
+                heartbeatCaptureContext!,
+                agentInstanceId,
+                sessionId);
+            return;
+        }
+
         UserAgentSessionContextSnapshot? sessionContext = ReadFreshUserAgentSessionContextLocked(nowUtc);
         if (sessionContext is null)
         {
@@ -2660,6 +2690,53 @@ public sealed class AgentCoreController : IAgentCoreController
 
         string heartbeatSessionId = BuildSessionOwnerId(sessionContext.SessionId);
         if (!string.Equals(heartbeatSessionId, sessionId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(InputSignalsSourceSessionMismatch);
+        }
+    }
+
+    private static bool HasRequestBoundHeartbeatProof(
+        long? heartbeatSequence,
+        DateTimeOffset? heartbeatUpdatedAtUtc,
+        string? heartbeatCaptureContext)
+    {
+        return heartbeatSequence.HasValue
+            && heartbeatSequence.Value > 0
+            && heartbeatUpdatedAtUtc.HasValue
+            && !string.IsNullOrWhiteSpace(heartbeatCaptureContext);
+    }
+
+    private void ValidateRequestBoundHeartbeatProofLocked(
+        DateTimeOffset nowUtc,
+        long heartbeatSequence,
+        DateTimeOffset heartbeatUpdatedAtUtc,
+        string heartbeatCaptureContext,
+        string agentInstanceId,
+        string sessionId)
+    {
+        if (heartbeatSequence <= 0)
+        {
+            throw new InvalidOperationException(InputSignalsSourceHeartbeatMissing);
+        }
+
+        DateTimeOffset updatedAtUtc = heartbeatUpdatedAtUtc.ToUniversalTime();
+        if (updatedAtUtc > nowUtc || nowUtc - updatedAtUtc > CaptureContextFreshnessWindow)
+        {
+            throw new InvalidOperationException(InputSignalsSourceHeartbeatMissing);
+        }
+
+        string captureContext = NormalizeCaptureContext(heartbeatCaptureContext);
+        if (!IsCaptureContextValid(captureContext))
+        {
+            throw new InvalidOperationException(InputSignalsSourceInvalidContext);
+        }
+
+        if (!IsValidIdentifier(agentInstanceId))
+        {
+            throw new InvalidOperationException(InputSignalsSourceAgentMismatch);
+        }
+
+        if (!IsValidIdentifier(sessionId))
         {
             throw new InvalidOperationException(InputSignalsSourceSessionMismatch);
         }

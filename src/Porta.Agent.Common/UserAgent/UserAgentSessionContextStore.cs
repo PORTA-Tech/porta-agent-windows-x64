@@ -20,6 +20,7 @@ public sealed record UserAgentSessionContextSnapshot(
     string? BinaryVersion = null,
     string? StartupSource = null,
     string? LaunchReason = null,
+    long? HeartbeatSequence = null,
     int? HeartbeatWriteFailureCount = null,
     bool? DesktopWidgetReady = null,
     string? CaptureSelfTestState = null,
@@ -76,6 +77,7 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
                 BinaryVersion = NormalizeIdentifier(snapshot.BinaryVersion),
                 StartupSource = NormalizeIdentifier(snapshot.StartupSource),
                 LaunchReason = NormalizeIdentifier(snapshot.LaunchReason),
+                HeartbeatSequence = NormalizeHeartbeatSequence(snapshot.HeartbeatSequence),
                 HeartbeatWriteFailureCount = NormalizeFailureCount(snapshot.HeartbeatWriteFailureCount),
                 DesktopWidgetReady = snapshot.DesktopWidgetReady,
                 CaptureSelfTestState = NormalizeSelfTestState(snapshot.CaptureSelfTestState),
@@ -107,6 +109,7 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
             BinaryVersion = NormalizeIdentifier(snapshot.BinaryVersion),
             StartupSource = NormalizeIdentifier(snapshot.StartupSource),
             LaunchReason = NormalizeIdentifier(snapshot.LaunchReason),
+            HeartbeatSequence = NormalizeHeartbeatSequence(snapshot.HeartbeatSequence),
             HeartbeatWriteFailureCount = NormalizeFailureCount(snapshot.HeartbeatWriteFailureCount),
             DesktopWidgetReady = snapshot.DesktopWidgetReady,
             CaptureSelfTestState = NormalizeSelfTestState(snapshot.CaptureSelfTestState),
@@ -183,6 +186,16 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
     private static int? NormalizeFailureCount(int? value)
     {
         if (!value.HasValue || value.Value < 0)
+        {
+            return null;
+        }
+
+        return value.Value;
+    }
+
+    private static long? NormalizeHeartbeatSequence(long? value)
+    {
+        if (!value.HasValue || value.Value <= 0)
         {
             return null;
         }

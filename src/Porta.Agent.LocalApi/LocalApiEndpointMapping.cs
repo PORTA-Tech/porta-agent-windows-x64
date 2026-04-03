@@ -259,7 +259,10 @@ public static class LocalApiEndpointMapping
                     MicroIdleSeconds: request.MicroIdleSeconds,
                     BreakSecondsWithinWindow: request.BreakSecondsWithinWindow,
                     ShortIdleBoundaryObserved: request.ShortIdleBoundaryObserved,
-                    NotificationToastsEnabled: request.NotificationToastsEnabled));
+                    NotificationToastsEnabled: request.NotificationToastsEnabled,
+                    HeartbeatSequence: request.HeartbeatSequence,
+                    HeartbeatUpdatedAtUtc: request.HeartbeatUpdatedAtUtc,
+                    HeartbeatCaptureContext: request.HeartbeatCaptureContext));
 
                 return Results.Ok(new LocalApiAckResponse(
                     Success: true,
@@ -340,7 +343,10 @@ public static class LocalApiEndpointMapping
                     MouseActive: request.MouseActive,
                     IdleSeconds: request.IdleSeconds,
                     FocusAppHash: string.IsNullOrWhiteSpace(focusAppHash) ? null : focusAppHash,
-                    FocusStartedAtUtc: request.FocusStartedAtUtc));
+                    FocusStartedAtUtc: request.FocusStartedAtUtc,
+                    HeartbeatSequence: request.HeartbeatSequence,
+                    HeartbeatUpdatedAtUtc: request.HeartbeatUpdatedAtUtc,
+                    HeartbeatCaptureContext: request.HeartbeatCaptureContext));
 
                 return Results.Ok(new LocalApiAckResponse(
                     Success: true,

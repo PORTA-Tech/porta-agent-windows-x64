@@ -267,6 +267,64 @@ public sealed class InputSignalsIngestTests
     }
 
     [Fact]
+    public void IngestInputSignals_AcceptsFreshRequestBoundHeartbeatProof_WithoutReadingSessionContextStore()
+    {
+        var store = new LocalApiContractFakeStore();
+        var controller = new AgentCoreController(store, new FakeUserAgentSessionContextStore(null));
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+
+        controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 2,
+            AgentInstanceId: "agent-1",
+            SessionId: "session-1",
+            WindowStartUtc: nowUtc.AddSeconds(-5),
+            WindowEndUtc: nowUtc,
+            KeyboardKeydownCount: 2,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0,
+            MouseMoveDy: 0,
+            FocusAppHash: null,
+            IdleSeconds: 0,
+            LastInputEventUtc: nowUtc,
+            HeartbeatSequence: 7,
+            HeartbeatUpdatedAtUtc: nowUtc.AddSeconds(-1),
+            HeartbeatCaptureContext: UserAgentCaptureContexts.UserSession));
+
+        InputSignalsPacket ingested = Assert.Single(store.IngestedInputSignals);
+        Assert.Equal(7, ingested.HeartbeatSequence);
+        Assert.Equal(UserAgentCaptureContexts.UserSession, ingested.HeartbeatCaptureContext);
+    }
+
+    [Fact]
+    public void IngestInputSignals_RejectsStaleRequestBoundHeartbeatProof()
+    {
+        var store = new LocalApiContractFakeStore();
+        var controller = new AgentCoreController(store, new FakeUserAgentSessionContextStore(null));
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+
+        InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() => controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 2,
+            AgentInstanceId: "agent-1",
+            SessionId: "session-1",
+            WindowStartUtc: nowUtc.AddSeconds(-5),
+            WindowEndUtc: nowUtc,
+            KeyboardKeydownCount: 1,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0,
+            MouseMoveDy: 0,
+            FocusAppHash: null,
+            IdleSeconds: 0,
+            LastInputEventUtc: nowUtc,
+            HeartbeatSequence: 8,
+            HeartbeatUpdatedAtUtc: nowUtc.AddMinutes(-1),
+            HeartbeatCaptureContext: UserAgentCaptureContexts.UserSession)));
+
+        Assert.Equal("input_signals_source_heartbeat_missing", ex.Message);
+    }
+
+    [Fact]
     public void IngestInputSignals_RejectsPacketsFromNonUserSessionHeartbeat()
     {
         var store = new LocalApiContractFakeStore();

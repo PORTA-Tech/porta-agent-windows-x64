@@ -84,6 +84,37 @@ public sealed class LiveSessionStateAcceptanceTests
         Assert.Null(state.FocusStartedAtUtc);
     }
 
+    [Fact]
+    public void LiveSessionState_AcceptsFreshRequestBoundHeartbeatProof_WithoutReadingSessionContextStore()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        var controller = new AgentCoreController(
+            new LocalApiContractFakeStore(),
+            new FakeUserAgentSessionContextStore(null));
+
+        controller.PublishLiveSessionState(new AgentLiveSessionSignalPacket(
+            AgentInstanceId: "agent-8",
+            SessionId: "session-8",
+            UpdatedAtUtc: nowUtc,
+            SessionStartedAtUtc: nowUtc.AddMinutes(-4),
+            LastInputEventUtc: nowUtc.AddMilliseconds(-500),
+            KeyboardActive: true,
+            MouseActive: false,
+            IdleSeconds: 0.4d,
+            FocusAppHash: "a1b2c3d4",
+            FocusStartedAtUtc: nowUtc.AddMinutes(-1),
+            HeartbeatSequence: 11,
+            HeartbeatUpdatedAtUtc: nowUtc.AddSeconds(-1),
+            HeartbeatCaptureContext: UserAgentCaptureContexts.UserSession));
+
+        AgentLiveSessionState state = controller.GetLiveSessionState();
+
+        Assert.Equal("fresh", state.Freshness);
+        Assert.True(state.KeyboardActive);
+        Assert.Equal("agent-8", state.AgentInstanceId);
+        Assert.Equal("session-8", state.SessionId);
+    }
+
     private sealed class FakeUserAgentSessionContextStore : IUserAgentSessionContextStore
     {
         private readonly UserAgentSessionContextSnapshot? _snapshot;
