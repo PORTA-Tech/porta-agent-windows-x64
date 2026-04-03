@@ -1,4 +1,5 @@
 using Porta.Agent.Common.Contracts;
+using Porta.Agent.Core;
 using Porta.Agent.LocalApi;
 
 namespace Porta.ControlCenter.Tests;
@@ -29,7 +30,8 @@ public sealed class TodayPageMetricsBuilderTests
         Assert.Equal(900d, metrics.BestFocusBlockSeconds, precision: 3);
         Assert.Equal(900d, metrics.TrackedTodaySeconds, precision: 3);
         Assert.Equal(46.666666666666664d, metrics.AverageFocusPercent, precision: 6);
-        Assert.Equal("08:00-08:59", metrics.MostDistractedHourLabel);
+        int localHour = baseUtc.ToLocalTime().Hour;
+        Assert.Equal($"{localHour:00}:00-{localHour:00}:59", metrics.MostDistractedHourLabel);
     }
 
     [Fact]

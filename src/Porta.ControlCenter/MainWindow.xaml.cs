@@ -1251,23 +1251,28 @@ public partial class MainWindow : Window
     {
         LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
         TodayPageMetrics todayMetrics = TodayPageMetricsBuilder.Build(_todayTimeline);
+        TodayTrackingState todayState = TodayPageCopyBuilder.ResolveTrackingState(_latestStatus, snapshot, liveSession);
+        string readableExplanation = TodayPageCopyBuilder.BuildReadableExplanation(todayState, nowTruth.Explanation);
         LocalApiEventResponse? latestActionEvent = recentEvents.FirstOrDefault();
         string currentStatusText = BuildCurrentStatusSentence(liveSession) ?? visualState.OperatingSentence;
 
         TodaySummaryText.Text = BuildTodaySummarySentence(
+            todayState,
             todayMetrics,
             visualState.CurrentFocusSessionSeconds,
-            nowTruth.Explanation);
+            readableExplanation);
 
         PopulateTodayFocusedCard(todayMetrics, snapshot, visualState);
         PopulateTodayCurrentFocusCard(snapshot, liveSession, visualState);
         PopulateTodayDistractionCard(todayMetrics);
         PopulateTodayStatusCard(
+            todayState,
             currentStatusText,
             BuildTodayNextStepText(snapshot, recentEvents),
             latestActionEvent,
-            visualState);
-        PopulateTodayRecoveryBanner(nowTruth, visualState);
+            visualState,
+            readableExplanation);
+        PopulateTodayRecoveryBanner(todayState, readableExplanation, visualState);
     }
 
     private void PopulateTodayFocusedCard(
@@ -1365,23 +1370,40 @@ public partial class MainWindow : Window
     }
 
     private void PopulateTodayStatusCard(
+        TodayTrackingState todayState,
         string currentStatusText,
         string nextStepText,
         LocalApiEventResponse? latestActionEvent,
-        PortaVisualState visualState)
+        PortaVisualState visualState,
+        string readableExplanation)
     {
-        NowDataQualityScoreText.Text = string.IsNullOrWhiteSpace(currentStatusText)
-            ? "Current status: Waiting for fresh tracking data."
-            : currentStatusText;
+        NowDataQualityScoreText.Text = TodayPageCopyBuilder.BuildStateLabel(todayState, _latestStatus?.PauseUntilUtc);
         NowDataQualityScoreText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
-        NowDataQualityPartialText.Text = nextStepText;
-        NowDataQualitySummaryText.Text = latestActionEvent == null
-            ? "Open Actions once Ari has a recommendation or recent change to show."
-            : $"Latest action: {ToActionTitle(latestActionEvent)}. Open Actions for details.";
+        NowDataQualityPartialText.Text = todayState switch
+        {
+            TodayTrackingState.StillTracking => string.IsNullOrWhiteSpace(currentStatusText)
+                ? "Ari is tracking normally."
+                : currentStatusText,
+            TodayTrackingState.TrackingLimited => readableExplanation,
+            TodayTrackingState.Paused => readableExplanation,
+            _ => readableExplanation
+        };
+        NowDataQualitySummaryText.Text = todayState switch
+        {
+            TodayTrackingState.StillTracking => latestActionEvent == null
+                ? $"{nextStepText}. Open Actions for more detail."
+                : $"Latest action: {ToActionTitle(latestActionEvent)}. Open Actions for details.",
+            TodayTrackingState.TrackingLimited => $"{nextStepText}. Open System if the page stays limited.",
+            TodayTrackingState.Paused => TodayPageCopyBuilder.BuildEmptyStateGuidance(todayState),
+            _ => TodayPageCopyBuilder.BuildEmptyStateGuidance(todayState)
+        };
         NowDataQualityMissingText.Visibility = Visibility.Collapsed;
     }
 
-    private void PopulateTodayRecoveryBanner(NowTruth nowTruth, PortaVisualState visualState)
+    private void PopulateTodayRecoveryBanner(
+        TodayTrackingState todayState,
+        string readableExplanation,
+        PortaVisualState visualState)
     {
         string? bannerText = null;
         long bannerEventId = 0;
@@ -1395,9 +1417,9 @@ public partial class MainWindow : Window
             bannerEventId = visualState.RecoveryEventId;
             allowDismiss = true;
         }
-        else if (!string.IsNullOrWhiteSpace(nowTruth.Explanation))
+        else if (todayState != TodayTrackingState.StillTracking && !string.IsNullOrWhiteSpace(readableExplanation))
         {
-            bannerText = nowTruth.Explanation;
+            bannerText = readableExplanation;
         }
 
         NowWaitingDataText.Visibility = Visibility.Collapsed;
@@ -1415,28 +1437,52 @@ public partial class MainWindow : Window
     }
 
     private string BuildTodaySummarySentence(
+        TodayTrackingState todayState,
         TodayPageMetrics todayMetrics,
         double? currentFocusSessionSeconds,
-        string? explanation)
+        string readableExplanation)
     {
+        if (todayState == TodayTrackingState.Paused)
+        {
+            return $"Paused. {readableExplanation}";
+        }
+
+        if (todayState == TodayTrackingState.Unavailable)
+        {
+            return $"Unavailable. {readableExplanation}";
+        }
+
+        if (todayState == TodayTrackingState.TrackingLimited)
+        {
+            if (todayMetrics.HasProcessedTimeline)
+            {
+                return $"Tracking limited. You have focused {FormatReadableDuration(todayMetrics.FocusedTodaySeconds)} today. {readableExplanation}";
+            }
+
+            if (currentFocusSessionSeconds.HasValue)
+            {
+                return $"Tracking limited. Ari still sees your current focus session. {readableExplanation}";
+            }
+
+            return $"Tracking limited. {readableExplanation}";
+        }
+
         if (todayMetrics.HasProcessedTimeline)
         {
             if (currentFocusSessionSeconds.HasValue)
             {
-                return $"You have focused {FormatReadableDuration(todayMetrics.FocusedTodaySeconds)} today, and your current focus session is {FormatReadableDuration(currentFocusSessionSeconds.Value)}.";
+                return $"Still tracking. You have focused {FormatReadableDuration(todayMetrics.FocusedTodaySeconds)} today, and your current focus session is {FormatReadableDuration(currentFocusSessionSeconds.Value)}.";
             }
 
-            return $"You have focused {FormatReadableDuration(todayMetrics.FocusedTodaySeconds)} today and spent about {FormatReadableDuration(todayMetrics.DistractionTodaySeconds)} away from steady focus.";
+            return $"Still tracking. You have focused {FormatReadableDuration(todayMetrics.FocusedTodaySeconds)} today and spent about {FormatReadableDuration(todayMetrics.DistractionTodaySeconds)} away from steady focus.";
         }
 
         if (currentFocusSessionSeconds.HasValue)
         {
-            return $"Ari is tracking your current focus session. Today's processed totals are still filling in.";
+            return "Still tracking. Ari sees your current focus session now, and today's totals are still filling in.";
         }
 
-        return string.IsNullOrWhiteSpace(explanation)
-            ? "Today's view will fill in once Ari has enough tracked time."
-            : "Today's view is waiting for fresh tracking data.";
+        return $"Still tracking. {TodayPageCopyBuilder.BuildEmptyStateGuidance(todayState)}";
     }
 
     private static string BuildTodayFocusedNowLabel(
@@ -1467,7 +1513,7 @@ public partial class MainWindow : Window
     {
         if (!IsLiveSessionFresh(liveSession))
         {
-            return "Live activity: waiting";
+            return "Live activity: waiting to reconnect";
         }
 
         if (liveSession!.idle)
@@ -1492,7 +1538,7 @@ public partial class MainWindow : Window
 
         if (snapshot is { analysis_ready: false })
         {
-            return "Today's processed history catches up after the next analyzed bucket arrives.";
+            return "Live focus updates first. Today's totals catch up after the next analyzed bucket arrives.";
         }
 
         if (IsLiveSessionFresh(liveSession) && liveSession!.idle)
@@ -2149,34 +2195,34 @@ public partial class MainWindow : Window
 
         if (liveSession!.idle)
         {
-            return $"Watching live session while you are idle ({FormatAgeLabel(liveSession.idle_seconds)}).";
+            return $"Idle right now ({FormatAgeLabel(liveSession.idle_seconds)}).";
         }
 
         if (liveSession.keyboard_active && liveSession.mouse_active)
         {
             return liveSession.focus_elapsed_seconds.HasValue
-                ? $"Watching live focus ({FormatAgeLabel(liveSession.focus_elapsed_seconds)}) with typing and mouse activity."
-                : "Watching live typing and mouse activity.";
+                ? $"Focused now for {FormatAgeLabel(liveSession.focus_elapsed_seconds)} with typing and mouse activity."
+                : "Typing and mouse activity detected right now.";
         }
 
         if (liveSession.keyboard_active)
         {
             return liveSession.focus_elapsed_seconds.HasValue
-                ? $"Watching live focus ({FormatAgeLabel(liveSession.focus_elapsed_seconds)}) with typing activity."
-                : "Watching live typing activity.";
+                ? $"Focused now for {FormatAgeLabel(liveSession.focus_elapsed_seconds)} with typing activity."
+                : "Typing activity detected right now.";
         }
 
         if (liveSession.mouse_active)
         {
-            return "Watching live mouse activity.";
+            return "Mouse activity detected right now.";
         }
 
         if (liveSession.user_active)
         {
-            return "Watching live session activity.";
+            return "Active right now.";
         }
 
-        return "Watching live session.";
+        return "Waiting for fresh live activity.";
     }
 
     private static string FormatHeartbeatLabel(DateTimeOffset? heartbeatUtc)
