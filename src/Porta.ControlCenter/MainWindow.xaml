@@ -773,7 +773,7 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="2.15*" /><ColumnDefinition Width="0.85*" /></Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,12,0">
                             <TextBlock Text="Actions" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock Text="Suggestions are ideas. Changes are the settings Ari actually changed for you." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                            <TextBlock Text="See what Ari recommended, what it changed, and why it mattered." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
 
                             <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
@@ -784,13 +784,13 @@
                                 </Grid.ColumnDefinitions>
                                 <Border Grid.Column="0" Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Suggestions" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Recommendations" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="SuggestionsCountText" Text="0" FontSize="20" FontWeight="SemiBold" Foreground="#DBEAFE" Margin="0,4,0,0" />
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="1" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Changes" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Recent actions" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="ChangesCountText" Text="0" FontSize="20" FontWeight="SemiBold" Foreground="#DCFCE7" Margin="0,4,0,0" />
                                     </StackPanel>
                                 </Border>
@@ -802,7 +802,7 @@
                                 </Border>
                                 <Border Grid.Column="3" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,0,0">
                                     <StackPanel>
-                                        <TextBlock Text="Last activity" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Latest activity" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="ActionsLastSeenText" Text="No recent actions" FontSize="13" FontWeight="SemiBold" Foreground="#E6E9ED" Margin="0,6,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
@@ -816,7 +816,7 @@
                                 <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,8,0">
                                     <StackPanel>
                                         <TextBlock Text="Recent timeline" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                        <TextBlock Text="Newest actions on the right. Hover any point to inspect the moment and reason." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                        <TextBlock Text="Newest activity on the right. Hover any point to see what Ari suggested or changed." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
                                         <TextBlock x:Name="ActionsTimelineEmptyText" Text="No recent actions yet." Foreground="#CBD5E1" Visibility="Collapsed" />
                                         <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                             <StackPanel x:Name="ActionsTimelineStripPanel" Orientation="Horizontal" />
@@ -904,16 +904,16 @@
                                 <CheckBox x:Name="InterventionAppRestrictionToggle" Content="Allow temporary app restriction (auto)" Click="InterventionCategoryToggle_Click" />
                             </StackPanel>
 
-                            <TextBlock Text="Pick a row to see the reason, timing, and what changed in plain language." Foreground="#94A3B8" Margin="0,0,0,8" TextWrapping="Wrap" />
+                            <TextBlock Text="Pick a row to see what Ari suggested or changed and why it mattered." Foreground="#94A3B8" Margin="0,0,0,8" TextWrapping="Wrap" />
                             <WrapPanel Margin="0,0,0,8">
-                                <Button x:Name="ActionsSuggestionsTabButton" Content="Suggestions" Padding="12,6" Margin="0,0,8,0" Click="ActionsSuggestionsTabButton_Click" />
-                                <Button x:Name="ActionsChangesTabButton" Content="Changes" Padding="12,6" Click="ActionsChangesTabButton_Click" />
+                                <Button x:Name="ActionsSuggestionsTabButton" Content="Recommendations" Padding="12,6" Margin="0,0,8,0" Click="ActionsSuggestionsTabButton_Click" />
+                                <Button x:Name="ActionsChangesTabButton" Content="Recent actions" Padding="12,6" Click="ActionsChangesTabButton_Click" />
                             </WrapPanel>
                             <Border Style="{StaticResource QuietHoverCardStyle}" Padding="10" Height="620">
                                 <Grid>
                                     <Grid x:Name="SuggestionsTabContent" Margin="4">
                                         <TextBlock x:Name="SuggestionsEmptyStateText"
-                                                   Text="No suggestions yet."
+                                                   Text="No recommendations yet."
                                                    Foreground="#CBD5E1"
                                                    FontWeight="SemiBold"
                                                    VerticalAlignment="Center"
@@ -1019,7 +1019,7 @@
                                     </Grid>
                                     <Grid x:Name="ChangesTabContent" Margin="4" Visibility="Collapsed">
                                         <TextBlock x:Name="ChangesEmptyStateText"
-                                                   Text="No system changes are enabled in this version."
+                                                   Text="No recent actions yet."
                                                    Foreground="#CBD5E1"
                                                    FontWeight="SemiBold"
                                                    VerticalAlignment="Center"
@@ -1075,16 +1075,11 @@
                                                                         <ColumnDefinition Width="Auto" />
                                                                     </Grid.ColumnDefinitions>
                                                                     <TextBlock Text="{Binding WhatChanged}" FontSize="14" FontWeight="SemiBold" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                                                    <Border Grid.Column="1" Background="#064E3B" CornerRadius="10" Padding="8,2" Margin="8,0,0,0">
-                                                                        <TextBlock Text="{Binding Undo}" Foreground="#D1FAE5" FontSize="11" />
+                                                                    <Border Grid.Column="1" Background="#151B23" BorderBrush="#2B3441" BorderThickness="1" CornerRadius="10" Padding="8,2" Margin="8,0,0,0">
+                                                                        <TextBlock Text="{Binding When}" Foreground="#CBD5E1" FontSize="11" />
                                                                     </Border>
                                                                 </Grid>
-                                                                <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,8" />
-                                                                <WrapPanel>
-                                                                    <Border Background="#151B23" BorderBrush="#2B3441" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                                                        <TextBlock Text="{Binding When}" Foreground="#94A3B8" FontSize="11" />
-                                                                    </Border>
-                                                                </WrapPanel>
+                                                                <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" />
                                                             </StackPanel>
                                                         </Grid>
                                                     </Border>
@@ -1142,19 +1137,19 @@
                                     </Style>
                                 </ScrollViewer.Resources>
                                 <StackPanel>
-                                    <TextBlock Text="Selected item" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="ActionDrawerTitle" Text="Choose one suggestion or change" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,10" />
+                                    <TextBlock Text="Selected action" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="ActionDrawerTitle" Text="Choose a recommendation or recent action" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,10" />
                                     <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,10">
                                         <StackPanel>
-                                            <TextBlock x:Name="ActionDrawerWhen" Text="When: Not available" Margin="0,0,0,6" Foreground="#CBD5E1" />
+                                            <TextBlock x:Name="ActionDrawerWhen" Text="When it happened: Not available" Margin="0,0,0,6" Foreground="#CBD5E1" />
                                             <TextBlock x:Name="ActionDrawerClassification" Text="Type: Not available" Margin="0,0,0,6" Foreground="#FDE68A" TextWrapping="Wrap" Visibility="Collapsed" />
                                             <TextBlock x:Name="ActionDrawerDecisionState" Text="Decision: Not available" Margin="0,0,0,6" Foreground="#93C5FD" TextWrapping="Wrap" Visibility="Collapsed" />
                                             <TextBlock x:Name="ActionDrawerExecutionState" Text="Execution: Not available" Margin="0,0,0,6" Foreground="#93C5FD" TextWrapping="Wrap" Visibility="Collapsed" />
                                             <TextBlock x:Name="ActionDrawerCooldown" Text="Cooldown remaining: Not available" Margin="0,0,0,6" Foreground="#CBD5E1" Visibility="Collapsed" />
-                                            <TextBlock x:Name="ActionDrawerUndo" Text="Undo: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#CBD5E1" />
-                                            <TextBlock x:Name="ActionDrawerShortWhy" Text="Why: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" />
+                                            <TextBlock x:Name="ActionDrawerUndo" Text="How to undo: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#CBD5E1" />
+                                            <TextBlock x:Name="ActionDrawerShortWhy" Text="Why it mattered: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" />
                                             <TextBlock x:Name="ActionDrawerRepeat" Text="" Foreground="#93C5FD" TextWrapping="Wrap" Margin="0,0,0,6" Visibility="Collapsed" />
-                                            <TextBlock x:Name="ActionDrawerWhatChanged" Text="What changed: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" />
+                                            <TextBlock x:Name="ActionDrawerWhatChanged" Text="What Ari recommended or changed: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#E2E8F0" />
                                         </StackPanel>
                                     </Border>
                                     <TextBlock Text="Raw details" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,4" Visibility="Collapsed" />

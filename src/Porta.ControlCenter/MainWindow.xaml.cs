@@ -3976,9 +3976,6 @@ public partial class MainWindow : Window
                 BuildSuggestionTitle(e.Action),
                 e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                 BuildSuggestionShortWhy(e),
-                BuildActionClassificationText(e),
-                BuildDecisionStateBadge(e),
-                BuildExecutionStateBadge(e),
                 e))
             .ToList();
 
@@ -3988,10 +3985,6 @@ public partial class MainWindow : Window
                 WhatChanged: string.IsNullOrWhiteSpace(e.WhatChanged) ? HumanizeActionName(e.Action) : e.WhatChanged,
                 When: e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                 Why: BuildChangeShortWhy(e),
-                Undo: BuildUndoBadge(e),
-                Classification: BuildActionClassificationText(e),
-                Decision: BuildDecisionStateBadge(e),
-                Execution: BuildExecutionStateBadge(e),
                 Source: e))
             .ToList();
 
@@ -3999,7 +3992,7 @@ public partial class MainWindow : Window
         ChangesListView.ItemsSource = changes;
         SuggestionsCountText.Text = suggestions.Count.ToString(CultureInfo.InvariantCulture);
         ChangesCountText.Text = changes.Count.ToString(CultureInfo.InvariantCulture);
-        PopulateActionsOverview(ordered, suggestions.Count, changes.Count);
+        PopulateActionsOverview(ordered);
 
         SuggestionsEmptyStateText.Visibility = suggestions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         SuggestionsListView.Visibility = suggestions.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -4024,10 +4017,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void PopulateActionsOverview(
-        IReadOnlyList<LocalApiEventResponse> ordered,
-        int suggestionCount,
-        int changeCount)
+    private void PopulateActionsOverview(IReadOnlyList<LocalApiEventResponse> ordered)
     {
         ActionsTotalCountText.Text = ordered.Count.ToString(CultureInfo.InvariantCulture);
         ActionsLastSeenText.Text = ordered.Count == 0
@@ -4131,7 +4121,10 @@ public partial class MainWindow : Window
 
     private static string BuildActionLastSeenText(LocalApiEventResponse ev)
     {
-        return $"{BuildActionTimelineTitle(ev)} · {BuildRelativeTimeLabel(ev.TimestampUtc)}";
+        return ActionsPageCopyBuilder.BuildLastSeenText(
+            isSuggestion: IsSuggestionEvent(ev.Action),
+            title: BuildActionTimelineTitle(ev),
+            relativeTimeText: BuildRelativeTimeLabel(ev.TimestampUtc));
     }
 
     private static string BuildActionTimelineTitle(LocalApiEventResponse ev)
@@ -4365,17 +4358,21 @@ public partial class MainWindow : Window
     {
         if (item == null)
         {
-            ActionDrawerTitle.Text = "Choose one suggestion or change";
-            ActionDrawerWhen.Text = "Timing: Pick a row on the left.";
+            ActionDrawerTitle.Text = ActionsPageCopyBuilder.BuildEmptyDrawerTitle();
+            ActionDrawerWhen.Text = ActionsPageCopyBuilder.BuildEmptyDrawerWhen();
             ActionDrawerClassification.Text = $"Type: {NotAvailableText}";
             ActionDrawerDecisionState.Text = $"Decision: {NotAvailableText}";
             ActionDrawerExecutionState.Text = $"Execution: {NotAvailableText}";
-            ActionDrawerShortWhy.Text = "Why it happened: Pick a row on the left to see the reason in plain language.";
+            ActionDrawerClassification.Visibility = Visibility.Collapsed;
+            ActionDrawerDecisionState.Visibility = Visibility.Collapsed;
+            ActionDrawerExecutionState.Visibility = Visibility.Collapsed;
+            ActionDrawerShortWhy.Text = ActionsPageCopyBuilder.BuildEmptyDrawerWhy();
             ActionDrawerCooldown.Text = $"Cooldown remaining: {NotAvailableText}";
             ActionDrawerRepeat.Text = string.Empty;
             ActionDrawerRepeat.Visibility = Visibility.Collapsed;
-            ActionDrawerWhatChanged.Text = "What happened: Suggestions are ideas. Changes are settings Ari actually changed for you.";
-            ActionDrawerUndo.Text = "Undo: Choose a change to see whether it can be reversed.";
+            ActionDrawerWhatChanged.Text = ActionsPageCopyBuilder.BuildEmptyDrawerOutcome();
+            ActionDrawerUndo.Text = ActionsPageCopyBuilder.BuildEmptyDrawerUndo();
+            ActionDrawerUndo.Visibility = Visibility.Visible;
             ActionDrawerWhyJson.Text = NotAvailableText;
             ActionDrawerUndoButton.IsEnabled = false;
             ActionDrawerUndoButton.Visibility = Visibility.Collapsed;
@@ -4383,30 +4380,31 @@ public partial class MainWindow : Window
         }
 
         bool isSuggestion = IsSuggestionEvent(item.Action);
-        ActionDrawerTitle.Text = isSuggestion
+        string actionSummary = isSuggestion
             ? BuildSuggestionTitle(item.Action)
             : (string.IsNullOrWhiteSpace(item.WhatChanged) ? HumanizeActionName(item.Action) : item.WhatChanged);
+        ActionDrawerTitle.Text = actionSummary;
         ActionDrawerWhen.Text = isSuggestion
             ? $"Suggested at: {item.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
             : $"Changed at: {item.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
         ActionDrawerClassification.Text = BuildActionClassificationText(item);
         ActionDrawerDecisionState.Text = BuildDecisionStateText(item);
         ActionDrawerExecutionState.Text = BuildExecutionStateText(item);
-        ActionDrawerShortWhy.Text = isSuggestion
-            ? $"Why Ari suggested it: {BuildSuggestionShortWhy(item)}"
-            : $"Why Ari changed it: {BuildChangeShortWhy(item)}";
+        ActionDrawerClassification.Visibility = Visibility.Collapsed;
+        ActionDrawerDecisionState.Visibility = Visibility.Collapsed;
+        ActionDrawerExecutionState.Visibility = Visibility.Collapsed;
+        ActionDrawerShortWhy.Text = ActionsPageCopyBuilder.BuildDrawerWhyText(
+            isSuggestion
+                ? BuildSuggestionShortWhy(item)
+                : BuildChangeShortWhy(item));
         ActionDrawerCooldown.Text = $"Cooldown remaining: {FormatCooldownRemaining(item.CooldownEndTimestampUtc)}";
         ActionDrawerRepeat.Text = isSuggestion
             ? BuildSuggestionRepeatLine(item)
             : string.Empty;
         ActionDrawerRepeat.Visibility = isSuggestion ? Visibility.Visible : Visibility.Collapsed;
-        ActionDrawerWhatChanged.Text = isSuggestion
-            ? "What happens if you ignore it: nothing changes right away. Ari may suggest it again later if the pattern continues."
-            : $"Change made: {(string.IsNullOrWhiteSpace(item.WhatChanged) ? HumanizeActionName(item.Action) : item.WhatChanged)}";
-        ActionDrawerUndo.Text = isSuggestion
-            ? "Undo: Not needed. This was only a suggestion."
-            : $"Undo: {BuildUndoDetails(item)}";
-        ActionDrawerUndo.Visibility = Visibility.Visible;
+        ActionDrawerWhatChanged.Text = ActionsPageCopyBuilder.BuildDrawerOutcomeText(isSuggestion, actionSummary);
+        ActionDrawerUndo.Text = ActionsPageCopyBuilder.BuildDrawerUndoText(isSuggestion, BuildUndoDetails(item));
+        ActionDrawerUndo.Visibility = isSuggestion ? Visibility.Collapsed : Visibility.Visible;
         ActionDrawerWhyJson.Text = FormatWhyJsonForDisplay(item.WhyJson);
         ActionDrawerUndoButton.IsEnabled = !isSuggestion && item.Reversible;
         ActionDrawerUndoButton.Visibility = !isSuggestion && item.Reversible
@@ -4514,7 +4512,7 @@ public partial class MainWindow : Window
             return reasonFromWhyJson;
         }
 
-        return "Triggered by current focus and overload pattern.";
+        return "Ari noticed a focus or load pattern that may need attention.";
     }
 
     private static string BuildChangeShortWhy(LocalApiEventResponse ev)
@@ -4531,31 +4529,31 @@ public partial class MainWindow : Window
 
         if (IsPolicyIntentAction(ev.Action))
         {
-            return "Policy intent only. No desktop executor is implemented for this action yet.";
+            return "Ari recorded this as a possible change, but nothing changed on your desktop yet.";
         }
 
         if (IsUnsupportedAction(ev.Action))
         {
-            return "Unsupported on this device/build. No desktop change was applied.";
+            return "Ari recognized this action, but this device cannot apply it automatically.";
         }
 
         string executionState = NormalizeExecutionState(ev.ExecutionState);
         if (!IsRealDesktopAction(ev))
         {
-            return "Recorded by current regulation policy. No desktop executor was involved.";
+            return "Ari logged this action, but it did not change your desktop directly.";
         }
 
         if (executionState == "failed")
         {
-            return "Execution failed in the user session. No desktop change was applied.";
+            return "Ari tried to make this change, but it did not go through.";
         }
 
         if (executionState == "decided")
         {
-            return "Decision recorded and waiting for desktop execution acknowledgement.";
+            return "Ari queued this change and is still waiting to apply it.";
         }
 
-        return "Applied according to current regulation policy.";
+        return "Ari changed this to support your current focus pattern.";
     }
 
     private static string BuildDecisionExecutionSummary(LocalApiEventResponse ev) =>
@@ -4659,21 +4657,6 @@ public partial class MainWindow : Window
 
     private static bool IsUnsupportedAction(string? action)
         => PortaActionSemantics.IsUnsupportedAction(action);
-
-    private static string BuildUndoBadge(LocalApiEventResponse ev)
-    {
-        if (ev.Reversible)
-        {
-            return "Available";
-        }
-
-        if (!string.IsNullOrWhiteSpace(ev.HowToUndo) || HasManualUndoHint(ev.Action))
-        {
-            return "Manual";
-        }
-
-        return "Info only";
-    }
 
     private static string BuildUndoDetails(LocalApiEventResponse ev)
     {
@@ -6973,19 +6956,12 @@ public partial class MainWindow : Window
         string Title,
         string Time,
         string Why,
-        string Classification,
-        string Decision,
-        string Execution,
         LocalApiEventResponse Source);
 
     private sealed record ChangeRow(
         string WhatChanged,
         string When,
         string Why,
-        string Undo,
-        string Classification,
-        string Decision,
-        string Execution,
         LocalApiEventResponse Source);
 }
 
