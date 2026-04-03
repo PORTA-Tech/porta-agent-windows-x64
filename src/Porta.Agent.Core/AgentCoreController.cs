@@ -47,6 +47,7 @@ public sealed class AgentCoreController : IAgentCoreController
     private static readonly TimeSpan SignalHealthActiveWindow = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CaptureContextFreshnessWindow = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan OwnershipReconciliationGraceWindow = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan SameProcessHeartbeatGraceWindow = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan StatusReadLockTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan LatestStateReadLockTimeout = TimeSpan.FromMilliseconds(150);
     private static readonly TimeSpan RuntimeStateRefreshLockTimeout = TimeSpan.FromMilliseconds(100);
@@ -99,6 +100,10 @@ public sealed class AgentCoreController : IAgentCoreController
     private DateTimeOffset? _lastInputEventUtc;
     private string? _lastInputAgentInstanceId;
     private string? _lastInputSessionId;
+    private long? _lastAcceptedHeartbeatSequence;
+    private DateTimeOffset? _lastAcceptedHeartbeatUpdatedAtUtc;
+    private string? _lastAcceptedHeartbeatAgentInstanceId;
+    private string? _lastAcceptedHeartbeatSessionId;
     private string? _lastError;
     private volatile bool _localApiAuthReady = true;
     private volatile string? _localApiAuthError;
@@ -2660,13 +2665,26 @@ public sealed class AgentCoreController : IAgentCoreController
     {
         if (HasRequestBoundHeartbeatProof(heartbeatSequence, heartbeatUpdatedAtUtc, heartbeatCaptureContext))
         {
-            ValidateRequestBoundHeartbeatProofLocked(
-                nowUtc,
-                heartbeatSequence!.Value,
-                heartbeatUpdatedAtUtc!.Value,
-                heartbeatCaptureContext!,
-                agentInstanceId,
-                sessionId);
+            try
+            {
+                ValidateRequestBoundHeartbeatProofLocked(
+                    nowUtc,
+                    heartbeatSequence!.Value,
+                    heartbeatUpdatedAtUtc!.Value,
+                    heartbeatCaptureContext!,
+                    agentInstanceId,
+                    sessionId);
+                return;
+            }
+            catch (InvalidOperationException ex) when (string.Equals(ex.Message, InputSignalsSourceHeartbeatMissing, StringComparison.Ordinal)
+                && IsSameProcessHeartbeatStillAcceptableLocked(nowUtc, agentInstanceId, sessionId))
+            {
+                return;
+            }
+        }
+
+        if (IsSameProcessHeartbeatStillAcceptableLocked(nowUtc, agentInstanceId, sessionId))
+        {
             return;
         }
 
@@ -2693,6 +2711,12 @@ public sealed class AgentCoreController : IAgentCoreController
         {
             throw new InvalidOperationException(InputSignalsSourceSessionMismatch);
         }
+
+        RecordAcceptedHeartbeatOwnerLocked(
+            heartbeatSequence: sessionContext.HeartbeatSequence,
+            heartbeatUpdatedAtUtc: sessionContext.UpdatedAtUtc,
+            agentInstanceId,
+            sessionId);
     }
 
     private static bool HasRequestBoundHeartbeatProof(
@@ -2740,6 +2764,52 @@ public sealed class AgentCoreController : IAgentCoreController
         {
             throw new InvalidOperationException(InputSignalsSourceSessionMismatch);
         }
+
+        RecordAcceptedHeartbeatOwnerLocked(
+            heartbeatSequence,
+            updatedAtUtc,
+            agentInstanceId,
+            sessionId);
+    }
+
+    private bool IsSameProcessHeartbeatStillAcceptableLocked(
+        DateTimeOffset nowUtc,
+        string agentInstanceId,
+        string sessionId)
+    {
+        if (!_lastAcceptedHeartbeatSequence.HasValue
+            || !_lastAcceptedHeartbeatUpdatedAtUtc.HasValue
+            || string.IsNullOrWhiteSpace(_lastAcceptedHeartbeatAgentInstanceId)
+            || string.IsNullOrWhiteSpace(_lastAcceptedHeartbeatSessionId))
+        {
+            return false;
+        }
+
+        if (!string.Equals(_lastAcceptedHeartbeatAgentInstanceId, agentInstanceId, StringComparison.Ordinal)
+            || !string.Equals(_lastAcceptedHeartbeatSessionId, sessionId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        DateTimeOffset acceptedAtUtc = _lastAcceptedHeartbeatUpdatedAtUtc.Value.ToUniversalTime();
+        if (acceptedAtUtc > nowUtc)
+        {
+            return false;
+        }
+
+        return (nowUtc - acceptedAtUtc) <= (CaptureContextFreshnessWindow + SameProcessHeartbeatGraceWindow);
+    }
+
+    private void RecordAcceptedHeartbeatOwnerLocked(
+        long? heartbeatSequence,
+        DateTimeOffset heartbeatUpdatedAtUtc,
+        string agentInstanceId,
+        string sessionId)
+    {
+        _lastAcceptedHeartbeatSequence = heartbeatSequence > 0 ? heartbeatSequence : null;
+        _lastAcceptedHeartbeatUpdatedAtUtc = heartbeatUpdatedAtUtc.ToUniversalTime();
+        _lastAcceptedHeartbeatAgentInstanceId = agentInstanceId;
+        _lastAcceptedHeartbeatSessionId = sessionId;
     }
 
     private string? ResolveOwnershipWarning(UserAgentSessionContextSnapshot? sessionContext)
