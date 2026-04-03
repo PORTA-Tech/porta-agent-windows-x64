@@ -26,7 +26,7 @@ public sealed class TodayPageCopyBuilderTests
             "Service alive, using cached snapshot.");
 
         Assert.Equal(
-            "Ari is still tracking, but this page is using a cached snapshot while fresh analysis catches up.",
+            "Today is using a cached snapshot while fresh analysis catches up.",
             explanation);
     }
 
@@ -38,8 +38,18 @@ public sealed class TodayPageCopyBuilderTests
             "API auth mismatch");
 
         Assert.Equal(
-            "Control Center cannot verify access to the local service. Open System to reconnect it.",
+            "Today cannot verify access to the local service. Open System to reconnect it.",
             explanation);
+    }
+
+    [Fact]
+    public void BuildEmptyStateGuidance_PointsToTrackingAndSystem_WhenTrackingIsLimited()
+    {
+        string guidance = TodayPageCopyBuilder.BuildEmptyStateGuidance(TodayTrackingState.TrackingLimited);
+
+        Assert.Equal(
+            "Keep working for a minute, open Tracking to review tracking quality, or open System for recovery details.",
+            guidance);
     }
 
     [Fact]

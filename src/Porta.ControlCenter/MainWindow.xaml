@@ -2261,11 +2261,11 @@
                         VerticalAlignment="Center">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel>
-                            <TextBlock Text="PORTA Runs In The Background"
+                            <TextBlock Text="Ari Runs In The Background"
                                        FontSize="28"
                                        FontWeight="SemiBold"
                                        Margin="0,0,0,10" />
-                            <TextBlock Text="Control Center is optional. Ari keeps capturing, evaluating, and regulating after you close this window, as long as the service and the live desktop session agent stay healthy."
+                            <TextBlock Text="Control Center is optional. Ari keeps tracking, evaluating, and regulating after you close this window, as long as the background service and desktop session stay connected."
                                        Foreground="#CBD5E1"
                                        Margin="0,0,0,18"
                                        TextWrapping="Wrap" />
@@ -2288,16 +2288,22 @@
                                                    Foreground="#93C5FD"
                                                    FontWeight="SemiBold"
                                                    Margin="0,0,0,10" />
-                                        <TextBlock Text="- Background runtime: AriAgent service + the live desktop session agent."
+                                        <TextBlock Text="- Background runtime: AriAgent service + the live desktop session agent keep tracking active in the background."
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,6" />
-                                        <TextBlock Text="- Control Center: optional UI for health, history, devices, and updates."
+                                        <TextBlock Text="- Today shows Focused today, Current focus session, and Current status."
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,6" />
-                                        <TextBlock Text="- Reopen PORTA: Start Menu > PORTA, the desktop shortcut, or the PORTA tray icon."
+                                        <TextBlock Text="- Tracking explains privacy, controls, and what improves tracking quality."
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,6" />
-                                        <TextBlock Text="- Healthy means: service running, session agent running, API reachable, and capture not limited."
+                                        <TextBlock Text="- Confidence tells you how sure Ari is. Tracking quality tells you how complete today's signals are."
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,0,0,6" />
+                                        <TextBlock Text="- System is where you check service, desktop session, recovery, and last errors."
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,0,0,6" />
+                                        <TextBlock Text="- Reopen Ari: Start Menu > Ari, the desktop shortcut, or the Ari tray icon."
                                                    TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
@@ -2315,18 +2321,18 @@
                                                    FontWeight="SemiBold"
                                                    Margin="0,0,0,10" />
                                         <TextBlock x:Name="OnboardingCurrentStatusText"
-                                                   Text="Checking background health..."
+                                                   Text="Checking background tracking..."
                                                    Foreground="#E6E9ED"
                                                    FontWeight="SemiBold"
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,8" />
-                                        <TextBlock x:Name="OnboardingCurrentHealthText"
-                                                   Text="Healthy means the service and session agent are alive and live capture is flowing."
+                                        <TextBlock x:Name="OnboardingCurrentSystemText"
+                                                   Text="System check: waiting for the service, desktop session, and current tracking status."
                                                    Foreground="#CBD5E1"
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,10" />
                                         <TextBlock x:Name="OnboardingCurrentGuidanceText"
-                                                   Text="If capture is limited, Ari keeps trying to recover in the background. Open System if it stays stuck."
+                                                   Text="If tracking quality looks limited, Ari keeps trying to recover in the background. Open Tracking to review quality, or System if recovery stays stuck."
                                                    Foreground="#FCA5A5"
                                                    TextWrapping="Wrap" />
                                     </StackPanel>
@@ -2340,17 +2346,20 @@
                                     Padding="14"
                                     Margin="0,0,0,16">
                                 <StackPanel>
-                                    <TextBlock Text="If capture is limited"
+                                    <TextBlock Text="If tracking quality looks limited"
                                                Foreground="#FCA5A5"
                                                FontWeight="SemiBold"
                                                Margin="0,0,0,8" />
                                     <TextBlock Text="- Keep using the keyboard or mouse for a few seconds while Ari retries."
                                                TextWrapping="Wrap"
                                                Margin="0,0,0,6" />
-                                    <TextBlock Text="- If it still stays at zero, open System and check the Service, Tray, and Last error cards."
+                                    <TextBlock Text="- Open Tracking to review consent, privacy, and what improves tracking quality."
                                                TextWrapping="Wrap"
                                                Margin="0,0,0,6" />
-                                    <TextBlock Text="- If the session agent does not recover, sign out and back in to Windows."
+                                    <TextBlock Text="- If Today still stays at zero, open System and check the Service, Desktop session, and Last error cards."
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,6" />
+                                    <TextBlock Text="- If the desktop session does not recover, sign out and back in to Windows."
                                                TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
@@ -2359,7 +2368,7 @@
                                 <Button Content="Open System"
                                         Padding="14,8"
                                         Margin="0,0,10,0"
-                                        Click="OnboardingOpenHealthButton_Click" />
+                                        Click="OnboardingOpenSystemButton_Click" />
                                 <Button Content="Got it"
                                         Padding="14,8"
                                         Click="OnboardingDismissButton_Click" />
