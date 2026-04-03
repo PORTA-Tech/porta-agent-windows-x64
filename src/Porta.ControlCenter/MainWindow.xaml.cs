@@ -791,12 +791,12 @@ public partial class MainWindow : Window
 
     private void StatesNavButton_Click(object sender, RoutedEventArgs e)
     {
-        ShowSection(UiSection.States);
+        ShowSystemAdvancedSection();
     }
 
     private void SystemAdvancedButton_Click(object sender, RoutedEventArgs e)
     {
-        ShowSection(UiSection.States);
+        ShowSystemAdvancedSection();
     }
 
     private void SettingsNavButton_Click(object sender, RoutedEventArgs e)
@@ -854,14 +854,20 @@ public partial class MainWindow : Window
 
     private void OpenNowCalibrationDetail()
     {
-        ShowSection(UiSection.States);
+        ShowSection(UiSection.Diagnostics);
         ScrollIntoViewDeferred(CalibrationStatusPill);
     }
 
     private void OpenNowDataQualityDetail()
     {
-        ShowSection(UiSection.States);
+        ShowSection(UiSection.Diagnostics);
         ScrollIntoViewDeferred(SignalsStatusPill);
+    }
+
+    private void ShowSystemAdvancedSection()
+    {
+        ShowSection(UiSection.Diagnostics);
+        ScrollIntoViewDeferred(SystemAdvancedSection);
     }
 
     private void SetWhyDrawerVisible(bool show)
@@ -1033,14 +1039,15 @@ public partial class MainWindow : Window
     private void ShowSection(UiSection section)
     {
         _activeSection = section;
+        bool showSystem = section == UiSection.Diagnostics || section == UiSection.States;
         OverviewPanel.Visibility = section == UiSection.Overview ? Visibility.Visible : Visibility.Collapsed;
         TimelinePanel.Visibility = section == UiSection.Timeline ? Visibility.Visible : Visibility.Collapsed;
         InterventionsPanel.Visibility = section == UiSection.Interventions ? Visibility.Visible : Visibility.Collapsed;
         InputsPanel.Visibility = section == UiSection.Inputs ? Visibility.Visible : Visibility.Collapsed;
-        StatesPanel.Visibility = section == UiSection.States ? Visibility.Visible : Visibility.Collapsed;
+        StatesPanel.Visibility = Visibility.Collapsed;
         AccountPanel.Visibility = section == UiSection.Account ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = section == UiSection.Settings ? Visibility.Visible : Visibility.Collapsed;
-        DiagnosticsPanel.Visibility = section == UiSection.Diagnostics ? Visibility.Visible : Visibility.Collapsed;
+        DiagnosticsPanel.Visibility = showSystem ? Visibility.Visible : Visibility.Collapsed;
 
         SectionTitleText.Text = section switch
         {
@@ -1048,7 +1055,7 @@ public partial class MainWindow : Window
             UiSection.Timeline => "History",
             UiSection.Interventions => "Actions",
             UiSection.Inputs => "Tracking",
-            UiSection.States => "System > Advanced",
+            UiSection.States => "System",
             UiSection.Account => "Account",
             UiSection.Settings => "Settings",
             UiSection.Diagnostics => "System",
@@ -1059,10 +1066,10 @@ public partial class MainWindow : Window
         ApplyNavState(TimelineNavButton, section == UiSection.Timeline);
         ApplyNavState(InterventionsNavButton, section == UiSection.Interventions);
         ApplyNavState(InputsNavButton, section == UiSection.Inputs);
-        ApplyNavState(StatesNavButton, section == UiSection.States);
+        ApplyNavState(StatesNavButton, false);
         ApplyNavState(AccountNavButton, section == UiSection.Account);
         ApplyNavState(SettingsNavButton, section == UiSection.Settings);
-        ApplyNavState(DiagnosticsNavButton, section == UiSection.Diagnostics);
+        ApplyNavState(DiagnosticsNavButton, showSystem);
 
         if (section != UiSection.Overview && WhyDrawerPanel.Visibility == Visibility.Visible)
         {
@@ -1629,7 +1636,7 @@ public partial class MainWindow : Window
     {
         if (snapshot == null)
         {
-            return "Open System > Advanced for live calibration blockers.";
+            return "Open System for live calibration blockers.";
         }
 
         string confidenceLabel = ToConfidenceLabel(NormalizeTrustTier(snapshot.TrustTier, snapshot.ModelConfidence ?? snapshot.Confidence));
@@ -1637,7 +1644,7 @@ public partial class MainWindow : Window
         string progressText = snapshot.BaselineReadyPct.HasValue
             ? $"{(Math.Clamp(snapshot.BaselineReadyPct.Value, 0d, 1d) * 100d):F0}% ready"
             : "progress pending";
-        return $"Confidence: {confidenceLabel} | System actions: {systemActions} | {progressText}. Click for System > Advanced.";
+        return $"Confidence: {confidenceLabel} | System actions: {systemActions} | {progressText}. Click for System.";
     }
 
     private string BuildNowDataQualitySummary(LocalApiCurrentSnapshotResponse? snapshot)
@@ -1663,7 +1670,7 @@ public partial class MainWindow : Window
 
         if (snapshot == null)
         {
-            return "Open System > Advanced once live tracking-quality buckets arrive.";
+            return "Open System once live tracking-quality buckets arrive.";
         }
 
         return "All major tracking signals are currently available. Click for tracking details.";

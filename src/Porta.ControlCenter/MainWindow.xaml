@@ -1331,70 +1331,8 @@
 
                 <ScrollViewer x:Name="StatesPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <TextBlock Text="Advanced" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                        <TextBlock Text="How Ari decides, in plain language." Foreground="#CBD5E1" Margin="0,0,0,12" />
-
-                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,10">
-                            <StackPanel>
-                                <DockPanel Margin="0,0,0,8">
-                                    <TextBlock Text="1) Signals" FontSize="16" FontWeight="SemiBold" />
-                                    <Border x:Name="SignalsStatusPill" Background="#334155" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
-                                        <TextBlock x:Name="SignalsStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
-                                    </Border>
-                                </DockPanel>
-                                <TextBlock Text="What it means: PORTA reads activity patterns from keyboard, mouse, app switches, and idle time." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
-                                <TextBlock x:Name="SignalsBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
-                                <TextBlock x:Name="SignalsCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
-                            </StackPanel>
-                        </Border>
-
-                        <TextBlock Text="v" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
-
-                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,10">
-                            <StackPanel>
-                                <DockPanel Margin="0,0,0,8">
-                                    <TextBlock Text="2) Calibration" FontSize="16" FontWeight="SemiBold" />
-                                    <Border x:Name="CalibrationStatusPill" Background="#334155" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
-                                        <TextBlock x:Name="CalibrationStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
-                                    </Border>
-                                </DockPanel>
-                                <TextBlock Text="What it means: PORTA learns your normal pattern and sets a stable baseline." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
-                                <TextBlock x:Name="CalibrationBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
-                                <TextBlock x:Name="CalibrationCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
-                            </StackPanel>
-                        </Border>
-
-                        <TextBlock Text="v" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
-
-                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,10">
-                            <StackPanel>
-                                <DockPanel Margin="0,0,0,8">
-                                    <TextBlock Text="3) Smoothing" FontSize="16" FontWeight="SemiBold" />
-                                    <Border x:Name="SmoothingStatusPill" Background="#334155" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
-                                        <TextBlock x:Name="SmoothingStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
-                                    </Border>
-                                </DockPanel>
-                                <TextBlock Text="What it means: PORTA smooths raw input signals to prevent one-off spikes." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
-                                <TextBlock x:Name="SmoothingBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
-                                <TextBlock x:Name="SmoothingCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
-                            </StackPanel>
-                        </Border>
-
-                        <TextBlock Text="v" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
-
-                        <Border Style="{StaticResource QuietHoverCardStyle}">
-                            <StackPanel>
-                                <DockPanel Margin="0,0,0,8">
-                                    <TextBlock Text="4) Decisions" FontSize="16" FontWeight="SemiBold" />
-                                    <Border x:Name="DecisionsStatusPill" Background="#334155" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
-                                        <TextBlock x:Name="DecisionsStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
-                                    </Border>
-                                </DockPanel>
-                                <TextBlock Text="What it means: PORTA combines overload + focus streak + policy rules to decide whether to suggest an action." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
-                                <TextBlock x:Name="DecisionsBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
-                                <TextBlock x:Name="DecisionsCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
-                            </StackPanel>
-                        </Border>
+                        <TextBlock Text="Advanced moved into System" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
+                        <TextBlock Text="Open System and scroll to the Advanced section." Foreground="#CBD5E1" Margin="0,0,0,12" />
                     </StackPanel>
                 </ScrollViewer>
 
@@ -1885,11 +1823,11 @@
                 <ScrollViewer x:Name="DiagnosticsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
                         <TextBlock Text="System" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                        <TextBlock Text="Engine and capture health are shown separately so backend state never looks like live input." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Text="Use this page for technical truth: service health, local API, snapshot freshness, session heartbeat, input publish, capture health, and recent errors." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
 
                         <WrapPanel Margin="0,0,0,12">
                             <Button x:Name="SystemAdvancedButton"
-                                    Content="Open Advanced"
+                                    Content="Jump to Advanced"
                                     Padding="12,6"
                                     Click="SystemAdvancedButton_Click" />
                         </WrapPanel>
@@ -2116,6 +2054,75 @@
                                     <TextBlock Grid.Row="5" Grid.Column="0" Text="Explicit warning" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="HealthActionWarningValue" Grid.Row="5" Grid.Column="1" Text="Action truth unavailable." TextWrapping="Wrap" />
                                 </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="SystemAdvancedSection" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="Advanced" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                <TextBlock Text="How Ari decides, in plain language. This keeps the decision pipeline in System without spilling it into the main user pages." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <DockPanel Margin="0,0,0,8">
+                                            <TextBlock Text="1) Signals" FontSize="16" FontWeight="SemiBold" />
+                                            <Border x:Name="SignalsStatusPill" Background="#334155" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
+                                                <TextBlock x:Name="SignalsStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
+                                            </Border>
+                                        </DockPanel>
+                                        <TextBlock Text="What it means: Ari reads activity patterns from keyboard, mouse, app switches, and idle time." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
+                                        <TextBlock x:Name="SignalsBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="SignalsCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
+                                    </StackPanel>
+                                </Border>
+
+                                <TextBlock Text="v" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
+
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <DockPanel Margin="0,0,0,8">
+                                            <TextBlock Text="2) Calibration" FontSize="16" FontWeight="SemiBold" />
+                                            <Border x:Name="CalibrationStatusPill" Background="#334155" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
+                                                <TextBlock x:Name="CalibrationStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
+                                            </Border>
+                                        </DockPanel>
+                                        <TextBlock Text="What it means: Ari learns your normal pattern and sets a stable baseline." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
+                                        <TextBlock x:Name="CalibrationBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="CalibrationCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
+                                    </StackPanel>
+                                </Border>
+
+                                <TextBlock Text="v" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
+
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <DockPanel Margin="0,0,0,8">
+                                            <TextBlock Text="3) Smoothing" FontSize="16" FontWeight="SemiBold" />
+                                            <Border x:Name="SmoothingStatusPill" Background="#334155" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
+                                                <TextBlock x:Name="SmoothingStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
+                                            </Border>
+                                        </DockPanel>
+                                        <TextBlock Text="What it means: Ari smooths raw input signals so one-off spikes do not dominate the model." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
+                                        <TextBlock x:Name="SmoothingBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="SmoothingCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
+                                    </StackPanel>
+                                </Border>
+
+                                <TextBlock Text="v" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
+
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}">
+                                    <StackPanel>
+                                        <DockPanel Margin="0,0,0,8">
+                                            <TextBlock Text="4) Decisions" FontSize="16" FontWeight="SemiBold" />
+                                            <Border x:Name="DecisionsStatusPill" Background="#334155" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right">
+                                                <TextBlock x:Name="DecisionsStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
+                                            </Border>
+                                        </DockPanel>
+                                        <TextBlock Text="What it means: Ari combines overload, focus streak, and policy rules to decide whether to suggest or apply an action." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
+                                        <TextBlock x:Name="DecisionsBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="DecisionsCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </Border>
 
