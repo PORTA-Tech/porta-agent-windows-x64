@@ -478,10 +478,10 @@ internal sealed class UserDesktopWidgetWindow : Window
         _menuPopup.Child = popupChrome;
 
         popupStack.Children.Add(CreateMenuSectionLabel("Navigate"));
-        popupStack.Children.Add(CreateMenuButton("Open Now", UserDesktopWidgetAction.OpenNow));
+        popupStack.Children.Add(CreateMenuButton("Open Today", UserDesktopWidgetAction.OpenNow));
         popupStack.Children.Add(CreateMenuButton("Open Actions", UserDesktopWidgetAction.OpenActions));
         popupStack.Children.Add(CreateMenuButton("Open Settings", UserDesktopWidgetAction.OpenSettings));
-        popupStack.Children.Add(CreateMenuButton("Open Health", UserDesktopWidgetAction.OpenHealth));
+        popupStack.Children.Add(CreateMenuButton("Open System", UserDesktopWidgetAction.OpenHealth));
         popupStack.Children.Add(CreateMenuSeparator());
         popupStack.Children.Add(CreateMenuSectionLabel("Quick actions"));
         _pauseFifteenButton = CreateMenuButton("Pause for 15m", UserDesktopWidgetAction.PauseFifteenMinutes);
@@ -737,7 +737,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         if (trimmed.Equals("Ari limited", StringComparison.OrdinalIgnoreCase))
         {
-            return "Attention";
+            return "Tracking limited";
         }
 
         return trimmed;
@@ -1155,7 +1155,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             _criticalSpotlightTimer.Start();
         }
 
-        string normalizedTitle = NormalizeCardTitle(criticalState.Title, fallback: "Attention");
+        string normalizedTitle = NormalizeCardTitle(criticalState.Title, fallback: "Tracking limited");
         _criticalTitleText.Text = normalizedTitle;
         _criticalTitleText.Visibility = string.IsNullOrWhiteSpace(normalizedTitle)
             ? Visibility.Collapsed

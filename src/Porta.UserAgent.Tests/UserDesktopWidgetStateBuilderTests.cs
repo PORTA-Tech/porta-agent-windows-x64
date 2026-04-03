@@ -34,17 +34,17 @@ public sealed class UserDesktopWidgetStateBuilderTests
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, null, signals, degraded);
 
         Assert.Equal(UserDesktopWidgetMode.Limited, state.Mode);
-        Assert.Equal("Attention", state.Title);
+        Assert.Equal("Tracking limited", state.Title);
         Assert.Contains("partial activity", state.StatusText, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("Focus 4m", state.PrimaryMetricText);
+        Assert.Equal("Focus session 4m", state.PrimaryMetricText);
         Assert.Equal("Overload 18%", state.SecondaryMetricText);
-        Assert.Equal("Today 4m", state.TertiaryMetricText);
+        Assert.Equal("Focused today 4m", state.TertiaryMetricText);
         Assert.Equal(string.Empty, state.QuaternaryMetricText);
-        Assert.Equal(string.Empty, state.FooterText);
+        Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);
         Assert.False(state.NotificationsSuppressed);
         Assert.False(state.BrightnessAdjusted);
         Assert.NotNull(state.CriticalState);
-        Assert.Equal("Open Health", state.CriticalState!.PrimaryLabel);
+        Assert.Equal("Open System", state.CriticalState!.PrimaryLabel);
         Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.CriticalState.PrimaryAction);
     }
 
@@ -71,9 +71,9 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.True(state.CanResume);
         Assert.False(state.CanPause);
         Assert.Equal($"Paused until {pauseUntilUtc.ToLocalTime():h:mm tt}.", state.StatusText);
-        Assert.Equal("Focus paused", state.PrimaryMetricText);
+        Assert.Equal("Focus session paused", state.PrimaryMetricText);
         Assert.Equal("Overload paused", state.SecondaryMetricText);
-        Assert.Equal("Today paused", state.TertiaryMetricText);
+        Assert.Equal("Focused today paused", state.TertiaryMetricText);
         Assert.Equal(string.Empty, state.QuaternaryMetricText);
         Assert.Equal(string.Empty, state.FooterText);
     }
@@ -106,11 +106,11 @@ public sealed class UserDesktopWidgetStateBuilderTests
 
         Assert.Equal(UserDesktopWidgetMode.Limited, state.Mode);
         Assert.NotNull(state.CriticalState);
-        Assert.Equal("Core service offline", state.CriticalState!.Title);
+        Assert.Equal("Unavailable", state.CriticalState!.Title);
         Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.CriticalState.PrimaryAction);
         Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.CriticalState.SecondaryAction);
         Assert.Equal(UserDesktopWidgetAction.OpenSettings, state.CriticalState.TertiaryAction);
-        Assert.Contains("service offline", state.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("service is offline", state.StatusText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -183,11 +183,11 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Equal(UserDesktopWidgetMode.Overload, state.Mode);
         Assert.Equal(string.Empty, state.Title);
         Assert.Equal("Overload is elevated.", state.StatusText);
-        Assert.Equal("Focus 25m", state.PrimaryMetricText);
+        Assert.Equal("Focus session 25m", state.PrimaryMetricText);
         Assert.Equal("Overload 74%", state.SecondaryMetricText);
-        Assert.Equal("Today 25m", state.TertiaryMetricText);
+        Assert.Equal("Focused today 25m", state.TertiaryMetricText);
         Assert.Equal(string.Empty, state.QuaternaryMetricText);
-        Assert.Equal(string.Empty, state.FooterText);
+        Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);
         Assert.False(state.NotificationsSuppressed);
         Assert.False(state.BrightnessAdjusted);
     }
@@ -248,11 +248,11 @@ public sealed class UserDesktopWidgetStateBuilderTests
             settings: settings,
             nowUtc: nowUtc);
 
-        Assert.Equal("Focus 25m", state.PrimaryMetricText);
+        Assert.Equal("Focus session 25m", state.PrimaryMetricText);
         Assert.Equal("Overload 42%", state.SecondaryMetricText);
-        Assert.Equal("Today 2h 00m", state.TertiaryMetricText);
+        Assert.Equal("Focused today 1h 33m", state.TertiaryMetricText);
         Assert.Equal(string.Empty, state.QuaternaryMetricText);
-        Assert.Equal(string.Empty, state.FooterText);
+        Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);
         Assert.Equal(string.Empty, state.StatusText);
     }
 
@@ -281,7 +281,8 @@ public sealed class UserDesktopWidgetStateBuilderTests
 
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, null, signals, degradedToast: null);
 
-        Assert.Equal("Cached snapshot. DB busy, retrying.", state.StatusText);
+        Assert.Equal("Current status is using a cached snapshot while the local database catches up.", state.StatusText);
+        Assert.Equal("Confidence High | Tracking quality delayed", state.FooterText);
         Assert.Null(state.CriticalState);
     }
 
@@ -329,10 +330,10 @@ public sealed class UserDesktopWidgetStateBuilderTests
             nowUtc: nowUtc);
 
         Assert.Equal("Focused now | live 3m | typing active | mouse idle.", state.StatusText);
-        Assert.Equal("Focus 3m", state.PrimaryMetricText);
+        Assert.Equal("Focus session 3m", state.PrimaryMetricText);
         Assert.Equal("Overload 42%", state.SecondaryMetricText);
-        Assert.StartsWith("Input ", state.TertiaryMetricText, StringComparison.Ordinal);
-        Assert.StartsWith("Session 17m | Typing active | Mouse idle", state.FooterText, StringComparison.Ordinal);
+        Assert.Equal("Focused today 15m", state.TertiaryMetricText);
+        Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);
         Assert.Null(state.CriticalState);
     }
 
@@ -380,8 +381,9 @@ public sealed class UserDesktopWidgetStateBuilderTests
             degradedToast: null,
             nowUtc: nowUtc);
 
-        Assert.Equal("Focus 2m", state.PrimaryMetricText);
+        Assert.Equal("Focus session 2m", state.PrimaryMetricText);
         Assert.Equal("Overload pending", state.SecondaryMetricText);
+        Assert.Equal("Confidence High | Tracking quality pending", state.FooterText);
     }
 
     [Fact]
@@ -427,8 +429,9 @@ public sealed class UserDesktopWidgetStateBuilderTests
             nowUtc: nowUtc);
 
         Assert.Equal("Overload 74%", state.SecondaryMetricText);
-        Assert.Equal("Focus active", state.PrimaryMetricText);
-        Assert.StartsWith("Input ", state.TertiaryMetricText, StringComparison.Ordinal);
+        Assert.Equal("Focus session active", state.PrimaryMetricText);
+        Assert.Equal("Focused today 7m", state.TertiaryMetricText);
+        Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);
     }
 
     [Fact]

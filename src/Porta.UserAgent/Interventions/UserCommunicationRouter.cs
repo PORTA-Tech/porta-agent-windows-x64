@@ -90,7 +90,7 @@ internal static class UserCommunicationRouter
         {
             return new UserCommunicationToast(
                 Key: "capture:service_unavailable",
-                Title: "Ari limited",
+                Title: "Tracking limited",
                 Message: "Ari cannot regulate right now because the core service is unavailable. It will reconnect automatically when the service returns.",
                 SuppressionKey: "capture:service");
         }
@@ -99,7 +99,7 @@ internal static class UserCommunicationRouter
         {
             return new UserCommunicationToast(
                 Key: "capture:consent_required",
-                Title: "Ari limited",
+                Title: "Tracking limited",
                 Message: "Ari is waiting for consent before it can regulate or explain live states in this session.",
                 SuppressionKey: "capture:consent");
         }
@@ -108,7 +108,7 @@ internal static class UserCommunicationRouter
         {
             return new UserCommunicationToast(
                 Key: "capture:non_user_session",
-                Title: "Ari limited",
+                Title: "Tracking limited",
                 Message: "Ari is not attached to your live Windows session yet. It will keep trying to reconnect in the background.",
                 SuppressionKey: "capture:session_attach");
         }
@@ -120,32 +120,32 @@ internal static class UserCommunicationRouter
             {
                 "USER_AGENT_HEARTBEAT_STALE" => new UserCommunicationToast(
                     Key: "capture:heartbeat_stale",
-                    Title: "Ari limited",
+                    Title: "Tracking limited",
                     Message: "Ari is running, but the live session heartbeat stopped updating. It is trying to recover in the background.",
                     SuppressionKey: "capture:heartbeat"),
                 "USER_AGENT_SESSION_SWITCHED" or "USER_AGENT_INSTANCE_MISMATCH" => new UserCommunicationToast(
                     Key: "capture:session_handoff",
-                    Title: "Ari limited",
+                    Title: "Tracking limited",
                     Message: "Ari detected a session handoff and is reconnecting live input capture. It should recover automatically.",
                     SuppressionKey: "capture:session_handoff"),
                 "USER_AGENT_INPUT_SELF_TEST_FAILED" => new UserCommunicationToast(
                     Key: "capture:self_test_failed",
-                    Title: "Ari limited",
+                    Title: "Tracking limited",
                     Message: "Ari is connected, but live keyboard or mouse input is not reaching the core yet. It is retrying in the background.",
                     SuppressionKey: "capture:input_pipeline"),
                 "USER_AGENT_KEYBOARD_SIGNAL_MISSING" => new UserCommunicationToast(
                     Key: "capture:keyboard_missing",
-                    Title: "Ari limited",
+                    Title: "Tracking limited",
                     Message: "Ari is only seeing mouse activity right now. Keyboard capture is limited while it retries.",
                     SuppressionKey: "capture:keyboard_limited"),
                 "USER_AGENT_MOUSE_SIGNAL_MISSING" => new UserCommunicationToast(
                     Key: "capture:mouse_missing",
-                    Title: "Ari limited",
+                    Title: "Tracking limited",
                     Message: "Ari is only seeing keyboard activity right now. Mouse capture is limited while it retries.",
                     SuppressionKey: "capture:mouse_limited"),
                 _ => new UserCommunicationToast(
                     Key: $"capture:{captureFailureReason.ToLowerInvariant()}",
-                    Title: "Ari limited",
+                    Title: "Tracking limited",
                     Message: "Ari is connected, but live input capture is degraded right now. It will keep trying to recover automatically.",
                     SuppressionKey: "capture:degraded")
             };
@@ -155,7 +155,7 @@ internal static class UserCommunicationRouter
         {
             return new UserCommunicationToast(
                 Key: "capture:ownership_warning",
-                Title: "Ari limited",
+                Title: "Tracking limited",
                 Message: "Ari detected a mismatch between the active session heartbeat and the latest accepted input. It is reconciling the live session now.",
                 SuppressionKey: "capture:session_handoff");
         }
@@ -169,7 +169,7 @@ internal static class UserCommunicationRouter
                     : channel.Trim().ToLowerInvariant()));
             return new UserCommunicationToast(
                 Key: $"capture:partial:{missingKey}",
-                Title: "Ari limited",
+                Title: "Tracking limited",
                 Message: $"Ari is receiving partial activity only. Missing {missing}. It will keep trying to restore full capture.",
                 SuppressionKey: "capture:partial");
         }
@@ -189,10 +189,10 @@ internal static class UserCommunicationRouter
             if (statusHttpCode is 401 or 403)
             {
                 return BuildCriticalState(
-                    title: "API auth mismatch",
-                    message: "Ari can see the local runtime, but this session needs refreshed local API credentials. Open Health or retry.",
+                    title: "Unavailable",
+                    message: "Ari can see the local runtime, but this session needs refreshed local service access. Open System or retry.",
                     primaryAction: UserDesktopWidgetAction.OpenHealth,
-                    primaryLabel: "Open Health",
+                    primaryLabel: "Open System",
                     secondaryAction: UserDesktopWidgetAction.RetryCritical,
                     secondaryLabel: "Retry",
                     tertiaryAction: UserDesktopWidgetAction.OpenSettings,
@@ -200,10 +200,10 @@ internal static class UserCommunicationRouter
             }
 
             return BuildCriticalState(
-                title: "Local API unreachable",
-                message: "Ari could not complete the local API request. Open Health to check the runtime, or retry the connection.",
+                title: "Unavailable",
+                message: "Ari could not complete the local API request. Open System to check the runtime, or retry the connection.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
-                primaryLabel: "Open Health",
+                primaryLabel: "Open System",
                 secondaryAction: UserDesktopWidgetAction.RetryCritical,
                 secondaryLabel: "Retry",
                 tertiaryAction: UserDesktopWidgetAction.OpenSettings,
@@ -213,10 +213,10 @@ internal static class UserCommunicationRouter
         if (!status.LocalApiAuthReady)
         {
             return BuildCriticalState(
-                title: "API auth mismatch",
-                message: "Ari is alive, but this session cannot read the local API yet. Open Health for details or retry the runtime check.",
+                title: "Unavailable",
+                message: "Ari is alive, but this session cannot read the local service yet. Open System for details or retry the runtime check.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
-                primaryLabel: "Open Health",
+                primaryLabel: "Open System",
                 secondaryAction: UserDesktopWidgetAction.RetryCritical,
                 secondaryLabel: "Retry",
                 tertiaryAction: UserDesktopWidgetAction.OpenSettings,
@@ -226,10 +226,10 @@ internal static class UserCommunicationRouter
         if (!status.ServiceRunning)
         {
             return BuildCriticalState(
-                title: "Core service offline",
-                message: "Service offline. Open Health to inspect the runtime, or retry the connection.",
+                title: "Unavailable",
+                message: "The desktop service is offline. Open System to inspect the runtime, or retry the connection.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
-                primaryLabel: "Open Health",
+                primaryLabel: "Open System",
                 secondaryAction: UserDesktopWidgetAction.RetryCritical,
                 secondaryLabel: "Retry",
                 tertiaryAction: UserDesktopWidgetAction.OpenSettings,
@@ -240,9 +240,9 @@ internal static class UserCommunicationRouter
         {
             return BuildCriticalState(
                 title: "Database needs attention",
-                message: "Ari could not finish a required database migration. Open Health to inspect the failure before relying on live regulation.",
+                message: "Ari could not finish a required database migration. Open System to inspect the failure before relying on live regulation.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
-                primaryLabel: "Open Health",
+                primaryLabel: "Open System",
                 secondaryAction: UserDesktopWidgetAction.RetryCritical,
                 secondaryLabel: "Retry",
                 tertiaryAction: UserDesktopWidgetAction.OpenSettings,
@@ -256,7 +256,7 @@ internal static class UserCommunicationRouter
                 title: degradedToast.Title,
                 message: degradedToast.Message,
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
-                primaryLabel: "Open Health",
+                primaryLabel: "Open System",
                 secondaryAction: UserDesktopWidgetAction.RetryCritical,
                 secondaryLabel: "Retry",
                 tertiaryAction: UserDesktopWidgetAction.OpenSettings,
@@ -349,54 +349,54 @@ internal static class UserCommunicationRouter
         {
             "notification_restore_failed" => BuildCriticalState(
                 title: "Notifications need attention",
-                message: "Ari could not restore Windows notification settings cleanly. Open Settings to verify banners, or inspect Health before continuing.",
+                message: "Ari could not restore Windows notification settings cleanly. Open Settings to verify banners, or inspect System before continuing.",
                 primaryAction: UserDesktopWidgetAction.OpenSettings,
                 primaryLabel: "Open Settings",
                 secondaryAction: UserDesktopWidgetAction.OpenHealth,
-                secondaryLabel: "Open Health",
+                secondaryLabel: "Open System",
                 tertiaryAction: UserDesktopWidgetAction.RetryCritical,
                 tertiaryLabel: "Retry"),
             "notification_suppress_failed" => BuildCriticalState(
                 title: "Notifications stayed on",
-                message: "Ari could not mute Windows notification banners for deep work. Open Settings to adjust them manually, or inspect Health for the failure.",
+                message: "Ari could not mute Windows notification banners for deep work. Open Settings to adjust them manually, or inspect System for the failure.",
                 primaryAction: UserDesktopWidgetAction.OpenSettings,
                 primaryLabel: "Open Settings",
                 secondaryAction: UserDesktopWidgetAction.OpenHealth,
-                secondaryLabel: "Open Health",
+                secondaryLabel: "Open System",
                 tertiaryAction: UserDesktopWidgetAction.RetryCritical,
                 tertiaryLabel: "Retry"),
             "notification_snapshot_failed" => BuildCriticalState(
                 title: "Notification state unavailable",
-                message: "Ari could not read the current Windows notification state. Open Health to inspect the runtime, or retry the connection.",
+                message: "Ari could not read the current Windows notification state. Open System to inspect the runtime, or retry the connection.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
-                primaryLabel: "Open Health",
+                primaryLabel: "Open System",
                 secondaryAction: UserDesktopWidgetAction.RetryCritical,
                 secondaryLabel: "Retry",
                 tertiaryAction: UserDesktopWidgetAction.OpenSettings,
                 tertiaryLabel: "Settings"),
             "brightness_control_failed" => BuildCriticalState(
                 title: "Brightness control failed",
-                message: "Ari could not adjust screen brightness automatically. Open Health to inspect the failure, or retry the device check.",
+                message: "Ari could not adjust screen brightness automatically. Open System to inspect the failure, or retry the device check.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
-                primaryLabel: "Open Health",
+                primaryLabel: "Open System",
                 secondaryAction: UserDesktopWidgetAction.RetryCritical,
                 secondaryLabel: "Retry",
                 tertiaryAction: UserDesktopWidgetAction.OpenSettings,
                 tertiaryLabel: "Settings"),
             "brightness_unsupported" => BuildCriticalState(
                 title: "Brightness control unavailable",
-                message: "This device does not expose the controls Ari needs for automatic brightness changes. Open Settings or Health for details.",
+                message: "This device does not expose the controls Ari needs for automatic brightness changes. Open Settings or System for details.",
                 primaryAction: UserDesktopWidgetAction.OpenSettings,
                 primaryLabel: "Open Settings",
                 secondaryAction: UserDesktopWidgetAction.OpenHealth,
-                secondaryLabel: "Open Health",
+                secondaryLabel: "Open System",
                 tertiaryAction: UserDesktopWidgetAction.RetryCritical,
                 tertiaryLabel: "Retry"),
             _ => BuildCriticalState(
-                title: "Ari limited",
-                message: "Ari hit a runtime issue that needs attention. Open Health for details or retry the connection.",
+                title: "Tracking limited",
+                message: "Ari hit a runtime issue that needs attention. Open System for details or retry the connection.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
-                primaryLabel: "Open Health",
+                primaryLabel: "Open System",
                 secondaryAction: UserDesktopWidgetAction.RetryCritical,
                 secondaryLabel: "Retry",
                 tertiaryAction: UserDesktopWidgetAction.OpenSettings,

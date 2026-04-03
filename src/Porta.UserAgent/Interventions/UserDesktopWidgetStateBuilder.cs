@@ -1,6 +1,7 @@
 namespace Porta.UserAgent.Interventions;
 
 using System.Globalization;
+using Porta.Agent.Core;
 using Porta.Agent.LocalApi;
 
 internal static class UserDesktopWidgetStateBuilder
@@ -54,11 +55,11 @@ internal static class UserDesktopWidgetStateBuilder
 
         return new UserDesktopWidgetState(
             Mode: mode,
-            Title: BuildTitle(mode),
+            Title: BuildTitle(mode, status),
             StatusText: BuildStatusText(status, snapshot, liveSession, degradedToast, criticalState, mode, statusHttpCode),
             PrimaryMetricText: BuildFocusMetric(status, snapshot, liveSession, mode),
             SecondaryMetricText: BuildOverloadMetric(status, snapshot, mode),
-            FooterText: BuildFooterText(liveSession, mode),
+            FooterText: BuildFooterText(status, snapshot, liveSession, mode),
             NotificationsSuppressed: false,
             BrightnessAdjusted: false,
             CanPause: status?.ServiceRunning == true && status.ConsentActive && !paused,
@@ -68,12 +69,12 @@ internal static class UserDesktopWidgetStateBuilder
             CriticalState: criticalState);
     }
 
-    private static string BuildTitle(UserDesktopWidgetMode mode)
+    private static string BuildTitle(UserDesktopWidgetMode mode, LocalApiStatusResponse? status)
     {
         return mode switch
         {
             UserDesktopWidgetMode.Paused => "Paused",
-            UserDesktopWidgetMode.Limited => "Attention",
+            UserDesktopWidgetMode.Limited => IsUnavailableState(status) ? "Unavailable" : "Tracking limited",
             _ => string.Empty
         };
     }
@@ -111,20 +112,20 @@ internal static class UserDesktopWidgetStateBuilder
         {
             return statusHttpCode switch
             {
-                401 or 403 => "API auth mismatch.",
-                int _ => "Waiting for service status.",
-                _ => "Local API unreachable."
+                401 or 403 => "Current status is unavailable until System access reloads.",
+                int _ => "Current status is still loading.",
+                _ => "Current status is unavailable."
             };
         }
 
         if (!status.ServiceRunning)
         {
-            return "Service offline.";
+            return "Current status is unavailable while the service reconnects.";
         }
 
         if (!status.LocalApiAuthReady)
         {
-            return "API auth mismatch.";
+            return "Current status is unavailable until System access reloads.";
         }
 
         if (!IsFresh(status.freshness_state))
@@ -139,17 +140,17 @@ internal static class UserDesktopWidgetStateBuilder
 
         if (!status.ConsentActive)
         {
-            return "Ari is waiting for consent.";
+            return "Tracking is waiting for consent.";
         }
 
         if (!string.Equals(status.CaptureContext, "UserSession", StringComparison.OrdinalIgnoreCase))
         {
-            return "Ari is reconnecting to your live Windows session.";
+            return "Tracking quality is limited while Ari reconnects to your desktop session.";
         }
 
         if (!status.BackendConnected)
         {
-            return "Ari is running locally while backend sync reconnects.";
+            return "Current status is local while backend sync reconnects.";
         }
 
         if (IsFreshLiveSession(liveSession))
@@ -172,8 +173,12 @@ internal static class UserDesktopWidgetStateBuilder
         bool dbBusy = string.Equals(status?.runtime_state_refresh_error, "db_busy", StringComparison.OrdinalIgnoreCase)
             || string.Equals(snapshot?.runtime_state_refresh_error, "db_busy", StringComparison.OrdinalIgnoreCase);
         return snapshot != null
-            ? (dbBusy ? "Cached snapshot. DB busy, retrying." : "Using cached snapshot.")
-            : (dbBusy ? "Status stale. DB busy, retrying." : "Status stale.");
+            ? (dbBusy
+                ? "Current status is using a cached snapshot while the local database catches up."
+                : "Current status is using a cached snapshot while fresh analysis catches up.")
+            : (dbBusy
+                ? "Current status is delayed while the local database catches up."
+                : "Current status is delayed right now.");
     }
 
     private static bool IsFresh(string? freshnessState)
@@ -192,7 +197,7 @@ internal static class UserDesktopWidgetStateBuilder
             Title: degradedToast.Title,
             Message: degradedToast.Message,
             PrimaryAction: UserDesktopWidgetAction.OpenHealth,
-            PrimaryLabel: "Open Health",
+            PrimaryLabel: "Open System",
             SecondaryAction: UserDesktopWidgetAction.RetryCritical,
             SecondaryLabel: "Retry",
             TertiaryAction: UserDesktopWidgetAction.OpenSettings,
@@ -207,7 +212,7 @@ internal static class UserDesktopWidgetStateBuilder
     {
         if (mode == UserDesktopWidgetMode.Paused)
         {
-            return "Focus paused";
+            return "Focus session paused";
         }
 
         if (IsFreshLiveSession(liveSession))
@@ -217,15 +222,15 @@ internal static class UserDesktopWidgetStateBuilder
 
         if (snapshot is { analysis_ready: true })
         {
-            return $"Focus {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, snapshot.SustainedAttentionDurationSec)))}";
+            return $"Focus session {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, snapshot.SustainedAttentionDurationSec)))}";
         }
 
         if (status?.DeepWorkStreakSeconds > 0)
         {
-            return $"Focus {FormatCompactDuration(TimeSpan.FromSeconds(status.DeepWorkStreakSeconds))}";
+            return $"Focus session {FormatCompactDuration(TimeSpan.FromSeconds(status.DeepWorkStreakSeconds))}";
         }
 
-        return "Focus n/a";
+        return "Focus session n/a";
     }
 
     private static string BuildOverloadMetric(
@@ -257,45 +262,43 @@ internal static class UserDesktopWidgetStateBuilder
     {
         if (mode == UserDesktopWidgetMode.Paused)
         {
-            return "Today paused";
-        }
-
-        if (IsFreshLiveSession(liveSession) && liveSession!.last_input_age_seconds.HasValue)
-        {
-            return $"Input {FormatAgeShort(liveSession.last_input_age_seconds.Value)}";
+            return "Focused today paused";
         }
 
         if (timeline?.Snapshots is { Count: > 0 } snapshots)
         {
-            int bucketSeconds = Math.Max(1, timeline.BucketSeconds);
-            TimeSpan activeDuration = TimeSpan.FromSeconds(snapshots.Count * bucketSeconds);
-            if (activeDuration > TimeSpan.Zero)
+            double focusedTodaySeconds = ComputeFocusedTodaySeconds(timeline);
+            if (focusedTodaySeconds > 0d)
             {
-                return $"Today {FormatCompactDuration(activeDuration)}";
+                return $"Focused today {FormatCompactDuration(TimeSpan.FromSeconds(focusedTodaySeconds))}";
             }
         }
 
         if (snapshot != null)
         {
-            return $"Today {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, snapshot.SustainedAttentionDurationSec)))}";
+            return $"Focused today {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, snapshot.SustainedAttentionDurationSec)))}";
         }
 
-        return "Today n/a";
+        return "Focused today n/a";
     }
 
-    private static string BuildFooterText(LocalApiLiveSessionStateResponse? liveSession, UserDesktopWidgetMode mode)
+    private static string BuildFooterText(
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiLiveSessionStateResponse? liveSession,
+        UserDesktopWidgetMode mode)
     {
-        if (mode == UserDesktopWidgetMode.Paused || !IsFreshLiveSession(liveSession))
+        if (mode == UserDesktopWidgetMode.Paused)
         {
             return string.Empty;
         }
 
-        string sessionText = liveSession!.session_elapsed_seconds.HasValue
-            ? $"Session {FormatCompactDuration(TimeSpan.FromSeconds(liveSession.session_elapsed_seconds.Value))}"
-            : "Session n/a";
-        string typingText = liveSession.keyboard_active ? "Typing active" : "Typing idle";
-        string mouseText = liveSession.mouse_active ? "Mouse active" : "Mouse idle";
-        return $"{sessionText} | {typingText} | {mouseText}";
+        string confidenceText = BuildConfidenceFooterText(snapshot);
+        string trackingQualityText = BuildTrackingQualityFooterText(status, snapshot, liveSession);
+
+        return string.IsNullOrWhiteSpace(confidenceText)
+            ? trackingQualityText
+            : $"{confidenceText} | {trackingQualityText}";
     }
 
     private static bool IsFreshLiveSession(LocalApiLiveSessionStateResponse? liveSession)
@@ -326,20 +329,139 @@ internal static class UserDesktopWidgetStateBuilder
     {
         if (liveSession.idle)
         {
-            return $"Idle {FormatAgeShort(liveSession.idle_seconds)}";
+            return "Focus session idle";
         }
 
         if (liveSession.focus_elapsed_seconds.HasValue)
         {
-            return $"Focus {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, liveSession.focus_elapsed_seconds.Value)))}";
+            return $"Focus session {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, liveSession.focus_elapsed_seconds.Value)))}";
         }
 
         if (!string.IsNullOrWhiteSpace(liveSession.focus_app_hash))
         {
-            return "Focus live";
+            return "Focus session live";
         }
 
-        return liveSession.user_active ? "Focus active" : "Focus watching";
+        return liveSession.user_active ? "Focus session active" : "Focus session watching";
+    }
+
+    private static string BuildConfidenceFooterText(LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        if (snapshot == null)
+        {
+            return "Confidence unavailable";
+        }
+
+        return $"Confidence {ResolveConfidenceLabel(snapshot.TrustTier, snapshot.Confidence)}";
+    }
+
+    private static string BuildTrackingQualityFooterText(
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiLiveSessionStateResponse? liveSession)
+    {
+        if (status?.Paused == true)
+        {
+            return "Tracking quality paused";
+        }
+
+        if (status?.ConsentActive == false)
+        {
+            return "Tracking quality waiting for consent";
+        }
+
+        if (status == null || !status.ServiceRunning || !status.LocalApiAuthReady)
+        {
+            return "Tracking quality unavailable";
+        }
+
+        if (!IsFresh(status.freshness_state) || (snapshot != null && !IsFresh(snapshot.freshness_state)))
+        {
+            return "Tracking quality delayed";
+        }
+
+        if (snapshot == null)
+        {
+            return IsFreshLiveSession(liveSession)
+                ? "Tracking quality filling in"
+                : "Tracking quality unavailable";
+        }
+
+        if (snapshot.PartialData == true || snapshot.MissingMajorChannels is { Count: > 0 })
+        {
+            return "Tracking quality limited";
+        }
+
+        if (snapshot.analysis_ready == false)
+        {
+            return "Tracking quality pending";
+        }
+
+        double? score = snapshot.CurrentQualityScore;
+        if (!score.HasValue)
+        {
+            return "Tracking quality filling in";
+        }
+
+        double normalizedScore = Math.Clamp(score.Value, 0d, 1d);
+        if (normalizedScore >= 0.85d)
+        {
+            return "Tracking quality strong";
+        }
+
+        if (normalizedScore >= 0.60d)
+        {
+            return "Tracking quality usable";
+        }
+
+        return "Tracking quality limited";
+    }
+
+    private static string ResolveConfidenceLabel(string? trustTier, double confidence)
+    {
+        string normalizedTrustTier = (trustTier ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalizedTrustTier == CalibrationTruth.TrustHigh)
+        {
+            return "High";
+        }
+
+        if (normalizedTrustTier == CalibrationTruth.TrustMedium)
+        {
+            return "Medium";
+        }
+
+        if (normalizedTrustTier == CalibrationTruth.TrustLow)
+        {
+            return "Low";
+        }
+
+        if (confidence >= 0.75d)
+        {
+            return "High";
+        }
+
+        return confidence >= 0.50d ? "Medium" : "Low";
+    }
+
+    private static bool IsUnavailableState(LocalApiStatusResponse? status) =>
+        status == null || !status.ServiceRunning || !status.LocalApiAuthReady;
+
+    private static double ComputeFocusedTodaySeconds(LocalApiTimelineResponse timeline)
+    {
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = timeline.Snapshots ?? [];
+        if (snapshots.Count == 0)
+        {
+            return 0d;
+        }
+
+        double bucketSeconds = Math.Max(1d, timeline.BucketSeconds);
+        double focusedTodaySeconds = 0d;
+        foreach (LocalApiCurrentSnapshotResponse snapshot in snapshots)
+        {
+            focusedTodaySeconds += bucketSeconds * Math.Clamp(snapshot.FocusStrength, 0d, 1d);
+        }
+
+        return focusedTodaySeconds;
     }
 
     private static string FormatPercent(double value)

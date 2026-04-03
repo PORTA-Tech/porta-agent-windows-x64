@@ -116,10 +116,10 @@ internal static class ControlCenterActivationRequestStore
     {
         return value?.Trim().ToLowerInvariant() switch
         {
-            "now" or "overview" => ControlCenterActivationTarget.Now,
+            "now" or "today" or "overview" => ControlCenterActivationTarget.Now,
             "actions" or "interventions" => ControlCenterActivationTarget.Actions,
             "controls" or "settings" => ControlCenterActivationTarget.Settings,
-            "health" or "diagnostics" => ControlCenterActivationTarget.Health,
+            "health" or "system" or "diagnostics" => ControlCenterActivationTarget.Health,
             _ => ControlCenterActivationTarget.Default
         };
     }

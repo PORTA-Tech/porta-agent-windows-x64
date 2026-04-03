@@ -60,7 +60,7 @@ public sealed class UserCommunicationRouterTests
         Assert.NotNull(toast);
         Assert.Equal("capture:heartbeat_stale", toast.Key);
         Assert.Equal("capture:heartbeat", toast.DeduplicationKey);
-        Assert.Equal("Ari limited", toast.Title);
+        Assert.Equal("Tracking limited", toast.Title);
         Assert.Contains("heartbeat stopped updating", toast.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -161,7 +161,7 @@ public sealed class UserCommunicationRouterTests
             nowUtc: nowUtc);
 
         Assert.NotNull(state);
-        Assert.Equal("Core service offline", state!.Title);
+        Assert.Equal("Unavailable", state!.Title);
         Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.PrimaryAction);
         Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.SecondaryAction);
     }
@@ -179,7 +179,7 @@ public sealed class UserCommunicationRouterTests
             statusHttpCode: 401);
 
         Assert.NotNull(state);
-        Assert.Equal("API auth mismatch", state!.Title);
+        Assert.Equal("Unavailable", state!.Title);
         Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.PrimaryAction);
         Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.SecondaryAction);
     }

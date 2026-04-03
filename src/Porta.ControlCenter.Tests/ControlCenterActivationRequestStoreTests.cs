@@ -4,9 +4,11 @@ public sealed class ControlCenterActivationRequestStoreTests
 {
     [Theory]
     [InlineData("--section=now", "Now")]
+    [InlineData("--section=today", "Now")]
     [InlineData("--section=actions", "Actions")]
     [InlineData("--section=settings", "Settings")]
     [InlineData("--section=health", "Health")]
+    [InlineData("--section=system", "Health")]
     public void ParseArgs_UsesRequestedSection(string arg, string expected)
     {
         ControlCenterActivationTarget target = ControlCenterActivationRequestStore.ParseArgs([arg]);

@@ -71,20 +71,20 @@ public sealed class UserInterventionAntiSpamGateTests
         var gate = new UserInterventionAntiSpamGate();
         gate.ObserveWidgetState(new UserDesktopWidgetState(
             Mode: UserDesktopWidgetMode.Limited,
-            Title: "Ari limited",
+            Title: "Tracking limited",
             StatusText: "Critical",
             PrimaryMetricText: "n/a",
             SecondaryMetricText: "n/a",
-            FooterText: "Open Health",
+            FooterText: "Open System",
             NotificationsSuppressed: false,
             BrightnessAdjusted: false,
             CanPause: false,
             CanResume: false,
             CriticalState: new UserDesktopWidgetCriticalState(
                 Title: "Core service offline",
-                Message: "Open Health",
+                Message: "Open System",
                 PrimaryAction: UserDesktopWidgetAction.OpenHealth,
-                PrimaryLabel: "Open Health",
+                PrimaryLabel: "Open System",
                 SecondaryAction: UserDesktopWidgetAction.RetryCritical,
                 SecondaryLabel: "Retry")));
 
@@ -105,20 +105,20 @@ public sealed class UserInterventionAntiSpamGateTests
 
         gate.ObserveWidgetState(new UserDesktopWidgetState(
             Mode: UserDesktopWidgetMode.Limited,
-            Title: "Ari limited",
+            Title: "Tracking limited",
             StatusText: "Critical",
             PrimaryMetricText: "n/a",
             SecondaryMetricText: "n/a",
-            FooterText: "Open Health",
+            FooterText: "Open System",
             NotificationsSuppressed: false,
             BrightnessAdjusted: false,
             CanPause: false,
             CanResume: false,
             CriticalState: new UserDesktopWidgetCriticalState(
                 Title: "Core service offline",
-                Message: "Open Health",
+                Message: "Open System",
                 PrimaryAction: UserDesktopWidgetAction.OpenHealth,
-                PrimaryLabel: "Open Health",
+                PrimaryLabel: "Open System",
                 SecondaryAction: UserDesktopWidgetAction.RetryCritical,
                 SecondaryLabel: "Retry")));
 

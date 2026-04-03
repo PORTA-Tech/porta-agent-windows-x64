@@ -644,7 +644,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             catch (Exception ex)
             {
                 UserAgentFileLog.Error($"widget_action_failed action={action}", ex);
-                _ = TryShow("Ari limited", "The widget action failed. Try again from Control Center.", out _);
+                _ = TryShow("Tracking limited", "The widget action failed. Try again from Control Center.", out _);
             }
         });
     }
@@ -673,9 +673,9 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         switch (action)
         {
             case UserDesktopWidgetAction.OpenNow:
-                if (!TryOpenControlCenter("now"))
+                if (!TryOpenControlCenter("today"))
                 {
-                    _ = TryShow("Ari limited", "Control Center is not available on this device.", out _);
+                    _ = TryShow("Tracking limited", "Control Center is not available on this device.", out _);
                 }
 
                 break;
@@ -683,7 +683,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             case UserDesktopWidgetAction.OpenActions:
                 if (!TryOpenControlCenter("actions"))
                 {
-                    _ = TryShow("Ari limited", "Control Center is not available on this device.", out _);
+                    _ = TryShow("Tracking limited", "Control Center is not available on this device.", out _);
                 }
 
                 break;
@@ -691,15 +691,15 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             case UserDesktopWidgetAction.OpenSettings:
                 if (!TryOpenControlCenter("settings"))
                 {
-                    _ = TryShow("Ari limited", "Control Center is not available on this device.", out _);
+                    _ = TryShow("Tracking limited", "Control Center is not available on this device.", out _);
                 }
 
                 break;
 
             case UserDesktopWidgetAction.OpenHealth:
-                if (!TryOpenControlCenter("health"))
+                if (!TryOpenControlCenter("system"))
                 {
-                    _ = TryShow("Ari limited", "Control Center is not available on this device.", out _);
+                    _ = TryShow("Tracking limited", "Control Center is not available on this device.", out _);
                 }
 
                 break;
@@ -722,7 +722,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 }
                 else
                 {
-                    _ = TryShow("Ari limited", "Ari could not pause right now.", out _);
+                    _ = TryShow("Tracking limited", "Ari could not pause right now.", out _);
                 }
 
                 break;
@@ -736,7 +736,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 }
                 else
                 {
-                    _ = TryShow("Ari limited", "Ari could not pause right now.", out _);
+                    _ = TryShow("Tracking limited", "Ari could not pause right now.", out _);
                 }
 
                 break;
@@ -748,7 +748,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 }
                 else
                 {
-                    _ = TryShow("Ari limited", "Ari could not resume right now.", out _);
+                    _ = TryShow("Tracking limited", "Ari could not resume right now.", out _);
                 }
 
                 break;
@@ -760,7 +760,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 }
                 else
                 {
-                    _ = TryShow("Ari limited", "Ari could not start recalibration right now.", out _);
+                    _ = TryShow("Tracking limited", "Ari could not start recalibration right now.", out _);
                 }
 
                 break;
@@ -772,7 +772,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 }
                 else
                 {
-                    _ = TryShow("Ari limited", "The widget could not reset its position right now.", out _);
+                    _ = TryShow("Tracking limited", "The widget could not reset its position right now.", out _);
                 }
 
                 break;
@@ -798,12 +798,12 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             LocalApiAckResponse? restart = await _actionClient.RestartServiceAsync().ConfigureAwait(false);
             if (restart?.Success == true)
             {
-                _ = TryShow("Ari", "Runtime restart requested. Check Health if recovery takes longer than expected.", out _);
+                _ = TryShow("Ari", "Runtime restart requested. Open System if recovery takes longer than expected.", out _);
                 return;
             }
         }
 
-        _ = TryShow("Ari limited", "Ari retried the runtime check, but the issue is still active. Open Health for details.", out _);
+        _ = TryShow("Tracking limited", "Ari retried the runtime check, but the issue is still active. Open System for details.", out _);
     }
 
     private static bool TryOpenControlCenter(string? section)
