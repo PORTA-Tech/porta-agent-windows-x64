@@ -299,10 +299,10 @@
                                 <TextBlock x:Name="ConsentBadgeText" Text="Consent: Needed" />
                             </Border>
                             <Border x:Name="CalibrationBadgeBorder" CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,8">
-                                <TextBlock x:Name="CalibrationBadgeText" Text="Calibration: Bootstrapping" />
+                                <TextBlock x:Name="CalibrationBadgeText" Text="Learning your pattern: Bootstrapping" />
                             </Border>
                             <Border x:Name="TrustBadgeBorder" CornerRadius="12" Background="#334155" Padding="10,4" Margin="0,0,10,8">
-                                <TextBlock x:Name="TrustBadgeText" Text="Trust: Low" />
+                                <TextBlock x:Name="TrustBadgeText" Text="Confidence: Low" />
                             </Border>
                             <Button x:Name="GlobalUpdateButton"
                                     Padding="12,6"
@@ -453,7 +453,7 @@
                                     <TextBlock Text="Overload" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock x:Name="NowOverloadValueText" Text="Overload: Not available" FontSize="26" FontWeight="Bold" />
                                     <TextBlock x:Name="NowOverloadActiveText" Text="Active: Not available" Margin="0,6,0,0" />
-                                    <TextBlock x:Name="NowOverloadTrustText" Text="Trust level: Not available" Margin="0,4,0,8" />
+                                    <TextBlock x:Name="NowOverloadTrustText" Text="Confidence: Not available" Margin="0,4,0,8" />
                                     <TextBlock x:Name="NowOverloadSummaryText"
                                                Text="Open Why for current contributors and today's peak."
                                                Margin="0,0,0,8"
@@ -481,8 +481,8 @@
                                     Tag="focus"
                                     ToolTip="Open History for focus details">
                                 <StackPanel>
-                                    <TextBlock Text="Focus streak" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowFocusStreakValueText" Text="Focused time: Not available" FontSize="26" FontWeight="Bold" />
+                                    <TextBlock Text="Current focus session" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowFocusStreakValueText" Text="Current focus session: Not available" FontSize="26" FontWeight="Bold" />
                                     <TextBlock x:Name="NowDeepWorkStreakText"
                                                Text=""
                                                Margin="0,6,0,0"
@@ -514,7 +514,7 @@
                                     Tag="calibration"
                                     ToolTip="Open System > Advanced for calibration details">
                                 <StackPanel>
-                                    <TextBlock Text="Calibration" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock Text="Learning your pattern" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock x:Name="NowCalibrationStatusText" Text="Bootstrapping" FontSize="20" FontWeight="Bold" />
                                     <TextBlock x:Name="NowCalibrationProgressText" Text="Progress: Not available" Margin="0,6,0,0" />
                                     <TextBlock x:Name="NowCalibrationQualityText" Text="Recent data quality: Not available (last 2 min)" Margin="0,4,0,0" />
@@ -524,7 +524,7 @@
                                                Margin="0,8,0,0"
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowCalibrationTrustCapText" Text="Trust is capped until enough baseline data accumulates." Foreground="#FB923C" Margin="0,8,0,0" Visibility="Collapsed" />
+                                    <TextBlock x:Name="NowCalibrationTrustCapText" Text="Confidence is capped until enough baseline data accumulates." Foreground="#FB923C" Margin="0,8,0,0" Visibility="Collapsed" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="NowDataQualityCard"
@@ -536,8 +536,8 @@
                                     Tag="data-quality"
                                     ToolTip="Open System > Advanced for signal details">
                                 <StackPanel>
-                                    <TextBlock Text="Data quality" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowDataQualityScoreText" Text="Quality score: Not available" FontSize="20" FontWeight="Bold" />
+                                    <TextBlock Text="Tracking quality" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowDataQualityScoreText" Text="Tracking quality: Not available" FontSize="20" FontWeight="Bold" />
                                     <TextBlock x:Name="NowDataQualityPartialText" Text="Partial data: Not available" Margin="0,6,0,0" />
                                     <TextBlock x:Name="NowDataQualitySummaryText"
                                                Text="Open System > Advanced for signal details."
@@ -594,7 +594,7 @@
                         </Border>
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="What PORTA is doing" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBlock Text="Current status" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
                                 <TextBlock x:Name="NowWhatPortaDoingText" Text="Not available" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
@@ -743,7 +743,7 @@
                                     <ProgressBar Grid.Row="3" Grid.Column="1" x:Name="LiveIdleMeter" Height="10" Minimum="0" Maximum="100" Value="0" Margin="8,4" />
                                     <TextBlock Grid.Row="3" Grid.Column="2" x:Name="LiveIdleValue" Text="0s" HorizontalAlignment="Right" VerticalAlignment="Center" />
                                 </Grid>
-                                <TextBlock x:Name="LiveQualityValue" Text="Quality score: Not available" Margin="0,4,0,0" />
+                                <TextBlock x:Name="LiveQualityValue" Text="Tracking quality: Not available" Margin="0,4,0,0" />
                                 <TextBlock x:Name="LivePartialValue" Text="Partial data: Not available" Margin="0,4,0,0" />
                                 <TextBlock x:Name="LiveMissingChannelsValue" Text="Missing: Not available" Margin="0,4,0,0" Foreground="#94A3B8" />
                             </StackPanel>
@@ -1408,7 +1408,7 @@
                                 </Border>
                                 <Border Grid.Column="3" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,0,0">
                                     <StackPanel>
-                                        <TextBlock Text="Trust + actions" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Confidence + actions" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="HistoryTrustSummaryText" Text="No data yet" Foreground="#DBEAFE" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                         <TextBlock x:Name="HistoryActionsSummaryText" Text="No data yet" Foreground="#CBD5E1" FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
@@ -1434,7 +1434,7 @@
                                             <TextBlock Text="Overload" Foreground="#FCA5A5" FontSize="11" />
                                         </Border>
                                         <Border Background="#132C4A" BorderBrush="#1D4ED8" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Trust" Foreground="#BFDBFE" FontSize="11" />
+                                            <TextBlock Text="Confidence" Foreground="#BFDBFE" FontSize="11" />
                                         </Border>
                                     </WrapPanel>
                                     <Grid>
@@ -1498,14 +1498,14 @@
                                     </ScrollViewer>
                                 </Border>
 
-                                <TextBlock Text="Trust confidence" FontWeight="SemiBold" />
+                                <TextBlock Text="Confidence" FontWeight="SemiBold" />
                                 <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
                                     <ScrollViewer x:Name="TimelineTrustScrollViewer" Height="56" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                         <StackPanel x:Name="TimelineTrustTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
                                     </ScrollViewer>
                                 </Border>
 
-                                <TextBlock Text="Focused time" FontWeight="SemiBold" />
+                                    <TextBlock Text="Current focus session" FontWeight="SemiBold" />
                                 <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
                                     <ScrollViewer x:Name="TimelineFocusScrollViewer" Height="72" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                         <StackPanel x:Name="TimelineFocusTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
@@ -1528,7 +1528,7 @@
                                     <TextBlock Text="Click the chart or an action marker on the left to inspect that exact moment." Foreground="#94A3B8" Margin="0,0,0,12" TextWrapping="Wrap" />
                                     <TextBlock x:Name="TimelineDetailTimestamp" Text="Timestamp: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
                                     <TextBlock x:Name="TimelineDetailOverload" Text="Overload: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                    <TextBlock x:Name="TimelineDetailTrust" Text="Trust level: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                    <TextBlock x:Name="TimelineDetailTrust" Text="Confidence: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
                                     <TextBlock x:Name="TimelineDetailFocus" Text="Focus streak: Not available" Margin="0,0,0,6" Foreground="#F8FAFC" />
                                     <TextBlock x:Name="TimelineDetailClassification" Text="Type: Not available" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
                                     <TextBlock x:Name="TimelineDetailExecution" Text="Decision/Execution: Not available" TextWrapping="Wrap" Margin="0,0,0,10" Foreground="#93C5FD" />

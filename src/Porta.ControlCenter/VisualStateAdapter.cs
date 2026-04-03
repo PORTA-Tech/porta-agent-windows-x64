@@ -26,9 +26,9 @@ internal sealed record PortaVisualState(
     PortaVisualMode Mode,
     PortaModeTheme Theme,
     string ModeLabel,
-    string TrustLabel,
-    string FocusStreakText,
-    double? FocusDisplaySeconds,
+    string ConfidenceLabel,
+    string CurrentFocusSessionText,
+    double? CurrentFocusSessionSeconds,
     bool SnapshotAnalysisReady,
     string FocusStatusText,
     string OperatingSentence,
@@ -94,9 +94,9 @@ internal static class VisualStateAdapter
                 Mode: PortaVisualMode.Unavailable,
                 Theme: ThemeByMode[PortaVisualMode.Unavailable],
                 ModeLabel: "Unavailable",
-                TrustLabel: NotAvailableText,
-                FocusStreakText: $"Focused time: {NotAvailableText}",
-                FocusDisplaySeconds: null,
+                ConfidenceLabel: NotAvailableText,
+                CurrentFocusSessionText: $"Current focus session: {NotAvailableText}",
+                CurrentFocusSessionSeconds: null,
                 SnapshotAnalysisReady: false,
                 FocusStatusText: waitingReason,
                 OperatingSentence: waitingReason,
@@ -121,7 +121,7 @@ internal static class VisualStateAdapter
 
         string focusStatus = BuildFocusStatus(snapshot);
         string operatingSentence = BuildOperatingSentence(status, snapshot, mode, fallbackExplanation);
-        double? focusDisplaySeconds = ResolveDisplayFocusSeconds(snapshot, liveSession);
+        double? currentFocusSessionSeconds = ResolveCurrentFocusSessionSeconds(snapshot, liveSession);
         (bool showRecoveryBanner, long recoveryEventId, string recoveryBannerText) = BuildRecoveryBanner(mode, recentEvents, nowUtc);
         (bool showDeepWorkStreak, string deepWorkStreakText) = BuildDeepWorkStreak(
             deepWorkActive,
@@ -139,9 +139,9 @@ internal static class VisualStateAdapter
             Mode: mode,
             Theme: theme,
             ModeLabel: ToModeLabel(mode),
-            TrustLabel: ResolveTrustLabel(snapshot.TrustTier, snapshot.Confidence),
-            FocusStreakText: BuildFocusStreakText(snapshot, liveSession),
-            FocusDisplaySeconds: focusDisplaySeconds,
+            ConfidenceLabel: ResolveConfidenceLabel(snapshot.TrustTier, snapshot.Confidence),
+            CurrentFocusSessionText: BuildCurrentFocusSessionText(snapshot, liveSession),
+            CurrentFocusSessionSeconds: currentFocusSessionSeconds,
             SnapshotAnalysisReady: snapshot.analysis_ready,
             FocusStatusText: focusStatus,
             OperatingSentence: operatingSentence,
@@ -155,34 +155,37 @@ internal static class VisualStateAdapter
             WhySummary: whySummary);
     }
 
-    private static string BuildFocusStreakText(
+    // Metric contract:
+    // - Current focus session = live-first timer from /v1/session/live.
+    // - Focused today remains a durable processed-history metric and lands on the Today page in the next pass.
+    private static string BuildCurrentFocusSessionText(
         LocalApiCurrentSnapshotResponse snapshot,
         LocalApiLiveSessionStateResponse? liveSession)
     {
-        double? liveFocusSeconds = ResolveLiveFocusSeconds(liveSession);
+        double? liveFocusSeconds = ResolveLiveCurrentFocusSessionSeconds(liveSession);
         if (liveFocusSeconds.HasValue)
         {
-            return $"Focused time: {FormatFocusedTime(liveFocusSeconds.Value)}";
+            return $"Current focus session: {FormatFocusedTime(liveFocusSeconds.Value)}";
         }
 
         if (snapshot.analysis_ready)
         {
-            return $"Focused time: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
+            return $"Current focus session: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
         }
 
         if (IsFreshLiveSession(liveSession) && liveSession!.idle)
         {
-            return "Focused time: 0 sec";
+            return "Current focus session: 0 sec";
         }
 
-        return $"Focused time: {NotAvailableText}";
+        return $"Current focus session: {NotAvailableText}";
     }
 
-    internal static double? ResolveDisplayFocusSeconds(
+    internal static double? ResolveCurrentFocusSessionSeconds(
         LocalApiCurrentSnapshotResponse? snapshot,
         LocalApiLiveSessionStateResponse? liveSession)
     {
-        double? liveFocusSeconds = ResolveLiveFocusSeconds(liveSession);
+        double? liveFocusSeconds = ResolveLiveCurrentFocusSessionSeconds(liveSession);
         if (liveFocusSeconds.HasValue)
         {
             return liveFocusSeconds;
@@ -193,7 +196,7 @@ internal static class VisualStateAdapter
             : null;
     }
 
-    private static double? ResolveLiveFocusSeconds(LocalApiLiveSessionStateResponse? liveSession)
+    private static double? ResolveLiveCurrentFocusSessionSeconds(LocalApiLiveSessionStateResponse? liveSession)
     {
         if (!IsFreshLiveSession(liveSession)
             || liveSession!.idle
@@ -245,12 +248,12 @@ internal static class VisualStateAdapter
         string calibrationStage = NormalizeCalibrationStage(snapshot.CalibrationStage, snapshot.BaselineReady, snapshot.ColdStart);
         if (string.Equals(calibrationStage, CalibrationStageCold, StringComparison.Ordinal))
         {
-            return "Calibrating before suggesting actions.";
+            return "Learning your pattern before suggesting actions.";
         }
 
         if (string.Equals(calibrationStage, CalibrationStageProvisional, StringComparison.Ordinal))
         {
-            return "Calibration is progressing: suggestions are active while stronger actions stay gated.";
+            return "Learning your pattern: suggestions are active while stronger actions stay gated.";
         }
 
         if (!string.IsNullOrWhiteSpace(fallbackExplanation))
@@ -506,7 +509,7 @@ internal static class VisualStateAdapter
         };
     }
 
-    private static string ResolveTrustLabel(string? trustTier, double confidence)
+    private static string ResolveConfidenceLabel(string? trustTier, double confidence)
     {
         if (!string.IsNullOrWhiteSpace(trustTier))
         {
@@ -518,7 +521,7 @@ internal static class VisualStateAdapter
             };
         }
 
-        return MapTrustLabel(confidence);
+        return MapConfidenceLabel(confidence);
     }
 
     private static string NormalizeCalibrationStage(string? calibrationStage, bool? baselineReady, bool? coldStart)
@@ -542,7 +545,7 @@ internal static class VisualStateAdapter
         return coldStart == true ? CalibrationStageCold : CalibrationStageProvisional;
     }
 
-    private static string MapTrustLabel(double confidence)
+    private static string MapConfidenceLabel(double confidence)
     {
         if (confidence >= 0.75d)
         {

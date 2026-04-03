@@ -1240,16 +1240,18 @@ public partial class MainWindow : Window
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         PortaVisualState visualState)
     {
-        // Live session feeds only the immediate activity text on this surface.
-        // Overload, trust, calibration, quality, history, and recent actions remain snapshot/event driven.
+        // Metric contract:
+        // - Current focus session is live-first from /v1/session/live.
+        // - Focused today and distraction time today remain processed-history metrics.
+        // - Overload, confidence, learning state, tracking quality, history, and recent actions remain snapshot/event driven.
         LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
         if (snapshot == null)
         {
             NowOverloadValueText.Text = $"Overload: {NotAvailableText}";
             NowOverloadActiveText.Text = $"Active: {NotAvailableText}";
-            NowOverloadTrustText.Text = $"Trust level: {NotAvailableText}";
+            NowOverloadTrustText.Text = $"Confidence: {NotAvailableText}";
             NowOverloadSummaryText.Text = BuildNowOverloadSummary(null);
-            NowFocusStreakValueText.Text = visualState.FocusStreakText;
+            NowFocusStreakValueText.Text = visualState.CurrentFocusSessionText;
             NowDeepWorkStreakText.Visibility = Visibility.Collapsed;
             NowFocusChoppinessText.Text = $"Choppiness: {NotAvailableText}";
             NowFocusSummaryText.Text = BuildNowFocusSummary(null, liveSession);
@@ -1262,12 +1264,12 @@ public partial class MainWindow : Window
 
             NowCalibrationStatusText.Text = "Bootstrapping";
             NowCalibrationProgressText.Text = $"Progress: {NotAvailableText}";
-            NowCalibrationQualityText.Text = $"Recent data quality: {NotAvailableText} (last 2 min)";
+            NowCalibrationQualityText.Text = $"Recent tracking quality: {NotAvailableText} (last 2 min)";
             NowCalibrationColdStartText.Text = $"Stage: {NotAvailableText}";
             NowCalibrationSummaryText.Text = BuildNowCalibrationSummary(null);
             NowCalibrationTrustCapText.Visibility = Visibility.Visible;
 
-            NowDataQualityScoreText.Text = $"Quality score: {NotAvailableText}";
+            NowDataQualityScoreText.Text = $"Tracking quality: {NotAvailableText}";
             NowDataQualityPartialText.Text = $"Partial data: {NotAvailableText}";
             NowDataQualitySummaryText.Text = BuildNowDataQualitySummary(null);
             NowDataQualityMissingText.Visibility = Visibility.Collapsed;
@@ -1276,7 +1278,7 @@ public partial class MainWindow : Window
             NowLastActionTimeText.Text = $"Time: {NotAvailableText}";
             NowOpenActionsButton.IsEnabled = false;
 
-            NowWhatPortaDoingText.Text = BuildLiveOperatingSentence(liveSession) ?? visualState.OperatingSentence;
+            NowWhatPortaDoingText.Text = BuildCurrentStatusSentence(liveSession) ?? visualState.OperatingSentence;
             NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
             _activeRecoveryEventId = 0;
             NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
@@ -1306,28 +1308,28 @@ public partial class MainWindow : Window
             AnimateTopMetric(
                 metricKey: "now_trust",
                 targetValue: Math.Clamp(snapshot.Confidence * 100d, 0d, 100d),
-                applyValue: value => NowOverloadTrustText.Text = $"Trust level: {value:F0}%");
+                applyValue: value => NowOverloadTrustText.Text = $"Confidence: {value:F0}%");
         }
         else
         {
             NowOverloadValueText.Text = "Overload analyzing";
             NowOverloadActiveText.Text = "Active: assessing";
-            NowOverloadTrustText.Text = $"Trust level: {NotAvailableText}";
+            NowOverloadTrustText.Text = $"Confidence: {NotAvailableText}";
         }
 
         NowOverloadSummaryText.Text = BuildNowOverloadSummary(snapshot);
 
-        double? focusDisplaySeconds = visualState.FocusDisplaySeconds;
+        double? focusDisplaySeconds = visualState.CurrentFocusSessionSeconds;
         if (focusDisplaySeconds.HasValue)
         {
             AnimateTopMetric(
                 metricKey: "now_focus",
                 targetValue: Math.Max(0d, focusDisplaySeconds.Value / 60d),
-                applyValue: value => NowFocusStreakValueText.Text = $"Focused time: {FormatFocusedTime(value * 60d)}");
+                applyValue: value => NowFocusStreakValueText.Text = $"Current focus session: {FormatFocusedTime(value * 60d)}");
         }
         else
         {
-            NowFocusStreakValueText.Text = visualState.FocusStreakText;
+            NowFocusStreakValueText.Text = visualState.CurrentFocusSessionText;
         }
 
         if (visualState.ShowDeepWorkStreak)
@@ -1378,20 +1380,20 @@ public partial class MainWindow : Window
             : $"Progress: {NotAvailableText}";
         // Source: GET /v1/snapshot/current -> avg_quality_2m
         NowCalibrationQualityText.Text = snapshot.AvgQuality2m.HasValue
-            ? $"Recent data quality: {snapshot.AvgQuality2m.Value:F2} (last 2 min)"
-            : $"Recent data quality: {NotAvailableText} (last 2 min)";
+            ? $"Recent tracking quality: {snapshot.AvgQuality2m.Value:F2} (last 2 min)"
+            : $"Recent tracking quality: {NotAvailableText} (last 2 min)";
         // Source: GET /v1/snapshot/current -> cold_start
         NowCalibrationColdStartText.Text = $"Stage: {ToCalibrationStageLabel(calibrationStage)} | Cold start: {MapOnOff(snapshot.ColdStart)}";
         NowCalibrationSummaryText.Text = BuildNowCalibrationSummary(snapshot);
         NowCalibrationTrustCapText.Text = string.Equals(calibrationStage, CalibrationStageProvisional, StringComparison.Ordinal)
             ? "Suggestions are active while stronger system actions remain gated."
-            : "Trust is capped until enough baseline data accumulates.";
+            : "Confidence is capped until enough baseline data accumulates.";
         NowCalibrationTrustCapText.Visibility = calibrationReady ? Visibility.Collapsed : Visibility.Visible;
 
         // Source: GET /v1/snapshot/current -> current_quality_score
         NowDataQualityScoreText.Text = snapshot.CurrentQualityScore.HasValue
-            ? $"Quality score: {snapshot.CurrentQualityScore.Value:F2}"
-            : $"Quality score: {NotAvailableText}";
+            ? $"Tracking quality: {snapshot.CurrentQualityScore.Value:F2}"
+            : $"Tracking quality: {NotAvailableText}";
         // Source: GET /v1/snapshot/current -> partial_data
         NowDataQualityPartialText.Text = $"Partial data: {MapYesNo(snapshot.PartialData)}";
         NowDataQualitySummaryText.Text = BuildNowDataQualitySummary(snapshot);
@@ -1421,7 +1423,7 @@ public partial class MainWindow : Window
             NowOpenActionsButton.IsEnabled = true;
         }
 
-        NowWhatPortaDoingText.Text = BuildLiveOperatingSentence(liveSession) ?? visualState.OperatingSentence;
+        NowWhatPortaDoingText.Text = BuildCurrentStatusSentence(liveSession) ?? visualState.OperatingSentence;
         NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
         if (visualState.ShowRecoveryBanner
             && visualState.RecoveryEventId > 0
@@ -1464,17 +1466,17 @@ public partial class MainWindow : Window
         LocalApiCurrentSnapshotResponse? snapshot,
         LocalApiLiveSessionStateResponse? liveSession)
     {
-        double? liveFocusSeconds = VisualStateAdapter.ResolveDisplayFocusSeconds(snapshot, liveSession);
+        double? liveFocusSeconds = VisualStateAdapter.ResolveCurrentFocusSessionSeconds(snapshot, liveSession);
         if (IsLiveSessionFresh(liveSession)
             && liveFocusSeconds.HasValue
             && snapshot is { analysis_ready: false })
         {
-            return $"Live streak: {FormatFocusedTime(liveFocusSeconds.Value)}. Click for History once processed buckets catch up.";
+            return $"Current focus session: {FormatFocusedTime(liveFocusSeconds.Value)}. Click for History once processed buckets catch up.";
         }
 
         if (snapshot is { analysis_ready: false })
         {
-            return "Watching live focus now. History will fill in after processed focus buckets arrive.";
+            return "Watching your current focus session now. History will fill in after processed buckets arrive.";
         }
 
         IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = _todayTimeline?.Snapshots ?? [];
@@ -1482,12 +1484,12 @@ public partial class MainWindow : Window
         {
             return snapshot == null
                 ? "Open History once live focus buckets arrive."
-                : $"Current streak: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}. Click for History.";
+                : $"Current focus session: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}. Click for History.";
         }
 
         double maxStreakSeconds = snapshots.Max(s => Math.Max(0d, s.SustainedAttentionDurationSec));
         double averageFocusPercent = snapshots.Average(s => Math.Clamp(s.FocusStrength, 0d, 1d)) * 100d;
-        return $"Today max streak: {FormatFocusedTime(maxStreakSeconds)} | Avg focus: {averageFocusPercent:F0}%. Click for History.";
+        return $"Best focus block today: {FormatFocusedTime(maxStreakSeconds)} | Avg focus: {averageFocusPercent:F0}%. Click for History.";
     }
 
     private string BuildNowCalibrationSummary(LocalApiCurrentSnapshotResponse? snapshot)
@@ -1497,12 +1499,12 @@ public partial class MainWindow : Window
             return "Open System > Advanced for live calibration blockers.";
         }
 
-        string trustTier = ToTrustLabel(NormalizeTrustTier(snapshot.TrustTier, snapshot.ModelConfidence ?? snapshot.Confidence));
+        string confidenceLabel = ToConfidenceLabel(NormalizeTrustTier(snapshot.TrustTier, snapshot.ModelConfidence ?? snapshot.Confidence));
         string systemActions = snapshot.SystemActionsEnabled == true ? "enabled" : "gated";
         string progressText = snapshot.BaselineReadyPct.HasValue
             ? $"{(Math.Clamp(snapshot.BaselineReadyPct.Value, 0d, 1d) * 100d):F0}% ready"
             : "progress pending";
-        return $"Trust tier: {trustTier} | System actions: {systemActions} | {progressText}. Click for System > Advanced.";
+        return $"Confidence: {confidenceLabel} | System actions: {systemActions} | {progressText}. Click for System > Advanced.";
     }
 
     private string BuildNowDataQualitySummary(LocalApiCurrentSnapshotResponse? snapshot)
@@ -1511,27 +1513,27 @@ public partial class MainWindow : Window
         if (snapshot?.MissingMajorChannels is { Count: > 0 })
         {
             string missing = string.Join(" / ", snapshot.MissingMajorChannels.Select(ToDisplayChannelName));
-            return $"Missing now: {missing}. Click for signal details.";
+            return $"Tracking is limited now: missing {missing}. Click for tracking details.";
         }
 
         if (snapshot?.PartialData == true)
         {
             return TryBuildTodayQualityRange(snapshots, out string range)
-                ? $"Recent buckets are partial | Today quality range: {range}. Click for signal details."
-                : "Recent buckets are partial, so quality is conservative. Click for signal details.";
+                ? $"Recent buckets are partial | Today's tracking quality range: {range}. Click for tracking details."
+                : "Recent buckets are partial, so tracking quality is conservative. Click for tracking details.";
         }
 
         if (TryBuildTodayQualityRange(snapshots, out string todayRange))
         {
-            return $"Today quality range: {todayRange}. Click for signal details.";
+            return $"Today's tracking quality range: {todayRange}. Click for tracking details.";
         }
 
         if (snapshot == null)
         {
-            return "Open System > Advanced once live quality buckets arrive.";
+            return "Open System > Advanced once live tracking-quality buckets arrive.";
         }
 
-        return "All major channels are currently available. Click for signal details.";
+        return "All major tracking signals are currently available. Click for tracking details.";
     }
 
     private static bool TryBuildTodayQualityRange(
@@ -1567,7 +1569,7 @@ public partial class MainWindow : Window
         WhyDrawerStateText.Text = $"State: {visualState.ModeLabel}";
         WhyDrawerConfidenceText.Text = snapshot == null
             ? $"Confidence: {NotAvailableText}"
-            : $"Confidence: {(snapshot.Confidence * 100d):F0}% ({visualState.TrustLabel})";
+            : $"Confidence: {(snapshot.Confidence * 100d):F0}% ({visualState.ConfidenceLabel})";
 
         OverloadExplainView explain = snapshot == null
             ? OverloadExplainView.Unavailable
@@ -2030,7 +2032,7 @@ public partial class MainWindow : Window
         return $"{focusText} | {liveStreakText} | typing {(liveSession.keyboard_active ? "active" : "idle")} | mouse {(liveSession.mouse_active ? "active" : "idle")}";
     }
 
-    private static string? BuildLiveOperatingSentence(LocalApiLiveSessionStateResponse? liveSession)
+    private static string? BuildCurrentStatusSentence(LocalApiLiveSessionStateResponse? liveSession)
     {
         if (!IsLiveSessionFresh(liveSession))
         {
@@ -2665,9 +2667,9 @@ public partial class MainWindow : Window
         string continuityLabel =
             $"{continuityState} | {continuitySeconds} continuity | score {snapshot.TaskContinuityScore:F2} | confidence {(snapshot.ContinuityConfidence ?? 0d):F2}";
 
-        string trustTier = ToTrustLabel(NormalizeTrustTier(snapshot.TrustTier, snapshot.ModelConfidence));
+        string trustTier = ToConfidenceLabel(NormalizeTrustTier(snapshot.TrustTier, snapshot.ModelConfidence));
         string confidenceLabel =
-            $"Trust {trustTier} | model {(snapshot.ModelConfidence ?? snapshot.Confidence):F2} | signal quality {(snapshot.SignalQualityScore ?? snapshot.CurrentQualityScore ?? 0d):F2} | partial {MapYesNo(snapshot.PartialData)}";
+            $"Confidence {trustTier} | model {(snapshot.ModelConfidence ?? snapshot.Confidence):F2} | signal quality {(snapshot.SignalQualityScore ?? snapshot.CurrentQualityScore ?? 0d):F2} | partial {MapYesNo(snapshot.PartialData)}";
 
         string calibrationStage = NormalizeCalibrationStage(snapshot.CalibrationStage, snapshot.BaselineReady, snapshot.ColdStart);
         string progressText = snapshot.BaselineReadyPct.HasValue
@@ -3762,15 +3764,15 @@ public partial class MainWindow : Window
 
         if (snapshot == null)
         {
-            LiveQualityValue.Text = $"Quality score: {NotAvailableText}";
+            LiveQualityValue.Text = $"Tracking quality: {NotAvailableText}";
             LivePartialValue.Text = $"Partial data: {NotAvailableText}";
             LiveMissingChannelsValue.Text = $"Missing: {NotAvailableText}";
         }
         else
         {
             LiveQualityValue.Text = snapshot.CurrentQualityScore.HasValue
-                ? $"Quality score: {snapshot.CurrentQualityScore.Value:F2}"
-                : $"Quality score: {NotAvailableText}";
+                ? $"Tracking quality: {snapshot.CurrentQualityScore.Value:F2}"
+                : $"Tracking quality: {NotAvailableText}";
             LivePartialValue.Text = snapshot.PartialData.HasValue
                 ? $"Partial data: {(snapshot.PartialData.Value ? "Yes" : "No")}"
                 : $"Partial data: {NotAvailableText}";
@@ -5250,7 +5252,7 @@ public partial class MainWindow : Window
         DecisionsBlockersText.Text = decisionBlockers.Count == 0
             ? "What can block it: none detected."
             : $"What can block it: {string.Join(" / ", decisionBlockers)}.";
-        DecisionsCurrentText.Text = $"Current status: overload {(overload * 100d):F0}%, trust {ToTrustLabel(trustTier)} ({(trust * 100d):F0}%), focus streak {focusedMinutes:F0} min, suggestions {(suggestionsEnabled ? "enabled" : "gated")}, system actions {(systemActionsEnabled ? "enabled" : "gated")}.";
+        DecisionsCurrentText.Text = $"Current status: overload {(overload * 100d):F0}%, confidence {ToConfidenceLabel(trustTier)} ({(trust * 100d):F0}%), current focus session {focusedMinutes:F0} min, suggestions {(suggestionsEnabled ? "enabled" : "gated")}, system actions {(systemActionsEnabled ? "enabled" : "gated")}.";
     }
 
     private static string ChannelAvailabilityLabel(IReadOnlyList<string> missingChannels, string channel)
@@ -5319,9 +5321,9 @@ public partial class MainWindow : Window
         foreach (LocalApiCurrentSnapshotResponse snapshot in snapshots)
         {
             TimelineOverloadTrackPanel.Children.Add(BuildTrackPoint(snapshot, snapshot.OverloadLikelihood, Color.FromRgb(239, 68, 68), "Overload"));
-            TimelineTrustTrackPanel.Children.Add(BuildTrackPoint(snapshot, snapshot.Confidence, Color.FromRgb(59, 130, 246), "Trust"));
+            TimelineTrustTrackPanel.Children.Add(BuildTrackPoint(snapshot, snapshot.Confidence, Color.FromRgb(59, 130, 246), "Confidence"));
             double focusNormalized = Math.Clamp(snapshot.SustainedAttentionDurationSec / 3600d, 0d, 1d);
-            TimelineFocusTrackPanel.Children.Add(BuildTrackPoint(snapshot, focusNormalized, Color.FromRgb(34, 197, 94), "Focus streak"));
+            TimelineFocusTrackPanel.Children.Add(BuildTrackPoint(snapshot, focusNormalized, Color.FromRgb(34, 197, 94), "Current focus session"));
             TimelineOverloadActiveOverlayPanel.Children.Add(BuildOverloadActiveMarker(snapshot));
         }
 
@@ -5399,7 +5401,7 @@ public partial class MainWindow : Window
             ? $"Now {FormatFocusedTime(latest.SustainedAttentionDurationSec)} | Best retained {FormatFocusedTime(retainedBestFocusSeconds)}"
             : $"Now {FormatFocusedTime(latest.SustainedAttentionDurationSec)} | Range best {FormatFocusedTime(rangeBestFocusSeconds)} | Retained best {FormatFocusedTime(retainedBestFocusSeconds)}";
         HistoryOverloadSummaryText.Text = $"Now {(latest.OverloadLikelihood * 100d):F0}% | Peak {(peakOverload * 100d):F0}%";
-        HistoryTrustSummaryText.Text = $"Trust {(latest.Confidence * 100d):F0}% | Avg {(averageTrust * 100d):F0}%";
+        HistoryTrustSummaryText.Text = $"Confidence {(latest.Confidence * 100d):F0}% | Avg {(averageTrust * 100d):F0}%";
         HistoryActionsSummaryText.Text = $"{suggestions} suggestions | {changes} changes | {overloadActiveMoments} active moments";
         HistoryGuideText.Text = _historyExplainMode
             ? "Technical view is on. Click any point or action marker to inspect the raw explanation for that moment."
@@ -5603,7 +5605,7 @@ public partial class MainWindow : Window
             return $"{time}{Environment.NewLine}focus_norm={focusPercent:F1}%{Environment.NewLine}overload={(snapshot.OverloadLikelihood * 100d):F1}%{Environment.NewLine}trust={(snapshot.Confidence * 100d):F1}%";
         }
 
-        return $"{time}{Environment.NewLine}Focus {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}{Environment.NewLine}Overload {(snapshot.OverloadLikelihood * 100d):F0}%{Environment.NewLine}Trust {(snapshot.Confidence * 100d):F0}%";
+        return $"{time}{Environment.NewLine}Current focus session {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}{Environment.NewLine}Overload {(snapshot.OverloadLikelihood * 100d):F0}%{Environment.NewLine}Confidence {(snapshot.Confidence * 100d):F0}%";
     }
 
     private UIElement BuildTrackPoint(
@@ -5698,8 +5700,8 @@ public partial class MainWindow : Window
         return label switch
         {
             "Overload" => $"{time} | Overload was {(Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d) * 100d):F0}%.",
-            "Trust" => $"{time} | Trust level was {(Math.Clamp(snapshot.Confidence, 0d, 1d) * 100d):F0}%.",
-            "Focus streak" => $"{time} | Focus streak was {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}.",
+            "Confidence" => $"{time} | Confidence was {(Math.Clamp(snapshot.Confidence, 0d, 1d) * 100d):F0}%.",
+            "Current focus session" => $"{time} | Current focus session was {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}.",
             _ => $"{time} | Value: {normalizedValue:F2}"
         };
     }
@@ -5732,7 +5734,7 @@ public partial class MainWindow : Window
         {
             TimelineDetailTimestamp.Text = $"Timestamp: {NotAvailableText}";
             TimelineDetailOverload.Text = $"Overload: {NotAvailableText}";
-            TimelineDetailTrust.Text = $"Trust level: {NotAvailableText}";
+            TimelineDetailTrust.Text = $"Confidence: {NotAvailableText}";
             TimelineDetailFocus.Text = $"Focus streak: {NotAvailableText}";
             TimelineDetailClassification.Text = $"Moment type: {NotAvailableText}";
             TimelineDetailExecution.Text = $"Decision / execution: {NotAvailableText}";
@@ -5755,7 +5757,7 @@ public partial class MainWindow : Window
                 && explain.Jitter.HasValue;
             TimelineDetailTimestamp.Text = $"Timestamp: {snapshot.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
             TimelineDetailOverload.Text = $"Overload: {(snapshot.OverloadLikelihood * 100d):F0}% | Active: {(overloadActive ? "Yes" : "No")}";
-            TimelineDetailTrust.Text = $"Trust level: {(snapshot.Confidence * 100d):F0}%";
+            TimelineDetailTrust.Text = $"Confidence: {(snapshot.Confidence * 100d):F0}%";
             TimelineDetailFocus.Text = $"Focus streak: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
             TimelineDetailClassification.Text = "Moment type: Activity snapshot";
             TimelineDetailExecution.Text = "Decision / execution: No direct action at this exact moment. Click an action marker to inspect a suggestion or change.";
@@ -5777,7 +5779,7 @@ public partial class MainWindow : Window
 
         TimelineDetailTimestamp.Text = $"Timestamp: {intervention!.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
         TimelineDetailOverload.Text = $"Action trigger: {intervention.TriggerState}={intervention.TriggerValue:F2}";
-        TimelineDetailTrust.Text = $"Trust level: {(intervention.Confidence * 100d):F0}%";
+        TimelineDetailTrust.Text = $"Confidence: {(intervention.Confidence * 100d):F0}%";
         TimelineDetailFocus.Text = $"Focus streak: {NotAvailableText} (event marker)";
         TimelineDetailClassification.Text = $"Moment type: {BuildActionClassificationText(intervention)}";
         TimelineDetailExecution.Text = $"{BuildDecisionStateText(intervention)}{Environment.NewLine}{BuildExecutionStateText(intervention)}";
@@ -6051,7 +6053,7 @@ public partial class MainWindow : Window
         bool calibrationUnavailable = nowTruth.Snapshot == null;
         if (calibrationUnavailable)
         {
-            CalibrationBadgeText.Text = "Calibration: Unavailable";
+            CalibrationBadgeText.Text = "Learning your pattern: Unavailable";
             SetNeutralBadgeVisual(CalibrationBadgeBorder);
         }
         else
@@ -6061,13 +6063,13 @@ public partial class MainWindow : Window
                 snapshotValue.CalibrationStage ?? status?.CalibrationStage,
                 snapshotValue.BaselineReady,
                 snapshotValue.ColdStart);
-            CalibrationBadgeText.Text = $"Calibration: {ToCalibrationStageLabel(calibrationStage)}";
+            CalibrationBadgeText.Text = $"Learning your pattern: {ToCalibrationStageLabel(calibrationStage)}";
             SetCalibrationBadgeVisual(calibrationStage);
         }
 
-        string trustLabel = visualState.TrustLabel;
-        TrustBadgeText.Text = $"Trust: {trustLabel}";
-        SetTrustBadgeVisual(trustLabel);
+        string confidenceLabel = visualState.ConfidenceLabel;
+        TrustBadgeText.Text = $"Confidence: {confidenceLabel}";
+        SetTrustBadgeVisual(confidenceLabel);
         SectionTitleText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
         if (_activeSection == UiSection.Overview)
         {
@@ -6187,7 +6189,7 @@ public partial class MainWindow : Window
         return confidence.Value >= 0.50d ? TrustTierMedium : TrustTierLow;
     }
 
-    private static string ToTrustLabel(string trustTier)
+    private static string ToConfidenceLabel(string trustTier)
     {
         return NormalizeTrustTier(trustTier, null) switch
         {
