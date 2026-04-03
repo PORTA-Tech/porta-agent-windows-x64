@@ -456,21 +456,10 @@
                                     <TextBlock x:Name="NowOverloadActiveText" Text="Best focus block: Filling in" Margin="0,6,0,0" />
                                     <TextBlock x:Name="NowOverloadTrustText" Text="Confidence: Not available" Margin="0,4,0,8" Visibility="Collapsed" />
                                     <TextBlock x:Name="NowOverloadSummaryText"
-                                               Text="Today's processed focus total appears here as tracked history fills in."
+                                               Text="Today's focus total appears here as your day fills in."
                                                Margin="0,0,0,8"
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
-                                    <Expander Header="Why?" Margin="0,4,0,0" Foreground="#E2E8F0" Visibility="Collapsed">
-                                        <Border Background="#1B1F25" BorderBrush="#262B33" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,8,0,0">
-                                            <StackPanel>
-                                                <TextBlock Text="Signals behind overload" FontSize="12" Foreground="#93C5FD" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                                <TextBlock x:Name="NowOverloadFivText" Text="Explain not available (backend field missing)." TextWrapping="Wrap" Foreground="#E2E8F0" />
-                                                <TextBlock x:Name="NowOverloadTopReasonsText" Text="Top reasons: Not available" TextWrapping="Wrap" Foreground="#CBD5E1" Margin="0,8,0,0" />
-                                                <TextBlock x:Name="NowOverloadQualityAgreementText" Text="Quality: Not available | Agreement: Not available" Foreground="#CBD5E1" Margin="0,8,0,0" />
-                                                <TextBlock Text="Turns ON after 60s above 72%" Margin="0,8,0,0" Foreground="#93C5FD" TextWrapping="Wrap" />
-                                            </StackPanel>
-                                        </Border>
-                                    </Expander>
                                 </StackPanel>
                             </Border>
                             <Border x:Name="NowFocusCard"
@@ -492,7 +481,7 @@
                                                Visibility="Collapsed" />
                                     <TextBlock x:Name="NowFocusChoppinessText" Text="Focused now: Not available" Margin="0,8,0,0" />
                                     <TextBlock x:Name="NowFocusSummaryText"
-                                               Text="This timer updates from live session activity first."
+                                               Text="This updates from what Ari sees you doing right now."
                                                Margin="0,8,0,0"
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
@@ -521,7 +510,7 @@
                                     <TextBlock x:Name="NowCalibrationQualityText" Text="Focused share today: Filling in" Margin="0,4,0,0" />
                                     <TextBlock x:Name="NowCalibrationColdStartText" Text="Most distracted hour: Filling in" Margin="0,4,0,0" />
                                     <TextBlock x:Name="NowCalibrationSummaryText"
-                                               Text="This uses today's processed history rather than raw idle signals."
+                                               Text="This uses today's tracked time rather than moment-to-moment activity."
                                                Margin="0,8,0,0"
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
@@ -549,56 +538,6 @@
                                 </StackPanel>
                             </Border>
                         </Grid>
-                        <Grid Margin="0,0,0,12" Visibility="Collapsed">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,8,0">
-                                <StackPanel>
-                                    <TextBlock Text="Engine health" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowEngineStatusText" Text="Status: Not available" FontSize="20" FontWeight="Bold" />
-                                    <TextBlock x:Name="NowEngineServiceText" Text="Service: Not available" Margin="0,6,0,0" />
-                                    <TextBlock x:Name="NowEngineDatabaseText" Text="Database: Not available" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="NowEngineSnapshotText" Text="Snapshot: Not available" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="NowEnginePolicyText" Text="Policy: Not available" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="NowEngineWarningText"
-                                               Text="Engine status unavailable."
-                                               Margin="0,8,0,0"
-                                               Foreground="#F59E0B"
-                                               TextWrapping="Wrap" />
-                                </StackPanel>
-                            </Border>
-                            <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="8,0,0,0">
-                                <StackPanel>
-                                    <TextBlock Text="Capture health" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowCaptureStatusText" Text="Status: Not available" FontSize="20" FontWeight="Bold" />
-                                    <TextBlock x:Name="NowCaptureContextText" Text="Context: Not available" Margin="0,6,0,0" />
-                                    <TextBlock x:Name="NowCaptureKeyboardText" Text="Keyboard signal: Not available" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="NowCaptureMouseText" Text="Mouse signal: Not available" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="NowCaptureLastInputText" Text="Last input: Not available" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="NowCaptureWarningText"
-                                               Text="Capture status unavailable."
-                                               Margin="0,8,0,0"
-                                               Foreground="#F59E0B"
-                                               TextWrapping="Wrap" />
-                                </StackPanel>
-                            </Border>
-                        </Grid>
-                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12" Visibility="Collapsed">
-                            <StackPanel>
-                                <TextBlock Text="Last action" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBlock x:Name="NowLastActionTitleText" Text="No actions recently" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
-                                <TextBlock x:Name="NowLastActionTimeText" Text="Time: Not available" Margin="0,6,0,8" />
-                                <Button x:Name="NowOpenActionsButton" Content="Open Actions" Padding="10,6" Width="130" Click="NowOpenActionsButton_Click" />
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12" Visibility="Collapsed">
-                            <StackPanel>
-                                <TextBlock Text="Current status" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBlock x:Name="NowWhatPortaDoingText" Text="Not available" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
-                            </StackPanel>
-                        </Border>
                         <TextBlock x:Name="NowWaitingDataText"
                                    Text="Waiting for service data"
                                    Foreground="#9AA4B2"
@@ -627,39 +566,6 @@
                                            TextWrapping="Wrap"
                                            VerticalAlignment="Center" />
                             </DockPanel>
-                        </Border>
-                        <WrapPanel Margin="0,0,0,12" Visibility="Collapsed">
-                            <Border Background="#111827" CornerRadius="8" Padding="10" Margin="0,0,8,8" BorderBrush="#1F2937" BorderThickness="1" Width="200">
-                                <StackPanel><Border x:Name="FocusCardBand" Height="4" Background="#475569" Margin="0,0,0,6" /><TextBlock Text="Focus" /><TextBlock x:Name="FocusCardValue" FontSize="24" Text="0.00" /><TextBlock x:Name="FocusCardConfidence" Text="Confidence: 0%" /><TextBlock x:Name="FocusCardTrend" Text="Trend: Stable" /></StackPanel>
-                            </Border>
-                            <Border Background="#111827" CornerRadius="8" Padding="10" Margin="0,0,8,8" BorderBrush="#1F2937" BorderThickness="1" Width="200">
-                                <StackPanel><Border x:Name="OverloadCardBand" Height="4" Background="#475569" Margin="0,0,0,6" /><TextBlock Text="Overload" /><TextBlock x:Name="OverloadCardValue" FontSize="24" Text="0.00" /><TextBlock x:Name="OverloadCardConfidence" Text="Confidence: 0%" /><TextBlock x:Name="OverloadCardTrend" Text="Trend: Stable" /></StackPanel>
-                            </Border>
-                            <Border Background="#111827" CornerRadius="8" Padding="10" Margin="0,0,8,8" BorderBrush="#1F2937" BorderThickness="1" Width="200">
-                                <StackPanel><Border x:Name="FatigueCardBand" Height="4" Background="#475569" Margin="0,0,0,6" /><TextBlock Text="Fatigue" /><TextBlock x:Name="FatigueCardValue" FontSize="24" Text="0.00" /><TextBlock x:Name="FatigueCardConfidence" Text="Confidence: 0%" /><TextBlock x:Name="FatigueCardTrend" Text="Trend: Stable" /></StackPanel>
-                            </Border>
-                            <Border Background="#111827" CornerRadius="8" Padding="10" Margin="0,0,8,8" BorderBrush="#1F2937" BorderThickness="1" Width="200">
-                                <StackPanel><Border x:Name="StabilityCardBand" Height="4" Background="#475569" Margin="0,0,0,6" /><TextBlock Text="Stability" /><TextBlock x:Name="StabilityCardValue" FontSize="24" Text="0.00" /><TextBlock x:Name="StabilityCardConfidence" Text="Confidence: 0%" /><TextBlock x:Name="StabilityCardTrend" Text="Trend: Stable" /></StackPanel>
-                            </Border>
-                        </WrapPanel>
-                        <Border Background="#111827" CornerRadius="8" Padding="10" BorderBrush="#1F2937" BorderThickness="1" Margin="0,0,0,12" Visibility="Collapsed">
-                            <StackPanel x:Name="RecentActionsPanel"><TextBlock Text="No recent actions yet." /></StackPanel>
-                        </Border>
-                        <Border Background="#111827" CornerRadius="8" Padding="10" BorderBrush="#1F2937" BorderThickness="1" Visibility="Collapsed">
-                            <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="260" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <Grid Grid.Column="0">
-                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                    <TextBlock Grid.Row="0" Text="Total interventions" /><TextBlock x:Name="TodayInterventionsValue" Grid.Row="0" HorizontalAlignment="Right" Text="0" />
-                                    <TextBlock Grid.Row="1" Text="Average focus %" /><TextBlock x:Name="TodayAvgFocusValue" Grid.Row="1" HorizontalAlignment="Right" Text="0%" />
-                                    <TextBlock Grid.Row="2" Text="Peak overload %" /><TextBlock x:Name="TodayPeakOverloadValue" Grid.Row="2" HorizontalAlignment="Right" Text="0%" />
-                                    <TextBlock Grid.Row="3" Text="Idle fragmentation" /><TextBlock x:Name="TodayIdleFragmentationValue" Grid.Row="3" HorizontalAlignment="Right" Text="0.00" />
-                                    <TextBlock Grid.Row="4" Text="Most volatile hour" /><TextBlock x:Name="TodayMostVolatileHourValue" Grid.Row="4" HorizontalAlignment="Right" Text="Not available" />
-                                </Grid>
-                                <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                    <StackPanel x:Name="TodayHourlyChartPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
-                                </ScrollViewer>
-                            </Grid>
                         </Border>
                         <TextBlock x:Name="UpdatedValue" Margin="0,10,0,0" Foreground="#94A3B8" Text="Last refresh: Not available" />
                         <TextBlock x:Name="DebugFooterText" Margin="0,6,0,0" Foreground="#F59E0B" FontFamily="Consolas" FontSize="11" Text="" Visibility="Collapsed" TextWrapping="Wrap" />

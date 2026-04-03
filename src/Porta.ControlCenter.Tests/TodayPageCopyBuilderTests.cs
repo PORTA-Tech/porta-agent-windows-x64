@@ -26,7 +26,7 @@ public sealed class TodayPageCopyBuilderTests
             "Service alive, using cached snapshot.");
 
         Assert.Equal(
-            "Today is using a cached snapshot while fresh analysis catches up.",
+            "Today is showing the last confirmed update while your recent activity catches up.",
             explanation);
     }
 
@@ -60,6 +60,43 @@ public sealed class TodayPageCopyBuilderTests
         string label = TodayPageCopyBuilder.BuildStateLabel(TodayTrackingState.Paused, pauseUntil);
 
         Assert.StartsWith("Paused until ", label, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("StillTracking", "Still tracking")]
+    [InlineData("TrackingLimited", "Tracking limited")]
+    [InlineData("Paused", "Paused")]
+    [InlineData("Unavailable", "Unavailable")]
+    public void BuildStateLabel_UsesLockedUserFacingLabels(string stateName, string expected)
+    {
+        TodayTrackingState state = Enum.Parse<TodayTrackingState>(stateName, ignoreCase: false);
+        string label = TodayPageCopyBuilder.BuildStateLabel(state, pauseUntilUtc: null);
+
+        Assert.Equal(expected, label);
+    }
+
+    [Fact]
+    public void BuildReadableExplanation_ExplainsNotCollectingWithoutRawPrefix()
+    {
+        string explanation = TodayPageCopyBuilder.BuildReadableExplanation(
+            TodayTrackingState.TrackingLimited,
+            "Not collecting: keyboard input is missing from live capture");
+
+        Assert.Equal(
+            "Ari is not tracking right now: keyboard input is missing from live capture.",
+            explanation);
+    }
+
+    [Fact]
+    public void BuildReadableExplanation_ExplainsLiveWarmupWithoutCaptureJargon()
+    {
+        string explanation = TodayPageCopyBuilder.BuildReadableExplanation(
+            TodayTrackingState.TrackingLimited,
+            "Waiting for live capture: waiting for first keyboard signal");
+
+        Assert.Equal(
+            "Ari is connected, but activity is still warming up.",
+            explanation);
     }
 
     private static LocalApiStatusResponse BuildStatus(string freshness)

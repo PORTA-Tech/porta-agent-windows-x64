@@ -75,15 +75,15 @@ internal static class TodayPageCopyBuilder
         if (normalized.Contains("using cached snapshot", StringComparison.OrdinalIgnoreCase))
         {
             return normalized.Contains("DB busy", StringComparison.OrdinalIgnoreCase)
-                ? "Today is using a cached snapshot while the local database catches up."
-                : "Today is using a cached snapshot while fresh analysis catches up.";
+                ? "Today is showing the last confirmed update while the app catches up with your recent activity."
+                : "Today is showing the last confirmed update while your recent activity catches up.";
         }
 
         if (normalized.Contains("status stale", StringComparison.OrdinalIgnoreCase))
         {
             return normalized.Contains("DB busy", StringComparison.OrdinalIgnoreCase)
-                ? "Today is still updating, but live status is delayed while the local database catches up."
-                : "Today is still updating, but live status is delayed right now.";
+                ? "Today is still updating, but the newest activity is delayed while the app catches up."
+                : "Today is still updating, but the newest activity is delayed right now.";
         }
 
         if (normalized.Contains("using current snapshot while status refresh retries", StringComparison.OrdinalIgnoreCase))
@@ -93,7 +93,7 @@ internal static class TodayPageCopyBuilder
 
         if (normalized.Contains("waiting for current snapshot", StringComparison.OrdinalIgnoreCase))
         {
-            return "Today is connected, and processed totals are still filling in.";
+            return "Today is connected, and today's totals are still filling in.";
         }
 
         if (string.Equals(normalized, "API auth mismatch", StringComparison.OrdinalIgnoreCase))
@@ -124,12 +124,12 @@ internal static class TodayPageCopyBuilder
         if (normalized.StartsWith("Not collecting:", StringComparison.OrdinalIgnoreCase))
         {
             string detail = normalized["Not collecting:".Length..].Trim();
-            return $"Ari is not collecting right now: {detail}.";
+            return $"Ari is not tracking right now: {detail}.";
         }
 
         if (normalized.StartsWith("Waiting for live capture:", StringComparison.OrdinalIgnoreCase))
         {
-            return "Ari is connected, but live capture is still warming up.";
+            return "Ari is connected, but activity is still warming up.";
         }
 
         return normalized;

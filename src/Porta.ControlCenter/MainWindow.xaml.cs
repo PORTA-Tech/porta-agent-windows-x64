@@ -717,11 +717,6 @@ public partial class MainWindow : Window
         NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
     }
 
-    private void NowOpenActionsButton_Click(object sender, RoutedEventArgs e)
-    {
-        ShowSection(UiSection.Interventions);
-    }
-
     private void OverviewNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Overview);
@@ -1204,50 +1199,9 @@ public partial class MainWindow : Window
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         LocalApiCurrentSnapshotResponse? previousSnapshot)
     {
+        _ = inputSummary;
+        _ = previousSnapshot;
         PopulateNowCards(nowTruth, liveSession, recentEvents, _latestVisualState);
-        LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
-
-        if (snapshot == null)
-        {
-            SetStateCard(FocusCardValue, FocusCardConfidence, FocusCardTrend, FocusCardBand, null, null, "focus", null);
-            SetStateCard(OverloadCardValue, OverloadCardConfidence, OverloadCardTrend, OverloadCardBand, null, null, "overload", null);
-            SetStateCard(FatigueCardValue, FatigueCardConfidence, FatigueCardTrend, FatigueCardBand, null, null, "fatigue", null);
-            SetStateCard(StabilityCardValue, StabilityCardConfidence, StabilityCardTrend, StabilityCardBand, null, null, "stability", null);
-
-            RenderRecentActions(recentEvents);
-            TodayInterventionsValue.Text = "0";
-            TodayAvgFocusValue.Text = "0%";
-            TodayPeakOverloadValue.Text = "0%";
-            TodayIdleFragmentationValue.Text = inputSummary?.IdleFragmentationIndex.ToString("F2", CultureInfo.InvariantCulture) ?? "0.00";
-            TodayMostVolatileHourValue.Text = NotAvailableText;
-            RenderHourlyChart(null);
-            return;
-        }
-
-        double confidence = snapshot.Confidence;
-        SetStateCard(
-            FocusCardValue,
-            FocusCardConfidence,
-            FocusCardTrend,
-            FocusCardBand,
-            snapshot.analysis_ready ? snapshot.FocusStrength : null,
-            snapshot.analysis_ready ? confidence : null,
-            "focus",
-            snapshot.analysis_ready ? previousSnapshot : null);
-        SetStateCard(
-            OverloadCardValue,
-            OverloadCardConfidence,
-            OverloadCardTrend,
-            OverloadCardBand,
-            snapshot.analysis_ready ? snapshot.OverloadLikelihood : null,
-            snapshot.analysis_ready ? confidence : null,
-            "overload",
-            snapshot.analysis_ready ? previousSnapshot : null);
-        SetStateCard(FatigueCardValue, FatigueCardConfidence, FatigueCardTrend, FatigueCardBand, snapshot.FatigueProbability, confidence, "fatigue", previousSnapshot);
-        SetStateCard(StabilityCardValue, StabilityCardConfidence, StabilityCardTrend, StabilityCardBand, snapshot.CognitiveStability, confidence, "stability", previousSnapshot);
-
-        RenderRecentActions(recentEvents);
-        UpdateTodaySummary(inputSummary);
     }
 
     private void PopulateNowCards(
@@ -1300,7 +1254,7 @@ public partial class MainWindow : Window
         {
             NowOverloadValueText.Text = $"Focused today: {FillingInText}";
             NowOverloadActiveText.Text = $"Best focus block: {FillingInText}";
-            NowOverloadSummaryText.Text = "Today's processed focus total appears after more tracked time accumulates.";
+            NowOverloadSummaryText.Text = "Today's focus total appears after more tracked time accumulates.";
         }
 
         if (snapshot?.analysis_ready == true)
@@ -1362,7 +1316,7 @@ public partial class MainWindow : Window
             NowCalibrationColdStartText.Text = todayMetrics.MostDistractedHourLabel == NotAvailableText
                 ? $"Most distracted hour: {FillingInText}"
                 : $"Most distracted hour: {todayMetrics.MostDistractedHourLabel}";
-            NowCalibrationSummaryText.Text = "Built from processed history across today's tracked time.";
+            NowCalibrationSummaryText.Text = "Built from today's tracked time.";
         }
         else
         {
@@ -1370,7 +1324,7 @@ public partial class MainWindow : Window
             NowCalibrationProgressText.Text = $"Tracked today: {FillingInText}";
             NowCalibrationQualityText.Text = $"Focused share today: {FillingInText}";
             NowCalibrationColdStartText.Text = $"Most distracted hour: {FillingInText}";
-            NowCalibrationSummaryText.Text = "Today's distraction total appears after Ari has enough processed history.";
+            NowCalibrationSummaryText.Text = "Today's distraction total appears after Ari has enough tracked time.";
         }
 
         NowCalibrationTrustCapText.Visibility = Visibility.Collapsed;
@@ -1540,12 +1494,12 @@ public partial class MainWindow : Window
     {
         if (IsLiveSessionFresh(liveSession) && currentFocusSessionSeconds.HasValue)
         {
-            return "Updates from live activity so you can see your current session right away.";
+            return "Updates from what Ari sees you doing right now.";
         }
 
         if (snapshot is { analysis_ready: false })
         {
-            return "Live focus updates first. Today's totals catch up after the next analyzed bucket arrives.";
+            return "Current activity shows up first. Today's totals catch up after a few moments of steady work.";
         }
 
         if (IsLiveSessionFresh(liveSession) && liveSession!.idle)
@@ -3136,18 +3090,7 @@ public partial class MainWindow : Window
 
     private void UpdateCaptureHealthCards(LocalApiStatusResponse? status, LocalApiLiveSessionStateResponse? liveSession, bool statusFresh)
     {
-        CaptureHealthView view = BuildCaptureHealthView(status, liveSession, statusFresh);
-        var statusBrush = new SolidColorBrush(view.StatusColor);
-        var detailBrush = new SolidColorBrush(view.DetailColor);
-
-        NowCaptureStatusText.Text = $"Status: {view.StatusLabel}";
-        NowCaptureStatusText.Foreground = statusBrush;
-        NowCaptureContextText.Text = $"Context: {view.ContextLabel}";
-        NowCaptureKeyboardText.Text = $"Keyboard signal: {view.KeyboardSignalLabel}";
-        NowCaptureMouseText.Text = $"Mouse signal: {view.MouseSignalLabel}";
-        NowCaptureLastInputText.Text = $"Last input: {view.LastInputLabel}";
-        NowCaptureWarningText.Text = view.WarningText;
-        NowCaptureWarningText.Foreground = detailBrush;
+        _ = BuildCaptureHealthView(status, liveSession, statusFresh);
     }
 
     private void UpdateSessionTruthCards(LocalApiStatusResponse? status, LocalApiLiveSessionStateResponse? liveSession, bool statusFresh)
@@ -3460,80 +3403,6 @@ public partial class MainWindow : Window
             && property.TryGetDouble(out value);
     }
 
-    private void SetStateCard(
-        TextBlock valueText,
-        TextBlock confidenceText,
-        TextBlock trendText,
-        Border intensityBand,
-        double? value,
-        double? confidence,
-        string metricKey,
-        LocalApiCurrentSnapshotResponse? previousSnapshot)
-    {
-        if (!value.HasValue)
-        {
-            valueText.Text = NotAvailableText;
-            confidenceText.Text = $"Confidence: {NotAvailableText}";
-            trendText.Text = "Trend: -";
-            intensityBand.Background = new SolidColorBrush(Color.FromRgb(71, 85, 105));
-            return;
-        }
-
-        valueText.Text = value.Value.ToString("F2", CultureInfo.InvariantCulture);
-        confidenceText.Text = confidence.HasValue
-            ? $"Confidence: {Math.Clamp(confidence.Value * 100d, 0d, 100d):F0}%"
-            : $"Confidence: {NotAvailableText}";
-
-        trendText.Text = $"Trend: {ComputeTrend(metricKey, value.Value, previousSnapshot)}";
-        intensityBand.Background = BuildIntensityBrush(value.Value);
-    }
-
-    private static string ComputeTrend(string metricKey, double current, LocalApiCurrentSnapshotResponse? previousSnapshot)
-    {
-        if (previousSnapshot == null)
-        {
-            return "Stable";
-        }
-
-        double previous = metricKey switch
-        {
-            "focus" => previousSnapshot.FocusStrength,
-            "overload" => previousSnapshot.OverloadLikelihood,
-            "fatigue" => previousSnapshot.FatigueProbability,
-            "stability" => previousSnapshot.CognitiveStability,
-            _ => current
-        };
-
-        const double threshold = 0.01d;
-        if (current - previous > threshold)
-        {
-            return "Up";
-        }
-
-        if (previous - current > threshold)
-        {
-            return "Down";
-        }
-
-        return "Stable";
-    }
-
-    private static Brush BuildIntensityBrush(double value)
-    {
-        double bounded = Math.Clamp(value, 0d, 1d);
-        if (bounded < 0.34d)
-        {
-            return new SolidColorBrush(Color.FromRgb(34, 197, 94));
-        }
-
-        if (bounded < 0.67d)
-        {
-            return new SolidColorBrush(Color.FromRgb(245, 158, 11));
-        }
-
-        return new SolidColorBrush(Color.FromRgb(239, 68, 68));
-    }
-
     private static IReadOnlyList<LocalApiEventResponse> MergeRecentEvents(
         IReadOnlyList<LocalApiEventResponse> existing,
         IReadOnlyList<LocalApiEventResponse> incoming,
@@ -3706,91 +3575,6 @@ public partial class MainWindow : Window
         return Path.Combine(root, "PortaAgent", fileName);
     }
 
-    private void RenderRecentActions(IReadOnlyList<LocalApiEventResponse> recentEvents)
-    {
-        RecentActionsPanel.Children.Clear();
-        if (recentEvents.Count == 0)
-        {
-            RecentActionsPanel.Children.Add(new TextBlock
-            {
-                Text = "No recent actions yet.",
-                Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184))
-            });
-            return;
-        }
-
-        foreach (LocalApiEventResponse evt in recentEvents.Take(5))
-        {
-            var card = new Border
-            {
-                BorderBrush = new SolidColorBrush(Color.FromRgb(51, 65, 85)),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(10),
-                Margin = new Thickness(0, 0, 0, 8),
-                Background = new SolidColorBrush(Color.FromRgb(15, 23, 42))
-            };
-
-            var stack = new StackPanel();
-            stack.Children.Add(new TextBlock
-            {
-                Text = evt.Action,
-                FontWeight = FontWeights.SemiBold
-            });
-
-            string duration = evt.DurationSeconds.HasValue
-                ? TimeSpan.FromSeconds(Math.Max(0, evt.DurationSeconds.Value)).ToString(@"mm\:ss", CultureInfo.InvariantCulture)
-                : NotAvailableText;
-            stack.Children.Add(new TextBlock
-            {
-                Text = $"Duration: {duration} | Trigger: {evt.TriggerState} {evt.TriggerValue:F2} | Confidence: {(evt.Confidence * 100d):F0}%",
-                Foreground = new SolidColorBrush(Color.FromRgb(191, 219, 254))
-            });
-
-            stack.Children.Add(new TextBlock
-            {
-                Text = $"Why: {evt.Reason}",
-                TextWrapping = TextWrapping.Wrap
-            });
-
-            if (evt.Contributors.Count > 0)
-            {
-                stack.Children.Add(new TextBlock
-                {
-                    Text = $"Contributors: {string.Join(", ", evt.Contributors.Take(4))}",
-                    Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
-                    TextWrapping = TextWrapping.Wrap
-                });
-            }
-
-            stack.Children.Add(new TextBlock
-            {
-                Text = evt.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-                Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184))
-            });
-
-            card.Child = stack;
-            RecentActionsPanel.Children.Add(card);
-        }
-    }
-
-    private void UpdateTodaySummary(LocalApiInputsSummaryResponse? inputSummary)
-    {
-        LocalApiTimelineResponse? timeline = _todayTimeline;
-        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = timeline?.Snapshots ?? [];
-
-        TodayInterventionsValue.Text = (timeline?.Interventions.Count ?? 0).ToString(CultureInfo.InvariantCulture);
-        TodayAvgFocusValue.Text = snapshots.Count > 0
-            ? $"{(snapshots.Average(s => s.FocusStrength) * 100d):F0}%"
-            : "0%";
-        TodayPeakOverloadValue.Text = snapshots.Count > 0
-            ? $"{(snapshots.Max(s => s.OverloadLikelihood) * 100d):F0}%"
-            : "0%";
-        TodayIdleFragmentationValue.Text = inputSummary?.IdleFragmentationIndex.ToString("F2", CultureInfo.InvariantCulture) ?? "0.00";
-        TodayMostVolatileHourValue.Text = ComputeMostVolatileHour(snapshots);
-        RenderHourlyChart(timeline);
-    }
-
     private static string ComputeMostVolatileHour(IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots)
     {
         if (snapshots.Count < 2)
@@ -3829,63 +3613,6 @@ public partial class MainWindow : Window
         }
 
         return $"{bestHour:00}:00-{bestHour:00}:59";
-    }
-
-    private void RenderHourlyChart(LocalApiTimelineResponse? timeline)
-    {
-        TodayHourlyChartPanel.Children.Clear();
-        if (timeline == null || timeline.Snapshots.Count == 0)
-        {
-            TodayHourlyChartPanel.Children.Add(new TextBlock
-            {
-                Text = "No timeline data yet.",
-                Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184))
-            });
-            return;
-        }
-
-        Dictionary<int, double> perHourValues = timeline.Snapshots
-            .GroupBy(s => s.TimestampUtc.ToLocalTime().Hour)
-            .ToDictionary(
-                g => g.Key,
-                g => g.Average(x => x.FocusStrength));
-
-        double max = perHourValues.Values.DefaultIfEmpty(0.01d).Max();
-        max = max <= 0d ? 0.01d : max;
-
-        for (int hour = 0; hour < 24; hour++)
-        {
-            double value = perHourValues.TryGetValue(hour, out double v) ? v : 0d;
-            double normalized = value / max;
-            double barHeight = Math.Max(4d, normalized * 92d);
-
-            var wrapper = new StackPanel
-            {
-                Orientation = Orientation.Vertical,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(4, 0, 4, 0)
-            };
-
-            wrapper.Children.Add(new System.Windows.Shapes.Rectangle
-            {
-                Width = 14,
-                Height = barHeight,
-                Fill = BuildIntensityBrush(1d - Math.Clamp(value, 0d, 1d)),
-                RadiusX = 2,
-                RadiusY = 2
-            });
-
-            wrapper.Children.Add(new TextBlock
-            {
-                Text = hour.ToString("00", CultureInfo.InvariantCulture),
-                FontSize = 10,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
-                Margin = new Thickness(0, 4, 0, 0)
-            });
-
-            TodayHourlyChartPanel.Children.Add(wrapper);
-        }
     }
 
     private void PopulateInputs(
@@ -6070,15 +5797,6 @@ public partial class MainWindow : Window
         EngineHealthView view = BuildEngineHealthView(serviceProbe, apiReachable, _latestStatus, snapshot, statusFresh, snapshotFresh, statusHttpCode);
         var statusBrush = new SolidColorBrush(view.StatusColor);
         var detailBrush = new SolidColorBrush(view.DetailColor);
-
-        NowEngineStatusText.Text = $"Status: {view.StatusLabel}";
-        NowEngineStatusText.Foreground = statusBrush;
-        NowEngineServiceText.Text = $"Service: {view.ServiceLabel}";
-        NowEngineDatabaseText.Text = $"Database: {view.DatabaseLabel}";
-        NowEngineSnapshotText.Text = $"Snapshot: {view.SnapshotLabel}";
-        NowEnginePolicyText.Text = $"Policy: {view.PolicyLabel}";
-        NowEngineWarningText.Text = view.WarningText;
-        NowEngineWarningText.Foreground = detailBrush;
 
         HealthEngineStatusValue.Text = view.StatusLabel;
         HealthEngineStatusValue.Foreground = statusBrush;
