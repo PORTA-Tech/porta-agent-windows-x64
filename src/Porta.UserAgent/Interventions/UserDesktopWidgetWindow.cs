@@ -15,6 +15,9 @@ using FormsCursor = System.Windows.Forms.Cursor;
 
 internal sealed class UserDesktopWidgetWindow : Window
 {
+    private const int WindowLifecycleOpen = 0;
+    private const int WindowLifecycleClosing = 1;
+    private const int WindowLifecycleClosed = 2;
     private const double ExpandedWidth = 392d;
     private const double CollapsedWidth = 42d;
     private const double BaseHeight = 72d;
@@ -87,6 +90,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private bool _allowClose;
     private bool _criticalSpotlightVisible;
     private string? _criticalSpotlightKey;
+    private int _windowLifecycleState = WindowLifecycleOpen;
     private UserDesktopWidgetState? _currentState;
     private UserInterventionPrompt? _activePrompt;
 
@@ -500,6 +504,11 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     public void ApplyState(UserDesktopWidgetState state)
     {
+        if (!CanAcceptUiActions)
+        {
+            return;
+        }
+
         _currentState = state;
         string normalizedTitle = NormalizeWidgetTitle(state.Title);
         _titleText.Text = normalizedTitle;
@@ -522,6 +531,11 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     public void PresentAttention(string title, string message)
     {
+        if (!CanAcceptUiActions)
+        {
+            return;
+        }
+
         string normalizedTitle = NormalizeCardTitle(title, fallback: string.Empty);
         _attentionTitleText.Text = normalizedTitle;
         _attentionTitleText.Visibility = string.IsNullOrWhiteSpace(normalizedTitle)
@@ -536,6 +550,11 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     public void PresentPrompt(UserInterventionPrompt prompt)
     {
+        if (!CanAcceptUiActions)
+        {
+            return;
+        }
+
         _activePrompt = prompt;
         string normalizedTitle = NormalizeCardTitle(prompt.Title, fallback: string.Empty);
         _promptTitleText.Text = normalizedTitle;
@@ -568,7 +587,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     public void HideWidget()
     {
-        if (_hiddenByUser)
+        if (_hiddenByUser || !CanAcceptUiActions)
         {
             return;
         }
@@ -580,7 +599,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     public void ShowWidgetIfHidden()
     {
-        if (!_hiddenByUser)
+        if (!_hiddenByUser || !CanAcceptUiActions)
         {
             return;
         }
@@ -595,6 +614,10 @@ internal sealed class UserDesktopWidgetWindow : Window
     {
         _allowClose = true;
     }
+
+    internal bool CanAcceptUiActions => Volatile.Read(ref _windowLifecycleState) == WindowLifecycleOpen;
+
+    internal bool IsClosingOrClosed => Volatile.Read(ref _windowLifecycleState) != WindowLifecycleOpen;
 
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -612,23 +635,21 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
+        SetWindowLifecycleState(WindowLifecycleClosing);
         if (!_allowClose)
         {
             e.Cancel = true;
-            if (_hiddenByUser)
-            {
-                Hide();
-            }
-            else
-            {
-                Show();
-                ApplyAnchorPosition();
-            }
-
+            SetWindowLifecycleState(WindowLifecycleOpen);
             return;
         }
 
         base.OnClosing(e);
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        SetWindowLifecycleState(WindowLifecycleClosed);
+        base.OnClosed(e);
     }
 
     private static Border CreateMetricChip(out TextBlock textBlock)
@@ -798,6 +819,11 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void ToggleMenu()
     {
+        if (!CanAcceptUiActions)
+        {
+            return;
+        }
+
         _menuPopup.IsOpen = !_menuPopup.IsOpen;
     }
 
@@ -808,7 +834,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void Expand()
     {
-        if (!_collapsed)
+        if (!_collapsed || !CanAcceptUiActions)
         {
             return;
         }
@@ -825,6 +851,11 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void SetAttentionVisible(bool visible)
     {
+        if (!CanAcceptUiActions)
+        {
+            return;
+        }
+
         _attentionCard.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         if (visible)
         {
@@ -1099,6 +1130,11 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void ApplyCriticalState(UserDesktopWidgetCriticalState? criticalState)
     {
+        if (!CanAcceptUiActions)
+        {
+            return;
+        }
+
         if (criticalState == null)
         {
             _criticalSpotlightTimer.Stop();
@@ -1232,6 +1268,11 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void ResolvePrompt(UserInterventionPromptResponseKind kind)
     {
+        if (IsClosingOrClosed)
+        {
+            return;
+        }
+
         UserInterventionPrompt? prompt = _activePrompt;
         if (prompt == null)
         {
@@ -1276,6 +1317,11 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
 
         return null;
+    }
+
+    private void SetWindowLifecycleState(int state)
+    {
+        Interlocked.Exchange(ref _windowLifecycleState, state);
     }
 
     private static class NativeMethods

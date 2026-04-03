@@ -81,6 +81,29 @@ public sealed class UserDesktopWidgetWindowTests
         });
     }
 
+    [Fact]
+    public void Close_WhenCloseIsNotAllowed_DoesNotMakeWindowUnusable()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.Show();
+            Exception? closeFailure = Record.Exception(window.Close);
+
+            Assert.Null(closeFailure);
+            Assert.True(window.CanAcceptUiActions);
+
+            window.AllowCloseForShutdown();
+            window.Close();
+            Assert.True(window.IsClosingOrClosed);
+        });
+    }
+
     private static UserDesktopWidgetState BuildCriticalState(string message)
     {
         return new UserDesktopWidgetState(

@@ -256,9 +256,9 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         {
             _widgetDispatcher.BeginInvoke(() =>
             {
-                if (_widgetWindow != null)
+                if (_widgetWindow is { CanAcceptUiActions: true } activeWindow)
                 {
-                    action(_widgetWindow);
+                    action(activeWindow);
                 }
             });
             return true;
@@ -352,25 +352,38 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
         if (currentWindow is { IsLoaded: true })
         {
-            try
+            if (currentWindow.IsClosingOrClosed)
             {
-                if (_visibilityStore.IsHidden())
+                lock (_widgetLifecycleGate)
                 {
-                    currentWindow.HideWidget();
+                    if (ReferenceEquals(_widgetWindow, currentWindow))
+                    {
+                        _widgetWindow = null;
+                    }
                 }
-                else
-                {
-                    currentWindow.ShowWidgetIfHidden();
-                }
-
-                SetWidgetHealthStateOnWidgetThread(WidgetHealthReady);
-                _widgetReady.TrySetResult(true);
-                return;
             }
-            catch (Exception ex)
+            else
             {
-                SetWidgetHealthStateOnWidgetThread(WidgetHealthUnavailable);
-                UserAgentFileLog.Error("widget_window_reuse_failed", ex);
+                try
+                {
+                    if (_visibilityStore.IsHidden())
+                    {
+                        currentWindow.HideWidget();
+                    }
+                    else
+                    {
+                        currentWindow.ShowWidgetIfHidden();
+                    }
+
+                    SetWidgetHealthStateOnWidgetThread(WidgetHealthReady);
+                    _widgetReady.TrySetResult(true);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    SetWidgetHealthStateOnWidgetThread(WidgetHealthUnavailable);
+                    UserAgentFileLog.Error("widget_window_reuse_failed", ex);
+                }
             }
         }
 
@@ -591,7 +604,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     {
         return _widgetThread is { IsAlive: true }
             && _widgetDispatcher is { HasShutdownStarted: false, HasShutdownFinished: false }
-            && _widgetWindow != null
+            && _widgetWindow is { CanAcceptUiActions: true }
             && GetWidgetHealthState() == WidgetHealthReady;
     }
 
