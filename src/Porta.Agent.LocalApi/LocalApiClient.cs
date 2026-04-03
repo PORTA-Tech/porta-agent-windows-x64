@@ -12,6 +12,8 @@ public sealed class LocalApiClient : IDisposable
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(3);
     private const string TokenHeader = "X-PORTA-TOKEN";
     private readonly HttpClient _httpClient;
+    private readonly LocalApiRuntimeSettings? _settingsOverride;
+    private readonly LocalApiEndpointSettings? _endpointOverride;
     private LocalApiRuntimeSettings? _settings;
     private string? _authToken;
     private string _host = "127.0.0.1";
@@ -24,12 +26,22 @@ public sealed class LocalApiClient : IDisposable
     public DateTimeOffset? LastHealthProbeUtc { get; private set; }
 
     public LocalApiClient()
+        : this(httpClient: null, settingsOverride: null, endpointOverride: null)
     {
-        _httpClient = new HttpClient
+    }
+
+    internal LocalApiClient(
+        HttpClient? httpClient,
+        LocalApiRuntimeSettings? settingsOverride,
+        LocalApiEndpointSettings? endpointOverride)
+    {
+        _httpClient = httpClient ?? new HttpClient
         {
             Timeout = RequestTimeout
         };
-        _settings = LocalApiRuntimeSettingsStore.Load();
+        _settingsOverride = settingsOverride;
+        _endpointOverride = endpointOverride;
+        _settings = settingsOverride ?? LocalApiRuntimeSettingsStore.Load();
         _ = RefreshEndpointBinding();
     }
 
@@ -184,20 +196,28 @@ public sealed class LocalApiClient : IDisposable
             RefreshEndpointBinding();
             using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
             using HttpResponseMessage response = await _httpClient.PostAsync("/v1/input/signals", content, token).ConfigureAwait(false);
-            LocalApiAckResponse? payload = await ReadAckResponseAsync(response, token).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                return payload ?? new LocalApiAckResponse(
-                    Success: false,
-                    Message: $"http_{(int)response.StatusCode}",
-                    TimestampUtc: DateTimeOffset.UtcNow);
-            }
-
-            return payload;
+            return await ReadInputSignalsAckWithDiagnosticsAsync(response, token).ConfigureAwait(false);
         }
-        catch
+        catch (TaskCanceledException ex) when (!token.IsCancellationRequested)
         {
-            return null;
+            return new LocalApiAckResponse(
+                Success: false,
+                Message: BuildInputSignalsFailureMessage("timeout", statusCode: null, ackMessage: null, rawBody: null, detail: ex.Message),
+                TimestampUtc: DateTimeOffset.UtcNow);
+        }
+        catch (HttpRequestException ex)
+        {
+            return new LocalApiAckResponse(
+                Success: false,
+                Message: BuildInputSignalsFailureMessage("transport_error", statusCode: null, ackMessage: null, rawBody: null, detail: ex.Message),
+                TimestampUtc: DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            return new LocalApiAckResponse(
+                Success: false,
+                Message: BuildInputSignalsFailureMessage("client_error", statusCode: null, ackMessage: null, rawBody: null, detail: $"{ex.GetType().Name}: {ex.Message}"),
+                TimestampUtc: DateTimeOffset.UtcNow);
         }
     }
 
@@ -694,6 +714,103 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    private static async Task<LocalApiAckResponse> ReadInputSignalsAckWithDiagnosticsAsync(
+        HttpResponseMessage response,
+        CancellationToken token)
+    {
+        string? rawBody = null;
+        try
+        {
+            rawBody = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            rawBody = $"<read_failed:{ex.GetType().Name}>";
+        }
+
+        LocalApiAckResponse? payload = TryDeserializeAck(rawBody);
+        if (response.IsSuccessStatusCode)
+        {
+            return payload ?? new LocalApiAckResponse(
+                Success: false,
+                Message: BuildInputSignalsFailureMessage("invalid_ack_payload", (int)response.StatusCode, ackMessage: null, rawBody, detail: null),
+                TimestampUtc: DateTimeOffset.UtcNow);
+        }
+
+        string failureKind = (int)response.StatusCode >= 500 ? "server_error" : "http_error";
+        return new LocalApiAckResponse(
+            Success: false,
+            Message: BuildInputSignalsFailureMessage(failureKind, (int)response.StatusCode, payload?.Message, rawBody, detail: null),
+            TimestampUtc: payload?.TimestampUtc ?? DateTimeOffset.UtcNow);
+    }
+
+    private static LocalApiAckResponse? TryDeserializeAck(string? rawBody)
+    {
+        if (string.IsNullOrWhiteSpace(rawBody))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<LocalApiAckResponse>(rawBody, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string BuildInputSignalsFailureMessage(
+        string failureKind,
+        int? statusCode,
+        string? ackMessage,
+        string? rawBody,
+        string? detail)
+    {
+        var builder = new StringBuilder();
+        builder.Append("input_publish_failed kind=").Append(failureKind);
+        if (statusCode.HasValue)
+        {
+            builder.Append(" status=").Append(statusCode.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(ackMessage))
+        {
+            builder.Append(" ack=").Append(CompactDiagnosticValue(ackMessage));
+        }
+
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            builder.Append(" detail=").Append(CompactDiagnosticValue(detail));
+        }
+
+        if (!string.IsNullOrWhiteSpace(rawBody))
+        {
+            builder.Append(" body=").Append(CompactDiagnosticValue(rawBody));
+        }
+
+        return builder.ToString();
+    }
+
+    private static string CompactDiagnosticValue(string value)
+    {
+        string compact = value
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+
+        if (compact.Length > 300)
+        {
+            compact = compact[..300];
+        }
+
+        return compact;
+    }
+
     private bool HasRuntimeSettings()
     {
         return RefreshEndpointBinding();
@@ -701,7 +818,7 @@ public sealed class LocalApiClient : IDisposable
 
     private bool RefreshEndpointBinding()
     {
-        _settings = LocalApiRuntimeSettingsStore.Load();
+        _settings = _settingsOverride ?? LocalApiRuntimeSettingsStore.Load();
         if (_settings == null)
         {
             _authToken = null;
@@ -709,7 +826,7 @@ public sealed class LocalApiClient : IDisposable
             return false;
         }
 
-        LocalApiEndpointSettings? endpoint = LocalApiRuntimeSettingsStore.LoadEndpoint();
+        LocalApiEndpointSettings? endpoint = _endpointOverride ?? LocalApiRuntimeSettingsStore.LoadEndpoint();
         int nextPort = endpoint?.Port ?? _settings.Port;
         string nextHost = endpoint?.Host ?? "127.0.0.1";
         string? nextAuthToken = string.IsNullOrWhiteSpace(_settings.AuthToken)
