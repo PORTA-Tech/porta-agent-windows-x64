@@ -1040,6 +1040,85 @@ public sealed class LocalApiStatusAcceptanceTests
         Assert.Equal("policy-2026-03-10", dto.PolicyVersion);
     }
 
+    [Fact]
+    public void Status_LastInputEventUtc_AdvancesAcrossAcceptedTypingPackets()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = CreateSnapshot(overload: 0.12d, confidence: 0.64d),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: nowUtc,
+                OverloadLikelihood: 0.12d,
+                Confidence: 0.64d,
+                SustainedAttentionDurationSec: 90d,
+                IdleFragmentationIndex: 0.04d,
+                FocusAppEntropy: 0.02d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1,\"overload_active\":false,\"deep_work_active\":false}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: true,
+                BaselineReadyPct: 0.92d,
+                AvgQuality2m: 0.86d,
+                ColdStart: false,
+                CurrentQualityScore: 0.88d,
+                PartialData: false,
+                MissingMajorChannels: [])
+        };
+
+        var sessionContextStore = new FakeUserAgentSessionContextStore(
+            new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 6001,
+                SessionId: 6,
+                UpdatedAtUtc: nowUtc,
+                AgentInstanceId: "agent-6"));
+
+        var controller = new AgentCoreController(store, sessionContextStore);
+        DateTimeOffset firstInputUtc = nowUtc.AddSeconds(-8);
+        DateTimeOffset secondInputUtc = nowUtc.AddSeconds(-2);
+
+        controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 2,
+            AgentInstanceId: "agent-6",
+            SessionId: "session-6",
+            WindowStartUtc: firstInputUtc.AddSeconds(-5),
+            WindowEndUtc: firstInputUtc,
+            KeyboardKeydownCount: 4,
+            KeyboardBackspaceCount: 0,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0d,
+            MouseMoveDy: 0d,
+            FocusAppHash: "a1b2c3d4",
+            IdleSeconds: 0.1d,
+            LastInputEventUtc: firstInputUtc));
+
+        var dtoAfterFirstPacket = StatusMapper.Map(controller.GetStatus(), localApiAuthReady: true, localApiAuthError: null);
+
+        controller.IngestInputSignals(new InputSignalsPacket(
+            SchemaVer: 2,
+            AgentInstanceId: "agent-6",
+            SessionId: "session-6",
+            WindowStartUtc: secondInputUtc.AddSeconds(-5),
+            WindowEndUtc: secondInputUtc,
+            KeyboardKeydownCount: 6,
+            KeyboardBackspaceCount: 1,
+            MouseWheelDelta: 0,
+            MouseMoveDx: 0d,
+            MouseMoveDy: 0d,
+            FocusAppHash: "a1b2c3d4",
+            IdleSeconds: 0.05d,
+            LastInputEventUtc: secondInputUtc));
+
+        var dtoAfterSecondPacket = StatusMapper.Map(controller.GetStatus(), localApiAuthReady: true, localApiAuthError: null);
+
+        Assert.Equal(firstInputUtc.ToUniversalTime(), dtoAfterFirstPacket.LastInputEventUtc);
+        Assert.Equal(secondInputUtc.ToUniversalTime(), dtoAfterSecondPacket.LastInputEventUtc);
+        Assert.NotEqual(dtoAfterFirstPacket.last_input_event_utc, dtoAfterSecondPacket.last_input_event_utc);
+        Assert.True(dtoAfterSecondPacket.LastInputEventUtc > dtoAfterFirstPacket.LastInputEventUtc);
+    }
+
     private static AgentBrainSnapshot CreateSnapshot(double overload, double confidence)
     {
         return new AgentBrainSnapshot(
