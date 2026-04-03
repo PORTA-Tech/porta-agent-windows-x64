@@ -24,6 +24,7 @@ public partial class MainWindow : Window
 {
     private const string AgentServiceName = "AriAgent";
     private const string NotAvailableText = "Not available";
+    private const string FillingInText = "Filling in";
     private const string WaitingForServiceDataText = "Waiting for service data";
     private const string CalibrationStageCold = "cold";
     private const string CalibrationStageProvisional = "provisional";
@@ -812,6 +813,14 @@ public partial class MainWindow : Window
     {
         switch (cardKey)
         {
+            case "today-focus":
+            case "current-focus":
+            case "today-distraction":
+                OpenNowFocusDetail();
+                break;
+            case "current-status":
+                ShowSection(UiSection.Interventions);
+                break;
             case "overload":
                 OpenNowOverloadDetail();
                 break;
@@ -1240,204 +1249,282 @@ public partial class MainWindow : Window
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         PortaVisualState visualState)
     {
-        // Metric contract:
-        // - Current focus session is live-first from /v1/session/live.
-        // - Focused today and distraction time today remain processed-history metrics.
-        // - Overload, confidence, learning state, tracking quality, history, and recent actions remain snapshot/event driven.
         LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
-        if (snapshot == null)
+        TodayPageMetrics todayMetrics = TodayPageMetricsBuilder.Build(_todayTimeline);
+        LocalApiEventResponse? latestActionEvent = recentEvents.FirstOrDefault();
+        string currentStatusText = BuildCurrentStatusSentence(liveSession) ?? visualState.OperatingSentence;
+
+        TodaySummaryText.Text = BuildTodaySummarySentence(
+            todayMetrics,
+            visualState.CurrentFocusSessionSeconds,
+            nowTruth.Explanation);
+
+        PopulateTodayFocusedCard(todayMetrics, snapshot, visualState);
+        PopulateTodayCurrentFocusCard(snapshot, liveSession, visualState);
+        PopulateTodayDistractionCard(todayMetrics);
+        PopulateTodayStatusCard(
+            currentStatusText,
+            BuildTodayNextStepText(snapshot, recentEvents),
+            latestActionEvent,
+            visualState);
+        PopulateTodayRecoveryBanner(nowTruth, visualState);
+    }
+
+    private void PopulateTodayFocusedCard(
+        TodayPageMetrics todayMetrics,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        PortaVisualState visualState)
+    {
+        if (todayMetrics.HasProcessedTimeline)
         {
-            NowOverloadValueText.Text = $"Overload: {NotAvailableText}";
-            NowOverloadActiveText.Text = $"Active: {NotAvailableText}";
-            NowOverloadTrustText.Text = $"Confidence: {NotAvailableText}";
-            NowOverloadSummaryText.Text = BuildNowOverloadSummary(null);
+            AnimateTopMetric(
+                metricKey: "today_focused_total",
+                targetValue: Math.Max(0d, todayMetrics.FocusedTodaySeconds / 60d),
+                applyValue: value => NowOverloadValueText.Text = $"Focused today: {FormatReadableDuration(value * 60d)}");
+            NowOverloadActiveText.Text = $"Best focus block: {FormatReadableDuration(todayMetrics.BestFocusBlockSeconds)}";
+            NowOverloadSummaryText.Text = $"Tracked today: {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}";
+        }
+        else
+        {
+            NowOverloadValueText.Text = $"Focused today: {FillingInText}";
+            NowOverloadActiveText.Text = $"Best focus block: {FillingInText}";
+            NowOverloadSummaryText.Text = "Today's processed focus total appears after more tracked time accumulates.";
+        }
+
+        if (snapshot?.analysis_ready == true)
+        {
+            NowOverloadTrustText.Text = $"Confidence: {visualState.ConfidenceLabel}";
+            NowOverloadTrustText.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            NowOverloadTrustText.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void PopulateTodayCurrentFocusCard(
+        LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiLiveSessionStateResponse? liveSession,
+        PortaVisualState visualState)
+    {
+        double? currentFocusSessionSeconds = visualState.CurrentFocusSessionSeconds;
+        if (currentFocusSessionSeconds.HasValue)
+        {
+            AnimateTopMetric(
+                metricKey: "today_current_focus",
+                targetValue: Math.Max(0d, currentFocusSessionSeconds.Value / 60d),
+                applyValue: value => NowFocusStreakValueText.Text = $"Current focus session: {FormatReadableDuration(value * 60d)}");
+        }
+        else
+        {
             NowFocusStreakValueText.Text = visualState.CurrentFocusSessionText;
+        }
+
+        string focusedNowText = BuildTodayFocusedNowLabel(liveSession, currentFocusSessionSeconds);
+        if (string.IsNullOrWhiteSpace(focusedNowText))
+        {
             NowDeepWorkStreakText.Visibility = Visibility.Collapsed;
-            NowFocusChoppinessText.Text = $"Choppiness: {NotAvailableText}";
-            NowFocusSummaryText.Text = BuildNowFocusSummary(null, liveSession);
-            NowFocusFootnoteText.Text = "Resets after 2+ minutes away.";
-            NowFocusStatusText.Text = BuildLiveSessionFocusStatus(liveSession) ?? visualState.FocusStatusText;
-            NowFocusStatusText.Visibility = Visibility.Visible;
-            NowOverloadFivText.Text = "Explain not available (backend field missing).";
-            NowOverloadTopReasonsText.Text = $"Top reasons: {visualState.WhySummary}";
-            NowOverloadQualityAgreementText.Text = $"Quality: {NotAvailableText} | Agreement: {NotAvailableText}";
-
-            NowCalibrationStatusText.Text = "Bootstrapping";
-            NowCalibrationProgressText.Text = $"Progress: {NotAvailableText}";
-            NowCalibrationQualityText.Text = $"Recent tracking quality: {NotAvailableText} (last 2 min)";
-            NowCalibrationColdStartText.Text = $"Stage: {NotAvailableText}";
-            NowCalibrationSummaryText.Text = BuildNowCalibrationSummary(null);
-            NowCalibrationTrustCapText.Visibility = Visibility.Visible;
-
-            NowDataQualityScoreText.Text = $"Tracking quality: {NotAvailableText}";
-            NowDataQualityPartialText.Text = $"Partial data: {NotAvailableText}";
-            NowDataQualitySummaryText.Text = BuildNowDataQualitySummary(null);
-            NowDataQualityMissingText.Visibility = Visibility.Collapsed;
-
-            NowLastActionTitleText.Text = "No actions recently";
-            NowLastActionTimeText.Text = $"Time: {NotAvailableText}";
-            NowOpenActionsButton.IsEnabled = false;
-
-            NowWhatPortaDoingText.Text = BuildCurrentStatusSentence(liveSession) ?? visualState.OperatingSentence;
-            NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
-            _activeRecoveryEventId = 0;
-            NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
-            NowWaitingDataText.Text = string.IsNullOrWhiteSpace(nowTruth.Explanation)
-                ? "Waiting for service data"
-                : nowTruth.Explanation;
-            NowWaitingDataText.Visibility = Visibility.Visible;
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(nowTruth.Explanation))
-        {
-            NowWaitingDataText.Visibility = Visibility.Collapsed;
         }
         else
         {
-            NowWaitingDataText.Text = nowTruth.Explanation;
-            NowWaitingDataText.Visibility = Visibility.Visible;
-        }
-        if (visualState.SnapshotAnalysisReady)
-        {
-            AnimateTopMetric(
-                metricKey: "now_overload",
-                targetValue: Math.Clamp(snapshot.OverloadLikelihood * 100d, 0d, 100d),
-                applyValue: value => NowOverloadValueText.Text = $"Overload {value:F0}%");
-            NowOverloadActiveText.Text = $"Active: {(visualState.OverloadActive ? "Yes" : "No")}";
-            AnimateTopMetric(
-                metricKey: "now_trust",
-                targetValue: Math.Clamp(snapshot.Confidence * 100d, 0d, 100d),
-                applyValue: value => NowOverloadTrustText.Text = $"Confidence: {value:F0}%");
-        }
-        else
-        {
-            NowOverloadValueText.Text = "Overload analyzing";
-            NowOverloadActiveText.Text = "Active: assessing";
-            NowOverloadTrustText.Text = $"Confidence: {NotAvailableText}";
-        }
-
-        NowOverloadSummaryText.Text = BuildNowOverloadSummary(snapshot);
-
-        double? focusDisplaySeconds = visualState.CurrentFocusSessionSeconds;
-        if (focusDisplaySeconds.HasValue)
-        {
-            AnimateTopMetric(
-                metricKey: "now_focus",
-                targetValue: Math.Max(0d, focusDisplaySeconds.Value / 60d),
-                applyValue: value => NowFocusStreakValueText.Text = $"Current focus session: {FormatFocusedTime(value * 60d)}");
-        }
-        else
-        {
-            NowFocusStreakValueText.Text = visualState.CurrentFocusSessionText;
-        }
-
-        if (visualState.ShowDeepWorkStreak)
-        {
-            NowDeepWorkStreakText.Text = visualState.DeepWorkStreakText;
+            NowDeepWorkStreakText.Text = focusedNowText;
             NowDeepWorkStreakText.Visibility = Visibility.Visible;
         }
-        else
-        {
-            NowDeepWorkStreakText.Visibility = Visibility.Collapsed;
-        }
 
-        NowFocusChoppinessText.Text = visualState.SnapshotAnalysisReady
-            ? $"Choppiness: {MapChoppiness(snapshot.IdleFragmentationIndex)} ({snapshot.IdleFragmentationIndex:F2})"
-            : $"Choppiness: {NotAvailableText}";
-        NowFocusSummaryText.Text = BuildNowFocusSummary(snapshot, liveSession);
-        NowFocusFootnoteText.Text = visualState.SnapshotAnalysisReady
-            ? "Short pauses and quick app checks do not break the streak."
-            : "Live focus updates first; history and modeled streaks catch up after processed buckets arrive.";
-        string focusStatus = BuildLiveSessionFocusStatus(liveSession) ?? visualState.FocusStatusText;
-        NowFocusStatusText.Text = focusStatus;
-        NowFocusStatusText.Visibility = string.IsNullOrWhiteSpace(focusStatus)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        NowFocusChoppinessText.Text = BuildTodayCurrentFocusSupportText(liveSession);
+        NowFocusSummaryText.Text = BuildTodayCurrentFocusSummary(liveSession, snapshot, currentFocusSessionSeconds);
+        NowFocusFootnoteText.Visibility = Visibility.Collapsed;
+        NowFocusStatusText.Visibility = Visibility.Collapsed;
+    }
 
-        if (visualState.SnapshotAnalysisReady)
+    private void PopulateTodayDistractionCard(TodayPageMetrics todayMetrics)
+    {
+        if (todayMetrics.HasProcessedTimeline)
         {
-            OverloadExplainView explain = ParseOverloadExplain(snapshot.ContributorsJson);
-            NowOverloadFivText.Text = explain.FivSummary;
-            string topReasons = explain.HasStructuredData ? explain.TopReasons : visualState.WhySummary;
-            NowOverloadTopReasonsText.Text = $"Top reasons: {topReasons}";
-            NowOverloadQualityAgreementText.Text = $"Quality: {explain.Quality} | Agreement: {explain.Agreement}";
+            AnimateTopMetric(
+                metricKey: "today_distraction_total",
+                targetValue: Math.Max(0d, todayMetrics.DistractionTodaySeconds / 60d),
+                applyValue: value => NowCalibrationStatusText.Text = $"Distraction time today: {FormatReadableDuration(value * 60d)}");
+            NowCalibrationProgressText.Text = $"Tracked today: {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}";
+            NowCalibrationQualityText.Text = $"Focused share today: {todayMetrics.AverageFocusPercent:F0}%";
+            NowCalibrationColdStartText.Text = todayMetrics.MostDistractedHourLabel == NotAvailableText
+                ? $"Most distracted hour: {FillingInText}"
+                : $"Most distracted hour: {todayMetrics.MostDistractedHourLabel}";
+            NowCalibrationSummaryText.Text = "Built from processed history across today's tracked time.";
         }
         else
         {
-            NowOverloadFivText.Text = "Explain will appear once analyzed overload state is ready.";
-            NowOverloadTopReasonsText.Text = "Top reasons: Waiting for analyzed overload state.";
-            NowOverloadQualityAgreementText.Text = $"Quality: {NotAvailableText} | Agreement: {NotAvailableText}";
+            NowCalibrationStatusText.Text = $"Distraction time today: {FillingInText}";
+            NowCalibrationProgressText.Text = $"Tracked today: {FillingInText}";
+            NowCalibrationQualityText.Text = $"Focused share today: {FillingInText}";
+            NowCalibrationColdStartText.Text = $"Most distracted hour: {FillingInText}";
+            NowCalibrationSummaryText.Text = "Today's distraction total appears after Ari has enough processed history.";
         }
 
-        // Source: GET /v1/snapshot/current -> baseline_ready
-        string calibrationStage = NormalizeCalibrationStage(snapshot.CalibrationStage, snapshot.BaselineReady, snapshot.ColdStart);
-        bool calibrationReady = string.Equals(calibrationStage, CalibrationStageCalibrated, StringComparison.Ordinal);
-        NowCalibrationStatusText.Text = ToCalibrationStageLabel(calibrationStage);
-        // Source: GET /v1/snapshot/current -> baseline_ready_pct
-        NowCalibrationProgressText.Text = snapshot.BaselineReadyPct.HasValue
-            ? $"Progress: {(snapshot.BaselineReadyPct.Value * 100d):F0}% metrics ready"
-            : $"Progress: {NotAvailableText}";
-        // Source: GET /v1/snapshot/current -> avg_quality_2m
-        NowCalibrationQualityText.Text = snapshot.AvgQuality2m.HasValue
-            ? $"Recent tracking quality: {snapshot.AvgQuality2m.Value:F2} (last 2 min)"
-            : $"Recent tracking quality: {NotAvailableText} (last 2 min)";
-        // Source: GET /v1/snapshot/current -> cold_start
-        NowCalibrationColdStartText.Text = $"Stage: {ToCalibrationStageLabel(calibrationStage)} | Cold start: {MapOnOff(snapshot.ColdStart)}";
-        NowCalibrationSummaryText.Text = BuildNowCalibrationSummary(snapshot);
-        NowCalibrationTrustCapText.Text = string.Equals(calibrationStage, CalibrationStageProvisional, StringComparison.Ordinal)
-            ? "Suggestions are active while stronger system actions remain gated."
-            : "Confidence is capped until enough baseline data accumulates.";
-        NowCalibrationTrustCapText.Visibility = calibrationReady ? Visibility.Collapsed : Visibility.Visible;
+        NowCalibrationTrustCapText.Visibility = Visibility.Collapsed;
+    }
 
-        // Source: GET /v1/snapshot/current -> current_quality_score
-        NowDataQualityScoreText.Text = snapshot.CurrentQualityScore.HasValue
-            ? $"Tracking quality: {snapshot.CurrentQualityScore.Value:F2}"
-            : $"Tracking quality: {NotAvailableText}";
-        // Source: GET /v1/snapshot/current -> partial_data
-        NowDataQualityPartialText.Text = $"Partial data: {MapYesNo(snapshot.PartialData)}";
-        NowDataQualitySummaryText.Text = BuildNowDataQualitySummary(snapshot);
-        // Source: GET /v1/snapshot/current -> missing_major_channels[]
-        if (snapshot.MissingMajorChannels != null && snapshot.MissingMajorChannels.Count > 0)
-        {
-            string missing = string.Join(" / ", snapshot.MissingMajorChannels.Select(ToDisplayChannelName));
-            NowDataQualityMissingText.Text = $"Missing: {missing}";
-            NowDataQualityMissingText.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            NowDataQualityMissingText.Visibility = Visibility.Collapsed;
-        }
+    private void PopulateTodayStatusCard(
+        string currentStatusText,
+        string nextStepText,
+        LocalApiEventResponse? latestActionEvent,
+        PortaVisualState visualState)
+    {
+        NowDataQualityScoreText.Text = string.IsNullOrWhiteSpace(currentStatusText)
+            ? "Current status: Waiting for fresh tracking data."
+            : currentStatusText;
+        NowDataQualityScoreText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
+        NowDataQualityPartialText.Text = nextStepText;
+        NowDataQualitySummaryText.Text = latestActionEvent == null
+            ? "Open Actions once Ari has a recommendation or recent change to show."
+            : $"Latest action: {ToActionTitle(latestActionEvent)}. Open Actions for details.";
+        NowDataQualityMissingText.Visibility = Visibility.Collapsed;
+    }
 
-        LocalApiEventResponse? lastActionEvent = recentEvents.FirstOrDefault();
-        if (lastActionEvent == null)
-        {
-            NowLastActionTitleText.Text = "No actions recently";
-            NowLastActionTimeText.Text = $"Time: {NotAvailableText}";
-            NowOpenActionsButton.IsEnabled = false;
-        }
-        else
-        {
-            NowLastActionTitleText.Text = ToActionTitle(lastActionEvent);
-            NowLastActionTimeText.Text = $"Time: {lastActionEvent.TsUtc.ToLocalTime():HH:mm:ss}";
-            NowOpenActionsButton.IsEnabled = true;
-        }
+    private void PopulateTodayRecoveryBanner(NowTruth nowTruth, PortaVisualState visualState)
+    {
+        string? bannerText = null;
+        long bannerEventId = 0;
+        bool allowDismiss = false;
 
-        NowWhatPortaDoingText.Text = BuildCurrentStatusSentence(liveSession) ?? visualState.OperatingSentence;
-        NowWhatPortaDoingText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
         if (visualState.ShowRecoveryBanner
             && visualState.RecoveryEventId > 0
             && visualState.RecoveryEventId != _dismissedRecoveryEventId)
         {
-            _activeRecoveryEventId = visualState.RecoveryEventId;
-            NowRecoveryBannerText.Text = visualState.RecoveryBannerText;
-            NowRecoveryBannerBorder.Visibility = Visibility.Visible;
+            bannerText = visualState.RecoveryBannerText;
+            bannerEventId = visualState.RecoveryEventId;
+            allowDismiss = true;
         }
-        else
+        else if (!string.IsNullOrWhiteSpace(nowTruth.Explanation))
         {
-            _activeRecoveryEventId = 0;
-            NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
+            bannerText = nowTruth.Explanation;
         }
+
+        NowWaitingDataText.Visibility = Visibility.Collapsed;
+        _activeRecoveryEventId = bannerEventId;
+        NowRecoveryDismissButton.Visibility = allowDismiss ? Visibility.Visible : Visibility.Collapsed;
+
+        if (string.IsNullOrWhiteSpace(bannerText))
+        {
+            NowRecoveryBannerBorder.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        NowRecoveryBannerText.Text = bannerText;
+        NowRecoveryBannerBorder.Visibility = Visibility.Visible;
+    }
+
+    private string BuildTodaySummarySentence(
+        TodayPageMetrics todayMetrics,
+        double? currentFocusSessionSeconds,
+        string? explanation)
+    {
+        if (todayMetrics.HasProcessedTimeline)
+        {
+            if (currentFocusSessionSeconds.HasValue)
+            {
+                return $"You have focused {FormatReadableDuration(todayMetrics.FocusedTodaySeconds)} today, and your current focus session is {FormatReadableDuration(currentFocusSessionSeconds.Value)}.";
+            }
+
+            return $"You have focused {FormatReadableDuration(todayMetrics.FocusedTodaySeconds)} today and spent about {FormatReadableDuration(todayMetrics.DistractionTodaySeconds)} away from steady focus.";
+        }
+
+        if (currentFocusSessionSeconds.HasValue)
+        {
+            return $"Ari is tracking your current focus session. Today's processed totals are still filling in.";
+        }
+
+        return string.IsNullOrWhiteSpace(explanation)
+            ? "Today's view will fill in once Ari has enough tracked time."
+            : "Today's view is waiting for fresh tracking data.";
+    }
+
+    private static string BuildTodayFocusedNowLabel(
+        LocalApiLiveSessionStateResponse? liveSession,
+        double? currentFocusSessionSeconds)
+    {
+        if (!IsLiveSessionFresh(liveSession))
+        {
+            return string.Empty;
+        }
+
+        if (liveSession!.idle)
+        {
+            return "Focused now: No";
+        }
+
+        if (currentFocusSessionSeconds.HasValue && currentFocusSessionSeconds.Value > 0d)
+        {
+            return "Focused now: Yes";
+        }
+
+        return liveSession.user_active
+            ? "Focused now: Checking live activity"
+            : "Focused now: No";
+    }
+
+    private static string BuildTodayCurrentFocusSupportText(LocalApiLiveSessionStateResponse? liveSession)
+    {
+        if (!IsLiveSessionFresh(liveSession))
+        {
+            return "Live activity: waiting";
+        }
+
+        if (liveSession!.idle)
+        {
+            return liveSession.last_input_age_seconds.HasValue
+                ? $"Last input: {FormatAgeLabel(liveSession.last_input_age_seconds)}"
+                : "Last input: not available";
+        }
+
+        return $"Typing {(liveSession.keyboard_active ? "active" : "idle")} | Mouse {(liveSession.mouse_active ? "active" : "idle")}";
+    }
+
+    private static string BuildTodayCurrentFocusSummary(
+        LocalApiLiveSessionStateResponse? liveSession,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        double? currentFocusSessionSeconds)
+    {
+        if (IsLiveSessionFresh(liveSession) && currentFocusSessionSeconds.HasValue)
+        {
+            return "Updates from live activity so you can see your current session right away.";
+        }
+
+        if (snapshot is { analysis_ready: false })
+        {
+            return "Today's processed history catches up after the next analyzed bucket arrives.";
+        }
+
+        if (IsLiveSessionFresh(liveSession) && liveSession!.idle)
+        {
+            return "This session restarts after you return to focused work.";
+        }
+
+        return "Open History for the full day pattern and longer focus blocks.";
+    }
+
+    private static string BuildTodayNextStepText(
+        LocalApiCurrentSnapshotResponse? snapshot,
+        IReadOnlyList<LocalApiEventResponse> recentEvents)
+    {
+        if (snapshot != null && !string.IsNullOrWhiteSpace(snapshot.BreakPendingAction))
+        {
+            string pendingAction = IsSuggestionEvent(snapshot.BreakPendingAction)
+                ? BuildSuggestionTitle(snapshot.BreakPendingAction)
+                : HumanizeActionName(snapshot.BreakPendingAction);
+            return $"Next recommendation: {pendingAction}";
+        }
+
+        LocalApiEventResponse? latestSuggestion = recentEvents.FirstOrDefault(static evt => IsSuggestionEvent(evt.Action));
+        if (latestSuggestion != null)
+        {
+            return $"Next recommendation: {ToActionTitle(latestSuggestion)}";
+        }
+
+        LocalApiEventResponse? latestAction = recentEvents.FirstOrDefault();
+        return latestAction == null
+            ? "Next recommendation: None right now"
+            : $"Recent action: {ToActionTitle(latestAction)}";
     }
 
     private string BuildNowOverloadSummary(LocalApiCurrentSnapshotResponse? snapshot)
@@ -1821,6 +1908,27 @@ public partial class MainWindow : Window
 
         double minutes = Math.Floor(sustainedAttentionSeconds / 60d);
         return $"{minutes:F0} min";
+    }
+
+    private static string FormatReadableDuration(double seconds)
+    {
+        double clampedSeconds = Math.Max(0d, seconds);
+        if (clampedSeconds < 60d)
+        {
+            return $"{Math.Round(clampedSeconds, MidpointRounding.AwayFromZero):F0} sec";
+        }
+
+        int wholeMinutes = (int)Math.Floor(clampedSeconds / 60d);
+        if (wholeMinutes < 60)
+        {
+            return $"{wholeMinutes} min";
+        }
+
+        int hours = wholeMinutes / 60;
+        int minutes = wholeMinutes % 60;
+        return minutes == 0
+            ? $"{hours}h"
+            : $"{hours}h {minutes}m";
     }
 
     private static string MapChoppiness(double idleFragmentationIndex)
