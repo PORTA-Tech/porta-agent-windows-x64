@@ -22,6 +22,7 @@ internal static class UserDesktopWidgetStateBuilder
         _ = signals;
         DateTimeOffset now = nowUtc ?? DateTimeOffset.UtcNow;
         IReadOnlyList<LocalApiEventResponse> events = recentEvents ?? [];
+        LocalTodaySummaryMetrics todaySummary = LocalTodaySummaryMetricsBuilder.Build(timeline);
         LocalCurrentExperienceState experience = LocalCurrentExperienceStateAdapter.Build(
             status,
             snapshot,
@@ -64,15 +65,13 @@ internal static class UserDesktopWidgetStateBuilder
             Mode: mode,
             Title: BuildTitle(mode, status),
             StatusText: BuildStatusText(status, snapshot, liveSession, degradedToast, criticalState, mode, statusHttpCode),
-            PrimaryMetricText: BuildFocusMetric(liveSession, experience, mode),
-            SecondaryMetricText: BuildOverloadMetric(status, snapshot, mode),
+            MessageSeverity: BuildMessageSeverity(mode, criticalState),
             FooterText: BuildFooterText(status, snapshot, experience, mode),
-            NotificationsSuppressed: false,
-            BrightnessAdjusted: false,
+            PrimaryMetric: BuildWorkTodayMetric(status, todaySummary, mode),
+            SecondaryMetric: BuildLastFocusMetric(status, liveSession, experience, mode),
+            TertiaryMetric: BuildOverloadMetric(snapshot, mode),
             CanPause: status?.ServiceRunning == true && status.ConsentActive && !paused,
             CanResume: paused,
-            TertiaryMetricText: BuildComputerTimeMetric(snapshot, timeline, liveSession, mode),
-            QuaternaryMetricText: string.Empty,
             CriticalState: criticalState);
     }
 
@@ -82,7 +81,25 @@ internal static class UserDesktopWidgetStateBuilder
         {
             UserDesktopWidgetMode.Paused => "Paused",
             UserDesktopWidgetMode.Limited => IsUnavailableState(status) ? "Unavailable" : "Tracking limited",
-            _ => string.Empty
+            _ => "Today"
+        };
+    }
+
+    private static UserDesktopWidgetMessageSeverity BuildMessageSeverity(
+        UserDesktopWidgetMode mode,
+        UserDesktopWidgetCriticalState? criticalState)
+    {
+        if (criticalState != null)
+        {
+            return UserDesktopWidgetMessageSeverity.Critical;
+        }
+
+        return mode switch
+        {
+            UserDesktopWidgetMode.DeepWork => UserDesktopWidgetMessageSeverity.Info,
+            UserDesktopWidgetMode.Overload => UserDesktopWidgetMessageSeverity.Warning,
+            UserDesktopWidgetMode.Limited => UserDesktopWidgetMessageSeverity.Warning,
+            _ => UserDesktopWidgetMessageSeverity.Neutral
         };
     }
 
@@ -169,7 +186,7 @@ internal static class UserDesktopWidgetStateBuilder
         {
             UserDesktopWidgetMode.DeepWork => "Deep work is active.",
             UserDesktopWidgetMode.Overload => "Overload is elevated.",
-            _ => string.Empty
+            _ => "Today is updating normally."
         };
     }
 
@@ -211,76 +228,75 @@ internal static class UserDesktopWidgetStateBuilder
             TertiaryLabel: "Settings");
     }
 
-    private static string BuildFocusMetric(
+    private static UserDesktopWidgetMetric BuildWorkTodayMetric(
+        LocalApiStatusResponse? status,
+        LocalTodaySummaryMetrics todaySummary,
+        UserDesktopWidgetMode mode)
+    {
+        string value = mode switch
+        {
+            UserDesktopWidgetMode.Paused => "Paused",
+            _ when todaySummary.HasProcessedTimeline => FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, todaySummary.TrackedTodaySeconds))),
+            _ when status == null || !status.ServiceRunning || !status.LocalApiAuthReady => "n/a",
+            _ => "Filling in"
+        };
+
+        return new UserDesktopWidgetMetric("Work today", value);
+    }
+
+    private static UserDesktopWidgetMetric BuildLastFocusMetric(
+        LocalApiStatusResponse? status,
         LocalApiLiveSessionStateResponse? liveSession,
         LocalCurrentExperienceState experience,
         UserDesktopWidgetMode mode)
     {
+        string value;
         if (mode == UserDesktopWidgetMode.Paused)
         {
-            return "Focus session paused";
+            value = "Paused";
         }
-
-        if (experience.LiveSessionFresh && liveSession != null)
+        else if (experience.LiveSessionFresh && liveSession != null)
         {
-            return BuildLiveFocusMetric(liveSession);
+            value = BuildLiveFocusMetric(liveSession);
         }
-
-        if (experience.CurrentFocusSessionSeconds.HasValue)
+        else if (experience.CurrentFocusSessionSeconds.HasValue)
         {
-            return $"Focus session {FormatCompactDuration(TimeSpan.FromSeconds(experience.CurrentFocusSessionSeconds.Value))}";
+            value = FormatCompactDuration(TimeSpan.FromSeconds(experience.CurrentFocusSessionSeconds.Value));
+        }
+        else if (status == null || !status.ServiceRunning || !status.LocalApiAuthReady)
+        {
+            value = "n/a";
+        }
+        else
+        {
+            value = "Filling in";
         }
 
-        return "Focus session n/a";
+        return new UserDesktopWidgetMetric("Last focus session", value);
     }
 
-    private static string BuildOverloadMetric(
-        LocalApiStatusResponse? status,
+    private static UserDesktopWidgetMetric BuildOverloadMetric(
         LocalApiCurrentSnapshotResponse? snapshot,
         UserDesktopWidgetMode mode)
     {
+        string value;
         if (mode == UserDesktopWidgetMode.Paused)
         {
-            return "Overload paused";
+            value = "Paused";
         }
-
-        if (snapshot is { analysis_ready: false })
+        else if (snapshot is { analysis_ready: false })
         {
-            return "Overload pending";
+            value = "Pending";
         }
-
-        double? overload = snapshot?.OverloadLikelihood;
-        return overload.HasValue
-            ? $"Overload {FormatPercent(overload.Value)}"
-            : "Overload n/a";
-    }
-
-    private static string BuildComputerTimeMetric(
-        LocalApiCurrentSnapshotResponse? snapshot,
-        LocalApiTimelineResponse? timeline,
-        LocalApiLiveSessionStateResponse? liveSession,
-        UserDesktopWidgetMode mode)
-    {
-        if (mode == UserDesktopWidgetMode.Paused)
+        else
         {
-            return "Focused today paused";
+            double? overload = snapshot?.OverloadLikelihood;
+            value = overload.HasValue
+                ? FormatPercent(overload.Value)
+                : "n/a";
         }
 
-        if (timeline?.Snapshots is { Count: > 0 } snapshots)
-        {
-            double focusedTodaySeconds = ComputeFocusedTodaySeconds(timeline);
-            if (focusedTodaySeconds > 0d)
-            {
-                return $"Focused today {FormatCompactDuration(TimeSpan.FromSeconds(focusedTodaySeconds))}";
-            }
-        }
-
-        if (snapshot != null)
-        {
-            return $"Focused today {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, snapshot.SustainedAttentionDurationSec)))}";
-        }
-
-        return "Focused today n/a";
+        return new UserDesktopWidgetMetric("Overload", value);
     }
 
     private static string BuildFooterText(
@@ -330,20 +346,20 @@ internal static class UserDesktopWidgetStateBuilder
     {
         if (liveSession.idle)
         {
-            return "Focus session idle";
+            return "Idle";
         }
 
         if (liveSession.focus_elapsed_seconds.HasValue)
         {
-            return $"Focus session {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, liveSession.focus_elapsed_seconds.Value)))}";
+            return FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, liveSession.focus_elapsed_seconds.Value)));
         }
 
         if (!string.IsNullOrWhiteSpace(liveSession.focus_app_hash))
         {
-            return "Focus session live";
+            return "Active";
         }
 
-        return liveSession.user_active ? "Focus session active" : "Focus session watching";
+        return liveSession.user_active ? "Active" : "Watching";
     }
 
     private static string BuildConfidenceFooterText(LocalCurrentExperienceState experience)
@@ -420,24 +436,6 @@ internal static class UserDesktopWidgetStateBuilder
 
     private static bool IsUnavailableState(LocalApiStatusResponse? status) =>
         status == null || !status.ServiceRunning || !status.LocalApiAuthReady;
-
-    private static double ComputeFocusedTodaySeconds(LocalApiTimelineResponse timeline)
-    {
-        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = timeline.Snapshots ?? [];
-        if (snapshots.Count == 0)
-        {
-            return 0d;
-        }
-
-        double bucketSeconds = Math.Max(1d, timeline.BucketSeconds);
-        double focusedTodaySeconds = 0d;
-        foreach (LocalApiCurrentSnapshotResponse snapshot in snapshots)
-        {
-            focusedTodaySeconds += bucketSeconds * Math.Clamp(snapshot.FocusStrength, 0d, 1d);
-        }
-
-        return focusedTodaySeconds;
-    }
 
     private static string FormatPercent(double value)
     {

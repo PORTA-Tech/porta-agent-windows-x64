@@ -249,8 +249,14 @@ public partial class MainWindow : Window
             case ControlCenterActivationTarget.Now:
                 section = UiSection.Overview;
                 return true;
+            case ControlCenterActivationTarget.History:
+                section = UiSection.Timeline;
+                return true;
             case ControlCenterActivationTarget.Actions:
                 section = UiSection.Interventions;
+                return true;
+            case ControlCenterActivationTarget.Tracking:
+                section = UiSection.Inputs;
                 return true;
             case ControlCenterActivationTarget.Settings:
                 section = UiSection.Settings;

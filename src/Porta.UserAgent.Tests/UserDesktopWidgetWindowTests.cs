@@ -11,7 +11,7 @@ namespace Porta.UserAgent.Tests;
 public sealed class UserDesktopWidgetWindowTests
 {
     [Fact]
-    public void ApplyState_ShowsCriticalSpotlightWithoutDuplicatingSummarySurface()
+    public void ApplyState_UsesInlineCriticalMessageWhileKeepingSummaryVisible()
     {
         RunOnStaThread(() =>
         {
@@ -25,14 +25,13 @@ public sealed class UserDesktopWidgetWindowTests
                 Mode: UserDesktopWidgetMode.Limited,
                 Title: "Tracking limited",
                 StatusText: "Ari is receiving partial capture only. Missing keyboard, mouse, focus / idle.",
-                PrimaryMetricText: "Focus session 3m",
-                SecondaryMetricText: "Overload 42%",
+                MessageSeverity: UserDesktopWidgetMessageSeverity.Warning,
                 FooterText: "Confidence High | Tracking quality limited",
-                NotificationsSuppressed: false,
-                BrightnessAdjusted: false,
+                PrimaryMetric: new UserDesktopWidgetMetric("Work today", "1h 12m"),
+                SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "3m"),
+                TertiaryMetric: new UserDesktopWidgetMetric("Overload", "42%"),
                 CanPause: true,
                 CanResume: false,
-                TertiaryMetricText: "Focused today 17m",
                 CriticalState: new UserDesktopWidgetCriticalState(
                     Title: "Tracking limited",
                     Message: "Ari is receiving partial capture only. Missing keyboard, mouse, focus / idle.",
@@ -43,22 +42,23 @@ public sealed class UserDesktopWidgetWindowTests
                     TertiaryAction: UserDesktopWidgetAction.OpenSettings,
                     TertiaryLabel: "Settings")));
 
-            TextBlock statusText = GetPrivateField<TextBlock>(window, "_statusText");
-            UniformGrid metricsPanel = GetPrivateField<UniformGrid>(window, "_metricsPanel");
-            TextBlock footerText = GetPrivateField<TextBlock>(window, "_footerText");
-            Border criticalCard = GetPrivateField<Border>(window, "_criticalCard");
-            Grid summaryRow = GetPrivateField<Grid>(window, "_summaryRow");
+            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            Border messageCard = GetPrivateField<Border>(window, "_messageCard");
+            TextBlock messageTitle = GetPrivateField<TextBlock>(window, "_messageTitleText");
+            TextBlock primaryMetricValue = GetPrivateField<TextBlock>(window, "_primaryMetricText");
+            Button primaryActionButton = GetPrivateField<Button>(window, "_messagePrimaryButton");
 
-            Assert.Equal(Visibility.Collapsed, statusText.Visibility);
-            Assert.Equal(Visibility.Collapsed, metricsPanel.Visibility);
-            Assert.Equal(Visibility.Collapsed, footerText.Visibility);
-            Assert.Equal(Visibility.Visible, criticalCard.Visibility);
-            Assert.Equal(Visibility.Visible, summaryRow.Visibility);
+            Assert.Equal(Visibility.Visible, metricsPanel.Visibility);
+            Assert.Equal(Visibility.Visible, messageCard.Visibility);
+            Assert.Equal("Tracking limited", messageTitle.Text);
+            Assert.Equal("1h 12m", primaryMetricValue.Text);
+            Assert.Equal("Open System", primaryActionButton.Content);
+            Assert.Equal(Visibility.Visible, primaryActionButton.Visibility);
         });
     }
 
     [Fact]
-    public void ApplyState_AdjustsCriticalSpotlightDurationToMessageLength()
+    public void Constructor_UsesCompactWidgetWidth()
     {
         RunOnStaThread(() =>
         {
@@ -67,17 +67,33 @@ public sealed class UserDesktopWidgetWindowTests
                 _ => { },
                 _ => { },
                 new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
-            DispatcherTimer timer = GetPrivateField<DispatcherTimer>(window, "_criticalSpotlightTimer");
 
-            window.ApplyState(BuildCriticalState("Short warning."));
-            TimeSpan shortDuration = timer.Interval;
+            Assert.True(window.Width < 250d);
+            Assert.True(window.Height >= 150d);
+        });
+    }
 
-            window.ApplyState(BuildCriticalState(new string('x', 260)));
-            TimeSpan longDuration = timer.Interval;
+    [Fact]
+    public void Menu_UsesCurrentControlCenterLabels()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+            Popup popup = GetPrivateField<Popup>(window, "_menuPopup");
 
-            Assert.True(shortDuration >= TimeSpan.FromSeconds(5));
-            Assert.True(longDuration <= TimeSpan.FromSeconds(12));
-            Assert.True(longDuration > shortDuration);
+            string popupText = ReadAllText(popup.Child);
+
+            Assert.Contains("Control Center", popupText, StringComparison.Ordinal);
+            Assert.Contains("Today", popupText, StringComparison.Ordinal);
+            Assert.Contains("History", popupText, StringComparison.Ordinal);
+            Assert.Contains("Actions", popupText, StringComparison.Ordinal);
+            Assert.Contains("Tracking", popupText, StringComparison.Ordinal);
+            Assert.Contains("Settings", popupText, StringComparison.Ordinal);
+            Assert.Contains("System", popupText, StringComparison.Ordinal);
         });
     }
 
@@ -110,14 +126,13 @@ public sealed class UserDesktopWidgetWindowTests
             Mode: UserDesktopWidgetMode.Limited,
             Title: "Tracking limited",
             StatusText: message,
-            PrimaryMetricText: "Focus session 2m",
-            SecondaryMetricText: "Overload 38%",
+            MessageSeverity: UserDesktopWidgetMessageSeverity.Warning,
             FooterText: "Confidence High | Tracking quality limited",
-            NotificationsSuppressed: false,
-            BrightnessAdjusted: false,
+            PrimaryMetric: new UserDesktopWidgetMetric("Work today", "1h 11m"),
+            SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "2m"),
+            TertiaryMetric: new UserDesktopWidgetMetric("Overload", "38%"),
             CanPause: true,
             CanResume: false,
-            TertiaryMetricText: "Focused today 11m",
             CriticalState: new UserDesktopWidgetCriticalState(
                 Title: "Tracking limited",
                 Message: message,
@@ -132,6 +147,24 @@ public sealed class UserDesktopWidgetWindowTests
         FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException($"Missing field '{fieldName}'.");
         return (T)(field.GetValue(target) ?? throw new InvalidOperationException($"Field '{fieldName}' was null."));
+    }
+
+    private static string ReadAllText(object? node)
+    {
+        if (node == null)
+        {
+            return string.Empty;
+        }
+
+        return node switch
+        {
+            TextBlock textBlock => textBlock.Text,
+            ContentControl contentControl => ReadAllText(contentControl.Content),
+            Border border => ReadAllText(border.Child),
+            Panel panel => string.Join(" ", panel.Children.OfType<object>().Select(ReadAllText)),
+            Decorator decorator => ReadAllText(decorator.Child),
+            _ => string.Empty
+        };
     }
 
     private static void RunOnStaThread(Action action)

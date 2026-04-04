@@ -680,8 +680,24 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
                 break;
 
+            case UserDesktopWidgetAction.OpenHistory:
+                if (!TryOpenControlCenter("history"))
+                {
+                    _ = TryShow("Tracking limited", "Control Center is not available on this device.", out _);
+                }
+
+                break;
+
             case UserDesktopWidgetAction.OpenActions:
                 if (!TryOpenControlCenter("actions"))
+                {
+                    _ = TryShow("Tracking limited", "Control Center is not available on this device.", out _);
+                }
+
+                break;
+
+            case UserDesktopWidgetAction.OpenTracking:
+                if (!TryOpenControlCenter("tracking"))
                 {
                     _ = TryShow("Tracking limited", "Control Center is not available on this device.", out _);
                 }

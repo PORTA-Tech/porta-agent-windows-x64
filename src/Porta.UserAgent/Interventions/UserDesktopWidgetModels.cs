@@ -12,7 +12,9 @@ internal enum UserDesktopWidgetMode
 internal enum UserDesktopWidgetAction
 {
     OpenNow,
+    OpenHistory,
     OpenActions,
+    OpenTracking,
     OpenHealth,
     OpenSettings,
     HideWidget,
@@ -23,6 +25,16 @@ internal enum UserDesktopWidgetAction
     Recalibrate,
     ResetPosition
 }
+
+internal enum UserDesktopWidgetMessageSeverity
+{
+    Neutral,
+    Info,
+    Warning,
+    Critical
+}
+
+internal sealed record UserDesktopWidgetMetric(string Label, string Value);
 
 internal sealed record UserDesktopWidgetCriticalState(
     string Title,
@@ -38,13 +50,11 @@ internal sealed record UserDesktopWidgetState(
     UserDesktopWidgetMode Mode,
     string Title,
     string StatusText,
-    string PrimaryMetricText,
-    string SecondaryMetricText,
+    UserDesktopWidgetMessageSeverity MessageSeverity,
     string FooterText,
-    bool NotificationsSuppressed,
-    bool BrightnessAdjusted,
+    UserDesktopWidgetMetric PrimaryMetric,
+    UserDesktopWidgetMetric SecondaryMetric,
+    UserDesktopWidgetMetric TertiaryMetric,
     bool CanPause,
     bool CanResume,
-    string TertiaryMetricText = "",
-    string QuaternaryMetricText = "",
     UserDesktopWidgetCriticalState? CriticalState = null);

@@ -7,7 +7,9 @@ internal enum ControlCenterActivationTarget
 {
     Default,
     Now,
+    History,
     Actions,
+    Tracking,
     Settings,
     Health
 }
@@ -117,7 +119,9 @@ internal static class ControlCenterActivationRequestStore
         return value?.Trim().ToLowerInvariant() switch
         {
             "now" or "today" or "overview" => ControlCenterActivationTarget.Now,
+            "history" or "timeline" => ControlCenterActivationTarget.History,
             "actions" or "interventions" => ControlCenterActivationTarget.Actions,
+            "tracking" or "inputs" => ControlCenterActivationTarget.Tracking,
             "controls" or "settings" => ControlCenterActivationTarget.Settings,
             "health" or "system" or "diagnostics" => ControlCenterActivationTarget.Health,
             _ => ControlCenterActivationTarget.Default
