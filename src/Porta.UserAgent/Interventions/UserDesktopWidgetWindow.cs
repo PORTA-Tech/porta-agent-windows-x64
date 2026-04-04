@@ -19,14 +19,15 @@ internal sealed class UserDesktopWidgetWindow : Window
     private const int WindowLifecycleOpen = 0;
     private const int WindowLifecycleClosing = 1;
     private const int WindowLifecycleClosed = 2;
-    private const double ExpandedWidth = 218d;
+    private const double ExpandedWidth = 192d;
     private const double CollapsedWidth = 42d;
-    private const double BaseHeight = 156d;
+    private const double BaseHeight = 94d;
     private const double CollapsedHeight = 42d;
     private const double TopMargin = 16d;
     private const double RightMargin = 16d;
     private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(160);
     private static readonly TimeSpan AttentionDuration = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan StateTakeoverDuration = TimeSpan.FromSeconds(18);
     private static readonly TimeSpan ReexpandPollInterval = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(220);
 
@@ -35,6 +36,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly UserDesktopWidgetPlacementStore _placementStore;
     private readonly DispatcherTimer _attentionTimer;
     private readonly DispatcherTimer _promptTimer;
+    private readonly DispatcherTimer _stateTakeoverTimer;
     private readonly DispatcherTimer _reexpandTimer;
     private readonly DispatcherTimer _collapseTimer;
     private readonly Border _rootBorder;
@@ -80,6 +82,8 @@ internal sealed class UserDesktopWidgetWindow : Window
     private UserDesktopWidgetState? _currentState;
     private UserInterventionPrompt? _activePrompt;
     private WidgetAttentionMessage? _attentionMessage;
+    private WidgetTakeoverMessage? _stateTakeoverMessage;
+    private string? _lastStateTakeoverKey;
 
     public UserDesktopWidgetWindow(
         Action<UserDesktopWidgetAction> actionRequested,
@@ -104,6 +108,15 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             _attentionTimer.Stop();
             SetAttentionVisible(false);
+        };
+
+        _stateTakeoverTimer = new DispatcherTimer { Interval = StateTakeoverDuration };
+        _stateTakeoverTimer.Tick += (_, _) =>
+        {
+            _stateTakeoverTimer.Stop();
+            _stateTakeoverMessage = null;
+            RefreshInlineMessage();
+            UpdateWindowHeight();
         };
 
         _promptTimer = new DispatcherTimer();
@@ -166,7 +179,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         Grid bodyGrid = new()
         {
-            Margin = new Thickness(10, 8, 10, 8)
+            Margin = new Thickness(8, 7, 8, 8)
         };
         bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         shellGrid.Children.Add(bodyGrid);
@@ -178,33 +191,18 @@ internal sealed class UserDesktopWidgetWindow : Window
         Grid.SetColumn(_expandedStack, 0);
         bodyGrid.Children.Add(_expandedStack);
 
-        Border headerDragSurface = new()
+        _headerRow = new Grid
         {
-            Background = Brushes.Transparent,
-            Cursor = Cursors.SizeAll
+            Margin = new Thickness(0, 0, 0, 6)
         };
-        headerDragSurface.PreviewMouseLeftButtonDown += BeginDragFromHeader;
-        _expandedStack.Children.Add(headerDragSurface);
-
-        _headerRow = new Grid();
-        _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        headerDragSurface.Child = _headerRow;
-
-        _titleText = new TextBlock
-        {
-            Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
-            FontWeight = FontWeights.SemiBold,
-            FontSize = 12.5,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        Grid.SetColumn(_titleText, 0);
-        _headerRow.Children.Add(_titleText);
+        _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _expandedStack.Children.Add(_headerRow);
 
         _menuButton = new Button
         {
-            Width = 26,
-            Height = 26,
+            Width = 22,
+            Height = 22,
             Padding = new Thickness(0),
             BorderThickness = new Thickness(1),
             Background = new SolidColorBrush(Color.FromRgb(28, 35, 43)),
@@ -213,7 +211,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             Focusable = false,
             FocusVisualStyle = null,
             Template = CreateFlatButtonTemplate(
-                cornerRadius: new CornerRadius(10),
+                cornerRadius: new CornerRadius(8),
                 hoverBackground: Color.FromRgb(36, 45, 55),
                 hoverBorder: Color.FromRgb(67, 82, 99),
                 pressedBackground: Color.FromRgb(22, 29, 36),
@@ -222,25 +220,66 @@ internal sealed class UserDesktopWidgetWindow : Window
             Content = new TextBlock
             {
                 Text = "\u2630",
-                FontSize = 13,
+                FontSize = 11.8,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
         };
         _menuButton.Click += (_, _) => ToggleMenu();
-        Grid.SetColumn(_menuButton, 1);
+        Grid.SetColumn(_menuButton, 0);
         _headerRow.Children.Add(_menuButton);
+
+        Border headerDragSurface = new()
+        {
+            Background = Brushes.Transparent,
+            Cursor = Cursors.SizeAll,
+            Margin = new Thickness(8, 0, 0, 0),
+            Padding = new Thickness(0, 0, 2, 0)
+        };
+        headerDragSurface.PreviewMouseLeftButtonDown += BeginDragFromHeader;
+        Grid.SetColumn(headerDragSurface, 1);
+        _headerRow.Children.Add(headerDragSurface);
+
+        Grid dragContent = new();
+        dragContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        dragContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerDragSurface.Child = dragContent;
+
+        Border dragHandle = new()
+        {
+            Width = 18,
+            Height = 4,
+            CornerRadius = new CornerRadius(2),
+            Background = new SolidColorBrush(Color.FromRgb(77, 88, 102)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+        Grid.SetColumn(dragHandle, 0);
+        dragContent.Children.Add(dragHandle);
+
+        _titleText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(154, 170, 187)),
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 9.6,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed
+        };
+        Grid.SetColumn(_titleText, 1);
+        dragContent.Children.Add(_titleText);
 
         _metricsPanel = new StackPanel
         {
-            Orientation = Orientation.Vertical,
-            Margin = new Thickness(0, 8, 0, 0)
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
         _expandedStack.Children.Add(_metricsPanel);
 
         _primaryMetricChip = CreateMetricChip(out _primaryMetricLabelText, out _primaryMetricText);
         _secondaryMetricChip = CreateMetricChip(out _secondaryMetricLabelText, out _secondaryMetricText);
         _tertiaryMetricChip = CreateMetricChip(out _tertiaryMetricLabelText, out _tertiaryMetricText);
+        _secondaryMetricChip.Margin = new Thickness(7, 0, 7, 0);
+        _tertiaryMetricChip.Margin = new Thickness(0);
         _metricsPanel.Children.Add(_primaryMetricChip);
         _metricsPanel.Children.Add(_secondaryMetricChip);
         _metricsPanel.Children.Add(_tertiaryMetricChip);
@@ -249,8 +288,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(10, 9, 10, 8),
-            Margin = new Thickness(0, 8, 0, 0)
+            Padding = new Thickness(8, 7, 8, 7),
+            Margin = new Thickness(0, 2, 0, 0),
+            Visibility = Visibility.Collapsed
         };
         StackPanel messageStack = new();
         _messageCard.Child = messageStack;
@@ -258,23 +298,24 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
             FontWeight = FontWeights.SemiBold,
-            FontSize = 12
+            FontSize = 10.8,
+            TextWrapping = TextWrapping.Wrap
         };
         _messageBodyText = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(196, 205, 215)),
-            FontSize = 11.2,
+            FontSize = 10.4,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 4, 0, 0),
-            MaxWidth = ExpandedWidth - 42d
+            Margin = new Thickness(0, 3, 0, 0),
+            MaxWidth = ExpandedWidth - 34d
         };
         _messageFooterText = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(153, 167, 183)),
-            FontSize = 10.4,
+            FontSize = 9.6,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 4, 0, 0),
-            MaxWidth = ExpandedWidth - 42d
+            Margin = new Thickness(0, 3, 0, 0),
+            MaxWidth = ExpandedWidth - 34d
         };
         messageStack.Children.Add(_messageTitleText);
         messageStack.Children.Add(_messageBodyText);
@@ -282,7 +323,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         _messageActionsPanel = new WrapPanel
         {
-            Margin = new Thickness(0, 8, 0, 0)
+            Margin = new Thickness(0, 6, 0, 0)
         };
         _messagePrimaryButton = CreatePromptButton();
         _messagePrimaryButton.Click += OnPrimaryMessageAction;
@@ -320,7 +361,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             StaysOpen = false,
             AllowsTransparency = true,
             PopupAnimation = PopupAnimation.None,
-            VerticalOffset = 10
+            VerticalOffset = 6
         };
         _menuPopup.Opened += (_, _) =>
         {
@@ -392,14 +433,13 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
 
         _currentState = state;
-        _titleText.Text = NormalizeWidgetTitle(state.Title);
         SetMetric(_primaryMetricChip, _primaryMetricLabelText, _primaryMetricText, state.PrimaryMetric);
         SetMetric(_secondaryMetricChip, _secondaryMetricLabelText, _secondaryMetricText, state.SecondaryMetric);
         SetMetric(_tertiaryMetricChip, _tertiaryMetricLabelText, _tertiaryMetricText, state.TertiaryMetric);
         _pauseFifteenButton.IsEnabled = state.CanPause;
         _pauseHourButton.IsEnabled = state.CanPause;
         _resumeButton.IsEnabled = state.CanResume;
-
+        UpdateStateTakeover(state);
         RefreshInlineMessage();
         ApplyModeChrome(state.Mode);
         UpdateWindowHeight();
@@ -519,42 +559,44 @@ internal sealed class UserDesktopWidgetWindow : Window
     {
         labelTextBlock = new TextBlock
         {
-            Foreground = new SolidColorBrush(Color.FromRgb(133, 146, 161)),
-            FontSize = 10.2,
+            Foreground = new SolidColorBrush(Color.FromRgb(147, 161, 177)),
+            FontSize = 8.4,
             FontWeight = FontWeights.Medium,
-            VerticalAlignment = VerticalAlignment.Top,
-            TextWrapping = TextWrapping.Wrap
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center
         };
 
         valueTextBlock = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(236, 241, 246)),
-            FontSize = 18,
+            FontSize = 15.6,
             FontWeight = FontWeights.Bold,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            TextAlignment = TextAlignment.Right,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 110d
+            MaxWidth = 44d,
+            Margin = new Thickness(0, 4, 0, 0)
         };
 
-        Grid contentGrid = new();
-        contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        contentGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(labelTextBlock, 0);
-        Grid.SetColumn(valueTextBlock, 1);
-        contentGrid.Children.Add(labelTextBlock);
-        contentGrid.Children.Add(valueTextBlock);
+        StackPanel contentStack = new()
+        {
+            Orientation = Orientation.Vertical,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        contentStack.Children.Add(labelTextBlock);
+        contentStack.Children.Add(valueTextBlock);
 
         return new Border
         {
+            Width = 54d,
             Background = new SolidColorBrush(Color.FromRgb(20, 25, 31)),
             BorderBrush = new SolidColorBrush(Color.FromRgb(40, 49, 61)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(9, 8, 9, 8),
-            Margin = new Thickness(0, 0, 0, 6),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Child = contentGrid
+            Padding = new Thickness(5, 6, 5, 6),
+            Margin = new Thickness(0),
+            Child = contentStack
         };
     }
 
@@ -607,7 +649,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     {
         return new Button
         {
-            Padding = new Thickness(9, 5, 9, 5),
+            Padding = new Thickness(8, 4, 8, 4),
             Margin = new Thickness(0, 0, 6, 6),
             Background = new SolidColorBrush(Color.FromRgb(29, 38, 47)),
             Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
@@ -622,7 +664,8 @@ internal sealed class UserDesktopWidgetWindow : Window
                 hoverBorder: Color.FromRgb(73, 92, 112),
                 pressedBackground: Color.FromRgb(23, 31, 40),
                 pressedBorder: Color.FromRgb(86, 108, 132)),
-            MinWidth = 68
+            MinWidth = 60,
+            FontSize = 10.2
         };
     }
 
@@ -780,6 +823,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        Expand();
         _menuPopup.IsOpen = !_menuPopup.IsOpen;
     }
 
@@ -846,7 +890,13 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        if (e.OriginalSource is DependencyObject source && IsInteractiveElement(source))
+        {
+            return;
+        }
+
         BeginDragCore();
+        e.Handled = true;
     }
 
     private void BeginDragFromSurface(object sender, MouseButtonEventArgs e)
@@ -1089,7 +1139,17 @@ internal sealed class UserDesktopWidgetWindow : Window
             UserDesktopWidgetMode.Paused => Color.FromRgb(70, 76, 88),
             _ => Color.FromRgb(28, 35, 43)
         };
+        Color border = mode switch
+        {
+            UserDesktopWidgetMode.DeepWork => Color.FromRgb(52, 101, 134),
+            UserDesktopWidgetMode.Overload => Color.FromRgb(134, 97, 43),
+            UserDesktopWidgetMode.Limited => Color.FromRgb(120, 97, 57),
+            UserDesktopWidgetMode.Paused => Color.FromRgb(92, 101, 116),
+            _ => Color.FromRgb(38, 47, 59)
+        };
+
         _menuButton.Background = new SolidColorBrush(accent);
+        _rootBorder.BorderBrush = new SolidColorBrush(border);
     }
 
     private void RefreshInlineMessage()
@@ -1115,41 +1175,93 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
-        UserDesktopWidgetState? state = _currentState;
-        if (state == null)
-        {
-            return;
-        }
-
-        if (state.CriticalState != null)
+        if (_stateTakeoverMessage != null)
         {
             RenderInlineMessage(
-                title: NormalizeCardTitle(state.CriticalState.Title, fallback: NormalizeWidgetTitle(state.Title)),
-                body: state.CriticalState.Message,
-                footer: string.Empty,
-                severity: UserDesktopWidgetMessageSeverity.Critical,
-                primaryAction: state.CriticalState.PrimaryAction,
-                primaryLabel: state.CriticalState.PrimaryLabel,
-                secondaryAction: state.CriticalState.SecondaryAction,
-                secondaryLabel: state.CriticalState.SecondaryLabel,
-                tertiaryAction: state.CriticalState.TertiaryAction,
-                tertiaryLabel: state.CriticalState.TertiaryLabel);
+                title: _stateTakeoverMessage.Title,
+                body: _stateTakeoverMessage.Message,
+                footer: _stateTakeoverMessage.Footer,
+                severity: _stateTakeoverMessage.Severity,
+                primaryAction: _stateTakeoverMessage.PrimaryAction,
+                primaryLabel: _stateTakeoverMessage.PrimaryLabel,
+                secondaryAction: _stateTakeoverMessage.SecondaryAction,
+                secondaryLabel: _stateTakeoverMessage.SecondaryLabel,
+                tertiaryAction: _stateTakeoverMessage.TertiaryAction,
+                tertiaryLabel: _stateTakeoverMessage.TertiaryLabel,
+                suppressLabel: _stateTakeoverMessage.SuppressLabel);
             return;
         }
 
-        string normalizedTitle = NormalizeCardTitle(state.Title, fallback: "Today");
-        string body = string.IsNullOrWhiteSpace(state.StatusText)
-            ? "Today is updating normally."
-            : state.StatusText.Trim();
-        string footer = string.IsNullOrWhiteSpace(state.FooterText)
-            ? string.Empty
-            : state.FooterText.Trim();
+        RenderSummarySurface();
+    }
 
-        RenderInlineMessage(
-            title: normalizedTitle,
-            body: body,
-            footer: footer,
-            severity: state.MessageSeverity);
+    private void UpdateStateTakeover(UserDesktopWidgetState state)
+    {
+        if (state.CriticalState == null)
+        {
+            _stateTakeoverTimer.Stop();
+            _stateTakeoverMessage = null;
+            _lastStateTakeoverKey = null;
+            return;
+        }
+
+        string key = string.Join(
+            "|",
+            NormalizeCardTitle(state.CriticalState.Title, fallback: NormalizeWidgetTitle(state.Title)),
+            state.CriticalState.Message,
+            state.CriticalState.PrimaryLabel,
+            state.CriticalState.SecondaryLabel,
+            state.CriticalState.TertiaryLabel);
+
+        if (string.Equals(_lastStateTakeoverKey, key, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastStateTakeoverKey = key;
+        _stateTakeoverMessage = new WidgetTakeoverMessage(
+            Title: NormalizeCardTitle(state.CriticalState.Title, fallback: NormalizeWidgetTitle(state.Title)),
+            Message: state.CriticalState.Message,
+            Footer: string.Empty,
+            Severity: UserDesktopWidgetMessageSeverity.Critical,
+            PrimaryAction: state.CriticalState.PrimaryAction,
+            PrimaryLabel: state.CriticalState.PrimaryLabel,
+            SecondaryAction: state.CriticalState.SecondaryAction,
+            SecondaryLabel: state.CriticalState.SecondaryLabel,
+            TertiaryAction: state.CriticalState.TertiaryAction,
+            TertiaryLabel: state.CriticalState.TertiaryLabel);
+        _stateTakeoverTimer.Stop();
+        _stateTakeoverTimer.Start();
+        Expand();
+    }
+
+    private void RenderSummarySurface()
+    {
+        UpdateHeaderCaption(_currentState);
+        _metricsPanel.Visibility = Visibility.Visible;
+        _messageCard.Visibility = Visibility.Collapsed;
+        _messageTitleText.Text = string.Empty;
+        _messageBodyText.Text = string.Empty;
+        _messageFooterText.Text = string.Empty;
+        _messageActionsPanel.Visibility = Visibility.Collapsed;
+        _messageSuppressButton.Visibility = Visibility.Collapsed;
+    }
+
+    private void UpdateHeaderCaption(UserDesktopWidgetState? state)
+    {
+        string caption = state?.Mode switch
+        {
+            UserDesktopWidgetMode.DeepWork => "Focused",
+            UserDesktopWidgetMode.Overload => "Overload",
+            UserDesktopWidgetMode.Limited => "Limited",
+            UserDesktopWidgetMode.Paused => "Paused",
+            _ => string.Empty
+        };
+
+        _titleText.Text = caption;
+        _titleText.Visibility = string.IsNullOrWhiteSpace(caption)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     private void RenderPromptMessage(UserInterventionPrompt prompt)
@@ -1181,6 +1293,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         string suppressLabel = "")
     {
         ApplyMessageChrome(severity);
+        UpdateHeaderCaption(_currentState);
 
         _messageTitleText.Text = title;
         _messageTitleText.Visibility = string.IsNullOrWhiteSpace(title) ? Visibility.Collapsed : Visibility.Visible;
@@ -1200,6 +1313,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _messageSuppressButton.Visibility = string.IsNullOrWhiteSpace(suppressLabel)
             ? Visibility.Collapsed
             : Visibility.Visible;
+        _metricsPanel.Visibility = Visibility.Collapsed;
         _messageCard.Visibility = Visibility.Visible;
     }
 
@@ -1342,7 +1456,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private bool HasBlockingSurfaceVisible()
     {
-        return false;
+        return _messageCard.Visibility == Visibility.Visible;
     }
 
     private static bool IsInteractiveElement(DependencyObject child)
@@ -1373,6 +1487,19 @@ internal sealed class UserDesktopWidgetWindow : Window
     }
 
     private sealed record WidgetAttentionMessage(string Title, string Message);
+
+    private sealed record WidgetTakeoverMessage(
+        string Title,
+        string Message,
+        string Footer,
+        UserDesktopWidgetMessageSeverity Severity,
+        UserDesktopWidgetAction? PrimaryAction = null,
+        string PrimaryLabel = "",
+        UserDesktopWidgetAction? SecondaryAction = null,
+        string SecondaryLabel = "",
+        UserDesktopWidgetAction? TertiaryAction = null,
+        string TertiaryLabel = "",
+        string SuppressLabel = "");
 
     private static class NativeMethods
     {

@@ -11,7 +11,61 @@ namespace Porta.UserAgent.Tests;
 public sealed class UserDesktopWidgetWindowTests
 {
     [Fact]
-    public void ApplyState_UsesInlineCriticalMessageWhileKeepingSummaryVisible()
+    public void ApplyState_KeepsDefaultSurfaceToThreeCompactMetrics()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(new UserDesktopWidgetState(
+                Mode: UserDesktopWidgetMode.Monitoring,
+                Title: "Today",
+                StatusText: "Today is updating normally.",
+                MessageSeverity: UserDesktopWidgetMessageSeverity.Info,
+                FooterText: "Confidence High | Tracking quality strong",
+                PrimaryMetric: new UserDesktopWidgetMetric("Work today", "5h 14m"),
+                SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "28m"),
+                TertiaryMetric: new UserDesktopWidgetMetric("Overload", "31%"),
+                CanPause: true,
+                CanResume: false,
+                CriticalState: null));
+
+            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            Border messageCard = GetPrivateField<Border>(window, "_messageCard");
+            TextBlock primaryMetricLabel = GetPrivateField<TextBlock>(window, "_primaryMetricLabelText");
+            TextBlock primaryMetricValue = GetPrivateField<TextBlock>(window, "_primaryMetricText");
+
+            Assert.Equal(Visibility.Visible, metricsPanel.Visibility);
+            Assert.Equal(Visibility.Collapsed, messageCard.Visibility);
+            Assert.Equal("Work today", primaryMetricLabel.Text);
+            Assert.Equal("5h 14m", primaryMetricValue.Text);
+            Assert.True(window.Width <= 200d);
+            Assert.True(window.Height <= 120d);
+        });
+    }
+
+    [Fact]
+    public void Constructor_UsesCompactWidgetWidth()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            Assert.True(window.Width <= 200d);
+            Assert.True(window.Height < 110d);
+        });
+    }
+
+    [Fact]
+    public void ApplyState_WithCriticalState_UsesTakeoverSurface()
     {
         RunOnStaThread(() =>
         {
@@ -24,7 +78,7 @@ public sealed class UserDesktopWidgetWindowTests
             window.ApplyState(new UserDesktopWidgetState(
                 Mode: UserDesktopWidgetMode.Limited,
                 Title: "Tracking limited",
-                StatusText: "Ari is receiving partial capture only. Missing keyboard, mouse, focus / idle.",
+                StatusText: "Ari is receiving partial capture only.",
                 MessageSeverity: UserDesktopWidgetMessageSeverity.Warning,
                 FooterText: "Confidence High | Tracking quality limited",
                 PrimaryMetric: new UserDesktopWidgetMetric("Work today", "1h 12m"),
@@ -45,20 +99,19 @@ public sealed class UserDesktopWidgetWindowTests
             StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
             Border messageCard = GetPrivateField<Border>(window, "_messageCard");
             TextBlock messageTitle = GetPrivateField<TextBlock>(window, "_messageTitleText");
-            TextBlock primaryMetricValue = GetPrivateField<TextBlock>(window, "_primaryMetricText");
             Button primaryActionButton = GetPrivateField<Button>(window, "_messagePrimaryButton");
 
-            Assert.Equal(Visibility.Visible, metricsPanel.Visibility);
+            Assert.Equal(Visibility.Collapsed, metricsPanel.Visibility);
             Assert.Equal(Visibility.Visible, messageCard.Visibility);
             Assert.Equal("Tracking limited", messageTitle.Text);
-            Assert.Equal("1h 12m", primaryMetricValue.Text);
             Assert.Equal("Open System", primaryActionButton.Content);
             Assert.Equal(Visibility.Visible, primaryActionButton.Visibility);
+            Assert.True(window.Height >= 90d);
         });
     }
 
     [Fact]
-    public void Constructor_UsesCompactWidgetWidth()
+    public void PresentPrompt_ReplacesMetricsWithCompactActionSurface()
     {
         RunOnStaThread(() =>
         {
@@ -68,47 +121,29 @@ public sealed class UserDesktopWidgetWindowTests
                 _ => { },
                 new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
 
-            Assert.True(window.Width < 250d);
-            Assert.True(window.Height >= 150d);
-        });
-    }
+            window.ApplyState(BuildSummaryState());
+            window.PresentPrompt(new UserInterventionPrompt(
+                InterventionId: "prompt-1",
+                TipKey: "focus_break",
+                Title: "Start break",
+                Message: "Take a short reset now.",
+                AcceptLabel: "Start",
+                DismissLabel: "Later",
+                SnoozeLabel: "5m",
+                SuppressLabel: "Hide suggestions",
+                DurationSeconds: 60));
 
-    [Fact]
-    public void ApplyState_RendersCompactSummaryMetricsAndWrappedMessage()
-    {
-        RunOnStaThread(() =>
-        {
-            using TempDirectoryScope tempDirectory = new();
-            var window = new UserDesktopWidgetWindow(
-                _ => { },
-                _ => { },
-                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            Border messageCard = GetPrivateField<Border>(window, "_messageCard");
+            TextBlock messageTitle = GetPrivateField<TextBlock>(window, "_messageTitleText");
+            Button primaryActionButton = GetPrivateField<Button>(window, "_messagePrimaryButton");
+            Button secondaryActionButton = GetPrivateField<Button>(window, "_messageSecondaryButton");
 
-            window.ApplyState(new UserDesktopWidgetState(
-                Mode: UserDesktopWidgetMode.Monitoring,
-                Title: "Today",
-                StatusText: "Ari is using the inline message rail only, so long status text needs to wrap inside the compact widget without hiding any summary facts or controls.",
-                MessageSeverity: UserDesktopWidgetMessageSeverity.Info,
-                FooterText: "Confidence High | Tracking quality strong",
-                PrimaryMetric: new UserDesktopWidgetMetric("Work today", "5h 14m"),
-                SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "28m"),
-                TertiaryMetric: new UserDesktopWidgetMetric("Overload", "31%"),
-                CanPause: true,
-                CanResume: false,
-                CriticalState: null));
-
-            TextBlock primaryMetricLabel = GetPrivateField<TextBlock>(window, "_primaryMetricLabelText");
-            TextBlock secondaryMetricLabel = GetPrivateField<TextBlock>(window, "_secondaryMetricLabelText");
-            TextBlock tertiaryMetricLabel = GetPrivateField<TextBlock>(window, "_tertiaryMetricLabelText");
-            TextBlock messageBody = GetPrivateField<TextBlock>(window, "_messageBodyText");
-            Border rootBorder = GetPrivateField<Border>(window, "_rootBorder");
-
-            Assert.Equal("Work today", primaryMetricLabel.Text);
-            Assert.Equal("Last focus session", secondaryMetricLabel.Text);
-            Assert.Equal("Overload", tertiaryMetricLabel.Text);
-            Assert.Equal(TextWrapping.Wrap, messageBody.TextWrapping);
-            Assert.True(messageBody.MaxWidth < window.Width);
-            Assert.True(rootBorder.DesiredSize.Height > 150d);
+            Assert.Equal(Visibility.Collapsed, metricsPanel.Visibility);
+            Assert.Equal(Visibility.Visible, messageCard.Visibility);
+            Assert.Equal("Start break", messageTitle.Text);
+            Assert.Equal("Start", primaryActionButton.Content);
+            Assert.Equal("Later", secondaryActionButton.Content);
         });
     }
 
@@ -133,6 +168,26 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Contains("Tracking", popupText, StringComparison.Ordinal);
             Assert.Contains("Settings", popupText, StringComparison.Ordinal);
             Assert.Contains("System", popupText, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void MenuButton_Click_OpensPopup()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            Popup popup = GetPrivateField<Popup>(window, "_menuPopup");
+            Button menuButton = GetPrivateField<Button>(window, "_menuButton");
+
+            menuButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, menuButton));
+
+            Assert.True(popup.IsOpen);
         });
     }
 
@@ -244,6 +299,22 @@ public sealed class UserDesktopWidgetWindowTests
                 PrimaryLabel: "Open System",
                 SecondaryAction: UserDesktopWidgetAction.RetryCritical,
                 SecondaryLabel: "Retry"));
+    }
+
+    private static UserDesktopWidgetState BuildSummaryState()
+    {
+        return new UserDesktopWidgetState(
+            Mode: UserDesktopWidgetMode.Monitoring,
+            Title: "Today",
+            StatusText: "Today is updating normally.",
+            MessageSeverity: UserDesktopWidgetMessageSeverity.Info,
+            FooterText: "Confidence High | Tracking quality strong",
+            PrimaryMetric: new UserDesktopWidgetMetric("Work today", "5h 14m"),
+            SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "28m"),
+            TertiaryMetric: new UserDesktopWidgetMetric("Overload", "31%"),
+            CanPause: true,
+            CanResume: false,
+            CriticalState: null);
     }
 
     private static T GetPrivateField<T>(object target, string fieldName)
