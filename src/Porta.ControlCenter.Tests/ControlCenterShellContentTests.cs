@@ -63,6 +63,26 @@ public sealed class ControlCenterShellContentTests
         Assert.Contains("Text=\"Advanced\"", systemSection, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void HistorySection_UsesHumanReadableInsightLabels()
+    {
+        string xaml = LoadMainWindowXaml();
+        string historySection = SliceBetween(
+            xaml,
+            "<ScrollViewer x:Name=\"TimelinePanel\"",
+            "<ScrollViewer x:Name=\"AccountPanel\"");
+
+        Assert.Contains("Text=\"Focused in this range\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Longest focus block\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Distraction in this range\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Pattern + actions\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Action markers in this range\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Content=\"Advanced\"", historySection, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("Content=\"Technical view\"", historySection, StringComparison.Ordinal);
+        Assert.DoesNotContain("No history chart data yet.", historySection, StringComparison.Ordinal);
+    }
+
     private static string LoadMainWindowXaml()
     {
         string? current = AppContext.BaseDirectory;
