@@ -145,6 +145,7 @@ public sealed class DeterministicFinalizerScenarioRunner : IDisposable
     {
         EnsureNotDisposed();
 
+        _controller.RefreshRuntimeStateCache();
         AgentServiceStatusSnapshot status = _controller.GetStatus();
         var statusDto = StatusMapper.Map(status, localApiAuthReady, localApiAuthError);
         var snapshotDto = SnapshotMapper.Map(

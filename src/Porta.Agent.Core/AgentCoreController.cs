@@ -130,6 +130,7 @@ public sealed class AgentCoreController : IAgentCoreController
         CooldownTriggered: false,
         ActivationWindowOpen: false,
         Contributors: ["startup"]);
+    private bool _latestSnapshotBackedByStore;
     private readonly string _agentVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "1.0.0";
     private ConsentStateRecord _consentState = CreateDefaultConsentState();
     private SettingsStateRecord _settingsState = CreateDefaultSettingsState();
@@ -208,7 +209,13 @@ public sealed class AgentCoreController : IAgentCoreController
             WriteSettingsStateToStoreLocked(_settingsState, DateTimeOffset.UtcNow);
         }
 
-        _latestSnapshot = _stateStore.ReadLatestSnapshot() ?? _latestSnapshot;
+        AgentBrainSnapshot? latestSnapshotFromStore = _stateStore.ReadLatestSnapshot();
+        if (latestSnapshotFromStore != null)
+        {
+            _latestSnapshot = latestSnapshotFromStore;
+            _latestSnapshotBackedByStore = true;
+        }
+
         RefreshRuntimeStateCacheFromStoreLocked(DateTimeOffset.UtcNow);
         _lastStatusSnapshot = CreateFallbackStatusSnapshot(DateTimeOffset.UtcNow);
     }
@@ -1088,6 +1095,7 @@ public sealed class AgentCoreController : IAgentCoreController
             _pauseUntilUtc = untilUtc;
             _lastEventTimestampUtc = DateTimeOffset.UtcNow;
             _latestSnapshot = _latestSnapshot with { LastAction = "pause" };
+            _latestSnapshotBackedByStore = false;
             _lastError = null;
             WriteLogLocked($"pause reason={reason ?? "unspecified"} until={untilUtc?.ToString("O") ?? "none"}");
             WriteControlEventLocked(
@@ -1118,6 +1126,7 @@ public sealed class AgentCoreController : IAgentCoreController
             _pauseUntilUtc = null;
             _lastEventTimestampUtc = DateTimeOffset.UtcNow;
             _latestSnapshot = _latestSnapshot with { LastAction = "resume" };
+            _latestSnapshotBackedByStore = false;
             WriteLogLocked("resume");
             WriteControlEventLocked(
                 action: "resume",
@@ -1152,6 +1161,7 @@ public sealed class AgentCoreController : IAgentCoreController
             WriteConsentStateToStoreLocked(_consentState, nowUtc);
             _lastEventTimestampUtc = nowUtc;
             _latestSnapshot = _latestSnapshot with { LastAction = "consent_granted" };
+            _latestSnapshotBackedByStore = false;
             WriteLogLocked("consent_granted");
             WriteControlEventLocked(
                 action: "consent_granted",
@@ -1185,6 +1195,7 @@ public sealed class AgentCoreController : IAgentCoreController
             WriteConsentStateToStoreLocked(_consentState, nowUtc);
             _lastEventTimestampUtc = nowUtc;
             _latestSnapshot = _latestSnapshot with { LastAction = "consent_revoked" };
+            _latestSnapshotBackedByStore = false;
             WriteLogLocked("consent_revoked");
             WriteControlEventLocked(
                 action: "consent_revoked",
@@ -1229,6 +1240,7 @@ public sealed class AgentCoreController : IAgentCoreController
             WriteSettingsStateToStoreLocked(_settingsState, _settingsState.UpdatedAtUtc);
             _lastEventTimestampUtc = DateTimeOffset.UtcNow;
             _latestSnapshot = _latestSnapshot with { LastAction = "settings_updated" };
+            _latestSnapshotBackedByStore = false;
             WriteLogLocked("settings_updated");
             WriteControlEventLocked(
                 action: "settings_updated",
@@ -1283,6 +1295,7 @@ public sealed class AgentCoreController : IAgentCoreController
             WriteSettingsStateToStoreLocked(_settingsState, nowUtc);
             _lastEventTimestampUtc = nowUtc;
             _latestSnapshot = _latestSnapshot with { LastAction = "baseline_recalibration_started" };
+            _latestSnapshotBackedByStore = false;
             WriteLogLocked("baseline_recalibration_started");
             WriteControlEventLocked(
                 action: "baseline_recalibration_started",
@@ -1328,6 +1341,7 @@ public sealed class AgentCoreController : IAgentCoreController
             _lastEventTimestampUtc = nowUtc;
             ResetRuntimeStateCacheLocked();
             _latestSnapshot = _latestSnapshot with { LastAction = "local_data_deleted" };
+            _latestSnapshotBackedByStore = false;
             WriteConsentStateToStoreLocked(_consentState, nowUtc);
             WriteSettingsStateToStoreLocked(_settingsState, nowUtc);
             WriteSystemChangeLocked(
@@ -1406,6 +1420,7 @@ public sealed class AgentCoreController : IAgentCoreController
         lock (_gate)
         {
             _latestSnapshot = snapshot;
+            _latestSnapshotBackedByStore = false;
             RefreshRuntimeStateCacheFromStoreLocked(snapshot.TimestampUtc);
             _backendConnected = backendConnected;
             if (backendConnected)
@@ -1442,6 +1457,7 @@ public sealed class AgentCoreController : IAgentCoreController
 
             DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
             _latestSnapshot = BuildTestSnapshot(_latestSnapshot, normalizedAction, nowUtc);
+            _latestSnapshotBackedByStore = false;
             _stateStore.WriteSnapshot(_latestSnapshot);
             RefreshRuntimeStateCacheFromStoreLocked(nowUtc);
 
@@ -1549,6 +1565,7 @@ public sealed class AgentCoreController : IAgentCoreController
             _paused = false;
             _pauseUntilUtc = null;
             _latestSnapshot = _latestSnapshot with { LastAction = "auto_resume" };
+            _latestSnapshotBackedByStore = false;
             WriteLogLocked("auto_resume");
             WriteControlEventLocked(
                 action: "auto_resume",
@@ -2978,6 +2995,22 @@ public sealed class AgentCoreController : IAgentCoreController
 
         try
         {
+            AgentBrainSnapshot? latestSnapshotFromStore = _stateStore.ReadLatestSnapshot();
+            if (latestSnapshotFromStore != null)
+            {
+                (_latestSnapshot, _latestSnapshotBackedByStore) = MergeStoreSnapshotWithNewerActionMetadata(
+                    currentSnapshot: _latestSnapshot,
+                    currentSnapshotBackedByStore: _latestSnapshotBackedByStore,
+                    storeSnapshot: latestSnapshotFromStore);
+            }
+        }
+        catch (Exception ex)
+        {
+            refreshError ??= ClassifyRuntimeStateRefreshError(ex);
+        }
+
+        try
+        {
             _lastLatestStateDetails = _stateStore.ReadLatestStateDetails();
         }
         catch (Exception ex)
@@ -3048,6 +3081,36 @@ public sealed class AgentCoreController : IAgentCoreController
             LastSuccessfulRefreshUtc: _runtimeStateLastSuccessfulRefreshUtc,
             LastAttemptUtc: _runtimeStateLastAttemptUtc,
             RefreshError: _runtimeStateRefreshError);
+    }
+
+    private static (AgentBrainSnapshot Snapshot, bool BackedByStore) MergeStoreSnapshotWithNewerActionMetadata(
+        AgentBrainSnapshot currentSnapshot,
+        bool currentSnapshotBackedByStore,
+        AgentBrainSnapshot storeSnapshot)
+    {
+        bool preserveCurrentActionMetadata =
+            !currentSnapshotBackedByStore
+            && !string.Equals(currentSnapshot.LastAction, "starting", StringComparison.Ordinal);
+
+        if (!preserveCurrentActionMetadata)
+        {
+            return (storeSnapshot, true);
+        }
+
+        return (storeSnapshot with
+        {
+            LastAction = currentSnapshot.LastAction,
+            ActivationWindowTriggered = currentSnapshot.ActivationWindowTriggered,
+            CooldownTriggered = currentSnapshot.CooldownTriggered,
+            ActivationWindowOpen = currentSnapshot.ActivationWindowOpen,
+            Contributors = currentSnapshot.Contributors,
+            PolicyId = currentSnapshot.PolicyId,
+            Domain = currentSnapshot.Domain,
+            EscalationLevel = currentSnapshot.EscalationLevel,
+            PlannedEndTimestampUtc = currentSnapshot.PlannedEndTimestampUtc,
+            ActualEndTimestampUtc = currentSnapshot.ActualEndTimestampUtc,
+            CooldownEndTimestampUtc = currentSnapshot.CooldownEndTimestampUtc
+        }, false);
     }
 
     private static string ClassifyRuntimeStateRefreshError(Exception ex)
