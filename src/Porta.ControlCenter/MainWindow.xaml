@@ -707,14 +707,19 @@
 
                 <ScrollViewer x:Name="InterventionsPanel"
                               Visibility="Collapsed"
-                              VerticalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled"
-                              PanningMode="None">
-                    <Grid Margin="20">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="2.15*" /><ColumnDefinition Width="0.85*" /></Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                              CanContentScroll="False"
+                              IsManipulationEnabled="True"
+                              PanningMode="VerticalOnly">
+                    <StackPanel Margin="20,20,20,32">
                             <TextBlock Text="Actions" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
                             <TextBlock Text="See what Ari recommended, what it changed, and why it mattered." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                            <TextBlock x:Name="ActionsSummaryLeadText"
+                                       Text="Recommendations and recent actions appear here in plain language so you can understand what Ari did and why."
+                                       Foreground="#93C5FD"
+                                       Margin="0,0,0,12"
+                                       TextWrapping="Wrap" />
 
                             <Grid Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
@@ -850,18 +855,20 @@
                                 <Button x:Name="ActionsSuggestionsTabButton" Content="Recommendations" Padding="12,6" Margin="0,0,8,0" Click="ActionsSuggestionsTabButton_Click" />
                                 <Button x:Name="ActionsChangesTabButton" Content="Recent actions" Padding="12,6" Click="ActionsChangesTabButton_Click" />
                             </WrapPanel>
-                            <Border Style="{StaticResource QuietHoverCardStyle}" Padding="10" Height="620">
+                            <Border Style="{StaticResource QuietHoverCardStyle}" Padding="10" MinHeight="420" MaxHeight="560">
                                 <Grid>
                                     <Grid x:Name="SuggestionsTabContent" Margin="4">
                                         <TextBlock x:Name="SuggestionsEmptyStateText"
-                                                   Text="No recommendations yet."
+                                                   Text="No recommendations yet. Keep working and Ari will surface the next useful suggestion here."
                                                    Foreground="#CBD5E1"
                                                    FontWeight="SemiBold"
                                                    VerticalAlignment="Center"
                                                    HorizontalAlignment="Center"
+                                                   TextWrapping="Wrap"
                                                    Visibility="Collapsed" />
                                         <ListView x:Name="SuggestionsListView"
                                                   SelectionChanged="SuggestionsListView_SelectionChanged"
+                                                  PreviewMouseWheel="SuggestionsListView_PreviewMouseWheel"
                                                   Background="#0B1220"
                                                   Foreground="#E2E8F0"
                                                   BorderBrush="#1F2937"
@@ -950,6 +957,7 @@
                                                                         <TextBlock Text="{Binding Time}" Foreground="#CBD5E1" FontSize="11" />
                                                                     </Border>
                                                                 </Grid>
+                                                                <TextBlock Text="Why it mattered" Foreground="#93C5FD" FontSize="11" Margin="0,0,0,4" />
                                                                 <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" />
                                                             </StackPanel>
                                                         </Grid>
@@ -960,11 +968,12 @@
                                     </Grid>
                                     <Grid x:Name="ChangesTabContent" Margin="4" Visibility="Collapsed">
                                         <TextBlock x:Name="ChangesEmptyStateText"
-                                                   Text="No recent actions yet."
+                                                   Text="No recent actions yet. When Ari changes something for you, it will show up here."
                                                    Foreground="#CBD5E1"
                                                    FontWeight="SemiBold"
                                                    VerticalAlignment="Center"
                                                    HorizontalAlignment="Center"
+                                                   TextWrapping="Wrap"
                                                    Visibility="Collapsed" />
                                         <ListView x:Name="ChangesListView"
                                                   SelectionChanged="ChangesListView_SelectionChanged"
@@ -1020,6 +1029,7 @@
                                                                         <TextBlock Text="{Binding When}" Foreground="#CBD5E1" FontSize="11" />
                                                                     </Border>
                                                                 </Grid>
+                                                                <TextBlock Text="Why it mattered" Foreground="#93C5FD" FontSize="11" Margin="0,0,0,4" />
                                                                 <TextBlock Text="{Binding Why}" Foreground="#CBD5E1" TextWrapping="Wrap" />
                                                             </StackPanel>
                                                         </Grid>
@@ -1030,12 +1040,12 @@
                                     </Grid>
                                 </Grid>
                             </Border>
-                        </StackPanel>
-                        <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Height="620" VerticalAlignment="Top">
+                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,12,0,24">
                             <ScrollViewer x:Name="ActionDetailsScrollViewer"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled"
                                           CanContentScroll="False"
+                                          PreviewMouseWheel="ActionDetailsScrollViewer_PreviewMouseWheel"
                                           IsManipulationEnabled="True"
                                           PanningMode="VerticalOnly">
                                 <ScrollViewer.Resources>
@@ -1078,7 +1088,8 @@
                                     </Style>
                                 </ScrollViewer.Resources>
                                 <StackPanel>
-                                    <TextBlock Text="Selected action" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock Text="Selected recommendation or action" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock Text="This panel explains what Ari suggested or changed, when it happened, and why it mattered. Technical decision details stay in System." Foreground="#94A3B8" Margin="0,0,0,12" TextWrapping="Wrap" />
                                     <TextBlock x:Name="ActionDrawerTitle" Text="Choose a recommendation or recent action" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,10" />
                                     <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,10">
                                         <StackPanel>
@@ -1103,7 +1114,7 @@
                                 </StackPanel>
                             </ScrollViewer>
                         </Border>
-                    </Grid>
+                    </StackPanel>
                 </ScrollViewer>
                 <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <ScrollViewer.Resources>

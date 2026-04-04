@@ -43,7 +43,7 @@ public partial class MainWindow : Window
     private const string EventCursorFileName = "control-center.events.cursor";
     private const string RecoveryAckFileName = "control-center.recovery.ack";
     private const string OnboardingAckFileName = "control-center.onboarding.ack";
-    private const double WheelScrollPixelsPerLine = 18d;
+    private const double WheelScrollPixelsPerLine = 22d;
     private const double StartupWindowHorizontalMargin = 36d;
     private const double StartupWindowTopMargin = 24d;
     private const double StartupWindowBottomMargin = 28d;
@@ -3734,6 +3734,7 @@ public partial class MainWindow : Window
         ActionsLastSeenText.Text = ordered.Count == 0
             ? "No recent actions"
             : BuildActionLastSeenText(ordered[0]);
+        ActionsSummaryLeadText.Text = BuildActionsLeadText(ordered);
 
         RenderActionsTimeline(ordered);
         UpdateActionCategoryBreakdown(ordered);
@@ -3958,6 +3959,11 @@ public partial class MainWindow : Window
         }
     }
 
+    private void SuggestionsListView_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        HandleNestedListViewMouseWheel(sender, e);
+    }
+
     private void ChangesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (ChangesListView.SelectedItem is ChangeRow row)
@@ -3979,18 +3985,45 @@ public partial class MainWindow : Window
 
     private void ChangesListView_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        HandleNestedListViewMouseWheel(sender, e);
+    }
+
+    private void ActionDetailsScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not ScrollViewer scrollViewer)
+        {
+            return;
+        }
+
+        if (TryScrollViewerByMouseWheel(scrollViewer, e.Delta))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (FindAncestor<ScrollViewer>(scrollViewer) is ScrollViewer parentScrollViewer
+            && TryScrollViewerByMouseWheel(parentScrollViewer, e.Delta))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private static void HandleNestedListViewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
         if (sender is not ListView listView)
         {
             return;
         }
 
         ScrollViewer? scrollViewer = FindDescendant<ScrollViewer>(listView);
-        if (scrollViewer == null)
+        if (scrollViewer != null && TryScrollViewerByMouseWheel(scrollViewer, e.Delta))
         {
+            e.Handled = true;
             return;
         }
 
-        if (TryScrollViewerByMouseWheel(scrollViewer, e.Delta))
+        if (FindAncestor<ScrollViewer>(listView) is ScrollViewer parentScrollViewer
+            && TryScrollViewerByMouseWheel(parentScrollViewer, e.Delta))
         {
             e.Handled = true;
         }
@@ -4061,7 +4094,7 @@ public partial class MainWindow : Window
         double multiplier = Math.Max(1d, Math.Abs(delta) / 120d);
         double baseDistance = SystemParameters.WheelScrollLines < 0
             ? Math.Max(60d, scrollViewer.ViewportHeight * 0.9d)
-            : Math.Max(42d, SystemParameters.WheelScrollLines * WheelScrollPixelsPerLine);
+            : Math.Max(56d, SystemParameters.WheelScrollLines * WheelScrollPixelsPerLine);
         return baseDistance * multiplier;
     }
 
@@ -4538,6 +4571,29 @@ public partial class MainWindow : Window
         {
             return false;
         }
+    }
+
+    private static string BuildActionsLeadText(IReadOnlyList<LocalApiEventResponse> ordered)
+    {
+        if (ordered.Count == 0)
+        {
+            return "Recommendations and recent actions will appear here once Ari has enough tracked activity to act on.";
+        }
+
+        int recommendationCount = ordered.Count(static ev => IsSuggestionEvent(ev.Action));
+        int changeCount = ordered.Count(static ev => IsSystemChangeEvent(ev));
+
+        if (recommendationCount > 0 && changeCount > 0)
+        {
+            return $"Ari logged {recommendationCount} recommendation{(recommendationCount == 1 ? string.Empty : "s")} and {changeCount} recent change{(changeCount == 1 ? string.Empty : "s")} in this view.";
+        }
+
+        if (recommendationCount > 0)
+        {
+            return $"Ari logged {recommendationCount} recommendation{(recommendationCount == 1 ? string.Empty : "s")} in this view.";
+        }
+
+        return $"Ari logged {changeCount} recent change{(changeCount == 1 ? string.Empty : "s")} in this view.";
     }
 
     private static string FormatWhyJsonForDisplay(string? whyJson)

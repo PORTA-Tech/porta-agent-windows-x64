@@ -10,7 +10,7 @@ public sealed class ActionsPageCopyBuilderTests
             title: "Take a break",
             relativeTimeText: "5m");
 
-        Assert.Equal("Latest recommendation: Take a break · 5m", text);
+        Assert.Equal("Latest recommendation: Take a break | 5m", text);
     }
 
     [Fact]
@@ -31,5 +31,13 @@ public sealed class ActionsPageCopyBuilderTests
             undoDetails: "Open Settings and turn it off.");
 
         Assert.Equal("How to undo: Not needed. This was only a recommendation.", text);
+    }
+
+    [Fact]
+    public void EmptyDrawerCopy_UsesAboveLanguage_ForStackedLayout()
+    {
+        Assert.Equal("When it happened: Pick a row above.", ActionsPageCopyBuilder.BuildEmptyDrawerWhen());
+        Assert.Equal("Why it mattered: Pick a row above to see the reason in plain language.", ActionsPageCopyBuilder.BuildEmptyDrawerWhy());
+        Assert.Equal("What Ari recommended or changed: Pick a row above.", ActionsPageCopyBuilder.BuildEmptyDrawerOutcome());
     }
 }

@@ -83,6 +83,24 @@ public sealed class ControlCenterShellContentTests
         Assert.DoesNotContain("No history chart data yet.", historySection, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ActionsSection_UsesHumanReadableListsAndDrawer()
+    {
+        string xaml = LoadMainWindowXaml();
+        string actionsSection = SliceBetween(
+            xaml,
+            "<ScrollViewer x:Name=\"InterventionsPanel\"",
+            "<ScrollViewer x:Name=\"SettingsPanel\"");
+
+        Assert.Contains("Text=\"Recommendations\"", actionsSection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Recent actions\"", actionsSection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Why it mattered\"", actionsSection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Selected recommendation or action\"", actionsSection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"This panel explains what Ari suggested or changed, when it happened, and why it mattered. Technical decision details stay in System.\"", actionsSection, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("Text=\"Selected action\"", actionsSection, StringComparison.Ordinal);
+    }
+
     private static string LoadMainWindowXaml()
     {
         string? current = AppContext.BaseDirectory;
