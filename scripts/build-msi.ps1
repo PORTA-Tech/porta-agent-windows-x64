@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "1.0.27",
+    [string]$Version = "",
     [string]$BackendUrl = "https://porta-control-plane.onrender.com",
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
@@ -30,6 +30,26 @@ $payloadUserAgentExe = Join-Path $payloadDir "Porta.UserAgent.exe"
 $payloadControlCenterExe = Join-Path $payloadDir "Porta.ControlCenter.exe"
 $payloadSharedDir = Join-Path $payloadDir "SharedFiles"
 
+function Resolve-ProjectVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectPath
+    )
+
+    if (-not (Test-Path $ProjectPath)) {
+        throw "Project file '$ProjectPath' does not exist."
+    }
+
+    [xml]$projectXml = Get-Content -LiteralPath $ProjectPath
+    $versionNode = $projectXml.Project.PropertyGroup.Version | Select-Object -First 1
+    $version = $versionNode -as [string]
+    if ([string]::IsNullOrWhiteSpace($version)) {
+        throw "Could not resolve <Version> from '$ProjectPath'."
+    }
+
+    return $version.Trim()
+}
+
 function Reset-Directory {
     param(
         [Parameter(Mandatory = $true)]
@@ -41,6 +61,11 @@ function Reset-Directory {
     }
 
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
+}
+
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    $Version = Resolve-ProjectVersion -ProjectPath $controlCenterProject
+    Write-Host "Resolved MSI version from Control Center project: $Version"
 }
 
 function Merge-PayloadDirectory {
@@ -172,6 +197,7 @@ if (-not (Test-Path $controlCenterExe)) {
 
 Reset-Directory -Path $payloadDir
 New-Item -ItemType Directory -Path $payloadSharedDir -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $payloadDir ".gitignore") -Value "*`n!.gitignore`n" -NoNewline
 
 Copy-Item $ariExe $payloadExe -Force
 Copy-Item $userAgentExe $payloadUserAgentExe -Force
