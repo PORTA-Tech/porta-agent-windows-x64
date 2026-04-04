@@ -16,7 +16,6 @@ public partial class App : Application
     private EventWaitHandle? _focusEvent;
     private Thread? _focusThread;
     private volatile bool _focusLoopStopping;
-    private DispatcherTimer? _userAgentWatchdogTimer;
     private bool _systemEventsSubscribed;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -49,15 +48,6 @@ public partial class App : Application
         _focusThread.Start();
 
         DesktopWidgetVisibilitySignal.ClearHidden();
-        EnsureCurrentSessionUserAgent(force: true);
-
-        _userAgentWatchdogTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromSeconds(5)
-        };
-        _userAgentWatchdogTimer.Tick += (_, _) => EnsureCurrentSessionUserAgent();
-        _userAgentWatchdogTimer.Start();
-
         SystemEvents.SessionSwitch += OnSessionSwitch;
         _systemEventsSubscribed = true;
 
@@ -94,7 +84,6 @@ public partial class App : Application
         }
 
         _focusEvent?.Dispose();
-        _userAgentWatchdogTimer?.Stop();
         if (_systemEventsSubscribed)
         {
             try
@@ -169,17 +158,11 @@ public partial class App : Application
                     return;
                 }
 
-                EnsureCurrentSessionUserAgent(force: true);
                 DesktopWidgetVisibilitySignal.ClearHidden();
                 ControlCenterActivationTarget target = ControlCenterActivationRequestStore.Consume();
                 window.HandleExternalActivation(target);
             });
         }
-    }
-
-    private static void EnsureCurrentSessionUserAgent(bool force = false)
-    {
-        CurrentSessionUserAgentLauncher.EnsureHealthy(force);
     }
 
     private void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
@@ -199,7 +182,6 @@ public partial class App : Application
                 return;
             }
 
-            EnsureCurrentSessionUserAgent(force: true);
             DesktopWidgetVisibilitySignal.ClearHidden();
         });
     }

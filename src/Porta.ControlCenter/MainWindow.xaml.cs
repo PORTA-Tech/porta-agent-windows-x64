@@ -385,7 +385,6 @@ public partial class MainWindow : Window
         {
             if (manual)
             {
-                CurrentSessionUserAgentLauncher.EnsureHealthy(force: true);
                 _lastSlowRefreshUtc = DateTimeOffset.MinValue;
                 RefreshButton.IsEnabled = false;
                 RefreshButton.Content = "Refreshing...";
@@ -398,7 +397,6 @@ public partial class MainWindow : Window
                 if (manual && IsSnapshotStale(_latestStatus, _lastSnapshot, DateTimeOffset.UtcNow))
                 {
                     ControlCenterFileLog.Info("manual_refresh_snapshot_stale_retry");
-                    CurrentSessionUserAgentLauncher.EnsureHealthy(force: true);
                     await Task.Delay(TimeSpan.FromMilliseconds(900)).ConfigureAwait(true);
                     await RefreshDiagnosticsCoreAsync(forceSlowRefresh: true).ConfigureAwait(true);
                 }
@@ -2224,17 +2222,8 @@ public partial class MainWindow : Window
         return $"{instance} | {session}";
     }
 
-    private static string FormatStartupSourceLabel(string? startupSource)
-    {
-        return startupSource?.Trim().ToLowerInvariant() switch
-        {
-            "run-key" => "Windows Run key",
-            "windows-restart" => "Windows restart recovery",
-            "control-center-recovery" => "Control Center recovery",
-            "" or null => NotAvailableText,
-            _ => startupSource!
-        };
-    }
+    private static string FormatStartupSourceLabel(string? startupSource) =>
+        UserAgentRecoveryCopy.FormatStartupSourceLabel(startupSource, NotAvailableText);
 
     private static string FormatLaunchReasonLabel(string? launchReason)
     {
@@ -2493,7 +2482,7 @@ public partial class MainWindow : Window
                 KeyboardSignalLabel: FormatCaptureSignalLabel(keyboardSignalActive, true),
                 MouseSignalLabel: FormatCaptureSignalLabel(mouseSignalActive, true),
                 LastInputLabel: lastInputLabel,
-                WarningText: $"Live capture is not trusted: {captureFailureDetail}. Start or restart Porta.UserAgent in the interactive session.",
+                WarningText: UserAgentRecoveryCopy.BuildCaptureFailureWarningText(captureFailureDetail),
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
@@ -2625,7 +2614,7 @@ public partial class MainWindow : Window
                 StartupSourceLabel: startupSourceLabel,
                 LaunchReasonLabel: launchReasonLabel,
                 RecoveryStateLabel: recoveryStateLabel,
-                WarningText: "Waiting for a fresh user-agent heartbeat from the interactive session.",
+                WarningText: UserAgentRecoveryCopy.HeartbeatWaitingWarningText,
                 StatusColor: Color.FromRgb(251, 191, 36),
                 DetailColor: Color.FromRgb(245, 158, 11));
         }
