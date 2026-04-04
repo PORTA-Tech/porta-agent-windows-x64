@@ -1,5 +1,7 @@
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Diagnostics;
 
 namespace Porta.Agent.Common.UserAgent;
 
@@ -99,7 +101,7 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
             ?? throw new InvalidOperationException("Session context path must have a parent directory.");
         Directory.CreateDirectory(directory);
 
-        string tempPath = _path + ".tmp";
+        string tempPath = BuildUniqueTempPath();
         UserAgentSessionContextSnapshot normalized = snapshot with
         {
             SchemaVersion = CurrentSchemaVersion,
@@ -122,19 +124,19 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
             WriteIndented = true
         });
 
-        using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.Read))
-        using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+        try
         {
-            writer.Write(json);
-        }
+            using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
+            using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+            {
+                writer.Write(json);
+            }
 
-        if (File.Exists(_path))
-        {
-            File.Replace(tempPath, _path, destinationBackupFileName: null, ignoreMetadataErrors: true);
+            PromoteTempFileWithRetry(tempPath);
         }
-        else
+        finally
         {
-            File.Move(tempPath, _path);
+            TryDeleteFile(tempPath);
         }
     }
 
@@ -201,5 +203,64 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
         }
 
         return value.Value;
+    }
+
+    private string BuildUniqueTempPath()
+    {
+        string fileName = Path.GetFileName(_path);
+        return Path.Combine(
+            Path.GetDirectoryName(_path)
+                ?? throw new InvalidOperationException("Session context path must have a parent directory."),
+            $"{fileName}.{Process.GetCurrentProcess().Id}.{Guid.NewGuid():N}.tmp");
+    }
+
+    private void PromoteTempFileWithRetry(string tempPath)
+    {
+        const int maxAttempts = 4;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                if (File.Exists(_path))
+                {
+                    File.Replace(tempPath, _path, destinationBackupFileName: null, ignoreMetadataErrors: true);
+                }
+                else
+                {
+                    try
+                    {
+                        File.Move(tempPath, _path);
+                    }
+                    catch (IOException) when (File.Exists(_path))
+                    {
+                        File.Replace(tempPath, _path, destinationBackupFileName: null, ignoreMetadataErrors: true);
+                    }
+                }
+
+                return;
+            }
+            catch (IOException) when (attempt < maxAttempts)
+            {
+                Thread.Sleep(TimeSpan.FromMilliseconds(10 * attempt));
+            }
+            catch (UnauthorizedAccessException) when (attempt < maxAttempts)
+            {
+                Thread.Sleep(TimeSpan.FromMilliseconds(10 * attempt));
+            }
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+        }
     }
 }

@@ -7,7 +7,8 @@ public sealed class UserAgentSessionContextStoreTests
     [Fact]
     public void WriteCurrent_AndReadCurrent_RoundTripSnapshot()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"porta-user-agent-context-{Guid.NewGuid():N}.json");
+        string directory = CreateTempDirectory();
+        string path = Path.Combine(directory, "user-agent-session-context.v1.json");
         try
         {
             var store = new UserAgentSessionContextStore(path);
@@ -45,14 +46,15 @@ public sealed class UserAgentSessionContextStoreTests
         }
         finally
         {
-            TryDelete(path);
+            TryDeleteDirectory(directory);
         }
     }
 
     [Fact]
     public void WriteCurrent_ReplacesExistingFile_WhileSharedReaderIsOpen()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"porta-user-agent-context-open-{Guid.NewGuid():N}.json");
+        string directory = CreateTempDirectory();
+        string path = Path.Combine(directory, "user-agent-session-context.v1.json");
         try
         {
             var store = new UserAgentSessionContextStore(path);
@@ -82,17 +84,64 @@ public sealed class UserAgentSessionContextStoreTests
         }
         finally
         {
-            TryDelete(path);
+            TryDeleteDirectory(directory);
         }
     }
 
-    private static void TryDelete(string path)
+    [Fact]
+    public void WriteCurrent_Succeeds_WhenLegacyFixedTempFileIsLocked()
+    {
+        string directory = CreateTempDirectory();
+        string path = Path.Combine(directory, "user-agent-session-context.v1.json");
+        string legacyTempPath = path + ".tmp";
+        try
+        {
+            var store = new UserAgentSessionContextStore(path);
+            store.WriteCurrent(new UserAgentSessionContextSnapshot(
+                SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                CaptureContext: UserAgentCaptureContexts.UserSession,
+                ProcessId: 111,
+                SessionId: 1,
+                UpdatedAtUtc: DateTimeOffset.UtcNow,
+                AgentInstanceId: "useragent-111"));
+
+            using (new FileStream(legacyTempPath, FileMode.Create, FileAccess.ReadWrite, FileShare.Read))
+            {
+                store.WriteCurrent(new UserAgentSessionContextSnapshot(
+                    SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                    CaptureContext: UserAgentCaptureContexts.UserSession,
+                    ProcessId: 222,
+                    SessionId: 1,
+                    UpdatedAtUtc: DateTimeOffset.UtcNow,
+                    AgentInstanceId: "useragent-222"));
+            }
+
+            UserAgentSessionContextSnapshot? actual = store.ReadCurrent();
+            Assert.NotNull(actual);
+            Assert.Equal(222, actual!.ProcessId);
+            Assert.Equal("useragent-222", actual.AgentInstanceId);
+            Assert.True(File.Exists(legacyTempPath));
+        }
+        finally
+        {
+            TryDeleteDirectory(directory);
+        }
+    }
+
+    private static string CreateTempDirectory()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"porta-user-agent-context-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        return directory;
+    }
+
+    private static void TryDeleteDirectory(string directory)
     {
         try
         {
-            if (File.Exists(path))
+            if (Directory.Exists(directory))
             {
-                File.Delete(path);
+                Directory.Delete(directory, recursive: true);
             }
         }
         catch
