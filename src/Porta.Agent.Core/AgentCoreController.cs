@@ -50,7 +50,6 @@ public sealed class AgentCoreController : IAgentCoreController
     private static readonly TimeSpan SameProcessHeartbeatGraceWindow = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan StatusReadLockTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan LatestStateReadLockTimeout = TimeSpan.FromMilliseconds(150);
-    private static readonly TimeSpan RuntimeStateRefreshLockTimeout = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan RuntimeStateStaleAfter = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan LiveSessionStateFreshnessWindow = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan LiveSessionUserActiveWindow = TimeSpan.FromSeconds(2);
@@ -157,6 +156,9 @@ public sealed class AgentCoreController : IAgentCoreController
     private DateTimeOffset? _runtimeStateLastSuccessfulRefreshUtc;
     private DateTimeOffset? _runtimeStateLastAttemptUtc;
     private string? _runtimeStateRefreshError;
+    private AgentCurrentSnapshotProjection? _lastCurrentSnapshotProjection;
+    private long _runtimeStateRefreshSequence;
+    private long _lastAppliedRuntimeStateRefreshSequence;
 
     public AgentCoreController()
         : this(
@@ -209,15 +211,12 @@ public sealed class AgentCoreController : IAgentCoreController
             WriteSettingsStateToStoreLocked(_settingsState, DateTimeOffset.UtcNow);
         }
 
-        AgentBrainSnapshot? latestSnapshotFromStore = _stateStore.ReadLatestSnapshot();
-        if (latestSnapshotFromStore != null)
-        {
-            _latestSnapshot = latestSnapshotFromStore;
-            _latestSnapshotBackedByStore = true;
-        }
-
-        RefreshRuntimeStateCacheFromStoreLocked(DateTimeOffset.UtcNow);
+        RuntimeStateCacheRefreshResult initialRuntimeStateRefresh = ReadRuntimeStateCacheFromStore(
+            DateTimeOffset.UtcNow,
+            System.Threading.Interlocked.Increment(ref _runtimeStateRefreshSequence));
+        ApplyRuntimeStateCacheRefreshLocked(initialRuntimeStateRefresh);
         _lastStatusSnapshot = CreateFallbackStatusSnapshot(DateTimeOffset.UtcNow);
+        _lastCurrentSnapshotProjection = new AgentCurrentSnapshotProjection(_latestSnapshot, _lastLatestStateDetails, _lastStatusSnapshot);
     }
 
     public AgentServiceStatusSnapshot GetStatus()
@@ -299,20 +298,33 @@ public sealed class AgentCoreController : IAgentCoreController
         return _lastLatestStateDetails;
     }
 
-    public void RefreshRuntimeStateCache()
+    public AgentCurrentSnapshotProjection GetCurrentSnapshotProjection()
     {
-        if (!System.Threading.Monitor.TryEnter(_gate, RuntimeStateRefreshLockTimeout))
+        if (System.Threading.Monitor.TryEnter(_gate, StatusReadLockTimeout))
         {
-            return;
+            try
+            {
+                AgentServiceStatusSnapshot status = BuildAndCacheStatusSnapshotLocked();
+                return BuildCurrentSnapshotProjectionLocked(status);
+            }
+            finally
+            {
+                System.Threading.Monitor.Exit(_gate);
+            }
         }
 
-        try
+        return GetCachedCurrentSnapshotProjection();
+    }
+
+    public void RefreshRuntimeStateCache()
+    {
+        RuntimeStateCacheRefreshResult refresh = ReadRuntimeStateCacheFromStore(
+            DateTimeOffset.UtcNow,
+            System.Threading.Interlocked.Increment(ref _runtimeStateRefreshSequence));
+
+        lock (_gate)
         {
-            RefreshRuntimeStateCacheFromStoreLocked(DateTimeOffset.UtcNow);
-        }
-        finally
-        {
-            System.Threading.Monitor.Exit(_gate);
+            ApplyRuntimeStateCacheRefreshLocked(refresh);
         }
     }
 
@@ -504,6 +516,7 @@ public sealed class AgentCoreController : IAgentCoreController
             RuntimeStateRefreshError: runtimeStateRefreshError);
 
         _lastStatusSnapshot = snapshot;
+        BuildCurrentSnapshotProjectionLocked(snapshot);
         return snapshot;
     }
 
@@ -583,6 +596,23 @@ public sealed class AgentCoreController : IAgentCoreController
         }
 
         return CreateFallbackStatusSnapshot(nowUtc);
+    }
+
+    private AgentCurrentSnapshotProjection BuildCurrentSnapshotProjectionLocked(AgentServiceStatusSnapshot status)
+    {
+        AgentCurrentSnapshotProjection projection = new(_latestSnapshot, _lastLatestStateDetails, status);
+        _lastCurrentSnapshotProjection = projection;
+        return projection;
+    }
+
+    private AgentCurrentSnapshotProjection GetCachedCurrentSnapshotProjection()
+    {
+        if (_lastCurrentSnapshotProjection is AgentCurrentSnapshotProjection cached)
+        {
+            return cached;
+        }
+
+        return new AgentCurrentSnapshotProjection(_latestSnapshot, _lastLatestStateDetails, GetCachedStatusSnapshot());
     }
 
     private AgentServiceStatusSnapshot CreateFallbackStatusSnapshot(DateTimeOffset nowUtc)
@@ -1417,11 +1447,15 @@ public sealed class AgentCoreController : IAgentCoreController
 
     public void ApplyBrainSnapshot(AgentBrainSnapshot snapshot, bool backendConnected)
     {
+        RuntimeStateCacheRefreshResult refresh = ReadRuntimeStateCacheFromStore(
+            snapshot.TimestampUtc,
+            System.Threading.Interlocked.Increment(ref _runtimeStateRefreshSequence));
+
         lock (_gate)
         {
             _latestSnapshot = snapshot;
             _latestSnapshotBackedByStore = false;
-            RefreshRuntimeStateCacheFromStoreLocked(snapshot.TimestampUtc);
+            ApplyRuntimeStateCacheRefreshLocked(refresh);
             _backendConnected = backendConnected;
             if (backendConnected)
             {
@@ -2988,21 +3022,24 @@ public sealed class AgentCoreController : IAgentCoreController
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     }
 
-    // Refresh DB-derived status enrichments when runtime state advances, not on UI request paths.
-    private void RefreshRuntimeStateCacheFromStoreLocked(DateTimeOffset nowUtc)
+    private RuntimeStateCacheRefreshResult ReadRuntimeStateCacheFromStore(DateTimeOffset nowUtc, long refreshSequence)
     {
         string? refreshError = null;
+        AgentBrainSnapshot? latestSnapshotFromStore = null;
+        bool latestSnapshotReadSucceeded = false;
+        AgentLatestStateDetails? latestStateDetails = null;
+        bool latestStateDetailsReadSucceeded = false;
+        AgentNotificationSuppressionStatus notificationSuppressionStatus = DefaultNotificationSuppressionStatus;
+        bool notificationSuppressionStatusReadSucceeded = false;
+        AgentBrightnessActionStatus brightnessActionStatus = DefaultBrightnessActionStatus;
+        bool brightnessActionStatusReadSucceeded = false;
+        bool dbMigrationFailed = false;
+        bool dbMigrationFailedReadSucceeded = false;
 
         try
         {
-            AgentBrainSnapshot? latestSnapshotFromStore = _stateStore.ReadLatestSnapshot();
-            if (latestSnapshotFromStore != null)
-            {
-                (_latestSnapshot, _latestSnapshotBackedByStore) = MergeStoreSnapshotWithNewerActionMetadata(
-                    currentSnapshot: _latestSnapshot,
-                    currentSnapshotBackedByStore: _latestSnapshotBackedByStore,
-                    storeSnapshot: latestSnapshotFromStore);
-            }
+            latestSnapshotFromStore = _stateStore.ReadLatestSnapshot();
+            latestSnapshotReadSucceeded = true;
         }
         catch (Exception ex)
         {
@@ -3011,7 +3048,8 @@ public sealed class AgentCoreController : IAgentCoreController
 
         try
         {
-            _lastLatestStateDetails = _stateStore.ReadLatestStateDetails();
+            latestStateDetails = _stateStore.ReadLatestStateDetails();
+            latestStateDetailsReadSucceeded = true;
         }
         catch (Exception ex)
         {
@@ -3020,7 +3058,8 @@ public sealed class AgentCoreController : IAgentCoreController
 
         try
         {
-            _lastNotificationSuppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
+            notificationSuppressionStatus = _stateStore.ReadNotificationSuppressionStatus();
+            notificationSuppressionStatusReadSucceeded = true;
         }
         catch (Exception ex)
         {
@@ -3029,7 +3068,8 @@ public sealed class AgentCoreController : IAgentCoreController
 
         try
         {
-            _lastBrightnessActionStatus = _stateStore.ReadBrightnessActionStatus();
+            brightnessActionStatus = _stateStore.ReadBrightnessActionStatus();
+            brightnessActionStatusReadSucceeded = true;
         }
         catch (Exception ex)
         {
@@ -3038,23 +3078,86 @@ public sealed class AgentCoreController : IAgentCoreController
 
         try
         {
-            _lastDbMigrationFailed = _stateStore.ReadDbMigrationFailed();
+            dbMigrationFailed = _stateStore.ReadDbMigrationFailed();
+            dbMigrationFailedReadSucceeded = true;
         }
         catch (Exception ex)
         {
             refreshError ??= ClassifyRuntimeStateRefreshError(ex);
         }
 
-        _runtimeStateLastAttemptUtc = nowUtc;
-        if (refreshError is null)
+        return new RuntimeStateCacheRefreshResult(
+            Sequence: refreshSequence,
+            AttemptedAtUtc: nowUtc,
+            LatestSnapshotFromStore: latestSnapshotFromStore,
+            LatestSnapshotReadSucceeded: latestSnapshotReadSucceeded,
+            LatestStateDetails: latestStateDetails,
+            LatestStateDetailsReadSucceeded: latestStateDetailsReadSucceeded,
+            NotificationSuppressionStatus: notificationSuppressionStatus,
+            NotificationSuppressionStatusReadSucceeded: notificationSuppressionStatusReadSucceeded,
+            BrightnessActionStatus: brightnessActionStatus,
+            BrightnessActionStatusReadSucceeded: brightnessActionStatusReadSucceeded,
+            DbMigrationFailed: dbMigrationFailed,
+            DbMigrationFailedReadSucceeded: dbMigrationFailedReadSucceeded,
+            RefreshError: refreshError);
+    }
+
+    private void RefreshRuntimeStateCacheFromStoreLocked(DateTimeOffset nowUtc)
+    {
+        RuntimeStateCacheRefreshResult refresh = ReadRuntimeStateCacheFromStore(
+            nowUtc,
+            System.Threading.Interlocked.Increment(ref _runtimeStateRefreshSequence));
+        ApplyRuntimeStateCacheRefreshLocked(refresh);
+    }
+
+    // Refresh DB-derived status enrichments when runtime state advances, not on UI request paths.
+    private void ApplyRuntimeStateCacheRefreshLocked(RuntimeStateCacheRefreshResult refresh)
+    {
+        if (refresh.Sequence < _lastAppliedRuntimeStateRefreshSequence)
         {
-            _runtimeStateLastSuccessfulRefreshUtc = nowUtc;
+            return;
+        }
+
+        if (refresh.LatestSnapshotReadSucceeded && refresh.LatestSnapshotFromStore != null)
+        {
+            (_latestSnapshot, _latestSnapshotBackedByStore) = MergeStoreSnapshotWithNewerActionMetadata(
+                currentSnapshot: _latestSnapshot,
+                currentSnapshotBackedByStore: _latestSnapshotBackedByStore,
+                storeSnapshot: refresh.LatestSnapshotFromStore);
+        }
+
+        if (refresh.LatestStateDetailsReadSucceeded)
+        {
+            _lastLatestStateDetails = refresh.LatestStateDetails;
+        }
+
+        if (refresh.NotificationSuppressionStatusReadSucceeded)
+        {
+            _lastNotificationSuppressionStatus = refresh.NotificationSuppressionStatus;
+        }
+
+        if (refresh.BrightnessActionStatusReadSucceeded)
+        {
+            _lastBrightnessActionStatus = refresh.BrightnessActionStatus;
+        }
+
+        if (refresh.DbMigrationFailedReadSucceeded)
+        {
+            _lastDbMigrationFailed = refresh.DbMigrationFailed;
+        }
+
+        _runtimeStateLastAttemptUtc = refresh.AttemptedAtUtc;
+        if (refresh.RefreshError is null)
+        {
+            _runtimeStateLastSuccessfulRefreshUtc = refresh.AttemptedAtUtc;
             _runtimeStateRefreshError = null;
         }
         else
         {
-            _runtimeStateRefreshError = refreshError;
+            _runtimeStateRefreshError = refresh.RefreshError;
         }
+
+        _lastAppliedRuntimeStateRefreshSequence = refresh.Sequence;
     }
 
     private void ResetRuntimeStateCacheLocked()
@@ -3066,6 +3169,7 @@ public sealed class AgentCoreController : IAgentCoreController
         _runtimeStateLastSuccessfulRefreshUtc = null;
         _runtimeStateLastAttemptUtc = null;
         _runtimeStateRefreshError = null;
+        _lastCurrentSnapshotProjection = null;
         _lastStatusSnapshot = null;
     }
 
@@ -3112,6 +3216,21 @@ public sealed class AgentCoreController : IAgentCoreController
             CooldownEndTimestampUtc = currentSnapshot.CooldownEndTimestampUtc
         }, false);
     }
+
+    private readonly record struct RuntimeStateCacheRefreshResult(
+        long Sequence,
+        DateTimeOffset AttemptedAtUtc,
+        AgentBrainSnapshot? LatestSnapshotFromStore,
+        bool LatestSnapshotReadSucceeded,
+        AgentLatestStateDetails? LatestStateDetails,
+        bool LatestStateDetailsReadSucceeded,
+        AgentNotificationSuppressionStatus NotificationSuppressionStatus,
+        bool NotificationSuppressionStatusReadSucceeded,
+        AgentBrightnessActionStatus BrightnessActionStatus,
+        bool BrightnessActionStatusReadSucceeded,
+        bool DbMigrationFailed,
+        bool DbMigrationFailedReadSucceeded,
+        string? RefreshError);
 
     private static string ClassifyRuntimeStateRefreshError(Exception ex)
     {

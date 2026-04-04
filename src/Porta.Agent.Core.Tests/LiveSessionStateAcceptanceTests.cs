@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Porta.Agent.Common.UserAgent;
 
 namespace Porta.Agent.Core.Tests;
@@ -113,6 +114,99 @@ public sealed class LiveSessionStateAcceptanceTests
         Assert.True(state.KeyboardActive);
         Assert.Equal("agent-8", state.AgentInstanceId);
         Assert.Equal("session-8", state.SessionId);
+    }
+
+    [Fact]
+    public async Task LiveSessionState_RemainsResponsive_WhileRuntimeStateRefreshReadsStore()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        using var refreshEntered = new ManualResetEventSlim(false);
+        using var refreshRelease = new ManualResetEventSlim(false);
+        var store = new LocalApiContractFakeStore
+        {
+            LatestSnapshot = new AgentBrainSnapshot(
+                TimestampUtc: nowUtc,
+                TypingBurstIntensity: 0.1d,
+                ScrollVelocityIndex: 0.1d,
+                FocusSwitchRate: 0.1d,
+                SmoothedTypingBurstIntensity: 0.1d,
+                SmoothedScrollVelocityIndex: 0.1d,
+                SmoothedFocusSwitchRate: 0.1d,
+                FocusStrength: 0.6d,
+                OverloadLikelihood: 0.2d,
+                FatigueProbability: 0.1d,
+                CognitiveStability: 0.8d,
+                DominantStateValue: 0.6d,
+                DominantStateName: "focus",
+                Confidence: 0.9d,
+                LastAction: "maintain_focus",
+                ActivationWindowTriggered: false,
+                CooldownTriggered: false,
+                ActivationWindowOpen: false,
+                Contributors: [],
+                SustainedAttentionDurationSec: 90d,
+                IdleFragmentationIndex: 0.1d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1}",
+                ContributorsJson: "{\"schema_ver\":1}"),
+            LatestStateDetails = new AgentLatestStateDetails(
+                TimestampUtc: nowUtc,
+                OverloadLikelihood: 0.2d,
+                Confidence: 0.9d,
+                SustainedAttentionDurationSec: 90d,
+                IdleFragmentationIndex: 0.1d,
+                FocusAppEntropy: 0.1d,
+                OverloadActive: false,
+                StateFlagsJson: "{\"schema_ver\":1}",
+                ContributorsJson: "{\"schema_ver\":1}",
+                BaselineReady: true,
+                BaselineReadyPct: 1d,
+                AvgQuality2m: 0.9d,
+                ColdStart: false,
+                CurrentQualityScore: 0.9d,
+                PartialData: false,
+                MissingMajorChannels: [])
+        };
+
+        var controller = new AgentCoreController(
+            store,
+            new FakeUserAgentSessionContextStore(
+                new UserAgentSessionContextSnapshot(
+                    SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
+                    CaptureContext: UserAgentCaptureContexts.UserSession,
+                    ProcessId: 555,
+                    SessionId: 3,
+                    UpdatedAtUtc: nowUtc,
+                    AgentInstanceId: "agent-3")));
+
+        controller.PublishLiveSessionState(new AgentLiveSessionSignalPacket(
+            AgentInstanceId: "agent-3",
+            SessionId: "session-3",
+            UpdatedAtUtc: nowUtc,
+            SessionStartedAtUtc: nowUtc.AddMinutes(-12),
+            LastInputEventUtc: nowUtc.AddMilliseconds(-600),
+            KeyboardActive: true,
+            MouseActive: false,
+            IdleSeconds: 0.8d,
+            FocusAppHash: "a1b2c3d4",
+            FocusStartedAtUtc: nowUtc.AddMinutes(-3)));
+
+        store.ReadLatestStateDetailsEntered = refreshEntered;
+        store.ReadLatestStateDetailsRelease = refreshRelease;
+        Task refreshTask = Task.Run(controller.RefreshRuntimeStateCache);
+        Assert.True(refreshEntered.Wait(TimeSpan.FromSeconds(2)));
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        AgentLiveSessionState state = controller.GetLiveSessionState();
+        stopwatch.Stop();
+
+        refreshRelease.Set();
+        await refreshTask;
+
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromMilliseconds(150), $"live session read blocked for {stopwatch.Elapsed.TotalMilliseconds:F0} ms");
+        Assert.Equal("fresh", state.Freshness);
+        Assert.Equal("agent-3", state.AgentInstanceId);
+        Assert.Equal("session-3", state.SessionId);
     }
 
     private sealed class FakeUserAgentSessionContextStore : IUserAgentSessionContextStore

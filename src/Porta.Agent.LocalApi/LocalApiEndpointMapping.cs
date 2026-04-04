@@ -152,6 +152,12 @@ public static class LocalApiEndpointMapping
                 concreteController.SetLocalApiAuthState(localApiAuthReady, localApiAuthError);
             }
 
+            if (controller is AgentCoreController projectionController)
+            {
+                AgentCurrentSnapshotProjection projection = projectionController.GetCurrentSnapshotProjection();
+                return ToSnapshotResponse(projection.Snapshot, projection.LatestState, projection.Status);
+            }
+
             AgentBrainSnapshot snapshot = controller.GetCurrentSnapshot();
             AgentLatestStateDetails? latestState = controller.GetLatestStateDetails();
             AgentServiceStatusSnapshot status = controller.GetStatus();

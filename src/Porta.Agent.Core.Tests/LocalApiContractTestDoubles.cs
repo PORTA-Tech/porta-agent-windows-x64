@@ -68,6 +68,9 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     public ManualResetEventSlim? IngestInputSignalsEntered { get; set; }
     public ManualResetEventSlim? IngestInputSignalsRelease { get; set; }
     public TimeSpan IngestInputSignalsDelay { get; set; }
+    public ManualResetEventSlim? ReadLatestStateDetailsEntered { get; set; }
+    public ManualResetEventSlim? ReadLatestStateDetailsRelease { get; set; }
+    public TimeSpan ReadLatestStateDetailsDelay { get; set; }
 
     public void WriteSnapshot(AgentBrainSnapshot snapshot)
     {
@@ -96,6 +99,14 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     public AgentBrainSnapshot? ReadLatestSnapshot() => LatestSnapshot;
     public AgentLatestStateDetails? ReadLatestStateDetails()
     {
+        ReadLatestStateDetailsEntered?.Set();
+        if (ReadLatestStateDetailsDelay > TimeSpan.Zero)
+        {
+            Thread.Sleep(ReadLatestStateDetailsDelay);
+        }
+
+        ReadLatestStateDetailsRelease?.Wait();
+
         if (ThrowOnReadLatestStateDetails)
         {
             throw new InvalidOperationException(ReadLatestStateDetailsFailureMessage);
