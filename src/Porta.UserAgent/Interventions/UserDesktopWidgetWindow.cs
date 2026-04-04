@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -205,10 +206,18 @@ internal sealed class UserDesktopWidgetWindow : Window
             Width = 26,
             Height = 26,
             Padding = new Thickness(0),
-            BorderThickness = new Thickness(0),
+            BorderThickness = new Thickness(1),
             Background = new SolidColorBrush(Color.FromRgb(28, 35, 43)),
             Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
             Cursor = Cursors.Hand,
+            Focusable = false,
+            FocusVisualStyle = null,
+            Template = CreateFlatButtonTemplate(
+                cornerRadius: new CornerRadius(10),
+                hoverBackground: Color.FromRgb(36, 45, 55),
+                hoverBorder: Color.FromRgb(67, 82, 99),
+                pressedBackground: Color.FromRgb(22, 29, 36),
+                pressedBorder: Color.FromRgb(79, 97, 118)),
             ToolTip = "Widget menu",
             Content = new TextBlock
             {
@@ -291,6 +300,9 @@ internal sealed class UserDesktopWidgetWindow : Window
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             Cursor = Cursors.Hand,
+            Focusable = false,
+            FocusVisualStyle = null,
+            Template = CreateFlatLinkButtonTemplate(),
             Foreground = new SolidColorBrush(Color.FromRgb(153, 167, 183)),
             HorizontalAlignment = HorizontalAlignment.Left,
             HorizontalContentAlignment = HorizontalAlignment.Left,
@@ -307,7 +319,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             Placement = PlacementMode.Bottom,
             StaysOpen = false,
             AllowsTransparency = true,
-            PopupAnimation = PopupAnimation.Fade,
+            PopupAnimation = PopupAnimation.None,
             VerticalOffset = 10
         };
         _menuPopup.Opened += (_, _) =>
@@ -602,6 +614,14 @@ internal sealed class UserDesktopWidgetWindow : Window
             BorderBrush = new SolidColorBrush(Color.FromRgb(53, 67, 82)),
             BorderThickness = new Thickness(1),
             Cursor = Cursors.Hand,
+            Focusable = false,
+            FocusVisualStyle = null,
+            Template = CreateFlatButtonTemplate(
+                cornerRadius: new CornerRadius(10),
+                hoverBackground: Color.FromRgb(37, 47, 59),
+                hoverBorder: Color.FromRgb(73, 92, 112),
+                pressedBackground: Color.FromRgb(23, 31, 40),
+                pressedBorder: Color.FromRgb(86, 108, 132)),
             MinWidth = 68
         };
     }
@@ -631,7 +651,6 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private Button CreateMenuButton(string text, UserDesktopWidgetAction action)
     {
-        SolidColorBrush hoverBackground = new(Color.FromRgb(29, 35, 42));
         Button button = new()
         {
             Content = new TextBlock
@@ -644,17 +663,17 @@ internal sealed class UserDesktopWidgetWindow : Window
             Margin = new Thickness(0, 0, 0, 2),
             Background = Brushes.Transparent,
             Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
-            BorderBrush = Brushes.Transparent,
-            BorderThickness = new Thickness(0),
-            Cursor = Cursors.Hand
-        };
-        button.MouseEnter += (_, _) =>
-        {
-            button.Background = hoverBackground;
-        };
-        button.MouseLeave += (_, _) =>
-        {
-            button.Background = Brushes.Transparent;
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand,
+            Focusable = false,
+            FocusVisualStyle = null,
+            Template = CreateFlatButtonTemplate(
+                cornerRadius: new CornerRadius(10),
+                hoverBackground: Color.FromRgb(34, 42, 51),
+                hoverBorder: Color.FromRgb(73, 88, 105),
+                pressedBackground: Color.FromRgb(24, 31, 39),
+                pressedBorder: Color.FromRgb(84, 101, 120))
         };
         button.Click += (_, _) =>
         {
@@ -663,6 +682,95 @@ internal sealed class UserDesktopWidgetWindow : Window
         };
 
         return button;
+    }
+
+    private static ControlTemplate CreateFlatButtonTemplate(
+        CornerRadius cornerRadius,
+        Color hoverBackground,
+        Color hoverBorder,
+        Color pressedBackground,
+        Color pressedBorder)
+    {
+        FrameworkElementFactory border = new(typeof(Border));
+        border.SetValue(FrameworkElement.NameProperty, "Chrome");
+        border.SetValue(Border.CornerRadiusProperty, cornerRadius);
+        border.SetValue(Border.SnapsToDevicePixelsProperty, true);
+        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+        border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+
+        FrameworkElementFactory presenter = new(typeof(ContentPresenter));
+        presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, new TemplateBindingExtension(Control.HorizontalContentAlignmentProperty));
+        presenter.SetValue(ContentPresenter.VerticalAlignmentProperty, new TemplateBindingExtension(Control.VerticalContentAlignmentProperty));
+        presenter.SetValue(ContentPresenter.RecognizesAccessKeyProperty, true);
+        presenter.SetValue(TextElement.ForegroundProperty, new TemplateBindingExtension(Control.ForegroundProperty));
+        border.AppendChild(presenter);
+
+        ControlTemplate template = new(typeof(Button))
+        {
+            VisualTree = border
+        };
+
+        Trigger hoverTrigger = new()
+        {
+            Property = IsMouseOverProperty,
+            Value = true
+        };
+        hoverTrigger.Setters.Add(new Setter(BackgroundProperty, new SolidColorBrush(hoverBackground)));
+        hoverTrigger.Setters.Add(new Setter(BorderBrushProperty, new SolidColorBrush(hoverBorder)));
+        template.Triggers.Add(hoverTrigger);
+
+        Trigger pressedTrigger = new()
+        {
+            Property = ButtonBase.IsPressedProperty,
+            Value = true
+        };
+        pressedTrigger.Setters.Add(new Setter(BackgroundProperty, new SolidColorBrush(pressedBackground)));
+        pressedTrigger.Setters.Add(new Setter(BorderBrushProperty, new SolidColorBrush(pressedBorder)));
+        template.Triggers.Add(pressedTrigger);
+
+        Trigger disabledTrigger = new()
+        {
+            Property = IsEnabledProperty,
+            Value = false
+        };
+        disabledTrigger.Setters.Add(new Setter(OpacityProperty, 0.56d));
+        template.Triggers.Add(disabledTrigger);
+
+        return template;
+    }
+
+    private static ControlTemplate CreateFlatLinkButtonTemplate()
+    {
+        FrameworkElementFactory presenter = new(typeof(ContentPresenter));
+        presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, new TemplateBindingExtension(Control.HorizontalContentAlignmentProperty));
+        presenter.SetValue(ContentPresenter.VerticalAlignmentProperty, new TemplateBindingExtension(Control.VerticalContentAlignmentProperty));
+        presenter.SetValue(ContentPresenter.RecognizesAccessKeyProperty, true);
+        presenter.SetValue(TextElement.ForegroundProperty, new TemplateBindingExtension(Control.ForegroundProperty));
+
+        ControlTemplate template = new(typeof(Button))
+        {
+            VisualTree = presenter
+        };
+
+        Trigger hoverTrigger = new()
+        {
+            Property = IsMouseOverProperty,
+            Value = true
+        };
+        hoverTrigger.Setters.Add(new Setter(ForegroundProperty, new SolidColorBrush(Color.FromRgb(214, 224, 236))));
+        template.Triggers.Add(hoverTrigger);
+
+        Trigger disabledTrigger = new()
+        {
+            Property = IsEnabledProperty,
+            Value = false
+        };
+        disabledTrigger.Setters.Add(new Setter(OpacityProperty, 0.56d));
+        template.Triggers.Add(disabledTrigger);
+
+        return template;
     }
 
     private void ToggleMenu()

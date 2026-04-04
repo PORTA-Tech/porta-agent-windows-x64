@@ -74,6 +74,45 @@ public sealed class UserDesktopWidgetWindowTests
     }
 
     [Fact]
+    public void ApplyState_RendersCompactSummaryMetricsAndWrappedMessage()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(new UserDesktopWidgetState(
+                Mode: UserDesktopWidgetMode.Monitoring,
+                Title: "Today",
+                StatusText: "Ari is using the inline message rail only, so long status text needs to wrap inside the compact widget without hiding any summary facts or controls.",
+                MessageSeverity: UserDesktopWidgetMessageSeverity.Info,
+                FooterText: "Confidence High | Tracking quality strong",
+                PrimaryMetric: new UserDesktopWidgetMetric("Work today", "5h 14m"),
+                SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "28m"),
+                TertiaryMetric: new UserDesktopWidgetMetric("Overload", "31%"),
+                CanPause: true,
+                CanResume: false,
+                CriticalState: null));
+
+            TextBlock primaryMetricLabel = GetPrivateField<TextBlock>(window, "_primaryMetricLabelText");
+            TextBlock secondaryMetricLabel = GetPrivateField<TextBlock>(window, "_secondaryMetricLabelText");
+            TextBlock tertiaryMetricLabel = GetPrivateField<TextBlock>(window, "_tertiaryMetricLabelText");
+            TextBlock messageBody = GetPrivateField<TextBlock>(window, "_messageBodyText");
+            Border rootBorder = GetPrivateField<Border>(window, "_rootBorder");
+
+            Assert.Equal("Work today", primaryMetricLabel.Text);
+            Assert.Equal("Last focus session", secondaryMetricLabel.Text);
+            Assert.Equal("Overload", tertiaryMetricLabel.Text);
+            Assert.Equal(TextWrapping.Wrap, messageBody.TextWrapping);
+            Assert.True(messageBody.MaxWidth < window.Width);
+            Assert.True(rootBorder.DesiredSize.Height > 150d);
+        });
+    }
+
+    [Fact]
     public void Menu_UsesCurrentControlCenterLabels()
     {
         RunOnStaThread(() =>
@@ -94,6 +133,71 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Contains("Tracking", popupText, StringComparison.Ordinal);
             Assert.Contains("Settings", popupText, StringComparison.Ordinal);
             Assert.Contains("System", popupText, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void Menu_UsesCurrentControlCenterRoutes()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            List<UserDesktopWidgetAction> actions = [];
+            var window = new UserDesktopWidgetWindow(
+                actions.Add,
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+            Popup popup = GetPrivateField<Popup>(window, "_menuPopup");
+
+            ClickMenuButton(popup.Child, "Today");
+            ClickMenuButton(popup.Child, "History");
+            ClickMenuButton(popup.Child, "Actions");
+            ClickMenuButton(popup.Child, "Tracking");
+            ClickMenuButton(popup.Child, "Settings");
+            ClickMenuButton(popup.Child, "System");
+
+            Assert.Equal(
+                [
+                    UserDesktopWidgetAction.OpenNow,
+                    UserDesktopWidgetAction.OpenHistory,
+                    UserDesktopWidgetAction.OpenActions,
+                    UserDesktopWidgetAction.OpenTracking,
+                    UserDesktopWidgetAction.OpenSettings,
+                    UserDesktopWidgetAction.OpenHealth
+                ],
+                actions);
+        });
+    }
+
+    [Fact]
+    public void Menu_DisablesPopupFadeAndDefaultButtonChrome()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            Popup popup = GetPrivateField<Popup>(window, "_menuPopup");
+            Button menuButton = GetPrivateField<Button>(window, "_menuButton");
+            Button historyButton = FindMenuButton(popup.Child, "History");
+
+            Assert.Equal(PopupAnimation.None, popup.PopupAnimation);
+            Assert.False(menuButton.Focusable);
+            Assert.Null(menuButton.FocusVisualStyle);
+            Assert.NotNull(menuButton.Template);
+            Assert.False(historyButton.Focusable);
+            Assert.Null(historyButton.FocusVisualStyle);
+            Assert.NotNull(historyButton.Template);
+            Assert.Contains(historyButton.Template.Triggers.OfType<Trigger>(), trigger => Equals(trigger.Property, UIElement.IsMouseOverProperty));
+            Assert.Contains(historyButton.Template.Triggers.OfType<Trigger>(), trigger => Equals(trigger.Property, ButtonBase.IsPressedProperty));
+            Assert.DoesNotContain(
+                historyButton.Template.Triggers
+                    .OfType<Trigger>()
+                    .SelectMany(static trigger => trigger.Setters.OfType<Setter>()),
+                setter => Equals(setter.Property, Control.ForegroundProperty));
         });
     }
 
@@ -165,6 +269,74 @@ public sealed class UserDesktopWidgetWindowTests
             Decorator decorator => ReadAllText(decorator.Child),
             _ => string.Empty
         };
+    }
+
+    private static Button FindMenuButton(object? node, string text)
+    {
+        Button? match = EnumerateButtons(node)
+            .FirstOrDefault(button => string.Equals(ReadAllText(button.Content), text, StringComparison.Ordinal));
+        return match ?? throw new InvalidOperationException($"Could not find menu button '{text}'.");
+    }
+
+    private static void ClickMenuButton(object? node, string text)
+    {
+        Button button = FindMenuButton(node, text);
+        button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, button));
+    }
+
+    private static IEnumerable<Button> EnumerateButtons(object? node)
+    {
+        if (node == null)
+        {
+            yield break;
+        }
+
+        switch (node)
+        {
+            case Button button:
+                yield return button;
+                foreach (Button nested in EnumerateButtons(button.Content))
+                {
+                    yield return nested;
+                }
+
+                yield break;
+
+            case ContentControl contentControl:
+                foreach (Button nested in EnumerateButtons(contentControl.Content))
+                {
+                    yield return nested;
+                }
+
+                yield break;
+
+            case Border border:
+                foreach (Button nested in EnumerateButtons(border.Child))
+                {
+                    yield return nested;
+                }
+
+                yield break;
+
+            case Panel panel:
+                foreach (object child in panel.Children.OfType<object>())
+                {
+                    foreach (Button nested in EnumerateButtons(child))
+                    {
+                        yield return nested;
+                    }
+                }
+
+                yield break;
+
+            case Decorator decorator:
+                foreach (Button nested in EnumerateButtons(decorator.Child))
+                {
+                    yield return nested;
+                }
+
+                yield break;
+        }
     }
 
     private static void RunOnStaThread(Action action)
