@@ -54,7 +54,31 @@ public sealed class VisualStateAdapterTests
         Assert.True(state.SnapshotAnalysisReady);
     }
 
-    private static LocalApiStatusResponse BuildStatus()
+    [Fact]
+    public void Build_UsesSharedPresentedMode_WhenSnapshotAndStatusNeedCanonicalMapping()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        LocalApiStatusResponse status = BuildStatus(visualMode: "DEEP_WORK", deepWorkActive: true);
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            sustainedAttentionSeconds: 600d,
+            analyzedStateAvailable: true,
+            deepWorkActive: true);
+
+        PortaVisualState state = VisualStateAdapter.Build(
+            status,
+            snapshot,
+            liveSession: null,
+            recentEvents: [],
+            fallbackExplanation: string.Empty,
+            nowUtc: nowUtc);
+
+        Assert.Equal(PortaVisualMode.DeepWork, state.Mode);
+        Assert.True(state.DeepWorkActive);
+        Assert.False(state.OverloadActive);
+        Assert.Equal("High", state.ConfidenceLabel);
+    }
+
+    private static LocalApiStatusResponse BuildStatus(string visualMode = "NORMAL", bool deepWorkActive = false)
     {
         return new LocalApiStatusResponse(
             Status: AgentStatus.Running,
@@ -110,9 +134,9 @@ public sealed class VisualStateAdapterTests
             BaselineReady: true,
             ColdStart: false,
             OverloadActive: false,
-            DeepWorkActive: false,
+            DeepWorkActive: deepWorkActive,
             DeepWorkStreakSeconds: 0,
-            VisualMode: "NORMAL",
+            VisualMode: visualMode,
             LatestContributorsJson: null,
             LatestWhyJson: null,
             LastUpdatedUtc: DateTimeOffset.UtcNow,
@@ -123,7 +147,8 @@ public sealed class VisualStateAdapterTests
 
     private static LocalApiCurrentSnapshotResponse BuildSnapshot(
         double sustainedAttentionSeconds,
-        bool analyzedStateAvailable)
+        bool analyzedStateAvailable,
+        bool deepWorkActive = false)
     {
         return new LocalApiCurrentSnapshotResponse(
             TimestampUtc: DateTimeOffset.UtcNow,
@@ -162,7 +187,7 @@ public sealed class VisualStateAdapterTests
             PartialData: false,
             MissingMajorChannels: [],
             CooldownsRemaining: null,
-            DeepWorkActive: false,
+            DeepWorkActive: deepWorkActive,
             NotificationsSuppressed: false,
             BrightnessAdjusted: false,
             FComponent: 0.2,

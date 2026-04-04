@@ -1,8 +1,6 @@
-namespace Porta.Agent.LocalApi;
-
-using System.Text.Json;
-using Porta.Agent.Common.Contracts;
 using Porta.Agent.Core;
+
+namespace Porta.Agent.LocalApi;
 
 public enum UserAgentVisualMode
 {
@@ -24,7 +22,6 @@ public sealed record UserAgentVisualSignals(
 public static class UserAgentVisualSignalsAdapter
 {
     private const string WaitingForServiceDataText = "PORTA | Waiting for service data";
-    private static readonly TimeSpan RecoveryToastWindow = TimeSpan.FromSeconds(90);
 
     public static UserAgentVisualSignals Build(
         LocalApiStatusResponse? status,
@@ -45,27 +42,24 @@ public static class UserAgentVisualSignalsAdapter
                 RecoveryMessage: string.Empty);
         }
 
-        bool deepWorkActive = status.DeepWorkActive || snapshot.DeepWorkActive || TryReadDeepWorkActive(snapshot.StateFlagsJson);
-        bool overloadActive = status.OverloadActive || snapshot.OverloadActive;
-        UserAgentVisualMode mode = ResolveMode(status.VisualMode, overloadActive, deepWorkActive);
-        (bool showDeepWorkStreak, string deepWorkStreakText) = BuildDeepWorkStreak(
-            deepWorkActive,
-            status.DeepWorkStreakSeconds,
-            TryReadDeepWorkStartedAtUtcMs(snapshot.StateFlagsJson),
-            snapshot.SustainedAttentionDurationSec,
+        LocalCurrentExperienceState experience = LocalCurrentExperienceStateAdapter.Build(
+            status,
+            snapshot,
+            liveSession: null,
+            recentEvents,
             nowUtc);
+        UserAgentVisualMode mode = MapMode(experience.Mode);
         (bool showRecoveryToast, long recoveryEventId, string recoveryMessage) = BuildRecoveryToast(
             status.TrustTier,
             mode,
-            recentEvents,
-            nowUtc,
+            experience,
             lastRecoveryEventId);
 
         return new UserAgentVisualSignals(
             Mode: mode,
-            TooltipText: BuildTooltip(status, snapshot, mode, showDeepWorkStreak, deepWorkStreakText),
-            ShowDeepWorkStreak: showDeepWorkStreak,
-            DeepWorkStreakText: deepWorkStreakText,
+            TooltipText: BuildTooltip(status, snapshot, mode, experience.ShowDeepWorkStreak, experience.DeepWorkStreakText),
+            ShowDeepWorkStreak: experience.ShowDeepWorkStreak,
+            DeepWorkStreakText: experience.DeepWorkStreakText,
             ShowRecoveryToast: showRecoveryToast,
             RecoveryEventId: recoveryEventId,
             RecoveryMessage: recoveryMessage);
@@ -109,44 +103,10 @@ public static class UserAgentVisualSignalsAdapter
         };
     }
 
-    private static (bool Show, string Text) BuildDeepWorkStreak(
-        bool deepWorkActive,
-        int deepWorkStreakSecondsFromStatus,
-        long deepWorkStartedAtUtcMs,
-        double sustainedAttentionSeconds,
-        DateTimeOffset nowUtc)
-    {
-        if (!deepWorkActive)
-        {
-            return (false, string.Empty);
-        }
-
-        if (deepWorkStartedAtUtcMs > 0)
-        {
-            DateTimeOffset startedAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(deepWorkStartedAtUtcMs);
-            TimeSpan streak = nowUtc - startedAtUtc;
-            if (streak < TimeSpan.Zero)
-            {
-                streak = TimeSpan.Zero;
-            }
-
-            return (true, $"Deep Work streak: {FormatShortDuration(streak)}");
-        }
-
-        if (deepWorkStreakSecondsFromStatus > 0)
-        {
-            return (true, $"Deep Work streak: {FormatShortDuration(TimeSpan.FromSeconds(deepWorkStreakSecondsFromStatus))}");
-        }
-
-        TimeSpan fallback = TimeSpan.FromSeconds(Math.Max(0d, sustainedAttentionSeconds));
-        return (true, $"Deep Work streak: {FormatShortDuration(fallback)}");
-    }
-
     private static (bool Show, long EventId, string Message) BuildRecoveryToast(
         string? trustTier,
         UserAgentVisualMode mode,
-        IReadOnlyList<LocalApiEventResponse> recentEvents,
-        DateTimeOffset nowUtc,
+        LocalCurrentExperienceState experience,
         long lastRecoveryEventId)
     {
         if (!CalibrationTruth.AllowsSuggestionsForTrust(trustTier))
@@ -154,106 +114,26 @@ public static class UserAgentVisualSignalsAdapter
             return (false, 0, string.Empty);
         }
 
-        if (mode == UserAgentVisualMode.Overload)
+        if (mode == UserAgentVisualMode.Overload
+            || !experience.HasRecentRecoveryEvent
+            || experience.RecentRecoveryEventId <= 0
+            || experience.RecentRecoveryEventId == lastRecoveryEventId)
         {
             return (false, 0, string.Empty);
         }
 
-        LocalApiEventResponse? recoveryEvent = recentEvents
-            .OrderByDescending(static evt => evt.TsUtc)
-            .FirstOrDefault(static evt =>
-                string.Equals(evt.Action, "overload_recovered", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(evt.Type, "OVERLOAD_RECOVERED", StringComparison.OrdinalIgnoreCase));
-        if (recoveryEvent == null || recoveryEvent.Id <= 0 || recoveryEvent.Id == lastRecoveryEventId)
-        {
-            return (false, 0, string.Empty);
-        }
-
-        if ((nowUtc - recoveryEvent.TsUtc) > RecoveryToastWindow)
-        {
-            return (false, 0, string.Empty);
-        }
-
-        string message = string.IsNullOrWhiteSpace(recoveryEvent.WhatChanged)
-            ? "Overload eased. Returning to normal."
-            : recoveryEvent.WhatChanged.Trim();
-        return (true, recoveryEvent.Id, message);
+        return (true, experience.RecentRecoveryEventId, experience.RecentRecoveryMessage);
     }
 
-    private static UserAgentVisualMode ResolveMode(string? visualModeFromStatus, bool overloadActive, bool deepWorkActive)
-    {
-        if (PresentedVisualModeMapper.TryParseToken(visualModeFromStatus, out PresentedVisualMode fromStatus))
-        {
-            return MapMode(fromStatus);
-        }
-
-        return MapMode(PresentedVisualModeMapper.Map(overloadActive, deepWorkActive));
-    }
-
-    private static UserAgentVisualMode MapMode(PresentedVisualMode mode)
+    private static UserAgentVisualMode MapMode(LocalCurrentExperienceMode mode)
     {
         return mode switch
         {
-            PresentedVisualMode.OVERLOAD => UserAgentVisualMode.Overload,
-            PresentedVisualMode.DEEP_WORK => UserAgentVisualMode.DeepWork,
-            _ => UserAgentVisualMode.Normal
+            LocalCurrentExperienceMode.DeepWork => UserAgentVisualMode.DeepWork,
+            LocalCurrentExperienceMode.Overload => UserAgentVisualMode.Overload,
+            LocalCurrentExperienceMode.Normal => UserAgentVisualMode.Normal,
+            _ => UserAgentVisualMode.Unavailable
         };
-    }
-
-    private static bool TryReadDeepWorkActive(string? stateFlagsJson)
-    {
-        if (string.IsNullOrWhiteSpace(stateFlagsJson))
-        {
-            return false;
-        }
-
-        try
-        {
-            using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
-            JsonElement root = doc.RootElement;
-            if (!root.TryGetProperty("deep_work_active", out JsonElement value))
-            {
-                return false;
-            }
-
-            return value.ValueKind switch
-            {
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                JsonValueKind.Number => value.TryGetInt32(out int n) && n == 1,
-                _ => false
-            };
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static long TryReadDeepWorkStartedAtUtcMs(string? stateFlagsJson)
-    {
-        if (string.IsNullOrWhiteSpace(stateFlagsJson))
-        {
-            return 0;
-        }
-
-        try
-        {
-            using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
-            JsonElement root = doc.RootElement;
-            if (!root.TryGetProperty("deep_work_started_at_utc_ms", out JsonElement value))
-            {
-                return 0;
-            }
-
-            return value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long startedAtUtcMs)
-                ? Math.Max(0, startedAtUtcMs)
-                : 0;
-        }
-        catch
-        {
-            return 0;
-        }
     }
 
     private static string ToDisplayChannelName(string channel)
@@ -266,20 +146,5 @@ public static class UserAgentVisualSignalsAdapter
             "idle" => "Idle",
             _ => channel
         };
-    }
-
-    private static string FormatShortDuration(TimeSpan duration)
-    {
-        if (duration.TotalHours >= 1d)
-        {
-            return $"{Math.Floor(duration.TotalHours):F0}h {duration.Minutes:F0}m";
-        }
-
-        if (duration.TotalMinutes >= 1d)
-        {
-            return $"{Math.Floor(duration.TotalMinutes):F0}m";
-        }
-
-        return $"{Math.Max(0d, Math.Floor(duration.TotalSeconds)):F0}s";
     }
 }

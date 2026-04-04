@@ -19,8 +19,15 @@ internal static class UserDesktopWidgetStateBuilder
         DateTimeOffset? nowUtc = null)
     {
         _ = settings;
+        _ = signals;
         DateTimeOffset now = nowUtc ?? DateTimeOffset.UtcNow;
         IReadOnlyList<LocalApiEventResponse> events = recentEvents ?? [];
+        LocalCurrentExperienceState experience = LocalCurrentExperienceStateAdapter.Build(
+            status,
+            snapshot,
+            liveSession,
+            events,
+            now);
         UserDesktopWidgetCriticalState? criticalState = UserCommunicationRouter.ResolveCriticalWidgetState(
             status,
             snapshot,
@@ -43,10 +50,10 @@ internal static class UserDesktopWidgetStateBuilder
             ? UserDesktopWidgetMode.Paused
             : limited
                 ? UserDesktopWidgetMode.Limited
-                : signals.Mode switch
+                : experience.Mode switch
                 {
-                    UserAgentVisualMode.DeepWork => UserDesktopWidgetMode.DeepWork,
-                    UserAgentVisualMode.Overload => UserDesktopWidgetMode.Overload,
+                    LocalCurrentExperienceMode.DeepWork => UserDesktopWidgetMode.DeepWork,
+                    LocalCurrentExperienceMode.Overload => UserDesktopWidgetMode.Overload,
                     _ => UserDesktopWidgetMode.Monitoring
                 };
 
@@ -57,9 +64,9 @@ internal static class UserDesktopWidgetStateBuilder
             Mode: mode,
             Title: BuildTitle(mode, status),
             StatusText: BuildStatusText(status, snapshot, liveSession, degradedToast, criticalState, mode, statusHttpCode),
-            PrimaryMetricText: BuildFocusMetric(status, snapshot, liveSession, mode),
+            PrimaryMetricText: BuildFocusMetric(liveSession, experience, mode),
             SecondaryMetricText: BuildOverloadMetric(status, snapshot, mode),
-            FooterText: BuildFooterText(status, snapshot, liveSession, mode),
+            FooterText: BuildFooterText(status, snapshot, experience, mode),
             NotificationsSuppressed: false,
             BrightnessAdjusted: false,
             CanPause: status?.ServiceRunning == true && status.ConsentActive && !paused,
@@ -205,9 +212,8 @@ internal static class UserDesktopWidgetStateBuilder
     }
 
     private static string BuildFocusMetric(
-        LocalApiStatusResponse? status,
-        LocalApiCurrentSnapshotResponse? snapshot,
         LocalApiLiveSessionStateResponse? liveSession,
+        LocalCurrentExperienceState experience,
         UserDesktopWidgetMode mode)
     {
         if (mode == UserDesktopWidgetMode.Paused)
@@ -215,19 +221,14 @@ internal static class UserDesktopWidgetStateBuilder
             return "Focus session paused";
         }
 
-        if (IsFreshLiveSession(liveSession))
+        if (experience.LiveSessionFresh && liveSession != null)
         {
-            return BuildLiveFocusMetric(liveSession!);
+            return BuildLiveFocusMetric(liveSession);
         }
 
-        if (snapshot is { analysis_ready: true })
+        if (experience.CurrentFocusSessionSeconds.HasValue)
         {
-            return $"Focus session {FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, snapshot.SustainedAttentionDurationSec)))}";
-        }
-
-        if (status?.DeepWorkStreakSeconds > 0)
-        {
-            return $"Focus session {FormatCompactDuration(TimeSpan.FromSeconds(status.DeepWorkStreakSeconds))}";
+            return $"Focus session {FormatCompactDuration(TimeSpan.FromSeconds(experience.CurrentFocusSessionSeconds.Value))}";
         }
 
         return "Focus session n/a";
@@ -285,7 +286,7 @@ internal static class UserDesktopWidgetStateBuilder
     private static string BuildFooterText(
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
-        LocalApiLiveSessionStateResponse? liveSession,
+        LocalCurrentExperienceState experience,
         UserDesktopWidgetMode mode)
     {
         if (mode == UserDesktopWidgetMode.Paused)
@@ -293,8 +294,8 @@ internal static class UserDesktopWidgetStateBuilder
             return string.Empty;
         }
 
-        string confidenceText = BuildConfidenceFooterText(snapshot);
-        string trackingQualityText = BuildTrackingQualityFooterText(status, snapshot, liveSession);
+        string confidenceText = BuildConfidenceFooterText(experience);
+        string trackingQualityText = BuildTrackingQualityFooterText(status, snapshot, experience);
 
         return string.IsNullOrWhiteSpace(confidenceText)
             ? trackingQualityText
@@ -345,20 +346,20 @@ internal static class UserDesktopWidgetStateBuilder
         return liveSession.user_active ? "Focus session active" : "Focus session watching";
     }
 
-    private static string BuildConfidenceFooterText(LocalApiCurrentSnapshotResponse? snapshot)
+    private static string BuildConfidenceFooterText(LocalCurrentExperienceState experience)
     {
-        if (snapshot == null)
+        if (!experience.SnapshotAvailable)
         {
             return "Confidence unavailable";
         }
 
-        return $"Confidence {ResolveConfidenceLabel(snapshot.TrustTier, snapshot.Confidence)}";
+        return $"Confidence {experience.ConfidenceLabel}";
     }
 
     private static string BuildTrackingQualityFooterText(
         LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
-        LocalApiLiveSessionStateResponse? liveSession)
+        LocalCurrentExperienceState experience)
     {
         if (status?.Paused == true)
         {
@@ -380,19 +381,19 @@ internal static class UserDesktopWidgetStateBuilder
             return "Tracking quality delayed";
         }
 
-        if (snapshot == null)
+        if (!experience.SnapshotAvailable || snapshot == null)
         {
-            return IsFreshLiveSession(liveSession)
+            return experience.LiveSessionFresh
                 ? "Tracking quality filling in"
                 : "Tracking quality unavailable";
         }
 
-        if (snapshot.PartialData == true || snapshot.MissingMajorChannels is { Count: > 0 })
+        if (experience.PartialData)
         {
             return "Tracking quality limited";
         }
 
-        if (snapshot.analysis_ready == false)
+        if (!experience.SnapshotAnalysisReady)
         {
             return "Tracking quality pending";
         }
@@ -415,32 +416,6 @@ internal static class UserDesktopWidgetStateBuilder
         }
 
         return "Tracking quality limited";
-    }
-
-    private static string ResolveConfidenceLabel(string? trustTier, double confidence)
-    {
-        string normalizedTrustTier = (trustTier ?? string.Empty).Trim().ToLowerInvariant();
-        if (normalizedTrustTier == CalibrationTruth.TrustHigh)
-        {
-            return "High";
-        }
-
-        if (normalizedTrustTier == CalibrationTruth.TrustMedium)
-        {
-            return "Medium";
-        }
-
-        if (normalizedTrustTier == CalibrationTruth.TrustLow)
-        {
-            return "Low";
-        }
-
-        if (confidence >= 0.75d)
-        {
-            return "High";
-        }
-
-        return confidence >= 0.50d ? "Medium" : "Low";
     }
 
     private static bool IsUnavailableState(LocalApiStatusResponse? status) =>

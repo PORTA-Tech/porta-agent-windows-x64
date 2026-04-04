@@ -46,12 +46,8 @@ internal static class VisualStateAdapter
     private const string CalibrationStageCold = "cold";
     private const string CalibrationStageProvisional = "provisional";
     private const string CalibrationStageCalibrated = "calibrated";
-    private const string TrustTierLow = "low";
-    private const string TrustTierMedium = "medium";
-    private const string TrustTierHigh = "high";
     private const string NotAvailableText = "Not available";
     private const string WaitingForServiceDataText = "Waiting for service data";
-    private static readonly TimeSpan RecoveryBannerWindow = TimeSpan.FromSeconds(90);
     private static readonly IReadOnlyDictionary<PortaVisualMode, PortaModeTheme> ThemeByMode =
         new Dictionary<PortaVisualMode, PortaModeTheme>
         {
@@ -85,7 +81,14 @@ internal static class VisualStateAdapter
         string fallbackExplanation,
         DateTimeOffset nowUtc)
     {
-        if (snapshot == null)
+        LocalCurrentExperienceState experience = LocalCurrentExperienceStateAdapter.Build(
+            status,
+            snapshot,
+            liveSession,
+            recentEvents,
+            nowUtc);
+
+        if (!experience.SnapshotAvailable || snapshot == null)
         {
             string waitingReason = string.IsNullOrWhiteSpace(fallbackExplanation)
                 ? WaitingForServiceDataText
@@ -110,25 +113,11 @@ internal static class VisualStateAdapter
                 WhySummary: NotAvailableText);
         }
 
-        // Source: GET /v1/status -> deep_work_active (fallback: state_flags_json.deep_work_active)
-        bool deepWorkActive = status?.DeepWorkActive ?? TryReadDeepWorkActive(snapshot.StateFlagsJson);
-        // Source: GET /v1/snapshot/current -> state_flags_json.deep_work_started_at_utc_ms
-        long deepWorkStartedAtUtcMs = TryReadDeepWorkStartedAtUtcMs(snapshot.StateFlagsJson);
-        // Source: GET /v1/status -> overload_active (fallback: snapshot.overload_active)
-        bool overloadActive = status?.OverloadActive ?? snapshot.OverloadActive;
-        PortaVisualMode mode = ResolveMode(status?.VisualMode, overloadActive, deepWorkActive);
+        PortaVisualMode mode = MapMode(experience.Mode);
         PortaModeTheme theme = ThemeByMode[mode];
 
         string focusStatus = BuildFocusStatus(snapshot);
         string operatingSentence = BuildOperatingSentence(status, snapshot, mode, fallbackExplanation);
-        double? currentFocusSessionSeconds = ResolveCurrentFocusSessionSeconds(snapshot, liveSession);
-        (bool showRecoveryBanner, long recoveryEventId, string recoveryBannerText) = BuildRecoveryBanner(mode, recentEvents, nowUtc);
-        (bool showDeepWorkStreak, string deepWorkStreakText) = BuildDeepWorkStreak(
-            deepWorkActive,
-            status?.DeepWorkStreakSeconds,
-            deepWorkStartedAtUtcMs,
-            snapshot.SustainedAttentionDurationSec,
-            nowUtc);
         string whySummary = BuildWhySummary(
             status?.LatestContributorsJson,
             status?.LatestWhyJson,
@@ -139,41 +128,33 @@ internal static class VisualStateAdapter
             Mode: mode,
             Theme: theme,
             ModeLabel: ToModeLabel(mode),
-            ConfidenceLabel: ResolveConfidenceLabel(snapshot.TrustTier, snapshot.Confidence),
-            CurrentFocusSessionText: BuildCurrentFocusSessionText(snapshot, liveSession),
-            CurrentFocusSessionSeconds: currentFocusSessionSeconds,
-            SnapshotAnalysisReady: snapshot.analysis_ready,
+            ConfidenceLabel: experience.ConfidenceLabel,
+            CurrentFocusSessionText: BuildCurrentFocusSessionText(experience),
+            CurrentFocusSessionSeconds: experience.CurrentFocusSessionSeconds,
+            SnapshotAnalysisReady: experience.SnapshotAnalysisReady,
             FocusStatusText: focusStatus,
             OperatingSentence: operatingSentence,
-            OverloadActive: overloadActive,
-            DeepWorkActive: deepWorkActive,
-            ShowDeepWorkStreak: showDeepWorkStreak,
-            DeepWorkStreakText: deepWorkStreakText,
-            ShowRecoveryBanner: showRecoveryBanner,
-            RecoveryEventId: recoveryEventId,
-            RecoveryBannerText: recoveryBannerText,
+            OverloadActive: experience.OverloadActive,
+            DeepWorkActive: experience.DeepWorkActive,
+            ShowDeepWorkStreak: experience.ShowDeepWorkStreak,
+            DeepWorkStreakText: experience.DeepWorkStreakText,
+            ShowRecoveryBanner: experience.HasRecentRecoveryEvent && mode != PortaVisualMode.Overload,
+            RecoveryEventId: experience.HasRecentRecoveryEvent ? experience.RecentRecoveryEventId : 0,
+            RecoveryBannerText: experience.HasRecentRecoveryEvent ? experience.RecentRecoveryMessage : string.Empty,
             WhySummary: whySummary);
     }
 
     // Metric contract:
     // - Current focus session = live-first timer from /v1/session/live.
     // - Focused today remains a durable processed-history metric and lands on the Today page in the next pass.
-    private static string BuildCurrentFocusSessionText(
-        LocalApiCurrentSnapshotResponse snapshot,
-        LocalApiLiveSessionStateResponse? liveSession)
+    private static string BuildCurrentFocusSessionText(LocalCurrentExperienceState experience)
     {
-        double? liveFocusSeconds = ResolveLiveCurrentFocusSessionSeconds(liveSession);
-        if (liveFocusSeconds.HasValue)
+        if (experience.CurrentFocusSessionSeconds.HasValue)
         {
-            return $"Current focus session: {FormatFocusedTime(liveFocusSeconds.Value)}";
+            return $"Current focus session: {FormatFocusedTime(experience.CurrentFocusSessionSeconds.Value)}";
         }
 
-        if (snapshot.analysis_ready)
-        {
-            return $"Current focus session: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
-        }
-
-        if (IsFreshLiveSession(liveSession) && liveSession!.idle)
+        if (experience.LiveSessionFresh && experience.LiveSessionIdle)
         {
             return "Current focus session: 0 sec";
         }
@@ -185,33 +166,13 @@ internal static class VisualStateAdapter
         LocalApiCurrentSnapshotResponse? snapshot,
         LocalApiLiveSessionStateResponse? liveSession)
     {
-        double? liveFocusSeconds = ResolveLiveCurrentFocusSessionSeconds(liveSession);
-        if (liveFocusSeconds.HasValue)
-        {
-            return liveFocusSeconds;
-        }
-
-        return snapshot?.analysis_ready == true
-            ? Math.Max(0d, snapshot.SustainedAttentionDurationSec)
-            : null;
-    }
-
-    private static double? ResolveLiveCurrentFocusSessionSeconds(LocalApiLiveSessionStateResponse? liveSession)
-    {
-        if (!IsFreshLiveSession(liveSession)
-            || liveSession!.idle
-            || !liveSession.focus_elapsed_seconds.HasValue)
-        {
-            return null;
-        }
-
-        return Math.Max(0d, liveSession.focus_elapsed_seconds.Value);
-    }
-
-    private static bool IsFreshLiveSession(LocalApiLiveSessionStateResponse? liveSession)
-    {
-        return liveSession != null
-            && string.Equals(liveSession.freshness_state, "fresh", StringComparison.OrdinalIgnoreCase);
+        LocalCurrentExperienceState experience = LocalCurrentExperienceStateAdapter.Build(
+            status: null,
+            snapshot,
+            liveSession,
+            recentEvents: [],
+            nowUtc: DateTimeOffset.UtcNow);
+        return experience.CurrentFocusSessionSeconds;
     }
 
     private static string BuildOperatingSentence(
@@ -262,37 +223,6 @@ internal static class VisualStateAdapter
         }
 
         return "Ready to suggest breaks when needed.";
-    }
-
-    private static (bool Show, long EventId, string Message) BuildRecoveryBanner(
-        PortaVisualMode mode,
-        IReadOnlyList<LocalApiEventResponse> recentEvents,
-        DateTimeOffset nowUtc)
-    {
-        if (mode == PortaVisualMode.Overload)
-        {
-            return (false, 0, string.Empty);
-        }
-
-        LocalApiEventResponse? recoveryEvent = recentEvents
-            .OrderByDescending(static evt => evt.TsUtc)
-            .FirstOrDefault(static evt =>
-                string.Equals(evt.Action, "overload_recovered", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(evt.Type, "OVERLOAD_RECOVERED", StringComparison.OrdinalIgnoreCase));
-        if (recoveryEvent == null)
-        {
-            return (false, 0, string.Empty);
-        }
-
-        if ((nowUtc - recoveryEvent.TsUtc) > RecoveryBannerWindow)
-        {
-            return (false, 0, string.Empty);
-        }
-
-        string message = string.IsNullOrWhiteSpace(recoveryEvent.WhatChanged)
-            ? "Recovery complete: overload returned to normal."
-            : recoveryEvent.WhatChanged.Trim();
-        return (true, recoveryEvent.Id, message);
     }
 
     private static string BuildWhySummary(
@@ -354,58 +284,14 @@ internal static class VisualStateAdapter
         return false;
     }
 
-    private static (bool Show, string Text) BuildDeepWorkStreak(
-        bool deepWorkActive,
-        int? deepWorkStreakSecondsFromStatus,
-        long deepWorkStartedAtUtcMs,
-        double sustainedAttentionSeconds,
-        DateTimeOffset nowUtc)
-    {
-        if (!deepWorkActive)
-        {
-            return (false, string.Empty);
-        }
-
-        if (deepWorkStartedAtUtcMs > 0)
-        {
-            DateTimeOffset startedAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(deepWorkStartedAtUtcMs);
-            TimeSpan streak = nowUtc - startedAtUtc;
-            if (streak < TimeSpan.Zero)
-            {
-                streak = TimeSpan.Zero;
-            }
-
-            return (true, $"Deep Work streak: {FormatShortDuration(streak)}");
-        }
-
-        if (deepWorkStreakSecondsFromStatus is > 0)
-        {
-            TimeSpan statusStreak = TimeSpan.FromSeconds(deepWorkStreakSecondsFromStatus.Value);
-            return (true, $"Deep Work streak: {FormatShortDuration(statusStreak)}");
-        }
-
-        TimeSpan fallback = TimeSpan.FromSeconds(Math.Max(0d, sustainedAttentionSeconds));
-        return (true, $"Deep Work streak: {FormatShortDuration(fallback)}");
-    }
-
-    private static PortaVisualMode ResolveMode(string? visualModeFromStatus, bool overloadActive, bool deepWorkActive)
-    {
-        if (PresentedVisualModeMapper.TryParseToken(visualModeFromStatus, out PresentedVisualMode fromStatus))
-        {
-            return MapPresentedMode(fromStatus);
-        }
-
-        PresentedVisualMode mapped = PresentedVisualModeMapper.Map(overloadActive, deepWorkActive);
-        return MapPresentedMode(mapped);
-    }
-
-    private static PortaVisualMode MapPresentedMode(PresentedVisualMode mode)
+    private static PortaVisualMode MapMode(LocalCurrentExperienceMode mode)
     {
         return mode switch
         {
-            PresentedVisualMode.OVERLOAD => PortaVisualMode.Overload,
-            PresentedVisualMode.DEEP_WORK => PortaVisualMode.DeepWork,
-            _ => PortaVisualMode.Normal
+            LocalCurrentExperienceMode.Overload => PortaVisualMode.Overload,
+            LocalCurrentExperienceMode.DeepWork => PortaVisualMode.DeepWork,
+            LocalCurrentExperienceMode.Normal => PortaVisualMode.Normal,
+            _ => PortaVisualMode.Unavailable
         };
     }
 
@@ -418,62 +304,6 @@ internal static class VisualStateAdapter
             PortaVisualMode.Normal => PresentedVisualModeMapper.ToToken(PresentedVisualMode.NORMAL),
             _ => "UNAVAILABLE"
         };
-    }
-
-    private static bool TryReadDeepWorkActive(string? stateFlagsJson)
-    {
-        if (string.IsNullOrWhiteSpace(stateFlagsJson))
-        {
-            return false;
-        }
-
-        try
-        {
-            using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
-            JsonElement root = doc.RootElement;
-            if (!root.TryGetProperty("deep_work_active", out JsonElement value))
-            {
-                return false;
-            }
-
-            return value.ValueKind switch
-            {
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                JsonValueKind.Number => value.TryGetInt32(out int n) && n == 1,
-                _ => false
-            };
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static long TryReadDeepWorkStartedAtUtcMs(string? stateFlagsJson)
-    {
-        if (string.IsNullOrWhiteSpace(stateFlagsJson))
-        {
-            return 0;
-        }
-
-        try
-        {
-            using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
-            JsonElement root = doc.RootElement;
-            if (!root.TryGetProperty("deep_work_started_at_utc_ms", out JsonElement value))
-            {
-                return 0;
-            }
-
-            return value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long startedAtUtcMs)
-                ? Math.Max(0, startedAtUtcMs)
-                : 0;
-        }
-        catch
-        {
-            return 0;
-        }
     }
 
     private static string BuildFocusStatus(LocalApiCurrentSnapshotResponse snapshot)
@@ -509,21 +339,6 @@ internal static class VisualStateAdapter
         };
     }
 
-    private static string ResolveConfidenceLabel(string? trustTier, double confidence)
-    {
-        if (!string.IsNullOrWhiteSpace(trustTier))
-        {
-            return trustTier.Trim().ToLowerInvariant() switch
-            {
-                TrustTierHigh => "High",
-                TrustTierMedium => "Medium",
-                _ => "Low"
-            };
-        }
-
-        return MapConfidenceLabel(confidence);
-    }
-
     private static string NormalizeCalibrationStage(string? calibrationStage, bool? baselineReady, bool? coldStart)
     {
         if (!string.IsNullOrWhiteSpace(calibrationStage))
@@ -545,16 +360,6 @@ internal static class VisualStateAdapter
         return coldStart == true ? CalibrationStageCold : CalibrationStageProvisional;
     }
 
-    private static string MapConfidenceLabel(double confidence)
-    {
-        if (confidence >= 0.75d)
-        {
-            return "High";
-        }
-
-        return confidence >= 0.50d ? "Medium" : "Low";
-    }
-
     private static string FormatFocusedTime(double sustainedAttentionSeconds)
     {
         if (sustainedAttentionSeconds < 60d)
@@ -564,18 +369,5 @@ internal static class VisualStateAdapter
 
         double minutes = Math.Floor(sustainedAttentionSeconds / 60d);
         return $"{minutes.ToString("F0", CultureInfo.InvariantCulture)} min";
-    }
-
-    private static string FormatShortDuration(TimeSpan duration)
-    {
-        if (duration.TotalHours >= 1d)
-        {
-            int hours = (int)Math.Floor(duration.TotalHours);
-            int minutes = duration.Minutes;
-            return $"{hours.ToString(CultureInfo.InvariantCulture)}h {minutes.ToString("00", CultureInfo.InvariantCulture)}m";
-        }
-
-        int mins = (int)Math.Floor(duration.TotalMinutes);
-        return $"{Math.Max(0, mins).ToString(CultureInfo.InvariantCulture)}m";
     }
 }
