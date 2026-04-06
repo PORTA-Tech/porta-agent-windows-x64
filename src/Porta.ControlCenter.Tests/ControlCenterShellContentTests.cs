@@ -30,9 +30,9 @@ public sealed class ControlCenterShellContentTests
             "<ScrollViewer x:Name=\"OverviewPanel\"",
             "<ScrollViewer x:Name=\"InputsPanel\"");
 
-        Assert.Contains("Text=\"Focused today\"", todaySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Current focus session\"", todaySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Distraction time today\"", todaySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Work today\"", todaySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Last focus session\"", todaySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Overload\"", todaySection, StringComparison.Ordinal);
         Assert.Contains("Text=\"Current status\"", todaySection, StringComparison.Ordinal);
 
         Assert.DoesNotContain("Text=\"Engine health\"", todaySection, StringComparison.Ordinal);
@@ -72,11 +72,12 @@ public sealed class ControlCenterShellContentTests
             "<ScrollViewer x:Name=\"TimelinePanel\"",
             "<ScrollViewer x:Name=\"AccountPanel\"");
 
-        Assert.Contains("Text=\"Focused in this range\"", historySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Longest focus block\"", historySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Distraction in this range\"", historySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Pattern + actions\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Tracked time\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Focused time\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Best hour\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Actions in this range\"", historySection, StringComparison.Ordinal);
         Assert.Contains("Text=\"Action markers in this range\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Focus hours by day\"", historySection, StringComparison.Ordinal);
         Assert.Contains("Content=\"Advanced\"", historySection, StringComparison.Ordinal);
 
         Assert.DoesNotContain("Content=\"Technical view\"", historySection, StringComparison.Ordinal);

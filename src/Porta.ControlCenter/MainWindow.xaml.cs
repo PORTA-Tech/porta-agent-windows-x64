@@ -50,6 +50,10 @@ public partial class MainWindow : Window
     private const double StartupWindowTargetWidth = 1280d;
     private const double StartupWindowTargetHeight = 820d;
     private const double ActionCategoryBarWidth = 170d;
+    private const double HistoryHeatmapHeaderHeight = 28d;
+    private const double HistoryHeatmapCellWidth = 104d;
+    private const double HistoryHeatmapCellHeight = 22d;
+    private const double HistoryHeatmapCanvasPadding = 12d;
 
     private readonly LocalApiClient _apiClient = new();
     private readonly DispatcherTimer _refreshTimer;
@@ -85,6 +89,7 @@ public partial class MainWindow : Window
     private static readonly TimeSpan HistorySelectionHold = TimeSpan.FromSeconds(12);
     private DateTimeOffset? _selectedHistorySnapshotTimestampUtc;
     private long? _selectedHistoryInterventionId;
+    private string? _selectedHistoryCellKey;
     private DateTimeOffset? _historySelectionExpiresUtc;
     private readonly Dictionary<string, DispatcherTimer> _topMetricAnimationTimers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _topMetricAnimationLastValues = new(StringComparer.Ordinal);
@@ -512,13 +517,21 @@ public partial class MainWindow : Window
         if (needsSlowRefresh)
         {
             DateTimeOffset fromUtc = DateTimeOffset.UtcNow.Date;
-            _todayTimeline = await _apiClient.GetTimelineAsync(fromUtc, DateTimeOffset.UtcNow, 60).ConfigureAwait(true);
-            _hourTimeline = await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow, 5).ConfigureAwait(true);
-            _fourHourTimeline = await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddHours(-4), DateTimeOffset.UtcNow, 15).ConfigureAwait(true);
+            _todayTimeline = PreferFreshTimeline(
+                _todayTimeline,
+                await _apiClient.GetTimelineAsync(fromUtc, DateTimeOffset.UtcNow, 60).ConfigureAwait(true));
+            _hourTimeline = PreferFreshTimeline(
+                _hourTimeline,
+                await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow, 5).ConfigureAwait(true));
+            _fourHourTimeline = PreferFreshTimeline(
+                _fourHourTimeline,
+                await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddHours(-4), DateTimeOffset.UtcNow, 15).ConfigureAwait(true));
             _retention = await _apiClient.GetDataRetentionAsync().ConfigureAwait(true);
             if (ShouldRefreshAllTimeTimeline(forceSlowRefresh))
             {
-                _allTimeTimeline = await GetAllTimeTimelineAsync(DateTimeOffset.UtcNow).ConfigureAwait(true);
+                _allTimeTimeline = PreferFreshTimeline(
+                    _allTimeTimeline,
+                    await GetAllTimeTimelineAsync(DateTimeOffset.UtcNow).ConfigureAwait(true));
                 _lastAllTimeHistoryRefreshUtc = DateTimeOffset.UtcNow;
             }
 
@@ -812,10 +825,12 @@ public partial class MainWindow : Window
     {
         switch (cardKey)
         {
-            case "today-focus":
-            case "current-focus":
-            case "today-distraction":
+            case "today-work":
+            case "last-focus":
                 OpenNowFocusDetail();
+                break;
+            case "today-overload":
+                OpenNowOverloadDetail();
                 break;
             case "current-status":
                 ShowSection(UiSection.Interventions);
@@ -848,7 +863,7 @@ public partial class MainWindow : Window
         ShowSection(UiSection.Timeline);
         UpdateHistoryControls();
         PopulateTimeline(GetSelectedHistoryTimeline());
-        ScrollIntoViewDeferred(TimelineFocusScrollViewer);
+        ScrollIntoViewDeferred(HistoryCoordinateScrollViewer);
     }
 
     private void OpenNowCalibrationDetail()
@@ -1203,6 +1218,13 @@ public partial class MainWindow : Window
         button.Foreground = new SolidColorBrush(Color.FromRgb(230, 233, 237));
     }
 
+    private static LocalApiTimelineResponse? PreferFreshTimeline(
+        LocalApiTimelineResponse? existing,
+        LocalApiTimelineResponse? latest)
+    {
+        return latest ?? existing;
+    }
+
     private void PopulateOverview(
         NowTruth nowTruth,
         LocalApiLiveSessionStateResponse? liveSession,
@@ -1234,9 +1256,9 @@ public partial class MainWindow : Window
             visualState.CurrentFocusSessionSeconds,
             readableExplanation);
 
-        PopulateTodayFocusedCard(todayMetrics, snapshot, visualState);
-        PopulateTodayCurrentFocusCard(snapshot, liveSession, visualState);
-        PopulateTodayDistractionCard(todayMetrics);
+        PopulateTodayWorkCard(todayMetrics, todayState, visualState);
+        PopulateTodayLastFocusCard(todayState, liveSession, visualState);
+        PopulateTodayOverloadCard(todayState, snapshot, visualState);
         PopulateTodayStatusCard(
             todayState,
             currentStatusText,
@@ -1247,28 +1269,40 @@ public partial class MainWindow : Window
         PopulateTodayRecoveryBanner(todayState, readableExplanation, visualState);
     }
 
-    private void PopulateTodayFocusedCard(
+    private void PopulateTodayWorkCard(
         TodayPageMetrics todayMetrics,
-        LocalApiCurrentSnapshotResponse? snapshot,
+        TodayTrackingState todayState,
         PortaVisualState visualState)
     {
-        if (todayMetrics.HasProcessedTimeline)
+        if (todayState == TodayTrackingState.Paused)
+        {
+            NowOverloadValueText.Text = "Work today: Paused";
+            NowOverloadActiveText.Text = "History status: paused";
+            NowOverloadSummaryText.Text = "History stays pinned here and resumes once tracking is unpaused.";
+        }
+        else if (todayState == TodayTrackingState.Unavailable)
+        {
+            NowOverloadValueText.Text = "Work today: n/a";
+            NowOverloadActiveText.Text = "History status: unavailable";
+            NowOverloadSummaryText.Text = "Open System to reconnect the local service, then History will resume here.";
+        }
+        else if (todayMetrics.HasProcessedTimeline)
         {
             AnimateTopMetric(
-                metricKey: "today_focused_total",
-                targetValue: Math.Max(0d, todayMetrics.FocusedTodaySeconds / 60d),
-                applyValue: value => NowOverloadValueText.Text = $"Focused today: {FormatReadableDuration(value * 60d)}");
-            NowOverloadActiveText.Text = $"Best focus block: {FormatReadableDuration(todayMetrics.BestFocusBlockSeconds)}";
-            NowOverloadSummaryText.Text = $"Tracked today: {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}";
+                metricKey: "today_work_total",
+                targetValue: Math.Max(0d, todayMetrics.TrackedTodaySeconds / 60d),
+                applyValue: value => NowOverloadValueText.Text = $"Work today: {FormatReadableDuration(value * 60d)}");
+            NowOverloadActiveText.Text = BuildTodayHistoryStatusText();
+            NowOverloadSummaryText.Text = "Open History to review the day-by-hour focus map for today.";
         }
         else
         {
-            NowOverloadValueText.Text = $"Focused today: {FillingInText}";
-            NowOverloadActiveText.Text = $"Best focus block: {FillingInText}";
-            NowOverloadSummaryText.Text = "Today's focus total appears after more tracked time accumulates.";
+            NowOverloadValueText.Text = $"Work today: {FillingInText}";
+            NowOverloadActiveText.Text = "History status: waiting for processed buckets";
+            NowOverloadSummaryText.Text = "History stays visible and fills hour by hour as processed buckets land.";
         }
 
-        if (snapshot?.analysis_ready == true)
+        if (visualState.SnapshotAnalysisReady)
         {
             NowOverloadTrustText.Text = $"Confidence: {visualState.ConfidenceLabel}";
             NowOverloadTrustText.Visibility = Visibility.Visible;
@@ -1279,22 +1313,34 @@ public partial class MainWindow : Window
         }
     }
 
-    private void PopulateTodayCurrentFocusCard(
-        LocalApiCurrentSnapshotResponse? snapshot,
+    private void PopulateTodayLastFocusCard(
+        TodayTrackingState todayState,
         LocalApiLiveSessionStateResponse? liveSession,
         PortaVisualState visualState)
     {
         double? currentFocusSessionSeconds = visualState.CurrentFocusSessionSeconds;
-        if (currentFocusSessionSeconds.HasValue)
+        if (todayState == TodayTrackingState.Paused)
+        {
+            NowFocusStreakValueText.Text = "Last focus session: Paused";
+        }
+        else if (IsLiveSessionFresh(liveSession) && liveSession!.idle)
+        {
+            NowFocusStreakValueText.Text = "Last focus session: Idle";
+        }
+        else if (currentFocusSessionSeconds.HasValue)
         {
             AnimateTopMetric(
-                metricKey: "today_current_focus",
+                metricKey: "today_last_focus",
                 targetValue: Math.Max(0d, currentFocusSessionSeconds.Value / 60d),
-                applyValue: value => NowFocusStreakValueText.Text = $"Current focus session: {FormatReadableDuration(value * 60d)}");
+                applyValue: value => NowFocusStreakValueText.Text = $"Last focus session: {FormatReadableDuration(value * 60d)}");
+        }
+        else if (_latestStatus == null || !_latestStatus.ServiceRunning || !_latestStatus.LocalApiAuthReady)
+        {
+            NowFocusStreakValueText.Text = "Last focus session: n/a";
         }
         else
         {
-            NowFocusStreakValueText.Text = visualState.CurrentFocusSessionText;
+            NowFocusStreakValueText.Text = $"Last focus session: {FillingInText}";
         }
 
         string focusedNowText = BuildTodayFocusedNowLabel(liveSession, currentFocusSessionSeconds);
@@ -1309,36 +1355,64 @@ public partial class MainWindow : Window
         }
 
         NowFocusChoppinessText.Text = BuildTodayCurrentFocusSupportText(liveSession);
-        NowFocusSummaryText.Text = BuildTodayCurrentFocusSummary(liveSession, snapshot, currentFocusSessionSeconds);
-        NowFocusFootnoteText.Visibility = Visibility.Collapsed;
+        NowFocusSummaryText.Text = BuildTodayCurrentFocusSummary(todayState, liveSession, visualState);
+        NowFocusFootnoteText.Text = "This matches the widget's last-focus-session metric.";
+        NowFocusFootnoteText.Visibility = Visibility.Visible;
         NowFocusStatusText.Visibility = Visibility.Collapsed;
     }
 
-    private void PopulateTodayDistractionCard(TodayPageMetrics todayMetrics)
+    private void PopulateTodayOverloadCard(
+        TodayTrackingState todayState,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        PortaVisualState visualState)
     {
-        if (todayMetrics.HasProcessedTimeline)
+        if (todayState == TodayTrackingState.Paused)
+        {
+            NowCalibrationStatusText.Text = "Overload: Paused";
+            NowCalibrationProgressText.Text = "Regulation: paused";
+            NowCalibrationQualityText.Text = "Today peak: Paused";
+            NowCalibrationColdStartText.Text = "Confidence: Paused";
+            NowCalibrationSummaryText.Text = "Overload updates resume once tracking is unpaused.";
+            NowCalibrationTrustCapText.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (snapshot == null)
+        {
+            NowCalibrationStatusText.Text = _latestStatus == null || !_latestStatus.ServiceRunning || !_latestStatus.LocalApiAuthReady
+                ? "Overload: n/a"
+                : $"Overload: {FillingInText}";
+            NowCalibrationProgressText.Text = "Regulation: waiting for snapshot";
+            NowCalibrationQualityText.Text = "Today peak: n/a";
+            NowCalibrationColdStartText.Text = "Confidence: n/a";
+            NowCalibrationSummaryText.Text = "Open Why when a fresh snapshot lands to inspect overload reasoning.";
+            NowCalibrationTrustCapText.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (snapshot.analysis_ready)
         {
             AnimateTopMetric(
-                metricKey: "today_distraction_total",
-                targetValue: Math.Max(0d, todayMetrics.DistractionTodaySeconds / 60d),
-                applyValue: value => NowCalibrationStatusText.Text = $"Distraction time today: {FormatReadableDuration(value * 60d)}");
-            NowCalibrationProgressText.Text = $"Tracked today: {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}";
-            NowCalibrationQualityText.Text = $"Focused share today: {todayMetrics.AverageFocusPercent:F0}%";
-            NowCalibrationColdStartText.Text = todayMetrics.MostDistractedHourLabel == NotAvailableText
-                ? $"Most distracted hour: {FillingInText}"
-                : $"Most distracted hour: {todayMetrics.MostDistractedHourLabel}";
-            NowCalibrationSummaryText.Text = "Built from today's tracked time.";
+                metricKey: "today_overload_level",
+                targetValue: Math.Max(0d, Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d) * 100d),
+                applyValue: value => NowCalibrationStatusText.Text = $"Overload: {value:F0}%");
         }
         else
         {
-            NowCalibrationStatusText.Text = $"Distraction time today: {FillingInText}";
-            NowCalibrationProgressText.Text = $"Tracked today: {FillingInText}";
-            NowCalibrationQualityText.Text = $"Focused share today: {FillingInText}";
-            NowCalibrationColdStartText.Text = $"Most distracted hour: {FillingInText}";
-            NowCalibrationSummaryText.Text = "Today's distraction total appears after Ari has enough tracked time.";
+            NowCalibrationStatusText.Text = "Overload: Pending";
         }
 
-        NowCalibrationTrustCapText.Visibility = Visibility.Collapsed;
+        bool overloadActive = snapshot.OverloadActive || snapshot.ActivationWindowOpen;
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> todaySnapshots = _todayTimeline?.Snapshots ?? [];
+        string peakText = todaySnapshots.Count == 0
+            ? "n/a"
+            : $"{(todaySnapshots.Max(s => Math.Clamp(s.OverloadLikelihood, 0d, 1d)) * 100d):F0}%";
+
+        NowCalibrationProgressText.Text = $"Regulation: {(overloadActive ? "active" : "normal")}";
+        NowCalibrationQualityText.Text = $"Today peak: {peakText}";
+        NowCalibrationColdStartText.Text = $"Confidence: {visualState.ConfidenceLabel}";
+        NowCalibrationSummaryText.Text = BuildNowOverloadSummary(snapshot);
+        NowCalibrationTrustCapText.Visibility = snapshot.analysis_ready ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void PopulateTodayStatusCard(
@@ -1428,12 +1502,12 @@ public partial class MainWindow : Window
         {
             if (todayMetrics.HasProcessedTimeline)
             {
-                return $"Tracking limited. You have focused {FormatReadableDuration(todayMetrics.FocusedTodaySeconds)} today. {readableExplanation}";
+                return $"Tracking limited. Work today is {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}. {readableExplanation}";
             }
 
             if (currentFocusSessionSeconds.HasValue)
             {
-                return $"Tracking limited. Ari still sees your current focus session. {readableExplanation}";
+                return $"Tracking limited. Ari still sees your last focus session while the history map catches up. {readableExplanation}";
             }
 
             return $"Tracking limited. {readableExplanation}";
@@ -1443,15 +1517,15 @@ public partial class MainWindow : Window
         {
             if (currentFocusSessionSeconds.HasValue)
             {
-                return $"Still tracking. You have focused {FormatReadableDuration(todayMetrics.FocusedTodaySeconds)} today, and your current focus session is {FormatReadableDuration(currentFocusSessionSeconds.Value)}.";
+                return $"Still tracking. Work today is {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}, and your last focus session is {FormatReadableDuration(currentFocusSessionSeconds.Value)}.";
             }
 
-            return $"Still tracking. You have focused {FormatReadableDuration(todayMetrics.FocusedTodaySeconds)} today and spent about {FormatReadableDuration(todayMetrics.DistractionTodaySeconds)} away from steady focus.";
+            return $"Still tracking. Work today is {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}. Open History to inspect the day-by-hour focus map.";
         }
 
         if (currentFocusSessionSeconds.HasValue)
         {
-            return "Still tracking. Ari sees your current focus session now, and today's totals are still filling in.";
+            return "Still tracking. Ari sees your last focus session now, and the history map is catching up.";
         }
 
         return $"Still tracking. {TodayPageCopyBuilder.BuildEmptyStateGuidance(todayState)}";
@@ -1499,26 +1573,42 @@ public partial class MainWindow : Window
     }
 
     private static string BuildTodayCurrentFocusSummary(
+        TodayTrackingState todayState,
         LocalApiLiveSessionStateResponse? liveSession,
-        LocalApiCurrentSnapshotResponse? snapshot,
-        double? currentFocusSessionSeconds)
+        PortaVisualState visualState)
     {
-        if (IsLiveSessionFresh(liveSession) && currentFocusSessionSeconds.HasValue)
+        if (todayState == TodayTrackingState.Paused)
         {
-            return "Updates from what Ari sees you doing right now.";
+            return "This resumes from the live focus timer after tracking is unpaused.";
         }
 
-        if (snapshot is { analysis_ready: false })
+        if (IsLiveSessionFresh(liveSession) && visualState.CurrentFocusSessionSeconds.HasValue)
         {
-            return "Current activity shows up first. Today's totals catch up after a few moments of steady work.";
+            return "This comes from the live focus timer first, then falls back to the latest analyzed block.";
         }
 
         if (IsLiveSessionFresh(liveSession) && liveSession!.idle)
         {
-            return "This session restarts after you return to focused work.";
+            return "This timer starts again after you return to focused work.";
         }
 
-        return "Open History for the full day pattern and longer focus blocks.";
+        if (!visualState.SnapshotAnalysisReady)
+        {
+            return "Live capture is connected, and the next analyzed block will pin this into History.";
+        }
+
+        return "This follows the same last-focus-session definition shown in the widget.";
+    }
+
+    private string BuildTodayHistoryStatusText()
+    {
+        LocalApiCurrentSnapshotResponse? latestProcessedSnapshot = _todayTimeline?.Snapshots.LastOrDefault();
+        if (latestProcessedSnapshot == null)
+        {
+            return "History status: waiting for processed buckets";
+        }
+
+        return $"History status: Updated {latestProcessedSnapshot.TimestampUtc.ToLocalTime():h:mm tt}";
     }
 
     private static string BuildTodayNextStepText(
@@ -1576,7 +1666,7 @@ public partial class MainWindow : Window
             && liveFocusSeconds.HasValue
             && snapshot is { analysis_ready: false })
         {
-            return $"Current focus session: {FormatFocusedTime(liveFocusSeconds.Value)}. Click for History once processed buckets catch up.";
+            return $"Last focus session: {FormatFocusedTime(liveFocusSeconds.Value)}. Click for History once processed buckets catch up.";
         }
 
         if (snapshot is { analysis_ready: false })
@@ -1589,7 +1679,7 @@ public partial class MainWindow : Window
         {
             return snapshot == null
                 ? "Open History once live focus buckets arrive."
-                : $"Current focus session: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}. Click for History.";
+                : $"Last focus session: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}. Click for History.";
         }
 
         double maxStreakSeconds = snapshots.Max(s => Math.Max(0d, s.SustainedAttentionDurationSec));
@@ -1969,17 +2059,17 @@ public partial class MainWindow : Window
         if (snapshot.PartialData == true && snapshot.MissingMajorChannels is { Count: > 0 })
         {
             string missing = string.Join("/", snapshot.MissingMajorChannels.Select(ToDisplayChannelName));
-            return $"Focus streak paused: missing {missing} signals.";
+            return $"Focus session paused: missing {missing} signals.";
         }
 
         if (snapshot.PartialData == true)
         {
-            return "Focus streak is conservative while data is partial.";
+            return "Focus session timing is conservative while data is partial.";
         }
 
         if (snapshot.SustainedAttentionDurationSec <= 0.5d)
         {
-            return "No continuous focus streak detected yet.";
+            return "No sustained focus session detected yet.";
         }
 
         return string.Empty;
@@ -5185,27 +5275,20 @@ public partial class MainWindow : Window
     {
         UpdateHistoryControls();
         HistoryCoordinateCanvas.Children.Clear();
+        HistoryHourLabelsPanel.Children.Clear();
         TimelineOverloadTrackPanel.Children.Clear();
         TimelineTrustTrackPanel.Children.Clear();
         TimelineFocusTrackPanel.Children.Clear();
         TimelineInterventionTrackPanel.Children.Clear();
         TimelineOverloadActiveOverlayPanel.Children.Clear();
 
-        if (timeline == null || timeline.Snapshots.Count == 0)
-        {
-            HistoryCoordinateCanvas.Width = 320d;
-            HistoryCoordinateEmptyText.Text = BuildHistoryEmptyChartText();
-            HistoryCoordinateEmptyText.Visibility = Visibility.Visible;
-            HistoryCoordinateXAxisText.Text = BuildHistoryXAxisText(null);
-            TimelineOverloadTrackPanel.Children.Add(new TextBlock { Text = "Pressure trends will appear here once this range fills in.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
-            TimelineTrustTrackPanel.Children.Add(new TextBlock { Text = "Confidence trends will appear here once this range fills in.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
-            TimelineFocusTrackPanel.Children.Add(new TextBlock { Text = "Focus-session trends will appear here once this range fills in.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
-            TimelineInterventionTrackPanel.Children.Add(new TextBlock { Text = "Action markers will appear here when Ari suggests or changes something in this range.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
-            TimelineOverloadActiveOverlayPanel.Children.Add(new TextBlock { Text = "Pressure-active windows will appear here once Ari has enough history for this range.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
-            PopulateHistorySummary(null, []);
-            SetTimelineDetail(null, null);
-            return;
-        }
+        (DateTimeOffset displayFromUtc, DateTimeOffset displayToUtc) = ResolveHistoryDisplayRangeUtc(DateTimeOffset.UtcNow);
+        HistoryFocusHeatmap heatmap = HistoryFocusHeatmapBuilder.Build(
+            timeline,
+            fallbackFromUtc: displayFromUtc,
+            fallbackToUtc: displayToUtc);
+        PopulateHistorySummary(heatmap);
+        RenderHistoryCoordinateHeatmap(heatmap);
 
         int maxPoints = _historyRange switch
         {
@@ -5214,20 +5297,29 @@ public partial class MainWindow : Window
             HistoryRange.AllTime => 720,
             _ => 600
         };
-        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = DownsampleSnapshots(timeline.Snapshots, maxPoints);
-        PopulateHistorySummary(timeline, snapshots);
-        RenderHistoryCoordinateChart(timeline, snapshots);
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = timeline == null
+            ? []
+            : DownsampleSnapshots(timeline.Snapshots, maxPoints);
 
         foreach (LocalApiCurrentSnapshotResponse snapshot in snapshots)
         {
             TimelineOverloadTrackPanel.Children.Add(BuildTrackPoint(snapshot, snapshot.OverloadLikelihood, Color.FromRgb(239, 68, 68), "Overload"));
             TimelineTrustTrackPanel.Children.Add(BuildTrackPoint(snapshot, snapshot.Confidence, Color.FromRgb(59, 130, 246), "Confidence"));
             double focusNormalized = Math.Clamp(snapshot.SustainedAttentionDurationSec / 3600d, 0d, 1d);
-            TimelineFocusTrackPanel.Children.Add(BuildTrackPoint(snapshot, focusNormalized, Color.FromRgb(34, 197, 94), "Current focus session"));
+            TimelineFocusTrackPanel.Children.Add(BuildTrackPoint(snapshot, focusNormalized, Color.FromRgb(34, 197, 94), "Focus block"));
             TimelineOverloadActiveOverlayPanel.Children.Add(BuildOverloadActiveMarker(snapshot));
         }
 
-        if (timeline.Interventions.Count == 0)
+        if (snapshots.Count == 0)
+        {
+            TimelineOverloadTrackPanel.Children.Add(new TextBlock { Text = "Pressure snapshots will appear here when processed blocks are available.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
+            TimelineTrustTrackPanel.Children.Add(new TextBlock { Text = "Confidence snapshots will appear here when processed blocks are available.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
+            TimelineFocusTrackPanel.Children.Add(new TextBlock { Text = "Focus blocks will appear here when processed blocks are available.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
+            TimelineOverloadActiveOverlayPanel.Children.Add(new TextBlock { Text = "Overload-active blocks will appear here when processed history is available.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
+        }
+
+        IReadOnlyList<LocalApiEventResponse> interventions = timeline?.Interventions ?? [];
+        if (interventions.Count == 0)
         {
             TimelineInterventionTrackPanel.Children.Add(new TextBlock
             {
@@ -5237,7 +5329,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            foreach (LocalApiEventResponse intervention in timeline.Interventions.OrderBy(static ev => ev.TimestampUtc))
+            foreach (LocalApiEventResponse intervention in interventions.OrderBy(static ev => ev.TimestampUtc))
             {
                 TimelineInterventionTrackPanel.Children.Add(BuildInterventionMarker(intervention));
             }
@@ -5248,11 +5340,12 @@ public partial class MainWindow : Window
         {
             _selectedHistorySnapshotTimestampUtc = null;
             _selectedHistoryInterventionId = null;
+            _selectedHistoryCellKey = null;
             _historySelectionExpiresUtc = null;
         }
 
         LocalApiEventResponse? selectedIntervention = _selectedHistoryInterventionId.HasValue
-            ? timeline.Interventions.FirstOrDefault(evt => evt.Id == _selectedHistoryInterventionId.Value)
+            ? interventions.FirstOrDefault(evt => evt.Id == _selectedHistoryInterventionId.Value)
             : null;
         if (selectedIntervention != null)
         {
@@ -5263,8 +5356,461 @@ public partial class MainWindow : Window
         LocalApiCurrentSnapshotResponse? selectedSnapshot = _selectedHistorySnapshotTimestampUtc.HasValue
             ? snapshots.FirstOrDefault(s => s.TimestampUtc == _selectedHistorySnapshotTimestampUtc.Value)
             : null;
+        if (selectedSnapshot != null)
+        {
+            SetTimelineDetail(selectedSnapshot, null);
+            return;
+        }
 
-        SetTimelineDetail(selectedSnapshot ?? snapshots.LastOrDefault(), null);
+        HistoryFocusHeatmapCell? selectedCell = heatmap.FindCell(_selectedHistoryCellKey);
+        SetTimelineCellDetail(selectedCell?.HasTracking == true ? selectedCell : heatmap.LatestPopulatedCell);
+    }
+
+    private void PopulateHistorySummary(HistoryFocusHeatmap heatmap)
+    {
+        if (!heatmap.HasAnyTracking)
+        {
+            HistorySummaryLeadText.Text = BuildHistoryEmptyLeadSentence();
+            HistoryRangeSummaryText.Text = "Tracked 0 min";
+            HistoryFocusSummaryText.Text = "Focused 0 min";
+            HistoryOverloadSummaryText.Text = "Best hour will appear here";
+            HistoryTrustSummaryText.Text = "No action markers yet";
+            HistoryActionsSummaryText.Text = "The heatmap stays visible and will fill as Ari records tracked hours.";
+            HistoryGuideText.Text = _historyExplainMode
+                ? "Advanced is on. Select a populated hour or action marker to inspect raw details."
+                : "Each cell shows focused time inside that hour. Click a populated hour or action marker for details.";
+            return;
+        }
+
+        HistorySummaryLeadText.Text = BuildHistoryLeadSentence(heatmap);
+        HistoryRangeSummaryText.Text = $"Tracked {FormatReadableDuration(heatmap.TotalTrackedSeconds)}";
+        HistoryFocusSummaryText.Text = $"Focused {FormatReadableDuration(heatmap.TotalFocusedSeconds)}";
+        HistoryOverloadSummaryText.Text = BuildHistoryBestHourSummary(heatmap.BestFocusCell);
+        HistoryTrustSummaryText.Text = heatmap.ActionMarkerCount == 1
+            ? "1 action marker"
+            : $"{heatmap.ActionMarkerCount} action markers";
+        HistoryActionsSummaryText.Text = BuildHistoryActionsSummary(heatmap);
+        HistoryGuideText.Text = _historyExplainMode
+            ? "Advanced is on. Click a populated hour or action marker to inspect the raw explanation and decision details for that block."
+            : "Hours run top to bottom and days run left to right. Click a populated hour for the block detail or use action markers for interventions.";
+    }
+
+    private void RenderHistoryCoordinateHeatmap(HistoryFocusHeatmap heatmap)
+    {
+        HistoryCoordinateCanvas.Children.Clear();
+        PopulateHistoryHourLabels();
+        HistoryCoordinateEmptyText.Text = BuildHistoryEmptyChartText();
+        HistoryCoordinateEmptyText.Visibility = heatmap.HasAnyTracking ? Visibility.Collapsed : Visibility.Visible;
+        HistoryCoordinateXAxisText.Text = BuildHistoryXAxisText(heatmap);
+
+        double canvasHeight = HistoryHeatmapHeaderHeight + (24d * HistoryHeatmapCellHeight) + HistoryHeatmapCanvasPadding;
+        double canvasWidth = Math.Max(
+            320d,
+            (HistoryHeatmapCanvasPadding * 2d) + (heatmap.Days.Count * HistoryHeatmapCellWidth));
+        HistoryCoordinateCanvas.Height = canvasHeight;
+        HistoryCoordinateCanvas.Width = canvasWidth;
+
+        foreach (HistoryFocusHeatmapDay day in heatmap.Days)
+        {
+            double x = HistoryHeatmapCanvasPadding + (day.DayIndex * HistoryHeatmapCellWidth);
+            double headerWidth = HistoryHeatmapCellWidth;
+
+            var header = new TextBlock
+            {
+                Text = heatmap.Days.Count > 8 ? day.ShortLabel : day.HeaderLabel,
+                Foreground = new SolidColorBrush(Color.FromRgb(203, 213, 225)),
+                FontWeight = FontWeights.SemiBold,
+                TextAlignment = TextAlignment.Center,
+                Width = headerWidth
+            };
+            Canvas.SetLeft(header, x);
+            Canvas.SetTop(header, 4d);
+            HistoryCoordinateCanvas.Children.Add(header);
+
+            var divider = new Line
+            {
+                X1 = x,
+                X2 = x,
+                Y1 = HistoryHeatmapHeaderHeight,
+                Y2 = canvasHeight,
+                Stroke = new SolidColorBrush(Color.FromRgb(36, 48, 66)),
+                StrokeThickness = 0.8d,
+                SnapsToDevicePixels = true
+            };
+            HistoryCoordinateCanvas.Children.Add(divider);
+        }
+
+        double rightEdge = HistoryHeatmapCanvasPadding + (heatmap.Days.Count * HistoryHeatmapCellWidth);
+        HistoryCoordinateCanvas.Children.Add(new Line
+        {
+            X1 = rightEdge,
+            X2 = rightEdge,
+            Y1 = HistoryHeatmapHeaderHeight,
+            Y2 = canvasHeight,
+            Stroke = new SolidColorBrush(Color.FromRgb(36, 48, 66)),
+            StrokeThickness = 0.8d,
+            SnapsToDevicePixels = true
+        });
+
+        for (int hour = 0; hour <= 24; hour++)
+        {
+            double y = HistoryHeatmapHeaderHeight + (hour * HistoryHeatmapCellHeight);
+            HistoryCoordinateCanvas.Children.Add(new Line
+            {
+                X1 = HistoryHeatmapCanvasPadding,
+                X2 = rightEdge,
+                Y1 = y,
+                Y2 = y,
+                Stroke = new SolidColorBrush(hour is 0 or 24 ? Color.FromRgb(71, 85, 105) : Color.FromRgb(36, 48, 66)),
+                StrokeThickness = hour is 0 or 24 ? 1d : 0.8d,
+                SnapsToDevicePixels = true
+            });
+        }
+
+        foreach (HistoryFocusHeatmapCell cell in heatmap.Cells)
+        {
+            double left = HistoryHeatmapCanvasPadding + (cell.DayIndex * HistoryHeatmapCellWidth) + 1d;
+            double top = HistoryHeatmapHeaderHeight + (cell.Hour * HistoryHeatmapCellHeight) + 1d;
+            bool selected = string.Equals(_selectedHistoryCellKey, cell.Key, StringComparison.Ordinal);
+
+            var label = new TextBlock
+            {
+                Text = BuildHistoryCellValueText(cell),
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = CreateHistoryHeatmapCellTextBrush(cell),
+                TextAlignment = TextAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+
+            var button = new Button
+            {
+                Width = HistoryHeatmapCellWidth - 2d,
+                Height = HistoryHeatmapCellHeight - 2d,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0),
+                BorderThickness = new Thickness(selected ? 1.6d : cell.Interventions.Count > 0 ? 1.2d : 0.8d),
+                BorderBrush = selected
+                    ? new SolidColorBrush(Color.FromRgb(147, 197, 253))
+                    : cell.Interventions.Count > 0
+                        ? new SolidColorBrush(Color.FromRgb(245, 158, 11))
+                        : new SolidColorBrush(Color.FromRgb(51, 65, 85)),
+                Background = CreateHistoryHeatmapCellBackground(cell, heatmap.MaxFocusedSecondsPerHour),
+                Content = label,
+                Tag = cell,
+                Cursor = Cursors.Hand,
+                Focusable = false,
+                ToolTip = BuildHistoryHeatmapCellTooltip(cell)
+            };
+            button.Click += TimelineHeatmapCellButton_Click;
+
+            Canvas.SetLeft(button, left);
+            Canvas.SetTop(button, top);
+            HistoryCoordinateCanvas.Children.Add(button);
+        }
+    }
+
+    private void PopulateHistoryHourLabels()
+    {
+        HistoryHourLabelsPanel.Children.Clear();
+        HistoryHourLabelsPanel.Children.Add(new Border { Height = HistoryHeatmapHeaderHeight });
+
+        for (int hour = 0; hour < 24; hour++)
+        {
+            HistoryHourLabelsPanel.Children.Add(new Border
+            {
+                Height = HistoryHeatmapCellHeight,
+                Child = new TextBlock
+                {
+                    Text = $"{hour:00}",
+                    Foreground = new SolidColorBrush(hour is 0 or 23 ? Color.FromRgb(148, 163, 184) : Color.FromRgb(100, 116, 139)),
+                    FontSize = 10,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextAlignment = TextAlignment.Right
+                }
+            });
+        }
+    }
+
+    private (DateTimeOffset FromUtc, DateTimeOffset ToUtc) ResolveHistoryDisplayRangeUtc(DateTimeOffset nowUtc)
+    {
+        return _historyRange switch
+        {
+            HistoryRange.Last1Hour => (nowUtc.AddHours(-1), nowUtc),
+            HistoryRange.Last4Hours => (nowUtc.AddHours(-4), nowUtc),
+            HistoryRange.Today => (nowUtc.Date, nowUtc),
+            HistoryRange.AllTime => (nowUtc.AddDays(-Math.Max(1, Math.Min(_retention?.RetentionDays ?? 7, 7))), nowUtc),
+            _ => (nowUtc.Date, nowUtc)
+        };
+    }
+
+    private string BuildHistoryXAxisText(HistoryFocusHeatmap heatmap)
+    {
+        if (heatmap.Days.Count == 0)
+        {
+            return "Days run left to right";
+        }
+
+        HistoryFocusHeatmapDay first = heatmap.Days[0];
+        HistoryFocusHeatmapDay last = heatmap.Days[^1];
+        return heatmap.Days.Count == 1
+            ? $"{first.HeaderLabel} | hours top to bottom"
+            : $"{first.ShortLabel} on the left through {last.ShortLabel} on the right";
+    }
+
+    private string BuildHistoryLeadSentence(HistoryFocusHeatmap heatmap)
+    {
+        string rangeLabel = heatmap.Days.Count == 1
+            ? heatmap.Days[0].HeaderLabel
+            : $"{heatmap.Days[0].ShortLabel} through {heatmap.Days[^1].ShortLabel}";
+
+        if (heatmap.BestFocusCell == null)
+        {
+            return $"Across {rangeLabel}, Ari mapped {FormatReadableDuration(heatmap.TotalFocusedSeconds)} of focused work inside {FormatReadableDuration(heatmap.TotalTrackedSeconds)} of tracked time.";
+        }
+
+        return $"Across {rangeLabel}, Ari mapped {FormatReadableDuration(heatmap.TotalFocusedSeconds)} of focused work inside {FormatReadableDuration(heatmap.TotalTrackedSeconds)} of tracked time. The strongest hour was {heatmap.BestFocusCell.LocalDate:ddd} {heatmap.BestFocusCell.Hour:00}:00 with {FormatReadableDuration(heatmap.BestFocusCell.FocusedSeconds)} focused.";
+    }
+
+    private string BuildHistoryBestHourSummary(HistoryFocusHeatmapCell? bestCell)
+    {
+        if (bestCell == null)
+        {
+            return "Best hour will appear here";
+        }
+
+        return $"{bestCell.LocalDate:ddd} {bestCell.Hour:00}:00 | {FormatReadableDuration(bestCell.FocusedSeconds)} focused";
+    }
+
+    private string BuildHistoryActionsSummary(HistoryFocusHeatmap heatmap)
+    {
+        if (heatmap.ActionMarkerCount == 0)
+        {
+            return "No action markers landed in this range yet. Click any populated hour for details.";
+        }
+
+        string markerLabel = heatmap.ActionMarkerCount == 1 ? "marker" : "markers";
+        return $"{heatmap.ActionMarkerCount} action {markerLabel} landed in this range. Click a populated hour or marker for details.";
+    }
+
+    private string BuildHistoryHeatmapCellTooltip(HistoryFocusHeatmapCell cell)
+    {
+        string prefix = $"{cell.LocalDate:yyyy-MM-dd} {cell.HourLabel}";
+        if (!cell.HasTracking)
+        {
+            return $"{prefix}{Environment.NewLine}No tracked work in this hour yet.";
+        }
+
+        return $"{prefix}{Environment.NewLine}Focused {FormatReadableDuration(cell.FocusedSeconds)} of {FormatReadableDuration(cell.TrackedSeconds)} tracked{Environment.NewLine}Overload {cell.AverageOverloadPercent:F0}% | Confidence {cell.AverageConfidencePercent:F0}%";
+    }
+
+    private static string BuildHistoryCellValueText(HistoryFocusHeatmapCell cell)
+    {
+        if (!cell.HasTracking)
+        {
+            return string.Empty;
+        }
+
+        double minutes = Math.Max(0d, Math.Round(cell.FocusedSeconds / 60d));
+        return minutes <= 0d ? "<1m" : $"{minutes:F0}m";
+    }
+
+    private static Brush CreateHistoryHeatmapCellTextBrush(HistoryFocusHeatmapCell cell)
+    {
+        if (!cell.HasTracking)
+        {
+            return new SolidColorBrush(Color.FromRgb(100, 116, 139));
+        }
+
+        return cell.FocusedSeconds >= 1800d
+            ? new SolidColorBrush(Color.FromRgb(240, 253, 244))
+            : new SolidColorBrush(Color.FromRgb(226, 232, 240));
+    }
+
+    private static Brush CreateHistoryHeatmapCellBackground(HistoryFocusHeatmapCell cell, double maxFocusedSecondsPerHour)
+    {
+        if (!cell.HasTracking)
+        {
+            return new SolidColorBrush(Color.FromRgb(11, 18, 32));
+        }
+
+        if (cell.FocusedSeconds <= 0.5d)
+        {
+            return new SolidColorBrush(Color.FromRgb(30, 41, 59));
+        }
+
+        double intensity = maxFocusedSecondsPerHour <= 0d
+            ? Math.Clamp(cell.AverageFocusPercent / 100d, 0d, 1d)
+            : Math.Clamp(cell.FocusedSeconds / maxFocusedSecondsPerHour, 0d, 1d);
+        byte alpha = (byte)Math.Round(90d + (intensity * 125d));
+        byte red = (byte)Math.Round(17d + (intensity * 18d));
+        byte green = (byte)Math.Round(58d + (intensity * 105d));
+        byte blue = (byte)Math.Round(42d + (intensity * 47d));
+        return new SolidColorBrush(Color.FromArgb(alpha, red, green, blue));
+    }
+
+    private void TimelineHeatmapCellButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && button.Tag is HistoryFocusHeatmapCell cell)
+        {
+            _selectedHistoryInterventionId = null;
+            _selectedHistorySnapshotTimestampUtc = null;
+            _selectedHistoryCellKey = cell.Key;
+            _historySelectionExpiresUtc = DateTimeOffset.UtcNow.Add(HistorySelectionHold);
+            SetTimelineCellDetail(cell);
+        }
+    }
+
+    private void SetTimelineCellDetail(HistoryFocusHeatmapCell? cell)
+    {
+        if (cell == null)
+        {
+            TimelineDetailTimestamp.Text = _historyExplainMode
+                ? $"Hour: {NotAvailableText}"
+                : "Hour: Select a heatmap cell or action marker to inspect a block of time.";
+            TimelineDetailOverload.Text = _historyExplainMode
+                ? $"Tracked: {NotAvailableText}"
+                : "Tracked time in that hour: This will appear after you select a heatmap cell.";
+            TimelineDetailTrust.Text = _historyExplainMode
+                ? $"Confidence: {NotAvailableText}"
+                : "Confidence in that hour: This will appear after you select a heatmap cell.";
+            TimelineDetailFocus.Text = _historyExplainMode
+                ? $"Focused: {NotAvailableText}"
+                : "Focused time in that hour: This will appear after you select a heatmap cell.";
+            TimelineDetailClassification.Text = _historyExplainMode
+                ? "Hour type: Select a heatmap cell to inspect raw details."
+                : "What happened here: Select a heatmap hour to see what Ari understood about that block.";
+            TimelineDetailExecution.Text = _historyExplainMode
+                ? "Decision / execution: Select an action marker to inspect the exact recommendation or change."
+                : "Action around this hour: Select an action marker to see what Ari suggested or changed.";
+            TimelineDetailWhyHeader.Text = _historyExplainMode ? "Why? (Detailed)" : "What Ari saw in that hour";
+            TimelineDetailWhyFiv.Text = _historyExplainMode
+                ? "Focus / pressure / movement: Select a heatmap cell to inspect the raw breakdown."
+                : "Focus / pressure / movement: Ari will explain this after you select an hour.";
+            TimelineDetailWhyReasons.Text = _historyExplainMode
+                ? "Top reasons: Select a heatmap cell to inspect the strongest contributors."
+                : "Main signals: Ari will list the strongest signals after you select an hour.";
+            TimelineDetailWhyQuality.Text = _historyExplainMode
+                ? "Quality: Select a heatmap cell to inspect the tracked snapshots behind it."
+                : "Tracking quality: This will appear with the selected hour.";
+            TimelineDetailStabilization.Text = _historyExplainMode
+                ? "Stabilization: Select a heatmap cell to inspect the latest processed block in that hour."
+                : "Context: Use this panel to understand what Ari saw around the selected hour.";
+            return;
+        }
+
+        TimelineDetailTimestamp.Text = $"Hour: {cell.LocalDate:dddd, MMM d} {cell.HourLabel}";
+        TimelineDetailOverload.Text = _historyExplainMode
+            ? $"Tracked: {FormatReadableDuration(cell.TrackedSeconds)} | Focused: {FormatReadableDuration(cell.FocusedSeconds)}"
+            : $"Tracked time in that hour: {FormatReadableDuration(cell.TrackedSeconds)} | Focused: {FormatReadableDuration(cell.FocusedSeconds)}";
+        TimelineDetailTrust.Text = _historyExplainMode
+            ? $"Confidence: {cell.AverageConfidencePercent:F0}% | Avg overload: {cell.AverageOverloadPercent:F0}%"
+            : $"Confidence in that hour: {cell.AverageConfidencePercent:F0}% | Average overload: {cell.AverageOverloadPercent:F0}%";
+        TimelineDetailFocus.Text = _historyExplainMode
+            ? $"Focus block: {FormatFocusedTime(cell.LongestFocusBlockSeconds)}"
+            : $"Focused time in that hour: {FormatReadableDuration(cell.FocusedSeconds)} | Longest focus block: {FormatFocusedTime(cell.LongestFocusBlockSeconds)}";
+        TimelineDetailClassification.Text = _historyExplainMode
+            ? $"Hour type: {BuildHistoryCellWhatHappened(cell)}"
+            : $"What happened here: {BuildHistoryCellWhatHappened(cell)}";
+        TimelineDetailExecution.Text = BuildHistoryCellExecutionText(cell);
+        TimelineDetailWhyHeader.Text = _historyExplainMode ? "Why? (Detailed)" : "What Ari saw in that hour";
+        TimelineDetailWhyFiv.Text = _historyExplainMode
+            ? $"focus_avg={cell.AverageFocusPercent:F1}% | overload_avg={cell.AverageOverloadPercent:F1}% | snapshots={cell.SnapshotCount}"
+            : $"Focus / pressure / movement: {BuildHistoryCellMomentSummary(cell)}";
+        TimelineDetailWhyReasons.Text = BuildHistoryCellSignalsText(cell);
+        TimelineDetailWhyQuality.Text = BuildHistoryCellTrackingQualityText(cell);
+        TimelineDetailStabilization.Text = BuildHistoryCellContextText(cell);
+    }
+
+    private static string BuildHistoryCellWhatHappened(HistoryFocusHeatmapCell cell)
+    {
+        if (!cell.HasTracking)
+        {
+            return "No tracked work landed in this hour.";
+        }
+
+        if (cell.FocusedSeconds >= 2700d && cell.AverageOverloadPercent <= 35d)
+        {
+            return "This was a strong, sustained focus hour.";
+        }
+
+        if (cell.AverageFocusPercent <= 25d)
+        {
+            return "This hour was mostly scattered or away from steady focus.";
+        }
+
+        if (cell.TrackedSeconds <= 900d)
+        {
+            return "Only a short tracked window landed in this hour.";
+        }
+
+        return "This hour mixed focused work with some switching or lighter activity.";
+    }
+
+    private string BuildHistoryCellMomentSummary(HistoryFocusHeatmapCell cell)
+    {
+        if (!cell.HasTracking)
+        {
+            return "No tracked work landed in this hour yet.";
+        }
+
+        return $"Ari mapped {FormatReadableDuration(cell.FocusedSeconds)} of focused work inside {FormatReadableDuration(cell.TrackedSeconds)} tracked during this hour.";
+    }
+
+    private string BuildHistoryCellSignalsText(HistoryFocusHeatmapCell cell)
+    {
+        if (cell.LatestSnapshot?.Contributors is { Count: > 0 } contributors)
+        {
+            string joined = string.Join(", ", contributors.Take(6));
+            return _historyExplainMode
+                ? $"Top reasons: {FormatTopReasons(joined, _historyExplainMode)}"
+                : $"Main signals: {FormatTopReasons(joined, _historyExplainMode)}";
+        }
+
+        return _historyExplainMode
+            ? "Top reasons: No contributor list is available for the latest processed block in this hour."
+            : "Main signals: Ari did not expose a contributor list for the latest processed block in this hour.";
+    }
+
+    private string BuildHistoryCellTrackingQualityText(HistoryFocusHeatmapCell cell)
+    {
+        return _historyExplainMode
+            ? $"Quality: avg confidence {cell.AverageConfidencePercent:F0}% across {cell.SnapshotCount} snapshots"
+            : $"Tracking quality: Avg confidence {cell.AverageConfidencePercent:F0}% across {cell.SnapshotCount} processed snapshots.";
+    }
+
+    private string BuildHistoryCellExecutionText(HistoryFocusHeatmapCell cell)
+    {
+        if (cell.Interventions.Count == 0)
+        {
+            return _historyExplainMode
+                ? "Decision / execution: No action marker landed in this hour."
+                : "Action around this hour: No action marker landed in this hour.";
+        }
+
+        LocalApiEventResponse latest = cell.Interventions[^1];
+        string actionLabel = ToActionTitle(latest);
+        string markerLabel = cell.Interventions.Count == 1 ? "marker" : "markers";
+        return _historyExplainMode
+            ? $"Decision / execution: {cell.Interventions.Count} action {markerLabel} in this hour. Latest: {actionLabel}."
+            : $"Action around this hour: {cell.Interventions.Count} action {markerLabel} landed here. Latest: {actionLabel}.";
+    }
+
+    private string BuildHistoryCellContextText(HistoryFocusHeatmapCell cell)
+    {
+        if (cell.LatestSnapshot == null)
+        {
+            return _historyExplainMode
+                ? "Stabilization: No processed snapshot is available for this hour."
+                : "Context: No processed snapshot is available for this hour.";
+        }
+
+        string prefix = _historyExplainMode
+            ? $"Latest processed block: {cell.LatestSnapshot.TimestampUtc.ToLocalTime():HH:mm:ss}. "
+            : $"Context: Latest processed block in this hour landed at {cell.LatestSnapshot.TimestampUtc.ToLocalTime():HH:mm:ss}. ";
+        return prefix + BuildHistoryContextText(cell.LatestSnapshot.StateFlagsJson);
     }
 
     private void PopulateHistorySummary(
@@ -5275,27 +5821,27 @@ public partial class MainWindow : Window
         if (!insights.HasTimeline || snapshots.Count == 0)
         {
             HistorySummaryLeadText.Text = BuildHistoryEmptyLeadSentence();
-            HistoryRangeSummaryText.Text = "Focus time will appear here";
-            HistoryFocusSummaryText.Text = "Longest focus block will appear here";
-            HistoryOverloadSummaryText.Text = "Distraction time will appear here";
-            HistoryTrustSummaryText.Text = "Pattern insight will appear here";
+            HistoryRangeSummaryText.Text = "Tracked time will appear here";
+            HistoryFocusSummaryText.Text = "Focused time will appear here";
+            HistoryOverloadSummaryText.Text = "Best hour will appear here";
+            HistoryTrustSummaryText.Text = "Actions will appear here";
             HistoryActionsSummaryText.Text = _historyRange == HistoryRange.Today
                 ? "Keep working and action markers will start showing here."
-                : "Try a wider range or keep working and this view will start filling in.";
+                : "Try a wider range or keep working and this view will stay pinned here as history arrives.";
             HistoryGuideText.Text = _historyExplainMode
                 ? "Advanced is on. Raw details will appear here once this range has timeline data."
-                : "History fills in after Ari has enough tracked time in the selected range.";
+                : "The hour map stays pinned here and fills as Ari tracks more time in this range.";
             return;
         }
 
         if (timeline == null)
         {
             HistorySummaryLeadText.Text = BuildHistoryEmptyLeadSentence();
-            HistoryRangeSummaryText.Text = "Focus time will appear here";
-            HistoryFocusSummaryText.Text = "Longest focus block will appear here";
-            HistoryOverloadSummaryText.Text = "Distraction time will appear here";
-            HistoryTrustSummaryText.Text = "Pattern insight will appear here";
-            HistoryActionsSummaryText.Text = "Action markers will appear here once this range fills in.";
+            HistoryRangeSummaryText.Text = "Tracked time will appear here";
+            HistoryFocusSummaryText.Text = "Focused time will appear here";
+            HistoryOverloadSummaryText.Text = "Best hour will appear here";
+            HistoryTrustSummaryText.Text = "Actions will appear here";
+            HistoryActionsSummaryText.Text = "Action markers will appear here once this range has retained history.";
             HistoryGuideText.Text = "History is waiting for timeline data for this range.";
             return;
         }
@@ -5543,11 +6089,11 @@ public partial class MainWindow : Window
     {
         return _historyRange switch
         {
-            HistoryRange.Last1Hour => "The last hour is still filling in. Keep working a little longer or switch to Today for a broader view.",
-            HistoryRange.Last4Hours => "The last 4 hours are still filling in. Keep working a little longer or switch to Today for a broader view.",
-            HistoryRange.Today => "History is waiting for enough tracked time to map your focus blocks, distraction time, and actions from today.",
-            HistoryRange.AllTime => "Retained history will appear here once enough tracked time is available in the stored range.",
-            _ => "History will start filling in after Ari has enough tracked time."
+            HistoryRange.Last1Hour => "No tracked focus blocks landed in the last hour yet. The hour map stays pinned here as new blocks arrive.",
+            HistoryRange.Last4Hours => "No tracked focus blocks landed in the last 4 hours yet. The hour map stays pinned here as new blocks arrive.",
+            HistoryRange.Today => "No tracked focus blocks from today are available yet. The hour map stays pinned here as new blocks arrive.",
+            HistoryRange.AllTime => "No retained focus history is available yet. The hour map stays pinned here as new stored days arrive.",
+            _ => "No tracked focus blocks are available in this range yet."
         };
     }
 
@@ -5555,11 +6101,11 @@ public partial class MainWindow : Window
     {
         return _historyRange switch
         {
-            HistoryRange.Last1Hour => "The last hour is still filling in. Keep working a little longer or switch to Today.",
-            HistoryRange.Last4Hours => "The last 4 hours are still filling in. Keep working a little longer or switch to Today.",
-            HistoryRange.Today => "Today is still filling in. Ari will draw focus, distraction, and action markers once more tracked time is available.",
-            HistoryRange.AllTime => "Retained history is still filling in. Ari will draw longer-term patterns once enough stored time is available.",
-            _ => "History is still filling in for this range."
+            HistoryRange.Last1Hour => "No tracked focus blocks landed in the last hour yet.",
+            HistoryRange.Last4Hours => "No tracked focus blocks landed in the last 4 hours yet.",
+            HistoryRange.Today => "No tracked focus blocks from today are available yet.",
+            HistoryRange.AllTime => "No retained focus history is available yet.",
+            _ => "No tracked focus blocks are available in this range yet."
         };
     }
 
@@ -5680,7 +6226,7 @@ public partial class MainWindow : Window
         {
             "Overload" => $"{time} | Pressure was {(Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d) * 100d):F0}%.",
             "Confidence" => $"{time} | Confidence was {(Math.Clamp(snapshot.Confidence, 0d, 1d) * 100d):F0}%.",
-            "Current focus session" => $"{time} | Focus block was {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}.",
+            "Focus block" => $"{time} | Focus block was {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}.",
             _ => $"{time} | Value: {normalizedValue:F2}"
         };
     }
@@ -5690,6 +6236,7 @@ public partial class MainWindow : Window
         if (sender is Button button && button.Tag is LocalApiCurrentSnapshotResponse snapshot)
         {
             _selectedHistoryInterventionId = null;
+            _selectedHistoryCellKey = null;
             _selectedHistorySnapshotTimestampUtc = snapshot.TimestampUtc;
             _historySelectionExpiresUtc = DateTimeOffset.UtcNow.Add(HistorySelectionHold);
             SetTimelineDetail(snapshot, null);
@@ -5700,6 +6247,7 @@ public partial class MainWindow : Window
     {
         if (sender is Button button && button.Tag is LocalApiEventResponse intervention)
         {
+            _selectedHistoryCellKey = null;
             _selectedHistorySnapshotTimestampUtc = null;
             _selectedHistoryInterventionId = intervention.Id;
             _historySelectionExpiresUtc = DateTimeOffset.UtcNow.Add(HistorySelectionHold);
@@ -5713,35 +6261,35 @@ public partial class MainWindow : Window
         {
             TimelineDetailTimestamp.Text = _historyExplainMode
                 ? $"Timestamp: {NotAvailableText}"
-                : "Time: Select a point in the chart or an action marker to inspect a moment.";
+                : "Hour: Select a heatmap cell, snapshot, or action marker to inspect a block of time.";
             TimelineDetailOverload.Text = _historyExplainMode
                 ? $"Overload: {NotAvailableText}"
-                : "Pressure in that moment: This will appear after you select a point in the chart.";
+                : "Tracked time in that hour: This will appear after you select a heatmap cell or snapshot.";
             TimelineDetailTrust.Text = _historyExplainMode
                 ? $"Confidence: {NotAvailableText}"
-                : "Confidence in that moment: This will appear after you select a point in the chart.";
+                : "Confidence in that hour: This will appear after you select a heatmap cell or snapshot.";
             TimelineDetailFocus.Text = _historyExplainMode
                 ? $"Focus block: {NotAvailableText}"
-                : "Focus block in that moment: This will appear after you select a point in the chart.";
+                : "Focused time in that hour: This will appear after you select a heatmap cell or snapshot.";
             TimelineDetailClassification.Text = _historyExplainMode
-                ? "Moment type: Select a point or marker to inspect raw details."
-                : "What happened here: Select a moment to see what Ari understood about it.";
+                ? "Moment type: Select a cell, snapshot, or marker to inspect raw details."
+                : "What happened here: Select a heatmap hour, snapshot, or marker to see what Ari understood about it.";
             TimelineDetailExecution.Text = _historyExplainMode
                 ? "Decision / execution: Select an action marker to inspect the exact recommendation or change."
-                : "Action around this moment: Select an action marker to see what Ari suggested or changed.";
+                : "Action around this hour: Select an action marker to see what Ari suggested or changed.";
             TimelineDetailWhyHeader.Text = _historyExplainMode ? "Why? (Detailed)" : "What Ari saw";
             TimelineDetailWhyFiv.Text = _historyExplainMode
-                ? "Clarity/Pressure/Jitter: Select a point to inspect the raw model breakdown."
-                : "Focus / pressure / movement: Ari will explain this after you select a moment.";
+                ? "Clarity/Pressure/Jitter: Select a cell or snapshot to inspect the raw model breakdown."
+                : "Focus / pressure / movement: Ari will explain this after you select an hour.";
             TimelineDetailWhyReasons.Text = _historyExplainMode
-                ? "Top reasons: Select a point to inspect the strongest contributors."
-                : "Main signals: Ari will list the strongest signals after you select a moment.";
+                ? "Top reasons: Select a cell or snapshot to inspect the strongest contributors."
+                : "Main signals: Ari will list the strongest signals after you select an hour.";
             TimelineDetailWhyQuality.Text = _historyExplainMode
-                ? "Quality: Select a point to inspect model quality and agreement."
-                : "Tracking quality: This will appear with the selected moment.";
+                ? "Quality: Select a cell or snapshot to inspect model quality and agreement."
+                : "Tracking quality: This will appear with the selected hour.";
             TimelineDetailStabilization.Text = _historyExplainMode
-                ? "Stabilization: Select a point to inspect stabilization flags."
-                : "Context: Use this panel to understand what Ari saw before and during a focus shift.";
+                ? "Stabilization: Select a cell or snapshot to inspect stabilization flags."
+                : "Context: Use this panel to understand what Ari saw around the selected hour.";
             return;
         }
 

@@ -433,7 +433,7 @@
                 <ScrollViewer x:Name="OverviewPanel" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
                         <TextBlock x:Name="TodaySummaryText"
-                                   Text="Today fills in the most important focus information first."
+                                   Text="Today keeps work, last focus session, overload, and status in one place."
                                    Foreground="#9AA4B2"
                                    FontSize="13"
                                    Margin="0,0,0,10" />
@@ -448,15 +448,15 @@
                                     Margin="0,0,8,0"
                                     Cursor="Hand"
                                     MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
-                                    Tag="today-focus"
-                                    ToolTip="Open History for today's focus details">
+                                    Tag="today-work"
+                                    ToolTip="Open History for today's work map">
                                 <StackPanel>
-                                    <TextBlock Text="Focused today" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowOverloadValueText" Text="Focused today: Filling in" FontSize="26" FontWeight="Bold" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowOverloadActiveText" Text="Best focus block: Filling in" Margin="0,6,0,0" />
+                                    <TextBlock Text="Work today" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowOverloadValueText" Text="Work today: Filling in" FontSize="26" FontWeight="Bold" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowOverloadActiveText" Text="History status: Filling in" Margin="0,6,0,0" />
                                     <TextBlock x:Name="NowOverloadTrustText" Text="Confidence: Not available" Margin="0,4,0,8" Visibility="Collapsed" />
                                     <TextBlock x:Name="NowOverloadSummaryText"
-                                               Text="Today's focus total appears here as your day fills in."
+                                               Text="Open History to see today's focus map hour by hour."
                                                Margin="0,0,0,8"
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
@@ -468,24 +468,24 @@
                                     Margin="8,0,0,0"
                                     Cursor="Hand"
                                     MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
-                                    Tag="current-focus"
-                                    ToolTip="Open History for focus details">
+                                    Tag="last-focus"
+                                    ToolTip="Open History for last focus-session details">
                                 <StackPanel>
-                                    <TextBlock Text="Current focus session" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowFocusStreakValueText" Text="Current focus session: Not available" FontSize="26" FontWeight="Bold" TextWrapping="Wrap" />
+                                    <TextBlock Text="Last focus session" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowFocusStreakValueText" Text="Last focus session: Not available" FontSize="26" FontWeight="Bold" TextWrapping="Wrap" />
                                     <TextBlock x:Name="NowDeepWorkStreakText"
                                                Text=""
                                                Margin="0,6,0,0"
                                                Foreground="{StaticResource PortaTextSecondaryBrush}"
                                                FontWeight="SemiBold"
                                                Visibility="Collapsed" />
-                                    <TextBlock x:Name="NowFocusChoppinessText" Text="Focused now: Not available" Margin="0,8,0,0" />
+                                    <TextBlock x:Name="NowFocusChoppinessText" Text="Live activity: Not available" Margin="0,8,0,0" />
                                     <TextBlock x:Name="NowFocusSummaryText"
-                                               Text="This updates from what Ari sees you doing right now."
+                                               Text="This follows the same focus-session definition used in the widget."
                                                Margin="0,8,0,0"
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowFocusFootnoteText" Text="Short pauses and quick app checks do not break the streak." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" Visibility="Collapsed" />
+                                    <TextBlock x:Name="NowFocusFootnoteText" Text="Short pauses do not immediately reset the live focus timer." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" Visibility="Collapsed" />
                                     <TextBlock x:Name="NowFocusStatusText" Text="" Margin="0,6,0,0" Foreground="#F59E0B" TextWrapping="Wrap" Visibility="Collapsed" />
                                 </StackPanel>
                             </Border>
@@ -501,20 +501,20 @@
                                     Margin="0,0,8,0"
                                     Cursor="Hand"
                                     MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
-                                    Tag="today-distraction"
-                                    ToolTip="Open History for distraction details">
+                                    Tag="today-overload"
+                                    ToolTip="Open Why for overload details">
                                 <StackPanel>
-                                    <TextBlock Text="Distraction time today" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowCalibrationStatusText" Text="Distraction time today: Filling in" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowCalibrationProgressText" Text="Tracked today: Filling in" Margin="0,6,0,0" />
-                                    <TextBlock x:Name="NowCalibrationQualityText" Text="Focused share today: Filling in" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="NowCalibrationColdStartText" Text="Most distracted hour: Filling in" Margin="0,4,0,0" />
+                                    <TextBlock Text="Overload" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowCalibrationStatusText" Text="Overload: Filling in" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowCalibrationProgressText" Text="Regulation: Filling in" Margin="0,6,0,0" />
+                                    <TextBlock x:Name="NowCalibrationQualityText" Text="Today peak: Filling in" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="NowCalibrationColdStartText" Text="Confidence: Filling in" Margin="0,4,0,0" />
                                     <TextBlock x:Name="NowCalibrationSummaryText"
-                                               Text="This uses today's tracked time rather than moment-to-moment activity."
+                                               Text="Open Why to inspect Ari's current overload reasoning."
                                                Margin="0,8,0,0"
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowCalibrationTrustCapText" Text="Confidence is capped until enough baseline data accumulates." Foreground="#FB923C" Margin="0,8,0,0" Visibility="Collapsed" />
+                                    <TextBlock x:Name="NowCalibrationTrustCapText" Text="Analysis is still catching up for overload details." Foreground="#FB923C" Margin="0,8,0,0" Visibility="Collapsed" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="NowDataQualityCard"
@@ -1279,25 +1279,25 @@
                                 </Grid.ColumnDefinitions>
                                 <Border Grid.Column="0" Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Focused in this range" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Tracked time" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="HistoryRangeSummaryText" Text="No data yet" Foreground="#F8FAFC" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="1" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Longest focus block" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Focused time" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="HistoryFocusSummaryText" Text="No data yet" Foreground="#DCFCE7" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="2" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Distraction in this range" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Best hour" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="HistoryOverloadSummaryText" Text="No data yet" Foreground="#FECACA" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="3" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,0,0">
                                     <StackPanel>
-                                        <TextBlock Text="Pattern + actions" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Actions in this range" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="HistoryTrustSummaryText" Text="No data yet" Foreground="#DBEAFE" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                         <TextBlock x:Name="HistoryActionsSummaryText" Text="No data yet" Foreground="#CBD5E1" FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
@@ -1306,24 +1306,24 @@
 
                             <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                                 <TextBlock x:Name="HistoryGuideText"
-                                           Text="Read left to right to see how focus, pressure, confidence, and actions changed through this range."
+                                           Text="Each column is a day and each row is an hour. Darker cells mean more focused time in that hour."
                                            Foreground="#CBD5E1"
                                            TextWrapping="Wrap" />
                             </Border>
 
                             <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                                 <StackPanel>
-                                    <TextBlock Text="Focus, pressure, and confidence over time" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                    <TextBlock Text="Time runs left to right. Higher focus suggests steadier work. Pressure rises when Ari sees overload risk. Action markers show when Ari suggested or changed something." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                    <TextBlock Text="Focus hours by day" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                    <TextBlock Text="Hours run top to bottom and days run left to right. Each cell shows how much focused time Ari mapped in that hour. Click a cell for details." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
                                     <WrapPanel Margin="0,0,0,10">
                                         <Border Background="#123524" BorderBrush="#1B6B3A" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Focus" Foreground="#86EFAC" FontSize="11" />
+                                            <TextBlock Text="More focused time" Foreground="#86EFAC" FontSize="11" />
                                         </Border>
-                                        <Border Background="#3A1212" BorderBrush="#7F1D1D" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Pressure" Foreground="#FCA5A5" FontSize="11" />
+                                        <Border Background="#1E293B" BorderBrush="#334155" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Tracked, low focus" Foreground="#CBD5E1" FontSize="11" />
                                         </Border>
-                                        <Border Background="#132C4A" BorderBrush="#1D4ED8" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Confidence" Foreground="#BFDBFE" FontSize="11" />
+                                        <Border Background="#0B1220" BorderBrush="#243042" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="No tracked time" Foreground="#94A3B8" FontSize="11" />
                                         </Border>
                                     </WrapPanel>
                                     <Grid>
@@ -1336,25 +1336,18 @@
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
 
-                                        <StackPanel Grid.Column="0" Grid.Row="0" Height="220" VerticalAlignment="Stretch" Margin="0,4,8,0">
-                                            <TextBlock Text="100" Foreground="#94A3B8" FontSize="10" />
-                                            <TextBlock Text="75" Foreground="#64748B" FontSize="10" Margin="0,42,0,0" />
-                                            <TextBlock Text="50" Foreground="#64748B" FontSize="10" Margin="0,42,0,0" />
-                                            <TextBlock Text="25" Foreground="#64748B" FontSize="10" Margin="0,42,0,0" />
-                                            <TextBlock Text="0" Foreground="#94A3B8" FontSize="10" Margin="0,42,0,0" />
-                                        </StackPanel>
+                                        <StackPanel x:Name="HistoryHourLabelsPanel" Grid.Column="0" Grid.Row="0" VerticalAlignment="Top" Margin="0,0,8,0" />
 
                                         <Grid Grid.Column="1" Grid.Row="0">
                                             <Border Background="#0B1220" BorderBrush="#243042" BorderThickness="1" CornerRadius="12">
                                                 <ScrollViewer x:Name="HistoryCoordinateScrollViewer"
-                                                              Height="236"
                                                               HorizontalScrollBarVisibility="Auto"
                                                               VerticalScrollBarVisibility="Disabled">
-                                                    <Canvas x:Name="HistoryCoordinateCanvas" Height="220" />
+                                                    <Canvas x:Name="HistoryCoordinateCanvas" Height="592" />
                                                 </ScrollViewer>
                                             </Border>
                                             <TextBlock x:Name="HistoryCoordinateEmptyText"
-                                                       Text="History is still filling in for this range."
+                                                       Text="No tracked focus blocks are available in this range yet."
                                                        Foreground="#CBD5E1"
                                                        FontWeight="SemiBold"
                                                        HorizontalAlignment="Center"
@@ -1365,7 +1358,7 @@
                                         <TextBlock Grid.Column="1"
                                                    Grid.Row="1"
                                                    x:Name="HistoryCoordinateXAxisText"
-                                                   Text="Oldest on the left, newest on the right"
+                                                   Text="Days run left to right"
                                                    Foreground="#94A3B8"
                                                    Margin="6,8,0,0" />
                                     </Grid>
@@ -1394,7 +1387,7 @@
                                     </ScrollViewer>
                                 </Border>
 
-                                    <TextBlock Text="Current focus session" FontWeight="SemiBold" />
+                                    <TextBlock Text="Focus block at each snapshot" FontWeight="SemiBold" />
                                 <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
                                     <ScrollViewer x:Name="TimelineFocusScrollViewer" Height="72" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                         <StackPanel x:Name="TimelineFocusTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
@@ -1411,19 +1404,19 @@
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,24">
                             <StackPanel>
-                                <TextBlock Text="Selected moment" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <TextBlock Text="Click the chart or an action marker to see what was happening in plain language. Turn on Advanced for raw details." Foreground="#94A3B8" Margin="0,0,0,12" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailTimestamp" Text="Time: Select a point or marker to inspect a moment." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailOverload" Text="Pressure in that moment: This will appear after you select a point in the chart." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailTrust" Text="Confidence in that moment: This will appear after you select a point in the chart." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailFocus" Text="Focus block in that moment: This will appear after you select a point in the chart." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailClassification" Text="What happened here: Select a moment to see what Ari understood about it." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
+                                <TextBlock Text="Selected detail" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                <TextBlock Text="Click a heatmap hour or an action marker to inspect that part of the day in plain language. Turn on Advanced for raw details." Foreground="#94A3B8" Margin="0,0,0,12" TextWrapping="Wrap" />
+                                <TextBlock x:Name="TimelineDetailTimestamp" Text="Hour: Select a heatmap cell or action marker to inspect a block of time." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                <TextBlock x:Name="TimelineDetailOverload" Text="Tracked time in that hour: This will appear after you select a heatmap cell." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                <TextBlock x:Name="TimelineDetailTrust" Text="Confidence in that hour: This will appear after you select a heatmap cell." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                <TextBlock x:Name="TimelineDetailFocus" Text="Focused time in that hour: This will appear after you select a heatmap cell." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                <TextBlock x:Name="TimelineDetailClassification" Text="What happened here: Select a heatmap hour to see what Ari understood about that block." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
                                 <TextBlock x:Name="TimelineDetailExecution" Text="Action around this moment: Select an action marker to see what Ari suggested or changed." TextWrapping="Wrap" Margin="0,0,0,10" Foreground="#93C5FD" />
-                                <TextBlock x:Name="TimelineDetailWhyHeader" Text="What Ari saw" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
-                                <TextBlock x:Name="TimelineDetailWhyFiv" Text="Focus / pressure / movement: Ari will explain this after you select a moment." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock x:Name="TimelineDetailWhyReasons" Text="Main signals: Ari will list the strongest signals after you select a moment." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock x:Name="TimelineDetailWhyQuality" Text="Tracking quality: This will appear with the selected moment." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock x:Name="TimelineDetailStabilization" Text="Context: Use this panel to understand what Ari saw before and during a focus shift." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
+                                <TextBlock x:Name="TimelineDetailWhyHeader" Text="What Ari saw in that hour" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
+                                <TextBlock x:Name="TimelineDetailWhyFiv" Text="Focus / pressure / movement: Ari will explain this after you select an hour." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
+                                <TextBlock x:Name="TimelineDetailWhyReasons" Text="Main signals: Ari will list the strongest signals after you select an hour." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
+                                <TextBlock x:Name="TimelineDetailWhyQuality" Text="Tracking quality: This will appear with the selected hour." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
+                                <TextBlock x:Name="TimelineDetailStabilization" Text="Context: Use this panel to understand what Ari saw around the selected hour." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -2035,7 +2028,7 @@
                                                 <TextBlock x:Name="DecisionsStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
                                             </Border>
                                         </DockPanel>
-                                        <TextBlock Text="What it means: Ari combines overload, focus streak, and policy rules to decide whether to suggest or apply an action." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
+                                        <TextBlock Text="What it means: Ari combines overload, focus-session state, and policy rules to decide whether to suggest or apply an action." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
                                         <TextBlock x:Name="DecisionsBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
                                         <TextBlock x:Name="DecisionsCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
                                     </StackPanel>
@@ -2208,7 +2201,7 @@
                                         <TextBlock Text="- Background runtime: AriAgent service + the live desktop session agent keep tracking active in the background."
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,6" />
-                                        <TextBlock Text="- Today shows Focused today, Current focus session, and Current status."
+                                        <TextBlock Text="- Today shows Work today, Last focus session, Overload, and Current status."
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,6" />
                                         <TextBlock Text="- Tracking explains privacy, controls, and what improves tracking quality."

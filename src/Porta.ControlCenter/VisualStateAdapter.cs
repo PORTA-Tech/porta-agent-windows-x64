@@ -311,17 +311,17 @@ internal static class VisualStateAdapter
         if (snapshot.PartialData == true && snapshot.MissingMajorChannels is { Count: > 0 })
         {
             string missing = string.Join("/", snapshot.MissingMajorChannels.Select(ToDisplayChannelName));
-            return $"Focus streak paused: missing {missing} signals.";
+            return $"Focus session paused: missing {missing} signals.";
         }
 
         if (snapshot.PartialData == true)
         {
-            return "Focus streak is conservative while data is partial.";
+            return "Focus session timing is conservative while data is partial.";
         }
 
         if (snapshot.SustainedAttentionDurationSec <= 0.5d)
         {
-            return "No continuous focus streak detected yet.";
+            return "No sustained focus session detected yet.";
         }
 
         return string.Empty;
