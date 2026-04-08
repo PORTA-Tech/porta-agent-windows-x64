@@ -144,10 +144,9 @@ internal static class VisualStateAdapter
             WhySummary: whySummary);
     }
 
-    // Step 1 contract freeze:
-    // This renderer still reflects the current runtime resolver for compatibility,
-    // but the canonical product meaning is a durable focus-episode duration rather
-    // than a live foreground-app timer.
+    // Step 4:
+    // The visible focus duration comes from the durable focus episode and only
+    // falls back to live presence labels when there is no episode duration yet.
     private static string BuildCurrentFocusSessionText(LocalCurrentExperienceState experience)
     {
         if (experience.CurrentFocusSessionSeconds.HasValue)
@@ -320,7 +319,10 @@ internal static class VisualStateAdapter
             return "Focus session timing is conservative while data is partial.";
         }
 
-        if (snapshot.SustainedAttentionDurationSec <= 0.5d)
+        double focusEpisodeSeconds = snapshot.FocusEpisodeSeconds > 0d
+            ? snapshot.FocusEpisodeSeconds
+            : snapshot.TaskContinuitySeconds;
+        if (focusEpisodeSeconds <= 0.5d)
         {
             return "No sustained focus session detected yet.";
         }

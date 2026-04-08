@@ -59,8 +59,8 @@ internal static class UserDesktopWidgetStateBuilder
                 };
 
         // Live session state is only for immediate "what is happening now" activity facts.
-        // Step 1 freezes the canonical focus meaning as a durable focus episode; this
-        // builder is still using the current resolver until that episode model lands.
+        // The visible duration comes from the durable focus episode and should not
+        // bounce with foreground-app changes.
 
         return new UserDesktopWidgetState(
             Mode: mode,
@@ -256,13 +256,13 @@ internal static class UserDesktopWidgetStateBuilder
         {
             value = "Paused";
         }
-        else if (experience.LiveSessionFresh && liveSession != null)
-        {
-            value = BuildLiveFocusMetric(liveSession);
-        }
         else if (experience.CurrentFocusSessionSeconds.HasValue)
         {
             value = FormatCompactDuration(TimeSpan.FromSeconds(experience.CurrentFocusSessionSeconds.Value));
+        }
+        else if (experience.LiveSessionFresh && liveSession != null)
+        {
+            value = BuildLivePresenceMetric(liveSession);
         }
         else if (status == null || !status.ServiceRunning || !status.LocalApiAuthReady)
         {
@@ -333,26 +333,18 @@ internal static class UserDesktopWidgetStateBuilder
         }
 
         string focusText = string.IsNullOrWhiteSpace(liveSession.focus_app_hash)
-            ? "Focus watching"
+            ? (liveSession.user_active ? "Active now" : "Watching live")
             : "Focused now";
-        string liveFocusText = liveSession.focus_elapsed_seconds.HasValue
-            ? $"live {FormatAgeShort(liveSession.focus_elapsed_seconds.Value)}"
-            : "live";
         string typingText = liveSession.keyboard_active ? "typing active" : "typing idle";
         string mouseText = liveSession.mouse_active ? "mouse active" : "mouse idle";
-        return $"{focusText} | {liveFocusText} | {typingText} | {mouseText}.";
+        return $"{focusText} | {typingText} | {mouseText}.";
     }
 
-    private static string BuildLiveFocusMetric(LocalApiLiveSessionStateResponse liveSession)
+    private static string BuildLivePresenceMetric(LocalApiLiveSessionStateResponse liveSession)
     {
         if (liveSession.idle)
         {
             return "Idle";
-        }
-
-        if (liveSession.focus_elapsed_seconds.HasValue)
-        {
-            return FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, liveSession.focus_elapsed_seconds.Value)));
         }
 
         if (!string.IsNullOrWhiteSpace(liveSession.focus_app_hash))

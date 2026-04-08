@@ -321,9 +321,9 @@ public sealed class UserDesktopWidgetStateBuilderTests
             degradedToast: null,
             nowUtc: nowUtc);
 
-        Assert.Equal("Focused now | live 3m | typing active | mouse idle.", state.StatusText);
+        Assert.Equal("Focused now | typing active | mouse idle.", state.StatusText);
         AssertMetric(state.PrimaryMetric, "Work today", "Filling in");
-        AssertMetric(state.SecondaryMetric, "Last focus session", "3m");
+        AssertMetric(state.SecondaryMetric, "Last focus session", "15m");
         AssertMetric(state.TertiaryMetric, "Overload", "42%");
         Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);
         Assert.Null(state.CriticalState);
@@ -374,7 +374,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
             nowUtc: nowUtc);
 
         AssertMetric(state.PrimaryMetric, "Work today", "Filling in");
-        AssertMetric(state.SecondaryMetric, "Last focus session", "2m");
+        AssertMetric(state.SecondaryMetric, "Last focus session", "Active");
         AssertMetric(state.TertiaryMetric, "Overload", "Pending");
         Assert.Equal("Confidence High | Tracking quality pending", state.FooterText);
     }
@@ -422,7 +422,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
             nowUtc: nowUtc);
 
         AssertMetric(state.PrimaryMetric, "Work today", "Filling in");
-        AssertMetric(state.SecondaryMetric, "Last focus session", "Active");
+        AssertMetric(state.SecondaryMetric, "Last focus session", "7m");
         AssertMetric(state.TertiaryMetric, "Overload", "74%");
         Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);
     }
@@ -647,10 +647,16 @@ public sealed class UserDesktopWidgetStateBuilderTests
             FComponent: 0.2,
             IComponent: 0.45,
             VComponent: 0.18,
+            TaskContinuityScore: sustainedAttentionSeconds > 0d ? 0.78d : 0d,
+            TaskContinuitySeconds: sustainedAttentionSeconds,
+            ContinuityState: sustainedAttentionSeconds > 0d ? "keep" : "reset",
             RuntimeStateFreshness: runtimeStateFreshness,
             RuntimeStateRefreshError: runtimeStateRefreshError,
             AnalyzedStateAvailable: analyzedStateAvailable,
-            ModelSource: analyzedStateAvailable ? "analyzed_state" : "brain_fallback");
+            ModelSource: analyzedStateAvailable ? "analyzed_state" : "brain_fallback",
+            FocusEpisodeQuality: sustainedAttentionSeconds > 0d ? 0.78d : 0d,
+            FocusEpisodeSeconds: sustainedAttentionSeconds,
+            FocusEpisodeState: sustainedAttentionSeconds > 0d ? "keep" : "reset");
     }
 
     private static LocalApiEventResponse BuildEvent(long id, string action, DateTimeOffset tsUtc)

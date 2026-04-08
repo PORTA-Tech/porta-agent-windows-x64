@@ -129,6 +129,9 @@ public sealed class MachineSummaryMapperTests
         Assert.Equal(0.88, payload.TaskContinuityScore);
         Assert.Equal(1800, payload.TaskContinuitySeconds);
         Assert.Equal("keep", payload.ContinuityState);
+        Assert.Equal(0.88, payload.FocusEpisodeQuality);
+        Assert.Equal(1800, payload.FocusEpisodeSeconds);
+        Assert.Equal("keep", payload.FocusEpisodeState);
         Assert.True(payload.BreakNeeded);
         Assert.Equal("stretch_break_suggestion", payload.BreakPendingAction);
         Assert.Equal("calibrated", payload.CalibrationStage);

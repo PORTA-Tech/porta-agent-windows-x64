@@ -7,22 +7,23 @@ namespace Porta.Agent.Core.Tests;
 public sealed class LocalCurrentExperienceStateAdapterTests
 {
     [Fact]
-    public void Build_PrefersFreshLiveFocusTimer_WhenAnalyzedSnapshotIsNotReady()
+    public void Build_UsesDurableFocusEpisode_WhenFreshLiveTimerIsDifferent()
     {
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         LocalCurrentExperienceState state = LocalCurrentExperienceStateAdapter.Build(
             BuildStatus(),
             BuildSnapshot(
-                sustainedAttentionSeconds: 0d,
+                sustainedAttentionSeconds: 10d,
+                focusEpisodeSeconds: 600d,
                 analyzedStateAvailable: false),
             BuildLiveSession(nowUtc, nowUtc.AddMinutes(-4)),
             recentEvents: [],
             nowUtc: nowUtc);
 
         Assert.True(state.LiveSessionFresh);
-        Assert.True(state.CurrentFocusSessionUsesLiveSignal);
+        Assert.False(state.CurrentFocusSessionUsesLiveSignal);
         Assert.True(state.CurrentFocusSessionSeconds.HasValue);
-        Assert.InRange(state.CurrentFocusSessionSeconds.Value, 235d, 245d);
+        Assert.Equal(600d, state.CurrentFocusSessionSeconds.Value);
         Assert.False(state.SnapshotAnalysisReady);
     }
 
@@ -170,6 +171,7 @@ public sealed class LocalCurrentExperienceStateAdapterTests
     private static LocalApiCurrentSnapshotResponse BuildSnapshot(
         double sustainedAttentionSeconds,
         bool analyzedStateAvailable,
+        double? focusEpisodeSeconds = null,
         string? stateFlagsJson = null,
         bool deepWorkActive = false,
         bool partialData = false,
@@ -218,10 +220,16 @@ public sealed class LocalCurrentExperienceStateAdapterTests
             FComponent: 0.2d,
             IComponent: 0.45d,
             VComponent: 0.18d,
+            TaskContinuityScore: focusEpisodeSeconds.HasValue && focusEpisodeSeconds.Value > 0d ? 0.78d : 0d,
+            TaskContinuitySeconds: focusEpisodeSeconds ?? sustainedAttentionSeconds,
+            ContinuityState: focusEpisodeSeconds.HasValue && focusEpisodeSeconds.Value > 0d ? "keep" : "reset",
             RuntimeStateFreshness: "fresh",
             RuntimeStateRefreshError: null,
             AnalyzedStateAvailable: analyzedStateAvailable,
-            ModelSource: analyzedStateAvailable ? "analyzed_state" : "brain_fallback");
+            ModelSource: analyzedStateAvailable ? "analyzed_state" : "brain_fallback",
+            FocusEpisodeQuality: focusEpisodeSeconds.HasValue && focusEpisodeSeconds.Value > 0d ? 0.78d : 0d,
+            FocusEpisodeSeconds: focusEpisodeSeconds ?? sustainedAttentionSeconds,
+            FocusEpisodeState: focusEpisodeSeconds.HasValue && focusEpisodeSeconds.Value > 0d ? "keep" : "reset");
     }
 
     private static LocalApiLiveSessionStateResponse BuildLiveSession(DateTimeOffset nowUtc, DateTimeOffset focusStartedAtUtc)

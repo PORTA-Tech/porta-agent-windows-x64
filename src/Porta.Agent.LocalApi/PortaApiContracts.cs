@@ -267,7 +267,10 @@ public sealed record LocalApiCurrentSnapshotResponse(
     DateTimeOffset? RuntimeStateLastAttemptUtc = null,
     string? RuntimeStateRefreshError = null,
     bool AnalyzedStateAvailable = false,
-    string ModelSource = "brain_fallback")
+    string ModelSource = "brain_fallback",
+    double FocusEpisodeQuality = 0d,
+    double FocusEpisodeSeconds = 0d,
+    string? FocusEpisodeState = null)
 {
     // Step 18D pinned snake_case aliases for snapshot consumers.
     public double overload_likelihood => OverloadLikelihood;
@@ -288,6 +291,9 @@ public sealed record LocalApiCurrentSnapshotResponse(
     public double task_continuity_score => TaskContinuityScore;
     public double task_continuity_seconds => TaskContinuitySeconds;
     public string? continuity_state => ContinuityState;
+    public double focus_episode_quality => FocusEpisodeQuality;
+    public double focus_episode_seconds => FocusEpisodeSeconds;
+    public string? focus_episode_state => FocusEpisodeState ?? ContinuityState;
     public double? continuity_confidence => ContinuityConfidence;
     public double behavior_continuity_score => TaskContinuityScore;
     public double? signal_quality_score => SignalQualityScore;
@@ -336,6 +342,9 @@ public sealed record LocalApiCurrentSnapshotResponse(
         model_confidence: ModelConfidence ?? Confidence,
         signal_quality_score: SignalQualityScore,
         behavior_continuity_score: TaskContinuityScore,
+        focus_episode_quality: FocusEpisodeQuality,
+        focus_episode_seconds: FocusEpisodeSeconds,
+        focus_episode_state: FocusEpisodeState ?? ContinuityState,
         sustained_attention_duration_sec: sustained_attention_duration_sec,
         break_pending_action: BreakPendingAction,
         break_pending_reason_code: BreakPendingReasonCode,
@@ -592,6 +601,9 @@ public sealed record LocalApiSnapshotCurrentView(
     double model_confidence,
     double? signal_quality_score,
     double behavior_continuity_score,
+    double focus_episode_quality,
+    double focus_episode_seconds,
+    string? focus_episode_state,
     double sustained_attention_duration_sec,
     string? break_pending_action,
     string? break_pending_reason_code,

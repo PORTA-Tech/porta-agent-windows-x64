@@ -993,9 +993,9 @@ internal static class FleetValidationRunner
             mismatches.Add($"overloadLikelihood local={localSnapshot.OverloadLikelihood:F3} fleet={summary.OverloadLikelihood:F3}");
         }
 
-        if (Math.Abs(summary.TaskContinuitySeconds - localSnapshot.TaskContinuitySeconds) > 60d)
+        if (Math.Abs(summary.FocusEpisodeSeconds - localSnapshot.FocusEpisodeSeconds) > 60d)
         {
-            mismatches.Add($"taskContinuitySeconds local={localSnapshot.TaskContinuitySeconds:F0} fleet={summary.TaskContinuitySeconds:F0}");
+            mismatches.Add($"focusEpisodeSeconds local={localSnapshot.FocusEpisodeSeconds:F0} fleet={summary.FocusEpisodeSeconds:F0}");
         }
 
         double localModelConfidence = localSnapshot.ModelConfidence ?? localSnapshot.Confidence;
@@ -1007,7 +1007,7 @@ internal static class FleetValidationRunner
         results.Add(mismatches.Count == 0
             ? Pass(
                 "ready/high-trust session -> control plane truth matches local Control Center truth",
-                $"calibration={summary.CalibrationStage}, trust={summary.TrustTier}, continuity={summary.TaskContinuitySeconds:F0}s, overload={summary.OverloadLikelihood:F2}.")
+                $"calibration={summary.CalibrationStage}, trust={summary.TrustTier}, focusEpisode={summary.FocusEpisodeSeconds:F0}s, overload={summary.OverloadLikelihood:F2}.")
             : Fail(
                 "ready/high-trust session -> control plane truth matches local Control Center truth",
                 string.Join("; ", mismatches)));

@@ -75,9 +75,7 @@ public static class LocalCurrentExperienceStateAdapter
         bool liveSessionFresh = IsFreshLiveSession(liveSession);
         bool liveSessionIdle = liveSession?.idle == true;
         double? currentFocusSessionSeconds = ResolveCurrentFocusSessionSeconds(snapshot, liveSession);
-        bool currentFocusSessionUsesLiveSignal = liveSessionFresh
-            && !liveSessionIdle
-            && liveSession?.focus_elapsed_seconds.HasValue == true;
+        bool currentFocusSessionUsesLiveSignal = false;
         bool partialData = snapshot.PartialData == true || snapshot.MissingMajorChannels is { Count: > 0 };
         (bool showDeepWorkStreak, string deepWorkStreakText) = BuildDeepWorkStreak(
             deepWorkActive,
@@ -242,23 +240,20 @@ public static class LocalCurrentExperienceStateAdapter
         return (true, recoveryEvent.Id, message);
     }
 
-    // Step 1 contract freeze:
-    // This live-first resolver is transitional compatibility only.
-    // The canonical product meaning for the displayed focus duration is
-    // the current or most recent focus episode, not foreground-app age.
+    // Step 4:
+    // The displayed focus duration is a durable focus-episode timer.
+    // Live session freshness is only for presence/idle facts and must not
+    // restart or replace the visible duration with foreground-app age.
     private static double? ResolveCurrentFocusSessionSeconds(
         LocalApiCurrentSnapshotResponse snapshot,
         LocalApiLiveSessionStateResponse? liveSession)
     {
-        if (IsFreshLiveSession(liveSession)
-            && liveSession!.idle == false
-            && liveSession.focus_elapsed_seconds.HasValue)
-        {
-            return Math.Max(0d, liveSession.focus_elapsed_seconds.Value);
-        }
-
-        return snapshot.analysis_ready
-            ? Math.Max(0d, snapshot.SustainedAttentionDurationSec)
+        _ = liveSession;
+        double focusEpisodeSeconds = snapshot.FocusEpisodeSeconds > 0d
+            ? snapshot.FocusEpisodeSeconds
+            : snapshot.TaskContinuitySeconds;
+        return focusEpisodeSeconds > 0d
+            ? Math.Max(0d, focusEpisodeSeconds)
             : null;
     }
 

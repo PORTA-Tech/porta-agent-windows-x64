@@ -485,7 +485,7 @@
                                                Margin="0,8,0,0"
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowFocusFootnoteText" Text="Short pauses do not immediately clear the current focus timer." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" Visibility="Collapsed" />
+                                    <TextBlock x:Name="NowFocusFootnoteText" Text="Short pauses do not immediately clear the current focus episode." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" Visibility="Collapsed" />
                                     <TextBlock x:Name="NowFocusStatusText" Text="" Margin="0,6,0,0" Foreground="#F59E0B" TextWrapping="Wrap" Visibility="Collapsed" />
                                 </StackPanel>
                             </Border>

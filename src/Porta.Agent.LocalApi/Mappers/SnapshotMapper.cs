@@ -125,7 +125,10 @@ internal static class SnapshotMapper
             status?.RuntimeStateLastAttemptUtc,
             status?.RuntimeStateRefreshError,
             AnalyzedStateAvailable: latestState is not null,
-            ModelSource: latestState is not null ? "analyzed_state" : "brain_fallback");
+            ModelSource: latestState is not null ? "analyzed_state" : "brain_fallback",
+            FocusEpisodeQuality: taskContinuityScore,
+            FocusEpisodeSeconds: taskContinuitySeconds,
+            FocusEpisodeState: continuityState);
     }
 
     private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(string? stateFlagsJson)

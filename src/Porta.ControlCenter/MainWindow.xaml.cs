@@ -1579,25 +1579,25 @@ public partial class MainWindow : Window
     {
         if (todayState == TodayTrackingState.Paused)
         {
-            return "This resumes from the current focus timer after tracking is unpaused.";
+            return "This resumes from the current focus episode after tracking is unpaused.";
         }
 
-        if (IsLiveSessionFresh(liveSession) && visualState.CurrentFocusSessionSeconds.HasValue)
+        if (visualState.CurrentFocusSessionSeconds.HasValue)
         {
-            return "This uses fresh live activity first, then falls back to the latest analyzed block.";
+            return "This keeps the same focus episode through short support switches and brief thinking pauses.";
         }
 
         if (IsLiveSessionFresh(liveSession) && liveSession!.idle)
         {
-            return "This timer starts again after you return to focused work.";
+            return "Live presence is idle right now. The next durable focus episode will appear after you return.";
         }
 
         if (!visualState.SnapshotAnalysisReady)
         {
-            return "Live capture is connected, and the next analyzed block will pin this into History.";
+            return "Live capture is connected, and the next analyzed block will pin this focus episode into History.";
         }
 
-        return "This follows the same last focus metric shown in the widget.";
+        return "This follows the same focus episode shown in the widget.";
     }
 
     private string BuildTodayHistoryStatusText()
@@ -1661,12 +1661,12 @@ public partial class MainWindow : Window
         LocalApiCurrentSnapshotResponse? snapshot,
         LocalApiLiveSessionStateResponse? liveSession)
     {
-        double? liveFocusSeconds = VisualStateAdapter.ResolveCurrentFocusSessionSeconds(snapshot, liveSession);
+        double? focusEpisodeSeconds = VisualStateAdapter.ResolveCurrentFocusSessionSeconds(snapshot, liveSession);
         if (IsLiveSessionFresh(liveSession)
-            && liveFocusSeconds.HasValue
+            && focusEpisodeSeconds.HasValue
             && snapshot is { analysis_ready: false })
         {
-            return $"Last focus session: {FormatFocusedTime(liveFocusSeconds.Value)}. Click for History once processed buckets catch up.";
+            return $"Last focus session: {FormatFocusedTime(focusEpisodeSeconds.Value)}. Click for History once processed buckets catch up.";
         }
 
         if (snapshot is { analysis_ready: false })
@@ -1679,7 +1679,7 @@ public partial class MainWindow : Window
         {
             return snapshot == null
                 ? "Open History once live focus buckets arrive."
-                : $"Last focus session: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}. Click for History.";
+                : $"Last focus session: {FormatFocusedTime(ResolveFocusEpisodeSeconds(snapshot))}. Click for History.";
         }
 
         double maxStreakSeconds = snapshots.Max(s => Math.Max(0d, s.SustainedAttentionDurationSec));
@@ -2242,10 +2242,7 @@ public partial class MainWindow : Window
             : liveSession.user_active
                 ? "User active"
                 : "Watching live";
-        string liveStreakText = liveSession.focus_elapsed_seconds.HasValue
-            ? $"live streak {FormatAgeLabel(liveSession.focus_elapsed_seconds)}"
-            : "live streak warming";
-        return $"{focusText} | {liveStreakText} | typing {(liveSession.keyboard_active ? "active" : "idle")} | mouse {(liveSession.mouse_active ? "active" : "idle")}";
+        return $"{focusText} | typing {(liveSession.keyboard_active ? "active" : "idle")} | mouse {(liveSession.mouse_active ? "active" : "idle")}";
     }
 
     private static string? BuildCurrentStatusSentence(LocalApiLiveSessionStateResponse? liveSession)
@@ -2262,16 +2259,12 @@ public partial class MainWindow : Window
 
         if (liveSession.keyboard_active && liveSession.mouse_active)
         {
-            return liveSession.focus_elapsed_seconds.HasValue
-                ? $"Focused now for {FormatAgeLabel(liveSession.focus_elapsed_seconds)} with typing and mouse activity."
-                : "Typing and mouse activity detected right now.";
+            return "Typing and mouse activity detected right now.";
         }
 
         if (liveSession.keyboard_active)
         {
-            return liveSession.focus_elapsed_seconds.HasValue
-                ? $"Focused now for {FormatAgeLabel(liveSession.focus_elapsed_seconds)} with typing activity."
-                : "Typing activity detected right now.";
+            return "Typing activity detected right now.";
         }
 
         if (liveSession.mouse_active)
@@ -2870,9 +2863,9 @@ public partial class MainWindow : Window
                 "reset" => "Reset",
                 _ => snapshot.ContinuityState!
             };
-        string continuitySeconds = FormatFocusedTime(snapshot.TaskContinuitySeconds);
+        string continuitySeconds = FormatFocusedTime(ResolveFocusEpisodeSeconds(snapshot));
         string continuityLabel =
-            $"{continuityState} | {continuitySeconds} continuity | score {snapshot.TaskContinuityScore:F2} | confidence {(snapshot.ContinuityConfidence ?? 0d):F2}";
+            $"{continuityState} | {continuitySeconds} focus episode | quality {snapshot.FocusEpisodeQuality:F2} | confidence {(snapshot.ContinuityConfidence ?? 0d):F2}";
 
         string trustTier = ToConfidenceLabel(NormalizeTrustTier(snapshot.TrustTier, snapshot.ModelConfidence));
         string confidenceLabel =
@@ -5198,7 +5191,7 @@ public partial class MainWindow : Window
         double trust = Math.Clamp(snapshot.Confidence, 0d, 1d);
         string trustTier = NormalizeTrustTier(snapshot.TrustTier, snapshot.Confidence);
         double overload = Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d);
-        double focusedMinutes = Math.Max(0d, snapshot.SustainedAttentionDurationSec / 60d);
+        double focusedMinutes = Math.Max(0d, ResolveFocusEpisodeSeconds(snapshot) / 60d);
         bool suggestionsEnabled = !string.Equals(calibrationStage, CalibrationStageCold, StringComparison.Ordinal);
         bool systemActionsEnabled = snapshot.SystemActionsEnabled == true || string.Equals(calibrationStage, CalibrationStageCalibrated, StringComparison.Ordinal);
         var decisionBlockers = new List<string>();
@@ -5217,9 +5210,9 @@ public partial class MainWindow : Window
             decisionBlockers.Add("cooldown active");
         }
 
-        if (snapshot.SustainedAttentionDurationSec < UiBreakFocusThresholdSeconds)
+        if (ResolveFocusEpisodeSeconds(snapshot) < UiBreakFocusThresholdSeconds)
         {
-            decisionBlockers.Add("building task continuity");
+            decisionBlockers.Add("building focus episode");
         }
 
         if (!snapshot.OverloadActive && overload < UiDecisionOverloadThreshold)
@@ -5241,7 +5234,22 @@ public partial class MainWindow : Window
         DecisionsBlockersText.Text = decisionBlockers.Count == 0
             ? "What can block it: none detected."
             : $"What can block it: {string.Join(" / ", decisionBlockers)}.";
-        DecisionsCurrentText.Text = $"Current status: overload {(overload * 100d):F0}%, confidence {ToConfidenceLabel(trustTier)} ({(trust * 100d):F0}%), focus timer {focusedMinutes:F0} min, suggestions {(suggestionsEnabled ? "enabled" : "gated")}, system actions {(systemActionsEnabled ? "enabled" : "gated")}.";
+        DecisionsCurrentText.Text = $"Current status: overload {(overload * 100d):F0}%, confidence {ToConfidenceLabel(trustTier)} ({(trust * 100d):F0}%), focus episode {focusedMinutes:F0} min, suggestions {(suggestionsEnabled ? "enabled" : "gated")}, system actions {(systemActionsEnabled ? "enabled" : "gated")}.";
+    }
+
+    private static double ResolveFocusEpisodeSeconds(LocalApiCurrentSnapshotResponse snapshot)
+    {
+        if (snapshot.FocusEpisodeSeconds > 0d)
+        {
+            return snapshot.FocusEpisodeSeconds;
+        }
+
+        if (snapshot.TaskContinuitySeconds > 0d)
+        {
+            return snapshot.TaskContinuitySeconds;
+        }
+
+        return Math.Max(0d, snapshot.SustainedAttentionDurationSec);
     }
 
     private static string ChannelAvailabilityLabel(IReadOnlyList<string> missingChannels, string channel)
