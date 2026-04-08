@@ -264,6 +264,8 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.Equal("pause", result.ContinuityState);
         Assert.Equal("context_excursion", result.SaFreezeReason);
         Assert.Equal("app_hash_other", result.DominantAppHash);
+        Assert.Equal("context_excursion", result.AttentionSegmentKind);
+        Assert.False(result.DistractionEpisodeActive);
         Assert.False(result.SaUntrusted);
     }
 
@@ -295,6 +297,7 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.Equal(15d, result.SustainedAttentionDurationSec, precision: 6);
         Assert.Equal("decay", result.ContinuityState);
         Assert.Equal("focus_instability", result.SaFreezeReason);
+        Assert.Equal("focus", result.AttentionSegmentKind);
     }
 
     [Fact]
@@ -325,6 +328,7 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.Equal(15d, result.SustainedAttentionDurationSec, precision: 6);
         Assert.Equal("decay", result.ContinuityState);
         Assert.Equal("focus_instability", result.SaFreezeReason);
+        Assert.Equal("focus", result.AttentionSegmentKind);
     }
 
     [Fact]
@@ -425,6 +429,73 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.Equal(0d, result.SustainedAttentionDurationSec, precision: 6);
         Assert.Equal("reset", result.ContinuityState);
         Assert.Equal("long_break", result.SaFreezeReason);
+        Assert.Equal("away", result.AttentionSegmentKind);
+        Assert.False(result.DistractionEpisodeActive);
+        Assert.True(result.AttentionSegmentSeconds >= 305d);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_ContextExcursionPastOffTaskThreshold_ClassifiesOffTaskDistraction()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 120d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityContextSwitchSeconds: 90d);
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            DominantAppHash = "app_hash_other"
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.Equal("off_task_distraction", result.AttentionSegmentKind);
+        Assert.True(result.DistractionEpisodeActive);
+        Assert.Equal(95d, result.DistractionEpisodeSeconds, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_SustainedInstability_ClassifiesFragmentationDistraction()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 120d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityInstabilitySeconds: 120d);
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            FocusAppEntropy = 2.7d,
+            FocusSwitchCount = 5,
+            FocusActiveAppCount = 4d
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.Equal("fragmentation_distraction", result.AttentionSegmentKind);
+        Assert.True(result.DistractionEpisodeActive);
+        Assert.True(result.DistractionEpisodeSeconds >= 125d);
     }
 
     [Fact]
@@ -949,6 +1020,7 @@ public sealed class DerivedSessionMetricsComputerTests
             continuityContextSwitchSeconds: result.SaContextSwitchSeconds,
             continuityState: result.ContinuityState,
             continuityScore: result.TaskContinuityScore,
+            continuityInstabilitySeconds: result.ContinuityInstabilitySeconds,
             focusEpisodeCandidateSeconds: result.FocusEpisodeCandidateSeconds);
     }
 }

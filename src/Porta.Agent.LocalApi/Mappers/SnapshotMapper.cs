@@ -38,6 +38,18 @@ internal static class SnapshotMapper
         double taskContinuitySeconds = ReadDoubleFlag(normalizedStateFlagsJson, "task_continuity_seconds", fallback: sustainedAttentionSeconds);
         string continuityState = ReadStringFlag(normalizedStateFlagsJson, "continuity_state", fallback: "reset");
         double continuityConfidence = ReadDoubleFlag(normalizedStateFlagsJson, "continuity_confidence", fallback: confidence);
+        string attentionSegmentKind = LocalAttentionSegmentAnalytics.NormalizeAttentionSegmentKind(
+            ReadStringFlag(normalizedStateFlagsJson, "attention_segment_kind", fallback: LocalAttentionSegmentAnalytics.FocusSegmentKind));
+        double attentionSegmentSeconds = ReadDoubleFlag(normalizedStateFlagsJson, "attention_segment_seconds", fallback: 0d);
+        bool distractionEpisodeActive = ReadBoolFlag(
+            normalizedStateFlagsJson,
+            "distraction_episode_active",
+            fallback: string.Equals(attentionSegmentKind, LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind, StringComparison.Ordinal)
+                || string.Equals(attentionSegmentKind, LocalAttentionSegmentAnalytics.FragmentationDistractionSegmentKind, StringComparison.Ordinal));
+        double distractionEpisodeSeconds = ReadDoubleFlag(
+            normalizedStateFlagsJson,
+            "distraction_episode_seconds",
+            fallback: distractionEpisodeActive ? attentionSegmentSeconds : 0d);
         double signalQualityScore = ReadDoubleFlag(
             normalizedStateFlagsJson,
             "signal_quality_score",
@@ -128,7 +140,11 @@ internal static class SnapshotMapper
             ModelSource: latestState is not null ? "analyzed_state" : "brain_fallback",
             FocusEpisodeQuality: taskContinuityScore,
             FocusEpisodeSeconds: taskContinuitySeconds,
-            FocusEpisodeState: continuityState);
+            FocusEpisodeState: continuityState,
+            AttentionSegmentKind: attentionSegmentKind,
+            AttentionSegmentSeconds: attentionSegmentSeconds,
+            DistractionEpisodeActive: distractionEpisodeActive,
+            DistractionEpisodeSeconds: distractionEpisodeSeconds);
     }
 
     private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(string? stateFlagsJson)

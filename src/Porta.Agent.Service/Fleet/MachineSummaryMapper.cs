@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Porta.Agent.Common.Identity;
 using Porta.Agent.Common.UserAgent;
 using Porta.Agent.Core;
@@ -71,6 +72,13 @@ internal sealed class MachineSummaryMapper
         string? captureFailureReason = DeriveCaptureFailureReason(status, userSessionConnected, startupState, baseCaptureFailureReason);
         string? accountId = IsLinked(identityLink) ? identityLink.AccountId : null;
         string? orgId = IsLinked(identityLink) ? identityLink.OrgId : null;
+        string attentionSegmentKind = ResolveAttentionSegmentKind(latestState?.StateFlagsJson);
+        double attentionSegmentSeconds = ResolveAttentionSegmentSeconds(latestState?.StateFlagsJson);
+        bool distractionEpisodeActive = ResolveDistractionEpisodeActive(latestState?.StateFlagsJson, attentionSegmentKind);
+        double distractionEpisodeSeconds = ResolveDistractionEpisodeSeconds(
+            latestState?.StateFlagsJson,
+            distractionEpisodeActive,
+            attentionSegmentSeconds);
 
         return new MachineSummaryReportPayload(
             DeviceId: identityLink.DeviceId,
@@ -106,6 +114,10 @@ internal sealed class MachineSummaryMapper
             FocusEpisodeQuality: taskContinuityScore,
             FocusEpisodeSeconds: taskContinuitySeconds,
             FocusEpisodeState: continuityState,
+            AttentionSegmentKind: attentionSegmentKind,
+            AttentionSegmentSeconds: attentionSegmentSeconds,
+            DistractionEpisodeActive: distractionEpisodeActive,
+            DistractionEpisodeSeconds: distractionEpisodeSeconds,
             TaskContinuityScore: taskContinuityScore,
             TaskContinuitySeconds: taskContinuitySeconds,
             ContinuityState: continuityState,
@@ -167,6 +179,137 @@ internal sealed class MachineSummaryMapper
             "high" => "high",
             _ => "low"
         };
+
+    private static string ResolveAttentionSegmentKind(string? stateFlagsJson) =>
+        NormalizeAttentionSegmentKind(ReadStringFlag(stateFlagsJson, "attention_segment_kind"));
+
+    private static double ResolveAttentionSegmentSeconds(string? stateFlagsJson) =>
+        Math.Max(0d, ReadDoubleFlag(stateFlagsJson, "attention_segment_seconds"));
+
+    private static bool ResolveDistractionEpisodeActive(string? stateFlagsJson, string attentionSegmentKind)
+    {
+        if (TryReadBoolFlag(stateFlagsJson, "distraction_episode_active", out bool active))
+        {
+            return active;
+        }
+
+        return string.Equals(attentionSegmentKind, "off_task_distraction", StringComparison.Ordinal)
+            || string.Equals(attentionSegmentKind, "fragmentation_distraction", StringComparison.Ordinal);
+    }
+
+    private static double ResolveDistractionEpisodeSeconds(
+        string? stateFlagsJson,
+        bool distractionEpisodeActive,
+        double attentionSegmentSeconds)
+    {
+        double flaggedSeconds = Math.Max(0d, ReadDoubleFlag(stateFlagsJson, "distraction_episode_seconds"));
+        if (flaggedSeconds > 0d)
+        {
+            return flaggedSeconds;
+        }
+
+        return distractionEpisodeActive ? attentionSegmentSeconds : 0d;
+    }
+
+    private static string NormalizeAttentionSegmentKind(string? value) =>
+        value?.Trim().ToLowerInvariant() switch
+        {
+            "context_excursion" => "context_excursion",
+            "off_task_distraction" => "off_task_distraction",
+            "fragmentation_distraction" => "fragmentation_distraction",
+            "away" => "away",
+            _ => "focus"
+        };
+
+    private static bool TryReadBoolFlag(string? json, string name, out bool value)
+    {
+        value = false;
+        if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty(name, out JsonElement node))
+            {
+                return false;
+            }
+
+            switch (node.ValueKind)
+            {
+                case JsonValueKind.True:
+                    value = true;
+                    return true;
+                case JsonValueKind.False:
+                    value = false;
+                    return true;
+                case JsonValueKind.Number when node.TryGetInt32(out int numeric):
+                    value = numeric != 0;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static double ReadDoubleFlag(string? json, string name)
+    {
+        if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(name))
+        {
+            return 0d;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty(name, out JsonElement node)
+                && node.ValueKind == JsonValueKind.Number
+                && node.TryGetDouble(out double numeric))
+            {
+                return numeric;
+            }
+        }
+        catch
+        {
+        }
+
+        return 0d;
+    }
+
+    private static string? ReadStringFlag(string? json, string name)
+    {
+        if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty(name, out JsonElement node)
+                && node.ValueKind == JsonValueKind.String)
+            {
+                return node.GetString();
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
 
     private static bool DeriveUserSessionConnected(AgentServiceStatusSnapshot status, string? captureFailureReason)
     {

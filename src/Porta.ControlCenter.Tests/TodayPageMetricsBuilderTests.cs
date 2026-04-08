@@ -16,9 +16,9 @@ public sealed class TodayPageMetricsBuilderTests
             BucketSeconds: 300,
             Snapshots:
             [
-                BuildSnapshot(baseUtc, focusStrength: 0.80d, sustainedAttentionSeconds: 900d),
-                BuildSnapshot(baseUtc.AddMinutes(5), focusStrength: 0.40d, sustainedAttentionSeconds: 300d),
-                BuildSnapshot(baseUtc.AddMinutes(10), focusStrength: 0.20d, sustainedAttentionSeconds: 120d)
+                BuildSnapshot(baseUtc, focusStrength: 0.80d, sustainedAttentionSeconds: 900d, attentionSegmentKind: LocalAttentionSegmentAnalytics.FocusSegmentKind),
+                BuildSnapshot(baseUtc.AddMinutes(5), focusStrength: 0.40d, sustainedAttentionSeconds: 300d, attentionSegmentKind: LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind, distractionEpisodeActive: true, distractionEpisodeSeconds: 300d),
+                BuildSnapshot(baseUtc.AddMinutes(10), focusStrength: 0.20d, sustainedAttentionSeconds: 120d, attentionSegmentKind: LocalAttentionSegmentAnalytics.FragmentationDistractionSegmentKind, distractionEpisodeActive: true, distractionEpisodeSeconds: 300d)
             ],
             Interventions: []);
 
@@ -26,7 +26,7 @@ public sealed class TodayPageMetricsBuilderTests
 
         Assert.True(metrics.HasProcessedTimeline);
         Assert.Equal(420d, metrics.FocusedTodaySeconds, precision: 3);
-        Assert.Equal(480d, metrics.DistractionTodaySeconds, precision: 3);
+        Assert.Equal(600d, metrics.DistractionTodaySeconds, precision: 3);
         Assert.Equal(900d, metrics.BestFocusBlockSeconds, precision: 3);
         Assert.Equal(900d, metrics.TrackedTodaySeconds, precision: 3);
         Assert.Equal(46.666666666666664d, metrics.AverageFocusPercent, precision: 6);
@@ -51,7 +51,10 @@ public sealed class TodayPageMetricsBuilderTests
     private static LocalApiCurrentSnapshotResponse BuildSnapshot(
         DateTimeOffset timestampUtc,
         double focusStrength,
-        double sustainedAttentionSeconds)
+        double sustainedAttentionSeconds,
+        string attentionSegmentKind = LocalAttentionSegmentAnalytics.FocusSegmentKind,
+        bool distractionEpisodeActive = false,
+        double distractionEpisodeSeconds = 0d)
     {
         return new LocalApiCurrentSnapshotResponse(
             TimestampUtc: timestampUtc,
@@ -99,6 +102,10 @@ public sealed class TodayPageMetricsBuilderTests
             RuntimeStateFreshness: "fresh",
             RuntimeStateRefreshError: null,
             AnalyzedStateAvailable: true,
-            ModelSource: "analyzed_state");
+            ModelSource: "analyzed_state",
+            AttentionSegmentKind: attentionSegmentKind,
+            AttentionSegmentSeconds: attentionSegmentKind == LocalAttentionSegmentAnalytics.FocusSegmentKind ? 0d : 300d,
+            DistractionEpisodeActive: distractionEpisodeActive,
+            DistractionEpisodeSeconds: distractionEpisodeSeconds);
     }
 }

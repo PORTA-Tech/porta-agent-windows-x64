@@ -16,9 +16,9 @@ public sealed class HistoryPageInsightsBuilderTests
             BucketSeconds: 300,
             Snapshots:
             [
-                BuildSnapshot(baseUtc, focusStrength: 0.90d, sustainedAttentionSeconds: 900d),
-                BuildSnapshot(baseUtc.AddMinutes(5), focusStrength: 0.30d, sustainedAttentionSeconds: 240d),
-                BuildSnapshot(baseUtc.AddMinutes(10), focusStrength: 0.20d, sustainedAttentionSeconds: 120d)
+                BuildSnapshot(baseUtc, focusStrength: 0.90d, sustainedAttentionSeconds: 900d, attentionSegmentKind: LocalAttentionSegmentAnalytics.FocusSegmentKind),
+                BuildSnapshot(baseUtc.AddMinutes(5), focusStrength: 0.30d, sustainedAttentionSeconds: 240d, attentionSegmentKind: LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind, distractionEpisodeActive: true, distractionEpisodeSeconds: 300d),
+                BuildSnapshot(baseUtc.AddMinutes(10), focusStrength: 0.20d, sustainedAttentionSeconds: 120d, attentionSegmentKind: LocalAttentionSegmentAnalytics.AwaySegmentKind)
             ],
             Interventions:
             [
@@ -30,7 +30,9 @@ public sealed class HistoryPageInsightsBuilderTests
 
         Assert.True(insights.HasTimeline);
         Assert.Equal(420d, insights.FocusedSeconds, precision: 3);
-        Assert.Equal(480d, insights.DistractionSeconds, precision: 3);
+        Assert.Equal(300d, insights.DistractionSeconds, precision: 3);
+        Assert.Equal(300d, insights.AwaySeconds, precision: 3);
+        Assert.Equal(0d, insights.ContextExcursionSeconds, precision: 3);
         Assert.Equal(900d, insights.TrackedSeconds, precision: 3);
         Assert.Equal(900d, insights.LongestFocusBlockSeconds, precision: 3);
         Assert.Equal(2, insights.ActionMarkerCount);
@@ -47,6 +49,8 @@ public sealed class HistoryPageInsightsBuilderTests
         Assert.False(insights.HasTimeline);
         Assert.Equal(0d, insights.FocusedSeconds);
         Assert.Equal(0d, insights.DistractionSeconds);
+        Assert.Equal(0d, insights.AwaySeconds);
+        Assert.Equal(0d, insights.ContextExcursionSeconds);
         Assert.Equal(0d, insights.LongestFocusBlockSeconds);
         Assert.Equal("Not available", insights.MostDistractedPeriodLabel);
         Assert.Equal(0, insights.ActionMarkerCount);
@@ -55,7 +59,10 @@ public sealed class HistoryPageInsightsBuilderTests
     private static LocalApiCurrentSnapshotResponse BuildSnapshot(
         DateTimeOffset timestampUtc,
         double focusStrength,
-        double sustainedAttentionSeconds)
+        double sustainedAttentionSeconds,
+        string attentionSegmentKind = LocalAttentionSegmentAnalytics.FocusSegmentKind,
+        bool distractionEpisodeActive = false,
+        double distractionEpisodeSeconds = 0d)
     {
         return new LocalApiCurrentSnapshotResponse(
             TimestampUtc: timestampUtc,
@@ -103,7 +110,11 @@ public sealed class HistoryPageInsightsBuilderTests
             RuntimeStateFreshness: "fresh",
             RuntimeStateRefreshError: null,
             AnalyzedStateAvailable: true,
-            ModelSource: "analyzed_state");
+            ModelSource: "analyzed_state",
+            AttentionSegmentKind: attentionSegmentKind,
+            AttentionSegmentSeconds: attentionSegmentKind == LocalAttentionSegmentAnalytics.FocusSegmentKind ? 0d : 300d,
+            DistractionEpisodeActive: distractionEpisodeActive,
+            DistractionEpisodeSeconds: distractionEpisodeSeconds);
     }
 
     private static LocalApiEventResponse BuildEvent(DateTimeOffset timestampUtc, string action, string whatChanged)

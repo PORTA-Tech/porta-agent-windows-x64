@@ -18,7 +18,12 @@ internal readonly record struct DerivedSessionMetricsResult(
     double TaskContinuitySeconds = 0d,
     string ContinuityState = "reset",
     double ContinuityConfidence = 0d,
-    double FocusEpisodeCandidateSeconds = 0d);
+    double FocusEpisodeCandidateSeconds = 0d,
+    double ContinuityInstabilitySeconds = 0d,
+    string AttentionSegmentKind = "focus",
+    double AttentionSegmentSeconds = 0d,
+    bool DistractionEpisodeActive = false,
+    double DistractionEpisodeSeconds = 0d);
 
 internal static class DerivedSessionMetricsComputer
 {
@@ -52,6 +57,7 @@ internal static class DerivedSessionMetricsComputer
             idleChannelMissing,
             continuity.State,
             continuity.IdlePauseSeconds);
+        AttentionSegmentDecision attentionSegment = EvaluateAttentionSegment(bucket, evidence, continuity);
         return new DerivedSessionMetricsResult(
             SustainedAttentionDurationSec: ClampNonNegativeFinite(continuity.TaskContinuitySeconds),
             IdleFragmentationIndex: Clamp01(idleFragmentation),
@@ -65,7 +71,12 @@ internal static class DerivedSessionMetricsComputer
             TaskContinuitySeconds: ClampNonNegativeFinite(continuity.TaskContinuitySeconds),
             ContinuityState: continuity.State,
             ContinuityConfidence: continuityConfidence,
-            FocusEpisodeCandidateSeconds: continuity.FocusEpisodeCandidateSeconds);
+            FocusEpisodeCandidateSeconds: continuity.FocusEpisodeCandidateSeconds,
+            ContinuityInstabilitySeconds: continuity.InstabilitySeconds,
+            AttentionSegmentKind: attentionSegment.Kind,
+            AttentionSegmentSeconds: attentionSegment.SegmentSeconds,
+            DistractionEpisodeActive: attentionSegment.DistractionEpisodeActive,
+            DistractionEpisodeSeconds: attentionSegment.DistractionEpisodeSeconds);
     }
 
     private static ChannelEvidence ResolveChannelEvidence(InputBucketRow bucket, PrimitiveComputationResult primitive)
@@ -168,7 +179,7 @@ internal static class DerivedSessionMetricsComputer
                     0d,
                     currentContextAppHash,
                     idlePauseSeconds,
-                    0d,
+                    contextSwitchSeconds,
                     0d,
                     "reset",
                     "context_shift_reset");
@@ -206,7 +217,7 @@ internal static class DerivedSessionMetricsComputer
                     currentContextAppHash,
                     idlePauseSeconds,
                     0d,
-                    0d,
+                    instabilitySeconds,
                     "reset",
                     "instability_reset");
             }
@@ -539,6 +550,67 @@ internal static class DerivedSessionMetricsComputer
             ReasonCode: reasonCode);
     }
 
+    private static AttentionSegmentDecision EvaluateAttentionSegment(
+        InputBucketRow bucket,
+        ChannelEvidence evidence,
+        TaskContinuityDecision continuity)
+    {
+        string reasonCode = continuity.ReasonCode;
+        if (string.Equals(reasonCode, "long_break", StringComparison.Ordinal)
+            || continuity.IdlePauseSeconds >= PortaExecutionConstants.DistractionEpisodes.AwaySegmentStartSeconds
+            || bucket.TrueBreakFlag != 0)
+        {
+            double awaySeconds = Math.Max(
+                continuity.IdlePauseSeconds,
+                bucket.TrueBreakSeconds > 0d ? bucket.TrueBreakSeconds : Time.bucketSeconds);
+            return new AttentionSegmentDecision(
+                Kind: "away",
+                SegmentSeconds: ClampNonNegativeFinite(awaySeconds),
+                DistractionEpisodeActive: false,
+                DistractionEpisodeSeconds: 0d);
+        }
+
+        bool contextExcursion = string.Equals(reasonCode, "context_excursion", StringComparison.Ordinal)
+            || string.Equals(reasonCode, "context_excursion_decay", StringComparison.Ordinal)
+            || string.Equals(reasonCode, "context_shift_reset", StringComparison.Ordinal);
+        if (contextExcursion)
+        {
+            double segmentSeconds = Math.Max(continuity.ContextSwitchSeconds, Time.bucketSeconds);
+            bool offTaskDistraction = evidence.AnyInteractionActive
+                && continuity.ContextSwitchSeconds >= PortaExecutionConstants.DistractionEpisodes.OffTaskDistractionStartSeconds;
+            return new AttentionSegmentDecision(
+                Kind: offTaskDistraction ? "off_task_distraction" : "context_excursion",
+                SegmentSeconds: ClampNonNegativeFinite(segmentSeconds),
+                DistractionEpisodeActive: offTaskDistraction,
+                DistractionEpisodeSeconds: offTaskDistraction ? ClampNonNegativeFinite(segmentSeconds) : 0d);
+        }
+
+        bool instabilityPhase = string.Equals(reasonCode, "focus_unstable", StringComparison.Ordinal)
+            || string.Equals(reasonCode, "focus_instability", StringComparison.Ordinal)
+            || string.Equals(reasonCode, "instability_reset", StringComparison.Ordinal);
+        if (instabilityPhase)
+        {
+            bool chaoticChurn = bucket.FocusActiveAppCount >= PortaExecutionConstants.DistractionEpisodes.FragmentationHighAppCountMin
+                || bucket.FocusSwitchCount >= SessionConstants.SustainedAttention.FocusSwitchesSpikeMin
+                || bucket.FocusAppEntropy >= SessionConstants.SustainedAttention.EntropySpikeMin;
+            bool fragmentationDistraction = evidence.AnyInteractionActive
+                && chaoticChurn
+                && continuity.InstabilitySeconds >= PortaExecutionConstants.DistractionEpisodes.FragmentationDistractionStartSeconds;
+            double segmentSeconds = Math.Max(continuity.InstabilitySeconds, Time.bucketSeconds);
+            return new AttentionSegmentDecision(
+                Kind: fragmentationDistraction ? "fragmentation_distraction" : "focus",
+                SegmentSeconds: fragmentationDistraction ? ClampNonNegativeFinite(segmentSeconds) : 0d,
+                DistractionEpisodeActive: fragmentationDistraction,
+                DistractionEpisodeSeconds: fragmentationDistraction ? ClampNonNegativeFinite(segmentSeconds) : 0d);
+        }
+
+        return new AttentionSegmentDecision(
+            Kind: "focus",
+            SegmentSeconds: 0d,
+            DistractionEpisodeActive: false,
+            DistractionEpisodeSeconds: 0d);
+    }
+
     private static double ComputeIdleFragmentationIndex(
         InputBucketRow bucket,
         double previousIdleFragmentationIndex,
@@ -793,6 +865,12 @@ internal static class DerivedSessionMetricsComputer
         string State,
         double Score,
         string ReasonCode);
+
+    private readonly record struct AttentionSegmentDecision(
+        string Kind,
+        double SegmentSeconds,
+        bool DistractionEpisodeActive,
+        double DistractionEpisodeSeconds);
 
     private static double ResolveContinuityScore(string state)
     {

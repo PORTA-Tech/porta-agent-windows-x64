@@ -270,7 +270,11 @@ public sealed record LocalApiCurrentSnapshotResponse(
     string ModelSource = "brain_fallback",
     double FocusEpisodeQuality = 0d,
     double FocusEpisodeSeconds = 0d,
-    string? FocusEpisodeState = null)
+    string? FocusEpisodeState = null,
+    string AttentionSegmentKind = LocalAttentionSegmentAnalytics.FocusSegmentKind,
+    double AttentionSegmentSeconds = 0d,
+    bool DistractionEpisodeActive = false,
+    double DistractionEpisodeSeconds = 0d)
 {
     // Step 18D pinned snake_case aliases for snapshot consumers.
     public double overload_likelihood => OverloadLikelihood;
@@ -294,6 +298,10 @@ public sealed record LocalApiCurrentSnapshotResponse(
     public double focus_episode_quality => FocusEpisodeQuality;
     public double focus_episode_seconds => FocusEpisodeSeconds;
     public string? focus_episode_state => FocusEpisodeState ?? ContinuityState;
+    public string attention_segment_kind => LocalAttentionSegmentAnalytics.NormalizeAttentionSegmentKind(AttentionSegmentKind);
+    public double attention_segment_seconds => AttentionSegmentSeconds;
+    public bool distraction_episode_active => DistractionEpisodeActive;
+    public double distraction_episode_seconds => DistractionEpisodeSeconds;
     public double? continuity_confidence => ContinuityConfidence;
     public double behavior_continuity_score => TaskContinuityScore;
     public double? signal_quality_score => SignalQualityScore;
@@ -345,6 +353,10 @@ public sealed record LocalApiCurrentSnapshotResponse(
         focus_episode_quality: FocusEpisodeQuality,
         focus_episode_seconds: FocusEpisodeSeconds,
         focus_episode_state: FocusEpisodeState ?? ContinuityState,
+        attention_segment_kind: attention_segment_kind,
+        attention_segment_seconds: attention_segment_seconds,
+        distraction_episode_active: distraction_episode_active,
+        distraction_episode_seconds: distraction_episode_seconds,
         sustained_attention_duration_sec: sustained_attention_duration_sec,
         break_pending_action: BreakPendingAction,
         break_pending_reason_code: BreakPendingReasonCode,
@@ -604,6 +616,10 @@ public sealed record LocalApiSnapshotCurrentView(
     double focus_episode_quality,
     double focus_episode_seconds,
     string? focus_episode_state,
+    string attention_segment_kind,
+    double attention_segment_seconds,
+    bool distraction_episode_active,
+    double distraction_episode_seconds,
     double sustained_attention_duration_sec,
     string? break_pending_action,
     string? break_pending_reason_code,

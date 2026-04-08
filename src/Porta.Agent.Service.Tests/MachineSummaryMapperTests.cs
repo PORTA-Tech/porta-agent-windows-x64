@@ -90,7 +90,7 @@ public sealed class MachineSummaryMapperTests
             IdleFragmentationIndex: 0.12,
             FocusAppEntropy: 0.22,
             OverloadActive: false,
-            StateFlagsJson: "{\"schema_ver\":1}",
+            StateFlagsJson: "{\"schema_ver\":1,\"attention_segment_kind\":\"fragmentation_distraction\",\"attention_segment_seconds\":300,\"distraction_episode_active\":1,\"distraction_episode_seconds\":300}",
             ContributorsJson: "{\"schema_ver\":1}",
             CalibrationStage: "calibrated",
             TrustTier: "high",
@@ -132,6 +132,10 @@ public sealed class MachineSummaryMapperTests
         Assert.Equal(0.88, payload.FocusEpisodeQuality);
         Assert.Equal(1800, payload.FocusEpisodeSeconds);
         Assert.Equal("keep", payload.FocusEpisodeState);
+        Assert.Equal("fragmentation_distraction", payload.AttentionSegmentKind);
+        Assert.Equal(300d, payload.AttentionSegmentSeconds);
+        Assert.True(payload.DistractionEpisodeActive);
+        Assert.Equal(300d, payload.DistractionEpisodeSeconds);
         Assert.True(payload.BreakNeeded);
         Assert.Equal("stretch_break_suggestion", payload.BreakPendingAction);
         Assert.Equal("calibrated", payload.CalibrationStage);

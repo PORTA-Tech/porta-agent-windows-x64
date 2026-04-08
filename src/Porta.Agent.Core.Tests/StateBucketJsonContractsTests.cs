@@ -66,6 +66,11 @@ public sealed class StateBucketJsonContractsTests
             continuityState: "keep",
             continuityConfidence: 0.81d,
             continuityAnchorAppHash: "app-anchor",
+            continuityInstabilitySeconds: 125d,
+            attentionSegmentKind: "fragmentation_distraction",
+            attentionSegmentSeconds: 125d,
+            distractionEpisodeActive: true,
+            distractionEpisodeSeconds: 125d,
             signalQualityScore: 0.90d,
             modelConfidence: 0.91d,
             overloadInferenceSource: "bucket_finalizer",
@@ -123,6 +128,11 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal("keep", root.GetProperty("continuity_state").GetString());
         Assert.Equal(0.81d, root.GetProperty("continuity_confidence").GetDouble(), precision: 6);
         Assert.Equal("app-anchor", root.GetProperty("continuity_anchor_app_hash").GetString());
+        Assert.Equal(125d, root.GetProperty("continuity_instability_seconds").GetDouble(), precision: 6);
+        Assert.Equal("fragmentation_distraction", root.GetProperty("attention_segment_kind").GetString());
+        Assert.Equal(125d, root.GetProperty("attention_segment_seconds").GetDouble(), precision: 6);
+        Assert.Equal(1, root.GetProperty("distraction_episode_active").GetInt32());
+        Assert.Equal(125d, root.GetProperty("distraction_episode_seconds").GetDouble(), precision: 6);
         Assert.Equal(0.72d, root.GetProperty("behavior_continuity_score").GetDouble(), precision: 6);
         Assert.Equal(0.90d, root.GetProperty("signal_quality_score").GetDouble(), precision: 6);
         Assert.Equal(0.91d, root.GetProperty("model_confidence").GetDouble(), precision: 6);

@@ -85,6 +85,14 @@ public static class PortaExecutionConstants
         public const double NoInteractionConfidencePenalty = 0.05;
     }
 
+    public static class DistractionEpisodes
+    {
+        public const double AwaySegmentStartSeconds = 60.0;
+        public const double OffTaskDistractionStartSeconds = 90.0;
+        public const double FragmentationDistractionStartSeconds = 120.0;
+        public const double FragmentationHighAppCountMin = 4.0;
+    }
+
     public static class OverloadStabilization
     {
         public const double ThresholdOn = 0.72;

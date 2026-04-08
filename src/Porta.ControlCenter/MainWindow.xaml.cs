@@ -5857,7 +5857,7 @@ public partial class MainWindow : Window
         HistorySummaryLeadText.Text = BuildHistoryLeadSentence(insights, timeline, snapshots);
         HistoryRangeSummaryText.Text = BuildHistoryFocusedSummary(insights);
         HistoryFocusSummaryText.Text = $"Longest focus block {FormatReadableDuration(insights.LongestFocusBlockSeconds)}";
-        HistoryOverloadSummaryText.Text = $"Distraction time {FormatReadableDuration(insights.DistractionSeconds)}";
+        HistoryOverloadSummaryText.Text = $"Distraction episodes {FormatReadableDuration(insights.DistractionSeconds)}";
         HistoryTrustSummaryText.Text = insights.MostDistractedPeriodLabel == NotAvailableText
             ? $"Viewing {_historyRange switch
             {
@@ -6087,10 +6087,10 @@ public partial class MainWindow : Window
 
         if (insights.MostDistractedPeriodLabel != NotAvailableText)
         {
-            return $"Across {rangeLabel}, you focused {focusedDuration}, spent {distractionDuration} away from steady work, and saw the most distraction in the {insights.MostDistractedPeriodLabel}.";
+            return $"Across {rangeLabel}, you focused {focusedDuration}, spent {distractionDuration} in distraction episodes, and saw the most distraction in the {insights.MostDistractedPeriodLabel}.";
         }
 
-        return $"Across {rangeLabel}, you focused {focusedDuration} and spent {distractionDuration} away from steady work.";
+        return $"Across {rangeLabel}, you focused {focusedDuration} and spent {distractionDuration} in distraction episodes.";
     }
 
     private string BuildHistoryEmptyLeadSentence()
