@@ -93,6 +93,9 @@ internal static class BreakSuggestionPolicy
         string action;
         int windowSeconds;
         double effectiveFocusSeconds;
+        // Step 2 migration map:
+        // break_suggestion and stretch_break_suggestion are legacy transport IDs.
+        // Product-facing naming is moving to long break and short break.
         if (Math.Max(0d, focusWindow.ShortBreakWindowEffectiveFocusSeconds) >= shortBreakThresholdSeconds)
         {
             action = "break_suggestion";

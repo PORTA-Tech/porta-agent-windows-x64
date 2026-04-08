@@ -57,6 +57,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-fleet-validation-gates.ps
    - `break_suggestion` -> `applied`
    - `deep_work_notifications_suppressed` -> `verified`
 
+Migration note:
+
+- `break_suggestion` remains a legacy transport action ID in current validation gates.
+- Product-facing reporting should treat it as the compatibility path for the future canonical break overlay flow, not as the long-term public action name.
+
 ## Identity safety
 
 - If the current device is already locally linked to a different account/org, the runner stops unless `-AllowIdentityRelink` is provided.

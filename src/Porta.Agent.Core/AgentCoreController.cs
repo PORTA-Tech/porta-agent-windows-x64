@@ -1659,9 +1659,9 @@ public sealed class AgentCoreController : IAgentCoreController
 
         return action switch
         {
-            "break_suggestion" => "Break suggestion was presented in the user interface.",
+            "break_suggestion" => "Legacy break_suggestion action was presented as the long-break suggestion in the user interface.",
             "focus_lock_in_suggestion" => "Focus lock-in suggestion was presented in the user interface.",
-            "stretch_break_suggestion" => "Stretch break suggestion was presented in the user interface.",
+            "stretch_break_suggestion" => "Legacy stretch_break_suggestion action was presented as the short-break suggestion in the user interface.",
             "deep_work_notifications_suppressed" => "Notification suppression was requested for deep work protection.",
             "deep_work_notifications_restored" => "Notification restoration was requested after deep work ended.",
             "inform_overload_risk" => "Overload risk was logged (inform-only).",

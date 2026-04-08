@@ -61,6 +61,21 @@ The following terms may still exist in current code, database fields, or transpo
 - widget-as-break-prompt-surface
 - `filling in` as the routine steady-state fallback when Ari has a last-known usable value
 
+## Legacy Term, Event, And Screen Migration Map
+
+This table exists to stop old stored events, old tests, and old UI copy from silently surviving under the wrong meaning while migration is in progress.
+
+| Legacy term or surface | Current anchors | Canonical target | Migration rule |
+| --- | --- | --- | --- |
+| `current focus session` | Control Center summary copy, widget-compatible projection text, and older diagnostics strings | `focus episode` duration or a live presence label such as `active`, `idle`, `paused`, `limited`, or `updating` | If the UI is showing a durable timer, call it a focus episode. If it is showing immediate live status only, use a live-presence label and do not imply episode duration. |
+| `break_suggestion` | `BreakSuggestionPolicy`, pending interventions, stored control events, validation gates, and local API cooldown aliases | Product-facing `long break` | Keep the transport action ID for compatibility until the break overlay migration lands, but product copy, docs, and future screens should treat it as the long-break path. |
+| `stretch_break_suggestion` | `BreakSuggestionPolicy`, pending interventions, stored control events, validation gates, and anti-spam prompt families | Product-facing `short break` | Keep the transport action ID for compatibility until the break overlay migration lands, but product copy, docs, and future screens should treat it as the short-break path. |
+| `microbreak_*` break fields | Runtime policy JSON, local API break-window snapshot fields, and Control Center diagnostics copy | short-break thresholds and short-break effective focus window | Keep the field names for compatibility during schema migration, but docs and screens should describe them as short-break data rather than microbreak data. |
+| `short_break_*` legacy break fields | Runtime policy JSON, local API break-window snapshot fields, and Control Center diagnostics copy | long-break thresholds and long-break effective focus window | Keep the field names for compatibility during schema migration, but docs and screens should describe them as long-break data when that is the product meaning. |
+| `breakSuggestionSecRemaining` and `break_suggestion_sec_remaining` | Local API snapshot cooldown payload | Shared legacy break-suggestion cooldown alias | Keep this alias for compatibility until the API contract grows separate short-break and long-break overlay timing fields. |
+| `distraction time` / `tracked - focused` | Control Center history copy, history summaries, and compatibility metrics | Episode-based distraction | Treat the old math as deprecated compatibility output only. New UI copy must talk about distraction segments or distraction episodes, not a leftover-time metric. |
+| Break prompts inside the widget | Widget contract, toast fallback, and prompt-family transport | Dedicated user-session break overlay owned by `Porta.UserAgent` | Break events may still travel through old prompt transport during migration, but the product target is a separate overlay, not the widget body. |
+
 ## Runtime Roles
 
 - `AriAgent` service

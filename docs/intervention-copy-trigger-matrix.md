@@ -41,6 +41,16 @@ These terms are canonical for product meaning, even where the current runtime st
 - widget-prompt delivery for breaks
   - Transitional delivery path only, not the product contract.
 
+## Legacy Event Migration Map
+
+| Legacy action or field | Current repo anchors | Canonical target | Migration note |
+| --- | --- | --- | --- |
+| `break_suggestion` | `BreakSuggestionPolicy`, `SqliteBrainStateStore`, `AgentCoreController`, `UserAgentInterventionExecution`, Control Center suggestion titles, fleet validation gates | `long break` | Keep the action ID for stored events and compatibility plumbing. User-facing copy and future overlay routing should describe it as a long break, even where older screens still say a generic break. |
+| `stretch_break_suggestion` | `BreakSuggestionPolicy`, `SqliteBrainStateStore`, `AgentCoreController`, `UserAgentInterventionExecution`, Control Center suggestion titles, anti-spam prompt-family routing | `short break` | Keep the action ID for stored events and compatibility plumbing. User-facing copy and future overlay routing should describe it as a short break, even where older screens still say stretch break. |
+| `microbreak_*` threshold fields | `RuntimePolicyProvider`, `BreakSuggestionPolicy`, local API snapshot break-window fields, Control Center diagnostics copy | short-break policy thresholds | Keep the schema names for compatibility, but treat them as short-break thresholds in product docs and screen copy. |
+| `short_break_*` threshold fields | `RuntimePolicyProvider`, `BreakSuggestionPolicy`, local API snapshot break-window fields, Control Center diagnostics copy | long-break policy thresholds | Keep the schema names for compatibility, but treat them as long-break thresholds in product docs and screen copy when that matches the product meaning. |
+| `break_suggestions` policy envelope | `RuntimePolicyProvider` runtime policy JSON | short-break and long-break policy delivery settings | Keep the envelope name during migration so existing policy documents still deserialize. Replace it only when the transport and runtime policy schema split short and long break families explicitly. |
+
 ## Shared Defaults
 
 - Overload stabilization turns on at `0.72` after `60s` dwell and turns off below `0.58` after `45s` dwell. Minimum confidence is `0.55`.

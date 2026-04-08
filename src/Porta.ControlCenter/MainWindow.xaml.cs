@@ -1356,7 +1356,7 @@ public partial class MainWindow : Window
 
         NowFocusChoppinessText.Text = BuildTodayCurrentFocusSupportText(liveSession);
         NowFocusSummaryText.Text = BuildTodayCurrentFocusSummary(todayState, liveSession, visualState);
-        NowFocusFootnoteText.Text = "This matches the widget's last-focus-session metric.";
+        NowFocusFootnoteText.Text = "This matches the widget's last focus metric.";
         NowFocusFootnoteText.Visibility = Visibility.Visible;
         NowFocusStatusText.Visibility = Visibility.Collapsed;
     }
@@ -1579,12 +1579,12 @@ public partial class MainWindow : Window
     {
         if (todayState == TodayTrackingState.Paused)
         {
-            return "This resumes from the live focus timer after tracking is unpaused.";
+            return "This resumes from the current focus timer after tracking is unpaused.";
         }
 
         if (IsLiveSessionFresh(liveSession) && visualState.CurrentFocusSessionSeconds.HasValue)
         {
-            return "This comes from the live focus timer first, then falls back to the latest analyzed block.";
+            return "This uses fresh live activity first, then falls back to the latest analyzed block.";
         }
 
         if (IsLiveSessionFresh(liveSession) && liveSession!.idle)
@@ -1597,7 +1597,7 @@ public partial class MainWindow : Window
             return "Live capture is connected, and the next analyzed block will pin this into History.";
         }
 
-        return "This follows the same last-focus-session definition shown in the widget.";
+        return "This follows the same last focus metric shown in the widget.";
     }
 
     private string BuildTodayHistoryStatusText()
@@ -1671,7 +1671,7 @@ public partial class MainWindow : Window
 
         if (snapshot is { analysis_ready: false })
         {
-            return "Watching your current focus session now. History will fill in after processed buckets arrive.";
+            return "Watching your live activity now. History will fill in after processed buckets arrive.";
         }
 
         IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = _todayTimeline?.Snapshots ?? [];
@@ -3005,10 +3005,10 @@ public partial class MainWindow : Window
             string shortBreak = snapshot.BreakShortBreakEffectiveFocusSeconds.HasValue
                 ? FormatFocusedTime(snapshot.BreakShortBreakEffectiveFocusSeconds.Value)
                 : NotAvailableText;
-            return $"Microbreak window: {microbreak} | Short-break window: {shortBreak}";
+            return $"Short-break window: {microbreak} | Long-break window: {shortBreak}";
         }
 
-        return "No break suggestion is currently pending.";
+        return "No short-break or long-break suggestion is currently pending.";
     }
 
     private static string HumanizeBreakBoundaryKind(string? boundaryKind)
@@ -4322,9 +4322,9 @@ public partial class MainWindow : Window
         string normalized = action?.Trim().ToLowerInvariant() ?? string.Empty;
         return normalized switch
         {
-            "break_suggestion" => "Take a break",
+            "break_suggestion" => "Take a long break",
             "focus_lock_in_suggestion" => "Lock in focus",
-            "stretch_break_suggestion" => "Take a stretch break",
+            "stretch_break_suggestion" => "Take a short break",
             _ => HumanizeActionName(action)
         };
     }
@@ -5241,7 +5241,7 @@ public partial class MainWindow : Window
         DecisionsBlockersText.Text = decisionBlockers.Count == 0
             ? "What can block it: none detected."
             : $"What can block it: {string.Join(" / ", decisionBlockers)}.";
-        DecisionsCurrentText.Text = $"Current status: overload {(overload * 100d):F0}%, confidence {ToConfidenceLabel(trustTier)} ({(trust * 100d):F0}%), current focus session {focusedMinutes:F0} min, suggestions {(suggestionsEnabled ? "enabled" : "gated")}, system actions {(systemActionsEnabled ? "enabled" : "gated")}.";
+        DecisionsCurrentText.Text = $"Current status: overload {(overload * 100d):F0}%, confidence {ToConfidenceLabel(trustTier)} ({(trust * 100d):F0}%), focus timer {focusedMinutes:F0} min, suggestions {(suggestionsEnabled ? "enabled" : "gated")}, system actions {(systemActionsEnabled ? "enabled" : "gated")}.";
     }
 
     private static string ChannelAvailabilityLabel(IReadOnlyList<string> missingChannels, string channel)

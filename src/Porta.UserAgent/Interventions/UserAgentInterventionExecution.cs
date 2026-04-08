@@ -658,6 +658,9 @@ internal sealed class UserAgentInterventionExecutor
 
     private static int ResolvePromptPriority(string? action)
     {
+        // Step 2 migration map:
+        // break_suggestion and stretch_break_suggestion remain legacy transport IDs
+        // until dedicated long-break and short-break overlay commands replace them.
         return (action ?? string.Empty).Trim().ToLowerInvariant() switch
         {
             "break_suggestion" => 30,

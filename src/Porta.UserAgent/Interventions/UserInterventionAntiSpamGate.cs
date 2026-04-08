@@ -113,6 +113,10 @@ internal sealed class UserInterventionAntiSpamGate
 
     private static string ResolvePromptFamily(string? action)
     {
+        // Step 2 migration map:
+        // Recovery-family break prompts still share the legacy break_suggestion and
+        // stretch_break_suggestion action IDs until the break overlay flow replaces
+        // this prompt-family transport.
         return NormalizeAction(action) switch
         {
             "break_suggestion" or "stretch_break_suggestion" => "prompt:recovery",

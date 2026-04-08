@@ -351,6 +351,10 @@ public sealed class FileRuntimePolicyProvider : IRuntimePolicyProvider
         [property: JsonPropertyName("overload")] OverloadDetectorDocument? Overload,
         [property: JsonPropertyName("deep_work")] DeepWorkDetectorDocument? DeepWork);
 
+    // Step 2 migration map:
+    // The JSON envelope name break_suggestions is legacy compatibility naming.
+    // Product taxonomy is moving toward explicit short-break and long-break rules,
+    // but the old envelope remains until policy transport is migrated.
     private sealed record DeliveryDocument(
         [property: JsonPropertyName("break_suggestions")] BreakSuggestionsDocument? BreakSuggestions);
 
@@ -383,6 +387,10 @@ public sealed class FileRuntimePolicyProvider : IRuntimePolicyProvider
         [property: JsonPropertyName("dwell_off_s")] int? DwellOffSeconds,
         [property: JsonPropertyName("gap_allow_s")] int? GapAllowSeconds);
 
+    // Step 2 migration map:
+    // microbreak_* fields are legacy short-break policy names.
+    // short_break_* fields are legacy longer-break policy names.
+    // The schema keeps them for compatibility until the break taxonomy is renamed.
     private sealed record BreakSuggestionsDocument(
         [property: JsonPropertyName("microbreak_window_s")] int? MicrobreakWindowSeconds,
         [property: JsonPropertyName("microbreak_effective_focus_min_low_s")] int? MicrobreakEffectiveFocusSecondsLowOverload,

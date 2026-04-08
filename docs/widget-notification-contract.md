@@ -62,6 +62,15 @@ The following terms may still exist in runtime code or transport contracts durin
 - widget as the primary break prompt surface
 - `filling in` as the normal fallback when Ari has a usable last-known value
 
+## Legacy Screen Migration Map
+
+| Legacy term or screen element | Current anchors | Canonical target | Migration rule |
+| --- | --- | --- | --- |
+| `Last focus session` sourced from live foreground-app age | Widget summary text, Control Center status copy, live-session compatibility projections | `focus episode` duration | Keep live signals for presence only. If the number is durable, it must refer to the focus episode, not the current foreground app. |
+| `current focus session` copy | Control Center loading and diagnostics text | focus-episode duration or live presence label | Replace the phrase with `focus episode`, `focus timer`, or a live presence label depending on what the screen is actually showing. |
+| `distraction time` copy | History summary and older history language | `distraction segments` / `distraction episodes` | Until episode-based distraction ships, treat the old aggregate as compatibility-only and avoid labeling it as the canonical product metric. |
+| Break prompts inside widget prompt rail | Current widget fallback transport and older toast-style prompt surfaces | dedicated session overlay for short and long breaks | Old widget or toast prompt plumbing may remain as fallback during migration, but it is not the product-facing destination for break decisions. |
+
 ## Product Decisions
 
 - The widget is the primary surface for ongoing status, limited or updating truth, non-break guidance, and compact recovery context.

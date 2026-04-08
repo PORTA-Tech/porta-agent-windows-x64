@@ -469,7 +469,7 @@
                                     Cursor="Hand"
                                     MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
                                     Tag="last-focus"
-                                    ToolTip="Open History for last focus-session details">
+                                    ToolTip="Open History for last focus details">
                                 <StackPanel>
                                     <TextBlock Text="Last focus session" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <TextBlock x:Name="NowFocusStreakValueText" Text="Last focus session: Not available" FontSize="26" FontWeight="Bold" TextWrapping="Wrap" />
@@ -481,11 +481,11 @@
                                                Visibility="Collapsed" />
                                     <TextBlock x:Name="NowFocusChoppinessText" Text="Live activity: Not available" Margin="0,8,0,0" />
                                     <TextBlock x:Name="NowFocusSummaryText"
-                                               Text="This follows the same focus-session definition used in the widget."
+                                               Text="This follows the same focus-timer definition used in the widget."
                                                Margin="0,8,0,0"
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowFocusFootnoteText" Text="Short pauses do not immediately reset the live focus timer." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" Visibility="Collapsed" />
+                                    <TextBlock x:Name="NowFocusFootnoteText" Text="Short pauses do not immediately clear the current focus timer." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" Visibility="Collapsed" />
                                     <TextBlock x:Name="NowFocusStatusText" Text="" Margin="0,6,0,0" Foreground="#F59E0B" TextWrapping="Wrap" Visibility="Collapsed" />
                                 </StackPanel>
                             </Border>
@@ -1258,7 +1258,7 @@
                             <TextBlock Text="History" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
                             <TextBlock Text="See when focus stayed steady, when distraction crept in, and where Ari stepped in." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
                             <TextBlock x:Name="HistorySummaryLeadText"
-                                       Text="History highlights your focus time, distraction time, patterns, and action markers."
+                                       Text="History highlights your focus episodes, distraction segments, patterns, and action markers."
                                        Foreground="#93C5FD"
                                        Margin="0,0,0,12"
                                        TextWrapping="Wrap" />
@@ -2028,7 +2028,7 @@
                                                 <TextBlock x:Name="DecisionsStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
                                             </Border>
                                         </DockPanel>
-                                        <TextBlock Text="What it means: Ari combines overload, focus-session state, and policy rules to decide whether to suggest or apply an action." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
+                                        <TextBlock Text="What it means: Ari combines overload, focus-timer state, and policy rules to decide whether to suggest or apply an action." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
                                         <TextBlock x:Name="DecisionsBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
                                         <TextBlock x:Name="DecisionsCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
                                     </StackPanel>

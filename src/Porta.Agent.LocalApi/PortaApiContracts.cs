@@ -256,6 +256,10 @@ public sealed record LocalApiCurrentSnapshotResponse(
     int? BreakPendingEffectiveFocusWindowSeconds = null,
     bool? BreakDeliveryBoundaryReached = null,
     string? BreakDeliveryBoundaryKind = null,
+    // Step 2 migration map:
+    // BreakMicrobreak* fields are legacy short-break compatibility fields.
+    // BreakShortBreak* fields are legacy longer-break compatibility fields.
+    // The product contract is moving toward explicit short-break and long-break naming.
     double? BreakMicrobreakEffectiveFocusSeconds = null,
     double? BreakShortBreakEffectiveFocusSeconds = null,
     string RuntimeStateFreshness = "unknown",
@@ -359,6 +363,10 @@ public sealed record LocalApiCooldownsRemainingResponse(
     bool AnyActive)
 {
     // Backward-compatible aliases for existing UI code.
+    // Step 2 migration map:
+    // BreakSuggestionSecRemaining is a legacy shared break-suggestion cooldown field.
+    // The canonical product model will eventually split short-break and long-break
+    // overlay timing instead of routing both through one compatibility alias.
     public int BreakSuggestionSeconds => BreakSuggestionSecRemaining;
     public int NotificationEnableSeconds => DeepWorkNotificationEnableSecRemaining;
     public int BrightnessSeconds => BrightnessActionSecRemaining;

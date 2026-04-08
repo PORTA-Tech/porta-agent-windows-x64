@@ -83,6 +83,11 @@ Snapshot payload includes:
 - `notificationsSuppressed` + alias `notifications_suppressed`
 - `brightnessAdjusted` + alias `brightness_adjusted`
 
+Migration note:
+
+- `breakSuggestionSecRemaining` and `break_suggestion_sec_remaining` are legacy compatibility fields for the pre-split break-suggestion cooldown path.
+- When the canonical short-break and long-break overlay contract lands, the API should expose break-type-specific timing instead of relying on one shared break-suggestion alias.
+
 Control Center-oriented grouped block:
 
 - `current`:

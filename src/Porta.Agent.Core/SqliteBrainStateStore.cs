@@ -6228,9 +6228,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
         return action switch
         {
-            "break_suggestion" => "Break suggestion displayed to user (no forced system restriction).",
+            "break_suggestion" => "Long-break suggestion displayed to user (legacy break_suggestion transport action; no forced system restriction).",
             "focus_lock_in_suggestion" => "Focus lock-in suggestion displayed to user.",
-            "stretch_break_suggestion" => "Stretch break suggestion displayed to user.",
+            "stretch_break_suggestion" => "Short-break suggestion displayed to user (legacy stretch_break_suggestion transport action).",
             "inform_overload_risk" => "Overload risk logged for transparency; no direct system setting changed.",
             "inform_focus_protection" => "Focus protection signal logged for transparency; no direct system setting changed.",
             "inform_fatigue_prevention" => "Fatigue prevention signal logged for transparency; no direct system setting changed.",
@@ -6514,11 +6514,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private static string ResolveInterventionToastTitle(string action)
     {
+        // Step 2 migration map:
+        // Keep legacy action IDs in transport, but surface canonical short-break and
+        // long-break naming in user-facing titles during migration.
         return action switch
         {
-            "break_suggestion" => "Break suggestion",
+            "break_suggestion" => "Long break",
             "focus_lock_in_suggestion" => "Focus suggestion",
-            "stretch_break_suggestion" => "Stretch suggestion",
+            "stretch_break_suggestion" => "Short break",
             "inform_overload_risk" => "Overload watch",
             "inform_focus_protection" => "Focus watch",
             "inform_fatigue_prevention" => "Fatigue watch",
@@ -6542,11 +6545,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return action switch
         {
             "break_suggestion"
-                => "Ari sees a long work run and rising strain. Ready for a short break now? Choose Later if now is not a good time, or turn off this tip.",
+                => "Ari sees a long work run and rising strain. Ready for a longer break now? Choose Later if now is not a good time, or turn off this tip.",
             "focus_lock_in_suggestion"
                 => "Ari sees steady focus building and thinks staying on one task will help. Keep this task in front of you for a bit? Choose Later if not now, or turn off this tip.",
             "stretch_break_suggestion"
-                => "Ari sees a long steady run and thinks a quick stretch could reduce strain. Take a short stretch break now? Choose Later if not now, or turn off this tip.",
+                => "Ari sees a long steady run and thinks a short recovery break could reduce strain. Take a short break now? Choose Later if not now, or turn off this tip.",
             "inform_overload_risk"
                 => "Ari sees overload rising, but the signal has not stayed high long enough to change anything yet. Slow down or open Now for details. You can mute this guidance in Settings.",
             "inform_focus_protection"
