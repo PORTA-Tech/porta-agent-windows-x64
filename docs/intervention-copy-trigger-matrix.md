@@ -12,6 +12,35 @@ Scope:
 
 The values below are the local default rules. A runtime policy envelope can override some thresholds, but this is the behavior shipped when no override is present.
 
+## Canonical Product Terms
+
+These terms are canonical for product meaning, even where the current runtime still carries older action IDs or transport fields during migration:
+
+- `focus episode`
+  - The durable unit of user-facing focus time.
+  - It is not the same thing as the current foreground-app timer.
+- `pressure`
+  - The expressive user-facing overload score.
+- `overload active`
+  - The conservative stabilized state used for interventions and system actions.
+- `short break`
+  - The lighter break intervention with shorter recovery.
+- `long break`
+  - The stronger break intervention with longer recovery.
+
+## Deprecated Legacy Names
+
+- `stretch_break_suggestion`
+  - Legacy transport action ID for the product-facing `short break` during migration.
+- `break_suggestion`
+  - Legacy transport action ID for the product-facing `long break` during migration.
+- `sustained attention`
+  - Internal analysis term, not the primary user-facing focus label.
+- `current focus session`
+  - Not the canonical durable focus term.
+- widget-prompt delivery for breaks
+  - Transitional delivery path only, not the product contract.
+
 ## Shared Defaults
 
 - Overload stabilization turns on at `0.72` after `60s` dwell and turns off below `0.58` after `45s` dwell. Minimum confidence is `0.55`.
@@ -23,15 +52,16 @@ The values below are the local default rules. A runtime policy envelope can over
   - the focus window already flagged high overload pressure
   - overload stabilization is active
   - overload likelihood is at least `0.72`
-- Short break threshold:
+- Long break threshold (legacy transport action `break_suggestion`):
   - low overload: `60m` effective focus inside a `75m` window
   - high overload: `45m` effective focus inside a `75m` window
-- Stretch break threshold:
+- Short break threshold (legacy transport action `stretch_break_suggestion`):
   - low overload: `30m` effective focus inside a `35m` window
   - high overload: `25m` effective focus inside a `35m` window
 - Deep-work detection defaults: sustained attention at least `900s`, confidence at least `0.65`, fragmentation at most `0.50`, volatility at most `0.50`, intensity between `0.40` and `0.75`, dwell on `120s`, dwell off `60s`.
 - Notification suppression defaults: failure backoff `300s`, enable cooldown `600s`, minimum on-time `120s`.
 - Brightness adjustment defaults: reduce by `5` points, never below brightness `20`, action cooldown `600s`, failure backoff `600s`.
+- Canonical product routing for breaks is a dedicated user-session overlay, not a widget prompt. Existing prompt-family transport is transitional until that overlay lands.
 
 ## Overload Messages
 
@@ -40,7 +70,7 @@ The values below are the local default rules. A runtime policy envelope can over
 | `inform_overload_risk` | Emitted when the overload regulator crosses its activation rule and resolves to `Inform`, or when a stronger overload action is downgraded because overload nudges or restrictions are disabled. The generic overload regulator does not emit a break prompt directly. | Planned end `60s`. If `temporary_app_restriction_enabled` is blocked, overload falls back to `focus_mode_enabled` when an overload nudge feature is enabled, otherwise to `inform_overload_risk`. If `focus_mode_enabled` is blocked, it also falls back here. | Ari explains that overload is rising, says no change has been made yet, points the user to `Now`, and says the guidance can be muted in `Settings`. |
 | `focus_mode_enabled` | Emitted by the overload regulator at `Nudge` level, or as the downgrade target for an overload `Restrict` action when temporary app restriction is disabled but at least one overload nudge feature is still enabled. | Planned end `600s`. Overload policy cooldown `600s`. If all overload nudge features are disabled, it degrades to `inform_overload_risk`. | Ari explains that overload stayed elevated long enough to turn on focus guidance, tells the user to keep one task in front of them, and points to `Settings` for opt-out. |
 | `temporary_app_restriction_enabled` | Emitted by the overload regulator at `Restrict` level when overload stays above the policy threshold long enough and temporary app restriction is enabled. | Planned end `180s`. If temporary app restriction is disabled, overload downgrades to `focus_mode_enabled` when overload nudge features are available, otherwise to `inform_overload_risk`. | Ari explains that risk stayed high long enough to limit distracting apps for a short block, tells the user what to do, and points to `Settings` for opt-out. |
-| `break_suggestion` | Emitted only by `BreakSuggestionPolicy`, not by the generic overload regulator. Conditions: suggestions enabled, confidence at least `0.50`, trust tier allows suggestions, continuity active, delivery boundary reached, break cooldown expired, and effective focus crosses the short-break threshold. Uses the high-overload threshold when overload is active or likelihood is at least `0.72`. | Prompt duration `300s`. Break cooldown `1800s`. If the delivery boundary is not reached or cooldown is active, the event is not emitted. | Ari explains that it sees a long work run and rising strain, asks for a short break now, and makes `Later` plus `Turn off this tip` explicit. |
+| `break_suggestion` | Legacy transport action ID for the product-facing `long break`. It is emitted only by `BreakSuggestionPolicy`, not by the generic overload regulator. Conditions: suggestions enabled, confidence at least `0.50`, trust tier allows suggestions, continuity active, delivery boundary reached, break cooldown expired, and effective focus crosses the longer-break threshold. Uses the high-overload threshold when overload is active or likelihood is at least `0.72`. | Current runtime still carries prompt duration `300s` and break cooldown `1800s`. If the delivery boundary is not reached or cooldown is active, the event is not emitted. Canonical product delivery is a dedicated session overlay, not a widget prompt. | Ari explains that it sees a long work run and rising strain, asks whether the user wants a longer recovery break, and makes skip or snooze explicit in the canonical product contract. |
 | `overload_brightness_reduced` | Emitted when overload transitions from inactive to active and the brightness coordinator successfully reduces brightness. | Trigger follows overload stabilization entry. Reduction is `5` points, never below `20`. Brightness action cooldown `600s`. | Ari explains that overload stayed high and brightness was lowered to reduce strain, gives the user a restore path, and points to `Settings` for feature opt-out. |
 | `overload_brightness_restored` | Emitted when overload transitions from active to inactive and brightness restore succeeds. | Trigger follows overload recovery. Restore path sets a `600s` cooldown. | Ari explains that overload eased and the old brightness was restored, says no action is required, and points to `Settings` if the feature should be changed. |
 | `brightness_unsupported` | Emitted when the brightness controller reports that the device does not support automatic brightness control during entry or ramp handling. | Unsupported state is latched so the same unsupported warning is not spammed repeatedly. Failure backoff `600s`. | Ari explains that automatic brightness control is unavailable on this device, tells the user to adjust brightness manually, and points to `Health` plus `Settings`. |
@@ -61,7 +91,7 @@ The values below are the local default rules. A runtime policy envelope can over
 | --- | --- | --- | --- |
 | `inform_fatigue_prevention` | Emitted when the fatigue regulator resolves to `Inform`. Fatigue policy defaults are soft `0.70`, hard `0.82`, activation `120s`, recovery `180s`, confidence gate `0.60`, cooldown `900s`. The generic fatigue regulator does not emit a stretch prompt directly. | Planned end `60s`. If `fatigue_relief_enabled` is blocked, fatigue falls back here. If fatigue-domain `temporary_app_restriction_enabled` is blocked and animation reduction is off, it also falls back here. | Ari explains that fatigue is building, says it has not stepped in yet, points the user to a quick reset or `Now`, and says the guidance can be muted in `Settings`. |
 | `fatigue_relief_enabled` | Emitted directly by the fatigue regulator at `Nudge` level, or as the downgrade target for fatigue-domain `Restrict` when temporary app restriction is disabled but animation reduction is enabled. | Planned end `600s`. If animation reduction is disabled, it downgrades to `inform_fatigue_prevention`. | Ari explains that fatigue stayed elevated long enough to turn on relief guidance, suggests a short reset, and points to `Settings` for opt-out. |
-| `stretch_break_suggestion` | Emitted only by `BreakSuggestionPolicy`, not by the generic fatigue regulator. Conditions: suggestions enabled, confidence at least `0.50`, trust tier allows suggestions, continuity active, delivery boundary reached, cooldown expired, and effective focus crosses the stretch-break threshold. Uses the high-overload threshold when overload is active or likelihood is at least `0.72`. | Prompt duration `300s`. Break cooldown `1800s`. If the boundary is not reached or cooldown is active, no event is emitted. | Ari explains that it sees a long steady run, suggests a short stretch break, and makes `Later` plus `Turn off this tip` explicit. |
+| `stretch_break_suggestion` | Legacy transport action ID for the product-facing `short break`. It is emitted only by `BreakSuggestionPolicy`, not by the generic fatigue regulator. Conditions: suggestions enabled, confidence at least `0.50`, trust tier allows suggestions, continuity active, delivery boundary reached, cooldown expired, and effective focus crosses the lighter-break threshold. Uses the high-overload threshold when overload is active or likelihood is at least `0.72`. | Current runtime still carries prompt duration `300s` and break cooldown `1800s`. If the boundary is not reached or cooldown is active, no event is emitted. Canonical product delivery is a dedicated session overlay, not a widget prompt. | Ari explains that it sees a long steady run and asks whether the user wants a short recovery break now. |
 
 ## Deep-Work Notification Messages
 
@@ -77,9 +107,10 @@ The values below are the local default rules. A runtime policy envelope can over
 
 - The central user-facing copy is generated in `SqliteBrainStateStore.ResolveInterventionToastMessage`.
 - The payload message is intentionally generic and truthful. It does not mention foreground app names because the local widget contract does not currently expose a human-readable app or window label.
+- Current action IDs such as `stretch_break_suggestion` and `break_suggestion` are legacy transport names during migration. Product copy, docs, and future UI surfaces should use `short break` and `long break`.
+- User-facing focus copy should use durable focus-episode language, not live foreground-app timer language.
 - For suggestions, the message text must remain consistent with the explicit prompt metadata:
   - `Yes`
   - `No`
   - `Later`
   - `Turn off this tip`
-

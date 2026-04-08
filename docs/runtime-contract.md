@@ -14,6 +14,53 @@ It is grounded in the current repo behavior, not assumptions. The audited code a
 - `src/Porta.Agent.Common/UserAgent/CurrentSessionUserAgentRecoveryEvaluator.cs`
 - `src/Porta.Agent.ValidationRunner/Fleet/FleetValidationRunner.cs`
 
+## Canonical Behavior Glossary
+
+These are the canonical product meanings Ari must converge on, even when current transport fields or legacy action names still exist in code during migration.
+
+- `focus episode`
+  - The durable unit of user-facing focus time.
+  - A focus episode survives short app/window switches, short reading or thinking pauses, and short instability spikes.
+  - It does not mean "time since the current foreground app became active."
+- `distraction episode`
+  - A contiguous segment of tracked, non-idle time where the user is no longer continuing the same focus episode because they are off-context or in sustained fragmentation.
+  - It does not mean `tracked - focused`.
+- `away segment`
+  - Idle or away time.
+  - It is not the same thing as distraction.
+- `pressure`
+  - The expressive user-facing overload score Ari shows to humans.
+  - It may rise quickly and does not, by itself, mean interventions must fire.
+- `overload active`
+  - The conservative stabilized state Ari uses for interventions and system actions.
+  - It is not the same thing as the visible pressure score.
+- `short break`
+  - The lighter break intervention with a short recovery duration.
+  - During migration, the runtime may still carry legacy action IDs for this behavior.
+- `long break`
+  - The stronger break intervention with a longer recovery duration.
+  - During migration, the runtime may still carry legacy action IDs for this behavior.
+- `limited`
+  - Ari still has usable truth, but one or more channels, trust limits, or runtime constraints reduce certainty.
+  - `limited` is not the same thing as unavailable.
+- `updating`
+  - Ari is showing the last known usable value while fresh analyzed state catches up.
+  - `updating` is not the same thing as unavailable.
+
+## Deprecated Product Terms
+
+The following terms may still exist in current code, database fields, or transport contracts during migration, but they are not the canonical product meanings:
+
+- `focus_elapsed_seconds` as the main user-facing focus timer
+- `current focus session` as a synonym for the durable focus timer
+- `live streak`
+- `sustained attention` as the primary user-facing focus label
+- distraction defined as `tracked time - focused time`
+- `stretch_break_suggestion` as the product-facing short-break name
+- `break_suggestion` as the product-facing long-break name
+- widget-as-break-prompt-surface
+- `filling in` as the routine steady-state fallback when Ari has a last-known usable value
+
 ## Runtime Roles
 
 - `AriAgent` service
@@ -152,6 +199,15 @@ Locked contract for notification v1:
   - no-action guidance when Ari chooses not to act
   - runtime degradation that limits capture or regulation
   - update availability and update-required state, where appropriate
+
+## Break Intervention Surface
+
+Locked contract:
+
+- The widget is not the canonical surface for break decisions.
+- Short-break and long-break decisions belong to a dedicated user-session surface owned by `Porta.UserAgent`.
+- Control Center may render state and history for break behavior, but break acceptance or skip decisions must not depend on Control Center being open.
+- Legacy widget or toast prompt plumbing for break actions is transitional only and must not be treated as the long-term product contract.
 
 ## Non-Goals For This Contract
 

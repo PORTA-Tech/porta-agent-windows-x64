@@ -242,6 +242,10 @@ public static class LocalCurrentExperienceStateAdapter
         return (true, recoveryEvent.Id, message);
     }
 
+    // Step 1 contract freeze:
+    // This live-first resolver is transitional compatibility only.
+    // The canonical product meaning for the displayed focus duration is
+    // the current or most recent focus episode, not foreground-app age.
     private static double? ResolveCurrentFocusSessionSeconds(
         LocalApiCurrentSnapshotResponse snapshot,
         LocalApiLiveSessionStateResponse? liveSession)

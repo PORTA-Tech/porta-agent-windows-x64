@@ -59,7 +59,8 @@ internal static class UserDesktopWidgetStateBuilder
                 };
 
         // Live session state is only for immediate "what is happening now" activity facts.
-        // Analyzed state such as overload stays on status/snapshot/timeline/event sources.
+        // Step 1 freezes the canonical focus meaning as a durable focus episode; this
+        // builder is still using the current resolver until that episode model lands.
 
         return new UserDesktopWidgetState(
             Mode: mode,

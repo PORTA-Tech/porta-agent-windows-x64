@@ -44,6 +44,9 @@ internal static class HistoryPageInsightsBuilder
             trackedSeconds += bucketSeconds;
         }
 
+        // Step 1 contract freeze:
+        // This complement-based distraction total is now a deprecated compatibility
+        // metric. The canonical product model is episode-based distraction.
         double distractionSeconds = Math.Max(0d, trackedSeconds - focusedSeconds);
         double longestFocusBlockSeconds = snapshots.Max(static snapshot => Math.Max(0d, snapshot.SustainedAttentionDurationSec));
         string mostDistractedPeriodLabel = ComputeMostDistractedPeriodLabel(snapshots);

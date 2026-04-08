@@ -24,15 +24,55 @@ It is grounded in the current repo behavior, not aspirational copy alone. The au
 - The current toast renderer remains the fallback path if the widget cannot render.
 - This contract only freezes product behavior. It does not yet implement the widget.
 
+## Canonical Behavior Glossary
+
+- `focus episode`
+  - The durable unit of user-facing focus time.
+  - The widget must not treat foreground-app age as the canonical focus timer.
+- `distraction episode`
+  - A contiguous segment of tracked, non-idle time where the user is no longer continuing the same focus episode because they are off-context or in sustained fragmentation.
+- `away segment`
+  - Idle or away time.
+  - It is not the same thing as distraction.
+- `pressure`
+  - The expressive user-facing overload score the widget and Control Center should surface.
+- `overload active`
+  - The conservative stabilized state that Ari uses for interventions and system actions.
+- `limited`
+  - Ari still has usable state, but one or more channels or trust limits reduce certainty.
+  - The widget should stay useful in this state.
+- `updating`
+  - Ari is showing the last known usable value while fresh analyzed data catches up.
+  - `updating` is not the same thing as unavailable.
+- `short break`
+  - The lighter break intervention with shorter recovery.
+- `long break`
+  - The stronger break intervention with longer recovery.
+
+## Deprecated Terms
+
+The following terms may still exist in runtime code or transport contracts during migration, but they are not the canonical widget product meanings:
+
+- `focus_elapsed_seconds` as the main focus timer
+- `current focus session` as the durable focus label
+- `live streak`
+- distraction defined as `tracked - focused`
+- `stretch_break_suggestion` as the product-facing short-break name
+- `break_suggestion` as the product-facing long-break name
+- widget as the primary break prompt surface
+- `filling in` as the normal fallback when Ari has a usable last-known value
+
 ## Product Decisions
 
-- The widget is the primary surface for ongoing status, suggestions, and degradations.
+- The widget is the primary surface for ongoing status, limited or updating truth, non-break guidance, and compact recovery context.
 - Most current one-off notifications become persistent widget states or activity-log entries.
-- Only suggestion prompts ask a direct `Yes / Not now` style question.
+- Break interventions are not widget prompts. They belong to a dedicated user-session overlay owned by `Porta.UserAgent`.
+- Only non-break suggestion prompts ask a direct choice question inside the widget.
 - Automatic system changes do not ask `Yes / No` after the change already happened. They show `Keep / Undo` or `Restore`.
 - Runtime failures do not ask `Yes / No`. They show repair actions such as `Open Health`, `Retry`, or `Settings`.
 - Inform-only engine actions never produce a standalone popup in v1.
 - Recovery confirmations default to activity-log entries, not interruptions.
+- Routine partial capture and freshness delay states must not replace the widget's primary useful metrics. They become `limited` or `updating` indicators unless user action is required.
 
 ## Widget Ownership And Data Sources
 
@@ -67,6 +107,24 @@ The compact menu must expose the same high-value control path every time.
 
 Menu actions should prefer local Control Center deeplinks over browser navigation.
 
+## Widget Summary Semantics
+
+The compact widget summary must use stable product meanings:
+
+- `Work today`
+  - Durable processed tracked work time for the current day.
+  - It is not the same thing as focused time.
+- `Last focus session`
+  - The duration of the current or most recent `focus episode`.
+  - It is not the age of the current foreground app or window.
+- `Pressure`
+  - The expressive user-facing overload score.
+  - It is not the same thing as `overload active`.
+- `Limited`
+  - The widget still has usable values, but confidence or capture coverage is reduced.
+- `Updating`
+  - The widget is showing the last known usable value while fresh analyzed state catches up.
+
 ## Widget State Model
 
 The widget has five product-facing states.
@@ -75,9 +133,11 @@ The widget has five product-facing states.
 | --- | --- | --- | --- | --- |
 | `collapsed` | Default resting widget with compact status, icon, and menu access | Healthy session, no active prompt, no active critical state | User expands it, a prompt appears, or a critical state appears | This is the default steady-state mode |
 | `expanded` | User-opened detail view for current status and quick actions | User clicks the widget or opens the menu/details | User closes it, pointer-hides it, or a higher-priority state appears | Used for reading context, not for prompting |
-| `prompting` | Suggestion requiring a choice | A prompt-family event becomes eligible and no critical state is active | User responds, it times out, or a critical state preempts it | Only one prompt may be active at a time |
+| `prompting` | Non-break suggestion requiring a choice | A non-break prompt-family event becomes eligible and no critical state is active | User responds, it times out, or a critical state preempts it | Short-break and long-break decisions are not routed here |
 | `critical` | Persistent failure or degraded runtime state needing attention | Service, capture, consent, auth, DB, or output failure is active | Root cause clears or user temporarily hides it | Highest semantic priority |
 | `hidden-temporarily` | Presentation override used to avoid blocking clicks | Pointer enters widget hit area or user snoozes/hides it | Pointer leaves, snooze expires, or user reopens it | This is a display override, not a semantic queue state |
+
+Break overlays are separate from widget semantic states. They are session-level surfaces owned by `Porta.UserAgent`.
 
 ## Priority Rules
 
@@ -91,18 +151,19 @@ The widget has five product-facing states.
 
 ## Surface Routing Rules
 
-There are four user-facing output classes.
+There are five user-facing output classes.
 
 | Class | Meaning | Examples |
 | --- | --- | --- |
 | Persistent state | Ongoing condition shown in the widget body or compact bar | monitoring, deep work active, overload active, capture degraded |
-| Prompt | A suggestion awaiting a user choice | break suggestion, stretch break suggestion, focus lock-in suggestion |
+| Prompt | A non-break suggestion awaiting a user choice | focus lock-in suggestion |
 | Urgent alert | A one-time escalation when entering a new critical failure while the widget is not already expanded on that issue | service lost, notification restore failure, capture handoff failure |
 | Activity log item | Non-blocking record of something that happened | overload recovered, notifications restored, brightness restored |
+| Session overlay | A dedicated user-session surface outside the widget for stronger interventions | short break, long break |
 
 ## Interaction Contract
 
-### Suggestions
+### Non-Break Suggestions
 
 - Button pattern: `Yes`, `Not now`
 - Secondary links: `Turn off this tip`, `Details`
@@ -112,6 +173,21 @@ There are four user-facing output classes.
   - `dismissed`
   - `snoozed`
   - `suppressed_by_preference`
+
+### Break Overlays
+
+- Break decisions do not use the widget prompt rail.
+- Button pattern:
+  - `Take break`
+  - `Skip`
+  - `Snooze`
+- Required future outcome states:
+  - `accepted`
+  - `skipped`
+  - `snoozed`
+  - `suppressed_by_preference`
+- If the user accepts, Ari shows a countdown break layer on the dedicated session overlay.
+- The widget may show summary state for the active break, but it is not the decision surface.
 
 ### Automatic System Changes
 
@@ -169,9 +245,14 @@ Reason:
 
 | Event / Trigger | Surface | Severity | Default Copy | CTA Contract | Cooldown | Opt-Out | Fallback |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `break_suggestion` when the break policy reaches a delivery boundary and cooldown is clear | `prompting` | medium-high | `You have been working for {focus_minutes}m. Ready for a short break?` | `Yes`, `Not now`, `Turn off this tip`, `Details` | family floor `30m`; global prompt floor `12m`; auto-collapse `5m` | family-level permanent opt-out allowed | legacy toast once, then tray badge and Control Center action entry |
-| `stretch_break_suggestion` when the microbreak threshold is reached and cooldown is clear | `prompting` | medium | `You have been steadily working for {focus_minutes}m. Take a quick stretch break?` | `Yes`, `Not now`, `Turn off this tip`, `Details` | family floor `30m`; global prompt floor `12m`; auto-collapse `5m` | family-level permanent opt-out allowed | legacy toast once, then tray badge and Control Center action entry |
 | `focus_lock_in_suggestion` when focus-protection suggest level is reached and no stronger state blocks it | `prompting` | medium | `Focus is building. Keep this task in front of you for a bit?` | `Yes`, `Not now`, `Turn off this tip`, `Details` | max of engine cooldown and widget floor `15m`; global prompt floor `12m`; auto-collapse `5m` | family-level permanent opt-out allowed | legacy toast once, then tray badge and Control Center action entry |
+
+### Session Overlay Breaks
+
+| Event / Trigger | Surface | Severity | Default Copy | CTA Contract | Cooldown | Opt-Out | Fallback |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| legacy `stretch_break_suggestion`, canonical `short break` | dedicated session overlay, not widget | medium | `You have been steadily working for {focus_minutes}m. Ready for a short break?` | `Take break`, `Skip`, `Snooze`, `Turn off this tip`, `Details` | family floor `30m`; global break floor `12m`; overlay expiry determined by final break UX | family-level permanent opt-out allowed | current legacy widget or toast path only until overlay implementation lands |
+| legacy `break_suggestion`, canonical `long break` | dedicated session overlay, not widget | medium-high | `You have been working for {focus_minutes}m. Ready for a longer break?` | `Take break`, `Skip`, `Snooze`, `Turn off this tip`, `Details` | family floor `30m`; global break floor `12m`; overlay expiry determined by final break UX | family-level permanent opt-out allowed | current legacy widget or toast path only until overlay implementation lands |
 
 ### Inform-Only And Guidance States
 
@@ -202,7 +283,7 @@ Reason:
 | `USER_AGENT_INPUT_SELF_TEST_FAILED` | Persistent warning state | high | `Ari is connected, but live keyboard or mouse input is not reaching the core yet.` | `Open Health`, `Retry`, `Dismiss for now` | repeat same root cause no more than every `20m`; reset after `1m` healthy | session hide only | tray unavailable mode and Control Center health banner |
 | `USER_AGENT_KEYBOARD_SIGNAL_MISSING` | Persistent warning state | medium-high | `Ari is only seeing mouse activity right now. Keyboard capture is limited.` | `Open Health`, `Dismiss for now` | repeat same root cause no more than every `20m`; reset after `1m` healthy | session hide only | tray unavailable mode and Control Center health banner |
 | `USER_AGENT_MOUSE_SIGNAL_MISSING` | Persistent warning state | medium-high | `Ari is only seeing keyboard activity right now. Mouse capture is limited.` | `Open Health`, `Dismiss for now` | repeat same root cause no more than every `20m`; reset after `1m` healthy | session hide only | tray unavailable mode and Control Center health banner |
-| `snapshot.PartialData == true` with `MissingMajorChannels` | Persistent warning state | medium-high | `Ari is receiving partial activity only. Missing {missing_channels}.` | `Open Health`, `Dismiss for 1h`, `Details` | repeat same root cause no more than every `20m`; reset after `1m` healthy | session mute allowed, not permanent | tray degraded mode and Control Center data-quality banner |
+| `snapshot.PartialData == true` with `MissingMajorChannels` | Persistent `limited` state, not takeover by default | medium-high | `Tracking is limited. Missing {missing_channels}. Ari keeps trying to restore full capture.` | `Open Health`, `Details` | repeat same root cause no more than every `20m`; reset after `1m` healthy | session mute allowed, not permanent | tray degraded mode and Control Center data-quality banner |
 | `notification_snapshot_failed` | Persistent warning state, urgent only on first entry | high | `Ari could not read your current notification state. Mute banners manually if you need protected focus.` | `Open Health`, `Retry`, `Settings`, `Dismiss for now` | repeat same root cause no more than every `20m` or after explicit retry | none | legacy urgent toast plus outputs warning |
 | `notification_suppress_failed` | Persistent `critical` state for the deep-work feature | high | `Ari could not mute Windows notifications for deep work.` | `Open Health`, `Retry`, `Settings`, `Dismiss for now` | repeat same root cause no more than every `20m` or after explicit retry | none | legacy urgent toast plus outputs warning |
 | `notification_restore_failed` | Persistent `critical` state until acknowledged | high | `Ari could not restore Windows notification settings cleanly.` | `Open Health`, `Retry`, `Settings`, `Dismiss for now` | repeat same root cause no more than every `20m` or after explicit retry | none | legacy urgent toast plus outputs warning |

@@ -144,9 +144,10 @@ internal static class VisualStateAdapter
             WhySummary: whySummary);
     }
 
-    // Metric contract:
-    // - Current focus session = live-first timer from /v1/session/live.
-    // - Focused today remains a durable processed-history metric and lands on the Today page in the next pass.
+    // Step 1 contract freeze:
+    // This renderer still reflects the current runtime resolver for compatibility,
+    // but the canonical product meaning is a durable focus-episode duration rather
+    // than a live foreground-app timer.
     private static string BuildCurrentFocusSessionText(LocalCurrentExperienceState experience)
     {
         if (experience.CurrentFocusSessionSeconds.HasValue)
