@@ -61,6 +61,8 @@ public sealed class StateBucketJsonContractsTests
             saResetReason: "context_changed",
             taskContinuityScore: 0.72d,
             taskContinuitySeconds: 1810d,
+            focusEpisodeCandidateSeconds: 10d,
+            focusEpisodeActive: true,
             continuityState: "keep",
             continuityConfidence: 0.81d,
             continuityAnchorAppHash: "app-anchor",
@@ -116,6 +118,8 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal("context_changed", root.GetProperty("sa_reset_reason").GetString());
         Assert.Equal(0.72d, root.GetProperty("task_continuity_score").GetDouble(), precision: 6);
         Assert.Equal(1810d, root.GetProperty("task_continuity_seconds").GetDouble(), precision: 6);
+        Assert.Equal(10d, root.GetProperty("focus_episode_candidate_seconds").GetDouble(), precision: 6);
+        Assert.Equal(1, root.GetProperty("focus_episode_active").GetInt32());
         Assert.Equal("keep", root.GetProperty("continuity_state").GetString());
         Assert.Equal(0.81d, root.GetProperty("continuity_confidence").GetDouble(), precision: 6);
         Assert.Equal("app-anchor", root.GetProperty("continuity_anchor_app_hash").GetString());

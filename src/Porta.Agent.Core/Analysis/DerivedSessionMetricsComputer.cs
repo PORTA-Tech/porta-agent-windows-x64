@@ -17,7 +17,8 @@ internal readonly record struct DerivedSessionMetricsResult(
     double TaskContinuityScore = 0d,
     double TaskContinuitySeconds = 0d,
     string ContinuityState = "reset",
-    double ContinuityConfidence = 0d);
+    double ContinuityConfidence = 0d,
+    double FocusEpisodeCandidateSeconds = 0d);
 
 internal static class DerivedSessionMetricsComputer
 {
@@ -63,7 +64,8 @@ internal static class DerivedSessionMetricsComputer
             TaskContinuityScore: continuity.Score,
             TaskContinuitySeconds: ClampNonNegativeFinite(continuity.TaskContinuitySeconds),
             ContinuityState: continuity.State,
-            ContinuityConfidence: continuityConfidence);
+            ContinuityConfidence: continuityConfidence,
+            FocusEpisodeCandidateSeconds: continuity.FocusEpisodeCandidateSeconds);
     }
 
     private static ChannelEvidence ResolveChannelEvidence(InputBucketRow bucket, PrimitiveComputationResult primitive)
@@ -95,6 +97,7 @@ internal static class DerivedSessionMetricsComputer
         DerivedSessionRuntimeState previous)
     {
         double previousContinuitySeconds = ClampNonNegativeFinite(previous.TaskContinuitySeconds);
+        double previousCandidateSeconds = ClampNonNegativeFinite(previous.FocusEpisodeCandidateSeconds);
         double continuityGapSeconds = ResolveContinuityGapSeconds(previous, bucket);
         bool resetForGap = continuityGapSeconds >= PortaExecutionConstants.DerivedSessionMetrics.GapResetSeconds;
         string anchorAppHash = string.IsNullOrWhiteSpace(previous.AnchorAppHash)
@@ -116,6 +119,7 @@ internal static class DerivedSessionMetricsComputer
         if (resetForGap)
         {
             previousContinuitySeconds = 0d;
+            previousCandidateSeconds = 0d;
             anchorAppHash = evidence.FocusAvailable && !string.IsNullOrWhiteSpace(bucket.DominantAppHash)
                 ? bucket.DominantAppHash
                 : string.Empty;
@@ -133,6 +137,7 @@ internal static class DerivedSessionMetricsComputer
         {
             return BuildDecision(
                 continuitySeconds: 0d,
+                focusEpisodeCandidateSeconds: 0d,
                 anchorAppHash: string.IsNullOrWhiteSpace(currentContextAppHash) ? anchorAppHash : currentContextAppHash,
                 idlePauseSeconds: idlePauseSeconds,
                 contextSwitchSeconds: 0d,
@@ -147,6 +152,7 @@ internal static class DerivedSessionMetricsComputer
             {
                 return BuildDecision(
                     previousContinuitySeconds,
+                    previousCandidateSeconds,
                     anchorAppHash,
                     idlePauseSeconds,
                     contextSwitchSeconds,
@@ -159,6 +165,7 @@ internal static class DerivedSessionMetricsComputer
             {
                 return BuildDecision(
                     0d,
+                    0d,
                     currentContextAppHash,
                     idlePauseSeconds,
                     0d,
@@ -169,6 +176,7 @@ internal static class DerivedSessionMetricsComputer
 
             return BuildDecision(
                 ClampNonNegativeFinite(previousContinuitySeconds - PortaExecutionConstants.DerivedSessionMetrics.ContextShiftDecayPerBucketSeconds),
+                ClampNonNegativeFinite(previousCandidateSeconds - Time.bucketSeconds),
                 anchorAppHash,
                 idlePauseSeconds,
                 contextSwitchSeconds,
@@ -179,7 +187,7 @@ internal static class DerivedSessionMetricsComputer
 
         if (!evidence.FocusAvailable)
         {
-            return EvaluateNoFocusContinuity(previousContinuitySeconds, anchorAppHash, idlePauseSeconds, evidence);
+            return EvaluateNoFocusContinuity(previousContinuitySeconds, previousCandidateSeconds, anchorAppHash, idlePauseSeconds, evidence);
         }
 
         bool spikeInstability = bucket.FocusSwitchCount >= SessionConstants.SustainedAttention.FocusSwitchesSpikeMin
@@ -194,6 +202,7 @@ internal static class DerivedSessionMetricsComputer
             {
                 return BuildDecision(
                     0d,
+                    0d,
                     currentContextAppHash,
                     idlePauseSeconds,
                     0d,
@@ -206,6 +215,7 @@ internal static class DerivedSessionMetricsComputer
             {
                 return BuildDecision(
                     ClampNonNegativeFinite(previousContinuitySeconds - PortaExecutionConstants.DerivedSessionMetrics.InstabilityDecayPerBucketSeconds),
+                    ClampNonNegativeFinite(previousCandidateSeconds - Time.bucketSeconds),
                     currentContextAppHash,
                     idlePauseSeconds,
                     0d,
@@ -216,6 +226,7 @@ internal static class DerivedSessionMetricsComputer
 
             return BuildDecision(
                 previousContinuitySeconds,
+                previousCandidateSeconds,
                 currentContextAppHash,
                 idlePauseSeconds,
                 0d,
@@ -224,10 +235,35 @@ internal static class DerivedSessionMetricsComputer
                 "focus_unstable");
         }
 
+        if (evidence.AnyInteractionActive)
+        {
+            return AdvanceFocusEpisode(
+                previousContinuitySeconds,
+                previousCandidateSeconds,
+                currentContextAppHash,
+                idlePauseSeconds: 0d,
+                contextSwitchSeconds: 0d,
+                instabilitySeconds: 0d,
+                reasonCode: string.Empty);
+        }
+
+        if (CanAccumulatePassiveFocus(previousContinuitySeconds, previousCandidateSeconds, idlePauseSeconds))
+        {
+            return AdvanceFocusEpisode(
+                previousContinuitySeconds,
+                previousCandidateSeconds,
+                currentContextAppHash,
+                idlePauseSeconds,
+                contextSwitchSeconds: 0d,
+                instabilitySeconds: 0d,
+                reasonCode: "passive_focus");
+        }
+
         if (idlePauseSeconds > PortaExecutionConstants.DerivedSessionMetrics.IdlePauseMaxSeconds)
         {
             return BuildDecision(
                 ClampNonNegativeFinite(previousContinuitySeconds - PortaExecutionConstants.DerivedSessionMetrics.IdleDecayPerBucketSeconds),
+                ClampNonNegativeFinite(previousCandidateSeconds - Time.bucketSeconds),
                 currentContextAppHash,
                 idlePauseSeconds,
                 0d,
@@ -240,6 +276,7 @@ internal static class DerivedSessionMetricsComputer
         {
             return BuildDecision(
                 previousContinuitySeconds,
+                previousCandidateSeconds,
                 currentContextAppHash,
                 idlePauseSeconds,
                 0d,
@@ -252,6 +289,7 @@ internal static class DerivedSessionMetricsComputer
         {
             return BuildDecision(
                 previousContinuitySeconds,
+                previousCandidateSeconds,
                 currentContextAppHash,
                 idlePauseSeconds,
                 0d,
@@ -260,30 +298,20 @@ internal static class DerivedSessionMetricsComputer
                 "idle_unstable");
         }
 
-        if (!evidence.AnyInteractionActive)
-        {
-            return BuildDecision(
-                previousContinuitySeconds,
-                currentContextAppHash,
-                idlePauseSeconds,
-                0d,
-                0d,
-                "pause",
-                "passive_focus");
-        }
-
         return BuildDecision(
-            previousContinuitySeconds + Time.bucketSeconds,
+            previousContinuitySeconds,
+            previousCandidateSeconds,
             currentContextAppHash,
-            idlePauseSeconds: 0d,
-            contextSwitchSeconds: 0d,
-            instabilitySeconds: 0d,
-            state: "keep",
-            reasonCode: string.Empty);
+            idlePauseSeconds,
+            0d,
+            0d,
+            "pause",
+            "passive_focus");
     }
 
     private static TaskContinuityDecision EvaluateNoFocusContinuity(
         double previousContinuitySeconds,
+        double previousCandidateSeconds,
         string anchorAppHash,
         double idlePauseSeconds,
         ChannelEvidence evidence)
@@ -292,6 +320,7 @@ internal static class DerivedSessionMetricsComputer
         {
             return BuildDecision(
                 ClampNonNegativeFinite(previousContinuitySeconds - PortaExecutionConstants.DerivedSessionMetrics.IdleDecayPerBucketSeconds),
+                ClampNonNegativeFinite(previousCandidateSeconds - Time.bucketSeconds),
                 anchorAppHash,
                 idlePauseSeconds,
                 0d,
@@ -304,6 +333,7 @@ internal static class DerivedSessionMetricsComputer
         {
             return BuildDecision(
                 previousContinuitySeconds,
+                previousCandidateSeconds,
                 anchorAppHash,
                 idlePauseSeconds,
                 0d,
@@ -314,12 +344,70 @@ internal static class DerivedSessionMetricsComputer
 
         return BuildDecision(
             previousContinuitySeconds,
+            previousCandidateSeconds,
             anchorAppHash,
             idlePauseSeconds,
             0d,
             0d,
             "pause",
             "focus_unavailable");
+    }
+
+    private static TaskContinuityDecision AdvanceFocusEpisode(
+        double previousContinuitySeconds,
+        double previousCandidateSeconds,
+        string anchorAppHash,
+        double idlePauseSeconds,
+        double contextSwitchSeconds,
+        double instabilitySeconds,
+        string reasonCode)
+    {
+        if (previousContinuitySeconds > 0d)
+        {
+            return BuildDecision(
+                previousContinuitySeconds + Time.bucketSeconds,
+                0d,
+                anchorAppHash,
+                idlePauseSeconds,
+                contextSwitchSeconds,
+                instabilitySeconds,
+                "keep",
+                reasonCode);
+        }
+
+        double candidateSeconds = ClampNonNegativeFinite(previousCandidateSeconds + Time.bucketSeconds);
+        if (candidateSeconds >= PortaExecutionConstants.DerivedSessionMetrics.FocusEpisodeSettleSeconds)
+        {
+            return BuildDecision(
+                candidateSeconds,
+                0d,
+                anchorAppHash,
+                idlePauseSeconds,
+                contextSwitchSeconds,
+                instabilitySeconds,
+                "keep",
+                reasonCode);
+        }
+
+        return BuildDecision(
+            0d,
+            candidateSeconds,
+            anchorAppHash,
+            idlePauseSeconds,
+            contextSwitchSeconds,
+            instabilitySeconds,
+            "pause",
+            "focus_settling");
+    }
+
+    private static bool CanAccumulatePassiveFocus(
+        double previousContinuitySeconds,
+        double previousCandidateSeconds,
+        double idlePauseSeconds)
+    {
+        bool episodeHasMomentum = previousContinuitySeconds > 0d || previousCandidateSeconds > 0d;
+        return episodeHasMomentum
+            && idlePauseSeconds <= PortaExecutionConstants.DerivedSessionMetrics.PassiveFocusAccumulateMaxSeconds;
     }
 
     private static double ResolveIdlePauseSeconds(DerivedSessionRuntimeState previous, InputBucketRow bucket)
@@ -431,6 +519,7 @@ internal static class DerivedSessionMetricsComputer
 
     private static TaskContinuityDecision BuildDecision(
         double continuitySeconds,
+        double focusEpisodeCandidateSeconds,
         string anchorAppHash,
         double idlePauseSeconds,
         double contextSwitchSeconds,
@@ -440,6 +529,7 @@ internal static class DerivedSessionMetricsComputer
     {
         return new TaskContinuityDecision(
             TaskContinuitySeconds: ClampNonNegativeFinite(continuitySeconds),
+            FocusEpisodeCandidateSeconds: ClampNonNegativeFinite(focusEpisodeCandidateSeconds),
             AnchorAppHash: anchorAppHash,
             IdlePauseSeconds: ClampNonNegativeFinite(idlePauseSeconds),
             ContextSwitchSeconds: ClampNonNegativeFinite(contextSwitchSeconds),
@@ -537,13 +627,13 @@ internal static class DerivedSessionMetricsComputer
         object? scalar = cmd.ExecuteScalar();
         if (scalar == null || scalar == DBNull.Value)
         {
-            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d);
+            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d);
         }
 
         string json = Convert.ToString(scalar, CultureInfo.InvariantCulture) ?? string.Empty;
         if (string.IsNullOrWhiteSpace(json))
         {
-            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d);
+            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d);
         }
 
         try
@@ -552,7 +642,7 @@ internal static class DerivedSessionMetricsComputer
             JsonElement root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d);
+                return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d);
             }
 
             double sustained = ReadNonNegativeDouble(root, "task_continuity_seconds", "sa_seconds", "sustained_attention_duration_sec");
@@ -565,6 +655,7 @@ internal static class DerivedSessionMetricsComputer
             string continuityState = ReadString(root, "continuity_state");
             double continuityScore = Clamp01(ReadNonNegativeDouble(root, "task_continuity_score"));
             double instabilitySeconds = ReadNonNegativeDouble(root, "continuity_instability_seconds");
+            double focusEpisodeCandidateSeconds = ReadNonNegativeDouble(root, "focus_episode_candidate_seconds");
             return new DerivedSessionRuntimeState(
                 TaskContinuitySeconds: sustained,
                 IdleFragmentationIndex: idleFragment,
@@ -575,11 +666,12 @@ internal static class DerivedSessionMetricsComputer
                 ContextSwitchSeconds: contextSwitchSeconds,
                 ContinuityState: string.IsNullOrWhiteSpace(continuityState) ? "reset" : continuityState,
                 ContinuityScore: continuityScore,
-                InstabilitySeconds: instabilitySeconds);
+                InstabilitySeconds: instabilitySeconds,
+                FocusEpisodeCandidateSeconds: focusEpisodeCandidateSeconds);
         }
         catch
         {
-            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d);
+            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d);
         }
     }
 
@@ -677,7 +769,8 @@ internal static class DerivedSessionMetricsComputer
         double ContextSwitchSeconds,
         string ContinuityState,
         double ContinuityScore,
-        double InstabilitySeconds);
+        double InstabilitySeconds,
+        double FocusEpisodeCandidateSeconds);
 
     private readonly record struct ChannelEvidence(
         bool KeyboardAvailable,
@@ -692,6 +785,7 @@ internal static class DerivedSessionMetricsComputer
 
     private readonly record struct TaskContinuityDecision(
         double TaskContinuitySeconds,
+        double FocusEpisodeCandidateSeconds,
         string AnchorAppHash,
         double IdlePauseSeconds,
         double ContextSwitchSeconds,
