@@ -55,13 +55,13 @@ It is grounded in the current repo behavior, not aspirational copy alone. The au
 The following terms may still exist in runtime code or transport contracts during migration, but they are not the canonical widget product meanings:
 
 - `focus_elapsed_seconds` as the main focus timer
-- `current focus session` as the durable focus label
+- legacy label `current focus session` for the durable focus timer
 - `live streak`
 - distraction defined as `tracked - focused`
-- `stretch_break_suggestion` as product copy for the short-break path
-- `break_suggestion` as product copy for the long-break path
+- legacy transport action ID `stretch_break_suggestion` shown as a short-break label
+- legacy transport action ID `break_suggestion` shown as a long-break label
 - widget as the primary break prompt surface
-- `filling in` as the normal fallback when Ari has a usable last-known value
+- the UI label `Filling in` used as a fallback when Ari has a usable last-known value
 
 ## Legacy Screen Migration Map
 

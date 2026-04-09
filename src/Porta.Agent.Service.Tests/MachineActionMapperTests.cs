@@ -32,7 +32,7 @@ public sealed class MachineActionMapperTests
             Contributors: ["continuity"],
             InterventionId: "int-1",
             PolicyId: "break-policy",
-            WhatChanged: "Break suggestion displayed to user.",
+            WhatChanged: "Long break suggestion displayed to user.",
             HowToUndo: "Dismiss the suggestion overlay or let it auto-expire.",
             EventId: 42,
             ExecutionState: "applied",

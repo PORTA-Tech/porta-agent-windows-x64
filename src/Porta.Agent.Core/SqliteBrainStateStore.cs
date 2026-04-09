@@ -6352,9 +6352,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
         return action switch
         {
-            "break_suggestion" => "Long-break suggestion displayed to user (legacy break_suggestion transport action; no forced system restriction).",
+            "break_suggestion" => "Long break suggestion displayed to user.",
             "focus_lock_in_suggestion" => "Focus lock-in suggestion displayed to user.",
-            "stretch_break_suggestion" => "Short-break suggestion displayed to user (legacy stretch_break_suggestion transport action).",
+            "stretch_break_suggestion" => "Short break suggestion displayed to user.",
             "inform_overload_risk" => "Overload risk logged for transparency; no direct system setting changed.",
             "inform_focus_protection" => "Focus protection signal logged for transparency; no direct system setting changed.",
             "inform_fatigue_prevention" => "Fatigue prevention signal logged for transparency; no direct system setting changed.",

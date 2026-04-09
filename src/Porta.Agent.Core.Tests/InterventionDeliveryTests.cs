@@ -27,7 +27,7 @@ public sealed class InterventionDeliveryTests
                 Domain: "fatigue",
                 Confidence: 0.88d,
                 EscalationLevel: "Suggest",
-                WhatChanged: "Stretch break suggestion displayed"),
+                WhatChanged: "Short break suggestion displayed"),
             new(
                 RowId: 1,
                 InterventionId: "i-1",
@@ -41,7 +41,7 @@ public sealed class InterventionDeliveryTests
                 Domain: "fatigue",
                 Confidence: 0.81d,
                 EscalationLevel: "Suggest",
-                WhatChanged: "Break suggestion displayed")
+                WhatChanged: "Long break suggestion displayed")
         ];
 
         IReadOnlyList<Porta.Agent.LocalApi.LocalApiInterventionPendingResponse> mapped =
@@ -71,7 +71,7 @@ public sealed class InterventionDeliveryTests
                     Domain: "fatigue",
                     Confidence: 0.84d,
                     EscalationLevel: "Suggest",
-                    WhatChanged: "Break suggestion displayed")
+                    WhatChanged: "Long break suggestion displayed")
             ]
         };
 
@@ -128,7 +128,7 @@ public sealed class InterventionDeliveryTests
                 InterventionId: "break-1",
                 PolicyId: "break-policy-v1",
                 Domain: "fatigue",
-                WhatChanged: "Break suggestion displayed to user."));
+                WhatChanged: "Long break suggestion displayed to user."));
 
             IReadOnlyList<AgentPendingIntervention> pending = store.ReadPendingInterventions("session-9", 10);
             AgentPendingIntervention intervention = Assert.Single(pending);
@@ -212,7 +212,7 @@ public sealed class InterventionDeliveryTests
                 InterventionId: "break-accepted-1",
                 PolicyId: "break-policy-v1",
                 Domain: "fatigue",
-                WhatChanged: "Break suggestion displayed to user."));
+                WhatChanged: "Long break suggestion displayed to user."));
 
             bool acked = store.AcknowledgeIntervention(new AgentInterventionAck(
                 InterventionId: "break-accepted-1",
@@ -271,7 +271,7 @@ public sealed class InterventionDeliveryTests
                 InterventionId: "break-repeat-1",
                 PolicyId: "break-policy-v1",
                 Domain: "fatigue",
-                WhatChanged: "Break suggestion displayed to user."));
+                WhatChanged: "Long break suggestion displayed to user."));
 
             bool acked = store.AcknowledgeIntervention(new AgentInterventionAck(
                 InterventionId: "break-repeat-1",
@@ -296,7 +296,7 @@ public sealed class InterventionDeliveryTests
                 InterventionId: "break-repeat-1",
                 PolicyId: "break-policy-v1",
                 Domain: "fatigue",
-                WhatChanged: "Break suggestion no longer active.",
+                WhatChanged: "Long break suggestion no longer active.",
                 HowToUndo: "No-op",
                 ReversalApplied: true,
                 ActualEndTimestampUtc: eventUtc.AddSeconds(5),
@@ -916,7 +916,7 @@ public sealed class InterventionDeliveryTests
                 $planned_end_timestamp_utc,
                 '',
                 '{}',
-                'Break suggestion displayed to user.',
+                'Long break suggestion displayed to user.',
                 'Dismiss the suggestion overlay or wait for auto-expiry.',
                 0,
                 '',

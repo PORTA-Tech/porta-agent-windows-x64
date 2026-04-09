@@ -452,8 +452,8 @@
                                     ToolTip="Open History for today's work map">
                                 <StackPanel>
                                     <TextBlock Text="Work today" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowOverloadValueText" Text="Work today: Filling in" FontSize="26" FontWeight="Bold" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowOverloadActiveText" Text="History status: Filling in" Margin="0,6,0,0" />
+                                    <TextBlock x:Name="NowOverloadValueText" Text="Work today: Updating" FontSize="26" FontWeight="Bold" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowOverloadActiveText" Text="History status: Updating" Margin="0,6,0,0" />
                                     <TextBlock x:Name="NowOverloadTrustText" Text="Confidence: Not available" Margin="0,4,0,8" Visibility="Collapsed" />
                                     <TextBlock x:Name="NowOverloadSummaryText"
                                                Text="Open History to see today's focus map hour by hour."
@@ -505,10 +505,10 @@
                                     ToolTip="Open Why for overload details">
                                 <StackPanel>
                                     <TextBlock Text="Pressure" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowCalibrationStatusText" Text="Pressure: Filling in" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowCalibrationProgressText" Text="Regulation: Filling in" Margin="0,6,0,0" />
-                                    <TextBlock x:Name="NowCalibrationQualityText" Text="Today peak: Filling in" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="NowCalibrationColdStartText" Text="Confidence: Filling in" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="NowCalibrationStatusText" Text="Pressure: Updating" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowCalibrationProgressText" Text="Regulation: Updating" Margin="0,6,0,0" />
+                                    <TextBlock x:Name="NowCalibrationQualityText" Text="Today peak: Updating" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="NowCalibrationColdStartText" Text="Confidence: Updating" Margin="0,4,0,0" />
                                     <TextBlock x:Name="NowCalibrationSummaryText"
                                                Text="Open Why to inspect Ari's current pressure reasoning."
                                                Margin="0,8,0,0"
@@ -627,7 +627,7 @@
                             <StackPanel>
                                 <TextBlock Text="What improves tracking quality" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
                                 <TextBlock x:Name="TrackingQualityHeadlineText"
-                                           Text="Tracking quality is still filling in."
+                                           Text="Tracking quality is updating."
                                            FontWeight="SemiBold"
                                            Margin="0,0,0,6" />
                                 <TextBlock x:Name="TrackingQualitySummaryText"

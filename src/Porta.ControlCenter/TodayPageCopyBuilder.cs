@@ -93,7 +93,7 @@ internal static class TodayPageCopyBuilder
 
         if (normalized.Contains("waiting for current snapshot", StringComparison.OrdinalIgnoreCase))
         {
-            return "Today is connected, and today's totals are still filling in.";
+            return "Today is connected, and today's totals are still updating.";
         }
 
         if (string.Equals(normalized, "API auth mismatch", StringComparison.OrdinalIgnoreCase))

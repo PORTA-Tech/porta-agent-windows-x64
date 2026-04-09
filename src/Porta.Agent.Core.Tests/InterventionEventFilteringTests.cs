@@ -34,7 +34,7 @@ public sealed class InterventionEventFilteringTests
                 PlannedEndTimestampUtc: nowUtc.AddMinutes(5),
                 ActualEndTimestampUtc: null,
                 PreviousSystemStateJson: "{\"action\":\"none\"}",
-                WhatChanged: "Break suggestion displayed.",
+                WhatChanged: "Long break suggestion displayed.",
                 HowToUndo: "Dismiss.",
                 ReversalApplied: false,
                 CooldownEndTimestampUtc: null,

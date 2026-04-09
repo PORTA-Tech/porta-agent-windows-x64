@@ -54,14 +54,14 @@ These are the canonical product meanings Ari must converge on, even when current
 The following terms may still exist in current code, database fields, or transport contracts during migration, but they are not the canonical product meanings:
 
 - `focus_elapsed_seconds` as the main user-facing focus timer
-- `current focus session` as a synonym for the durable focus timer
+- legacy label `current focus session` for the durable focus timer
 - `live streak`
 - `sustained attention` as the primary user-facing focus label
 - distraction defined as `tracked time - focused time`
-- `stretch_break_suggestion` as product copy for the short-break path
-- `break_suggestion` as product copy for the long-break path
+- legacy transport action ID `stretch_break_suggestion` shown as a short-break label
+- legacy transport action ID `break_suggestion` shown as a long-break label
 - widget-as-break-prompt-surface
-- `filling in` as the routine steady-state fallback when Ari has a last-known usable value
+- the UI label `Filling in` used as a steady-state fallback when Ari has a usable last-known value
 
 ## Legacy Term, Event, And Screen Migration Map
 
@@ -202,7 +202,7 @@ Locked contract:
 Current audited facts:
 
 - The current direct user channel is the `Porta.UserAgent` tray/toast path.
-- The current pending-intervention executor directly supports break, focus lock-in, stretch break, and notification suppression/restore.
+- The current pending-intervention executor directly supports long break, short break, focus lock-in, and notification suppression/restore.
 - Recovery toast logic already exists for recent overload recovery events.
 
 Locked contract for notification v1:

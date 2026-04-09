@@ -50,17 +50,17 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-fleet-validation-gates.ps
    - calibration stage
    - trust tier
    - deep work / overload active
-   - overload likelihood
-   - task continuity seconds
+   - pressure (compat from overload likelihood)
+   - focus episode duration (compat from task continuity seconds)
    - model confidence
 6. Action lifecycle reaches the control plane:
-   - `break_suggestion` -> `applied`
+   - long break suggestion (legacy transport action `break_suggestion`) -> `applied`
    - `deep_work_notifications_suppressed` -> `verified`
 
 Migration note:
 
 - `break_suggestion` remains a legacy transport action ID in current validation gates.
-- Product-facing reporting should treat it as the compatibility path for the future canonical break overlay flow, not as the long-term public action name.
+- Product-facing reporting should treat it as the compatibility path for the canonical break overlay flow, not as the long-term public action name.
 
 ## Identity safety
 

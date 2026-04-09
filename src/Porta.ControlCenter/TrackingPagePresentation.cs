@@ -79,7 +79,7 @@ internal static class TrackingPagePresentationBuilder
 
         if (snapshot == null)
         {
-            return "Tracking quality is still filling in.";
+            return "Tracking quality is updating.";
         }
 
         if (snapshot.PartialData == true || snapshot.MissingMajorChannels is { Count: > 0 })

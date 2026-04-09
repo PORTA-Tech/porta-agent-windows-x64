@@ -24,7 +24,7 @@ public partial class MainWindow : Window
 {
     private const string AgentServiceName = "AriAgent";
     private const string NotAvailableText = "Not available";
-    private const string FillingInText = "Filling in";
+    private const string FillingInText = "Updating";
     private const string WaitingForServiceDataText = "Waiting for service data";
     private const string CalibrationStageCold = "cold";
     private const string CalibrationStageProvisional = "provisional";
@@ -2070,7 +2070,7 @@ public partial class MainWindow : Window
 
         if (snapshot.SustainedAttentionDurationSec <= 0.5d)
         {
-            return "No sustained focus session detected yet.";
+            return "No focus episode detected yet.";
         }
 
         return string.Empty;

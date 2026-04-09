@@ -324,7 +324,7 @@ internal static class VisualStateAdapter
             : snapshot.TaskContinuitySeconds;
         if (focusEpisodeSeconds <= 0.5d)
         {
-            return "No sustained focus session detected yet.";
+            return "No focus episode detected yet.";
         }
 
         return string.Empty;

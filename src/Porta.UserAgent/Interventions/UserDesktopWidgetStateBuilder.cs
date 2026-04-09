@@ -167,7 +167,7 @@ internal static class UserDesktopWidgetStateBuilder
 
         if (snapshot is { AnalyzedStateAvailable: false })
         {
-            return "Updating... filling in fresh analysis.";
+            return "Updating fresh analysis.";
         }
 
         if (!status.ConsentActive)

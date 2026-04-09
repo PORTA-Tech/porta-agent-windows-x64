@@ -95,7 +95,7 @@ internal static class OnboardingCopyBuilder
             status?.ConsentActive == false ? "waiting for consent" :
             !string.IsNullOrWhiteSpace(captureHint) ? "tracking quality limited" :
             status != null && statusFresh ? "tracking active" :
-            status != null ? "tracking still filling in" :
+            status != null ? "tracking still updating" :
             "tracking not verified yet";
 
         return $"System check: {serviceState}, {sessionState}, {apiState}, and {trackingState}.";
