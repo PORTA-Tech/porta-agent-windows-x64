@@ -276,6 +276,52 @@ public sealed class DerivedSessionMetricsComputerTests
     }
 
     [Fact]
+    public void ComputeForFinalizedBucket_ContextSwitchThenReturn_ResumesContinuity()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 120d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0);
+
+        InputBucketRow excursion = BuildStableRow() with
+        {
+            BucketSeq = 1,
+            DominantAppHash = "app_hash_other"
+        };
+        DerivedSessionMetricsResult duringExcursion = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            excursion,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+        PersistResultAsRuntimeState(connection, tx, excursion.BucketSeq, duringExcursion);
+
+        InputBucketRow back = BuildStableRow() with
+        {
+            BucketSeq = 2,
+            TimestampUtc = Time.toIsoUtcMsString(Time.epoch_anchor_ms + (2 * Time.bucket_ms)),
+            StartUtc = Time.toIsoUtcMsString(Time.epoch_anchor_ms + (2 * Time.bucket_ms)),
+            DominantAppHash = "app_hash_work"
+        };
+        DerivedSessionMetricsResult resumed = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            back,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.Equal("pause", duringExcursion.ContinuityState);
+        Assert.Equal("keep", resumed.ContinuityState);
+        Assert.True(resumed.TaskContinuitySeconds > duringExcursion.TaskContinuitySeconds);
+        Assert.Equal("focus_episode_active", resumed.FocusEpisodeReasonCode);
+    }
+
+    [Fact]
     public void ComputeForFinalizedBucket_EntropySpike_UsesSpikeFreezeReason()
     {
         using var connection = OpenInMemoryDb();

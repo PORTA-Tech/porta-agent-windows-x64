@@ -184,6 +184,59 @@ public sealed class UserDesktopWidgetStateBuilderTests
     }
 
     [Fact]
+    public void Build_UsesPressureLevelWhenAvailable_AndKeepsOverloadModeOff()
+    {
+        LocalApiStatusResponse status = BuildStatus(overloadActive: false);
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.12,
+            sustainedAttentionSeconds: 900,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false) with
+        {
+            PressureLevel = 0.88,
+            PressureConfidence = 0.66
+        };
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, null, signals, degradedToast: null);
+
+        Assert.Equal(UserDesktopWidgetMode.Monitoring, state.Mode);
+        AssertMetric(state.TertiaryMetric, "Pressure", "88%");
+    }
+
+    [Fact]
+    public void Build_UsesLastFocusSessionLabel_ForParityWithControlCenter()
+    {
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.18,
+            sustainedAttentionSeconds: 420,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false);
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, null, signals, degradedToast: null);
+
+        Assert.Equal("Last focus session", state.SecondaryMetric.Label);
+    }
+
+    [Fact]
     public void Build_UsesTimelineFactsForExpandedWidget()
     {
         DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T12:00:00Z");

@@ -35,6 +35,34 @@ public sealed class UserAgentInterventionExecutorTests
     }
 
     [Fact]
+    public void ExecuteOrReplay_ShortBreakSuggestionPrompt_QueuesAcceptedAckAfterUserResponse()
+    {
+        var presenter = new FakePresenter { PromptShowResult = true };
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController();
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
+        LocalApiInterventionPendingResponse intervention = BuildPending(
+            "intv-break-short",
+            "stretch_break_suggestion",
+            "show_stretch_break_toast",
+            """{"title":"Ari","message":"Take a short break now?","tip_key":"stretch_break_suggestion"}""");
+
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+
+        Assert.NotNull(ack);
+        Assert.Equal("overlay_started", ack!.Result);
+        Assert.Equal(1, presenter.PromptCalls);
+
+        presenter.CompletePrompt(UserInterventionPromptResponseKind.Accepted);
+
+        Assert.True(executor.TryDequeueCompletedAck(out LocalApiInterventionAckRequest completedAck));
+        Assert.Equal("accepted", completedAck.Result);
+        Assert.Null(completedAck.ErrorCode);
+    }
+
+    [Fact]
     public void ExecuteOrReplay_BreakSuggestionPrompt_UsesCanonicalOverlayLabelsWhenPayloadOmitsThem()
     {
         var presenter = new FakePresenter { PromptShowResult = true };
