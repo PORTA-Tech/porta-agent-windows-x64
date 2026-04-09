@@ -21,9 +21,8 @@ public sealed class LocalCurrentExperienceStateAdapterTests
             nowUtc: nowUtc);
 
         Assert.True(state.LiveSessionFresh);
-        Assert.False(state.CurrentFocusSessionUsesLiveSignal);
-        Assert.True(state.CurrentFocusSessionSeconds.HasValue);
-        Assert.Equal(600d, state.CurrentFocusSessionSeconds.Value);
+        Assert.True(state.FocusEpisodeSeconds.HasValue);
+        Assert.Equal(600d, state.FocusEpisodeSeconds.Value);
         Assert.False(state.SnapshotAnalysisReady);
     }
 

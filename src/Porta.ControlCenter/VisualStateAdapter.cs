@@ -27,8 +27,8 @@ internal sealed record PortaVisualState(
     PortaModeTheme Theme,
     string ModeLabel,
     string ConfidenceLabel,
-    string CurrentFocusSessionText,
-    double? CurrentFocusSessionSeconds,
+    string FocusEpisodeText,
+    double? FocusEpisodeSeconds,
     bool SnapshotAnalysisReady,
     string FocusStatusText,
     string OperatingSentence,
@@ -98,8 +98,8 @@ internal static class VisualStateAdapter
                 Theme: ThemeByMode[PortaVisualMode.Unavailable],
                 ModeLabel: "Unavailable",
                 ConfidenceLabel: NotAvailableText,
-                CurrentFocusSessionText: $"Current focus session: {NotAvailableText}",
-                CurrentFocusSessionSeconds: null,
+                FocusEpisodeText: $"Last focus session: {NotAvailableText}",
+                FocusEpisodeSeconds: null,
                 SnapshotAnalysisReady: false,
                 FocusStatusText: waitingReason,
                 OperatingSentence: waitingReason,
@@ -129,8 +129,8 @@ internal static class VisualStateAdapter
             Theme: theme,
             ModeLabel: ToModeLabel(mode),
             ConfidenceLabel: experience.ConfidenceLabel,
-            CurrentFocusSessionText: BuildCurrentFocusSessionText(experience),
-            CurrentFocusSessionSeconds: experience.CurrentFocusSessionSeconds,
+            FocusEpisodeText: BuildFocusEpisodeText(experience),
+            FocusEpisodeSeconds: experience.FocusEpisodeSeconds,
             SnapshotAnalysisReady: experience.SnapshotAnalysisReady,
             FocusStatusText: focusStatus,
             OperatingSentence: operatingSentence,
@@ -147,22 +147,22 @@ internal static class VisualStateAdapter
     // Step 4:
     // The visible focus duration comes from the durable focus episode and only
     // falls back to live presence labels when there is no episode duration yet.
-    private static string BuildCurrentFocusSessionText(LocalCurrentExperienceState experience)
+    private static string BuildFocusEpisodeText(LocalCurrentExperienceState experience)
     {
-        if (experience.CurrentFocusSessionSeconds.HasValue)
+        if (experience.FocusEpisodeSeconds.HasValue)
         {
-            return $"Current focus session: {FormatFocusedTime(experience.CurrentFocusSessionSeconds.Value)}";
+            return $"Last focus session: {FormatFocusedTime(experience.FocusEpisodeSeconds.Value)}";
         }
 
         if (experience.LiveSessionFresh && experience.LiveSessionIdle)
         {
-            return "Current focus session: 0 sec";
+            return "Last focus session: 0 sec";
         }
 
-        return $"Current focus session: {NotAvailableText}";
+        return $"Last focus session: {NotAvailableText}";
     }
 
-    internal static double? ResolveCurrentFocusSessionSeconds(
+    internal static double? ResolveFocusEpisodeSeconds(
         LocalApiCurrentSnapshotResponse? snapshot,
         LocalApiLiveSessionStateResponse? liveSession)
     {
@@ -172,7 +172,7 @@ internal static class VisualStateAdapter
             liveSession,
             recentEvents: [],
             nowUtc: DateTimeOffset.UtcNow);
-        return experience.CurrentFocusSessionSeconds;
+        return experience.FocusEpisodeSeconds;
     }
 
     private static string BuildOperatingSentence(

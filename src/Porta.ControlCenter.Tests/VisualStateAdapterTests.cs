@@ -27,9 +27,9 @@ public sealed class VisualStateAdapterTests
             fallbackExplanation: string.Empty,
             nowUtc: nowUtc);
 
-        Assert.True(state.CurrentFocusSessionSeconds.HasValue);
-        Assert.Equal(600d, state.CurrentFocusSessionSeconds.Value);
-        Assert.Equal("Current focus session: 10 min", state.CurrentFocusSessionText);
+        Assert.True(state.FocusEpisodeSeconds.HasValue);
+        Assert.Equal(600d, state.FocusEpisodeSeconds.Value);
+        Assert.Equal("Last focus session: 10 min", state.FocusEpisodeText);
         Assert.False(state.SnapshotAnalysisReady);
     }
 
@@ -50,8 +50,8 @@ public sealed class VisualStateAdapterTests
             fallbackExplanation: string.Empty,
             nowUtc: nowUtc);
 
-        Assert.Equal(180d, state.CurrentFocusSessionSeconds);
-        Assert.Equal("Current focus session: 3 min", state.CurrentFocusSessionText);
+        Assert.Equal(180d, state.FocusEpisodeSeconds);
+        Assert.Equal("Last focus session: 3 min", state.FocusEpisodeText);
         Assert.True(state.SnapshotAnalysisReady);
     }
 

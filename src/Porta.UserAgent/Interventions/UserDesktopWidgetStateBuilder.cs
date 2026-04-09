@@ -256,9 +256,9 @@ internal static class UserDesktopWidgetStateBuilder
         {
             value = "Paused";
         }
-        else if (experience.CurrentFocusSessionSeconds.HasValue)
+        else if (experience.FocusEpisodeSeconds.HasValue)
         {
-            value = FormatCompactDuration(TimeSpan.FromSeconds(experience.CurrentFocusSessionSeconds.Value));
+            value = FormatCompactDuration(TimeSpan.FromSeconds(experience.FocusEpisodeSeconds.Value));
         }
         else if (experience.LiveSessionFresh && liveSession != null)
         {

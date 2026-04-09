@@ -1253,7 +1253,7 @@ public partial class MainWindow : Window
         TodaySummaryText.Text = BuildTodaySummarySentence(
             todayState,
             todayMetrics,
-            visualState.CurrentFocusSessionSeconds,
+            visualState.FocusEpisodeSeconds,
             readableExplanation);
 
         PopulateTodayWorkCard(todayMetrics, todayState, visualState);
@@ -1318,7 +1318,7 @@ public partial class MainWindow : Window
         LocalApiLiveSessionStateResponse? liveSession,
         PortaVisualState visualState)
     {
-        double? currentFocusSessionSeconds = visualState.CurrentFocusSessionSeconds;
+        double? focusEpisodeSeconds = visualState.FocusEpisodeSeconds;
         if (todayState == TodayTrackingState.Paused)
         {
             NowFocusStreakValueText.Text = "Last focus session: Paused";
@@ -1327,11 +1327,11 @@ public partial class MainWindow : Window
         {
             NowFocusStreakValueText.Text = "Last focus session: Idle";
         }
-        else if (currentFocusSessionSeconds.HasValue)
+        else if (focusEpisodeSeconds.HasValue)
         {
             AnimateTopMetric(
                 metricKey: "today_last_focus",
-                targetValue: Math.Max(0d, currentFocusSessionSeconds.Value / 60d),
+                targetValue: Math.Max(0d, focusEpisodeSeconds.Value / 60d),
                 applyValue: value => NowFocusStreakValueText.Text = $"Last focus session: {FormatReadableDuration(value * 60d)}");
         }
         else if (_latestStatus == null || !_latestStatus.ServiceRunning || !_latestStatus.LocalApiAuthReady)
@@ -1343,7 +1343,7 @@ public partial class MainWindow : Window
             NowFocusStreakValueText.Text = $"Last focus session: {FillingInText}";
         }
 
-        string focusedNowText = BuildTodayFocusedNowLabel(liveSession, currentFocusSessionSeconds);
+        string focusedNowText = BuildTodayFocusedNowLabel(liveSession, focusEpisodeSeconds);
         if (string.IsNullOrWhiteSpace(focusedNowText))
         {
             NowDeepWorkStreakText.Visibility = Visibility.Collapsed;
@@ -1485,7 +1485,7 @@ public partial class MainWindow : Window
     private string BuildTodaySummarySentence(
         TodayTrackingState todayState,
         TodayPageMetrics todayMetrics,
-        double? currentFocusSessionSeconds,
+        double? focusEpisodeSeconds,
         string readableExplanation)
     {
         if (todayState == TodayTrackingState.Paused)
@@ -1505,7 +1505,7 @@ public partial class MainWindow : Window
                 return $"Tracking limited. Work today is {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}. {readableExplanation}";
             }
 
-            if (currentFocusSessionSeconds.HasValue)
+            if (focusEpisodeSeconds.HasValue)
             {
                 return $"Tracking limited. Ari still sees your last focus session while the history map catches up. {readableExplanation}";
             }
@@ -1515,15 +1515,15 @@ public partial class MainWindow : Window
 
         if (todayMetrics.HasProcessedTimeline)
         {
-            if (currentFocusSessionSeconds.HasValue)
+            if (focusEpisodeSeconds.HasValue)
             {
-                return $"Still tracking. Work today is {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}, and your last focus session is {FormatReadableDuration(currentFocusSessionSeconds.Value)}.";
+                return $"Still tracking. Work today is {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}, and your last focus session is {FormatReadableDuration(focusEpisodeSeconds.Value)}.";
             }
 
             return $"Still tracking. Work today is {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}. Open History to inspect the day-by-hour focus map.";
         }
 
-        if (currentFocusSessionSeconds.HasValue)
+        if (focusEpisodeSeconds.HasValue)
         {
             return "Still tracking. Ari sees your last focus session now, and the history map is catching up.";
         }
@@ -1533,7 +1533,7 @@ public partial class MainWindow : Window
 
     private static string BuildTodayFocusedNowLabel(
         LocalApiLiveSessionStateResponse? liveSession,
-        double? currentFocusSessionSeconds)
+        double? focusEpisodeSeconds)
     {
         if (!IsLiveSessionFresh(liveSession))
         {
@@ -1545,7 +1545,7 @@ public partial class MainWindow : Window
             return "Focused now: No";
         }
 
-        if (currentFocusSessionSeconds.HasValue && currentFocusSessionSeconds.Value > 0d)
+        if (focusEpisodeSeconds.HasValue && focusEpisodeSeconds.Value > 0d)
         {
             return "Focused now: Yes";
         }
@@ -1582,7 +1582,7 @@ public partial class MainWindow : Window
             return "This resumes from the current focus episode after tracking is unpaused.";
         }
 
-        if (visualState.CurrentFocusSessionSeconds.HasValue)
+        if (visualState.FocusEpisodeSeconds.HasValue)
         {
             return "This keeps the same focus episode through short support switches and brief thinking pauses.";
         }
@@ -1661,7 +1661,7 @@ public partial class MainWindow : Window
         LocalApiCurrentSnapshotResponse? snapshot,
         LocalApiLiveSessionStateResponse? liveSession)
     {
-        double? focusEpisodeSeconds = VisualStateAdapter.ResolveCurrentFocusSessionSeconds(snapshot, liveSession);
+        double? focusEpisodeSeconds = VisualStateAdapter.ResolveFocusEpisodeSeconds(snapshot, liveSession);
         if (IsLiveSessionFresh(liveSession)
             && focusEpisodeSeconds.HasValue
             && snapshot is { analysis_ready: false })
@@ -1682,9 +1682,9 @@ public partial class MainWindow : Window
                 : $"Last focus session: {FormatFocusedTime(ResolveFocusEpisodeSeconds(snapshot))}. Click for History.";
         }
 
-        double maxStreakSeconds = snapshots.Max(s => Math.Max(0d, s.SustainedAttentionDurationSec));
-        double averageFocusPercent = snapshots.Average(s => Math.Clamp(s.FocusStrength, 0d, 1d)) * 100d;
-        return $"Best focus block today: {FormatFocusedTime(maxStreakSeconds)} | Avg focus: {averageFocusPercent:F0}%. Click for History.";
+        return focusEpisodeSeconds.HasValue
+            ? "This follows the same last focus session shown above and in the widget. Click for History."
+            : "Open History to review the day-by-hour focus map once the next focus episode is processed.";
     }
 
     private string BuildNowCalibrationSummary(LocalApiCurrentSnapshotResponse? snapshot)

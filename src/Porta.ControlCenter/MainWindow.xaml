@@ -433,7 +433,7 @@
                 <ScrollViewer x:Name="OverviewPanel" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
                         <TextBlock x:Name="TodaySummaryText"
-                                   Text="Today keeps work, last focus session, overload, and status in one place."
+                                   Text="Today keeps work, last focus session, pressure, and status in one place."
                                    Foreground="#9AA4B2"
                                    FontSize="13"
                                    Margin="0,0,0,10" />

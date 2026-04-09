@@ -21,8 +21,7 @@ public sealed record LocalCurrentExperienceState(
     bool OverloadActive,
     bool LiveSessionFresh,
     bool LiveSessionIdle,
-    double? CurrentFocusSessionSeconds,
-    bool CurrentFocusSessionUsesLiveSignal,
+    double? FocusEpisodeSeconds,
     string ConfidenceLabel,
     bool PartialData,
     IReadOnlyList<string> MissingMajorChannels,
@@ -53,8 +52,7 @@ public static class LocalCurrentExperienceStateAdapter
                 OverloadActive: false,
                 LiveSessionFresh: IsFreshLiveSession(liveSession),
                 LiveSessionIdle: liveSession?.idle == true,
-                CurrentFocusSessionSeconds: null,
-                CurrentFocusSessionUsesLiveSignal: false,
+                FocusEpisodeSeconds: null,
                 ConfidenceLabel: "Not available",
                 PartialData: false,
                 MissingMajorChannels: [],
@@ -74,8 +72,7 @@ public static class LocalCurrentExperienceStateAdapter
         bool overloadActive = mode == LocalCurrentExperienceMode.Overload;
         bool liveSessionFresh = IsFreshLiveSession(liveSession);
         bool liveSessionIdle = liveSession?.idle == true;
-        double? currentFocusSessionSeconds = ResolveCurrentFocusSessionSeconds(snapshot, liveSession);
-        bool currentFocusSessionUsesLiveSignal = false;
+        double? focusEpisodeSeconds = ResolveFocusEpisodeSeconds(snapshot, liveSession);
         bool partialData = snapshot.PartialData == true || snapshot.MissingMajorChannels is { Count: > 0 };
         (bool showDeepWorkStreak, string deepWorkStreakText) = BuildDeepWorkStreak(
             deepWorkActive,
@@ -94,8 +91,7 @@ public static class LocalCurrentExperienceStateAdapter
             OverloadActive: overloadActive,
             LiveSessionFresh: liveSessionFresh,
             LiveSessionIdle: liveSessionIdle,
-            CurrentFocusSessionSeconds: currentFocusSessionSeconds,
-            CurrentFocusSessionUsesLiveSignal: currentFocusSessionUsesLiveSignal,
+            FocusEpisodeSeconds: focusEpisodeSeconds,
             ConfidenceLabel: ResolveConfidenceLabel(snapshot.TrustTier, snapshot.Confidence),
             PartialData: partialData,
             MissingMajorChannels: snapshot.MissingMajorChannels ?? [],
@@ -244,7 +240,7 @@ public static class LocalCurrentExperienceStateAdapter
     // The displayed focus duration is a durable focus-episode timer.
     // Live session freshness is only for presence/idle facts and must not
     // restart or replace the visible duration with foreground-app age.
-    private static double? ResolveCurrentFocusSessionSeconds(
+    private static double? ResolveFocusEpisodeSeconds(
         LocalApiCurrentSnapshotResponse snapshot,
         LocalApiLiveSessionStateResponse? liveSession)
     {

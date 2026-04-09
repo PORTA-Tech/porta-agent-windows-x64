@@ -34,6 +34,7 @@ public sealed class ControlCenterShellContentTests
         Assert.Contains("Text=\"Last focus session\"", todaySection, StringComparison.Ordinal);
         Assert.Contains("Text=\"Pressure\"", todaySection, StringComparison.Ordinal);
         Assert.Contains("Text=\"Current status\"", todaySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Today keeps work, last focus session, pressure, and status in one place.\"", todaySection, StringComparison.Ordinal);
 
         Assert.DoesNotContain("Text=\"Engine health\"", todaySection, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"Capture health\"", todaySection, StringComparison.Ordinal);
@@ -42,6 +43,7 @@ public sealed class ControlCenterShellContentTests
         Assert.DoesNotContain("Text=\"Idle fragmentation\"", todaySection, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"Fatigue\"", todaySection, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"Stability\"", todaySection, StringComparison.Ordinal);
+        Assert.DoesNotContain("last focus session, overload, and status", todaySection, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("processed history", todaySection, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("live session activity", todaySection, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("raw idle", todaySection, StringComparison.OrdinalIgnoreCase);
