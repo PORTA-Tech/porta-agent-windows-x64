@@ -1347,7 +1347,7 @@
                                                 </ScrollViewer>
                                             </Border>
                                             <TextBlock x:Name="HistoryCoordinateEmptyText"
-                                                       Text="No tracked focus blocks are available in this range yet."
+                                                       Text="No tracked focus episodes are available in this range yet."
                                                        Foreground="#CBD5E1"
                                                        FontWeight="SemiBold"
                                                        HorizontalAlignment="Center"
@@ -1387,7 +1387,7 @@
                                     </ScrollViewer>
                                 </Border>
 
-                                    <TextBlock Text="Focus block at each snapshot" FontWeight="SemiBold" />
+                                    <TextBlock Text="Focus episode at each snapshot" FontWeight="SemiBold" />
                                 <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
                                     <ScrollViewer x:Name="TimelineFocusScrollViewer" Height="72" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                         <StackPanel x:Name="TimelineFocusTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
@@ -1409,7 +1409,7 @@
                                 <TextBlock x:Name="TimelineDetailTimestamp" Text="Hour: Select a heatmap cell or action marker to inspect a block of time." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
                                 <TextBlock x:Name="TimelineDetailOverload" Text="Tracked time in that hour: This will appear after you select a heatmap cell." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
                                 <TextBlock x:Name="TimelineDetailTrust" Text="Confidence in that hour: This will appear after you select a heatmap cell." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailFocus" Text="Focused time in that hour: This will appear after you select a heatmap cell." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                <TextBlock x:Name="TimelineDetailFocus" Text="Focus episode in that hour: This will appear after you select a heatmap cell." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
                                 <TextBlock x:Name="TimelineDetailClassification" Text="What happened here: Select a heatmap hour to see what Ari understood about that block." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
                                 <TextBlock x:Name="TimelineDetailExecution" Text="Action around this moment: Select an action marker to see what Ari suggested or changed." TextWrapping="Wrap" Margin="0,0,0,10" Foreground="#93C5FD" />
                                 <TextBlock x:Name="TimelineDetailWhyHeader" Text="What Ari saw in that hour" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
@@ -1417,6 +1417,11 @@
                                 <TextBlock x:Name="TimelineDetailWhyReasons" Text="Main signals: Ari will list the strongest signals after you select an hour." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
                                 <TextBlock x:Name="TimelineDetailWhyQuality" Text="Tracking quality: This will appear with the selected hour." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
                                 <TextBlock x:Name="TimelineDetailStabilization" Text="Context: Use this panel to understand what Ari saw around the selected hour." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
+                                <TextBlock Text="Episode drilldown" FontWeight="SemiBold" Margin="0,6,0,6" Foreground="#93C5FD" />
+                                <TextBlock x:Name="TimelineEpisodeSummaryText" Text="Episodes in this hour will appear after you select a heatmap cell or action marker." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#CBD5E1" FontSize="13" />
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="240">
+                                    <StackPanel x:Name="TimelineEpisodeListPanel" />
+                                </ScrollViewer>
                             </StackPanel>
                         </Border>
                     </StackPanel>

@@ -80,6 +80,8 @@ public sealed class ControlCenterShellContentTests
         Assert.Contains("Text=\"Actions in this range\"", historySection, StringComparison.Ordinal);
         Assert.Contains("Text=\"Action markers in this range\"", historySection, StringComparison.Ordinal);
         Assert.Contains("Text=\"Focus hours by day\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Focus episode at each snapshot\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Episode drilldown\"", historySection, StringComparison.Ordinal);
         Assert.Contains("Content=\"Advanced\"", historySection, StringComparison.Ordinal);
 
         Assert.DoesNotContain("Content=\"Technical view\"", historySection, StringComparison.Ordinal);

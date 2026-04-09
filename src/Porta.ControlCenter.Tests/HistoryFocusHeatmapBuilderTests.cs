@@ -19,9 +19,9 @@ public sealed class HistoryFocusHeatmapBuilderTests
             BucketSeconds: 300,
             Snapshots:
             [
-                BuildSnapshot(firstUtc, focusStrength: 0.80d, sustainedAttentionSeconds: 900d, overloadLikelihood: 0.20d),
-                BuildSnapshot(secondUtc, focusStrength: 0.40d, sustainedAttentionSeconds: 480d, overloadLikelihood: 0.35d),
-                BuildSnapshot(thirdUtc, focusStrength: 0.65d, sustainedAttentionSeconds: 1200d, overloadLikelihood: 0.25d)
+                BuildSnapshot(firstUtc, focusStrength: 0.80d, sustainedAttentionSeconds: 900d, overloadLikelihood: 0.20d, focusEpisodeSeconds: 900d),
+                BuildSnapshot(secondUtc, focusStrength: 0.40d, sustainedAttentionSeconds: 480d, overloadLikelihood: 0.35d, attentionSegmentKind: LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind, distractionEpisodeActive: true, distractionEpisodeSeconds: 300d, attentionSegmentReasonText: "Stayed outside focus context for 5m."),
+                BuildSnapshot(thirdUtc, focusStrength: 0.65d, sustainedAttentionSeconds: 1200d, overloadLikelihood: 0.25d, focusEpisodeSeconds: 1200d)
             ],
             Interventions:
             [
@@ -49,11 +49,58 @@ public sealed class HistoryFocusHeatmapBuilderTests
         Assert.Equal(600d, firstCell.TrackedSeconds, precision: 3);
         Assert.Equal(60d, firstCell.AverageFocusPercent, precision: 3);
         Assert.Single(firstCell.Interventions);
+        Assert.True(firstCell.Episodes.Count >= 1);
 
         HistoryFocusHeatmapCell? bestCell = heatmap.BestFocusCell;
         Assert.NotNull(bestCell);
         Assert.Equal(firstLocalDate, bestCell!.LocalDate);
         Assert.Equal(firstLocalHour, bestCell.Hour);
+    }
+
+    [Fact]
+    public void Build_DerivesEpisodeDrilldownAcrossFocusDistractionAwayAndOverload()
+    {
+        DateTimeOffset baseUtc = DateTimeOffset.Parse("2026-04-04T09:00:00Z");
+        LocalApiTimelineResponse timeline = new(
+            FromUtc: baseUtc,
+            ToUtc: baseUtc.AddMinutes(30),
+            BucketSeconds: 300,
+            Snapshots:
+            [
+                BuildSnapshot(baseUtc, focusStrength: 0.88d, sustainedAttentionSeconds: 600d, overloadLikelihood: 0.22d, focusEpisodeSeconds: 600d),
+                BuildSnapshot(baseUtc.AddMinutes(5), focusStrength: 0.82d, sustainedAttentionSeconds: 900d, overloadLikelihood: 0.24d, focusEpisodeSeconds: 900d),
+                BuildSnapshot(baseUtc.AddMinutes(10), focusStrength: 0.24d, sustainedAttentionSeconds: 120d, overloadLikelihood: 0.41d, attentionSegmentKind: LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind, distractionEpisodeActive: true, distractionEpisodeSeconds: 300d, attentionSegmentReasonText: "Stayed outside focus context for 5m."),
+                BuildSnapshot(baseUtc.AddMinutes(15), focusStrength: 0.12d, sustainedAttentionSeconds: 0d, overloadLikelihood: 0.18d, attentionSegmentKind: LocalAttentionSegmentAnalytics.AwaySegmentKind, attentionSegmentReasonText: "Away for 5m.", focusEpisodeReasonText: "Long break ended the focus episode after 5m away."),
+                BuildSnapshot(baseUtc.AddMinutes(20), focusStrength: 0.35d, sustainedAttentionSeconds: 180d, overloadLikelihood: 0.82d, overloadActive: true, attentionSegmentKind: LocalAttentionSegmentAnalytics.FragmentationDistractionSegmentKind, distractionEpisodeActive: true, distractionEpisodeSeconds: 300d, attentionSegmentReasonText: "Rapid switching / fragmentation for 5m."),
+                BuildSnapshot(baseUtc.AddMinutes(25), focusStrength: 0.30d, sustainedAttentionSeconds: 120d, overloadLikelihood: 0.86d, overloadActive: true, attentionSegmentKind: LocalAttentionSegmentAnalytics.FragmentationDistractionSegmentKind, distractionEpisodeActive: true, distractionEpisodeSeconds: 600d, attentionSegmentReasonText: "Rapid switching / fragmentation for 10m.")
+            ],
+            Interventions:
+            [
+                BuildEvent(baseUtc.AddMinutes(22), "focus_mode_enabled")
+            ]);
+
+        HistoryFocusHeatmap heatmap = HistoryFocusHeatmapBuilder.Build(
+            timeline,
+            fallbackFromUtc: baseUtc,
+            fallbackToUtc: baseUtc.AddHours(1));
+
+        Assert.Contains(heatmap.Episodes, episode => episode.Kind == HistoryTimelineEpisodeKind.FocusEpisode);
+        Assert.Contains(heatmap.Episodes, episode => episode.Kind == HistoryTimelineEpisodeKind.OffTaskDistraction);
+        Assert.Contains(heatmap.Episodes, episode => episode.Kind == HistoryTimelineEpisodeKind.Away);
+        Assert.Contains(heatmap.Episodes, episode => episode.Kind == HistoryTimelineEpisodeKind.OverloadEpisode);
+        Assert.True(heatmap.FocusEpisodeCount >= 1);
+        Assert.True(heatmap.DistractionEpisodeCount >= 1);
+        Assert.True(heatmap.AwayEpisodeCount >= 1);
+        Assert.True(heatmap.OverloadEpisodeCount >= 1);
+
+        DateTime localDate = baseUtc.ToLocalTime().Date;
+        int localHour = baseUtc.ToLocalTime().Hour;
+        HistoryFocusHeatmapCell? cell = heatmap.Cells.FirstOrDefault(candidate =>
+            candidate.LocalDate == localDate && candidate.Hour == localHour);
+
+        Assert.NotNull(cell);
+        Assert.True(cell!.Episodes.Count >= 4);
+        Assert.Contains(cell.Episodes, episode => episode.Interventions.Count == 1);
     }
 
     [Fact]
@@ -78,7 +125,14 @@ public sealed class HistoryFocusHeatmapBuilderTests
         DateTimeOffset timestampUtc,
         double focusStrength,
         double sustainedAttentionSeconds,
-        double overloadLikelihood)
+        double overloadLikelihood,
+        double focusEpisodeSeconds = 0d,
+        bool overloadActive = false,
+        string attentionSegmentKind = LocalAttentionSegmentAnalytics.FocusSegmentKind,
+        bool distractionEpisodeActive = false,
+        double distractionEpisodeSeconds = 0d,
+        string? attentionSegmentReasonText = null,
+        string? focusEpisodeReasonText = null)
     {
         return new LocalApiCurrentSnapshotResponse(
             TimestampUtc: timestampUtc,
@@ -103,7 +157,7 @@ public sealed class HistoryFocusHeatmapBuilderTests
             SustainedAttentionDurationSec: sustainedAttentionSeconds,
             IdleFragmentationIndex: 0.15,
             FocusChoppinessIndex: 0.10,
-            OverloadActive: false,
+            OverloadActive: overloadActive,
             StateFlagsJson: null,
             ContributorsJson: null,
             BaselineReady: true,
@@ -126,7 +180,16 @@ public sealed class HistoryFocusHeatmapBuilderTests
             RuntimeStateFreshness: "fresh",
             RuntimeStateRefreshError: null,
             AnalyzedStateAvailable: true,
-            ModelSource: "analyzed_state");
+            ModelSource: "analyzed_state",
+            FocusEpisodeQuality: focusEpisodeSeconds > 0d ? 0.82d : 0d,
+            FocusEpisodeSeconds: focusEpisodeSeconds,
+            FocusEpisodeState: focusEpisodeSeconds > 0d ? "keep" : "reset",
+            AttentionSegmentKind: attentionSegmentKind,
+            AttentionSegmentSeconds: attentionSegmentKind == LocalAttentionSegmentAnalytics.FocusSegmentKind ? 0d : 300d,
+            DistractionEpisodeActive: distractionEpisodeActive,
+            DistractionEpisodeSeconds: distractionEpisodeSeconds,
+            AttentionSegmentReasonText: attentionSegmentReasonText ?? "Steady focus episode.",
+            FocusEpisodeReasonText: focusEpisodeReasonText ?? (focusEpisodeSeconds > 0d ? "Focus episode active." : "Focus episode ended."));
     }
 
     private static LocalApiEventResponse BuildEvent(DateTimeOffset timestampUtc, string action)

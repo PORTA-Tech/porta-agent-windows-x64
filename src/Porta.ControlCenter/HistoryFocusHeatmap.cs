@@ -20,6 +20,7 @@ internal sealed record HistoryFocusHeatmapCell(
     double AverageConfidencePercent,
     double LongestFocusBlockSeconds,
     int SnapshotCount,
+    IReadOnlyList<HistoryTimelineEpisode> Episodes,
     IReadOnlyList<LocalApiEventResponse> Interventions,
     LocalApiCurrentSnapshotResponse? LatestSnapshot)
 {
@@ -31,6 +32,7 @@ internal sealed record HistoryFocusHeatmap(
     bool HasTimeline,
     IReadOnlyList<HistoryFocusHeatmapDay> Days,
     IReadOnlyList<HistoryFocusHeatmapCell> Cells,
+    IReadOnlyList<HistoryTimelineEpisode> Episodes,
     double TotalFocusedSeconds,
     double TotalTrackedSeconds,
     int ActionMarkerCount,
@@ -39,6 +41,11 @@ internal sealed record HistoryFocusHeatmap(
     HistoryFocusHeatmapCell? LatestPopulatedCell)
 {
     public bool HasAnyTracking => Cells.Any(static cell => cell.HasTracking);
+    public int FocusEpisodeCount => Episodes.Count(static episode => episode.Kind == HistoryTimelineEpisodeKind.FocusEpisode);
+    public int DistractionEpisodeCount => Episodes.Count(static episode =>
+        episode.Kind is HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction);
+    public int AwayEpisodeCount => Episodes.Count(static episode => episode.Kind == HistoryTimelineEpisodeKind.Away);
+    public int OverloadEpisodeCount => Episodes.Count(static episode => episode.Kind == HistoryTimelineEpisodeKind.OverloadEpisode);
 
     public HistoryFocusHeatmapCell? FindCell(string? key)
     {
@@ -68,6 +75,7 @@ internal static class HistoryFocusHeatmapBuilder
         IReadOnlyList<HistoryFocusHeatmapDay> days = BuildDays(fromLocal.Date, toLocal.Date);
         IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = timeline?.Snapshots ?? [];
         IReadOnlyList<LocalApiEventResponse> interventions = timeline?.Interventions ?? [];
+        IReadOnlyList<HistoryTimelineEpisode> episodes = HistoryTimelineEpisodeBuilder.Build(timeline);
         double bucketSeconds = Math.Max(1d, timeline?.BucketSeconds ?? 60);
 
         Dictionary<string, IReadOnlyList<LocalApiCurrentSnapshotResponse>> snapshotsByCell = snapshots
@@ -111,6 +119,9 @@ internal static class HistoryFocusHeatmapBuilder
                 double averageOverloadPercent = 0d;
                 double averageConfidencePercent = 0d;
                 double longestFocusBlockSeconds = 0d;
+                IReadOnlyList<HistoryTimelineEpisode> cellEpisodes = episodes
+                    .Where(episode => episode.OverlapsHour(day.LocalDate, hour))
+                    .ToArray();
 
                 if (cellSnapshots.Count > 0)
                 {
@@ -123,7 +134,7 @@ internal static class HistoryFocusHeatmapBuilder
 
                     averageOverloadPercent = cellSnapshots.Average(snapshot => Math.Clamp(snapshot.PressureLevel ?? snapshot.OverloadLikelihood, 0d, 1d)) * 100d;
                     averageConfidencePercent = cellSnapshots.Average(snapshot => Math.Clamp(snapshot.Confidence, 0d, 1d)) * 100d;
-                    longestFocusBlockSeconds = cellSnapshots.Max(static snapshot => Math.Max(0d, snapshot.SustainedAttentionDurationSec));
+                    longestFocusBlockSeconds = cellSnapshots.Max(ResolveFocusEpisodeSeconds);
                 }
 
                 double averageFocusPercent = trackedSeconds <= 0d
@@ -142,6 +153,7 @@ internal static class HistoryFocusHeatmapBuilder
                     AverageConfidencePercent: averageConfidencePercent,
                     LongestFocusBlockSeconds: longestFocusBlockSeconds,
                     SnapshotCount: cellSnapshots.Count,
+                    Episodes: cellEpisodes,
                     Interventions: cellInterventions,
                     LatestSnapshot: cellSnapshots.LastOrDefault());
 
@@ -170,6 +182,7 @@ internal static class HistoryFocusHeatmapBuilder
             HasTimeline: timeline != null,
             Days: days,
             Cells: cells,
+            Episodes: episodes,
             TotalFocusedSeconds: totalFocusedSeconds,
             TotalTrackedSeconds: totalTrackedSeconds,
             ActionMarkerCount: interventions.Count,
@@ -211,4 +224,19 @@ internal static class HistoryFocusHeatmapBuilder
 
     private static string BuildCellKey(DateTime localDate, int hour) =>
         $"{localDate:yyyy-MM-dd}|{hour:00}";
+
+    private static double ResolveFocusEpisodeSeconds(LocalApiCurrentSnapshotResponse snapshot)
+    {
+        if (snapshot.FocusEpisodeSeconds > 0d)
+        {
+            return snapshot.FocusEpisodeSeconds;
+        }
+
+        if (snapshot.TaskContinuitySeconds > 0d)
+        {
+            return snapshot.TaskContinuitySeconds;
+        }
+
+        return Math.Max(0d, snapshot.SustainedAttentionDurationSec);
+    }
 }

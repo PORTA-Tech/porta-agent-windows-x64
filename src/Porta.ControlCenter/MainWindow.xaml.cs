@@ -102,6 +102,7 @@ public partial class MainWindow : Window
         recentEvents: [],
         fallbackExplanation: string.Empty,
         nowUtc: DateTimeOffset.UtcNow);
+    private HistoryFocusHeatmap? _latestHistoryHeatmap;
 
     private enum UiSection
     {
@@ -5300,6 +5301,7 @@ public partial class MainWindow : Window
             timeline,
             fallbackFromUtc: displayFromUtc,
             fallbackToUtc: displayToUtc);
+        _latestHistoryHeatmap = heatmap;
         PopulateHistorySummary(heatmap);
         RenderHistoryCoordinateHeatmap(heatmap);
 
@@ -5318,8 +5320,8 @@ public partial class MainWindow : Window
         {
             TimelineOverloadTrackPanel.Children.Add(BuildTrackPoint(snapshot, ResolvePressureLevel(snapshot), Color.FromRgb(239, 68, 68), "Pressure"));
             TimelineTrustTrackPanel.Children.Add(BuildTrackPoint(snapshot, snapshot.Confidence, Color.FromRgb(59, 130, 246), "Confidence"));
-            double focusNormalized = Math.Clamp(snapshot.SustainedAttentionDurationSec / 3600d, 0d, 1d);
-            TimelineFocusTrackPanel.Children.Add(BuildTrackPoint(snapshot, focusNormalized, Color.FromRgb(34, 197, 94), "Focus block"));
+            double focusNormalized = Math.Clamp(ResolveFocusEpisodeSeconds(snapshot) / 3600d, 0d, 1d);
+            TimelineFocusTrackPanel.Children.Add(BuildTrackPoint(snapshot, focusNormalized, Color.FromRgb(34, 197, 94), "Focus episode"));
             TimelineOverloadActiveOverlayPanel.Children.Add(BuildOverloadActiveMarker(snapshot));
         }
 
@@ -5327,7 +5329,7 @@ public partial class MainWindow : Window
         {
             TimelineOverloadTrackPanel.Children.Add(new TextBlock { Text = "Pressure snapshots will appear here when processed blocks are available.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
             TimelineTrustTrackPanel.Children.Add(new TextBlock { Text = "Confidence snapshots will appear here when processed blocks are available.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
-            TimelineFocusTrackPanel.Children.Add(new TextBlock { Text = "Focus blocks will appear here when processed blocks are available.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
+            TimelineFocusTrackPanel.Children.Add(new TextBlock { Text = "Focus episodes will appear here when processed blocks are available.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
             TimelineOverloadActiveOverlayPanel.Children.Add(new TextBlock { Text = "Overload-active blocks will appear here when processed history is available.", Foreground = Brushes.Gainsboro, TextWrapping = TextWrapping.Wrap });
         }
 
@@ -5578,13 +5580,14 @@ public partial class MainWindow : Window
         string rangeLabel = heatmap.Days.Count == 1
             ? heatmap.Days[0].HeaderLabel
             : $"{heatmap.Days[0].ShortLabel} through {heatmap.Days[^1].ShortLabel}";
+        string episodeSummary = BuildHistoryEpisodeSummary(heatmap);
 
         if (heatmap.BestFocusCell == null)
         {
-            return $"Across {rangeLabel}, Ari mapped {FormatReadableDuration(heatmap.TotalFocusedSeconds)} of focused work inside {FormatReadableDuration(heatmap.TotalTrackedSeconds)} of tracked time.";
+            return $"Across {rangeLabel}, Ari mapped {FormatReadableDuration(heatmap.TotalFocusedSeconds)} of focused work inside {FormatReadableDuration(heatmap.TotalTrackedSeconds)} of tracked time. {episodeSummary}";
         }
 
-        return $"Across {rangeLabel}, Ari mapped {FormatReadableDuration(heatmap.TotalFocusedSeconds)} of focused work inside {FormatReadableDuration(heatmap.TotalTrackedSeconds)} of tracked time. The strongest hour was {heatmap.BestFocusCell.LocalDate:ddd} {heatmap.BestFocusCell.Hour:00}:00 with {FormatReadableDuration(heatmap.BestFocusCell.FocusedSeconds)} focused.";
+        return $"Across {rangeLabel}, Ari mapped {FormatReadableDuration(heatmap.TotalFocusedSeconds)} of focused work inside {FormatReadableDuration(heatmap.TotalTrackedSeconds)} of tracked time. The strongest hour was {heatmap.BestFocusCell.LocalDate:ddd} {heatmap.BestFocusCell.Hour:00}:00 with {FormatReadableDuration(heatmap.BestFocusCell.FocusedSeconds)} focused. {episodeSummary}";
     }
 
     private string BuildHistoryBestHourSummary(HistoryFocusHeatmapCell? bestCell)
@@ -5599,13 +5602,16 @@ public partial class MainWindow : Window
 
     private string BuildHistoryActionsSummary(HistoryFocusHeatmap heatmap)
     {
+        string episodeLead = heatmap.Episodes.Count == 1
+            ? "1 episode overlaps this range."
+            : $"{heatmap.Episodes.Count} episodes overlap this range.";
         if (heatmap.ActionMarkerCount == 0)
         {
-            return "No action markers landed in this range yet. Click any populated hour for details.";
+            return $"{episodeLead} No action markers landed in this range yet. Click any populated hour for details.";
         }
 
         string markerLabel = heatmap.ActionMarkerCount == 1 ? "marker" : "markers";
-        return $"{heatmap.ActionMarkerCount} action {markerLabel} landed in this range. Click a populated hour or marker for details.";
+        return $"{episodeLead} {heatmap.ActionMarkerCount} action {markerLabel} landed in this range. Click a populated hour or marker for details.";
     }
 
     private string BuildHistoryHeatmapCellTooltip(HistoryFocusHeatmapCell cell)
@@ -5616,7 +5622,41 @@ public partial class MainWindow : Window
             return $"{prefix}{Environment.NewLine}No tracked work in this hour yet.";
         }
 
-        return $"{prefix}{Environment.NewLine}Focused {FormatReadableDuration(cell.FocusedSeconds)} of {FormatReadableDuration(cell.TrackedSeconds)} tracked{Environment.NewLine}Overload {cell.AverageOverloadPercent:F0}% | Confidence {cell.AverageConfidencePercent:F0}%";
+        string episodeSummary = cell.Episodes.Count switch
+        {
+            0 => "No derived episodes in this hour",
+            1 => $"1 episode in this hour ({cell.Episodes[0].DisplayLabel})",
+            _ => $"{cell.Episodes.Count} episodes in this hour"
+        };
+        return $"{prefix}{Environment.NewLine}Focused {FormatReadableDuration(cell.FocusedSeconds)} of {FormatReadableDuration(cell.TrackedSeconds)} tracked{Environment.NewLine}Pressure {cell.AverageOverloadPercent:F0}% | Confidence {cell.AverageConfidencePercent:F0}%{Environment.NewLine}{episodeSummary}";
+    }
+
+    private static string BuildHistoryEpisodeSummary(HistoryFocusHeatmap heatmap)
+    {
+        List<string> parts = new();
+        if (heatmap.FocusEpisodeCount > 0)
+        {
+            parts.Add(heatmap.FocusEpisodeCount == 1 ? "1 focus episode" : $"{heatmap.FocusEpisodeCount} focus episodes");
+        }
+
+        if (heatmap.DistractionEpisodeCount > 0)
+        {
+            parts.Add(heatmap.DistractionEpisodeCount == 1 ? "1 distraction episode" : $"{heatmap.DistractionEpisodeCount} distraction episodes");
+        }
+
+        if (heatmap.AwayEpisodeCount > 0)
+        {
+            parts.Add(heatmap.AwayEpisodeCount == 1 ? "1 away segment" : $"{heatmap.AwayEpisodeCount} away segments");
+        }
+
+        if (heatmap.OverloadEpisodeCount > 0)
+        {
+            parts.Add(heatmap.OverloadEpisodeCount == 1 ? "1 overload episode" : $"{heatmap.OverloadEpisodeCount} overload episodes");
+        }
+
+        return parts.Count == 0
+            ? "Episode drilldown will appear as soon as Ari retains processed history for this range."
+            : $"Episode drilldown found {string.Join(", ", parts)}.";
     }
 
     private static string BuildHistoryCellValueText(HistoryFocusHeatmapCell cell)
@@ -5690,8 +5730,8 @@ public partial class MainWindow : Window
                 ? $"Confidence: {NotAvailableText}"
                 : "Confidence in that hour: This will appear after you select a heatmap cell.";
             TimelineDetailFocus.Text = _historyExplainMode
-                ? $"Focused: {NotAvailableText}"
-                : "Focused time in that hour: This will appear after you select a heatmap cell.";
+                ? $"Focus episode: {NotAvailableText}"
+                : "Focus episode in that hour: This will appear after you select a heatmap cell.";
             TimelineDetailClassification.Text = _historyExplainMode
                 ? "Hour type: Select a heatmap cell to inspect raw details."
                 : "What happened here: Select a heatmap hour to see what Ari understood about that block.";
@@ -5711,6 +5751,7 @@ public partial class MainWindow : Window
             TimelineDetailStabilization.Text = _historyExplainMode
                 ? "Stabilization: Select a heatmap cell to inspect the latest processed block in that hour."
                 : "Context: Use this panel to understand what Ari saw around the selected hour.";
+            PopulateTimelineEpisodeDrilldown([], "this block");
             return;
         }
 
@@ -5719,11 +5760,11 @@ public partial class MainWindow : Window
             ? $"Tracked: {FormatReadableDuration(cell.TrackedSeconds)} | Focused: {FormatReadableDuration(cell.FocusedSeconds)}"
             : $"Tracked time in that hour: {FormatReadableDuration(cell.TrackedSeconds)} | Focused: {FormatReadableDuration(cell.FocusedSeconds)}";
         TimelineDetailTrust.Text = _historyExplainMode
-            ? $"Confidence: {cell.AverageConfidencePercent:F0}% | Avg overload: {cell.AverageOverloadPercent:F0}%"
-            : $"Confidence in that hour: {cell.AverageConfidencePercent:F0}% | Average overload: {cell.AverageOverloadPercent:F0}%";
+            ? $"Confidence: {cell.AverageConfidencePercent:F0}% | Avg pressure: {cell.AverageOverloadPercent:F0}%"
+            : $"Confidence in that hour: {cell.AverageConfidencePercent:F0}% | Average pressure: {cell.AverageOverloadPercent:F0}%";
         TimelineDetailFocus.Text = _historyExplainMode
-            ? $"Focus block: {FormatFocusedTime(cell.LongestFocusBlockSeconds)}"
-            : $"Focused time in that hour: {FormatReadableDuration(cell.FocusedSeconds)} | Longest focus block: {FormatFocusedTime(cell.LongestFocusBlockSeconds)}";
+            ? $"Focus episode: {FormatFocusedTime(cell.LongestFocusBlockSeconds)}"
+            : $"Focus episode in that hour: {FormatFocusedTime(cell.LongestFocusBlockSeconds)} | Focused time: {FormatReadableDuration(cell.FocusedSeconds)}";
         TimelineDetailClassification.Text = _historyExplainMode
             ? $"Hour type: {BuildHistoryCellWhatHappened(cell)}"
             : $"What happened here: {BuildHistoryCellWhatHappened(cell)}";
@@ -5735,6 +5776,7 @@ public partial class MainWindow : Window
         TimelineDetailWhyReasons.Text = BuildHistoryCellSignalsText(cell);
         TimelineDetailWhyQuality.Text = BuildHistoryCellTrackingQualityText(cell);
         TimelineDetailStabilization.Text = BuildHistoryCellContextText(cell);
+        PopulateTimelineEpisodeDrilldown(cell.Episodes, $"{cell.LocalDate:ddd MMM d} {cell.HourLabel}");
     }
 
     private static string BuildHistoryCellWhatHappened(HistoryFocusHeatmapCell cell)
@@ -5742,6 +5784,23 @@ public partial class MainWindow : Window
         if (!cell.HasTracking)
         {
             return "No tracked work landed in this hour.";
+        }
+
+        if (cell.Episodes.Count > 0)
+        {
+            HistoryTimelineEpisode primaryEpisode = cell.Episodes
+                .OrderByDescending(static episode => episode.DurationSeconds)
+                .First();
+            return primaryEpisode.Kind switch
+            {
+                HistoryTimelineEpisodeKind.FocusEpisode => "This hour was anchored by a durable focus episode.",
+                HistoryTimelineEpisodeKind.ContextExcursion => "This hour included a short excursion outside the focus context.",
+                HistoryTimelineEpisodeKind.OffTaskDistraction => "This hour included a sustained off-task distraction episode.",
+                HistoryTimelineEpisodeKind.FragmentationDistraction => "This hour included a fragmentation distraction episode with rapid switching.",
+                HistoryTimelineEpisodeKind.Away => "This hour included away time rather than active distraction.",
+                HistoryTimelineEpisodeKind.OverloadEpisode => "This hour included an overload episode.",
+                _ => "This hour included a derived episode."
+            };
         }
 
         if (cell.FocusedSeconds >= 2700d && cell.AverageOverloadPercent <= 35d)
@@ -5769,7 +5828,9 @@ public partial class MainWindow : Window
             return "No tracked work landed in this hour yet.";
         }
 
-        return $"Ari mapped {FormatReadableDuration(cell.FocusedSeconds)} of focused work inside {FormatReadableDuration(cell.TrackedSeconds)} tracked during this hour.";
+        return cell.Episodes.Count == 0
+            ? $"Ari mapped {FormatReadableDuration(cell.FocusedSeconds)} of focused work inside {FormatReadableDuration(cell.TrackedSeconds)} tracked during this hour."
+            : $"Ari mapped {FormatReadableDuration(cell.FocusedSeconds)} of focused work inside {FormatReadableDuration(cell.TrackedSeconds)} tracked during this hour, with {cell.Episodes.Count} derived episodes overlapping it.";
     }
 
     private string BuildHistoryCellSignalsText(HistoryFocusHeatmapCell cell)
@@ -5826,6 +5887,164 @@ public partial class MainWindow : Window
         return prefix + BuildHistoryContextText(cell.LatestSnapshot.StateFlagsJson);
     }
 
+    private void PopulateTimelineEpisodeDrilldown(
+        IReadOnlyList<HistoryTimelineEpisode> episodes,
+        string contextLabel)
+    {
+        TimelineEpisodeListPanel.Children.Clear();
+
+        if (episodes.Count == 0)
+        {
+            TimelineEpisodeSummaryText.Text = _historyExplainMode
+                ? $"Episode drilldown: no derived episodes overlap {contextLabel}."
+                : $"Episodes in this block: no derived episodes overlap {contextLabel} yet.";
+            TimelineEpisodeListPanel.Children.Add(new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(15, 23, 42)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(36, 48, 66)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12),
+                Padding = new Thickness(10),
+                Child = new TextBlock
+                {
+                    Text = "As processed snapshots accumulate, focus, distraction, away, and overload episodes will appear here.",
+                    Foreground = new SolidColorBrush(Color.FromRgb(203, 213, 225)),
+                    TextWrapping = TextWrapping.Wrap
+                }
+            });
+            return;
+        }
+
+        TimelineEpisodeSummaryText.Text = _historyExplainMode
+            ? $"Episode drilldown: {episodes.Count} derived episodes overlap {contextLabel}."
+            : $"Episodes in this block: {episodes.Count} derived episodes overlap {contextLabel}.";
+
+        foreach (HistoryTimelineEpisode episode in episodes
+                     .OrderByDescending(static episode => episode.DurationSeconds)
+                     .ThenBy(static episode => episode.StartUtc))
+        {
+            TimelineEpisodeListPanel.Children.Add(BuildTimelineEpisodeCard(episode));
+        }
+    }
+
+    private IReadOnlyList<HistoryTimelineEpisode> FindEpisodesAt(DateTimeOffset timestampUtc)
+    {
+        IReadOnlyList<HistoryTimelineEpisode> episodes = _latestHistoryHeatmap?.Episodes ?? [];
+        if (episodes.Count == 0)
+        {
+            return [];
+        }
+
+        return episodes
+            .Where(episode => episode.Contains(timestampUtc))
+            .OrderByDescending(static episode => episode.DurationSeconds)
+            .ThenBy(static episode => episode.StartUtc)
+            .ToArray();
+    }
+
+    private Border BuildTimelineEpisodeCard(HistoryTimelineEpisode episode)
+    {
+        Brush accent = episode.Kind switch
+        {
+            HistoryTimelineEpisodeKind.FocusEpisode => new SolidColorBrush(Color.FromRgb(34, 197, 94)),
+            HistoryTimelineEpisodeKind.ContextExcursion => new SolidColorBrush(Color.FromRgb(59, 130, 246)),
+            HistoryTimelineEpisodeKind.OffTaskDistraction => new SolidColorBrush(Color.FromRgb(245, 158, 11)),
+            HistoryTimelineEpisodeKind.FragmentationDistraction => new SolidColorBrush(Color.FromRgb(249, 115, 22)),
+            HistoryTimelineEpisodeKind.Away => new SolidColorBrush(Color.FromRgb(148, 163, 184)),
+            HistoryTimelineEpisodeKind.OverloadEpisode => new SolidColorBrush(Color.FromRgb(239, 68, 68)),
+            _ => new SolidColorBrush(Color.FromRgb(148, 163, 184))
+        };
+
+        string pressureSummary = $"Pressure avg {episode.AveragePressurePercent:F0}% | peak {episode.PeakPressurePercent:F0}% | confidence {episode.AverageConfidencePercent:F0}%";
+        string overloadSummary = episode.OverloadActive
+            ? "Overload active during this episode."
+            : "Overload stayed inactive during this episode.";
+        string interventionsSummary = episode.Interventions.Count switch
+        {
+            0 => "Interventions: none inside this episode.",
+            1 => $"Interventions: {ToActionTitle(episode.Interventions[0])}.",
+            _ => $"Interventions: {episode.Interventions.Count} inside this episode. Latest: {ToActionTitle(episode.Interventions[^1])}."
+        };
+
+        Grid header = new()
+        {
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        header.ColumnDefinitions.Add(new ColumnDefinition());
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(new TextBlock
+        {
+            Text = episode.DisplayLabel,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = Brushes.White,
+            TextWrapping = TextWrapping.Wrap
+        });
+        Border durationBadge = new()
+        {
+            Background = accent,
+            CornerRadius = new CornerRadius(999),
+            Padding = new Thickness(8, 2, 8, 2),
+            Margin = new Thickness(8, 0, 0, 0),
+            Child = new TextBlock
+            {
+                Text = FormatReadableDuration(episode.DurationSeconds),
+                Foreground = Brushes.Black,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold
+            }
+        };
+        Grid.SetColumn(durationBadge, 1);
+        header.Children.Add(durationBadge);
+
+        StackPanel content = new();
+        content.Children.Add(header);
+        content.Children.Add(new TextBlock
+        {
+            Text = $"{episode.StartUtc.ToLocalTime():MMM d HH:mm} to {episode.EndUtc.ToLocalTime():MMM d HH:mm}",
+            Foreground = new SolidColorBrush(Color.FromRgb(147, 197, 253)),
+            Margin = new Thickness(0, 0, 0, 6),
+            TextWrapping = TextWrapping.Wrap
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = $"Reason: {episode.ReasonText}",
+            Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            Margin = new Thickness(0, 0, 0, 6),
+            TextWrapping = TextWrapping.Wrap
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = pressureSummary,
+            Foreground = new SolidColorBrush(Color.FromRgb(203, 213, 225)),
+            Margin = new Thickness(0, 0, 0, 4),
+            TextWrapping = TextWrapping.Wrap
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = overloadSummary,
+            Foreground = new SolidColorBrush(Color.FromRgb(203, 213, 225)),
+            Margin = new Thickness(0, 0, 0, 4),
+            TextWrapping = TextWrapping.Wrap
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = interventionsSummary,
+            Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        return new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(15, 23, 42)),
+            BorderBrush = accent,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(10),
+            Margin = new Thickness(0, 0, 0, 8),
+            Child = content
+        };
+    }
+
     private void PopulateHistorySummary(
         LocalApiTimelineResponse? timeline,
         IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots)
@@ -5861,7 +6080,7 @@ public partial class MainWindow : Window
 
         HistorySummaryLeadText.Text = BuildHistoryLeadSentence(insights, timeline, snapshots);
         HistoryRangeSummaryText.Text = BuildHistoryFocusedSummary(insights);
-        HistoryFocusSummaryText.Text = $"Longest focus block {FormatReadableDuration(insights.LongestFocusBlockSeconds)}";
+        HistoryFocusSummaryText.Text = $"Longest focus episode {FormatReadableDuration(insights.LongestFocusBlockSeconds)}";
         HistoryOverloadSummaryText.Text = $"Distraction episodes {FormatReadableDuration(insights.DistractionSeconds)}";
         HistoryTrustSummaryText.Text = insights.MostDistractedPeriodLabel == NotAvailableText
             ? $"Viewing {_historyRange switch
@@ -6112,11 +6331,11 @@ public partial class MainWindow : Window
     {
         return _historyRange switch
         {
-            HistoryRange.Last1Hour => "No tracked focus blocks landed in the last hour yet. The hour map stays pinned here as new blocks arrive.",
-            HistoryRange.Last4Hours => "No tracked focus blocks landed in the last 4 hours yet. The hour map stays pinned here as new blocks arrive.",
-            HistoryRange.Today => "No tracked focus blocks from today are available yet. The hour map stays pinned here as new blocks arrive.",
+            HistoryRange.Last1Hour => "No tracked focus episodes landed in the last hour yet. The hour map stays pinned here as new episodes arrive.",
+            HistoryRange.Last4Hours => "No tracked focus episodes landed in the last 4 hours yet. The hour map stays pinned here as new episodes arrive.",
+            HistoryRange.Today => "No tracked focus episodes from today are available yet. The hour map stays pinned here as new episodes arrive.",
             HistoryRange.AllTime => "No retained focus history is available yet. The hour map stays pinned here as new stored days arrive.",
-            _ => "No tracked focus blocks are available in this range yet."
+            _ => "No tracked focus episodes are available in this range yet."
         };
     }
 
@@ -6124,11 +6343,11 @@ public partial class MainWindow : Window
     {
         return _historyRange switch
         {
-            HistoryRange.Last1Hour => "No tracked focus blocks landed in the last hour yet.",
-            HistoryRange.Last4Hours => "No tracked focus blocks landed in the last 4 hours yet.",
-            HistoryRange.Today => "No tracked focus blocks from today are available yet.",
+            HistoryRange.Last1Hour => "No tracked focus episodes landed in the last hour yet.",
+            HistoryRange.Last4Hours => "No tracked focus episodes landed in the last 4 hours yet.",
+            HistoryRange.Today => "No tracked focus episodes from today are available yet.",
             HistoryRange.AllTime => "No retained focus history is available yet.",
-            _ => "No tracked focus blocks are available in this range yet."
+            _ => "No tracked focus episodes are available in this range yet."
         };
     }
 
@@ -6153,7 +6372,7 @@ public partial class MainWindow : Window
             return $"{time}{Environment.NewLine}focus_norm={focusPercent:F1}%{Environment.NewLine}pressure={(ResolvePressureLevel(snapshot) * 100d):F1}%{Environment.NewLine}trust={(snapshot.Confidence * 100d):F1}%{Environment.NewLine}focus_reason={LocalAttentionSegmentAnalytics.ResolveFocusEpisodeReasonText(snapshot)}{Environment.NewLine}attention_reason={LocalAttentionSegmentAnalytics.ResolveAttentionSegmentReasonText(snapshot)}";
         }
 
-        return $"{time}{Environment.NewLine}Focus block {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}{Environment.NewLine}Pressure {(ResolvePressureLevel(snapshot) * 100d):F0}%{Environment.NewLine}Confidence {(snapshot.Confidence * 100d):F0}%{Environment.NewLine}Focus {LocalAttentionSegmentAnalytics.ResolveFocusEpisodeReasonText(snapshot)}{Environment.NewLine}Attention {LocalAttentionSegmentAnalytics.ResolveAttentionSegmentReasonText(snapshot)}";
+        return $"{time}{Environment.NewLine}Focus episode {FormatFocusedTime(ResolveFocusEpisodeSeconds(snapshot))}{Environment.NewLine}Pressure {(ResolvePressureLevel(snapshot) * 100d):F0}%{Environment.NewLine}Confidence {(snapshot.Confidence * 100d):F0}%{Environment.NewLine}Focus {LocalAttentionSegmentAnalytics.ResolveFocusEpisodeReasonText(snapshot)}{Environment.NewLine}Attention {LocalAttentionSegmentAnalytics.ResolveAttentionSegmentReasonText(snapshot)}";
     }
 
     private UIElement BuildTrackPoint(
@@ -6249,7 +6468,7 @@ public partial class MainWindow : Window
         {
             "Pressure" => $"{time} | Pressure was {(ResolvePressureLevel(snapshot) * 100d):F0}%.",
             "Confidence" => $"{time} | Confidence was {(Math.Clamp(snapshot.Confidence, 0d, 1d) * 100d):F0}%.",
-            "Focus block" => $"{time} | Focus block was {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}.",
+            "Focus episode" => $"{time} | Focus episode was {FormatFocusedTime(ResolveFocusEpisodeSeconds(snapshot))}.",
             _ => $"{time} | Value: {normalizedValue:F2}"
         };
     }
@@ -6292,8 +6511,8 @@ public partial class MainWindow : Window
                 ? $"Confidence: {NotAvailableText}"
                 : "Confidence in that hour: This will appear after you select a heatmap cell or snapshot.";
             TimelineDetailFocus.Text = _historyExplainMode
-                ? $"Focus block: {NotAvailableText}"
-                : "Focused time in that hour: This will appear after you select a heatmap cell or snapshot.";
+                ? $"Focus episode: {NotAvailableText}"
+                : "Focus episode in that hour: This will appear after you select a heatmap cell or snapshot.";
             TimelineDetailClassification.Text = _historyExplainMode
                 ? "Moment type: Select a cell, snapshot, or marker to inspect raw details."
                 : "What happened here: Select a heatmap hour, snapshot, or marker to see what Ari understood about it.";
@@ -6313,6 +6532,7 @@ public partial class MainWindow : Window
             TimelineDetailStabilization.Text = _historyExplainMode
                 ? "Stabilization: Select a cell or snapshot to inspect stabilization flags."
                 : "Context: Use this panel to understand what Ari saw around the selected hour.";
+            PopulateTimelineEpisodeDrilldown([], "this block");
             return;
         }
 
@@ -6335,8 +6555,8 @@ public partial class MainWindow : Window
                 ? $"Confidence: {(snapshot.Confidence * 100d):F0}%"
                 : $"Confidence in that moment: {(snapshot.Confidence * 100d):F0}%";
             TimelineDetailFocus.Text = _historyExplainMode
-                ? $"Focus block: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}"
-                : $"Focus block in that moment: {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}";
+                ? $"Focus episode: {FormatFocusedTime(ResolveFocusEpisodeSeconds(snapshot))}"
+                : $"Focus episode in that moment: {FormatFocusedTime(ResolveFocusEpisodeSeconds(snapshot))}";
             TimelineDetailClassification.Text = _historyExplainMode
                 ? "Moment type: Activity snapshot"
                 : BuildHistoryMomentSummary(snapshot, overloadActive);
@@ -6366,6 +6586,7 @@ public partial class MainWindow : Window
             TimelineDetailStabilization.Text = _historyExplainMode
                 ? BuildStabilizationText(snapshot.StateFlagsJson, _historyExplainMode)
                 : BuildHistoryContextText(snapshot.StateFlagsJson);
+            PopulateTimelineEpisodeDrilldown(FindEpisodesAt(snapshot.TimestampUtc), $"{snapshot.TimestampUtc.ToLocalTime():MMM d HH:mm:ss}");
             return;
         }
 
@@ -6379,8 +6600,8 @@ public partial class MainWindow : Window
             ? $"Confidence: {(intervention.Confidence * 100d):F0}%"
             : $"Confidence in that moment: {(intervention.Confidence * 100d):F0}%";
         TimelineDetailFocus.Text = _historyExplainMode
-            ? $"Focus block: {NotAvailableText} (action marker)"
-            : $"Focus block in that moment: {NotAvailableText} (action marker)";
+            ? $"Focus episode: {NotAvailableText} (action marker)"
+            : $"Focus episode in that moment: {NotAvailableText} (action marker)";
         TimelineDetailClassification.Text = _historyExplainMode
             ? $"Moment type: {BuildActionClassificationText(intervention)}"
             : $"What happened here: {BuildActionClassificationText(intervention)}";
@@ -6406,6 +6627,7 @@ public partial class MainWindow : Window
         TimelineDetailStabilization.Text = _historyExplainMode
             ? BuildStabilizationText(intervention.StateFlagsJson, _historyExplainMode)
             : BuildHistoryContextText(intervention.StateFlagsJson);
+        PopulateTimelineEpisodeDrilldown(FindEpisodesAt(intervention.TimestampUtc), $"{intervention.TimestampUtc.ToLocalTime():MMM d HH:mm:ss}");
     }
 
     private static string BuildHistoryMomentSummary(LocalApiCurrentSnapshotResponse snapshot, bool overloadActive)
