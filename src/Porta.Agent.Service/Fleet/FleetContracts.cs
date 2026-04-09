@@ -128,6 +128,11 @@ internal sealed record MachineActionEventPayload(
     [property: JsonPropertyName("timestampUtc")] string TimestampUtc,
     [property: JsonPropertyName("appliedAtUtc")] string? AppliedAtUtc,
     [property: JsonPropertyName("errorCode")] string? ErrorCode,
+    [property: JsonPropertyName("deliverySurface")] string? DeliverySurface,
+    [property: JsonPropertyName("interactionKind")] string? InteractionKind,
+    [property: JsonPropertyName("breakKind")] string? BreakKind,
+    [property: JsonPropertyName("promptOutcome")] string? PromptOutcome,
+    [property: JsonPropertyName("overlayState")] string? OverlayState,
     [property: JsonPropertyName("policyId")] string PolicyId,
     [property: JsonPropertyName("whatChanged")] string? WhatChanged,
     [property: JsonPropertyName("howToUndo")] string? HowToUndo);

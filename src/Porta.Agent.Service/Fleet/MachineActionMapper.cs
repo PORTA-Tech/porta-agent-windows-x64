@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json;
 using Porta.Agent.Common.Identity;
 using Porta.Agent.Common;
 using Porta.Agent.Core;
@@ -22,6 +23,7 @@ internal sealed class MachineActionMapper
             : $"event-{Math.Max(0L, controlEvent.EventId)}";
         string? accountId = IsLinked(identityLink) ? identityLink.AccountId : null;
         string? orgId = IsLinked(identityLink) ? identityLink.OrgId : null;
+        ActionEventMetadata metadata = ActionEventMetadata.Parse(controlEvent.StateFlagsJson);
 
         return new MachineActionEventPayload(
             DeviceId: identityLink.DeviceId,
@@ -38,6 +40,11 @@ internal sealed class MachineActionMapper
             TimestampUtc: ToUtcString(controlEvent.TimestampUtc),
             AppliedAtUtc: ToUtcStringOrNull(controlEvent.AppliedAtUtc),
             ErrorCode: NullIfWhiteSpace(controlEvent.ExecutionErrorCode),
+            DeliverySurface: metadata.DeliverySurface,
+            InteractionKind: metadata.InteractionKind,
+            BreakKind: metadata.BreakKind,
+            PromptOutcome: metadata.PromptOutcome,
+            OverlayState: metadata.OverlayState,
             PolicyId: string.IsNullOrWhiteSpace(controlEvent.PolicyId) ? "n/a" : controlEvent.PolicyId,
             WhatChanged: NullIfWhiteSpace(controlEvent.WhatChanged),
             HowToUndo: NullIfWhiteSpace(controlEvent.HowToUndo));
@@ -84,6 +91,15 @@ internal sealed class MachineActionMapper
             "decided" => "decided",
             "applied" => "applied",
             "verified" => "verified",
+            "overlay_started" => "overlay_started",
+            "accepted" => "accepted",
+            "dismissed" => "dismissed",
+            "skipped" => "skipped",
+            "snoozed" => "snoozed",
+            "suppressed_by_preference" => "suppressed_by_preference",
+            "overlay_recovered" => "overlay_recovered",
+            "overlay_completed" => "overlay_completed",
+            "overlay_aborted" => "overlay_aborted",
             "failed" => "failed",
             _ => "decision_only"
         };
@@ -101,4 +117,52 @@ internal sealed class MachineActionMapper
         string.Equals(snapshot.LinkStatus, LocalIdentityLinkStatuses.Linked, StringComparison.Ordinal)
         && !string.IsNullOrWhiteSpace(snapshot.AccountId)
         && !string.IsNullOrWhiteSpace(snapshot.OrgId);
+
+    private sealed record ActionEventMetadata(
+        string? DeliverySurface,
+        string? InteractionKind,
+        string? BreakKind,
+        string? PromptOutcome,
+        string? OverlayState)
+    {
+        public static ActionEventMetadata Parse(string? stateFlagsJson)
+        {
+            if (string.IsNullOrWhiteSpace(stateFlagsJson))
+            {
+                return new ActionEventMetadata(null, null, null, null, null);
+            }
+
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
+                JsonElement root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                {
+                    return new ActionEventMetadata(null, null, null, null, null);
+                }
+
+                return new ActionEventMetadata(
+                    ReadString(root, "delivery_surface"),
+                    ReadString(root, "interaction_kind"),
+                    ReadString(root, "break_kind"),
+                    ReadString(root, "prompt_outcome"),
+                    ReadString(root, "overlay_state"));
+            }
+            catch
+            {
+                return new ActionEventMetadata(null, null, null, null, null);
+            }
+        }
+
+        private static string? ReadString(JsonElement root, string propertyName)
+        {
+            if (!root.TryGetProperty(propertyName, out JsonElement node) || node.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            string? value = node.GetString();
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+    }
 }

@@ -1788,7 +1788,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         i.what_changed
                     FROM interventions i
                     WHERE i.command_type <> ''
-                      AND i.execution_state = 'decided'
+                      AND (
+                          i.execution_state = 'decided'
+                          OR (
+                              i.command_type IN ('show_break_toast', 'show_stretch_break_toast')
+                              AND i.execution_state IN ('overlay_started', 'accepted', 'overlay_recovered')
+                          )
+                      )
                       AND i.lifecycle_state <> 'deactivated'
                       AND (i.session_id = '' OR i.session_id = $session_id)
                       AND (i.planned_end_timestamp_utc = '' OR i.planned_end_timestamp_utc >= $now_utc)
@@ -1886,7 +1892,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             using SqliteTransaction tx = BeginImmediateTransaction(connection);
             try
             {
-                var rows = new List<(long Id, string SessionId, string ExecutionState, string Action, string CommandType)>();
+                var rows = new List<(long Id, string SessionId, string ExecutionState, string Action, string CommandType, string PolicyId, string Domain, string WhatChanged, string HowToUndo)>();
 
                 using (var read = connection.CreateCommand())
                 {
@@ -1898,7 +1904,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                             session_id,
                             execution_state,
                             action,
-                            command_type
+                            command_type,
+                            policy_id,
+                            domain,
+                            what_changed,
+                            how_to_undo
                         FROM interventions
                         WHERE intervention_id = $intervention_id
                           AND command_type <> ''
@@ -1916,7 +1926,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                             SessionId: ReadStringOrFallback(reader, 1, string.Empty),
                             ExecutionState: ReadStringOrFallback(reader, 2, "decided"),
                             Action: ReadStringOrFallback(reader, 3, string.Empty),
-                            CommandType: ReadStringOrFallback(reader, 4, string.Empty)));
+                            CommandType: ReadStringOrFallback(reader, 4, string.Empty),
+                            PolicyId: ReadStringOrFallback(reader, 5, "n/a"),
+                            Domain: ReadStringOrFallback(reader, 6, "control"),
+                            WhatChanged: ReadStringOrFallback(reader, 7, string.Empty),
+                            HowToUndo: ReadStringOrFallback(reader, 8, string.Empty)));
                     }
                 }
 
@@ -1926,14 +1940,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     return false;
                 }
 
-                List<long> decidedRowIds = rows
-                    .Where(static row => string.Equals(row.ExecutionState, "decided", StringComparison.Ordinal))
+                List<long> openRowIds = rows
+                    .Where(static row => IsPendingInterventionState(row.ExecutionState))
                     .Select(static row => row.Id)
                     .ToList();
 
-                if (decidedRowIds.Count == 0)
+                if (openRowIds.Count == 0)
                 {
-                    (long Id, string SessionId, string ExecutionState, string Action, string CommandType) latestRow = rows[0];
+                    (long Id, string SessionId, string ExecutionState, string Action, string CommandType, string PolicyId, string Domain, string WhatChanged, string HowToUndo) latestRow = rows[0];
                     if (string.Equals(latestRow.ExecutionState, normalizedResult, StringComparison.Ordinal))
                     {
                         if (string.IsNullOrWhiteSpace(latestRow.SessionId))
@@ -1960,8 +1974,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     return false;
                 }
 
-                (long Id, string SessionId, string ExecutionState, string Action, string CommandType) targetRow = rows
-                    .First(static row => string.Equals(row.ExecutionState, "decided", StringComparison.Ordinal));
+                (long Id, string SessionId, string ExecutionState, string Action, string CommandType, string PolicyId, string Domain, string WhatChanged, string HowToUndo) targetRow = rows
+                    .First(static row => IsPendingInterventionState(row.ExecutionState));
+
+                if (!CanTransitionInterventionState(targetRow.ExecutionState, normalizedResult))
+                {
+                    TryRollback(tx);
+                    return false;
+                }
 
                 string appliedAtUtc = ack.AppliedAtUtc.ToUniversalTime().ToString("O");
                 using var update = connection.CreateCommand();
@@ -1976,8 +1996,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         END,
                         execution_state = $execution_state,
                         applied_at_utc = CASE
-                            WHEN $execution_state IN ('applied', 'verified', 'accepted') THEN $applied_at_utc
-                            ELSE applied_at_utc
+                            WHEN $set_applied_at_utc = 1 THEN $applied_at_utc
+                            ELSE CASE
+                                WHEN $clear_applied_at_utc = 1 THEN ''
+                                ELSE applied_at_utc
+                            END
                         END,
                         acked_at_utc = $applied_at_utc,
                         error_code = $error_code,
@@ -1988,18 +2011,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         executor_agent_instance_id = $agent_instance_id
                     WHERE intervention_id = $intervention_id
                       AND command_type <> ''
-                      AND execution_state = 'decided'
+                      AND execution_state IN ('decided', 'overlay_started', 'accepted', 'overlay_recovered')
                       AND (session_id = '' OR session_id = $session_id);
                     """;
                 update.Parameters.AddWithValue("$session_id", sessionId);
                 update.Parameters.AddWithValue("$execution_state", normalizedResult);
                 update.Parameters.AddWithValue("$applied_at_utc", appliedAtUtc);
-                update.Parameters.AddWithValue("$error_code", normalizedResult == "failed"
-                    ? (ack.ErrorCode?.Trim() ?? string.Empty)
-                    : string.Empty);
+                update.Parameters.AddWithValue("$set_applied_at_utc", ShouldSetAppliedAtUtcForResult(normalizedResult) ? 1 : 0);
+                update.Parameters.AddWithValue("$clear_applied_at_utc", normalizedResult is "dismissed" or "skipped" or "snoozed" or "suppressed_by_preference" ? 1 : 0);
+                update.Parameters.AddWithValue("$error_code", ack.ErrorCode?.Trim() ?? string.Empty);
                 update.Parameters.AddWithValue("$agent_instance_id", agentInstanceId);
                 update.Parameters.AddWithValue("$intervention_id", interventionId);
-                bool updated = update.ExecuteNonQuery() == decidedRowIds.Count;
+                bool updated = update.ExecuteNonQuery() == openRowIds.Count;
                 if (updated)
                 {
                     ApplyInterventionAckSideEffects(
@@ -2009,6 +2032,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         targetRow.CommandType,
                         ack with { Result = normalizedResult },
                         _runtimePolicyProvider.GetEnvelope());
+                    InsertInterventionLifecycleEvent(
+                        connection,
+                        tx,
+                        targetRow,
+                        ack with { Result = normalizedResult });
                 }
                 tx.Commit();
                 return updated;
@@ -6521,7 +6549,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             schema_ver = 1,
             lifecycle_state = controlEvent.LifecycleState,
             reversible = controlEvent.Reversible,
-            reversal_applied = controlEvent.ReversalApplied
+            reversal_applied = controlEvent.ReversalApplied,
+            event_command_type = commandType,
+            event_execution_state = executionState,
+            event_applied_at_utc = decidedAtUtc,
+            event_acked_at_utc = decidedAtUtc,
+            event_error_code = string.Empty,
+            event_executor_agent_instance_id = string.Empty,
+            delivery_surface = ResolveInterventionDeliverySurface(controlEvent.Action),
+            interaction_kind = ResolveInterventionInteractionKind(controlEvent.Action),
+            break_kind = ResolveInterventionBreakKind(controlEvent.Action),
+            prompt_outcome = string.Empty,
+            overlay_state = string.Empty
         }));
         cmd.Parameters.AddWithValue("$idempotency_key", BuildEventIdempotencyKey(controlEvent));
         cmd.Parameters.AddWithValue("$intervention_id", controlEvent.InterventionId);
@@ -6590,6 +6629,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             schema_ver = 1,
             action,
             command_type = commandType,
+            delivery_surface = ResolveInterventionDeliverySurface(action),
+            break_kind = ResolveInterventionBreakKind(action),
             title,
             message,
             tip_key = ResolveInterventionTipKey(action),
@@ -6601,6 +6642,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             what_changed = controlEvent.WhatChanged ?? string.Empty,
             how_to_undo = controlEvent.HowToUndo ?? string.Empty,
             duration_seconds = ResolveInterventionPromptDurationSeconds(controlEvent, action),
+            countdown_seconds = ResolveInterventionCountdownSeconds(action),
             confidence = controlEvent.Confidence,
             policy_id = controlEvent.PolicyId,
             domain = controlEvent.Domain,
@@ -6696,10 +6738,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             "applied" => "applied",
             "verified" => "verified",
             "failed" => "failed",
+            "overlay_started" => "overlay_started",
             "accepted" => "accepted",
+            "skipped" => "skipped",
             "dismissed" => "dismissed",
             "snoozed" => "snoozed",
             "suppressed_by_preference" => "suppressed_by_preference",
+            "overlay_recovered" => "overlay_recovered",
+            "overlay_completed" => "overlay_completed",
+            "overlay_aborted" => "overlay_aborted",
             _ => string.Empty
         };
     }
@@ -6723,6 +6770,19 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             _ => "status"
         };
     }
+
+    private static string ResolveInterventionDeliverySurface(string action)
+    {
+        return action switch
+        {
+            "break_suggestion" or "stretch_break_suggestion" => "break_overlay",
+            "focus_lock_in_suggestion" => "widget",
+            _ => "toast"
+        };
+    }
+
+    private static string? ResolveInterventionBreakKind(string action) =>
+        PortaBreakSemantics.ResolveBreakKind(action);
 
     private static string ResolveInterventionAcceptLabel(string action)
     {
@@ -6764,6 +6824,50 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         };
     }
 
+    private static bool IsPendingInterventionState(string executionState) =>
+        executionState is "decided" or "overlay_started" or "accepted" or "overlay_recovered";
+
+    private static bool CanTransitionInterventionState(string currentState, string nextState)
+    {
+        return currentState switch
+        {
+            "decided" => nextState is "applied"
+                or "verified"
+                or "failed"
+                or "overlay_started"
+                or "accepted"
+                or "dismissed"
+                or "skipped"
+                or "snoozed"
+                or "suppressed_by_preference",
+            "overlay_started" => nextState is "accepted"
+                or "failed"
+                or "dismissed"
+                or "skipped"
+                or "snoozed"
+                or "suppressed_by_preference",
+            "accepted" => nextState is "overlay_recovered"
+                or "overlay_completed"
+                or "overlay_aborted"
+                or "failed",
+            "overlay_recovered" => nextState is "overlay_completed"
+                or "overlay_aborted"
+                or "failed",
+            _ => false
+        };
+    }
+
+    private static bool ShouldSetAppliedAtUtcForResult(string result) =>
+        result is "applied"
+            or "verified"
+            or "overlay_started"
+            or "accepted"
+            or "skipped"
+            or "dismissed"
+            or "overlay_recovered"
+            or "overlay_completed"
+            or "overlay_aborted";
+
     private static int ResolveInterventionPromptDurationSeconds(AgentControlEvent controlEvent, string action)
     {
         return action switch
@@ -6773,6 +6877,202 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             _ => controlEvent.DurationSeconds ?? 8
         };
     }
+
+    private static int? ResolveInterventionCountdownSeconds(string action)
+    {
+        string? breakKind = ResolveInterventionBreakKind(action);
+        return breakKind == null
+            ? null
+            : (int)PortaBreakSemantics.ResolveBreakCountdownDuration(breakKind).TotalSeconds;
+    }
+
+    private static void InsertInterventionLifecycleEvent(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        (long Id, string SessionId, string ExecutionState, string Action, string CommandType, string PolicyId, string Domain, string WhatChanged, string HowToUndo) targetRow,
+        AgentInterventionAck ack)
+    {
+        string normalizedResult = NormalizeExecutionResult(ack.Result);
+        if (string.IsNullOrWhiteSpace(normalizedResult))
+        {
+            return;
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            INSERT INTO events (
+                timestamp_utc,
+                ts_utc,
+                action,
+                duration_seconds,
+                why,
+                why_json,
+                escalation,
+                reversible,
+                trigger_state,
+                trigger_value,
+                confidence,
+                contributors_json,
+                state_flags_json,
+                idempotency_key,
+                intervention_id,
+                policy_id,
+                domain,
+                planned_end_timestamp_utc,
+                actual_end_timestamp_utc,
+                previous_system_state_json,
+                what_changed,
+                how_to_undo,
+                reversal_applied,
+                cooldown_end_timestamp_utc,
+                lifecycle_state
+            ) VALUES (
+                $timestamp_utc,
+                $ts_utc,
+                $action,
+                NULL,
+                $why,
+                $why_json,
+                $escalation,
+                0,
+                'interaction',
+                0,
+                1,
+                $contributors_json,
+                $state_flags_json,
+                $idempotency_key,
+                $intervention_id,
+                $policy_id,
+                $domain,
+                '',
+                '',
+                '{}',
+                $what_changed,
+                $how_to_undo,
+                0,
+                '',
+                'activated'
+            );
+            """;
+        string appliedAtUtc = ack.AppliedAtUtc.ToUniversalTime().ToString("O");
+        string deliverySurface = !string.IsNullOrWhiteSpace(ack.DeliverySurface)
+            ? ack.DeliverySurface.Trim()
+            : ResolveInterventionDeliverySurface(targetRow.Action);
+        string interactionKind = !string.IsNullOrWhiteSpace(ack.InteractionKind)
+            ? ack.InteractionKind.Trim()
+            : ResolveInterventionInteractionKind(targetRow.Action);
+        string? breakKind = !string.IsNullOrWhiteSpace(ack.BreakKind)
+            ? ack.BreakKind.Trim()
+            : ResolveInterventionBreakKind(targetRow.Action);
+        cmd.Parameters.AddWithValue("$ts_utc", appliedAtUtc);
+        cmd.Parameters.AddWithValue("$timestamp_utc", appliedAtUtc);
+        cmd.Parameters.AddWithValue("$action", targetRow.Action);
+        cmd.Parameters.AddWithValue("$why", ResolveLifecycleEventReason(normalizedResult));
+        cmd.Parameters.AddWithValue("$why_json", JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            reason = ResolveLifecycleEventReason(normalizedResult),
+            execution_state = normalizedResult
+        }));
+        cmd.Parameters.AddWithValue("$escalation", "Suggest");
+        cmd.Parameters.AddWithValue("$contributors_json", JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            contributors = new[] { "user_agent_intervention_ack" }
+        }));
+        cmd.Parameters.AddWithValue("$state_flags_json", JsonSerializer.Serialize(new
+        {
+            schema_ver = 1,
+            lifecycle_state = "activated",
+            reversible = false,
+            reversal_applied = false,
+            event_command_type = targetRow.CommandType,
+            event_execution_state = normalizedResult,
+            event_applied_at_utc = appliedAtUtc,
+            event_acked_at_utc = appliedAtUtc,
+            event_error_code = ack.ErrorCode?.Trim() ?? string.Empty,
+            event_executor_agent_instance_id = ack.AgentInstanceId.Trim(),
+            delivery_surface = deliverySurface,
+            interaction_kind = interactionKind,
+            break_kind = breakKind,
+            prompt_outcome = ResolvePromptOutcome(normalizedResult),
+            overlay_state = ResolveOverlayState(normalizedResult)
+        }));
+        cmd.Parameters.AddWithValue("$idempotency_key", $"intervention_ack_v1:{targetRow.Action}:{ack.InterventionId}:{normalizedResult}:{appliedAtUtc}:{ack.AgentInstanceId.Trim().ToLowerInvariant()}");
+        cmd.Parameters.AddWithValue("$intervention_id", ack.InterventionId.Trim());
+        cmd.Parameters.AddWithValue("$policy_id", string.IsNullOrWhiteSpace(targetRow.PolicyId) ? "n/a" : targetRow.PolicyId);
+        cmd.Parameters.AddWithValue("$domain", string.IsNullOrWhiteSpace(targetRow.Domain) ? "control" : targetRow.Domain);
+        cmd.Parameters.AddWithValue("$what_changed", ResolveLifecycleWhatChanged(targetRow.WhatChanged, targetRow.Action, normalizedResult));
+        cmd.Parameters.AddWithValue("$how_to_undo", string.IsNullOrWhiteSpace(targetRow.HowToUndo) ? "No manual undo required." : targetRow.HowToUndo);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static string ResolveLifecycleEventReason(string executionState) =>
+        executionState switch
+        {
+            "overlay_started" => "overlay_started",
+            "accepted" => "break_accepted",
+            "skipped" => "break_skipped",
+            "dismissed" => "prompt_dismissed",
+            "snoozed" => "prompt_snoozed",
+            "suppressed_by_preference" => "prompt_suppressed_by_preference",
+            "overlay_recovered" => "overlay_recovered",
+            "overlay_completed" => "break_completed",
+            "overlay_aborted" => "break_aborted",
+            "failed" => "intervention_failed",
+            "verified" => "intervention_verified",
+            "applied" => "intervention_applied",
+            _ => "intervention_acknowledged"
+        };
+
+    private static string ResolveLifecycleWhatChanged(string fallbackWhatChanged, string action, string executionState)
+    {
+        string label = PortaBreakSemantics.IsBreakSuggestionAction(action)
+            ? PortaBreakSemantics.ResolveBreakLabel(ResolveInterventionBreakKind(action) ?? "short_break")
+            : "Suggestion";
+        return executionState switch
+        {
+            "overlay_started" => $"{label} overlay shown.",
+            "accepted" => $"{label} accepted and countdown started.",
+            "skipped" => $"{label} skipped by the user.",
+            "dismissed" => "Prompt dismissed by the user.",
+            "snoozed" => "Prompt snoozed by the user.",
+            "suppressed_by_preference" => "Prompt suppressed by user preference.",
+            "overlay_recovered" => $"{label} overlay recovered after restart or unlock.",
+            "overlay_completed" => $"{label} completed in the Ari overlay.",
+            "overlay_aborted" => $"{label} aborted from the Ari overlay.",
+            "failed" => string.IsNullOrWhiteSpace(fallbackWhatChanged) ? "Intervention failed." : fallbackWhatChanged,
+            _ => string.IsNullOrWhiteSpace(fallbackWhatChanged) ? "Intervention acknowledged." : fallbackWhatChanged
+        };
+    }
+
+    private static string? ResolvePromptOutcome(string executionState) =>
+        executionState switch
+        {
+            "accepted" => "accepted",
+            "dismissed" => "dismissed",
+            "skipped" => "skipped",
+            "snoozed" => "snoozed",
+            "suppressed_by_preference" => "suppressed_by_preference",
+            _ => null
+        };
+
+    private static string? ResolveOverlayState(string executionState) =>
+        executionState switch
+        {
+            "overlay_started" => "prompt_visible",
+            "accepted" => "countdown_active",
+            "overlay_recovered" => "countdown_recovered",
+            "overlay_completed" => "countdown_completed",
+            "overlay_aborted" => "countdown_aborted",
+            "skipped" => "prompt_skipped",
+            "dismissed" => "prompt_dismissed",
+            "snoozed" => "prompt_snoozed",
+            "suppressed_by_preference" => "prompt_suppressed",
+            _ => null
+        };
 
     private static bool IsUniqueConstraintViolation(SqliteException ex)
     {
@@ -7189,6 +7489,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private static AgentControlEvent ReadControlEvent(SqliteDataReader reader)
     {
+        string stateFlagsJson = ReadStringOrFallback(reader, 25, "{\"schema_ver\":1}");
+        EventStateOverride overrides = EventStateOverride.Parse(stateFlagsJson);
         return new AgentControlEvent(
             TimestampUtc: ParseEventTsUtc(reader),
             Action: reader.GetString(3),
@@ -7214,14 +7516,70 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             EventId: reader.GetInt64(0),
             IdempotencyKey: ReadStringOrFallback(reader, 23, string.Empty),
             WhyJson: ReadStringOrFallback(reader, 24, "{\"schema_ver\":1}"),
-            StateFlagsJson: ReadStringOrFallback(reader, 25, "{\"schema_ver\":1}"),
-            CommandType: ReadStringOrFallback(reader, 26, string.Empty),
-            ExecutionState: ReadStringOrFallback(reader, 27, "decision_only"),
+            StateFlagsJson: stateFlagsJson,
+            CommandType: overrides.CommandType ?? ReadStringOrFallback(reader, 26, string.Empty),
+            ExecutionState: overrides.ExecutionState ?? ReadStringOrFallback(reader, 27, "decision_only"),
             DecidedAtUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 28, string.Empty)),
-            AppliedAtUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 29, string.Empty)),
-            AckedAtUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 30, string.Empty)),
-            ExecutionErrorCode: ReadStringOrFallback(reader, 31, string.Empty),
-            ExecutorAgentInstanceId: ReadStringOrFallback(reader, 32, string.Empty));
+            AppliedAtUtc: overrides.AppliedAtUtc ?? ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 29, string.Empty)),
+            AckedAtUtc: overrides.AckedAtUtc ?? ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 30, string.Empty)),
+            ExecutionErrorCode: overrides.ErrorCode ?? ReadStringOrFallback(reader, 31, string.Empty),
+            ExecutorAgentInstanceId: overrides.ExecutorAgentInstanceId ?? ReadStringOrFallback(reader, 32, string.Empty));
+    }
+
+    private sealed record EventStateOverride(
+        string? CommandType,
+        string? ExecutionState,
+        DateTimeOffset? AppliedAtUtc,
+        DateTimeOffset? AckedAtUtc,
+        string? ErrorCode,
+        string? ExecutorAgentInstanceId)
+    {
+        public static EventStateOverride Parse(string? stateFlagsJson)
+        {
+            if (string.IsNullOrWhiteSpace(stateFlagsJson))
+            {
+                return new EventStateOverride(null, null, null, null, null, null);
+            }
+
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
+                JsonElement root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                {
+                    return new EventStateOverride(null, null, null, null, null, null);
+                }
+
+                return new EventStateOverride(
+                    ReadString(root, "event_command_type"),
+                    ReadString(root, "event_execution_state"),
+                    ReadDateTime(root, "event_applied_at_utc"),
+                    ReadDateTime(root, "event_acked_at_utc"),
+                    ReadString(root, "event_error_code"),
+                    ReadString(root, "event_executor_agent_instance_id"));
+            }
+            catch
+            {
+                return new EventStateOverride(null, null, null, null, null, null);
+            }
+        }
+
+        private static string? ReadString(JsonElement root, string propertyName)
+        {
+            if (!root.TryGetProperty(propertyName, out JsonElement node) || node.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            string? value = node.GetString();
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        private static DateTimeOffset? ReadDateTime(JsonElement root, string propertyName)
+        {
+            string? raw = ReadString(root, propertyName);
+            return ParseOptionalDateTimeOffset(raw);
+        }
     }
 
     private static string ResolveDominantStateName(double focusStrength, double overloadLikelihood, double fatigueProbability)

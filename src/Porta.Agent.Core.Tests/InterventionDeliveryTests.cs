@@ -162,12 +162,14 @@ public sealed class InterventionDeliveryTests
             Assert.Equal("session-9", reader.GetString(1));
             Assert.Equal("agent-9", reader.GetString(2));
 
-            AgentControlEvent storedEvent = Assert.Single(store.ReadRecentEvents(10));
+            IReadOnlyList<AgentControlEvent> events = store.ReadRecentEvents(10);
+            AgentControlEvent storedEvent = events.First();
             Assert.Equal("break-1", storedEvent.InterventionId);
             Assert.Equal("show_break_toast", storedEvent.CommandType);
             Assert.Equal("applied", storedEvent.ExecutionState);
             Assert.Equal("agent-9", storedEvent.ExecutorAgentInstanceId);
             Assert.NotNull(storedEvent.AppliedAtUtc);
+            Assert.Contains(events, static ev => ev.ExecutionState == "decided");
         }
         finally
         {
@@ -221,9 +223,10 @@ public sealed class InterventionDeliveryTests
                 AppliedAtUtc: eventUtc.AddSeconds(2)));
 
             Assert.True(acked);
-            Assert.Empty(store.ReadPendingInterventions("session-9", 10));
+            AgentPendingIntervention pending = Assert.Single(store.ReadPendingInterventions("session-9", 10));
+            Assert.Equal("accepted", pending.ExecutionState);
 
-            AgentControlEvent storedEvent = Assert.Single(store.ReadRecentEvents(10));
+            AgentControlEvent storedEvent = store.ReadRecentEvents(10).First();
             Assert.Equal("accepted", storedEvent.ExecutionState);
             Assert.NotNull(storedEvent.AppliedAtUtc);
         }
@@ -801,7 +804,7 @@ public sealed class InterventionDeliveryTests
                 AppliedAtUtc: eventUtc.AddSeconds(1)));
 
             Assert.True(acked);
-            AgentControlEvent ev = Assert.Single(store.ReadRecentEvents(10));
+            AgentControlEvent ev = store.ReadRecentEvents(10).First();
             Assert.Equal("verified", ev.ExecutionState);
             Assert.NotNull(ev.AppliedAtUtc);
         }

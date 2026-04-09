@@ -451,10 +451,15 @@ public static class LocalApiEndpointMapping
             if (result is not "applied"
                 and not "verified"
                 and not "failed"
+                and not "overlay_started"
                 and not "accepted"
+                and not "skipped"
                 and not "dismissed"
                 and not "snoozed"
-                and not "suppressed_by_preference")
+                and not "suppressed_by_preference"
+                and not "overlay_recovered"
+                and not "overlay_completed"
+                and not "overlay_aborted")
             {
                 return Results.BadRequest(new LocalApiAckResponse(
                     Success: false,
@@ -470,7 +475,10 @@ public static class LocalApiEndpointMapping
                     AgentInstanceId: agentInstanceId,
                     Result: result,
                     ErrorCode: request.ErrorCode?.Trim(),
-                    AppliedAtUtc: request.AppliedAtUtc ?? DateTimeOffset.UtcNow));
+                    AppliedAtUtc: request.AppliedAtUtc ?? DateTimeOffset.UtcNow,
+                    InteractionKind: request.InteractionKind?.Trim(),
+                    DeliverySurface: request.DeliverySurface?.Trim(),
+                    BreakKind: request.BreakKind?.Trim()));
                 return Results.Ok(new LocalApiAckResponse(
                     Success: true,
                     Message: "intervention_acknowledged",

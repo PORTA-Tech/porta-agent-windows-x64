@@ -23,7 +23,8 @@ public sealed class UserAgentInterventionExecutorTests
 
         LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
-        Assert.Null(ack);
+        Assert.NotNull(ack);
+        Assert.Equal("overlay_started", ack!.Result);
         Assert.Equal(1, presenter.PromptCalls);
 
         presenter.CompletePrompt(UserInterventionPromptResponseKind.Accepted);
@@ -50,7 +51,8 @@ public sealed class UserAgentInterventionExecutorTests
 
         LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
-        Assert.Null(ack);
+        Assert.NotNull(ack);
+        Assert.Equal("overlay_started", ack!.Result);
         Assert.NotNull(presenter.LastPrompt);
         Assert.Equal("Take break", presenter.LastPrompt!.AcceptLabel);
         Assert.Equal("Skip", presenter.LastPrompt.DismissLabel);
@@ -98,7 +100,8 @@ public sealed class UserAgentInterventionExecutorTests
 
         LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
-        Assert.Null(ack);
+        Assert.NotNull(ack);
+        Assert.Equal("overlay_started", ack!.Result);
         presenter.CompletePrompt(UserInterventionPromptResponseKind.SuppressedByPreference);
 
         Assert.True(executor.TryDequeueCompletedAck(out LocalApiInterventionAckRequest completedAck));
@@ -122,11 +125,13 @@ public sealed class UserAgentInterventionExecutorTests
             "show_break_toast",
             """{"title":"Ari","message":"Take a long break now?","tip_key":"break_suggestion"}""");
 
-        Assert.Null(executor.ExecuteOrReplay(first, "session-1", "agent-1"));
+        LocalApiInterventionAckRequest? firstAck = executor.ExecuteOrReplay(first, "session-1", "agent-1");
+        Assert.NotNull(firstAck);
+        Assert.Equal("overlay_started", firstAck!.Result);
         presenter.CompletePrompt(UserInterventionPromptResponseKind.Snoozed);
 
-        Assert.True(executor.TryDequeueCompletedAck(out LocalApiInterventionAckRequest firstAck));
-        Assert.Equal("snoozed", firstAck.Result);
+        Assert.True(executor.TryDequeueCompletedAck(out LocalApiInterventionAckRequest completedAck));
+        Assert.Equal("snoozed", completedAck.Result);
         Assert.True(preferenceStore.IsTipSnoozed("break_suggestion", nowUtc.AddMinutes(5)));
 
         nowUtc = nowUtc.AddMinutes(5);
@@ -241,14 +246,16 @@ public sealed class UserAgentInterventionExecutorTests
         var preferenceStore = new InMemoryPreferenceStore();
         var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore, () => nowUtc);
 
-        Assert.Null(executor.ExecuteOrReplay(
+        LocalApiInterventionAckRequest? firstAck = executor.ExecuteOrReplay(
             BuildPending(
                 "intv-break-1",
                 "break_suggestion",
                 "show_break_toast",
                 """{"title":"Ari","message":"Take a long break now?","tip_key":"break_suggestion"}"""),
             "session-1",
-            "agent-1"));
+            "agent-1");
+        Assert.NotNull(firstAck);
+        Assert.Equal("overlay_started", firstAck!.Result);
 
         LocalApiInterventionAckRequest? blockedAck = executor.ExecuteOrReplay(
             BuildPending(

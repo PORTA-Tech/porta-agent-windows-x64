@@ -48,7 +48,12 @@ public sealed record AgentPendingIntervention(
     string Domain,
     double Confidence,
     string EscalationLevel,
-    string WhatChanged);
+    string WhatChanged,
+    string? InteractionKind = null,
+    string? DeliverySurface = null,
+    string? TipKey = null,
+    string? BreakKind = null,
+    int? CountdownSeconds = null);
 
 public sealed record AgentInterventionAck(
     string InterventionId,
@@ -56,7 +61,10 @@ public sealed record AgentInterventionAck(
     string AgentInstanceId,
     string Result,
     string? ErrorCode,
-    DateTimeOffset AppliedAtUtc);
+    DateTimeOffset AppliedAtUtc,
+    string? InteractionKind = null,
+    string? DeliverySurface = null,
+    string? BreakKind = null);
 
 public sealed record AgentDiagnosticsSnapshot(
     DateTimeOffset TimestampUtc,

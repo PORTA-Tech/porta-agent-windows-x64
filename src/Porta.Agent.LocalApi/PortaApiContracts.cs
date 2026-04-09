@@ -786,7 +786,12 @@ public sealed record LocalApiInterventionPendingResponse(
     [property: JsonPropertyName("domain")] string Domain,
     [property: JsonPropertyName("confidence")] double Confidence,
     [property: JsonPropertyName("escalation_level")] string EscalationLevel,
-    [property: JsonPropertyName("what_changed")] string WhatChanged);
+    [property: JsonPropertyName("what_changed")] string WhatChanged,
+    [property: JsonPropertyName("interaction_kind")] string? InteractionKind = null,
+    [property: JsonPropertyName("delivery_surface")] string? DeliverySurface = null,
+    [property: JsonPropertyName("tip_key")] string? TipKey = null,
+    [property: JsonPropertyName("break_kind")] string? BreakKind = null,
+    [property: JsonPropertyName("countdown_seconds")] int? CountdownSeconds = null);
 
 public sealed record LocalApiInterventionAckRequest(
     [property: JsonPropertyName("schema_ver")] int SchemaVer,
@@ -795,7 +800,10 @@ public sealed record LocalApiInterventionAckRequest(
     [property: JsonPropertyName("agent_instance_id")] string? AgentInstanceId,
     [property: JsonPropertyName("result")] string? Result,
     [property: JsonPropertyName("error_code")] string? ErrorCode,
-    [property: JsonPropertyName("applied_at_utc")] DateTimeOffset? AppliedAtUtc);
+    [property: JsonPropertyName("applied_at_utc")] DateTimeOffset? AppliedAtUtc,
+    [property: JsonPropertyName("interaction_kind")] string? InteractionKind = null,
+    [property: JsonPropertyName("delivery_surface")] string? DeliverySurface = null,
+    [property: JsonPropertyName("break_kind")] string? BreakKind = null);
 
 public sealed record LocalApiInputSignalsRequest(
     [property: JsonPropertyName("schema_ver")] int SchemaVer,

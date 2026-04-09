@@ -27,7 +27,7 @@ internal sealed class UserBreakOverlayPresenter : IUserBreakOverlayPresenter
     private UserBreakOverlayWindow? _window;
     private DispatcherTimer? _countdownTimer;
     private ActiveBreakPromptState? _activePrompt;
-    private UserBreakOverlayCountdownState? _activeCountdown;
+    private ActiveBreakCountdownState? _activeCountdown;
     private bool _disposed;
 
     public UserBreakOverlayPresenter(
@@ -76,6 +76,24 @@ internal sealed class UserBreakOverlayPresenter : IUserBreakOverlayPresenter
             _dispatcher!.BeginInvoke(new Action(() =>
             {
                 EnsureWindowOnCurrentDispatcher();
+                if (_activeCountdown != null
+                    && string.Equals(_activeCountdown.Countdown.InterventionId, prompt.InterventionId, StringComparison.Ordinal))
+                {
+                    _activeCountdown.OnResponse = onResponse;
+                    _window?.ShowCountdown(_activeCountdown.Countdown, _activeCountdown.Countdown.EndsAtUtc - _utcNowProvider());
+                    if (_activeCountdown.RecoveryPending)
+                    {
+                        _activeCountdown.RecoveryPending = false;
+                        onResponse(new UserInterventionPromptResponse(
+                            prompt.InterventionId,
+                            prompt.TipKey,
+                            UserInterventionPromptResponseKind.OverlayRecovered));
+                        UserAgentFileLog.Info($"break_overlay_countdown_recovered break_kind={_activeCountdown.Countdown.BreakKind} intervention={prompt.InterventionId}");
+                    }
+
+                    return;
+                }
+
                 if (_window == null)
                 {
                     onResponse(new UserInterventionPromptResponse(
@@ -252,7 +270,7 @@ internal sealed class UserBreakOverlayPresenter : IUserBreakOverlayPresenter
         }
 
         EnsureWindowOnCurrentDispatcher();
-        _activeCountdown = restored;
+        _activeCountdown = new ActiveBreakCountdownState(restored, onResponse: null, recoveryPending: true);
         _window?.ShowCountdown(restored, restored.EndsAtUtc - _utcNowProvider());
         _countdownTimer?.Start();
         UserAgentFileLog.Info($"break_overlay_countdown_restored break_kind={restored.BreakKind} intervention={restored.InterventionId}");
@@ -268,7 +286,11 @@ internal sealed class UserBreakOverlayPresenter : IUserBreakOverlayPresenter
 
         if (_activeCountdown != null && action == UserBreakOverlayAction.EmergencyExit)
         {
-            UserAgentFileLog.Info($"break_overlay_emergency_exit break_kind={_activeCountdown.BreakKind} intervention={_activeCountdown.InterventionId}");
+            UserAgentFileLog.Info($"break_overlay_emergency_exit break_kind={_activeCountdown.Countdown.BreakKind} intervention={_activeCountdown.Countdown.InterventionId}");
+            _activeCountdown.OnResponse?.Invoke(new UserInterventionPromptResponse(
+                _activeCountdown.Countdown.InterventionId,
+                _activeCountdown.Countdown.TipKey,
+                UserInterventionPromptResponseKind.OverlayAborted));
             ClearActiveOverlay();
         }
     }
@@ -292,7 +314,7 @@ internal sealed class UserBreakOverlayPresenter : IUserBreakOverlayPresenter
                     EndsAtUtc: nowUtc.Add(duration));
                 _stateStore.SaveCountdown(countdown);
                 _activePrompt = null;
-                _activeCountdown = countdown;
+                _activeCountdown = new ActiveBreakCountdownState(countdown, promptState.OnResponse, recoveryPending: false);
                 _window?.ShowCountdown(countdown, duration);
                 _countdownTimer?.Start();
                 promptState.OnResponse(new UserInterventionPromptResponse(
@@ -309,7 +331,7 @@ internal sealed class UserBreakOverlayPresenter : IUserBreakOverlayPresenter
                 promptState.OnResponse(new UserInterventionPromptResponse(
                     promptState.Prompt.InterventionId,
                     promptState.Prompt.TipKey,
-                    UserInterventionPromptResponseKind.Dismissed));
+                    UserInterventionPromptResponseKind.Skipped));
                 break;
 
             case UserBreakOverlayAction.Snooze:
@@ -336,7 +358,7 @@ internal sealed class UserBreakOverlayPresenter : IUserBreakOverlayPresenter
                 promptState.OnResponse(new UserInterventionPromptResponse(
                     promptState.Prompt.InterventionId,
                     promptState.Prompt.TipKey,
-                    UserInterventionPromptResponseKind.Dismissed));
+                    UserInterventionPromptResponseKind.Skipped));
                 break;
         }
     }
@@ -349,10 +371,14 @@ internal sealed class UserBreakOverlayPresenter : IUserBreakOverlayPresenter
             return;
         }
 
-        TimeSpan remaining = _activeCountdown.EndsAtUtc - _utcNowProvider();
+        TimeSpan remaining = _activeCountdown.Countdown.EndsAtUtc - _utcNowProvider();
         if (remaining <= TimeSpan.Zero)
         {
-            UserAgentFileLog.Info($"break_overlay_countdown_completed break_kind={_activeCountdown.BreakKind} intervention={_activeCountdown.InterventionId}");
+            UserAgentFileLog.Info($"break_overlay_countdown_completed break_kind={_activeCountdown.Countdown.BreakKind} intervention={_activeCountdown.Countdown.InterventionId}");
+            _activeCountdown.OnResponse?.Invoke(new UserInterventionPromptResponse(
+                _activeCountdown.Countdown.InterventionId,
+                _activeCountdown.Countdown.TipKey,
+                UserInterventionPromptResponseKind.OverlayCompleted));
             ClearActiveOverlay();
             return;
         }
@@ -400,7 +426,7 @@ internal sealed class UserBreakOverlayPresenter : IUserBreakOverlayPresenter
                 _window?.RestoreAfterSessionUnlock();
                 if (_activeCountdown != null)
                 {
-                    _window?.ShowCountdown(_activeCountdown, _activeCountdown.EndsAtUtc - _utcNowProvider());
+                    _window?.ShowCountdown(_activeCountdown.Countdown, _activeCountdown.Countdown.EndsAtUtc - _utcNowProvider());
                 }
                 else if (_activePrompt != null)
                 {
@@ -417,4 +443,23 @@ internal sealed class UserBreakOverlayPresenter : IUserBreakOverlayPresenter
         UserInterventionPrompt Prompt,
         Action<UserInterventionPromptResponse> OnResponse,
         string BreakKind);
+
+    private sealed class ActiveBreakCountdownState
+    {
+        public ActiveBreakCountdownState(
+            UserBreakOverlayCountdownState countdown,
+            Action<UserInterventionPromptResponse>? onResponse,
+            bool recoveryPending)
+        {
+            Countdown = countdown;
+            OnResponse = onResponse;
+            RecoveryPending = recoveryPending;
+        }
+
+        public UserBreakOverlayCountdownState Countdown { get; }
+
+        public Action<UserInterventionPromptResponse>? OnResponse { get; set; }
+
+        public bool RecoveryPending { get; set; }
+    }
 }

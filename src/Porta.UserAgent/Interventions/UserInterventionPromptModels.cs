@@ -2,10 +2,15 @@ namespace Porta.UserAgent.Interventions;
 
 internal enum UserInterventionPromptResponseKind
 {
+    OverlayStarted,
     Accepted,
+    Skipped,
     Dismissed,
     Snoozed,
-    SuppressedByPreference
+    SuppressedByPreference,
+    OverlayRecovered,
+    OverlayCompleted,
+    OverlayAborted
 }
 
 internal sealed record UserInterventionPrompt(
@@ -17,9 +22,14 @@ internal sealed record UserInterventionPrompt(
     string DismissLabel,
     string SnoozeLabel,
     string SuppressLabel,
-    int DurationSeconds);
+    int DurationSeconds,
+    string InteractionKind = "choice_prompt",
+    string DeliverySurface = "widget",
+    string? BreakKind = null,
+    int? CountdownSeconds = null);
 
 internal sealed record UserInterventionPromptResponse(
     string InterventionId,
     string TipKey,
-    UserInterventionPromptResponseKind Kind);
+    UserInterventionPromptResponseKind Kind,
+    string? ErrorCode = null);
