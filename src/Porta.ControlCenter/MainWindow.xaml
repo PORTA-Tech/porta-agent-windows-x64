@@ -1254,11 +1254,11 @@
                 </ScrollViewer>
 
                 <ScrollViewer x:Name="TimelinePanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="20,20,20,32">
+                        <StackPanel Margin="20,20,20,32">
                             <TextBlock Text="History" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock Text="See when focus stayed steady, when distraction crept in, and where Ari stepped in." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+                            <TextBlock Text="See your focus by day and inspect the moments that mattered." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
                             <TextBlock x:Name="HistorySummaryLeadText"
-                                       Text="History highlights your focus episodes, distraction segments, patterns, and action markers."
+                                       Text="History keeps the map visible and lets you open any hour for a short summary."
                                        Foreground="#93C5FD"
                                        Margin="0,0,0,12"
                                        TextWrapping="Wrap" />
@@ -1306,7 +1306,7 @@
 
                             <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                                 <TextBlock x:Name="HistoryGuideText"
-                                           Text="Each column is a day and each row is an hour. Darker cells mean more focused time in that hour."
+                                           Text="Each column is a day and each row is an hour."
                                            Foreground="#CBD5E1"
                                            TextWrapping="Wrap" />
                             </Border>
@@ -1314,7 +1314,7 @@
                             <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                                 <StackPanel>
                                     <TextBlock Text="Focus hours by day" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                    <TextBlock Text="Hours run top to bottom and days run left to right. Each cell shows how much focused time Ari mapped in that hour. Click a cell for details." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                    <TextBlock Text="Hours run top to bottom and days run left to right. Click a cell to inspect that hour." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
                                     <WrapPanel Margin="0,0,0,10">
                                         <Border Background="#123524" BorderBrush="#1B6B3A" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
                                             <TextBlock Text="More focused time" Foreground="#86EFAC" FontSize="11" />
@@ -1404,20 +1404,21 @@
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,24">
                             <StackPanel>
-                                <TextBlock Text="Selected detail" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <TextBlock Text="Click a heatmap hour or an action marker to inspect that part of the day in plain language. Turn on Advanced for raw details." Foreground="#94A3B8" Margin="0,0,0,12" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailTimestamp" Text="Hour: Select a heatmap cell or action marker to inspect a block of time." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailOverload" Text="Tracked time in that hour: This will appear after you select a heatmap cell." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailTrust" Text="Confidence in that hour: This will appear after you select a heatmap cell." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailFocus" Text="Focus episode in that hour: This will appear after you select a heatmap cell." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailClassification" Text="What happened here: Select a heatmap hour to see what Ari understood about that block." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
+                                <TextBlock Text="Selection" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                <TextBlock x:Name="TimelineDetailTimestamp" Text="Select a heatmap cell or action marker to inspect that part of the day." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                <TextBlock x:Name="TimelineDetailClassification" Text="What happened here: Ari will summarize the selected hour here." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
+                                <TextBlock x:Name="TimelineDetailFocus" Text="Focus episode in that hour: This appears after you select a heatmap cell." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                <TextBlock x:Name="TimelineDetailOverload" Text="Pressure in that hour: This appears after you select a heatmap cell." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
                                 <TextBlock x:Name="TimelineDetailExecution" Text="Action around this moment: Select an action marker to see what Ari suggested or changed." TextWrapping="Wrap" Margin="0,0,0,10" Foreground="#93C5FD" />
-                                <TextBlock x:Name="TimelineDetailWhyHeader" Text="What Ari saw in that hour" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
-                                <TextBlock x:Name="TimelineDetailWhyFiv" Text="Focus / pressure / movement: Ari will explain this after you select an hour." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock x:Name="TimelineDetailWhyReasons" Text="Main signals: Ari will list the strongest signals after you select an hour." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock x:Name="TimelineDetailWhyQuality" Text="Tracking quality: This will appear with the selected hour." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock x:Name="TimelineDetailStabilization" Text="Context: Use this panel to understand what Ari saw around the selected hour." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
-                                <TextBlock Text="Episode drilldown" FontWeight="SemiBold" Margin="0,6,0,6" Foreground="#93C5FD" />
+                                <StackPanel x:Name="HistorySelectionExplainPanel" Visibility="Collapsed">
+                                    <TextBlock x:Name="TimelineDetailTrust" Text="Confidence in that hour: This appears after you select a heatmap cell." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="TimelineDetailWhyHeader" Text="What Ari saw in that hour" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
+                                    <TextBlock x:Name="TimelineDetailWhyFiv" Text="Focus / pressure / movement: Ari will explain this after you select an hour." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
+                                    <TextBlock x:Name="TimelineDetailWhyReasons" Text="Main signals: Ari will list the strongest signals after you select an hour." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
+                                    <TextBlock x:Name="TimelineDetailWhyQuality" Text="Tracking quality: This will appear with the selected hour." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
+                                    <TextBlock x:Name="TimelineDetailStabilization" Text="Context: Use this panel to understand what Ari saw around the selected hour." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
+                                </StackPanel>
+                                <TextBlock Text="Episodes" FontWeight="SemiBold" Margin="0,6,0,6" Foreground="#93C5FD" />
                                 <TextBlock x:Name="TimelineEpisodeSummaryText" Text="Episodes in this hour will appear after you select a heatmap cell or action marker." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#CBD5E1" FontSize="13" />
                                 <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="240">
                                     <StackPanel x:Name="TimelineEpisodeListPanel" />

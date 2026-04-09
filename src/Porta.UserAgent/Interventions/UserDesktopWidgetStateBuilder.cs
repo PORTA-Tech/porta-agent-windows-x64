@@ -42,11 +42,9 @@ internal static class UserDesktopWidgetStateBuilder
             ? false
             : criticalState != null
             || degradedToast != null
-            || status == null
-            || snapshot == null
-            || !status.ServiceRunning
-            || !status.ConsentActive
-            || !string.Equals(status.CaptureContext, "UserSession", StringComparison.OrdinalIgnoreCase)
+            || status?.ConsentActive == false
+            || (status != null
+                && !string.Equals(status.CaptureContext, "UserSession", StringComparison.OrdinalIgnoreCase))
             || staleOrPending;
 
         UserDesktopWidgetMode mode = paused
@@ -139,9 +137,9 @@ internal static class UserDesktopWidgetStateBuilder
         {
             return statusHttpCode switch
             {
-                401 or 403 => "Current status is unavailable until System access reloads.",
-                int _ => "Current status is still loading.",
-                _ => "Current status is unavailable."
+                401 or 403 => "Reloading local service access.",
+                int _ => "Starting Ari locally.",
+                _ => "Starting Ari locally."
             };
         }
 
@@ -206,11 +204,11 @@ internal static class UserDesktopWidgetStateBuilder
             || string.Equals(snapshot?.runtime_state_refresh_error, "db_busy", StringComparison.OrdinalIgnoreCase);
         return snapshot != null
             ? (dbBusy
-                ? "Updating... latest local analysis is catching up."
-                : "Updating... latest analysis is catching up.")
+                ? "Updating local view while analysis catches up."
+                : "Updating local view.")
             : (dbBusy
-                ? "Updating... local analysis is catching up."
-                : "Updating...");
+                ? "Starting local analysis."
+                : "Starting Ari locally.");
     }
 
     private static bool IsFresh(string? freshnessState)

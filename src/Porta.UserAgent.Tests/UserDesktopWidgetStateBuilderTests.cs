@@ -108,6 +108,31 @@ public sealed class UserDesktopWidgetStateBuilderTests
     }
 
     [Fact]
+    public void Build_DoesNotPromoteNormalStartupIntoCriticalState()
+    {
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Unavailable,
+            TooltipText: "PORTA | Waiting for core service",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status: null,
+            snapshot: null,
+            liveSession: null,
+            signals,
+            degradedToast: null);
+
+        Assert.Equal(UserDesktopWidgetMode.Monitoring, state.Mode);
+        Assert.Equal("Today", state.Title);
+        Assert.Equal("Starting Ari locally.", state.StatusText);
+        Assert.Null(state.CriticalState);
+    }
+
+    [Fact]
     public void Build_UsesCriticalStateForRecentNotificationFailure()
     {
         DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T12:00:00Z");
@@ -324,7 +349,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
 
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, null, signals, degradedToast: null);
 
-        Assert.Equal("Updating... latest local analysis is catching up.", state.StatusText);
+        Assert.Equal("Updating local view while analysis catches up.", state.StatusText);
         Assert.Equal("Confidence High | Tracking quality delayed", state.FooterText);
         Assert.Null(state.CriticalState);
     }
@@ -339,7 +364,10 @@ public sealed class UserDesktopWidgetStateBuilderTests
             sustainedAttentionSeconds: 900,
             deepWorkActive: false,
             notificationsSuppressed: false,
-            brightnessAdjusted: false);
+            brightnessAdjusted: false) with
+        {
+            TimestampUtc = nowUtc
+        };
         LocalApiLiveSessionStateResponse liveSession = new(
             UpdatedAtUtc: nowUtc,
             SessionStartedAtUtc: nowUtc.AddMinutes(-17),
@@ -378,6 +406,58 @@ public sealed class UserDesktopWidgetStateBuilderTests
         AssertMetric(state.TertiaryMetric, "Pressure", "42%");
         Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);
         Assert.Null(state.CriticalState);
+    }
+
+    [Fact]
+    public void Build_ProjectsFocusEpisodeForwardWhileLiveSessionRemainsActive()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-04-09T08:30:20Z");
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.42,
+            sustainedAttentionSeconds: 25,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false) with
+        {
+            TimestampUtc = nowUtc.AddSeconds(-20),
+            FocusEpisodeSeconds = 25,
+            TaskContinuitySeconds = 25,
+            FocusEpisodeState = "keep"
+        };
+        LocalApiLiveSessionStateResponse liveSession = new(
+            UpdatedAtUtc: nowUtc,
+            SessionStartedAtUtc: nowUtc.AddMinutes(-17),
+            LastInputEventUtc: nowUtc.AddSeconds(-1),
+            AgentInstanceId: "ua-1",
+            SessionId: "session-1",
+            KeyboardActive: true,
+            MouseActive: false,
+            UserActive: true,
+            Idle: false,
+            IdleSeconds: 1.2d,
+            FocusAppHash: "a1b2c3d4",
+            Freshness: "fresh",
+            DegradedReason: null,
+            FocusStartedAtUtc: nowUtc.AddMinutes(-3));
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status,
+            snapshot,
+            liveSession,
+            signals,
+            degradedToast: null,
+            nowUtc: nowUtc);
+
+        AssertMetric(state.SecondaryMetric, "Last focus session", "45s");
     }
 
     [Fact]
@@ -440,7 +520,10 @@ public sealed class UserDesktopWidgetStateBuilderTests
             sustainedAttentionSeconds: 420,
             deepWorkActive: false,
             notificationsSuppressed: false,
-            brightnessAdjusted: false);
+            brightnessAdjusted: false) with
+        {
+            TimestampUtc = nowUtc
+        };
         LocalApiLiveSessionStateResponse liveSession = new(
             UpdatedAtUtc: nowUtc,
             SessionStartedAtUtc: nowUtc.AddMinutes(-9),

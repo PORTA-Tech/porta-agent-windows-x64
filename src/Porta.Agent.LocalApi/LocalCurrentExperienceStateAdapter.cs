@@ -72,7 +72,7 @@ public static class LocalCurrentExperienceStateAdapter
         bool overloadActive = mode == LocalCurrentExperienceMode.Overload;
         bool liveSessionFresh = IsFreshLiveSession(liveSession);
         bool liveSessionIdle = liveSession?.idle == true;
-        double? focusEpisodeSeconds = ResolveFocusEpisodeSeconds(snapshot, liveSession);
+        double? focusEpisodeSeconds = ResolveFocusEpisodeSeconds(snapshot, liveSession, nowUtc);
         bool partialData = snapshot.PartialData == true || snapshot.MissingMajorChannels is { Count: > 0 };
         (bool showDeepWorkStreak, string deepWorkStreakText) = BuildDeepWorkStreak(
             deepWorkActive,
@@ -242,15 +242,49 @@ public static class LocalCurrentExperienceStateAdapter
     // restart or replace the visible duration with foreground-app age.
     private static double? ResolveFocusEpisodeSeconds(
         LocalApiCurrentSnapshotResponse snapshot,
-        LocalApiLiveSessionStateResponse? liveSession)
+        LocalApiLiveSessionStateResponse? liveSession,
+        DateTimeOffset nowUtc)
     {
-        _ = liveSession;
         double focusEpisodeSeconds = snapshot.FocusEpisodeSeconds > 0d
             ? snapshot.FocusEpisodeSeconds
             : snapshot.TaskContinuitySeconds;
-        return focusEpisodeSeconds > 0d
-            ? Math.Max(0d, focusEpisodeSeconds)
-            : null;
+        if (focusEpisodeSeconds <= 0d)
+        {
+            return null;
+        }
+
+        double projectedSeconds = focusEpisodeSeconds + ResolveLiveProjectionSeconds(snapshot, liveSession, nowUtc);
+        return Math.Max(0d, projectedSeconds);
+    }
+
+    private static double ResolveLiveProjectionSeconds(
+        LocalApiCurrentSnapshotResponse snapshot,
+        LocalApiLiveSessionStateResponse? liveSession,
+        DateTimeOffset nowUtc)
+    {
+        if (!IsFreshLiveSession(liveSession)
+            || liveSession!.idle
+            || !liveSession.user_active)
+        {
+            return 0d;
+        }
+
+        string focusEpisodeState = (snapshot.FocusEpisodeState ?? snapshot.ContinuityState ?? string.Empty)
+            .Trim()
+            .ToLowerInvariant();
+        if (focusEpisodeState is "reset" or "pause" or "decay")
+        {
+            return 0d;
+        }
+
+        DateTimeOffset latestKnownUtc = liveSession.UpdatedAtUtc ?? nowUtc;
+        if (latestKnownUtc <= snapshot.TimestampUtc)
+        {
+            return 0d;
+        }
+
+        double projectionSeconds = (latestKnownUtc - snapshot.TimestampUtc).TotalSeconds;
+        return Math.Clamp(projectionSeconds, 0d, 90d);
     }
 
     private static bool IsFreshLiveSession(LocalApiLiveSessionStateResponse? liveSession)

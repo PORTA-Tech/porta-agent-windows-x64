@@ -34,6 +34,37 @@ public sealed class VisualStateAdapterTests
     }
 
     [Fact]
+    public void Build_ProjectsDurableFocusEpisodeForwardBetweenProcessedBuckets()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-04-09T08:30:20Z");
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            sustainedAttentionSeconds: 25d,
+            analyzedStateAvailable: true,
+            focusEpisodeSeconds: 25d,
+            timestampUtc: nowUtc.AddSeconds(-20));
+        LocalApiLiveSessionStateResponse liveSession = BuildLiveSession(
+            nowUtc,
+            focusStartedAtUtc: nowUtc.AddMinutes(-4));
+
+        PortaVisualState state = VisualStateAdapter.Build(
+            status,
+            snapshot with
+            {
+                FocusEpisodeState = "keep",
+                TaskContinuitySeconds = 25d
+            },
+            liveSession,
+            recentEvents: [],
+            fallbackExplanation: string.Empty,
+            nowUtc: nowUtc);
+
+        Assert.True(state.FocusEpisodeSeconds.HasValue);
+        Assert.Equal(45d, state.FocusEpisodeSeconds.Value);
+        Assert.Equal("Last focus session: 45 sec", state.FocusEpisodeText);
+    }
+
+    [Fact]
     public void Build_FallsBackToAnalyzedSnapshotFocus_WhenLiveTimerIsUnavailable()
     {
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
@@ -150,10 +181,11 @@ public sealed class VisualStateAdapterTests
         double sustainedAttentionSeconds,
         bool analyzedStateAvailable,
         double? focusEpisodeSeconds = null,
-        bool deepWorkActive = false)
+        bool deepWorkActive = false,
+        DateTimeOffset? timestampUtc = null)
     {
         return new LocalApiCurrentSnapshotResponse(
-            TimestampUtc: DateTimeOffset.UtcNow,
+            TimestampUtc: timestampUtc ?? DateTimeOffset.UtcNow,
             TypingBurstIntensity: 0.2,
             ScrollVelocityIndex: 0.1,
             FocusSwitchRate: 0.1,

@@ -19,10 +19,10 @@ internal sealed class UserDesktopWidgetWindow : Window
     private const int WindowLifecycleOpen = 0;
     private const int WindowLifecycleClosing = 1;
     private const int WindowLifecycleClosed = 2;
-    private const double ExpandedWidth = 200d;
-    private const double CollapsedWidth = 40d;
-    private const double BaseHeight = 86d;
-    private const double CollapsedHeight = 40d;
+    private const double ExpandedWidth = 184d;
+    private const double CollapsedWidth = 34d;
+    private const double BaseHeight = 60d;
+    private const double CollapsedHeight = 34d;
     private const double TopMargin = 16d;
     private const double RightMargin = 16d;
     private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(160);
@@ -196,7 +196,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         Grid bodyGrid = new()
         {
-            Margin = new Thickness(7, 6, 7, 6)
+            Margin = new Thickness(6, 5, 6, 5)
         };
         bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         shellGrid.Children.Add(bodyGrid);
@@ -210,7 +210,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         _headerRow = new Grid
         {
-            Margin = new Thickness(0, 0, 0, 4)
+            Margin = new Thickness(0, 0, 0, 3)
         };
         _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -277,7 +277,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _titleText = new TextBlock
         {
             FontWeight = FontWeights.SemiBold,
-            FontSize = 9.2,
+            FontSize = 8.8,
             VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed
         };
@@ -285,7 +285,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             CornerRadius = new CornerRadius(999),
             BorderThickness = new Thickness(1),
-            Padding = new Thickness(7, 1, 7, 1),
+            Padding = new Thickness(6, 1, 6, 1),
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed,
@@ -313,19 +313,19 @@ internal sealed class UserDesktopWidgetWindow : Window
         _summaryMetaPanel = new StackPanel
         {
             Orientation = Orientation.Vertical,
-            Margin = new Thickness(0, 4, 0, 0)
+            Margin = new Thickness(0, 3, 0, 0)
         };
         _summaryStatusText = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(207, 216, 225)),
-            FontSize = 9.2,
+            FontSize = 8.8,
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = ExpandedWidth - 26d
         };
         _summaryFooterText = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(143, 158, 174)),
-            FontSize = 8.5,
+            FontSize = 8.1,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 2, 0, 0),
             MaxWidth = ExpandedWidth - 26d
@@ -338,7 +338,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(8, 7, 8, 7),
+            Padding = new Thickness(8, 6, 8, 6),
             Margin = new Thickness(0, 2, 0, 0),
             Visibility = Visibility.Collapsed
         };
@@ -444,7 +444,7 @@ internal sealed class UserDesktopWidgetWindow : Window
                 Color = Color.FromRgb(6, 9, 12)
             }
         };
-        StackPanel popupStack = new() { MinWidth = 188 };
+        StackPanel popupStack = new() { MinWidth = 180 };
         popupChrome.Child = popupStack;
         _menuPopup.Child = popupChrome;
 
@@ -610,7 +610,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         labelTextBlock = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(147, 161, 177)),
-            FontSize = 8.1,
+            FontSize = 7.6,
             FontWeight = FontWeights.Medium,
             TextWrapping = TextWrapping.Wrap,
             TextAlignment = TextAlignment.Center,
@@ -620,13 +620,13 @@ internal sealed class UserDesktopWidgetWindow : Window
         valueTextBlock = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(236, 241, 246)),
-            FontSize = 15.2,
+            FontSize = 18.2,
             FontWeight = FontWeights.Bold,
             HorizontalAlignment = HorizontalAlignment.Center,
             TextAlignment = TextAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 44d,
-            Margin = new Thickness(0, 3, 0, 0)
+            MaxWidth = 40d,
+            Margin = new Thickness(0, 2, 0, 0)
         };
 
         StackPanel contentStack = new()
@@ -639,12 +639,12 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         return new Border
         {
-            Width = 54d,
+            Width = 50d,
             Background = new SolidColorBrush(Color.FromRgb(20, 25, 31)),
             BorderBrush = new SolidColorBrush(Color.FromRgb(40, 49, 61)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(5, 5, 5, 5),
+            Padding = new Thickness(4, 4, 4, 4),
             Margin = new Thickness(0),
             Child = contentStack
         };
@@ -1326,18 +1326,11 @@ internal sealed class UserDesktopWidgetWindow : Window
     {
         UpdateHeaderCaption(_currentState);
         _metricsPanel.Visibility = Visibility.Visible;
-        _summaryStatusText.Text = _currentState?.StatusText ?? string.Empty;
-        _summaryStatusText.Visibility = string.IsNullOrWhiteSpace(_summaryStatusText.Text)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-        _summaryFooterText.Text = _currentState?.FooterText ?? string.Empty;
-        _summaryFooterText.Visibility = string.IsNullOrWhiteSpace(_summaryFooterText.Text)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-        _summaryMetaPanel.Visibility = _summaryStatusText.Visibility == Visibility.Collapsed
-            && _summaryFooterText.Visibility == Visibility.Collapsed
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        _summaryStatusText.Text = string.Empty;
+        _summaryFooterText.Text = string.Empty;
+        _summaryStatusText.Visibility = Visibility.Collapsed;
+        _summaryFooterText.Visibility = Visibility.Collapsed;
+        _summaryMetaPanel.Visibility = Visibility.Collapsed;
         _messageCard.Visibility = Visibility.Collapsed;
         _messageTitleText.Text = string.Empty;
         _messageBodyText.Text = string.Empty;

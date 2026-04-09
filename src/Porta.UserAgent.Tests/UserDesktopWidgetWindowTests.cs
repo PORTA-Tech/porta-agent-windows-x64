@@ -38,17 +38,15 @@ public sealed class UserDesktopWidgetWindowTests
             Border messageCard = GetPrivateField<Border>(window, "_messageCard");
             TextBlock primaryMetricLabel = GetPrivateField<TextBlock>(window, "_primaryMetricLabelText");
             TextBlock primaryMetricValue = GetPrivateField<TextBlock>(window, "_primaryMetricText");
-            TextBlock summaryStatusText = GetPrivateField<TextBlock>(window, "_summaryStatusText");
-            TextBlock summaryFooterText = GetPrivateField<TextBlock>(window, "_summaryFooterText");
+            StackPanel summaryMetaPanel = GetPrivateField<StackPanel>(window, "_summaryMetaPanel");
 
             Assert.Equal(Visibility.Visible, metricsPanel.Visibility);
             Assert.Equal(Visibility.Collapsed, messageCard.Visibility);
             Assert.Equal("Work today", primaryMetricLabel.Text);
             Assert.Equal("5h 14m", primaryMetricValue.Text);
-            Assert.Equal("Today is updating normally.", summaryStatusText.Text);
-            Assert.Equal("Confidence High | Tracking quality strong", summaryFooterText.Text);
-            Assert.True(window.Width <= 200d);
-            Assert.True(window.Height <= 120d);
+            Assert.Equal(Visibility.Collapsed, summaryMetaPanel.Visibility);
+            Assert.True(window.Width <= 184d);
+            Assert.True(window.Height <= 80d);
         });
     }
 
@@ -63,8 +61,8 @@ public sealed class UserDesktopWidgetWindowTests
                 _ => { },
                 new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
 
-            Assert.True(window.Width <= 204d);
-            Assert.True(window.Height <= 90d);
+            Assert.True(window.Width <= 184d);
+            Assert.True(window.Height <= 60d);
         });
     }
 
@@ -110,7 +108,7 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal("Tracking limited", messageTitle.Text);
             Assert.Equal("Open System", primaryActionButton.Content);
             Assert.Equal(Visibility.Visible, primaryActionButton.Visibility);
-            Assert.True(window.Height >= 80d);
+            Assert.True(window.Height >= 60d);
         });
     }
 
@@ -141,14 +139,12 @@ public sealed class UserDesktopWidgetWindowTests
             StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
             Border messageCard = GetPrivateField<Border>(window, "_messageCard");
             TextBlock titleText = GetPrivateField<TextBlock>(window, "_titleText");
-            TextBlock summaryStatusText = GetPrivateField<TextBlock>(window, "_summaryStatusText");
-            TextBlock summaryFooterText = GetPrivateField<TextBlock>(window, "_summaryFooterText");
+            StackPanel summaryMetaPanel = GetPrivateField<StackPanel>(window, "_summaryMetaPanel");
 
             Assert.Equal(Visibility.Visible, metricsPanel.Visibility);
             Assert.Equal(Visibility.Collapsed, messageCard.Visibility);
             Assert.Equal("Limited", titleText.Text);
-            Assert.Equal("Limited: partial capture. Retrying full input.", summaryStatusText.Text);
-            Assert.Equal("Confidence High | Tracking quality limited", summaryFooterText.Text);
+            Assert.Equal(Visibility.Collapsed, summaryMetaPanel.Visibility);
         });
     }
 
@@ -247,7 +243,7 @@ public sealed class UserDesktopWidgetWindowTests
 
             Assert.False(GetPrivateField<bool>(window, "_collapsed"));
             Assert.Equal(Visibility.Visible, GetPrivateField<StackPanel>(window, "_metricsPanel").Visibility);
-            Assert.Equal(Visibility.Visible, GetPrivateField<StackPanel>(window, "_summaryMetaPanel").Visibility);
+            Assert.Equal(Visibility.Collapsed, GetPrivateField<StackPanel>(window, "_summaryMetaPanel").Visibility);
             Assert.Equal(Visibility.Collapsed, GetPrivateField<Border>(window, "_messageCard").Visibility);
         });
     }

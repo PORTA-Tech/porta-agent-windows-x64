@@ -226,6 +226,24 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             UpdateTrayState(new(
                 UserInterventionToastRenderer.UserTrayMode.Unavailable,
                 "PORTA | Waiting for core service"));
+            UpdateWidgetState(UserDesktopWidgetStateBuilder.Build(
+                status: null,
+                snapshot: null,
+                liveSession: null,
+                signals: new UserAgentVisualSignals(
+                    Mode: UserAgentVisualMode.Unavailable,
+                    TooltipText: "PORTA | Waiting for core service",
+                    ShowDeepWorkStreak: false,
+                    DeepWorkStreakText: string.Empty,
+                    ShowRecoveryToast: false,
+                    RecoveryEventId: 0,
+                    RecoveryMessage: string.Empty),
+                degradedToast: null,
+                recentEvents: _widgetDetailEvents,
+                timeline: _widgetDetailTimeline,
+                settings: _widgetDetailSettings,
+                statusHttpCode: null,
+                nowUtc: DateTimeOffset.UtcNow));
             return;
         }
 

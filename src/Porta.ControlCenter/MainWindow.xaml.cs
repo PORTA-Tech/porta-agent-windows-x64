@@ -1197,6 +1197,13 @@ public partial class MainWindow : Window
                 : Visibility.Collapsed;
         }
 
+        if (HistorySelectionExplainPanel != null)
+        {
+            HistorySelectionExplainPanel.Visibility = _historyExplainMode
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
         ApplyHistoryButtonState(HistoryRange1hButton, _historyRange == HistoryRange.Last1Hour);
         ApplyHistoryButtonState(HistoryRange4hButton, _historyRange == HistoryRange.Last4Hours);
         ApplyHistoryButtonState(HistoryRangeTodayButton, _historyRange == HistoryRange.Today);
@@ -6063,8 +6070,8 @@ public partial class MainWindow : Window
                 ? "Keep working and action markers will start showing here."
                 : "Try a wider range or keep working and this view will stay pinned here as history arrives.";
             HistoryGuideText.Text = _historyExplainMode
-                ? "Advanced is on. Raw details will appear here once this range has timeline data."
-                : "The hour map stays pinned here and fills as Ari tracks more time in this range.";
+                ? "Advanced is on. Open any hour to inspect the raw detail."
+                : "The hour map stays visible and fills as Ari tracks more time in this range.";
             return;
         }
 
@@ -6082,8 +6089,10 @@ public partial class MainWindow : Window
 
         HistorySummaryLeadText.Text = BuildHistoryLeadSentence(insights, timeline, snapshots);
         HistoryRangeSummaryText.Text = BuildHistoryFocusedSummary(insights);
-        HistoryFocusSummaryText.Text = $"Longest focus episode {FormatReadableDuration(insights.LongestFocusBlockSeconds)}";
-        HistoryOverloadSummaryText.Text = $"Distraction episodes {FormatReadableDuration(insights.DistractionSeconds)}";
+        HistoryFocusSummaryText.Text = $"Longest focus {FormatReadableDuration(insights.LongestFocusBlockSeconds)}";
+        HistoryOverloadSummaryText.Text = insights.MostDistractedPeriodLabel == NotAvailableText
+            ? $"Distraction time {FormatReadableDuration(insights.DistractionSeconds)}"
+            : $"Most distractions {insights.MostDistractedPeriodLabel}";
         HistoryTrustSummaryText.Text = insights.MostDistractedPeriodLabel == NotAvailableText
             ? $"Viewing {_historyRange switch
             {
@@ -6096,18 +6105,9 @@ public partial class MainWindow : Window
             : $"Most distractions happened in the {insights.MostDistractedPeriodLabel}";
         HistoryActionsSummaryText.Text = BuildHistoryActionsSummary(insights);
         string baseGuideText = _historyExplainMode
-            ? "Advanced is on. Click any point or action marker to inspect the raw explanation, model details, and decision data for that moment."
-            : "Read left to right. Click any point or action marker to inspect that moment in plain language.";
-        string latestReasonText = !string.IsNullOrWhiteSpace(insights.LatestAttentionReasonText)
-            && !string.Equals(insights.LatestAttentionReasonText, "Steady focus episode.", StringComparison.Ordinal)
-            ? insights.LatestAttentionReasonText
-            : (!string.IsNullOrWhiteSpace(insights.LatestFocusEpisodeReasonText)
-                && !string.Equals(insights.LatestFocusEpisodeReasonText, "Focus episode active.", StringComparison.Ordinal)
-                    ? insights.LatestFocusEpisodeReasonText
-                    : string.Empty);
-        HistoryGuideText.Text = string.IsNullOrWhiteSpace(latestReasonText)
-            ? baseGuideText
-            : $"{baseGuideText} Latest explanation: {latestReasonText}";
+            ? "Advanced is on. Click any hour or action marker for the raw detail."
+            : "Click any hour or action marker for a short summary.";
+        HistoryGuideText.Text = baseGuideText;
     }
 
     private static IReadOnlyList<LocalApiCurrentSnapshotResponse> DownsampleSnapshots(

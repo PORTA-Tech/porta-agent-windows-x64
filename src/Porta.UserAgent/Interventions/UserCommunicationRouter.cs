@@ -184,6 +184,7 @@ internal static class UserCommunicationRouter
         DateTimeOffset nowUtc,
         int? statusHttpCode = null)
     {
+        _ = snapshot;
         if (status == null)
         {
             if (statusHttpCode is 401 or 403)
@@ -199,15 +200,7 @@ internal static class UserCommunicationRouter
                     tertiaryLabel: "Settings");
             }
 
-            return BuildCriticalState(
-                title: "Unavailable",
-                message: "Ari could not complete the local API request. Open System to check the runtime, or retry the connection.",
-                primaryAction: UserDesktopWidgetAction.OpenHealth,
-                primaryLabel: "Open System",
-                secondaryAction: UserDesktopWidgetAction.RetryCritical,
-                secondaryLabel: "Retry",
-                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
-                tertiaryLabel: "Settings");
+            return null;
         }
 
         if (!status.LocalApiAuthReady)
