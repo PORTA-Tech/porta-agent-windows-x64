@@ -142,6 +142,7 @@ public sealed class MachineSummaryMapperTests
         Assert.Equal(300d, payload.DistractionEpisodeSeconds);
         Assert.Equal(0.63, payload.PressureLevel);
         Assert.Equal(0.92, payload.PressureConfidence);
+        Assert.Equal(0.63, payload.OverloadLikelihood);
         Assert.True(payload.BreakNeeded);
         Assert.Equal("stretch_break_suggestion", payload.BreakPendingAction);
         Assert.Equal("short_break", payload.BreakPendingKind);
@@ -152,6 +153,113 @@ public sealed class MachineSummaryMapperTests
         Assert.False(payload.PartialData);
         Assert.Empty(payload.MissingMajorChannels);
         Assert.True(payload.BackendConnected);
+    }
+
+    [Fact]
+    public void Map_DerivesLegacyBreakTransportFromCanonicalBreakKind()
+    {
+        var mapper = new MachineSummaryMapper();
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-10T10:00:00Z");
+        var status = new AgentServiceStatusSnapshot(
+            Status: AgentStatus.Running,
+            ServiceRunning: true,
+            Paused: false,
+            PauseUntilUtc: null,
+            ConsentActive: true,
+            ConsentVersion: "1.0.0",
+            ConsentTimestampUtc: nowUtc.AddHours(-1),
+            ConsentDisclosureHash: "abc",
+            BackendConnected: true,
+            FocusStrength: 0.4,
+            OverloadLikelihood: 0.2,
+            LastAction: "monitor_only",
+            AgentVersion: "1.0.0",
+            SchemaVersion: "1.0.0",
+            PolicyVersion: "policy-v2",
+            LastEventTimestampUtc: nowUtc.AddSeconds(-5),
+            BackendInstanceId: "backend-1",
+            BackendProcessId: 100,
+            CaptureContext: "UserSession",
+            UserAgentHeartbeatUpdatedAtUtc: nowUtc.AddSeconds(-2),
+            UserAgentInstanceId: "ua-1",
+            UserAgentProcessId: 200,
+            UserAgentSessionId: "session-2",
+            UserAgentObservedHeartbeatUpdatedAtUtc: nowUtc.AddSeconds(-2),
+            UserAgentObservedCaptureContext: "UserSession",
+            UserAgentObservedSessionId: "session-2",
+            UserAgentStartupSource: "run-key",
+            UserAgentLaunchReason: "run-key",
+            UserAgentHeartbeatWriteFailureCount: 0,
+            KeyboardSignalActive: true,
+            MouseSignalActive: true,
+            LastInputEventUtc: nowUtc.AddSeconds(-1),
+            LastInputAgentInstanceId: "ua-1",
+            LastInputSessionId: "session-2",
+            OwnershipWarning: null,
+            CaptureFailureReason: null,
+            LastError: null,
+            LocalApiAuthReady: true,
+            LocalApiAuthError: null,
+            NotificationSuppressionActive: false,
+            NotificationSuppressionReady: true,
+            NotificationSuppressionLastError: null,
+            NotificationSuppressionError: null,
+            NotificationSuppressionBackoffUntilUtc: null,
+            NotificationBackoffUntilUtc: null,
+            NotificationsSuppressed: false,
+            BrightnessActionReady: true,
+            BrightnessActionActive: false,
+            BrightnessAdjusted: false,
+            BrightnessSupported: false,
+            BrightnessCurrentLevel: 0,
+            BrightnessTargetLevel: 0,
+            BrightnessLastError: null,
+            BrightnessError: null,
+            BrightnessBackoffUntilUtc: null,
+            DbMigrationFailed: false,
+            BaselineReady: true,
+            ColdStart: false,
+            CalibrationStage: "calibrated",
+            SystemActionsEnabled: true,
+            TrustTier: "high",
+            OverloadActive: false,
+            DeepWorkActive: false,
+            DeepWorkStreakSeconds: 0,
+            VisualMode: "normal",
+            LatestContributorsJson: null,
+            LatestWhyJson: null,
+            LastUpdatedUtc: nowUtc);
+
+        var latestState = new AgentLatestStateDetails(
+            TimestampUtc: nowUtc,
+            OverloadLikelihood: 0.2,
+            Confidence: 0.8,
+            SustainedAttentionDurationSec: 900,
+            IdleFragmentationIndex: 0.1,
+            FocusAppEntropy: 0.2,
+            OverloadActive: false,
+            StateFlagsJson: "{\"schema_ver\":1}",
+            ContributorsJson: "{\"schema_ver\":1}",
+            BreakPendingAction: null,
+            BreakPendingKind: "long_break",
+            BreakPendingReasonCode: "rolling_focus_long_break",
+            TaskContinuityScore: 0.7,
+            TaskContinuitySeconds: 900,
+            ContinuityState: "keep");
+        var identityLink = new LocalIdentityLinkSnapshot(
+            SchemaVersion: LocalIdentityLinkStore.CurrentSchemaVersion,
+            DeviceId: "6f390ec2-31b7-4f49-9c11-e508d477b633",
+            LinkStatus: LocalIdentityLinkStatuses.Linked,
+            AccountId: "2094e8ad-74f6-45fc-a044-c9ab6f9f0a4b",
+            OrgId: "6b7fd26e-ae90-4d4c-9d8e-e95c15db89e1",
+            UpdatedAtUtc: nowUtc,
+            LinkedAtUtc: nowUtc.AddMinutes(-5));
+
+        MachineSummaryReportPayload payload = mapper.Map(status, latestState, identityLink, "DOMAIN\\alice", backendConnected: true, reportedAtUtc: nowUtc);
+
+        Assert.True(payload.BreakNeeded);
+        Assert.Equal("long_break", payload.BreakPendingKind);
+        Assert.Equal("break_suggestion", payload.BreakPendingAction);
     }
 
     [Fact]

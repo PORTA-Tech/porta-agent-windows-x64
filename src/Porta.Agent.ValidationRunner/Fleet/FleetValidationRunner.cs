@@ -988,14 +988,30 @@ internal static class FleetValidationRunner
             mismatches.Add($"overloadActive local={localStatus.OverloadActive} fleet={summary.OverloadActive}");
         }
 
-        if (Math.Abs(summary.OverloadLikelihood - localSnapshot.OverloadLikelihood) > 0.05d)
+        double localPressureLevel = localSnapshot.PressureLevel ?? localSnapshot.OverloadLikelihood;
+        if (Math.Abs(summary.PressureLevel - localPressureLevel) > 0.05d)
         {
-            mismatches.Add($"overloadLikelihood local={localSnapshot.OverloadLikelihood:F3} fleet={summary.OverloadLikelihood:F3}");
+            mismatches.Add($"pressureLevel local={localPressureLevel:F3} fleet={summary.PressureLevel:F3}");
+        }
+
+        if (Math.Abs(summary.OverloadLikelihood - summary.PressureLevel) > 0.0001d)
+        {
+            mismatches.Add($"overloadLikelihood compatibility drift fleet_pressure={summary.PressureLevel:F3} fleet_legacy={summary.OverloadLikelihood:F3}");
         }
 
         if (Math.Abs(summary.FocusEpisodeSeconds - localSnapshot.FocusEpisodeSeconds) > 60d)
         {
             mismatches.Add($"focusEpisodeSeconds local={localSnapshot.FocusEpisodeSeconds:F0} fleet={summary.FocusEpisodeSeconds:F0}");
+        }
+
+        if (Math.Abs(summary.TaskContinuitySeconds - summary.FocusEpisodeSeconds) > 0.0001d)
+        {
+            mismatches.Add($"taskContinuitySeconds compatibility drift fleet_focusEpisode={summary.FocusEpisodeSeconds:F0} fleet_legacy={summary.TaskContinuitySeconds:F0}");
+        }
+
+        if (!string.Equals(summary.BreakPendingKind, localSnapshot.BreakPendingKind, StringComparison.Ordinal))
+        {
+            mismatches.Add($"breakPendingKind local={localSnapshot.BreakPendingKind ?? "null"} fleet={summary.BreakPendingKind ?? "null"}");
         }
 
         double localModelConfidence = localSnapshot.ModelConfidence ?? localSnapshot.Confidence;
@@ -1007,7 +1023,7 @@ internal static class FleetValidationRunner
         results.Add(mismatches.Count == 0
             ? Pass(
                 "ready/high-trust session -> control plane truth matches local Control Center truth",
-                $"calibration={summary.CalibrationStage}, trust={summary.TrustTier}, focusEpisode={summary.FocusEpisodeSeconds:F0}s, overload={summary.OverloadLikelihood:F2}.")
+                $"calibration={summary.CalibrationStage}, trust={summary.TrustTier}, focusEpisode={summary.FocusEpisodeSeconds:F0}s, pressure={summary.PressureLevel:F2}.")
             : Fail(
                 "ready/high-trust session -> control plane truth matches local Control Center truth",
                 string.Join("; ", mismatches)));

@@ -41,6 +41,16 @@ public static class PortaBreakSemantics
         };
     }
 
+    public static string? ResolveLegacyActionId(string? actionOrKind)
+    {
+        return ResolveBreakKind(actionOrKind) switch
+        {
+            ShortBreakKind => ShortBreakAction,
+            LongBreakKind => LongBreakAction,
+            _ => null
+        };
+    }
+
     private static string Normalize(string? value) =>
         value?.Trim().ToLowerInvariant() ?? string.Empty;
 }

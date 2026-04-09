@@ -57,13 +57,13 @@ internal sealed class MachineSummaryMapper
         ArgumentNullException.ThrowIfNull(status);
         ArgumentNullException.ThrowIfNull(identityLink);
 
-        double taskContinuityScore = Math.Clamp(latestState?.TaskContinuityScore ?? 0d, 0d, 1d);
-        double taskContinuitySeconds = Math.Max(
+        double focusEpisodeQuality = Math.Clamp(latestState?.TaskContinuityScore ?? 0d, 0d, 1d);
+        double focusEpisodeSeconds = Math.Max(
             0d,
             latestState?.TaskContinuitySeconds
             ?? latestState?.SustainedAttentionDurationSec
             ?? 0d);
-        string continuityState = NormalizeContinuityState(latestState?.ContinuityState);
+        string focusEpisodeState = NormalizeContinuityState(latestState?.ContinuityState);
         bool activityDetected = status.KeyboardSignalActive || status.MouseSignalActive;
         string? baseCaptureFailureReason = DeriveBaseCaptureFailureReason(status);
         bool userSessionConnected = DeriveUserSessionConnected(status, baseCaptureFailureReason);
@@ -85,12 +85,16 @@ internal sealed class MachineSummaryMapper
             latestState?.StateFlagsJson,
             distractionEpisodeActive,
             attentionSegmentSeconds);
-        string focusEpisodeReasonCode = ResolveFocusEpisodeReasonCode(latestState?.StateFlagsJson, continuityState);
+        string focusEpisodeReasonCode = ResolveFocusEpisodeReasonCode(latestState?.StateFlagsJson, focusEpisodeState);
         string focusEpisodeReasonText = ResolveFocusEpisodeReasonText(
             latestState?.StateFlagsJson,
-            continuityState);
+            focusEpisodeState);
         double pressureLevel = ResolvePressureLevel(latestState?.StateFlagsJson, status.OverloadLikelihood);
         double pressureConfidence = ResolvePressureConfidence(latestState?.StateFlagsJson, latestState?.Confidence ?? 0d);
+        string? breakPendingKind = PortaBreakSemantics.ResolveBreakKind(latestState?.BreakPendingKind ?? latestState?.BreakPendingAction);
+        string? breakPendingAction = PortaBreakSemantics.ResolveLegacyActionId(latestState?.BreakPendingKind ?? latestState?.BreakPendingAction)
+            ?? NullIfWhiteSpace(latestState?.BreakPendingAction);
+        bool breakNeeded = breakPendingKind is not null || breakPendingAction is not null;
 
         return new MachineSummaryReportPayload(
             DeviceId: identityLink.DeviceId,
@@ -123,9 +127,9 @@ internal sealed class MachineSummaryMapper
             BackendConnected: backendConnected || status.BackendConnected,
             LocalApiAuthReady: status.LocalApiAuthReady,
             DbMigrationFailed: status.DbMigrationFailed,
-            FocusEpisodeQuality: taskContinuityScore,
-            FocusEpisodeSeconds: taskContinuitySeconds,
-            FocusEpisodeState: continuityState,
+            FocusEpisodeQuality: focusEpisodeQuality,
+            FocusEpisodeSeconds: focusEpisodeSeconds,
+            FocusEpisodeState: focusEpisodeState,
             FocusEpisodeReasonCode: focusEpisodeReasonCode,
             FocusEpisodeReasonText: focusEpisodeReasonText,
             AttentionSegmentKind: attentionSegmentKind,
@@ -134,17 +138,17 @@ internal sealed class MachineSummaryMapper
             AttentionSegmentReasonText: attentionSegmentReasonText,
             DistractionEpisodeActive: distractionEpisodeActive,
             DistractionEpisodeSeconds: distractionEpisodeSeconds,
-            TaskContinuityScore: taskContinuityScore,
-            TaskContinuitySeconds: taskContinuitySeconds,
-            ContinuityState: continuityState,
+            TaskContinuityScore: focusEpisodeQuality,
+            TaskContinuitySeconds: focusEpisodeSeconds,
+            ContinuityState: focusEpisodeState,
             DeepWorkActive: status.DeepWorkActive,
             PressureLevel: pressureLevel,
             PressureConfidence: pressureConfidence,
-            OverloadLikelihood: Math.Clamp(status.OverloadLikelihood, 0d, 1d),
+            OverloadLikelihood: pressureLevel,
             OverloadActive: status.OverloadActive,
-            BreakNeeded: !string.IsNullOrWhiteSpace(latestState?.BreakPendingAction),
-            BreakPendingAction: NullIfWhiteSpace(latestState?.BreakPendingAction),
-            BreakPendingKind: PortaBreakSemantics.ResolveBreakKind(latestState?.BreakPendingKind ?? latestState?.BreakPendingAction),
+            BreakNeeded: breakNeeded,
+            BreakPendingAction: breakPendingAction,
+            BreakPendingKind: breakPendingKind,
             BreakPendingReasonCode: NullIfWhiteSpace(latestState?.BreakPendingReasonCode),
             CalibrationStage: NormalizeCalibrationStage(status.CalibrationStage),
             TrustTier: NormalizeTrustTier(status.TrustTier),
