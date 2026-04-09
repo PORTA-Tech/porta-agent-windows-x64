@@ -35,14 +35,12 @@ public sealed class UserDesktopWidgetStateBuilderTests
 
         Assert.Equal(UserDesktopWidgetMode.Limited, state.Mode);
         Assert.Equal("Tracking limited", state.Title);
-        Assert.Contains("partial activity", state.StatusText, StringComparison.OrdinalIgnoreCase);
-        AssertMetric(state.PrimaryMetric, "Work today", "Filling in");
+        Assert.Contains("partial capture", state.StatusText, StringComparison.OrdinalIgnoreCase);
+        AssertMetric(state.PrimaryMetric, "Work today", "Updating...");
         AssertMetric(state.SecondaryMetric, "Last focus session", "4m");
         AssertMetric(state.TertiaryMetric, "Pressure", "18%");
         Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);
-        Assert.NotNull(state.CriticalState);
-        Assert.Equal("Open System", state.CriticalState!.PrimaryLabel);
-        Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.CriticalState.PrimaryAction);
+        Assert.Null(state.CriticalState);
     }
 
     [Fact]
@@ -179,7 +177,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Equal(UserDesktopWidgetMode.Overload, state.Mode);
         Assert.Equal("Today", state.Title);
         Assert.Equal("Overload is elevated.", state.StatusText);
-        AssertMetric(state.PrimaryMetric, "Work today", "Filling in");
+        AssertMetric(state.PrimaryMetric, "Work today", "Updating...");
         AssertMetric(state.SecondaryMetric, "Last focus session", "25m");
         AssertMetric(state.TertiaryMetric, "Pressure", "74%");
         Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);
@@ -273,7 +271,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
 
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, null, signals, degradedToast: null);
 
-        Assert.Equal("Current status is using a cached snapshot while the local database catches up.", state.StatusText);
+        Assert.Equal("Updating... latest local analysis is catching up.", state.StatusText);
         Assert.Equal("Confidence High | Tracking quality delayed", state.FooterText);
         Assert.Null(state.CriticalState);
     }
@@ -322,7 +320,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
             nowUtc: nowUtc);
 
         Assert.Equal("Focused now | typing active | mouse idle.", state.StatusText);
-        AssertMetric(state.PrimaryMetric, "Work today", "Filling in");
+        AssertMetric(state.PrimaryMetric, "Work today", "Updating...");
         AssertMetric(state.SecondaryMetric, "Last focus session", "15m");
         AssertMetric(state.TertiaryMetric, "Pressure", "42%");
         Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);
@@ -373,7 +371,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
             degradedToast: null,
             nowUtc: nowUtc);
 
-        AssertMetric(state.PrimaryMetric, "Work today", "Filling in");
+        AssertMetric(state.PrimaryMetric, "Work today", "Updating...");
         AssertMetric(state.SecondaryMetric, "Last focus session", "Active");
         AssertMetric(state.TertiaryMetric, "Pressure", "50%");
         Assert.Equal("Confidence High | Tracking quality pending", state.FooterText);
@@ -421,7 +419,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
             degradedToast: null,
             nowUtc: nowUtc);
 
-        AssertMetric(state.PrimaryMetric, "Work today", "Filling in");
+        AssertMetric(state.PrimaryMetric, "Work today", "Updating...");
         AssertMetric(state.SecondaryMetric, "Last focus session", "7m");
         AssertMetric(state.TertiaryMetric, "Pressure", "74%");
         Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);

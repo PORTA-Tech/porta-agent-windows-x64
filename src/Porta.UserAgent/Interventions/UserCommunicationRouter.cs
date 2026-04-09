@@ -249,18 +249,15 @@ internal static class UserCommunicationRouter
                 tertiaryLabel: "Settings");
         }
 
-        UserCommunicationToast? degradedToast = ResolveCaptureDegradedState(status, snapshot);
-        if (degradedToast != null)
+        if (!status.ConsentActive)
         {
             return BuildCriticalState(
-                title: degradedToast.Title,
-                message: degradedToast.Message,
+                title: "Tracking limited",
+                message: "Ari is waiting for consent before it can regulate or explain live states in this session.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
                 primaryLabel: "Open System",
-                secondaryAction: UserDesktopWidgetAction.RetryCritical,
-                secondaryLabel: "Retry",
-                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
-                tertiaryLabel: "Settings");
+                secondaryAction: UserDesktopWidgetAction.OpenSettings,
+                secondaryLabel: "Settings");
         }
 
         return ResolveCriticalEventState(recentEvents ?? [], nowUtc);

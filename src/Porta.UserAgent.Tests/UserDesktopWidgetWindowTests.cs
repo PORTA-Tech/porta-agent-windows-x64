@@ -38,11 +38,15 @@ public sealed class UserDesktopWidgetWindowTests
             Border messageCard = GetPrivateField<Border>(window, "_messageCard");
             TextBlock primaryMetricLabel = GetPrivateField<TextBlock>(window, "_primaryMetricLabelText");
             TextBlock primaryMetricValue = GetPrivateField<TextBlock>(window, "_primaryMetricText");
+            TextBlock summaryStatusText = GetPrivateField<TextBlock>(window, "_summaryStatusText");
+            TextBlock summaryFooterText = GetPrivateField<TextBlock>(window, "_summaryFooterText");
 
             Assert.Equal(Visibility.Visible, metricsPanel.Visibility);
             Assert.Equal(Visibility.Collapsed, messageCard.Visibility);
             Assert.Equal("Work today", primaryMetricLabel.Text);
             Assert.Equal("5h 14m", primaryMetricValue.Text);
+            Assert.Equal("Today is updating normally.", summaryStatusText.Text);
+            Assert.Equal("Confidence High | Tracking quality strong", summaryFooterText.Text);
             Assert.True(window.Width <= 200d);
             Assert.True(window.Height <= 120d);
         });
@@ -107,6 +111,44 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal("Open System", primaryActionButton.Content);
             Assert.Equal(Visibility.Visible, primaryActionButton.Visibility);
             Assert.True(window.Height >= 90d);
+        });
+    }
+
+    [Fact]
+    public void ApplyState_WithRoutineLimitedStatus_KeepsMetricsVisibleAndShowsStatusRail()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(new UserDesktopWidgetState(
+                Mode: UserDesktopWidgetMode.Limited,
+                Title: "Tracking limited",
+                StatusText: "Limited: partial capture. Retrying full input.",
+                MessageSeverity: UserDesktopWidgetMessageSeverity.Warning,
+                FooterText: "Confidence High | Tracking quality limited",
+                PrimaryMetric: new UserDesktopWidgetMetric("Work today", "Updating..."),
+                SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "6m"),
+                TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "48%"),
+                CanPause: true,
+                CanResume: false,
+                CriticalState: null));
+
+            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            Border messageCard = GetPrivateField<Border>(window, "_messageCard");
+            TextBlock titleText = GetPrivateField<TextBlock>(window, "_titleText");
+            TextBlock summaryStatusText = GetPrivateField<TextBlock>(window, "_summaryStatusText");
+            TextBlock summaryFooterText = GetPrivateField<TextBlock>(window, "_summaryFooterText");
+
+            Assert.Equal(Visibility.Visible, metricsPanel.Visibility);
+            Assert.Equal(Visibility.Collapsed, messageCard.Visibility);
+            Assert.Equal("Limited", titleText.Text);
+            Assert.Equal("Limited: partial capture. Retrying full input.", summaryStatusText.Text);
+            Assert.Equal("Confidence High | Tracking quality limited", summaryFooterText.Text);
         });
     }
 

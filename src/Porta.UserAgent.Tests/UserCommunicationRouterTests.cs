@@ -207,6 +207,24 @@ public sealed class UserCommunicationRouterTests
         Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.TertiaryAction);
     }
 
+    [Fact]
+    public void ResolveCriticalWidgetState_DoesNotPromotePartialCaptureIntoCriticalTakeover()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-27T10:00:00Z");
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            partialData: true,
+            missingMajorChannels: ["keyboard"]);
+
+        UserDesktopWidgetCriticalState? state = UserCommunicationRouter.ResolveCriticalWidgetState(
+            status,
+            snapshot,
+            recentEvents: [],
+            nowUtc: nowUtc);
+
+        Assert.Null(state);
+    }
+
     private static LocalApiStatusResponse BuildStatus(
         string? captureFailureReason = null,
         string? ownershipWarning = null,

@@ -35,17 +35,19 @@ internal static class UserDesktopWidgetStateBuilder
             events,
             now,
             statusHttpCode);
-        criticalState ??= BuildFallbackCriticalState(degradedToast);
 
         bool paused = status?.Paused == true;
+        bool staleOrPending = HasRoutineUpdatingState(status, snapshot, experience);
         bool limited = paused
             ? false
             : criticalState != null
+            || degradedToast != null
             || status == null
             || snapshot == null
             || !status.ServiceRunning
             || !status.ConsentActive
-            || !string.Equals(status.CaptureContext, "UserSession", StringComparison.OrdinalIgnoreCase);
+            || !string.Equals(status.CaptureContext, "UserSession", StringComparison.OrdinalIgnoreCase)
+            || staleOrPending;
 
         UserDesktopWidgetMode mode = paused
             ? UserDesktopWidgetMode.Paused
@@ -70,7 +72,7 @@ internal static class UserDesktopWidgetStateBuilder
             FooterText: BuildFooterText(status, snapshot, experience, mode),
             PrimaryMetric: BuildWorkTodayMetric(status, todaySummary, mode),
             SecondaryMetric: BuildLastFocusMetric(status, liveSession, experience, mode),
-            TertiaryMetric: BuildOverloadMetric(snapshot, mode),
+            TertiaryMetric: BuildOverloadMetric(status, snapshot, mode),
             CanPause: status?.ServiceRunning == true && status.ConsentActive && !paused,
             CanResume: paused,
             CriticalState: criticalState);
@@ -125,7 +127,7 @@ internal static class UserDesktopWidgetStateBuilder
 
         if (degradedToast != null)
         {
-            return degradedToast.Message;
+            return BuildRoutineDegradedStatusText(degradedToast);
         }
 
         if (criticalState != null)
@@ -163,6 +165,11 @@ internal static class UserDesktopWidgetStateBuilder
             return BuildFreshnessStatusText(status, snapshot);
         }
 
+        if (snapshot is { AnalyzedStateAvailable: false })
+        {
+            return "Updating... filling in fresh analysis.";
+        }
+
         if (!status.ConsentActive)
         {
             return "Tracking is waiting for consent.";
@@ -175,7 +182,7 @@ internal static class UserDesktopWidgetStateBuilder
 
         if (!status.BackendConnected)
         {
-            return "Current status is local while backend sync reconnects.";
+            return "Working locally while backend sync reconnects.";
         }
 
         if (IsFreshLiveSession(liveSession))
@@ -199,11 +206,11 @@ internal static class UserDesktopWidgetStateBuilder
             || string.Equals(snapshot?.runtime_state_refresh_error, "db_busy", StringComparison.OrdinalIgnoreCase);
         return snapshot != null
             ? (dbBusy
-                ? "Current status is using a cached snapshot while the local database catches up."
-                : "Current status is using a cached snapshot while fresh analysis catches up.")
+                ? "Updating... latest local analysis is catching up."
+                : "Updating... latest analysis is catching up.")
             : (dbBusy
-                ? "Current status is delayed while the local database catches up."
-                : "Current status is delayed right now.");
+                ? "Updating... local analysis is catching up."
+                : "Updating...");
     }
 
     private static bool IsFresh(string? freshnessState)
@@ -211,22 +218,53 @@ internal static class UserDesktopWidgetStateBuilder
         return string.Equals(freshnessState, "fresh", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static UserDesktopWidgetCriticalState? BuildFallbackCriticalState(UserCommunicationToast? degradedToast)
+    private static bool HasRoutineUpdatingState(
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        LocalCurrentExperienceState experience)
     {
-        if (degradedToast == null)
+        if (status == null)
         {
-            return null;
+            return false;
         }
 
-        return new UserDesktopWidgetCriticalState(
-            Title: degradedToast.Title,
-            Message: degradedToast.Message,
-            PrimaryAction: UserDesktopWidgetAction.OpenHealth,
-            PrimaryLabel: "Open System",
-            SecondaryAction: UserDesktopWidgetAction.RetryCritical,
-            SecondaryLabel: "Retry",
-            TertiaryAction: UserDesktopWidgetAction.OpenSettings,
-            TertiaryLabel: "Settings");
+        if (!IsFresh(status.freshness_state))
+        {
+            return true;
+        }
+
+        if (snapshot != null && !IsFresh(snapshot.freshness_state))
+        {
+            return true;
+        }
+
+        if (snapshot?.PartialData == true || experience.PartialData)
+        {
+            return true;
+        }
+
+        return snapshot is { AnalyzedStateAvailable: false };
+    }
+
+    private static string BuildRoutineDegradedStatusText(UserCommunicationToast degradedToast)
+    {
+        if (string.Equals(degradedToast.Key, "capture:partial", StringComparison.Ordinal)
+            || degradedToast.Key.StartsWith("capture:partial:", StringComparison.Ordinal))
+        {
+            return "Limited: partial capture. Retrying full input.";
+        }
+
+        return degradedToast.Key switch
+        {
+            "capture:heartbeat_stale" => "Limited: live capture is reconnecting.",
+            "capture:session_handoff" => "Limited: session capture is reconnecting.",
+            "capture:self_test_failed" => "Limited: live input capture is retrying.",
+            "capture:keyboard_missing" => "Limited: keyboard capture is retrying.",
+            "capture:mouse_missing" => "Limited: mouse capture is retrying.",
+            "capture:ownership_warning" => "Limited: session ownership is reconciling.",
+            "capture:non_user_session" => "Limited: Ari is reconnecting to your desktop session.",
+            _ => degradedToast.Message
+        };
     }
 
     private static UserDesktopWidgetMetric BuildWorkTodayMetric(
@@ -239,7 +277,7 @@ internal static class UserDesktopWidgetStateBuilder
             UserDesktopWidgetMode.Paused => "Paused",
             _ when todaySummary.HasProcessedTimeline => FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, todaySummary.TrackedTodaySeconds))),
             _ when status == null || !status.ServiceRunning || !status.LocalApiAuthReady => "n/a",
-            _ => "Filling in"
+            _ => "Updating..."
         };
 
         return new UserDesktopWidgetMetric("Work today", value);
@@ -270,13 +308,14 @@ internal static class UserDesktopWidgetStateBuilder
         }
         else
         {
-            value = "Filling in";
+            value = "Updating...";
         }
 
         return new UserDesktopWidgetMetric("Last focus session", value);
     }
 
     private static UserDesktopWidgetMetric BuildOverloadMetric(
+        LocalApiStatusResponse? status,
         LocalApiCurrentSnapshotResponse? snapshot,
         UserDesktopWidgetMode mode)
     {
@@ -290,7 +329,9 @@ internal static class UserDesktopWidgetStateBuilder
             double? pressure = snapshot?.PressureLevel ?? snapshot?.OverloadLikelihood;
             value = pressure.HasValue
                 ? FormatPercent(pressure.Value)
-                : "n/a";
+                : status == null || !status.ServiceRunning || !status.LocalApiAuthReady
+                    ? "n/a"
+                    : "Updating...";
         }
 
         return new UserDesktopWidgetMetric("Pressure", value);
@@ -307,7 +348,7 @@ internal static class UserDesktopWidgetStateBuilder
             return string.Empty;
         }
 
-        string confidenceText = BuildConfidenceFooterText(experience);
+        string confidenceText = BuildConfidenceFooterText(status, experience);
         string trackingQualityText = BuildTrackingQualityFooterText(status, snapshot, experience);
 
         return string.IsNullOrWhiteSpace(confidenceText)
@@ -351,11 +392,15 @@ internal static class UserDesktopWidgetStateBuilder
         return liveSession.user_active ? "Active" : "Watching";
     }
 
-    private static string BuildConfidenceFooterText(LocalCurrentExperienceState experience)
+    private static string BuildConfidenceFooterText(
+        LocalApiStatusResponse? status,
+        LocalCurrentExperienceState experience)
     {
         if (!experience.SnapshotAvailable)
         {
-            return "Confidence unavailable";
+            return status == null || !status.ServiceRunning || !status.LocalApiAuthReady
+                ? "Confidence unavailable"
+                : "Confidence updating";
         }
 
         return $"Confidence {experience.ConfidenceLabel}";
@@ -389,8 +434,8 @@ internal static class UserDesktopWidgetStateBuilder
         if (!experience.SnapshotAvailable || snapshot == null)
         {
             return experience.LiveSessionFresh
-                ? "Tracking quality filling in"
-                : "Tracking quality unavailable";
+                ? "Tracking quality updating"
+                : "Tracking quality updating";
         }
 
         if (experience.PartialData)
@@ -406,7 +451,7 @@ internal static class UserDesktopWidgetStateBuilder
         double? score = snapshot.CurrentQualityScore;
         if (!score.HasValue)
         {
-            return "Tracking quality filling in";
+            return "Tracking quality updating";
         }
 
         double normalizedScore = Math.Clamp(score.Value, 0d, 1d);
