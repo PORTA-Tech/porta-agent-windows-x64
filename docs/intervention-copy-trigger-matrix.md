@@ -72,7 +72,7 @@ These terms are canonical for product meaning, even where the current runtime st
 - Deep-work detection defaults: sustained attention at least `900s`, confidence at least `0.65`, fragmentation at most `0.50`, volatility at most `0.50`, intensity between `0.40` and `0.75`, dwell on `120s`, dwell off `60s`.
 - Notification suppression defaults: failure backoff `300s`, enable cooldown `600s`, minimum on-time `120s`.
 - Brightness adjustment defaults: reduce by `5` points, never below brightness `20`, action cooldown `600s`, failure backoff `600s`.
-- Canonical product routing for breaks is a dedicated user-session overlay, not a widget prompt. Existing prompt-family transport is transitional until that overlay lands.
+- Canonical product routing for breaks is the dedicated user-session overlay now implemented in `Porta.UserAgent`. Existing prompt-family transport is transitional only until the command contract stops using legacy break action IDs.
 
 ## Overload Messages
 

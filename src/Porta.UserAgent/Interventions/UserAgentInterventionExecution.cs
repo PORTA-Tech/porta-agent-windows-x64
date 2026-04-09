@@ -1,5 +1,6 @@
 namespace Porta.UserAgent.Interventions;
 
+using Porta.Agent.Common;
 using Porta.Agent.Core.Outputs;
 using Porta.Agent.LocalApi;
 using Porta.UserAgent.Input;
@@ -530,14 +531,15 @@ internal sealed class UserAgentInterventionExecutor
         out UserInterventionPrompt prompt,
         out string errorCode)
     {
+        (string defaultAccept, string defaultDismiss, string defaultSnooze) = ResolveDefaultPromptLabels(intervention.Action);
         prompt = new UserInterventionPrompt(
             InterventionId: intervention.InterventionId,
             TipKey: string.Empty,
             Title: string.Empty,
             Message: string.Empty,
-            AcceptLabel: "Yes",
-            DismissLabel: "No",
-            SnoozeLabel: "Later",
+            AcceptLabel: defaultAccept,
+            DismissLabel: defaultDismiss,
+            SnoozeLabel: defaultSnooze,
             SuppressLabel: "Turn off this tip",
             DurationSeconds: 120);
         errorCode = string.Empty;
@@ -548,9 +550,9 @@ internal sealed class UserAgentInterventionExecutor
         }
 
         string tipKey = ResolveTipKey(intervention.Action);
-        string acceptLabel = "Yes";
-        string dismissLabel = "No";
-        string snoozeLabel = "Later";
+        string acceptLabel = defaultAccept;
+        string dismissLabel = defaultDismiss;
+        string snoozeLabel = defaultSnooze;
         string suppressLabel = "Turn off this tip";
         int durationSeconds = 120;
 
@@ -567,17 +569,17 @@ internal sealed class UserAgentInterventionExecutor
 
                 if (root.TryGetProperty("accept_label", out JsonElement acceptLabelNode) && acceptLabelNode.ValueKind == JsonValueKind.String)
                 {
-                    acceptLabel = NormalizeLabel(acceptLabelNode.GetString(), "Yes");
+                    acceptLabel = NormalizeLabel(acceptLabelNode.GetString(), defaultAccept);
                 }
 
                 if (root.TryGetProperty("dismiss_label", out JsonElement dismissLabelNode) && dismissLabelNode.ValueKind == JsonValueKind.String)
                 {
-                    dismissLabel = NormalizeLabel(dismissLabelNode.GetString(), "No");
+                    dismissLabel = NormalizeLabel(dismissLabelNode.GetString(), defaultDismiss);
                 }
 
                 if (root.TryGetProperty("snooze_label", out JsonElement snoozeLabelNode) && snoozeLabelNode.ValueKind == JsonValueKind.String)
                 {
-                    snoozeLabel = NormalizeLabel(snoozeLabelNode.GetString(), "Later");
+                    snoozeLabel = NormalizeLabel(snoozeLabelNode.GetString(), defaultSnooze);
                 }
 
                 if (root.TryGetProperty("suppress_label", out JsonElement suppressLabelNode) && suppressLabelNode.ValueKind == JsonValueKind.String)
@@ -611,6 +613,13 @@ internal sealed class UserAgentInterventionExecutor
         return true;
     }
 
+    private static (string Accept, string Dismiss, string Snooze) ResolveDefaultPromptLabels(string? action)
+    {
+        return PortaBreakSemantics.IsBreakSuggestionAction(action)
+            ? ("Take break", "Skip", "Snooze")
+            : ("Yes", "No", "Later");
+    }
+
     private static string NormalizeErrorCode(string? errorCode, string fallback)
     {
         if (string.IsNullOrWhiteSpace(errorCode))
@@ -630,6 +639,9 @@ internal sealed class UserAgentInterventionExecutor
             or "widget_presenter_not_ready"
             or "widget_presenter_failed"
             or "widget_dispatch_failed"
+            or "break_overlay_unavailable"
+            or "break_overlay_not_ready"
+            or "break_overlay_dispatch_failed"
             or "prompt_requires_widget";
     }
 
@@ -660,7 +672,7 @@ internal sealed class UserAgentInterventionExecutor
     {
         // Step 2 migration map:
         // break_suggestion and stretch_break_suggestion remain legacy transport IDs
-        // until dedicated long-break and short-break overlay commands replace them.
+        // even though break presentation now uses the dedicated Ari overlay.
         return (action ?? string.Empty).Trim().ToLowerInvariant() switch
         {
             "break_suggestion" => 30,

@@ -31,6 +31,16 @@ public static class PortaBreakSemantics
         };
     }
 
+    public static TimeSpan ResolveBreakCountdownDuration(string? actionOrKind)
+    {
+        return ResolveBreakKind(actionOrKind) switch
+        {
+            ShortBreakKind => TimeSpan.FromSeconds(90),
+            LongBreakKind => TimeSpan.FromMinutes(5),
+            _ => TimeSpan.FromMinutes(1)
+        };
+    }
+
     private static string Normalize(string? value) =>
         value?.Trim().ToLowerInvariant() ?? string.Empty;
 }

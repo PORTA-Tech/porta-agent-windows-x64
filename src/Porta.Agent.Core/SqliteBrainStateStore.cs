@@ -6641,11 +6641,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return action switch
         {
             "break_suggestion"
-                => "Ari sees a long work run and rising strain. Ready for a longer break now? Choose Later if now is not a good time, or turn off this tip.",
+                => "Ari sees a long work run and rising strain. Ready for a long break now? Choose Skip or Snooze if now is not a good time, or turn off this tip.",
             "focus_lock_in_suggestion"
                 => "Ari sees steady focus building and thinks staying on one task will help. Keep this task in front of you for a bit? Choose Later if not now, or turn off this tip.",
             "stretch_break_suggestion"
-                => "Ari sees a long steady run and thinks a short recovery break could reduce strain. Take a short break now? Choose Later if not now, or turn off this tip.",
+                => "Ari sees a long steady run and thinks a short recovery break could reduce strain. Take a short break now? Choose Skip or Snooze if not now, or turn off this tip.",
             "inform_overload_risk"
                 => "Ari sees overload rising, but the signal has not stayed high long enough to change anything yet. Slow down or open Now for details. You can mute this guidance in Settings.",
             "inform_focus_protection"
@@ -6728,9 +6728,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         return action switch
         {
-            "break_suggestion" => "Yes",
+            "break_suggestion" => "Take break",
             "focus_lock_in_suggestion" => "Yes",
-            "stretch_break_suggestion" => "Yes",
+            "stretch_break_suggestion" => "Take break",
             _ => string.Empty
         };
     }
@@ -6739,7 +6739,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         return action switch
         {
-            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion" => "No",
+            "break_suggestion" or "stretch_break_suggestion" => "Skip",
+            "focus_lock_in_suggestion" => "No",
             _ => string.Empty
         };
     }
@@ -6748,7 +6749,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         return action switch
         {
-            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion" => "Later",
+            "break_suggestion" or "stretch_break_suggestion" => "Snooze",
+            "focus_lock_in_suggestion" => "Later",
             _ => string.Empty
         };
     }

@@ -34,6 +34,30 @@ public sealed class UserAgentInterventionExecutorTests
     }
 
     [Fact]
+    public void ExecuteOrReplay_BreakSuggestionPrompt_UsesCanonicalOverlayLabelsWhenPayloadOmitsThem()
+    {
+        var presenter = new FakePresenter { PromptShowResult = true };
+        var gate = new FakePresentationGate { Available = true };
+        var notificationController = new FakeNotificationController();
+        var snapshotStore = new FakeNotificationSnapshotStore();
+        var preferenceStore = new InMemoryPreferenceStore();
+        var executor = CreateExecutor(presenter, gate, notificationController, snapshotStore, preferenceStore);
+        LocalApiInterventionPendingResponse intervention = BuildPending(
+            "intv-break-default-labels",
+            "break_suggestion",
+            "show_break_toast",
+            """{"title":"Ari","message":"Take a long break now?","tip_key":"break_suggestion"}""");
+
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+
+        Assert.Null(ack);
+        Assert.NotNull(presenter.LastPrompt);
+        Assert.Equal("Take break", presenter.LastPrompt!.AcceptLabel);
+        Assert.Equal("Skip", presenter.LastPrompt.DismissLabel);
+        Assert.Equal("Snooze", presenter.LastPrompt.SnoozeLabel);
+    }
+
+    [Fact]
     public void ExecuteOrReplay_BreakSuggestionPrompt_UsesStoredPreference()
     {
         var presenter = new FakePresenter { PromptShowResult = true };

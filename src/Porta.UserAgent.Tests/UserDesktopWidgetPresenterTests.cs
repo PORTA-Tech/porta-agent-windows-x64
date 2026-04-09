@@ -22,10 +22,12 @@ public sealed class UserDesktopWidgetPresenterTests
 
         try
         {
+            var breakOverlayPresenter = new FakeBreakOverlayPresenter();
             presenter = new UserDesktopWidgetPresenter(
                 new UserDesktopWidgetRollout(WidgetEnabled: true, ForceToastFallback: false),
                 new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory, "widget-placement.json")),
                 new UserDesktopWidgetVisibilityStore(Path.Combine(tempDirectory, "widget-hidden.flag")),
+                breakOverlayPresenter,
                 startWidgetThread: false);
 
             string placementPath = Path.Combine(tempDirectory, "widget-owner-placement.json");
@@ -103,10 +105,12 @@ public sealed class UserDesktopWidgetPresenterTests
             string tempDirectory = Path.Combine(Path.GetTempPath(), "porta-widget-tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDirectory);
 
+            var breakOverlayPresenter = new FakeBreakOverlayPresenter();
             var presenter = new UserDesktopWidgetPresenter(
                 new UserDesktopWidgetRollout(WidgetEnabled: true, ForceToastFallback: false),
                 new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory, "widget-placement.json")),
                 new UserDesktopWidgetVisibilityStore(Path.Combine(tempDirectory, "widget-hidden.flag")),
+                breakOverlayPresenter,
                 startWidgetThread: false);
 
             UserDesktopWidgetWindow? originalWindow = null;
@@ -147,6 +151,36 @@ public sealed class UserDesktopWidgetPresenterTests
                 Directory.Delete(tempDirectory, recursive: true);
             }
         });
+    }
+
+    [Fact]
+    public void TryPresentPrompt_BreakPrompt_UsesDedicatedBreakOverlayEvenWhenWidgetIsDisabled()
+    {
+        var breakOverlayPresenter = new FakeBreakOverlayPresenter { ShowResult = true };
+        using var presenter = new UserDesktopWidgetPresenter(
+            new UserDesktopWidgetRollout(WidgetEnabled: false, ForceToastFallback: true),
+            new UserDesktopWidgetPlacementStore(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "widget-placement.json")),
+            new UserDesktopWidgetVisibilityStore(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "widget-hidden.flag")),
+            breakOverlayPresenter,
+            startWidgetThread: false);
+
+        bool shown = presenter.TryPresentPrompt(
+            new UserInterventionPrompt(
+                InterventionId: "break-1",
+                TipKey: "break_suggestion",
+                Title: "Long break",
+                Message: "Ready for a long break?",
+                AcceptLabel: "Take break",
+                DismissLabel: "Skip",
+                SnoozeLabel: "Snooze",
+                SuppressLabel: "Turn off this tip",
+                DurationSeconds: 300),
+            _ => { },
+            out string errorCode);
+
+        Assert.True(shown);
+        Assert.Equal(string.Empty, errorCode);
+        Assert.Equal(1, breakOverlayPresenter.PromptCalls);
     }
 
     private static void SetPrivateField<TValue>(object target, string fieldName, TValue value)
@@ -218,6 +252,28 @@ public sealed class UserDesktopWidgetPresenterTests
         if (failure != null)
         {
             ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+
+    private sealed class FakeBreakOverlayPresenter : IUserBreakOverlayPresenter
+    {
+        public bool ShowResult { get; init; }
+        public int PromptCalls { get; private set; }
+
+        public bool TryPresentPrompt(
+            UserInterventionPrompt prompt,
+            Action<UserInterventionPromptResponse> onResponse,
+            out string errorCode)
+        {
+            _ = prompt;
+            _ = onResponse;
+            PromptCalls++;
+            errorCode = ShowResult ? string.Empty : "break_overlay_unavailable";
+            return ShowResult;
+        }
+
+        public void Dispose()
+        {
         }
     }
 }

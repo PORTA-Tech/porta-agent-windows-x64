@@ -1,11 +1,12 @@
 namespace Porta.UserAgent.Interventions;
 
+using Porta.Agent.Common;
+using Porta.Agent.LocalApi;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
-using Porta.Agent.LocalApi;
 
 internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, IDisposable
 {
@@ -19,6 +20,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private readonly UserDesktopWidgetPlacementStore _placementStore;
     private readonly UserDesktopWidgetVisibilityStore _visibilityStore;
     private readonly UserDesktopWidgetRollout _rollout;
+    private readonly IUserBreakOverlayPresenter _breakOverlayPresenter;
     private readonly object _promptGate = new();
     private readonly object _widgetLifecycleGate = new();
 
@@ -39,6 +41,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             rollout ?? UserDesktopWidgetRollout.FromEnvironment(),
             placementStore: null,
             visibilityStore: null,
+            breakOverlayPresenter: null,
             startWidgetThread: true)
     {
     }
@@ -47,11 +50,13 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         UserDesktopWidgetRollout rollout,
         UserDesktopWidgetPlacementStore? placementStore,
         UserDesktopWidgetVisibilityStore? visibilityStore,
+        IUserBreakOverlayPresenter? breakOverlayPresenter,
         bool startWidgetThread)
     {
         _rollout = rollout;
         _placementStore = placementStore ?? new UserDesktopWidgetPlacementStore();
         _visibilityStore = visibilityStore ?? new UserDesktopWidgetVisibilityStore();
+        _breakOverlayPresenter = breakOverlayPresenter ?? new UserBreakOverlayPresenter();
 
         if (_rollout.SupportsWidgetSurface && startWidgetThread)
         {
@@ -134,6 +139,11 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         Action<UserInterventionPromptResponse> onResponse,
         out string errorCode)
     {
+        if (PortaBreakSemantics.IsBreakSuggestionAction(prompt.TipKey))
+        {
+            return _breakOverlayPresenter.TryPresentPrompt(prompt, onResponse, out errorCode);
+        }
+
         if (!_rollout.SupportsWidgetSurface)
         {
             errorCode = _rollout.UnavailableReasonCode;
@@ -202,6 +212,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         _disposed = true;
         _fallbackRenderer.Dispose();
         _actionClient.Dispose();
+        _breakOverlayPresenter.Dispose();
         ShutdownWidgetThread(TimeSpan.FromSeconds(2));
     }
 
