@@ -285,19 +285,15 @@ internal static class UserDesktopWidgetStateBuilder
         {
             value = "Paused";
         }
-        else if (snapshot is { analysis_ready: false })
-        {
-            value = "Pending";
-        }
         else
         {
-            double? overload = snapshot?.OverloadLikelihood;
-            value = overload.HasValue
-                ? FormatPercent(overload.Value)
+            double? pressure = snapshot?.PressureLevel ?? snapshot?.OverloadLikelihood;
+            value = pressure.HasValue
+                ? FormatPercent(pressure.Value)
                 : "n/a";
         }
 
-        return new UserDesktopWidgetMetric("Overload", value);
+        return new UserDesktopWidgetMetric("Pressure", value);
     }
 
     private static string BuildFooterText(

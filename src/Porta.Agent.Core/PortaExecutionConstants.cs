@@ -114,6 +114,16 @@ public static class PortaExecutionConstants
         public const double WeightV = 0.30;
         public const double WeightI = 0.25;
         public const double AgreementPartialPenalty = 0.80;
+        public const double PressureDominantComponentWeight = 0.60;
+        public const double PressureMeanComponentWeight = 0.40;
+        public const int PressureAbsoluteSwitchSoftThreshold = 3;
+        public const int PressureAbsoluteSwitchHardThreshold = 5;
+        public const double PressureAbsoluteEntropySoftThreshold = 1.80;
+        public const double PressureAbsoluteEntropyHardThreshold = 2.50;
+        public const double PressureAbsoluteActiveAppsSoftThreshold = 4.0;
+        public const double PressureAbsoluteActiveAppsHardThreshold = 5.0;
+        public const double PressureAbsoluteSoftFloor = 0.58;
+        public const double PressureAbsoluteHardFloor = 0.72;
     }
 
     public static class BreakPolicy

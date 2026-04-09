@@ -32,7 +32,7 @@ public sealed class ControlCenterShellContentTests
 
         Assert.Contains("Text=\"Work today\"", todaySection, StringComparison.Ordinal);
         Assert.Contains("Text=\"Last focus session\"", todaySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Overload\"", todaySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Pressure\"", todaySection, StringComparison.Ordinal);
         Assert.Contains("Text=\"Current status\"", todaySection, StringComparison.Ordinal);
 
         Assert.DoesNotContain("Text=\"Engine health\"", todaySection, StringComparison.Ordinal);

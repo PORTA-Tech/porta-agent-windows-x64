@@ -29,7 +29,7 @@ public sealed class UserDesktopWidgetWindowTests
                 FooterText: "Confidence High | Tracking quality strong",
                 PrimaryMetric: new UserDesktopWidgetMetric("Work today", "5h 14m"),
                 SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "28m"),
-                TertiaryMetric: new UserDesktopWidgetMetric("Overload", "31%"),
+                TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "31%"),
                 CanPause: true,
                 CanResume: false,
                 CriticalState: null));
@@ -83,7 +83,7 @@ public sealed class UserDesktopWidgetWindowTests
                 FooterText: "Confidence High | Tracking quality limited",
                 PrimaryMetric: new UserDesktopWidgetMetric("Work today", "1h 12m"),
                 SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "3m"),
-                TertiaryMetric: new UserDesktopWidgetMetric("Overload", "42%"),
+                TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "42%"),
                 CanPause: true,
                 CanResume: false,
                 CriticalState: new UserDesktopWidgetCriticalState(
@@ -289,7 +289,7 @@ public sealed class UserDesktopWidgetWindowTests
             FooterText: "Confidence High | Tracking quality limited",
             PrimaryMetric: new UserDesktopWidgetMetric("Work today", "1h 11m"),
             SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "2m"),
-            TertiaryMetric: new UserDesktopWidgetMetric("Overload", "38%"),
+            TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "38%"),
             CanPause: true,
             CanResume: false,
             CriticalState: new UserDesktopWidgetCriticalState(
@@ -311,7 +311,7 @@ public sealed class UserDesktopWidgetWindowTests
             FooterText: "Confidence High | Tracking quality strong",
             PrimaryMetric: new UserDesktopWidgetMetric("Work today", "5h 14m"),
             SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "28m"),
-            TertiaryMetric: new UserDesktopWidgetMetric("Overload", "31%"),
+            TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "31%"),
             CanPause: true,
             CanResume: false,
             CriticalState: null);

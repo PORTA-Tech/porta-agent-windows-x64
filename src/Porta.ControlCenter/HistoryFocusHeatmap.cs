@@ -121,7 +121,7 @@ internal static class HistoryFocusHeatmapBuilder
                         trackedSeconds += bucketSeconds;
                     }
 
-                    averageOverloadPercent = cellSnapshots.Average(snapshot => Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d)) * 100d;
+                    averageOverloadPercent = cellSnapshots.Average(snapshot => Math.Clamp(snapshot.PressureLevel ?? snapshot.OverloadLikelihood, 0d, 1d)) * 100d;
                     averageConfidencePercent = cellSnapshots.Average(snapshot => Math.Clamp(snapshot.Confidence, 0d, 1d)) * 100d;
                     longestFocusBlockSeconds = cellSnapshots.Max(static snapshot => Math.Max(0d, snapshot.SustainedAttentionDurationSec));
                 }

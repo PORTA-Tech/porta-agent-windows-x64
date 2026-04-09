@@ -3802,6 +3802,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             focusEpisodeReasonText: derivedSession.FocusEpisodeReasonText,
             signalQualityScore: mapped.QualityScore,
             modelConfidence: overloadInference.Confidence,
+            pressureLevel: overloadInference.PressureLevel,
             overloadInferenceSource: overloadInference.Source,
             calibrationStage: gating.CalibrationStage,
             trustTier: trustTier,
@@ -3910,6 +3911,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             schema_ver = 1,
             quality = overloadInference.Quality,
             agreement = overloadInference.Agreement,
+            pressure_level = overloadInference.PressureLevel,
+            overload_likelihood = overloadInference.OverloadLikelihood,
             components = new
             {
                 F = new
@@ -4011,6 +4014,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             "Focus episode active.",
             0d,
             0d,
+            0d,
             overloadInferenceSource,
             calibrationStage,
             trustTier,
@@ -4069,6 +4073,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string focusEpisodeReasonText,
         double signalQualityScore,
         double modelConfidence,
+        double pressureLevel,
         string overloadInferenceSource,
         string calibrationStage,
         string trustTier,
@@ -4129,6 +4134,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             behavior_continuity_score = Math.Clamp(taskContinuityScore, 0d, 1d),
             signal_quality_score = Math.Clamp(signalQualityScore, 0d, 1d),
             model_confidence = Math.Clamp(modelConfidence, 0d, 1d),
+            pressure_level = Math.Clamp(pressureLevel, 0d, 1d),
             overload_inference_source = overloadInferenceSource ?? string.Empty,
             calibration_stage = CalibrationTruth.NormalizeStage(calibrationStage),
             trust_tier = string.IsNullOrWhiteSpace(trustTier) ? CalibrationTruth.TrustLow : trustTier.Trim().ToLowerInvariant(),

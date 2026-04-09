@@ -90,7 +90,7 @@ public sealed class MachineSummaryMapperTests
             IdleFragmentationIndex: 0.12,
             FocusAppEntropy: 0.22,
             OverloadActive: false,
-            StateFlagsJson: "{\"schema_ver\":1,\"attention_segment_kind\":\"fragmentation_distraction\",\"attention_segment_seconds\":300,\"distraction_episode_active\":1,\"distraction_episode_seconds\":300}",
+            StateFlagsJson: "{\"schema_ver\":1,\"attention_segment_kind\":\"fragmentation_distraction\",\"attention_segment_seconds\":300,\"distraction_episode_active\":1,\"distraction_episode_seconds\":300,\"pressure_level\":0.63,\"model_confidence\":0.92}",
             ContributorsJson: "{\"schema_ver\":1}",
             CalibrationStage: "calibrated",
             TrustTier: "high",
@@ -140,6 +140,8 @@ public sealed class MachineSummaryMapperTests
         Assert.Equal("Rapid switching / fragmentation for 5m.", payload.AttentionSegmentReasonText);
         Assert.True(payload.DistractionEpisodeActive);
         Assert.Equal(300d, payload.DistractionEpisodeSeconds);
+        Assert.Equal(0.63, payload.PressureLevel);
+        Assert.Equal(0.92, payload.PressureConfidence);
         Assert.True(payload.BreakNeeded);
         Assert.Equal("stretch_break_suggestion", payload.BreakPendingAction);
         Assert.Equal("calibrated", payload.CalibrationStage);

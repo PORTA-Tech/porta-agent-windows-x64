@@ -88,6 +88,8 @@ internal sealed class MachineSummaryMapper
         string focusEpisodeReasonText = ResolveFocusEpisodeReasonText(
             latestState?.StateFlagsJson,
             continuityState);
+        double pressureLevel = ResolvePressureLevel(latestState?.StateFlagsJson, status.OverloadLikelihood);
+        double pressureConfidence = ResolvePressureConfidence(latestState?.StateFlagsJson, latestState?.Confidence ?? 0d);
 
         return new MachineSummaryReportPayload(
             DeviceId: identityLink.DeviceId,
@@ -135,6 +137,8 @@ internal sealed class MachineSummaryMapper
             TaskContinuitySeconds: taskContinuitySeconds,
             ContinuityState: continuityState,
             DeepWorkActive: status.DeepWorkActive,
+            PressureLevel: pressureLevel,
+            PressureConfidence: pressureConfidence,
             OverloadLikelihood: Math.Clamp(status.OverloadLikelihood, 0d, 1d),
             OverloadActive: status.OverloadActive,
             BreakNeeded: !string.IsNullOrWhiteSpace(latestState?.BreakPendingAction),
@@ -153,6 +157,22 @@ internal sealed class MachineSummaryMapper
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray()
                 ?? Array.Empty<string>());
+    }
+
+    private static double ResolvePressureLevel(string? stateFlagsJson, double fallback)
+    {
+        return Math.Clamp(ReadDoubleFlag(stateFlagsJson, "pressure_level", fallback), 0d, 1d);
+    }
+
+    private static double ResolvePressureConfidence(string? stateFlagsJson, double fallback)
+    {
+        double explicitConfidence = ReadDoubleFlag(stateFlagsJson, "pressure_confidence", double.NaN);
+        if (double.IsFinite(explicitConfidence))
+        {
+            return Math.Clamp(explicitConfidence, 0d, 1d);
+        }
+
+        return Math.Clamp(ReadDoubleFlag(stateFlagsJson, "model_confidence", fallback), 0d, 1d);
     }
 
     private static bool IsLinked(LocalIdentityLinkSnapshot snapshot) =>
@@ -370,11 +390,11 @@ internal sealed class MachineSummaryMapper
         }
     }
 
-    private static double ReadDoubleFlag(string? json, string name)
+    private static double ReadDoubleFlag(string? json, string name, double fallback = 0d)
     {
         if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(name))
         {
-            return 0d;
+            return fallback;
         }
 
         try
@@ -393,7 +413,7 @@ internal sealed class MachineSummaryMapper
         {
         }
 
-        return 0d;
+        return fallback;
     }
 
     private static string? ReadStringFlag(string? json, string name)

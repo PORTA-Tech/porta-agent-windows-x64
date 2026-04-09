@@ -278,10 +278,14 @@ public sealed record LocalApiCurrentSnapshotResponse(
     string AttentionSegmentReasonCode = LocalAttentionSegmentAnalytics.SteadyFocusReasonCode,
     string AttentionSegmentReasonText = "Steady focus episode.",
     string FocusEpisodeReasonCode = LocalAttentionSegmentAnalytics.FocusEpisodeActiveReasonCode,
-    string FocusEpisodeReasonText = "Focus episode active.")
+    string FocusEpisodeReasonText = "Focus episode active.",
+    double? PressureLevel = null,
+    double? PressureConfidence = null)
 {
     // Step 18D pinned snake_case aliases for snapshot consumers.
     public double overload_likelihood => OverloadLikelihood;
+    public double pressure_level => PressureLevel ?? OverloadLikelihood;
+    public double pressure_confidence => PressureConfidence ?? (ModelConfidence ?? Confidence);
     public double sustained_attention_duration_sec => SustainedAttentionDurationSec;
     public LocalApiCooldownsRemainingResponse? cooldowns_remaining => CooldownsRemaining;
     public string? contributors_json => ContributorsJson;
@@ -354,6 +358,8 @@ public sealed record LocalApiCurrentSnapshotResponse(
         notifications_suppressed: notifications_suppressed,
         brightness_adjusted: brightness_adjusted,
         overload_likelihood: overload_likelihood,
+        pressure_level: pressure_level,
+        pressure_confidence: pressure_confidence,
         confidence: Confidence,
         model_confidence: ModelConfidence ?? Confidence,
         signal_quality_score: SignalQualityScore,
@@ -621,6 +627,8 @@ public sealed record LocalApiSnapshotCurrentView(
     bool notifications_suppressed,
     bool brightness_adjusted,
     double overload_likelihood,
+    double pressure_level,
+    double pressure_confidence,
     double confidence,
     double model_confidence,
     double? signal_quality_score,

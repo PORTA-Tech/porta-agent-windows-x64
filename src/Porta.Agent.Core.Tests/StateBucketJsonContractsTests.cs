@@ -36,7 +36,8 @@ public sealed class StateBucketJsonContractsTests
             MissingPrimitiveCount: 0,
             UsedSnapshotFallback: false,
             Source: "bucket_finalizer",
-            ComponentsRegistryVersion: 1);
+            ComponentsRegistryVersion: 1,
+            PressureLevel: 0.61d);
 
         string json = SqliteBrainStateStore.BuildOverloadContributorsJson(["test"], overload);
         using JsonDocument doc = JsonDocument.Parse(json);
@@ -45,6 +46,8 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal(1, root.GetProperty("schema_ver").GetInt32());
         Assert.Equal(0.82d, root.GetProperty("quality").GetDouble(), precision: 6);
         Assert.Equal(0.74d, root.GetProperty("agreement").GetDouble(), precision: 6);
+        Assert.Equal(0.61d, root.GetProperty("pressure_level").GetDouble(), precision: 6);
+        Assert.Equal(0.42d, root.GetProperty("overload_likelihood").GetDouble(), precision: 6);
 
         JsonElement fTop = root.GetProperty("components").GetProperty("F").GetProperty("top");
         Assert.Equal(2, fTop.GetArrayLength());
@@ -77,6 +80,7 @@ public sealed class StateBucketJsonContractsTests
             focusEpisodeReasonText: "Sustained instability ended the focus episode after 2m 5s.",
             signalQualityScore: 0.90d,
             modelConfidence: 0.91d,
+            pressureLevel: 0.77d,
             overloadInferenceSource: "bucket_finalizer",
             calibrationStage: CalibrationTruth.StageProvisional,
             trustTier: CalibrationTruth.TrustMedium,
@@ -144,6 +148,7 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal(0.72d, root.GetProperty("behavior_continuity_score").GetDouble(), precision: 6);
         Assert.Equal(0.90d, root.GetProperty("signal_quality_score").GetDouble(), precision: 6);
         Assert.Equal(0.91d, root.GetProperty("model_confidence").GetDouble(), precision: 6);
+        Assert.Equal(0.77d, root.GetProperty("pressure_level").GetDouble(), precision: 6);
         Assert.Equal(CalibrationTruth.StageProvisional, root.GetProperty("calibration_stage").GetString());
         Assert.Equal(CalibrationTruth.TrustMedium, root.GetProperty("trust_tier").GetString());
         Assert.Equal(1, root.GetProperty("guidance_enabled").GetInt32());

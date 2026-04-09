@@ -59,6 +59,30 @@ public sealed class OverloadInferenceComputerTests
         Assert.Equal(0.59d, result.IComponent, precision: 6);
         Assert.Equal(0.41d, result.VComponent, precision: 6);
         Assert.Equal(0.491d, result.OverloadLikelihood, precision: 6);
+        Assert.Equal(0.552667d, result.PressureLevel, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_UsesAbsoluteStrainFloor_ForExpressivePressure()
+    {
+        AgentBrainSnapshot snapshot = BuildSnapshot(overload: 0d, confidence: 0d);
+        InputBucketRow bucket = BuildBucket(quality: 0.80d) with
+        {
+            FocusSwitchCount = 6,
+            FocusAppEntropy = 2.6d,
+            FocusActiveAppCount = 5d
+        };
+        PrimitiveComputationResult primitive = BuildPrimitive(typing: 0.15d, scroll: 0.18d, focus: 0.21d);
+
+        OverloadInferenceResult result = OverloadInferenceComputer.ComputeForFinalizedBucket(
+            snapshot,
+            bucket,
+            primitive,
+            BaselineGatingResult.Warm,
+            robust: null);
+
+        Assert.Equal(0.183075d, result.OverloadLikelihood, precision: 6);
+        Assert.Equal(PortaExecutionConstants.OverloadInference.PressureAbsoluteHardFloor, result.PressureLevel, precision: 6);
     }
 
     [Fact]

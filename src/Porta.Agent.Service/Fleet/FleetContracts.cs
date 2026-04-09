@@ -49,6 +49,8 @@ internal sealed record MachineSummaryReportPayload(
     [property: JsonPropertyName("taskContinuitySeconds")] double TaskContinuitySeconds,
     [property: JsonPropertyName("continuityState")] string ContinuityState,
     [property: JsonPropertyName("deepWorkActive")] bool DeepWorkActive,
+    [property: JsonPropertyName("pressureLevel")] double PressureLevel,
+    [property: JsonPropertyName("pressureConfidence")] double PressureConfidence,
     [property: JsonPropertyName("overloadLikelihood")] double OverloadLikelihood,
     [property: JsonPropertyName("overloadActive")] bool OverloadActive,
     [property: JsonPropertyName("breakNeeded")] bool BreakNeeded,

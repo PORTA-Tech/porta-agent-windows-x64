@@ -504,13 +504,13 @@
                                     Tag="today-overload"
                                     ToolTip="Open Why for overload details">
                                 <StackPanel>
-                                    <TextBlock Text="Overload" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowCalibrationStatusText" Text="Overload: Filling in" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" />
+                                    <TextBlock Text="Pressure" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="NowCalibrationStatusText" Text="Pressure: Filling in" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" />
                                     <TextBlock x:Name="NowCalibrationProgressText" Text="Regulation: Filling in" Margin="0,6,0,0" />
                                     <TextBlock x:Name="NowCalibrationQualityText" Text="Today peak: Filling in" Margin="0,4,0,0" />
                                     <TextBlock x:Name="NowCalibrationColdStartText" Text="Confidence: Filling in" Margin="0,4,0,0" />
                                     <TextBlock x:Name="NowCalibrationSummaryText"
-                                               Text="Open Why to inspect Ari's current overload reasoning."
+                                               Text="Open Why to inspect Ari's current pressure reasoning."
                                                Margin="0,8,0,0"
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
@@ -1373,7 +1373,7 @@
                             </Border>
 
                             <StackPanel x:Name="HistoryAdvancedMetricsPanel" Visibility="Collapsed">
-                                <TextBlock Text="Pressure (overload)" FontWeight="SemiBold" />
+                                <TextBlock Text="Pressure" FontWeight="SemiBold" />
                                 <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
                                     <ScrollViewer x:Name="TimelineOverloadScrollViewer" Height="56" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                         <StackPanel x:Name="TimelineOverloadTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
@@ -1919,7 +1919,7 @@
                                     <TextBlock Grid.Row="3" Grid.Column="0" Text="Break readiness" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="HealthStateBreakReadinessValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Overload / deep work" Foreground="#CBD5E1" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Pressure / deep work" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="HealthStateModesValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
                                     <TextBlock Grid.Row="5" Grid.Column="0" Text="Explicit warning" Foreground="#CBD5E1" />
@@ -2201,7 +2201,7 @@
                                         <TextBlock Text="- Background runtime: AriAgent service + the live desktop session agent keep tracking active in the background."
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,6" />
-                                        <TextBlock Text="- Today shows Work today, Last focus session, Overload, and Current status."
+                                        <TextBlock Text="- Today shows Work today, Last focus session, Pressure, and Current status."
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,6" />
                                         <TextBlock Text="- Tracking explains privacy, controls, and what improves tracking quality."

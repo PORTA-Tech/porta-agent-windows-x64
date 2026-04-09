@@ -17,7 +17,8 @@ internal readonly record struct OverloadInferenceResult(
     int MissingPrimitiveCount,
     bool UsedSnapshotFallback,
     string Source,
-    int ComponentsRegistryVersion);
+    int ComponentsRegistryVersion,
+    double PressureLevel = 0d);
 
 internal readonly record struct OverloadTopPrimitive(
     string Key,
@@ -50,8 +51,10 @@ internal static class OverloadInferenceComputer
             + (PortaExecutionConstants.OverloadInference.WeightV * vComponent)
             + (PortaExecutionConstants.OverloadInference.WeightI * iComponent));
 
-        // Step 11D contract: overload is always computed from F/I/V components.
+        // Compatibility contract:
+        // OverloadLikelihood remains the conservative component-weighted action signal.
         double overload = componentOverload;
+        double pressure = ComputePressureLevel(bucket, fComponent, iComponent, vComponent, overload);
 
         double agreementRaw = ComputeAgreementRaw(primitiveValues);
         (double coverage, int missingCount) = ComputePrimitiveCoverage(primitiveAvailability);
@@ -66,6 +69,7 @@ internal static class OverloadInferenceComputer
 
         return new OverloadInferenceResult(
             OverloadLikelihood: overload,
+            PressureLevel: pressure,
             Confidence: confidence,
             FComponent: fComponent,
             IComponent: iComponent,
@@ -80,6 +84,46 @@ internal static class OverloadInferenceComputer
             UsedSnapshotFallback: false,
             Source: "bucket_finalizer",
             ComponentsRegistryVersion: OverloadComponentsRegistry.RegistryVersion);
+    }
+
+    private static double ComputePressureLevel(
+        InputBucketRow bucket,
+        double fComponent,
+        double iComponent,
+        double vComponent,
+        double overload)
+    {
+        double strongest = Math.Max(fComponent, Math.Max(iComponent, vComponent));
+        double mean = (fComponent + iComponent + vComponent) / 3d;
+        double expressiveBlend = Clamp01(
+            (PortaExecutionConstants.OverloadInference.PressureDominantComponentWeight * strongest)
+            + (PortaExecutionConstants.OverloadInference.PressureMeanComponentWeight * mean));
+        double absoluteStrainFloor = ComputeAbsoluteStrainFloor(bucket);
+        return Clamp01(Math.Max(overload, Math.Max(expressiveBlend, absoluteStrainFloor)));
+    }
+
+    private static double ComputeAbsoluteStrainFloor(InputBucketRow bucket)
+    {
+        bool softAbsoluteStrain =
+            bucket.FocusSwitchCount >= PortaExecutionConstants.OverloadInference.PressureAbsoluteSwitchSoftThreshold
+            || bucket.FocusAppEntropy >= PortaExecutionConstants.OverloadInference.PressureAbsoluteEntropySoftThreshold
+            || bucket.FocusActiveAppCount >= PortaExecutionConstants.OverloadInference.PressureAbsoluteActiveAppsSoftThreshold;
+        bool hardAbsoluteStrain =
+            bucket.FocusSwitchCount >= PortaExecutionConstants.OverloadInference.PressureAbsoluteSwitchHardThreshold
+            || bucket.FocusAppEntropy >= PortaExecutionConstants.OverloadInference.PressureAbsoluteEntropyHardThreshold
+            || bucket.FocusActiveAppCount >= PortaExecutionConstants.OverloadInference.PressureAbsoluteActiveAppsHardThreshold;
+
+        if (hardAbsoluteStrain)
+        {
+            return PortaExecutionConstants.OverloadInference.PressureAbsoluteHardFloor;
+        }
+
+        if (softAbsoluteStrain)
+        {
+            return PortaExecutionConstants.OverloadInference.PressureAbsoluteSoftFloor;
+        }
+
+        return 0d;
     }
 
     private static Dictionary<string, double> BuildPrimitiveValues(PrimitiveComputationResult primitive)

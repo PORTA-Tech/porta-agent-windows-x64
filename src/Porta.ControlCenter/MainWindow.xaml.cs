@@ -599,7 +599,7 @@ public partial class MainWindow : Window
         if (truthSnapshot != null)
         {
             FocusStrengthValue.Text = truthSnapshot.FocusStrength.ToString("F2", CultureInfo.InvariantCulture);
-            OverloadValue.Text = truthSnapshot.OverloadLikelihood.ToString("F2", CultureInfo.InvariantCulture);
+            OverloadValue.Text = ResolvePressureLevel(truthSnapshot).ToString("F2", CultureInfo.InvariantCulture);
             LastActionValue.Text = inputSummary != null
                 ? $"{truthSnapshot.LastAction} | inputSamples={inputSummary.SampleCount}"
                 : truthSnapshot.LastAction;
@@ -1368,11 +1368,11 @@ public partial class MainWindow : Window
     {
         if (todayState == TodayTrackingState.Paused)
         {
-            NowCalibrationStatusText.Text = "Overload: Paused";
+            NowCalibrationStatusText.Text = "Pressure: Paused";
             NowCalibrationProgressText.Text = "Regulation: paused";
             NowCalibrationQualityText.Text = "Today peak: Paused";
             NowCalibrationColdStartText.Text = "Confidence: Paused";
-            NowCalibrationSummaryText.Text = "Overload updates resume once tracking is unpaused.";
+            NowCalibrationSummaryText.Text = "Pressure updates resume once tracking is unpaused.";
             NowCalibrationTrustCapText.Visibility = Visibility.Collapsed;
             return;
         }
@@ -1380,12 +1380,12 @@ public partial class MainWindow : Window
         if (snapshot == null)
         {
             NowCalibrationStatusText.Text = _latestStatus == null || !_latestStatus.ServiceRunning || !_latestStatus.LocalApiAuthReady
-                ? "Overload: n/a"
-                : $"Overload: {FillingInText}";
+                ? "Pressure: n/a"
+                : $"Pressure: {FillingInText}";
             NowCalibrationProgressText.Text = "Regulation: waiting for snapshot";
             NowCalibrationQualityText.Text = "Today peak: n/a";
             NowCalibrationColdStartText.Text = "Confidence: n/a";
-            NowCalibrationSummaryText.Text = "Open Why when a fresh snapshot lands to inspect overload reasoning.";
+            NowCalibrationSummaryText.Text = "Open Why when a fresh snapshot lands to inspect pressure reasoning.";
             NowCalibrationTrustCapText.Visibility = Visibility.Collapsed;
             return;
         }
@@ -1393,20 +1393,20 @@ public partial class MainWindow : Window
         if (snapshot.analysis_ready)
         {
             AnimateTopMetric(
-                metricKey: "today_overload_level",
-                targetValue: Math.Max(0d, Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d) * 100d),
-                applyValue: value => NowCalibrationStatusText.Text = $"Overload: {value:F0}%");
+                metricKey: "today_pressure_level",
+                targetValue: Math.Max(0d, ResolvePressureLevel(snapshot) * 100d),
+                applyValue: value => NowCalibrationStatusText.Text = $"Pressure: {value:F0}%");
         }
         else
         {
-            NowCalibrationStatusText.Text = "Overload: Pending";
+            NowCalibrationStatusText.Text = $"Pressure: {(ResolvePressureLevel(snapshot) * 100d):F0}%";
         }
 
         bool overloadActive = snapshot.OverloadActive || snapshot.ActivationWindowOpen;
         IReadOnlyList<LocalApiCurrentSnapshotResponse> todaySnapshots = _todayTimeline?.Snapshots ?? [];
         string peakText = todaySnapshots.Count == 0
             ? "n/a"
-            : $"{(todaySnapshots.Max(s => Math.Clamp(s.OverloadLikelihood, 0d, 1d)) * 100d):F0}%";
+            : $"{(todaySnapshots.Max(ResolvePressureLevel) * 100d):F0}%";
 
         NowCalibrationProgressText.Text = $"Regulation: {(overloadActive ? "active" : "normal")}";
         NowCalibrationQualityText.Text = $"Today peak: {peakText}";
@@ -1639,7 +1639,7 @@ public partial class MainWindow : Window
     {
         if (snapshot is { analysis_ready: false })
         {
-            return "Waiting for analyzed overload state. Click for Why once the next processed bucket lands.";
+            return $"Current pressure: {(ResolvePressureLevel(snapshot) * 100d):F0}%. Confidence is still settling; Click for Why once the next processed bucket lands.";
         }
 
         IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = _todayTimeline?.Snapshots ?? [];
@@ -1647,10 +1647,10 @@ public partial class MainWindow : Window
         {
             return snapshot == null
                 ? "Open Why for current contributors as soon as live overload data arrives."
-                : $"Current level: {(Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d) * 100d):F0}%. Click for Why.";
+                : $"Current pressure: {(ResolvePressureLevel(snapshot) * 100d):F0}%. Click for Why.";
         }
 
-        string peakText = $"{(snapshots.Max(s => Math.Clamp(s.OverloadLikelihood, 0d, 1d)) * 100d):F0}%";
+        string peakText = $"{(snapshots.Max(ResolvePressureLevel) * 100d):F0}%";
         string volatileHour = ComputeMostVolatileHour(snapshots);
         return volatileHour == NotAvailableText
             ? $"Today peak: {peakText}. Click for Why."
@@ -2880,7 +2880,7 @@ public partial class MainWindow : Window
 
         string breakReadinessLabel = BuildBreakReadinessLabel(snapshot);
         string modesLabel =
-            $"Overload {(snapshot.OverloadActive ? "ON" : "OFF")} | Deep work {(snapshot.DeepWorkActive ? "ON" : "OFF")} | Notifications {(snapshot.NotificationsSuppressed ? "suppressed" : "normal")}";
+            $"Pressure {(ResolvePressureLevel(snapshot) * 100d):F0}% | Overload active {(snapshot.OverloadActive ? "ON" : "OFF")} | Deep work {(snapshot.DeepWorkActive ? "ON" : "OFF")} | Notifications {(snapshot.NotificationsSuppressed ? "suppressed" : "normal")}";
 
         string? captureHint = status == null ? null : BuildCaptureContextHint(status);
         string warningText;
@@ -3681,7 +3681,7 @@ public partial class MainWindow : Window
                 LocalApiCurrentSnapshotResponse previous = hourSnapshots[i - 1];
                 LocalApiCurrentSnapshotResponse current = hourSnapshots[i];
                 score += Math.Abs(current.FocusStrength - previous.FocusStrength);
-                score += Math.Abs(current.OverloadLikelihood - previous.OverloadLikelihood);
+                score += Math.Abs(ResolvePressureLevel(current) - ResolvePressureLevel(previous));
                 score += Math.Abs(current.FatigueProbability - previous.FatigueProbability);
             }
 
@@ -5252,6 +5252,11 @@ public partial class MainWindow : Window
         return Math.Max(0d, snapshot.SustainedAttentionDurationSec);
     }
 
+    private static double ResolvePressureLevel(LocalApiCurrentSnapshotResponse snapshot)
+    {
+        return Math.Clamp(snapshot.PressureLevel ?? snapshot.OverloadLikelihood, 0d, 1d);
+    }
+
     private static string ChannelAvailabilityLabel(IReadOnlyList<string> missingChannels, string channel)
     {
         return missingChannels.Any(c => string.Equals(c, channel, StringComparison.OrdinalIgnoreCase))
@@ -5311,7 +5316,7 @@ public partial class MainWindow : Window
 
         foreach (LocalApiCurrentSnapshotResponse snapshot in snapshots)
         {
-            TimelineOverloadTrackPanel.Children.Add(BuildTrackPoint(snapshot, snapshot.OverloadLikelihood, Color.FromRgb(239, 68, 68), "Overload"));
+            TimelineOverloadTrackPanel.Children.Add(BuildTrackPoint(snapshot, ResolvePressureLevel(snapshot), Color.FromRgb(239, 68, 68), "Pressure"));
             TimelineTrustTrackPanel.Children.Add(BuildTrackPoint(snapshot, snapshot.Confidence, Color.FromRgb(59, 130, 246), "Confidence"));
             double focusNormalized = Math.Clamp(snapshot.SustainedAttentionDurationSec / 3600d, 0d, 1d);
             TimelineFocusTrackPanel.Children.Add(BuildTrackPoint(snapshot, focusNormalized, Color.FromRgb(34, 197, 94), "Focus block"));
@@ -5952,7 +5957,7 @@ public partial class MainWindow : Window
             double focusPercent = retainedFocusMaxSeconds <= 0d
                 ? 0d
                 : Math.Clamp(snapshot.SustainedAttentionDurationSec / retainedFocusMaxSeconds, 0d, 1d) * 100d;
-            double overloadPercent = Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d) * 100d;
+            double overloadPercent = ResolvePressureLevel(snapshot) * 100d;
             double trustPercent = Math.Clamp(snapshot.Confidence, 0d, 1d) * 100d;
 
             focusLine.Points.Add(new Point(x, ToHistoryCanvasY(focusPercent, chartHeight)));
@@ -6145,10 +6150,10 @@ public partial class MainWindow : Window
         string time = snapshot.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
         if (_historyExplainMode)
         {
-            return $"{time}{Environment.NewLine}focus_norm={focusPercent:F1}%{Environment.NewLine}overload={(snapshot.OverloadLikelihood * 100d):F1}%{Environment.NewLine}trust={(snapshot.Confidence * 100d):F1}%{Environment.NewLine}focus_reason={LocalAttentionSegmentAnalytics.ResolveFocusEpisodeReasonText(snapshot)}{Environment.NewLine}attention_reason={LocalAttentionSegmentAnalytics.ResolveAttentionSegmentReasonText(snapshot)}";
+            return $"{time}{Environment.NewLine}focus_norm={focusPercent:F1}%{Environment.NewLine}pressure={(ResolvePressureLevel(snapshot) * 100d):F1}%{Environment.NewLine}trust={(snapshot.Confidence * 100d):F1}%{Environment.NewLine}focus_reason={LocalAttentionSegmentAnalytics.ResolveFocusEpisodeReasonText(snapshot)}{Environment.NewLine}attention_reason={LocalAttentionSegmentAnalytics.ResolveAttentionSegmentReasonText(snapshot)}";
         }
 
-        return $"{time}{Environment.NewLine}Focus block {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}{Environment.NewLine}Pressure {(snapshot.OverloadLikelihood * 100d):F0}%{Environment.NewLine}Confidence {(snapshot.Confidence * 100d):F0}%{Environment.NewLine}Focus {LocalAttentionSegmentAnalytics.ResolveFocusEpisodeReasonText(snapshot)}{Environment.NewLine}Attention {LocalAttentionSegmentAnalytics.ResolveAttentionSegmentReasonText(snapshot)}";
+        return $"{time}{Environment.NewLine}Focus block {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}{Environment.NewLine}Pressure {(ResolvePressureLevel(snapshot) * 100d):F0}%{Environment.NewLine}Confidence {(snapshot.Confidence * 100d):F0}%{Environment.NewLine}Focus {LocalAttentionSegmentAnalytics.ResolveFocusEpisodeReasonText(snapshot)}{Environment.NewLine}Attention {LocalAttentionSegmentAnalytics.ResolveAttentionSegmentReasonText(snapshot)}";
     }
 
     private UIElement BuildTrackPoint(
@@ -6177,10 +6182,10 @@ public partial class MainWindow : Window
     private UIElement BuildOverloadActiveMarker(LocalApiCurrentSnapshotResponse snapshot)
     {
         bool active = snapshot.OverloadActive || snapshot.ActivationWindowOpen;
-        double overload = Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d);
+        double pressure = ResolvePressureLevel(snapshot);
         double strength = active
-            ? Math.Max(0.55d, overload)
-            : Math.Max(0.20d, overload * 0.60d);
+            ? Math.Max(0.55d, pressure)
+            : Math.Max(0.20d, pressure * 0.60d);
         byte alpha = (byte)Math.Round((active ? 120d : 60d) + (strength * (active ? 110d : 90d)));
 
         var button = new Button
@@ -6242,7 +6247,7 @@ public partial class MainWindow : Window
 
         return label switch
         {
-            "Overload" => $"{time} | Pressure was {(Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d) * 100d):F0}%.",
+            "Pressure" => $"{time} | Pressure was {(ResolvePressureLevel(snapshot) * 100d):F0}%.",
             "Confidence" => $"{time} | Confidence was {(Math.Clamp(snapshot.Confidence, 0d, 1d) * 100d):F0}%.",
             "Focus block" => $"{time} | Focus block was {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}.",
             _ => $"{time} | Value: {normalizedValue:F2}"
@@ -6281,7 +6286,7 @@ public partial class MainWindow : Window
                 ? $"Timestamp: {NotAvailableText}"
                 : "Hour: Select a heatmap cell, snapshot, or action marker to inspect a block of time.";
             TimelineDetailOverload.Text = _historyExplainMode
-                ? $"Overload: {NotAvailableText}"
+                ? $"Pressure: {NotAvailableText}"
                 : "Tracked time in that hour: This will appear after you select a heatmap cell or snapshot.";
             TimelineDetailTrust.Text = _historyExplainMode
                 ? $"Confidence: {NotAvailableText}"
@@ -6324,8 +6329,8 @@ public partial class MainWindow : Window
                 ? $"Timestamp: {snapshot.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
                 : $"Time: {snapshot.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
             TimelineDetailOverload.Text = _historyExplainMode
-                ? $"Overload: {(snapshot.OverloadLikelihood * 100d):F0}% | Active: {(overloadActive ? "Yes" : "No")}"
-                : $"Pressure at this moment: {(snapshot.OverloadLikelihood * 100d):F0}%";
+                ? $"Pressure: {(ResolvePressureLevel(snapshot) * 100d):F0}% | Overload active: {(overloadActive ? "Yes" : "No")}"
+                : $"Pressure at this moment: {(ResolvePressureLevel(snapshot) * 100d):F0}%";
             TimelineDetailTrust.Text = _historyExplainMode
                 ? $"Confidence: {(snapshot.Confidence * 100d):F0}%"
                 : $"Confidence in that moment: {(snapshot.Confidence * 100d):F0}%";
@@ -6406,7 +6411,7 @@ public partial class MainWindow : Window
     private static string BuildHistoryMomentSummary(LocalApiCurrentSnapshotResponse snapshot, bool overloadActive)
     {
         double focus = Math.Clamp(snapshot.FocusStrength, 0d, 1d);
-        double pressure = Math.Clamp(snapshot.OverloadLikelihood, 0d, 1d);
+        double pressure = ResolvePressureLevel(snapshot);
         if (overloadActive || pressure >= 0.70d)
         {
             return "What happened here: Pressure was elevated and Ari saw a higher overload risk.";

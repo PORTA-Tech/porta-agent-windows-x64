@@ -77,7 +77,7 @@ public sealed class UserInterventionAntiSpamGateTests
             FooterText: "Open System",
             PrimaryMetric: new UserDesktopWidgetMetric("Work today", "n/a"),
             SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "n/a"),
-            TertiaryMetric: new UserDesktopWidgetMetric("Overload", "n/a"),
+            TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "n/a"),
             CanPause: false,
             CanResume: false,
             CriticalState: new UserDesktopWidgetCriticalState(
@@ -111,7 +111,7 @@ public sealed class UserInterventionAntiSpamGateTests
             FooterText: "Open System",
             PrimaryMetric: new UserDesktopWidgetMetric("Work today", "n/a"),
             SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "n/a"),
-            TertiaryMetric: new UserDesktopWidgetMetric("Overload", "n/a"),
+            TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "n/a"),
             CanPause: false,
             CanResume: false,
             CriticalState: new UserDesktopWidgetCriticalState(
@@ -130,7 +130,7 @@ public sealed class UserInterventionAntiSpamGateTests
             FooterText: "Ready",
             PrimaryMetric: new UserDesktopWidgetMetric("Work today", "0m"),
             SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "0m"),
-            TertiaryMetric: new UserDesktopWidgetMetric("Overload", "0%"),
+            TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "0%"),
             CanPause: true,
             CanResume: false,
             CriticalState: null));

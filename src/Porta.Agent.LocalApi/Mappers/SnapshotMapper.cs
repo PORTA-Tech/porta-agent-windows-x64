@@ -91,6 +91,10 @@ internal static class SnapshotMapper
             normalizedStateFlagsJson,
             "model_confidence",
             fallback: confidence);
+        double pressureLevel = ReadDoubleFlag(
+            normalizedStateFlagsJson,
+            "pressure_level",
+            fallback: overloadLikelihood);
         (double? fComponent, double? iComponent, double? vComponent) = ReadFivComponents(normalizedContributorsJson);
 
         // Pinned null/partial behavior: if there is no finalized state row, keep endpoint healthy
@@ -181,7 +185,9 @@ internal static class SnapshotMapper
             AttentionSegmentReasonCode: attentionSegmentReasonCode,
             AttentionSegmentReasonText: attentionSegmentReasonText,
             FocusEpisodeReasonCode: focusEpisodeReasonCode,
-            FocusEpisodeReasonText: focusEpisodeReasonText);
+            FocusEpisodeReasonText: focusEpisodeReasonText,
+            PressureLevel: pressureLevel,
+            PressureConfidence: modelConfidence);
     }
 
     private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(string? stateFlagsJson)

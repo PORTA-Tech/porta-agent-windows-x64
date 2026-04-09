@@ -667,7 +667,7 @@ public sealed class UserAgentInterventionExecutorTests
             FooterText: "Ready",
             PrimaryMetric: new UserDesktopWidgetMetric("Work today", "0m"),
             SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "0m"),
-            TertiaryMetric: new UserDesktopWidgetMetric("Overload", "0%"),
+            TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "0%"),
             CanPause: true,
             CanResume: false,
             CriticalState: hasCriticalState
