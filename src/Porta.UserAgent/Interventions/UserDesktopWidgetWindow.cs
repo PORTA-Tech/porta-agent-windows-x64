@@ -19,10 +19,10 @@ internal sealed class UserDesktopWidgetWindow : Window
     private const int WindowLifecycleOpen = 0;
     private const int WindowLifecycleClosing = 1;
     private const int WindowLifecycleClosed = 2;
-    private const double ExpandedWidth = 192d;
-    private const double CollapsedWidth = 42d;
-    private const double BaseHeight = 94d;
-    private const double CollapsedHeight = 42d;
+    private const double ExpandedWidth = 200d;
+    private const double CollapsedWidth = 40d;
+    private const double BaseHeight = 86d;
+    private const double CollapsedHeight = 40d;
     private const double TopMargin = 16d;
     private const double RightMargin = 16d;
     private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(160);
@@ -30,6 +30,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private static readonly TimeSpan StateTakeoverDuration = TimeSpan.FromSeconds(18);
     private static readonly TimeSpan ReexpandPollInterval = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(220);
+    private static readonly TimeSpan ReexpandDelay = TimeSpan.FromMilliseconds(1200);
 
     private readonly Action<UserDesktopWidgetAction> _actionRequested;
     private readonly Action<UserInterventionPromptResponse> _promptResponseRequested;
@@ -42,6 +43,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly Border _rootBorder;
     private readonly StackPanel _expandedStack;
     private readonly Grid _headerRow;
+    private readonly Border _headerDragSurface;
     private readonly StackPanel _metricsPanel;
     private readonly StackPanel _summaryMetaPanel;
     private readonly Border _titleBadge;
@@ -83,6 +85,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private double _expandedAnchorTop;
     private bool _allowClose;
     private int _windowLifecycleState = WindowLifecycleOpen;
+    private DateTimeOffset _reexpandNotBeforeUtc = DateTimeOffset.MinValue;
     private UserDesktopWidgetState? _currentState;
     private UserInterventionPrompt? _activePrompt;
     private WidgetAttentionMessage? _attentionMessage;
@@ -138,6 +141,11 @@ internal sealed class UserDesktopWidgetWindow : Window
                 return;
             }
 
+            if (DateTimeOffset.UtcNow < _reexpandNotBeforeUtc)
+            {
+                return;
+            }
+
             if (!IsPointerNearWidget())
             {
                 Expand();
@@ -175,7 +183,12 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             _collapseTimer.Stop();
             _reexpandTimer.Stop();
-            Expand();
+            if (_collapsed)
+            {
+                return;
+            }
+
+            ScheduleCollapse();
         };
         _rootBorder.MouseLeave += (_, _) => HandlePointerLeave();
 
@@ -183,7 +196,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         Grid bodyGrid = new()
         {
-            Margin = new Thickness(8, 7, 8, 8)
+            Margin = new Thickness(7, 6, 7, 6)
         };
         bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         shellGrid.Children.Add(bodyGrid);
@@ -197,7 +210,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         _headerRow = new Grid
         {
-            Margin = new Thickness(0, 0, 0, 6)
+            Margin = new Thickness(0, 0, 0, 4)
         };
         _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -233,21 +246,21 @@ internal sealed class UserDesktopWidgetWindow : Window
         Grid.SetColumn(_menuButton, 0);
         _headerRow.Children.Add(_menuButton);
 
-        Border headerDragSurface = new()
+        _headerDragSurface = new Border
         {
             Background = Brushes.Transparent,
             Cursor = Cursors.SizeAll,
             Margin = new Thickness(8, 0, 0, 0),
             Padding = new Thickness(0, 0, 2, 0)
         };
-        headerDragSurface.PreviewMouseLeftButtonDown += BeginDragFromHeader;
-        Grid.SetColumn(headerDragSurface, 1);
-        _headerRow.Children.Add(headerDragSurface);
+        _headerDragSurface.PreviewMouseLeftButtonDown += BeginDragFromHeader;
+        Grid.SetColumn(_headerDragSurface, 1);
+        _headerRow.Children.Add(_headerDragSurface);
 
         Grid dragContent = new();
         dragContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         dragContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        headerDragSurface.Child = dragContent;
+        _headerDragSurface.Child = dragContent;
 
         Border dragHandle = new()
         {
@@ -300,19 +313,19 @@ internal sealed class UserDesktopWidgetWindow : Window
         _summaryMetaPanel = new StackPanel
         {
             Orientation = Orientation.Vertical,
-            Margin = new Thickness(0, 6, 0, 0)
+            Margin = new Thickness(0, 4, 0, 0)
         };
         _summaryStatusText = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(207, 216, 225)),
-            FontSize = 9.6,
+            FontSize = 9.2,
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = ExpandedWidth - 26d
         };
         _summaryFooterText = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(143, 158, 174)),
-            FontSize = 8.9,
+            FontSize = 8.5,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 2, 0, 0),
             MaxWidth = ExpandedWidth - 26d
@@ -597,7 +610,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         labelTextBlock = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(147, 161, 177)),
-            FontSize = 8.4,
+            FontSize = 8.1,
             FontWeight = FontWeights.Medium,
             TextWrapping = TextWrapping.Wrap,
             TextAlignment = TextAlignment.Center,
@@ -607,13 +620,13 @@ internal sealed class UserDesktopWidgetWindow : Window
         valueTextBlock = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(236, 241, 246)),
-            FontSize = 15.6,
+            FontSize = 15.2,
             FontWeight = FontWeights.Bold,
             HorizontalAlignment = HorizontalAlignment.Center,
             TextAlignment = TextAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 44d,
-            Margin = new Thickness(0, 4, 0, 0)
+            Margin = new Thickness(0, 3, 0, 0)
         };
 
         StackPanel contentStack = new()
@@ -631,7 +644,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             BorderBrush = new SolidColorBrush(Color.FromRgb(40, 49, 61)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(5, 6, 5, 6),
+            Padding = new Thickness(5, 5, 5, 5),
             Margin = new Thickness(0),
             Child = contentStack
         };
@@ -866,7 +879,22 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void Collapse()
     {
-        return;
+        if (!ShouldAutoCollapseSummary())
+        {
+            return;
+        }
+
+        _collapsed = true;
+        _collapseTimer.Stop();
+        _reexpandNotBeforeUtc = DateTimeOffset.UtcNow.Add(ReexpandDelay);
+        _headerDragSurface.Visibility = Visibility.Collapsed;
+        _titleBadge.Visibility = Visibility.Collapsed;
+        _metricsPanel.Visibility = Visibility.Collapsed;
+        _summaryMetaPanel.Visibility = Visibility.Collapsed;
+        AnimateWindowWidth(CollapsedWidth);
+        UpdateWindowHeight();
+        ApplyAnchorPosition();
+        _reexpandTimer.Start();
     }
 
     private void Expand()
@@ -877,12 +905,15 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
 
         _collapsed = false;
+        _headerDragSurface.Visibility = Visibility.Visible;
         _expandedStack.Visibility = Visibility.Visible;
         _expandedStack.IsHitTestVisible = true;
         _expandedStack.BeginAnimation(OpacityProperty, null);
         _expandedStack.Opacity = 1d;
+        RefreshInlineMessage();
         AnimateWindowWidth(ExpandedWidth);
         UpdateWindowHeight();
+        ApplyAnchorPosition();
         _reexpandTimer.Stop();
     }
 
@@ -977,11 +1008,19 @@ internal sealed class UserDesktopWidgetWindow : Window
     private void ScheduleCollapse()
     {
         _collapseTimer.Stop();
+        if (ShouldAutoCollapseSummary())
+        {
+            _collapseTimer.Start();
+        }
     }
 
     private void HandlePointerLeave()
     {
         _collapseTimer.Stop();
+        if (_collapsed && !_menuOpen)
+        {
+            _reexpandTimer.Start();
+        }
     }
 
     private void UpdateWindowHeight()
@@ -1519,6 +1558,20 @@ internal sealed class UserDesktopWidgetWindow : Window
     private bool HasBlockingSurfaceVisible()
     {
         return _messageCard.Visibility == Visibility.Visible;
+    }
+
+    private bool ShouldAutoCollapseSummary()
+    {
+        return CanAcceptUiActions
+            && _currentState != null
+            && !_collapsed
+            && !_menuOpen
+            && !_dragInProgress
+            && _activePrompt == null
+            && _attentionMessage == null
+            && _stateTakeoverMessage == null
+            && _currentState?.CriticalState == null
+            && !HasBlockingSurfaceVisible();
     }
 
     private static bool IsInteractiveElement(DependencyObject child)

@@ -63,8 +63,8 @@ public sealed class UserDesktopWidgetWindowTests
                 _ => { },
                 new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
 
-            Assert.True(window.Width <= 200d);
-            Assert.True(window.Height < 110d);
+            Assert.True(window.Width <= 204d);
+            Assert.True(window.Height <= 90d);
         });
     }
 
@@ -110,7 +110,7 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal("Tracking limited", messageTitle.Text);
             Assert.Equal("Open System", primaryActionButton.Content);
             Assert.Equal(Visibility.Visible, primaryActionButton.Visibility);
-            Assert.True(window.Height >= 90d);
+            Assert.True(window.Height >= 80d);
         });
     }
 
@@ -149,6 +149,106 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal("Limited", titleText.Text);
             Assert.Equal("Limited: partial capture. Retrying full input.", summaryStatusText.Text);
             Assert.Equal("Confidence High | Tracking quality limited", summaryFooterText.Text);
+        });
+    }
+
+    [Fact]
+    public void Collapse_WithSummarySurface_CollapsesToMenuAnchor()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(BuildSummaryState());
+            InvokePrivateMethod(window, "Collapse");
+
+            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            StackPanel summaryMetaPanel = GetPrivateField<StackPanel>(window, "_summaryMetaPanel");
+            Border headerDragSurface = GetPrivateField<Border>(window, "_headerDragSurface");
+            Button menuButton = GetPrivateField<Button>(window, "_menuButton");
+            DispatcherTimer reexpandTimer = GetPrivateField<DispatcherTimer>(window, "_reexpandTimer");
+
+            Assert.True(GetPrivateField<bool>(window, "_collapsed"));
+            Assert.Equal(Visibility.Collapsed, metricsPanel.Visibility);
+            Assert.Equal(Visibility.Collapsed, summaryMetaPanel.Visibility);
+            Assert.Equal(Visibility.Collapsed, headerDragSurface.Visibility);
+            Assert.Equal(Visibility.Visible, menuButton.Visibility);
+            Assert.True(reexpandTimer.IsEnabled);
+        });
+    }
+
+    [Fact]
+    public void Collapse_WithPromptVisible_DoesNotCollapse()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(BuildSummaryState());
+            window.PresentPrompt(new UserInterventionPrompt(
+                InterventionId: "prompt-1",
+                TipKey: "focus_break",
+                Title: "Start break",
+                Message: "Take a short reset now.",
+                AcceptLabel: "Start",
+                DismissLabel: "Later",
+                SnoozeLabel: "5m",
+                SuppressLabel: "Hide suggestions",
+                DurationSeconds: 60));
+
+            InvokePrivateMethod(window, "Collapse");
+
+            Assert.False(GetPrivateField<bool>(window, "_collapsed"));
+            Assert.Equal(Visibility.Visible, GetPrivateField<Border>(window, "_messageCard").Visibility);
+        });
+    }
+
+    [Fact]
+    public void Collapse_WithCriticalTakeoverVisible_DoesNotCollapse()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(BuildCriticalState("System access needs attention."));
+            InvokePrivateMethod(window, "Collapse");
+
+            Assert.False(GetPrivateField<bool>(window, "_collapsed"));
+            Assert.Equal(Visibility.Visible, GetPrivateField<Border>(window, "_messageCard").Visibility);
+        });
+    }
+
+    [Fact]
+    public void Expand_AfterSummaryCollapse_RestoresSummarySurface()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(BuildSummaryState());
+            InvokePrivateMethod(window, "Collapse");
+            InvokePrivateMethod(window, "Expand");
+
+            Assert.False(GetPrivateField<bool>(window, "_collapsed"));
+            Assert.Equal(Visibility.Visible, GetPrivateField<StackPanel>(window, "_metricsPanel").Visibility);
+            Assert.Equal(Visibility.Visible, GetPrivateField<StackPanel>(window, "_summaryMetaPanel").Visibility);
+            Assert.Equal(Visibility.Collapsed, GetPrivateField<Border>(window, "_messageCard").Visibility);
         });
     }
 
@@ -364,6 +464,13 @@ public sealed class UserDesktopWidgetWindowTests
         FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException($"Missing field '{fieldName}'.");
         return (T)(field.GetValue(target) ?? throw new InvalidOperationException($"Field '{fieldName}' was null."));
+    }
+
+    private static void InvokePrivateMethod(object target, string methodName)
+    {
+        MethodInfo method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"Missing method '{methodName}'.");
+        method.Invoke(target, null);
     }
 
     private static string ReadAllText(object? node)
