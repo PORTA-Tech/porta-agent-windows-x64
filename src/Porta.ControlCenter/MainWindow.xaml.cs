@@ -5869,9 +5869,19 @@ public partial class MainWindow : Window
             }}"
             : $"Most distractions happened in the {insights.MostDistractedPeriodLabel}";
         HistoryActionsSummaryText.Text = BuildHistoryActionsSummary(insights);
-        HistoryGuideText.Text = _historyExplainMode
+        string baseGuideText = _historyExplainMode
             ? "Advanced is on. Click any point or action marker to inspect the raw explanation, model details, and decision data for that moment."
             : "Read left to right. Click any point or action marker to inspect that moment in plain language.";
+        string latestReasonText = !string.IsNullOrWhiteSpace(insights.LatestAttentionReasonText)
+            && !string.Equals(insights.LatestAttentionReasonText, "Steady focus episode.", StringComparison.Ordinal)
+            ? insights.LatestAttentionReasonText
+            : (!string.IsNullOrWhiteSpace(insights.LatestFocusEpisodeReasonText)
+                && !string.Equals(insights.LatestFocusEpisodeReasonText, "Focus episode active.", StringComparison.Ordinal)
+                    ? insights.LatestFocusEpisodeReasonText
+                    : string.Empty);
+        HistoryGuideText.Text = string.IsNullOrWhiteSpace(latestReasonText)
+            ? baseGuideText
+            : $"{baseGuideText} Latest explanation: {latestReasonText}";
     }
 
     private static IReadOnlyList<LocalApiCurrentSnapshotResponse> DownsampleSnapshots(
@@ -6135,10 +6145,10 @@ public partial class MainWindow : Window
         string time = snapshot.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
         if (_historyExplainMode)
         {
-            return $"{time}{Environment.NewLine}focus_norm={focusPercent:F1}%{Environment.NewLine}overload={(snapshot.OverloadLikelihood * 100d):F1}%{Environment.NewLine}trust={(snapshot.Confidence * 100d):F1}%";
+            return $"{time}{Environment.NewLine}focus_norm={focusPercent:F1}%{Environment.NewLine}overload={(snapshot.OverloadLikelihood * 100d):F1}%{Environment.NewLine}trust={(snapshot.Confidence * 100d):F1}%{Environment.NewLine}focus_reason={LocalAttentionSegmentAnalytics.ResolveFocusEpisodeReasonText(snapshot)}{Environment.NewLine}attention_reason={LocalAttentionSegmentAnalytics.ResolveAttentionSegmentReasonText(snapshot)}";
         }
 
-        return $"{time}{Environment.NewLine}Focus block {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}{Environment.NewLine}Pressure {(snapshot.OverloadLikelihood * 100d):F0}%{Environment.NewLine}Confidence {(snapshot.Confidence * 100d):F0}%";
+        return $"{time}{Environment.NewLine}Focus block {FormatFocusedTime(snapshot.SustainedAttentionDurationSec)}{Environment.NewLine}Pressure {(snapshot.OverloadLikelihood * 100d):F0}%{Environment.NewLine}Confidence {(snapshot.Confidence * 100d):F0}%{Environment.NewLine}Focus {LocalAttentionSegmentAnalytics.ResolveFocusEpisodeReasonText(snapshot)}{Environment.NewLine}Attention {LocalAttentionSegmentAnalytics.ResolveAttentionSegmentReasonText(snapshot)}";
     }
 
     private UIElement BuildTrackPoint(

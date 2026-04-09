@@ -69,8 +69,12 @@ public sealed class StateBucketJsonContractsTests
             continuityInstabilitySeconds: 125d,
             attentionSegmentKind: "fragmentation_distraction",
             attentionSegmentSeconds: 125d,
+            attentionSegmentReasonCode: "fragmentation_distraction",
+            attentionSegmentReasonText: "Rapid switching / fragmentation for 2m 5s.",
             distractionEpisodeActive: true,
             distractionEpisodeSeconds: 125d,
+            focusEpisodeReasonCode: "instability_reset",
+            focusEpisodeReasonText: "Sustained instability ended the focus episode after 2m 5s.",
             signalQualityScore: 0.90d,
             modelConfidence: 0.91d,
             overloadInferenceSource: "bucket_finalizer",
@@ -131,8 +135,12 @@ public sealed class StateBucketJsonContractsTests
         Assert.Equal(125d, root.GetProperty("continuity_instability_seconds").GetDouble(), precision: 6);
         Assert.Equal("fragmentation_distraction", root.GetProperty("attention_segment_kind").GetString());
         Assert.Equal(125d, root.GetProperty("attention_segment_seconds").GetDouble(), precision: 6);
+        Assert.Equal("fragmentation_distraction", root.GetProperty("attention_segment_reason_code").GetString());
+        Assert.Equal("Rapid switching / fragmentation for 2m 5s.", root.GetProperty("attention_segment_reason_text").GetString());
         Assert.Equal(1, root.GetProperty("distraction_episode_active").GetInt32());
         Assert.Equal(125d, root.GetProperty("distraction_episode_seconds").GetDouble(), precision: 6);
+        Assert.Equal("instability_reset", root.GetProperty("focus_episode_reason_code").GetString());
+        Assert.Equal("Sustained instability ended the focus episode after 2m 5s.", root.GetProperty("focus_episode_reason_text").GetString());
         Assert.Equal(0.72d, root.GetProperty("behavior_continuity_score").GetDouble(), precision: 6);
         Assert.Equal(0.90d, root.GetProperty("signal_quality_score").GetDouble(), precision: 6);
         Assert.Equal(0.91d, root.GetProperty("model_confidence").GetDouble(), precision: 6);

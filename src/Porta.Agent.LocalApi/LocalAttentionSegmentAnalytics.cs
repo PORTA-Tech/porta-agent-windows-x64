@@ -4,6 +4,8 @@ namespace Porta.Agent.LocalApi;
 
 public static class LocalAttentionSegmentAnalytics
 {
+    public const string SteadyFocusReasonCode = "steady_focus";
+    public const string FocusEpisodeActiveReasonCode = "focus_episode_active";
     public const string FocusSegmentKind = "focus";
     public const string ContextExcursionSegmentKind = "context_excursion";
     public const string OffTaskDistractionSegmentKind = "off_task_distraction";
@@ -76,6 +78,110 @@ public static class LocalAttentionSegmentAnalytics
     public static bool IsContextExcursionSegment(LocalApiCurrentSnapshotResponse snapshot) =>
         string.Equals(ResolveAttentionSegmentKind(snapshot), ContextExcursionSegmentKind, StringComparison.Ordinal);
 
+    public static string ResolveAttentionSegmentReasonCode(LocalApiCurrentSnapshotResponse snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        string explicitCode = NormalizeReasonCode(snapshot.AttentionSegmentReasonCode);
+        if (!string.IsNullOrWhiteSpace(explicitCode))
+        {
+            return explicitCode;
+        }
+
+        string fromFlags = NormalizeReasonCode(ReadStringFlag(snapshot.StateFlagsJson, "attention_segment_reason_code"));
+        if (!string.IsNullOrWhiteSpace(fromFlags))
+        {
+            return fromFlags;
+        }
+
+        return ResolveAttentionSegmentKind(snapshot) switch
+        {
+            AwaySegmentKind => "away",
+            ContextExcursionSegmentKind => "context_excursion",
+            OffTaskDistractionSegmentKind => "outside_focus_context",
+            FragmentationDistractionSegmentKind => "fragmentation_distraction",
+            _ => SteadyFocusReasonCode
+        };
+    }
+
+    public static string ResolveAttentionSegmentReasonText(LocalApiCurrentSnapshotResponse snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        string? explicitText = NormalizeReasonText(snapshot.AttentionSegmentReasonText);
+        if (!string.IsNullOrWhiteSpace(explicitText))
+        {
+            return explicitText;
+        }
+
+        string? fromFlags = NormalizeReasonText(ReadStringFlag(snapshot.StateFlagsJson, "attention_segment_reason_text"));
+        if (!string.IsNullOrWhiteSpace(fromFlags))
+        {
+            return fromFlags;
+        }
+
+        string kind = ResolveAttentionSegmentKind(snapshot);
+        double seconds = ResolveAttentionSegmentSeconds(snapshot);
+        return kind switch
+        {
+            AwaySegmentKind => $"Away for {FormatEpisodeDuration(seconds)}.",
+            ContextExcursionSegmentKind => $"Outside focus context for {FormatEpisodeDuration(seconds)}.",
+            OffTaskDistractionSegmentKind => $"Stayed outside focus context for {FormatEpisodeDuration(ResolveDistractionEpisodeSeconds(snapshot))}.",
+            FragmentationDistractionSegmentKind => $"Rapid switching / fragmentation for {FormatEpisodeDuration(ResolveDistractionEpisodeSeconds(snapshot))}.",
+            _ => "Steady focus episode."
+        };
+    }
+
+    public static string ResolveFocusEpisodeReasonCode(LocalApiCurrentSnapshotResponse snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        string explicitCode = NormalizeReasonCode(snapshot.FocusEpisodeReasonCode);
+        if (!string.IsNullOrWhiteSpace(explicitCode))
+        {
+            return explicitCode;
+        }
+
+        string fromFlags = NormalizeReasonCode(ReadStringFlag(snapshot.StateFlagsJson, "focus_episode_reason_code"));
+        if (!string.IsNullOrWhiteSpace(fromFlags))
+        {
+            return fromFlags;
+        }
+
+        return snapshot.FocusEpisodeState?.Trim().ToLowerInvariant() switch
+        {
+            "reset" => "focus_episode_reset",
+            "pause" => "focus_episode_paused",
+            "decay" => "focus_episode_decay",
+            _ => FocusEpisodeActiveReasonCode
+        };
+    }
+
+    public static string ResolveFocusEpisodeReasonText(LocalApiCurrentSnapshotResponse snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        string? explicitText = NormalizeReasonText(snapshot.FocusEpisodeReasonText);
+        if (!string.IsNullOrWhiteSpace(explicitText))
+        {
+            return explicitText;
+        }
+
+        string? fromFlags = NormalizeReasonText(ReadStringFlag(snapshot.StateFlagsJson, "focus_episode_reason_text"));
+        if (!string.IsNullOrWhiteSpace(fromFlags))
+        {
+            return fromFlags;
+        }
+
+        return snapshot.FocusEpisodeState?.Trim().ToLowerInvariant() switch
+        {
+            "reset" => "Focus episode ended.",
+            "pause" => "Focus episode is paused.",
+            "decay" => "Focus episode is fading.",
+            _ => "Focus episode active."
+        };
+    }
+
     public static string NormalizeAttentionSegmentKind(string? value) =>
         value?.Trim().ToLowerInvariant() switch
         {
@@ -85,6 +191,39 @@ public static class LocalAttentionSegmentAnalytics
             AwaySegmentKind => AwaySegmentKind,
             _ => FocusSegmentKind
         };
+
+    public static string NormalizeReasonCode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return value.Trim().Replace('-', '_').ToLowerInvariant();
+    }
+
+    private static string? NormalizeReasonText(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string FormatEpisodeDuration(double seconds)
+    {
+        double clampedSeconds = Math.Max(0d, seconds);
+        if (clampedSeconds < 60d)
+        {
+            return $"{Math.Round(clampedSeconds, MidpointRounding.AwayFromZero)}s";
+        }
+
+        int totalSeconds = (int)Math.Round(clampedSeconds, MidpointRounding.AwayFromZero);
+        int hours = totalSeconds / 3600;
+        int minutes = (totalSeconds % 3600) / 60;
+        int secs = totalSeconds % 60;
+        if (hours > 0)
+        {
+            return minutes > 0 ? $"{hours}h {minutes}m" : $"{hours}h";
+        }
+
+        return secs > 0 && minutes < 3 ? $"{minutes}m {secs}s" : $"{minutes}m";
+    }
 
     private static string? ReadStringFlag(string? json, string name)
     {

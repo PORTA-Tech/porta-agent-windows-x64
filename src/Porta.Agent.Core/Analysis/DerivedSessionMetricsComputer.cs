@@ -23,7 +23,11 @@ internal readonly record struct DerivedSessionMetricsResult(
     string AttentionSegmentKind = "focus",
     double AttentionSegmentSeconds = 0d,
     bool DistractionEpisodeActive = false,
-    double DistractionEpisodeSeconds = 0d);
+    double DistractionEpisodeSeconds = 0d,
+    string AttentionSegmentReasonCode = "steady_focus",
+    string AttentionSegmentReasonText = "Steady focus episode.",
+    string FocusEpisodeReasonCode = "focus_episode_active",
+    string FocusEpisodeReasonText = "Focus episode active.");
 
 internal static class DerivedSessionMetricsComputer
 {
@@ -58,6 +62,7 @@ internal static class DerivedSessionMetricsComputer
             continuity.State,
             continuity.IdlePauseSeconds);
         AttentionSegmentDecision attentionSegment = EvaluateAttentionSegment(bucket, evidence, continuity);
+        EpisodeReason focusEpisodeReason = ResolveFocusEpisodeReason(continuity, attentionSegment);
         return new DerivedSessionMetricsResult(
             SustainedAttentionDurationSec: ClampNonNegativeFinite(continuity.TaskContinuitySeconds),
             IdleFragmentationIndex: Clamp01(idleFragmentation),
@@ -76,7 +81,11 @@ internal static class DerivedSessionMetricsComputer
             AttentionSegmentKind: attentionSegment.Kind,
             AttentionSegmentSeconds: attentionSegment.SegmentSeconds,
             DistractionEpisodeActive: attentionSegment.DistractionEpisodeActive,
-            DistractionEpisodeSeconds: attentionSegment.DistractionEpisodeSeconds);
+            DistractionEpisodeSeconds: attentionSegment.DistractionEpisodeSeconds,
+            AttentionSegmentReasonCode: attentionSegment.ReasonCode,
+            AttentionSegmentReasonText: attentionSegment.ReasonText,
+            FocusEpisodeReasonCode: focusEpisodeReason.Code,
+            FocusEpisodeReasonText: focusEpisodeReason.Text);
     }
 
     private static ChannelEvidence ResolveChannelEvidence(InputBucketRow bucket, PrimitiveComputationResult primitive)
@@ -567,7 +576,9 @@ internal static class DerivedSessionMetricsComputer
                 Kind: "away",
                 SegmentSeconds: ClampNonNegativeFinite(awaySeconds),
                 DistractionEpisodeActive: false,
-                DistractionEpisodeSeconds: 0d);
+                DistractionEpisodeSeconds: 0d,
+                ReasonCode: "away",
+                ReasonText: $"Away for {FormatEpisodeDuration(awaySeconds)}.");
         }
 
         bool contextExcursion = string.Equals(reasonCode, "context_excursion", StringComparison.Ordinal)
@@ -582,7 +593,11 @@ internal static class DerivedSessionMetricsComputer
                 Kind: offTaskDistraction ? "off_task_distraction" : "context_excursion",
                 SegmentSeconds: ClampNonNegativeFinite(segmentSeconds),
                 DistractionEpisodeActive: offTaskDistraction,
-                DistractionEpisodeSeconds: offTaskDistraction ? ClampNonNegativeFinite(segmentSeconds) : 0d);
+                DistractionEpisodeSeconds: offTaskDistraction ? ClampNonNegativeFinite(segmentSeconds) : 0d,
+                ReasonCode: offTaskDistraction ? "outside_focus_context" : "context_excursion",
+                ReasonText: offTaskDistraction
+                    ? $"Stayed outside focus context for {FormatEpisodeDuration(segmentSeconds)}."
+                    : $"Outside focus context for {FormatEpisodeDuration(segmentSeconds)}.");
         }
 
         bool instabilityPhase = string.Equals(reasonCode, "focus_unstable", StringComparison.Ordinal)
@@ -601,14 +616,103 @@ internal static class DerivedSessionMetricsComputer
                 Kind: fragmentationDistraction ? "fragmentation_distraction" : "focus",
                 SegmentSeconds: fragmentationDistraction ? ClampNonNegativeFinite(segmentSeconds) : 0d,
                 DistractionEpisodeActive: fragmentationDistraction,
-                DistractionEpisodeSeconds: fragmentationDistraction ? ClampNonNegativeFinite(segmentSeconds) : 0d);
+                DistractionEpisodeSeconds: fragmentationDistraction ? ClampNonNegativeFinite(segmentSeconds) : 0d,
+                ReasonCode: fragmentationDistraction ? "fragmentation_distraction" : "brief_instability",
+                ReasonText: fragmentationDistraction
+                    ? $"Rapid switching / fragmentation for {FormatEpisodeDuration(segmentSeconds)}."
+                    : $"Brief switching instability for {FormatEpisodeDuration(segmentSeconds)}.");
         }
 
         return new AttentionSegmentDecision(
             Kind: "focus",
             SegmentSeconds: 0d,
             DistractionEpisodeActive: false,
-            DistractionEpisodeSeconds: 0d);
+            DistractionEpisodeSeconds: 0d,
+            ReasonCode: ResolveSteadyFocusReasonCode(continuity.ReasonCode),
+            ReasonText: ResolveSteadyFocusReasonText(continuity.ReasonCode));
+    }
+
+    private static EpisodeReason ResolveFocusEpisodeReason(
+        TaskContinuityDecision continuity,
+        AttentionSegmentDecision attentionSegment)
+    {
+        return continuity.ReasonCode switch
+        {
+            "" => new EpisodeReason("focus_episode_active", "Focus episode active."),
+            "focus_settling" => new EpisodeReason("focus_settling", "Focus episode is settling before Ari starts the timer."),
+            "passive_focus" => new EpisodeReason("passive_focus", "Focus episode is continuing through a reading or thinking pause."),
+            "short_pause" => new EpisodeReason("thinking_pause", "Focus episode is paused during a short reading or thinking pause."),
+            "pause_decay" => new EpisodeReason("extended_pause", $"Focus episode is fading after {FormatEpisodeDuration(continuity.IdlePauseSeconds)} of quiet time."),
+            "idle_unstable" => new EpisodeReason("unstable_idle", "Focus episode is paused because the idle pattern is unstable."),
+            "focus_unavailable" => new EpisodeReason("focus_context_missing", "Focus episode is paused because Ari cannot confirm the focus context."),
+            "focus_unavailable_decay" => new EpisodeReason("focus_context_missing_decay", "Focus episode is fading because Ari cannot confirm the focus context."),
+            "context_excursion" => new EpisodeReason("context_excursion", $"Focus episode is holding during a short context excursion ({FormatEpisodeDuration(continuity.ContextSwitchSeconds)})."),
+            "context_excursion_decay" => new EpisodeReason("context_excursion_decay", $"Focus episode is decaying after {FormatEpisodeDuration(continuity.ContextSwitchSeconds)} outside the focus context."),
+            "context_shift_reset" => new EpisodeReason("major_context_shift", $"Major context shift ended the focus episode after {FormatEpisodeDuration(continuity.ContextSwitchSeconds)} outside the focus context."),
+            "focus_unstable" => new EpisodeReason("focus_unstable", $"Focus episode is paused because switching has been unstable for {FormatEpisodeDuration(continuity.InstabilitySeconds)}."),
+            "focus_instability" => new EpisodeReason("focus_instability", $"Focus episode is decaying because switching has stayed unstable for {FormatEpisodeDuration(continuity.InstabilitySeconds)}."),
+            "instability_reset" => new EpisodeReason("instability_reset", $"Sustained instability ended the focus episode after {FormatEpisodeDuration(continuity.InstabilitySeconds)}."),
+            "long_break" => new EpisodeReason("long_break", $"Long break ended the focus episode after {FormatEpisodeDuration(attentionSegment.SegmentSeconds)} away."),
+            _ => new EpisodeReason(NormalizeReasonCode(continuity.ReasonCode, fallback: "focus_episode_state"), "Focus episode state changed.")
+        };
+    }
+
+    private static string ResolveSteadyFocusReasonCode(string? continuityReasonCode)
+    {
+        return continuityReasonCode switch
+        {
+            "focus_settling" => "focus_settling",
+            "passive_focus" => "passive_focus",
+            "short_pause" => "thinking_pause",
+            "focus_unavailable" => "focus_context_missing",
+            _ => "steady_focus"
+        };
+    }
+
+    private static string ResolveSteadyFocusReasonText(string? continuityReasonCode)
+    {
+        return continuityReasonCode switch
+        {
+            "focus_settling" => "Focus episode is settling before Ari starts the timer.",
+            "passive_focus" => "Reading or thinking pause inside the focus episode.",
+            "short_pause" => "Short thinking pause inside the focus episode.",
+            "focus_unavailable" => "Focus context unavailable; Ari is preserving the last known focus episode.",
+            _ => "Steady focus episode."
+        };
+    }
+
+    private static string NormalizeReasonCode(string? value, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        return value.Trim().Replace('-', '_').ToLowerInvariant();
+    }
+
+    private static string FormatEpisodeDuration(double seconds)
+    {
+        double clampedSeconds = ClampNonNegativeFinite(seconds);
+        if (clampedSeconds < 60d)
+        {
+            return $"{Math.Round(clampedSeconds, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture)}s";
+        }
+
+        int totalSeconds = (int)Math.Round(clampedSeconds, MidpointRounding.AwayFromZero);
+        int hours = totalSeconds / 3600;
+        int minutes = (totalSeconds % 3600) / 60;
+        int secs = totalSeconds % 60;
+        if (hours > 0)
+        {
+            return minutes > 0
+                ? $"{hours.ToString(CultureInfo.InvariantCulture)}h {minutes.ToString(CultureInfo.InvariantCulture)}m"
+                : $"{hours.ToString(CultureInfo.InvariantCulture)}h";
+        }
+
+        return secs > 0 && minutes < 3
+            ? $"{minutes.ToString(CultureInfo.InvariantCulture)}m {secs.ToString(CultureInfo.InvariantCulture)}s"
+            : $"{minutes.ToString(CultureInfo.InvariantCulture)}m";
     }
 
     private static double ComputeIdleFragmentationIndex(
@@ -870,7 +974,13 @@ internal static class DerivedSessionMetricsComputer
         string Kind,
         double SegmentSeconds,
         bool DistractionEpisodeActive,
-        double DistractionEpisodeSeconds);
+        double DistractionEpisodeSeconds,
+        string ReasonCode,
+        string ReasonText);
+
+    private readonly record struct EpisodeReason(
+        string Code,
+        string Text);
 
     private static double ResolveContinuityScore(string state)
     {

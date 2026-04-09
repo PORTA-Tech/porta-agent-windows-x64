@@ -74,11 +74,20 @@ internal sealed class MachineSummaryMapper
         string? orgId = IsLinked(identityLink) ? identityLink.OrgId : null;
         string attentionSegmentKind = ResolveAttentionSegmentKind(latestState?.StateFlagsJson);
         double attentionSegmentSeconds = ResolveAttentionSegmentSeconds(latestState?.StateFlagsJson);
+        string attentionSegmentReasonCode = ResolveAttentionSegmentReasonCode(latestState?.StateFlagsJson, attentionSegmentKind);
+        string attentionSegmentReasonText = ResolveAttentionSegmentReasonText(
+            latestState?.StateFlagsJson,
+            attentionSegmentKind,
+            attentionSegmentSeconds);
         bool distractionEpisodeActive = ResolveDistractionEpisodeActive(latestState?.StateFlagsJson, attentionSegmentKind);
         double distractionEpisodeSeconds = ResolveDistractionEpisodeSeconds(
             latestState?.StateFlagsJson,
             distractionEpisodeActive,
             attentionSegmentSeconds);
+        string focusEpisodeReasonCode = ResolveFocusEpisodeReasonCode(latestState?.StateFlagsJson, continuityState);
+        string focusEpisodeReasonText = ResolveFocusEpisodeReasonText(
+            latestState?.StateFlagsJson,
+            continuityState);
 
         return new MachineSummaryReportPayload(
             DeviceId: identityLink.DeviceId,
@@ -114,8 +123,12 @@ internal sealed class MachineSummaryMapper
             FocusEpisodeQuality: taskContinuityScore,
             FocusEpisodeSeconds: taskContinuitySeconds,
             FocusEpisodeState: continuityState,
+            FocusEpisodeReasonCode: focusEpisodeReasonCode,
+            FocusEpisodeReasonText: focusEpisodeReasonText,
             AttentionSegmentKind: attentionSegmentKind,
             AttentionSegmentSeconds: attentionSegmentSeconds,
+            AttentionSegmentReasonCode: attentionSegmentReasonCode,
+            AttentionSegmentReasonText: attentionSegmentReasonText,
             DistractionEpisodeActive: distractionEpisodeActive,
             DistractionEpisodeSeconds: distractionEpisodeSeconds,
             TaskContinuityScore: taskContinuityScore,
@@ -186,6 +199,45 @@ internal sealed class MachineSummaryMapper
     private static double ResolveAttentionSegmentSeconds(string? stateFlagsJson) =>
         Math.Max(0d, ReadDoubleFlag(stateFlagsJson, "attention_segment_seconds"));
 
+    private static string ResolveAttentionSegmentReasonCode(string? stateFlagsJson, string attentionSegmentKind)
+    {
+        string explicitCode = NormalizeReasonCode(ReadStringFlag(stateFlagsJson, "attention_segment_reason_code"));
+        if (!string.IsNullOrWhiteSpace(explicitCode))
+        {
+            return explicitCode;
+        }
+
+        return attentionSegmentKind switch
+        {
+            "away" => "away",
+            "context_excursion" => "context_excursion",
+            "off_task_distraction" => "outside_focus_context",
+            "fragmentation_distraction" => "fragmentation_distraction",
+            _ => "steady_focus"
+        };
+    }
+
+    private static string ResolveAttentionSegmentReasonText(
+        string? stateFlagsJson,
+        string attentionSegmentKind,
+        double attentionSegmentSeconds)
+    {
+        string? explicitText = ReadStringFlag(stateFlagsJson, "attention_segment_reason_text");
+        if (!string.IsNullOrWhiteSpace(explicitText))
+        {
+            return explicitText.Trim();
+        }
+
+        return attentionSegmentKind switch
+        {
+            "away" => $"Away for {FormatEpisodeDuration(attentionSegmentSeconds)}.",
+            "context_excursion" => $"Outside focus context for {FormatEpisodeDuration(attentionSegmentSeconds)}.",
+            "off_task_distraction" => $"Stayed outside focus context for {FormatEpisodeDuration(attentionSegmentSeconds)}.",
+            "fragmentation_distraction" => $"Rapid switching / fragmentation for {FormatEpisodeDuration(attentionSegmentSeconds)}.",
+            _ => "Steady focus episode."
+        };
+    }
+
     private static bool ResolveDistractionEpisodeActive(string? stateFlagsJson, string attentionSegmentKind)
     {
         if (TryReadBoolFlag(stateFlagsJson, "distraction_episode_active", out bool active))
@@ -211,6 +263,40 @@ internal sealed class MachineSummaryMapper
         return distractionEpisodeActive ? attentionSegmentSeconds : 0d;
     }
 
+    private static string ResolveFocusEpisodeReasonCode(string? stateFlagsJson, string continuityState)
+    {
+        string explicitCode = NormalizeReasonCode(ReadStringFlag(stateFlagsJson, "focus_episode_reason_code"));
+        if (!string.IsNullOrWhiteSpace(explicitCode))
+        {
+            return explicitCode;
+        }
+
+        return continuityState switch
+        {
+            "reset" => "focus_episode_reset",
+            "pause" => "focus_episode_paused",
+            "decay" => "focus_episode_decay",
+            _ => "focus_episode_active"
+        };
+    }
+
+    private static string ResolveFocusEpisodeReasonText(string? stateFlagsJson, string continuityState)
+    {
+        string? explicitText = ReadStringFlag(stateFlagsJson, "focus_episode_reason_text");
+        if (!string.IsNullOrWhiteSpace(explicitText))
+        {
+            return explicitText.Trim();
+        }
+
+        return continuityState switch
+        {
+            "reset" => "Focus episode ended.",
+            "pause" => "Focus episode is paused.",
+            "decay" => "Focus episode is fading.",
+            _ => "Focus episode active."
+        };
+    }
+
     private static string NormalizeAttentionSegmentKind(string? value) =>
         value?.Trim().ToLowerInvariant() switch
         {
@@ -220,6 +306,30 @@ internal sealed class MachineSummaryMapper
             "away" => "away",
             _ => "focus"
         };
+
+    private static string NormalizeReasonCode(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : value.Trim().Replace('-', '_').ToLowerInvariant();
+
+    private static string FormatEpisodeDuration(double seconds)
+    {
+        int totalSeconds = Math.Max(0, (int)Math.Round(seconds, MidpointRounding.AwayFromZero));
+        if (totalSeconds < 60)
+        {
+            return $"{totalSeconds}s";
+        }
+
+        int hours = totalSeconds / 3600;
+        int minutes = (totalSeconds % 3600) / 60;
+        int secs = totalSeconds % 60;
+        if (hours > 0)
+        {
+            return minutes > 0 ? $"{hours}h {minutes}m" : $"{hours}h";
+        }
+
+        return secs > 0 && minutes < 3 ? $"{minutes}m {secs}s" : $"{minutes}m";
+    }
 
     private static bool TryReadBoolFlag(string? json, string name, out bool value)
     {

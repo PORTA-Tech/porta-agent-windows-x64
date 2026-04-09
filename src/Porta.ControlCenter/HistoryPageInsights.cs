@@ -11,6 +11,8 @@ internal sealed record HistoryPageInsights(
     double TrackedSeconds,
     double LongestFocusBlockSeconds,
     string MostDistractedPeriodLabel,
+    string LatestAttentionReasonText,
+    string LatestFocusEpisodeReasonText,
     int ActionMarkerCount,
     int SuggestionCount,
     int ChangeCount);
@@ -33,6 +35,8 @@ internal static class HistoryPageInsightsBuilder
                 TrackedSeconds: 0d,
                 LongestFocusBlockSeconds: 0d,
                 MostDistractedPeriodLabel: NotAvailableText,
+                LatestAttentionReasonText: string.Empty,
+                LatestFocusEpisodeReasonText: string.Empty,
                 ActionMarkerCount: 0,
                 SuggestionCount: 0,
                 ChangeCount: 0);
@@ -65,6 +69,7 @@ internal static class HistoryPageInsightsBuilder
 
         double longestFocusBlockSeconds = snapshots.Max(static snapshot => Math.Max(0d, snapshot.SustainedAttentionDurationSec));
         string mostDistractedPeriodLabel = ComputeMostDistractedPeriodLabel(snapshots, bucketSeconds);
+        LocalApiCurrentSnapshotResponse latestSnapshot = snapshots[^1];
         int suggestionCount = timeline.Interventions.Count(static intervention => IsSuggestionEvent(intervention.Action));
         int changeCount = timeline.Interventions.Count(static intervention => IsSystemChangeEvent(intervention));
 
@@ -77,6 +82,8 @@ internal static class HistoryPageInsightsBuilder
             TrackedSeconds: trackedSeconds,
             LongestFocusBlockSeconds: longestFocusBlockSeconds,
             MostDistractedPeriodLabel: mostDistractedPeriodLabel,
+            LatestAttentionReasonText: LocalAttentionSegmentAnalytics.ResolveAttentionSegmentReasonText(latestSnapshot),
+            LatestFocusEpisodeReasonText: LocalAttentionSegmentAnalytics.ResolveFocusEpisodeReasonText(latestSnapshot),
             ActionMarkerCount: timeline.Interventions.Count,
             SuggestionCount: suggestionCount,
             ChangeCount: changeCount);

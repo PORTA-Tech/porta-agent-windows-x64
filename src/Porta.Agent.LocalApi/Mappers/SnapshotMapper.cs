@@ -50,6 +50,39 @@ internal static class SnapshotMapper
             normalizedStateFlagsJson,
             "distraction_episode_seconds",
             fallback: distractionEpisodeActive ? attentionSegmentSeconds : 0d);
+        string attentionSegmentReasonCode = LocalAttentionSegmentAnalytics.NormalizeReasonCode(
+            ReadStringFlag(normalizedStateFlagsJson, "attention_segment_reason_code", fallback: LocalAttentionSegmentAnalytics.SteadyFocusReasonCode));
+        string attentionSegmentReasonText = ReadStringFlag(
+            normalizedStateFlagsJson,
+            "attention_segment_reason_text",
+            fallback: string.Empty);
+        string focusEpisodeReasonCode = LocalAttentionSegmentAnalytics.NormalizeReasonCode(
+            ReadStringFlag(normalizedStateFlagsJson, "focus_episode_reason_code", fallback: LocalAttentionSegmentAnalytics.FocusEpisodeActiveReasonCode));
+        string focusEpisodeReasonText = ReadStringFlag(
+            normalizedStateFlagsJson,
+            "focus_episode_reason_text",
+            fallback: string.Empty);
+        if (string.IsNullOrWhiteSpace(attentionSegmentReasonText))
+        {
+            attentionSegmentReasonText = attentionSegmentKind switch
+            {
+                LocalAttentionSegmentAnalytics.AwaySegmentKind => $"Away for {FormatEpisodeDuration(attentionSegmentSeconds)}.",
+                LocalAttentionSegmentAnalytics.ContextExcursionSegmentKind => $"Outside focus context for {FormatEpisodeDuration(attentionSegmentSeconds)}.",
+                LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind => $"Stayed outside focus context for {FormatEpisodeDuration(distractionEpisodeSeconds > 0d ? distractionEpisodeSeconds : attentionSegmentSeconds)}.",
+                LocalAttentionSegmentAnalytics.FragmentationDistractionSegmentKind => $"Rapid switching / fragmentation for {FormatEpisodeDuration(distractionEpisodeSeconds > 0d ? distractionEpisodeSeconds : attentionSegmentSeconds)}.",
+                _ => "Steady focus episode."
+            };
+        }
+        if (string.IsNullOrWhiteSpace(focusEpisodeReasonText))
+        {
+            focusEpisodeReasonText = continuityState switch
+            {
+                "reset" => "Focus episode ended.",
+                "pause" => "Focus episode is paused.",
+                "decay" => "Focus episode is fading.",
+                _ => "Focus episode active."
+            };
+        }
         double signalQualityScore = ReadDoubleFlag(
             normalizedStateFlagsJson,
             "signal_quality_score",
@@ -144,7 +177,11 @@ internal static class SnapshotMapper
             AttentionSegmentKind: attentionSegmentKind,
             AttentionSegmentSeconds: attentionSegmentSeconds,
             DistractionEpisodeActive: distractionEpisodeActive,
-            DistractionEpisodeSeconds: distractionEpisodeSeconds);
+            DistractionEpisodeSeconds: distractionEpisodeSeconds,
+            AttentionSegmentReasonCode: attentionSegmentReasonCode,
+            AttentionSegmentReasonText: attentionSegmentReasonText,
+            FocusEpisodeReasonCode: focusEpisodeReasonCode,
+            FocusEpisodeReasonText: focusEpisodeReasonText);
     }
 
     private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(string? stateFlagsJson)
@@ -176,6 +213,25 @@ internal static class SnapshotMapper
         }
 
         return (int)Math.Ceiling((untilUtcMs - nowUtcMs) / 1000d);
+    }
+
+    private static string FormatEpisodeDuration(double seconds)
+    {
+        int totalSeconds = Math.Max(0, (int)Math.Round(seconds, MidpointRounding.AwayFromZero));
+        if (totalSeconds < 60)
+        {
+            return $"{totalSeconds}s";
+        }
+
+        int hours = totalSeconds / 3600;
+        int minutes = (totalSeconds % 3600) / 60;
+        int secs = totalSeconds % 60;
+        if (hours > 0)
+        {
+            return minutes > 0 ? $"{hours}h {minutes}m" : $"{hours}h";
+        }
+
+        return secs > 0 && minutes < 3 ? $"{minutes}m {secs}s" : $"{minutes}m";
     }
 
     private static long ReadInt64Flag(string? json, params string[] names)

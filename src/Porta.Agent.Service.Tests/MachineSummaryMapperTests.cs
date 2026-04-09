@@ -132,8 +132,12 @@ public sealed class MachineSummaryMapperTests
         Assert.Equal(0.88, payload.FocusEpisodeQuality);
         Assert.Equal(1800, payload.FocusEpisodeSeconds);
         Assert.Equal("keep", payload.FocusEpisodeState);
+        Assert.Equal("focus_episode_active", payload.FocusEpisodeReasonCode);
+        Assert.Equal("Focus episode active.", payload.FocusEpisodeReasonText);
         Assert.Equal("fragmentation_distraction", payload.AttentionSegmentKind);
         Assert.Equal(300d, payload.AttentionSegmentSeconds);
+        Assert.Equal("fragmentation_distraction", payload.AttentionSegmentReasonCode);
+        Assert.Equal("Rapid switching / fragmentation for 5m.", payload.AttentionSegmentReasonText);
         Assert.True(payload.DistractionEpisodeActive);
         Assert.Equal(300d, payload.DistractionEpisodeSeconds);
         Assert.True(payload.BreakNeeded);

@@ -34,6 +34,10 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.Equal("keep", result.ContinuityState);
         Assert.Equal(1d, result.TaskContinuityScore, precision: 6);
         Assert.Equal(string.Empty, result.SaFreezeReason);
+        Assert.Equal("steady_focus", result.AttentionSegmentReasonCode);
+        Assert.Equal("Steady focus episode.", result.AttentionSegmentReasonText);
+        Assert.Equal("focus_episode_active", result.FocusEpisodeReasonCode);
+        Assert.Equal("Focus episode active.", result.FocusEpisodeReasonText);
         Assert.False(result.SaUntrusted);
     }
 
@@ -265,6 +269,8 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.Equal("context_excursion", result.SaFreezeReason);
         Assert.Equal("app_hash_other", result.DominantAppHash);
         Assert.Equal("context_excursion", result.AttentionSegmentKind);
+        Assert.Equal("Outside focus context for 5s.", result.AttentionSegmentReasonText);
+        Assert.Equal("Focus episode is holding during a short context excursion (5s).", result.FocusEpisodeReasonText);
         Assert.False(result.DistractionEpisodeActive);
         Assert.False(result.SaUntrusted);
     }
@@ -430,6 +436,10 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.Equal("reset", result.ContinuityState);
         Assert.Equal("long_break", result.SaFreezeReason);
         Assert.Equal("away", result.AttentionSegmentKind);
+        Assert.Equal("away", result.AttentionSegmentReasonCode);
+        Assert.Equal("Away for 5m.", result.AttentionSegmentReasonText);
+        Assert.Equal("long_break", result.FocusEpisodeReasonCode);
+        Assert.Equal("Long break ended the focus episode after 5m away.", result.FocusEpisodeReasonText);
         Assert.False(result.DistractionEpisodeActive);
         Assert.True(result.AttentionSegmentSeconds >= 305d);
     }
@@ -463,6 +473,8 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.Equal("off_task_distraction", result.AttentionSegmentKind);
         Assert.True(result.DistractionEpisodeActive);
         Assert.Equal(95d, result.DistractionEpisodeSeconds, precision: 6);
+        Assert.Equal("outside_focus_context", result.AttentionSegmentReasonCode);
+        Assert.Equal("Stayed outside focus context for 1m 35s.", result.AttentionSegmentReasonText);
     }
 
     [Fact]
@@ -496,6 +508,8 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.Equal("fragmentation_distraction", result.AttentionSegmentKind);
         Assert.True(result.DistractionEpisodeActive);
         Assert.True(result.DistractionEpisodeSeconds >= 125d);
+        Assert.Equal("fragmentation_distraction", result.AttentionSegmentReasonCode);
+        Assert.Equal("Rapid switching / fragmentation for 2m 5s.", result.AttentionSegmentReasonText);
     }
 
     [Fact]

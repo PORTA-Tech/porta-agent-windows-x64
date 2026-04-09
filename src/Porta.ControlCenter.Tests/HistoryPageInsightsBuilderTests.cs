@@ -17,8 +17,8 @@ public sealed class HistoryPageInsightsBuilderTests
             Snapshots:
             [
                 BuildSnapshot(baseUtc, focusStrength: 0.90d, sustainedAttentionSeconds: 900d, attentionSegmentKind: LocalAttentionSegmentAnalytics.FocusSegmentKind),
-                BuildSnapshot(baseUtc.AddMinutes(5), focusStrength: 0.30d, sustainedAttentionSeconds: 240d, attentionSegmentKind: LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind, distractionEpisodeActive: true, distractionEpisodeSeconds: 300d),
-                BuildSnapshot(baseUtc.AddMinutes(10), focusStrength: 0.20d, sustainedAttentionSeconds: 120d, attentionSegmentKind: LocalAttentionSegmentAnalytics.AwaySegmentKind)
+                BuildSnapshot(baseUtc.AddMinutes(5), focusStrength: 0.30d, sustainedAttentionSeconds: 240d, attentionSegmentKind: LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind, distractionEpisodeActive: true, distractionEpisodeSeconds: 300d, attentionSegmentReasonText: "Stayed outside focus context for 5m."),
+                BuildSnapshot(baseUtc.AddMinutes(10), focusStrength: 0.20d, sustainedAttentionSeconds: 120d, attentionSegmentKind: LocalAttentionSegmentAnalytics.AwaySegmentKind, attentionSegmentReasonText: "Away for 5m.", focusEpisodeReasonText: "Long break ended the focus episode after 5m away.")
             ],
             Interventions:
             [
@@ -39,6 +39,8 @@ public sealed class HistoryPageInsightsBuilderTests
         Assert.Equal(1, insights.SuggestionCount);
         Assert.Equal(1, insights.ChangeCount);
         Assert.Equal("afternoon", insights.MostDistractedPeriodLabel);
+        Assert.Equal("Away for 5m.", insights.LatestAttentionReasonText);
+        Assert.Equal("Long break ended the focus episode after 5m away.", insights.LatestFocusEpisodeReasonText);
     }
 
     [Fact]
@@ -62,7 +64,9 @@ public sealed class HistoryPageInsightsBuilderTests
         double sustainedAttentionSeconds,
         string attentionSegmentKind = LocalAttentionSegmentAnalytics.FocusSegmentKind,
         bool distractionEpisodeActive = false,
-        double distractionEpisodeSeconds = 0d)
+        double distractionEpisodeSeconds = 0d,
+        string? attentionSegmentReasonText = null,
+        string? focusEpisodeReasonText = null)
     {
         return new LocalApiCurrentSnapshotResponse(
             TimestampUtc: timestampUtc,
@@ -114,7 +118,9 @@ public sealed class HistoryPageInsightsBuilderTests
             AttentionSegmentKind: attentionSegmentKind,
             AttentionSegmentSeconds: attentionSegmentKind == LocalAttentionSegmentAnalytics.FocusSegmentKind ? 0d : 300d,
             DistractionEpisodeActive: distractionEpisodeActive,
-            DistractionEpisodeSeconds: distractionEpisodeSeconds);
+            DistractionEpisodeSeconds: distractionEpisodeSeconds,
+            AttentionSegmentReasonText: attentionSegmentReasonText ?? "Steady focus episode.",
+            FocusEpisodeReasonText: focusEpisodeReasonText ?? "Focus episode active.");
     }
 
     private static LocalApiEventResponse BuildEvent(DateTimeOffset timestampUtc, string action, string whatChanged)
