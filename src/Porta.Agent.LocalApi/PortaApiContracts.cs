@@ -251,17 +251,14 @@ public sealed record LocalApiCurrentSnapshotResponse(
     double? SignalQualityScore = null,
     double? ModelConfidence = null,
     string? BreakPendingAction = null,
+    string? BreakPendingKind = null,
     string? BreakPendingReasonCode = null,
     double? BreakPendingEffectiveFocusSeconds = null,
     int? BreakPendingEffectiveFocusWindowSeconds = null,
     bool? BreakDeliveryBoundaryReached = null,
     string? BreakDeliveryBoundaryKind = null,
-    // Step 2 migration map:
-    // BreakMicrobreak* fields are legacy short-break compatibility fields.
-    // BreakShortBreak* fields are legacy longer-break compatibility fields.
-    // The product contract is moving toward explicit short-break and long-break naming.
-    double? BreakMicrobreakEffectiveFocusSeconds = null,
     double? BreakShortBreakEffectiveFocusSeconds = null,
+    double? BreakLongBreakEffectiveFocusSeconds = null,
     string RuntimeStateFreshness = "unknown",
     DateTimeOffset? RuntimeStateLastSuccessfulRefreshUtc = null,
     DateTimeOffset? RuntimeStateLastAttemptUtc = null,
@@ -319,13 +316,17 @@ public sealed record LocalApiCurrentSnapshotResponse(
     public double? signal_quality_score => SignalQualityScore;
     public double model_confidence => ModelConfidence ?? Confidence;
     public string? break_pending_action => BreakPendingAction;
+    public string? break_pending_kind => BreakPendingKind;
     public string? break_pending_reason_code => BreakPendingReasonCode;
     public double? break_pending_effective_focus_s => BreakPendingEffectiveFocusSeconds;
     public int? break_pending_effective_focus_window_s => BreakPendingEffectiveFocusWindowSeconds;
     public bool? break_delivery_boundary_reached => BreakDeliveryBoundaryReached;
     public string? break_delivery_boundary_kind => BreakDeliveryBoundaryKind;
-    public double? break_microbreak_effective_focus_s => BreakMicrobreakEffectiveFocusSeconds;
     public double? break_short_break_effective_focus_s => BreakShortBreakEffectiveFocusSeconds;
+    public double? break_long_break_effective_focus_s => BreakLongBreakEffectiveFocusSeconds;
+    // Legacy compatibility aliases:
+    public double? break_microbreak_effective_focus_s => BreakShortBreakEffectiveFocusSeconds;
+    public double? break_legacy_short_break_effective_focus_s => BreakLongBreakEffectiveFocusSeconds;
     public string runtime_state_freshness => RuntimeStateFreshness;
     public string? runtime_state_last_successful_refresh_utc => ToUtcMsStringOrNull(RuntimeStateLastSuccessfulRefreshUtc);
     public string? runtime_state_last_attempt_utc => ToUtcMsStringOrNull(RuntimeStateLastAttemptUtc);
@@ -377,6 +378,7 @@ public sealed record LocalApiCurrentSnapshotResponse(
         focus_episode_reason_text: focus_episode_reason_text,
         sustained_attention_duration_sec: sustained_attention_duration_sec,
         break_pending_action: BreakPendingAction,
+        break_pending_kind: BreakPendingKind,
         break_pending_reason_code: BreakPendingReasonCode,
         break_pending_effective_focus_s: BreakPendingEffectiveFocusSeconds,
         break_pending_effective_focus_window_s: BreakPendingEffectiveFocusWindowSeconds,
@@ -646,6 +648,7 @@ public sealed record LocalApiSnapshotCurrentView(
     string focus_episode_reason_text,
     double sustained_attention_duration_sec,
     string? break_pending_action,
+    string? break_pending_kind,
     string? break_pending_reason_code,
     double? break_pending_effective_focus_s,
     int? break_pending_effective_focus_window_s,

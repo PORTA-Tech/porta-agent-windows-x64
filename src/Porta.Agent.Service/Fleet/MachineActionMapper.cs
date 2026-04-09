@@ -74,9 +74,8 @@ internal sealed class MachineActionMapper
     private static bool IsSuggestionAction(string? action)
     {
         string normalized = action?.Trim().ToLowerInvariant() ?? string.Empty;
-        return normalized is "break_suggestion"
-            or "focus_lock_in_suggestion"
-            or "stretch_break_suggestion";
+        return PortaBreakSemantics.IsBreakSuggestionAction(normalized)
+            || normalized is "focus_lock_in_suggestion";
     }
 
     private static string NormalizeExecutionState(string? executionState) =>

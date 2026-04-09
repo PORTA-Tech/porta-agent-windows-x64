@@ -55,6 +55,7 @@ internal sealed record MachineSummaryReportPayload(
     [property: JsonPropertyName("overloadActive")] bool OverloadActive,
     [property: JsonPropertyName("breakNeeded")] bool BreakNeeded,
     [property: JsonPropertyName("breakPendingAction")] string? BreakPendingAction,
+    [property: JsonPropertyName("breakPendingKind")] string? BreakPendingKind,
     [property: JsonPropertyName("breakPendingReasonCode")] string? BreakPendingReasonCode,
     [property: JsonPropertyName("calibrationStage")] string CalibrationStage,
     [property: JsonPropertyName("trustTier")] string TrustTier,

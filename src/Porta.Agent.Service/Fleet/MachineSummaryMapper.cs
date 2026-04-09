@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Porta.Agent.Common.Identity;
+using Porta.Agent.Common;
 using Porta.Agent.Common.UserAgent;
 using Porta.Agent.Core;
 
@@ -143,6 +144,7 @@ internal sealed class MachineSummaryMapper
             OverloadActive: status.OverloadActive,
             BreakNeeded: !string.IsNullOrWhiteSpace(latestState?.BreakPendingAction),
             BreakPendingAction: NullIfWhiteSpace(latestState?.BreakPendingAction),
+            BreakPendingKind: PortaBreakSemantics.ResolveBreakKind(latestState?.BreakPendingKind ?? latestState?.BreakPendingAction),
             BreakPendingReasonCode: NullIfWhiteSpace(latestState?.BreakPendingReasonCode),
             CalibrationStage: NormalizeCalibrationStage(status.CalibrationStage),
             TrustTier: NormalizeTrustTier(status.TrustTier),

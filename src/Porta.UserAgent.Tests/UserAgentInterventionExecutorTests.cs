@@ -19,7 +19,7 @@ public sealed class UserAgentInterventionExecutorTests
             "intv-break",
             "break_suggestion",
             "show_break_toast",
-            """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}""");
+            """{"title":"Ari","message":"Take a long break now?","tip_key":"break_suggestion"}""");
 
         LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
@@ -47,7 +47,7 @@ public sealed class UserAgentInterventionExecutorTests
             "intv-break",
             "break_suggestion",
             "show_break_toast",
-            """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}""");
+            """{"title":"Ari","message":"Take a long break now?","tip_key":"break_suggestion"}""");
 
         LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
@@ -70,7 +70,7 @@ public sealed class UserAgentInterventionExecutorTests
             "intv-break",
             "break_suggestion",
             "show_break_toast",
-            """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}""");
+            """{"title":"Ari","message":"Take a long break now?","tip_key":"break_suggestion"}""");
 
         LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
@@ -96,7 +96,7 @@ public sealed class UserAgentInterventionExecutorTests
             "intv-break-1",
             "break_suggestion",
             "show_break_toast",
-            """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}""");
+            """{"title":"Ari","message":"Take a long break now?","tip_key":"break_suggestion"}""");
 
         Assert.Null(executor.ExecuteOrReplay(first, "session-1", "agent-1"));
         presenter.CompletePrompt(UserInterventionPromptResponseKind.Snoozed);
@@ -110,7 +110,7 @@ public sealed class UserAgentInterventionExecutorTests
             "intv-break-2",
             "break_suggestion",
             "show_break_toast",
-            """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}""");
+            """{"title":"Ari","message":"Take a long break now?","tip_key":"break_suggestion"}""");
 
         LocalApiInterventionAckRequest? blockedAck = executor.ExecuteOrReplay(second, "session-1", "agent-1");
 
@@ -158,7 +158,7 @@ public sealed class UserAgentInterventionExecutorTests
             "intv-break-fallback",
             "break_suggestion",
             "show_break_toast",
-            """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}""");
+            """{"title":"Ari","message":"Take a long break now?","tip_key":"break_suggestion"}""");
 
         LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
@@ -196,7 +196,7 @@ public sealed class UserAgentInterventionExecutorTests
                 "intv-break-2",
                 "break_suggestion",
                 "show_break_toast",
-                """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}"""),
+                """{"title":"Ari","message":"Take a long break now?","tip_key":"break_suggestion"}"""),
             "session-1",
             "agent-1");
 
@@ -222,7 +222,7 @@ public sealed class UserAgentInterventionExecutorTests
                 "intv-break-1",
                 "break_suggestion",
                 "show_break_toast",
-                """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}"""),
+                """{"title":"Ari","message":"Take a long break now?","tip_key":"break_suggestion"}"""),
             "session-1",
             "agent-1"));
 
@@ -258,7 +258,7 @@ public sealed class UserAgentInterventionExecutorTests
                 "intv-break-1",
                 "break_suggestion",
                 "show_break_toast",
-                """{"title":"Ari","message":"Take a short break now?","tip_key":"break_suggestion"}"""),
+                """{"title":"Ari","message":"Take a long break now?","tip_key":"break_suggestion"}"""),
             "session-1",
             "agent-1");
         LocalApiInterventionAckRequest? toastAck = executor.ExecuteOrReplay(

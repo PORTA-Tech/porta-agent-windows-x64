@@ -34,13 +34,14 @@ public sealed class LocalApiSnapshotAcceptanceTests
             PartialData: false,
             MissingMajorChannels: [],
             BreakPendingAction: "stretch_break_suggestion",
-            BreakPendingReasonCode: "rolling_focus_microbreak",
+            BreakPendingKind: "short_break",
+            BreakPendingReasonCode: "rolling_focus_short_break",
             BreakPendingEffectiveFocusSeconds: 1680d,
             BreakPendingEffectiveFocusWindowSeconds: 2100,
             BreakDeliveryBoundaryReached: false,
             BreakDeliveryBoundaryKind: "typing_quiet",
-            BreakMicrobreakEffectiveFocusSeconds: 1680d,
-            BreakShortBreakEffectiveFocusSeconds: 2280d);
+            BreakShortBreakEffectiveFocusSeconds: 1680d,
+            BreakLongBreakEffectiveFocusSeconds: 2280d);
 
         var dto = SnapshotMapper.Map(snapshot, latest);
 
@@ -69,13 +70,14 @@ public sealed class LocalApiSnapshotAcceptanceTests
         Assert.InRange(dto.current.focus_episode_seconds - 1810d, -0.000001d, 0.000001d);
         Assert.Equal("keep", dto.current.focus_episode_state);
         Assert.Equal("stretch_break_suggestion", dto.break_pending_action);
-        Assert.Equal("rolling_focus_microbreak", dto.break_pending_reason_code);
+        Assert.Equal("short_break", dto.break_pending_kind);
+        Assert.Equal("rolling_focus_short_break", dto.break_pending_reason_code);
         Assert.InRange((dto.break_pending_effective_focus_s ?? 0d) - 1680d, -0.000001d, 0.000001d);
         Assert.Equal(2100, dto.break_pending_effective_focus_window_s);
         Assert.False(dto.break_delivery_boundary_reached ?? true);
         Assert.Equal("typing_quiet", dto.break_delivery_boundary_kind);
-        Assert.InRange((dto.break_microbreak_effective_focus_s ?? 0d) - 1680d, -0.000001d, 0.000001d);
-        Assert.InRange((dto.break_short_break_effective_focus_s ?? 0d) - 2280d, -0.000001d, 0.000001d);
+        Assert.InRange((dto.break_short_break_effective_focus_s ?? 0d) - 1680d, -0.000001d, 0.000001d);
+        Assert.InRange((dto.break_long_break_effective_focus_s ?? 0d) - 2280d, -0.000001d, 0.000001d);
     }
 
     [Fact]

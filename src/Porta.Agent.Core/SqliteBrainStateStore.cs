@@ -1015,13 +1015,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             double? focusAppEntropy = null;
             IReadOnlyList<string>? missingMajorChannels = null;
             string? breakPendingAction = null;
+            string? breakPendingKind = null;
             string? breakPendingReasonCode = null;
             double? breakPendingEffectiveFocusSeconds = null;
             int? breakPendingEffectiveFocusWindowSeconds = null;
             bool? breakDeliveryBoundaryReached = null;
             string? breakDeliveryBoundaryKind = null;
-            double? breakMicrobreakEffectiveFocusSeconds = null;
             double? breakShortBreakEffectiveFocusSeconds = null;
+            double? breakLongBreakEffectiveFocusSeconds = null;
 
             using (var baselineCmd = connection.CreateCommand())
             {
@@ -1104,6 +1105,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                                 && !string.IsNullOrWhiteSpace(pendingActionParsed))
                             {
                                 breakPendingAction = pendingActionParsed.Trim().ToLowerInvariant();
+                                breakPendingKind = PortaBreakSemantics.ResolveBreakKind(breakPendingAction);
+                            }
+
+                            if (TryReadStringProperty(breakRoot, "pending_break_kind", out string? pendingBreakKindParsed)
+                                && !string.IsNullOrWhiteSpace(pendingBreakKindParsed))
+                            {
+                                breakPendingKind = PortaBreakSemantics.ResolveBreakKind(pendingBreakKindParsed);
                             }
 
                             if (TryReadStringProperty(breakRoot, "pending_reason_code", out string? pendingReasonCodeParsed)
@@ -1133,14 +1141,16 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                                 breakDeliveryBoundaryKind = deliveryBoundaryKindParsed.Trim().ToLowerInvariant();
                             }
 
-                            if (TryReadDoubleProperty(breakRoot, "microbreak_effective_focus_s", out double microbreakParsed))
-                            {
-                                breakMicrobreakEffectiveFocusSeconds = Math.Max(0d, microbreakParsed);
-                            }
-
-                            if (TryReadDoubleProperty(breakRoot, "short_break_effective_focus_s", out double shortBreakParsed))
+                            if (TryReadDoubleProperty(breakRoot, "short_break_effective_focus_s", out double shortBreakParsed)
+                                || TryReadDoubleProperty(breakRoot, "microbreak_effective_focus_s", out shortBreakParsed))
                             {
                                 breakShortBreakEffectiveFocusSeconds = Math.Max(0d, shortBreakParsed);
+                            }
+
+                            if (TryReadDoubleProperty(breakRoot, "long_break_effective_focus_s", out double longBreakParsed)
+                                || TryReadDoubleProperty(breakRoot, "short_break_effective_focus_s", out longBreakParsed))
+                            {
+                                breakLongBreakEffectiveFocusSeconds = Math.Max(0d, longBreakParsed);
                             }
                         }
                         catch
@@ -1282,13 +1292,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 PartialData: partialData,
                 MissingMajorChannels: missingMajorChannels,
                 BreakPendingAction: breakPendingAction,
+                BreakPendingKind: breakPendingKind,
                 BreakPendingReasonCode: breakPendingReasonCode,
                 BreakPendingEffectiveFocusSeconds: breakPendingEffectiveFocusSeconds,
                 BreakPendingEffectiveFocusWindowSeconds: breakPendingEffectiveFocusWindowSeconds,
                 BreakDeliveryBoundaryReached: breakDeliveryBoundaryReached,
                 BreakDeliveryBoundaryKind: breakDeliveryBoundaryKind,
-                BreakMicrobreakEffectiveFocusSeconds: breakMicrobreakEffectiveFocusSeconds,
                 BreakShortBreakEffectiveFocusSeconds: breakShortBreakEffectiveFocusSeconds,
+                BreakLongBreakEffectiveFocusSeconds: breakLongBreakEffectiveFocusSeconds,
                 TaskContinuityScore: taskContinuityScore,
                 TaskContinuitySeconds: taskContinuitySeconds,
                 ContinuityState: continuityState);
@@ -4865,10 +4876,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         var ev = new AgentControlEvent(
             TimestampUtc: finalizeTimestampUtc,
             Action: action,
-            TriggerState: decision.HighOverloadPressure ? "overload" : "focus",
+            TriggerState: decision.HighPressure ? "overload" : "focus",
             TriggerValue: snapshot.OverloadLikelihood,
             Confidence: snapshot.Confidence,
-            DurationSeconds: string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal) ? 180 : 300,
+            DurationSeconds: string.Equals(decision.BreakKind, PortaBreakSemantics.ShortBreakKind, StringComparison.Ordinal) ? 180 : 300,
             EscalationLevel: "Suggest",
             Reversible: false,
             Reason: decision.ReasonCode,
@@ -4926,25 +4937,34 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 trust_tier = CalibrationTruth.NormalizeTrustTier(trustTier),
                 overload_active = overloadStabilization.OverloadActive,
                 overload_likelihood = overloadInference.OverloadLikelihood,
-                overload_high = decision.HighOverloadPressure,
+                pressure_level = overloadInference.PressureLevel,
+                high_pressure = decision.HighPressure,
                 confidence = overloadInference.Confidence,
                 task_continuity_s = derivedSession.TaskContinuitySeconds,
                 task_continuity_score = derivedSession.TaskContinuityScore,
                 effective_focus_s = decision.EffectiveFocusSeconds,
                 effective_focus_window_s = decision.EffectiveFocusWindowSeconds,
                 action = decision.Action,
+                break_kind = decision.BreakKind,
                 delivery_boundary = string.IsNullOrWhiteSpace(decision.DeliveryBoundaryKind) ? "none" : decision.DeliveryBoundaryKind,
                 cooldown_expired = decision.CooldownChecked && decision.Cooldown.CooldownExpired
             },
             thresholds = new
             {
                 confidence_min = settings.ConfidenceMin,
-                microbreak_window_s = settings.MicrobreakWindowSeconds,
-                microbreak_effective_focus_min_low_s = settings.MicrobreakEffectiveFocusSecondsLowOverload,
-                microbreak_effective_focus_min_high_s = settings.MicrobreakEffectiveFocusSecondsHighOverload,
                 short_break_window_s = settings.ShortBreakWindowSeconds,
-                short_break_effective_focus_min_low_s = settings.ShortBreakEffectiveFocusSecondsLowOverload,
-                short_break_effective_focus_min_high_s = settings.ShortBreakEffectiveFocusSecondsHighOverload,
+                short_break_effective_focus_min_low_s = settings.ShortBreakEffectiveFocusSecondsLowPressure,
+                short_break_effective_focus_min_high_s = settings.ShortBreakEffectiveFocusSecondsHighPressure,
+                long_break_window_s = settings.LongBreakWindowSeconds,
+                long_break_effective_focus_min_low_s = settings.LongBreakEffectiveFocusSecondsLowPressure,
+                long_break_effective_focus_min_high_s = settings.LongBreakEffectiveFocusSecondsHighPressure,
+                // Backward-compatible aliases for older diagnostics readers.
+                microbreak_window_s = settings.ShortBreakWindowSeconds,
+                microbreak_effective_focus_min_low_s = settings.ShortBreakEffectiveFocusSecondsLowPressure,
+                microbreak_effective_focus_min_high_s = settings.ShortBreakEffectiveFocusSecondsHighPressure,
+                legacy_short_break_window_s = settings.LongBreakWindowSeconds,
+                legacy_short_break_effective_focus_min_low_s = settings.LongBreakEffectiveFocusSecondsLowPressure,
+                legacy_short_break_effective_focus_min_high_s = settings.LongBreakEffectiveFocusSecondsHighPressure,
                 cooldown_min_s = settings.CooldownSeconds
             },
             context = new
@@ -5555,17 +5575,21 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             break_cooldown_until_utc_ms = cooldownEndTsMs,
             break_last_fired_utc_ms = lastFiredTsMs,
             break_last_action = lastAction,
-            microbreak_effective_focus_s = focusWindow.MicrobreakWindowEffectiveFocusSeconds,
             short_break_effective_focus_s = focusWindow.ShortBreakWindowEffectiveFocusSeconds,
+            long_break_effective_focus_s = focusWindow.LongBreakWindowEffectiveFocusSeconds,
             current_bucket_effective_focus_s = focusWindow.CurrentBucketEffectiveFocusSeconds,
             delivery_boundary_reached = focusWindow.DeliveryBoundaryReached,
             delivery_boundary_kind = focusWindow.DeliveryBoundaryKind ?? string.Empty,
-            high_overload_pressure = focusWindow.HighOverloadPressure,
+            high_pressure = focusWindow.HighPressure,
             pending_action = decision.Action,
+            pending_break_kind = decision.BreakKind,
             pending_reason_code = decision.ReasonCode,
             pending_effective_focus_s = decision.EffectiveFocusSeconds,
             pending_effective_focus_window_s = decision.EffectiveFocusWindowSeconds,
             // Backward-compat fields for older readers during rollout.
+            microbreak_effective_focus_s = focusWindow.ShortBreakWindowEffectiveFocusSeconds,
+            short_break_effective_focus_s_legacy = focusWindow.LongBreakWindowEffectiveFocusSeconds,
+            high_overload_pressure = focusWindow.HighPressure,
             cooldown_end_ts_ms = cooldownEndTsMs,
             last_trigger_ts_ms = lastFiredTsMs,
             last_reason_code = decision.ReasonCode
@@ -5589,18 +5613,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         RuntimeBreakPolicySettings? policy = null)
     {
         RuntimeBreakPolicySettings settings = policy ?? DefaultBreakPolicySettings();
-        int microbreakBuckets = Math.Max(1, settings.MicrobreakWindowSeconds / Time.bucketSeconds);
         int shortBreakBuckets = Math.Max(1, settings.ShortBreakWindowSeconds / Time.bucketSeconds);
-        long earliestBucketSeq = Math.Max(0, inputBucket.BucketSeq - shortBreakBuckets + 1);
-        long earliestMicrobreakBucketSeq = Math.Max(0, inputBucket.BucketSeq - microbreakBuckets + 1);
+        int longBreakBuckets = Math.Max(1, settings.LongBreakWindowSeconds / Time.bucketSeconds);
+        long earliestBucketSeq = Math.Max(0, inputBucket.BucketSeq - longBreakBuckets + 1);
+        long earliestShortBreakBucketSeq = Math.Max(0, inputBucket.BucketSeq - shortBreakBuckets + 1);
         long earliestTimestampUtcMs = Time.bucketStartEnd(earliestBucketSeq).startUtcMs;
-        long earliestMicrobreakTimestampUtcMs = Time.bucketStartEnd(earliestMicrobreakBucketSeq).startUtcMs;
+        long earliestShortBreakTimestampUtcMs = Time.bucketStartEnd(earliestShortBreakBucketSeq).startUtcMs;
         long currentTimestampUtcMs = Time.bucketStartEnd(inputBucket.BucketSeq).startUtcMs;
         string earliestTimestampUtc = Time.toIsoUtcMsString(earliestTimestampUtcMs);
         string currentTimestampUtc = Time.toIsoUtcMsString(currentTimestampUtcMs);
         double currentBucketEffectiveFocusSeconds = ResolveCurrentBucketEffectiveFocusSeconds(derivedSession);
-        double microbreakWindowEffectiveFocusSeconds = currentBucketEffectiveFocusSeconds;
         double shortBreakWindowEffectiveFocusSeconds = currentBucketEffectiveFocusSeconds;
+        double longBreakWindowEffectiveFocusSeconds = currentBucketEffectiveFocusSeconds;
         long segmentCursorUtcMs = Time.bucketStartEnd(inputBucket.BucketSeq).endUtcMs;
 
         using var cmd = connection.CreateCommand();
@@ -5639,10 +5663,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 break;
             }
 
-            shortBreakWindowEffectiveFocusSeconds += rowEffectiveFocusSeconds;
-            if (timestampUtcMs >= earliestMicrobreakTimestampUtcMs)
+            longBreakWindowEffectiveFocusSeconds += rowEffectiveFocusSeconds;
+            if (timestampUtcMs >= earliestShortBreakTimestampUtcMs)
             {
-                microbreakWindowEffectiveFocusSeconds += rowEffectiveFocusSeconds;
+                shortBreakWindowEffectiveFocusSeconds += rowEffectiveFocusSeconds;
             }
 
             segmentCursorUtcMs = timestampUtcMs;
@@ -5650,12 +5674,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
         return new BreakFocusWindowSnapshot(
             CurrentBucketEffectiveFocusSeconds: currentBucketEffectiveFocusSeconds,
-            MicrobreakWindowEffectiveFocusSeconds: microbreakWindowEffectiveFocusSeconds,
             ShortBreakWindowEffectiveFocusSeconds: shortBreakWindowEffectiveFocusSeconds,
+            LongBreakWindowEffectiveFocusSeconds: longBreakWindowEffectiveFocusSeconds,
             DeliveryBoundaryReached: IsBreakDeliveryBoundary(inputBucket, derivedSession, settings),
             DeliveryBoundaryKind: ResolveBreakDeliveryBoundaryKind(inputBucket, derivedSession, settings),
-            HighOverloadPressure: overloadStabilization.OverloadActive
-                || overloadInference.OverloadLikelihood >= settings.HighOverloadLikelihood);
+            HighPressure: overloadStabilization.OverloadActive
+                || overloadInference.PressureLevel >= settings.HighPressureLevel);
     }
 
     private static double ResolveCurrentBucketEffectiveFocusSeconds(DerivedSessionMetricsResult derivedSession)
@@ -5809,15 +5833,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private static RuntimeBreakPolicySettings DefaultBreakPolicySettings()
     {
         return new RuntimeBreakPolicySettings(
-            PortaExecutionConstants.BreakPolicy.MicrobreakWindowSeconds,
-            PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload,
-            PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsHighOverload,
             PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds,
-            PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowOverload,
-            PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsHighOverload,
+            PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowPressure,
+            PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsHighPressure,
+            PortaExecutionConstants.BreakPolicy.LongBreakWindowSeconds,
+            PortaExecutionConstants.BreakPolicy.LongBreakEffectiveFocusSecondsLowPressure,
+            PortaExecutionConstants.BreakPolicy.LongBreakEffectiveFocusSecondsHighPressure,
             PortaExecutionConstants.BreakPolicy.CooldownSeconds,
             PortaExecutionConstants.BreakPolicy.ConfidenceMin,
-            PortaExecutionConstants.BreakPolicy.HighOverloadLikelihood,
+            PortaExecutionConstants.BreakPolicy.HighPressureLevel,
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds,
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMaxSeconds,
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryTypingQuietMax,

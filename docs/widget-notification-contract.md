@@ -48,6 +48,7 @@ It is grounded in the current repo behavior, not aspirational copy alone. The au
   - The lighter break intervention with shorter recovery.
 - `long break`
   - The stronger break intervention with longer recovery.
+  - Default local policy targets about `25m` / `20m` for short break and `60m` / `50m` for long break, depending on pressure.
 
 ## Deprecated Terms
 
@@ -57,8 +58,8 @@ The following terms may still exist in runtime code or transport contracts durin
 - `current focus session` as the durable focus label
 - `live streak`
 - distraction defined as `tracked - focused`
-- `stretch_break_suggestion` as the product-facing short-break name
-- `break_suggestion` as the product-facing long-break name
+- `stretch_break_suggestion` as product copy for the short-break path
+- `break_suggestion` as product copy for the long-break path
 - widget as the primary break prompt surface
 - `filling in` as the normal fallback when Ari has a usable last-known value
 
@@ -260,8 +261,8 @@ Reason:
 
 | Event / Trigger | Surface | Severity | Default Copy | CTA Contract | Cooldown | Opt-Out | Fallback |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| legacy `stretch_break_suggestion`, canonical `short break` | dedicated session overlay, not widget | medium | `You have been steadily working for {focus_minutes}m. Ready for a short break?` | `Take break`, `Skip`, `Snooze`, `Turn off this tip`, `Details` | family floor `30m`; global break floor `12m`; overlay expiry determined by final break UX | family-level permanent opt-out allowed | current legacy widget or toast path only until overlay implementation lands |
-| legacy `break_suggestion`, canonical `long break` | dedicated session overlay, not widget | medium-high | `You have been working for {focus_minutes}m. Ready for a longer break?` | `Take break`, `Skip`, `Snooze`, `Turn off this tip`, `Details` | family floor `30m`; global break floor `12m`; overlay expiry determined by final break UX | family-level permanent opt-out allowed | current legacy widget or toast path only until overlay implementation lands |
+| `Short break` | dedicated session overlay, not widget | medium | `You have been steadily working for {focus_minutes}m. Ready for a short break?` | `Take break`, `Skip`, `Snooze`, `Turn off this tip`, `Details` | default threshold `25m` in a `30m` focus-episode window, or `20m` under high pressure; family floor `30m`; global break floor `12m`; overlay expiry determined by final break UX | family-level permanent opt-out allowed | legacy `stretch_break_suggestion` transport may still route through the current widget or toast fallback until the overlay implementation lands |
+| `Long break` | dedicated session overlay, not widget | medium-high | `You have been working for {focus_minutes}m. Ready for a long break?` | `Take break`, `Skip`, `Snooze`, `Turn off this tip`, `Details` | default threshold `60m` in a `75m` focus-episode window, or `50m` under high pressure; family floor `30m`; global break floor `12m`; overlay expiry determined by final break UX | family-level permanent opt-out allowed | legacy `break_suggestion` transport may still route through the current widget or toast fallback until the overlay implementation lands |
 
 ### Inform-Only And Guidance States
 

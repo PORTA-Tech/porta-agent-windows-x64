@@ -20,9 +20,8 @@ public static class PortaActionSemantics
     public static bool IsRealDesktopAction(string? action, string? commandType)
     {
         string normalized = NormalizeAction(action);
-        if (normalized is "break_suggestion"
-            or "focus_lock_in_suggestion"
-            or "stretch_break_suggestion"
+        if (PortaBreakSemantics.IsBreakSuggestionAction(normalized)
+            || normalized is "focus_lock_in_suggestion"
             or "deep_work_notifications_suppressed"
             or "deep_work_notifications_restored"
             or "notification_snapshot_failed"

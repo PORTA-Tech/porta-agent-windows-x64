@@ -144,6 +144,7 @@ public sealed class MachineSummaryMapperTests
         Assert.Equal(0.92, payload.PressureConfidence);
         Assert.True(payload.BreakNeeded);
         Assert.Equal("stretch_break_suggestion", payload.BreakPendingAction);
+        Assert.Equal("short_break", payload.BreakPendingKind);
         Assert.Equal("calibrated", payload.CalibrationStage);
         Assert.Equal("high", payload.TrustTier);
         Assert.Equal(0.86, payload.ModelConfidence);

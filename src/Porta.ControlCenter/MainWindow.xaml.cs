@@ -2966,7 +2966,9 @@ public partial class MainWindow : Window
     {
         if (!string.IsNullOrWhiteSpace(snapshot.BreakPendingAction))
         {
-            string actionTitle = HumanizeActionName(snapshot.BreakPendingAction);
+            string actionTitle = PortaBreakSemantics.ResolveBreakLabel(
+                snapshot.BreakPendingKind ?? snapshot.BreakPendingAction,
+                HumanizeActionName(snapshot.BreakPendingAction));
             string effectiveFocusText = snapshot.BreakPendingEffectiveFocusSeconds.HasValue
                 ? FormatFocusedTime(snapshot.BreakPendingEffectiveFocusSeconds.Value)
                 : NotAvailableText;
@@ -2991,15 +2993,15 @@ public partial class MainWindow : Window
             return $"{actionTitle} pending | {effectiveFocusText} effective focus in {windowText} | {waitingFor} | {reasonText}";
         }
 
-        if (snapshot.BreakMicrobreakEffectiveFocusSeconds.HasValue || snapshot.BreakShortBreakEffectiveFocusSeconds.HasValue)
+        if (snapshot.BreakShortBreakEffectiveFocusSeconds.HasValue || snapshot.BreakLongBreakEffectiveFocusSeconds.HasValue)
         {
-            string microbreak = snapshot.BreakMicrobreakEffectiveFocusSeconds.HasValue
-                ? FormatFocusedTime(snapshot.BreakMicrobreakEffectiveFocusSeconds.Value)
-                : NotAvailableText;
             string shortBreak = snapshot.BreakShortBreakEffectiveFocusSeconds.HasValue
                 ? FormatFocusedTime(snapshot.BreakShortBreakEffectiveFocusSeconds.Value)
                 : NotAvailableText;
-            return $"Short-break window: {microbreak} | Long-break window: {shortBreak}";
+            string longBreak = snapshot.BreakLongBreakEffectiveFocusSeconds.HasValue
+                ? FormatFocusedTime(snapshot.BreakLongBreakEffectiveFocusSeconds.Value)
+                : NotAvailableText;
+            return $"Short-break window: {shortBreak} | Long-break window: {longBreak}";
         }
 
         return "No short-break or long-break suggestion is currently pending.";

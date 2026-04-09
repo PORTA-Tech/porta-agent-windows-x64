@@ -36,9 +36,11 @@ These are the canonical product meanings Ari must converge on, even when current
   - It is not the same thing as the visible pressure score.
 - `short break`
   - The lighter break intervention with a short recovery duration.
+  - Default local policy targets about `25m` of continuous focus episode time inside a `30m` window, or `20m` under high pressure.
   - During migration, the runtime may still carry legacy action IDs for this behavior.
 - `long break`
   - The stronger break intervention with a longer recovery duration.
+  - Default local policy targets about `60m` of continuous focus episode time inside a `75m` window, or `50m` under high pressure.
   - During migration, the runtime may still carry legacy action IDs for this behavior.
 - `limited`
   - Ari still has usable truth, but one or more channels, trust limits, or runtime constraints reduce certainty.
@@ -56,8 +58,8 @@ The following terms may still exist in current code, database fields, or transpo
 - `live streak`
 - `sustained attention` as the primary user-facing focus label
 - distraction defined as `tracked time - focused time`
-- `stretch_break_suggestion` as the product-facing short-break name
-- `break_suggestion` as the product-facing long-break name
+- `stretch_break_suggestion` as product copy for the short-break path
+- `break_suggestion` as product copy for the long-break path
 - widget-as-break-prompt-surface
 - `filling in` as the routine steady-state fallback when Ari has a last-known usable value
 

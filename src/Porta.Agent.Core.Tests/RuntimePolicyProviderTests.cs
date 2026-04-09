@@ -15,7 +15,7 @@ public sealed class RuntimePolicyProviderTests
 
         Assert.Equal("local-default", envelope.Version);
         Assert.Equal(PortaExecutionConstants.OverloadStabilization.ThresholdOn, envelope.Settings.OverloadStabilization.ThresholdOn);
-        Assert.Equal(PortaExecutionConstants.BreakPolicy.MicrobreakWindowSeconds, envelope.Settings.BreakPolicy.MicrobreakWindowSeconds);
+        Assert.Equal(PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds, envelope.Settings.BreakPolicy.ShortBreakWindowSeconds);
         Assert.Equal(PortaExecutionConstants.DeepWorkDetection.SustainedAttentionSeconds, envelope.Settings.DeepWorkDetection.SustainedAttentionSeconds);
         Assert.Equal(PortaExecutionConstants.NotificationSuppression.EnableCooldownSeconds, envelope.Settings.NotificationSuppression.EnableCooldownSeconds);
         Assert.Equal(PortaExecutionConstants.BrightnessAdjustment.ReductionDelta, envelope.Settings.BrightnessAdjustment.ReductionDelta);
@@ -60,15 +60,15 @@ public sealed class RuntimePolicyProviderTests
                 {
                     break_suggestions = new
                     {
-                        microbreak_window_s = 1800,
-                        microbreak_effective_focus_min_low_s = 1200,
-                        microbreak_effective_focus_min_high_s = 900,
-                        short_break_window_s = 3600,
-                        short_break_effective_focus_min_low_s = 2400,
-                        short_break_effective_focus_min_high_s = 1800,
+                        short_break_focus_window_s = 1800,
+                        short_break_focus_min_low_s = 1200,
+                        short_break_focus_min_high_s = 900,
+                        long_break_focus_window_s = 3600,
+                        long_break_focus_min_low_s = 2400,
+                        long_break_focus_min_high_s = 1800,
                         cooldown_s = 900,
                         confidence_min = 0.45,
-                        high_overload_likelihood = 0.61,
+                        high_pressure_level = 0.61,
                         idle_boundary_min_s = 3.0,
                         idle_boundary_max_s = 20.0,
                         typing_quiet_max = 0.22,
@@ -104,8 +104,8 @@ public sealed class RuntimePolicyProviderTests
             Assert.Equal(0.61d, envelope.Settings.OverloadStabilization.ThresholdOff, 6);
             Assert.Equal(20, envelope.Settings.OverloadStabilization.DwellOnSeconds);
             Assert.Equal(600, envelope.Settings.DeepWorkDetection.SustainedAttentionSeconds);
-            Assert.Equal(1200, envelope.Settings.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload);
-            Assert.Equal(900, envelope.Settings.BreakPolicy.MicrobreakEffectiveFocusSecondsHighOverload);
+            Assert.Equal(1200, envelope.Settings.BreakPolicy.ShortBreakEffectiveFocusSecondsLowPressure);
+            Assert.Equal(900, envelope.Settings.BreakPolicy.ShortBreakEffectiveFocusSecondsHighPressure);
             Assert.Equal(180, envelope.Settings.NotificationSuppression.EnableCooldownSeconds);
             Assert.Equal(45, envelope.Settings.NotificationSuppression.MinOnSeconds);
             Assert.Equal(8, envelope.Settings.BrightnessAdjustment.ReductionDelta);

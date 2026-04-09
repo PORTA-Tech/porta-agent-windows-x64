@@ -185,11 +185,11 @@ public sealed class Phase10RolloutAuditTests
             DerivedSessionMetricsResult session = BuildAcceptanceSession(taskContinuitySeconds: 1750d);
             BreakFocusWindowSnapshot focusWindow = new(
                 CurrentBucketEffectiveFocusSeconds: Time.bucketSeconds,
-                MicrobreakWindowEffectiveFocusSeconds: PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload,
-                ShortBreakWindowEffectiveFocusSeconds: 2100d,
+                ShortBreakWindowEffectiveFocusSeconds: PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowPressure,
+                LongBreakWindowEffectiveFocusSeconds: 2100d,
                 DeliveryBoundaryReached: true,
                 DeliveryBoundaryKind: "short_idle",
-                HighOverloadPressure: false);
+                HighPressure: false);
 
             string trustTier = CalibrationTruth.ResolveTrustTier(
                 gating.CalibrationStage,

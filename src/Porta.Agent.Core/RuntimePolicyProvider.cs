@@ -14,15 +14,15 @@ public sealed record RuntimeOverloadStabilizationSettings(
     int LowQualityDwellDecayMs);
 
 public sealed record RuntimeBreakPolicySettings(
-    int MicrobreakWindowSeconds,
-    int MicrobreakEffectiveFocusSecondsLowOverload,
-    int MicrobreakEffectiveFocusSecondsHighOverload,
     int ShortBreakWindowSeconds,
-    int ShortBreakEffectiveFocusSecondsLowOverload,
-    int ShortBreakEffectiveFocusSecondsHighOverload,
+    int ShortBreakEffectiveFocusSecondsLowPressure,
+    int ShortBreakEffectiveFocusSecondsHighPressure,
+    int LongBreakWindowSeconds,
+    int LongBreakEffectiveFocusSecondsLowPressure,
+    int LongBreakEffectiveFocusSecondsHighPressure,
     int CooldownSeconds,
     double ConfidenceMin,
-    double HighOverloadLikelihood,
+    double HighPressureLevel,
     double DeliveryBoundaryIdleMinSeconds,
     double DeliveryBoundaryIdleMaxSeconds,
     double DeliveryBoundaryTypingQuietMax,
@@ -200,27 +200,50 @@ public sealed class FileRuntimePolicyProvider : IRuntimePolicyProvider
         RuntimeOverloadStabilizationSettings overload)
     {
         return new RuntimeBreakPolicySettings(
-            MicrobreakWindowSeconds: ClampInt(doc?.MicrobreakWindowSeconds ?? fallback.MicrobreakWindowSeconds, 600, 7200),
-            MicrobreakEffectiveFocusSecondsLowOverload: ClampInt(
-                doc?.MicrobreakEffectiveFocusSecondsLowOverload ?? fallback.MicrobreakEffectiveFocusSecondsLowOverload,
+            ShortBreakWindowSeconds: ClampInt(
+                doc?.ShortBreakWindowSeconds
+                ?? doc?.ShortBreakWindowSecondsLegacy
+                ?? fallback.ShortBreakWindowSeconds,
                 600,
                 5400),
-            MicrobreakEffectiveFocusSecondsHighOverload: ClampInt(
-                doc?.MicrobreakEffectiveFocusSecondsHighOverload ?? fallback.MicrobreakEffectiveFocusSecondsHighOverload,
+            ShortBreakEffectiveFocusSecondsLowPressure: ClampInt(
+                doc?.ShortBreakEffectiveFocusSecondsLowPressure
+                ?? doc?.ShortBreakEffectiveFocusSecondsLowPressureLegacy
+                ?? fallback.ShortBreakEffectiveFocusSecondsLowPressure,
+                600,
+                5400),
+            ShortBreakEffectiveFocusSecondsHighPressure: ClampInt(
+                doc?.ShortBreakEffectiveFocusSecondsHighPressure
+                ?? doc?.ShortBreakEffectiveFocusSecondsHighPressureLegacy
+                ?? fallback.ShortBreakEffectiveFocusSecondsHighPressure,
                 300,
                 5400),
-            ShortBreakWindowSeconds: ClampInt(doc?.ShortBreakWindowSeconds ?? fallback.ShortBreakWindowSeconds, 1800, 14400),
-            ShortBreakEffectiveFocusSecondsLowOverload: ClampInt(
-                doc?.ShortBreakEffectiveFocusSecondsLowOverload ?? fallback.ShortBreakEffectiveFocusSecondsLowOverload,
+            LongBreakWindowSeconds: ClampInt(
+                doc?.LongBreakWindowSeconds
+                ?? doc?.LongBreakWindowSecondsLegacy
+                ?? fallback.LongBreakWindowSeconds,
+                1800,
+                14400),
+            LongBreakEffectiveFocusSecondsLowPressure: ClampInt(
+                doc?.LongBreakEffectiveFocusSecondsLowPressure
+                ?? doc?.LongBreakEffectiveFocusSecondsLowPressureLegacy
+                ?? fallback.LongBreakEffectiveFocusSecondsLowPressure,
                 1800,
                 10800),
-            ShortBreakEffectiveFocusSecondsHighOverload: ClampInt(
-                doc?.ShortBreakEffectiveFocusSecondsHighOverload ?? fallback.ShortBreakEffectiveFocusSecondsHighOverload,
+            LongBreakEffectiveFocusSecondsHighPressure: ClampInt(
+                doc?.LongBreakEffectiveFocusSecondsHighPressure
+                ?? doc?.LongBreakEffectiveFocusSecondsHighPressureLegacy
+                ?? fallback.LongBreakEffectiveFocusSecondsHighPressure,
                 900,
                 10800),
             CooldownSeconds: ClampInt(doc?.CooldownSeconds ?? fallback.CooldownSeconds, 60, 7200),
             ConfidenceMin: Clamp(doc?.ConfidenceMin ?? fallback.ConfidenceMin, 0.30d, 0.95d),
-            HighOverloadLikelihood: Clamp(doc?.HighOverloadLikelihood ?? overload.ThresholdOn, 0.30d, 0.95d),
+            HighPressureLevel: Clamp(
+                doc?.HighPressureLevel
+                ?? doc?.HighPressureLevelLegacy
+                ?? fallback.HighPressureLevel,
+                0.30d,
+                0.95d),
             DeliveryBoundaryIdleMinSeconds: Clamp(doc?.DeliveryBoundaryIdleMinSeconds ?? fallback.DeliveryBoundaryIdleMinSeconds, 0.5d, 60d),
             DeliveryBoundaryIdleMaxSeconds: Clamp(doc?.DeliveryBoundaryIdleMaxSeconds ?? fallback.DeliveryBoundaryIdleMaxSeconds, 1d, 120d),
             DeliveryBoundaryTypingQuietMax: Clamp(doc?.DeliveryBoundaryTypingQuietMax ?? fallback.DeliveryBoundaryTypingQuietMax, 0d, 1d),
@@ -285,15 +308,15 @@ public sealed class FileRuntimePolicyProvider : IRuntimePolicyProvider
             PortaExecutionConstants.OverloadStabilization.LowQualityDwellDecayMs);
 
         RuntimeBreakPolicySettings breakPolicy = new(
-            PortaExecutionConstants.BreakPolicy.MicrobreakWindowSeconds,
-            PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsLowOverload,
-            PortaExecutionConstants.BreakPolicy.MicrobreakEffectiveFocusSecondsHighOverload,
             PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds,
-            PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowOverload,
-            PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsHighOverload,
+            PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowPressure,
+            PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsHighPressure,
+            PortaExecutionConstants.BreakPolicy.LongBreakWindowSeconds,
+            PortaExecutionConstants.BreakPolicy.LongBreakEffectiveFocusSecondsLowPressure,
+            PortaExecutionConstants.BreakPolicy.LongBreakEffectiveFocusSecondsHighPressure,
             PortaExecutionConstants.BreakPolicy.CooldownSeconds,
             PortaExecutionConstants.BreakPolicy.ConfidenceMin,
-            PortaExecutionConstants.BreakPolicy.HighOverloadLikelihood,
+            PortaExecutionConstants.BreakPolicy.HighPressureLevel,
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds,
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMaxSeconds,
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryTypingQuietMax,
@@ -387,20 +410,27 @@ public sealed class FileRuntimePolicyProvider : IRuntimePolicyProvider
         [property: JsonPropertyName("dwell_off_s")] int? DwellOffSeconds,
         [property: JsonPropertyName("gap_allow_s")] int? GapAllowSeconds);
 
-    // Step 2 migration map:
-    // microbreak_* fields are legacy short-break policy names.
-    // short_break_* fields are legacy longer-break policy names.
-    // The schema keeps them for compatibility until the break taxonomy is renamed.
+    // Step 12 migration map:
+    // short_break_focus_* and long_break_focus_* are the canonical schema names.
+    // microbreak_* remains the legacy short-break alias.
+    // short_break_* remains the legacy long-break alias.
     private sealed record BreakSuggestionsDocument(
-        [property: JsonPropertyName("microbreak_window_s")] int? MicrobreakWindowSeconds,
-        [property: JsonPropertyName("microbreak_effective_focus_min_low_s")] int? MicrobreakEffectiveFocusSecondsLowOverload,
-        [property: JsonPropertyName("microbreak_effective_focus_min_high_s")] int? MicrobreakEffectiveFocusSecondsHighOverload,
-        [property: JsonPropertyName("short_break_window_s")] int? ShortBreakWindowSeconds,
-        [property: JsonPropertyName("short_break_effective_focus_min_low_s")] int? ShortBreakEffectiveFocusSecondsLowOverload,
-        [property: JsonPropertyName("short_break_effective_focus_min_high_s")] int? ShortBreakEffectiveFocusSecondsHighOverload,
+        [property: JsonPropertyName("short_break_focus_window_s")] int? ShortBreakWindowSeconds,
+        [property: JsonPropertyName("short_break_focus_min_low_s")] int? ShortBreakEffectiveFocusSecondsLowPressure,
+        [property: JsonPropertyName("short_break_focus_min_high_s")] int? ShortBreakEffectiveFocusSecondsHighPressure,
+        [property: JsonPropertyName("long_break_focus_window_s")] int? LongBreakWindowSeconds,
+        [property: JsonPropertyName("long_break_focus_min_low_s")] int? LongBreakEffectiveFocusSecondsLowPressure,
+        [property: JsonPropertyName("long_break_focus_min_high_s")] int? LongBreakEffectiveFocusSecondsHighPressure,
+        [property: JsonPropertyName("microbreak_window_s")] int? ShortBreakWindowSecondsLegacy,
+        [property: JsonPropertyName("microbreak_effective_focus_min_low_s")] int? ShortBreakEffectiveFocusSecondsLowPressureLegacy,
+        [property: JsonPropertyName("microbreak_effective_focus_min_high_s")] int? ShortBreakEffectiveFocusSecondsHighPressureLegacy,
+        [property: JsonPropertyName("short_break_window_s")] int? LongBreakWindowSecondsLegacy,
+        [property: JsonPropertyName("short_break_effective_focus_min_low_s")] int? LongBreakEffectiveFocusSecondsLowPressureLegacy,
+        [property: JsonPropertyName("short_break_effective_focus_min_high_s")] int? LongBreakEffectiveFocusSecondsHighPressureLegacy,
         [property: JsonPropertyName("cooldown_s")] int? CooldownSeconds,
         [property: JsonPropertyName("confidence_min")] double? ConfidenceMin,
-        [property: JsonPropertyName("high_overload_likelihood")] double? HighOverloadLikelihood,
+        [property: JsonPropertyName("high_pressure_level")] double? HighPressureLevel,
+        [property: JsonPropertyName("high_overload_likelihood")] double? HighPressureLevelLegacy,
         [property: JsonPropertyName("idle_boundary_min_s")] double? DeliveryBoundaryIdleMinSeconds,
         [property: JsonPropertyName("idle_boundary_max_s")] double? DeliveryBoundaryIdleMaxSeconds,
         [property: JsonPropertyName("typing_quiet_max")] double? DeliveryBoundaryTypingQuietMax,

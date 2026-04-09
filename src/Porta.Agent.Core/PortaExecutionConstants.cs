@@ -128,16 +128,16 @@ public static class PortaExecutionConstants
 
     public static class BreakPolicy
     {
-        public const int MicrobreakWindowSeconds = 35 * 60;
-        public const int MicrobreakEffectiveFocusSecondsLowOverload = 30 * 60;
-        public const int MicrobreakEffectiveFocusSecondsHighOverload = 25 * 60;
-        public const int ShortBreakWindowSeconds = 75 * 60;
-        public const int ShortBreakEffectiveFocusSecondsLowOverload = 60 * 60;
-        public const int ShortBreakEffectiveFocusSecondsHighOverload = 45 * 60;
+        public const int ShortBreakWindowSeconds = 30 * 60;
+        public const int ShortBreakEffectiveFocusSecondsLowPressure = 25 * 60;
+        public const int ShortBreakEffectiveFocusSecondsHighPressure = 20 * 60;
+        public const int LongBreakWindowSeconds = 75 * 60;
+        public const int LongBreakEffectiveFocusSecondsLowPressure = 60 * 60;
+        public const int LongBreakEffectiveFocusSecondsHighPressure = 50 * 60;
         public const int CooldownSeconds = 1800;
         public const long CooldownWindowMs = CooldownSeconds * 1000L;
         public const double ConfidenceMin = 0.50;
-        public const double HighOverloadLikelihood = OverloadStabilization.ThresholdOn;
+        public const double HighPressureLevel = OverloadStabilization.ThresholdOn;
         public const double DeliveryBoundaryIdleMinSeconds = 2.0;
         public const double DeliveryBoundaryIdleMaxSeconds = 30.0;
         public const double DeliveryBoundaryTypingQuietMax = 0.35;
