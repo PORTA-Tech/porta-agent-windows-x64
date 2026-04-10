@@ -86,6 +86,30 @@ public sealed class OverloadInferenceComputerTests
     }
 
     [Fact]
+    public void ComputeForFinalizedBucket_CanReportHighPressure_WhileKeepingConservativeOverloadBelowActivation()
+    {
+        AgentBrainSnapshot snapshot = BuildSnapshot(overload: 0d, confidence: 0d);
+        InputBucketRow bucket = BuildBucket(quality: 0.80d) with
+        {
+            FocusSwitchCount = 6,
+            FocusAppEntropy = 2.6d,
+            FocusActiveAppCount = 5d
+        };
+        PrimitiveComputationResult primitive = BuildPrimitive(typing: 0.15d, scroll: 0.18d, focus: 0.21d);
+
+        OverloadInferenceResult result = OverloadInferenceComputer.ComputeForFinalizedBucket(
+            snapshot,
+            bucket,
+            primitive,
+            BaselineGatingResult.Warm,
+            robust: null);
+
+        Assert.True(result.PressureLevel >= PortaExecutionConstants.OverloadStabilization.ThresholdOn);
+        Assert.True(result.OverloadLikelihood < PortaExecutionConstants.OverloadStabilization.ThresholdOn);
+        Assert.True(result.PressureLevel > result.OverloadLikelihood);
+    }
+
+    [Fact]
     public void ComputeForFinalizedBucket_CapsConfidenceDuringColdStart()
     {
         AgentBrainSnapshot snapshot = BuildSnapshot(overload: 0.70d, confidence: 0.90d);

@@ -95,6 +95,9 @@ public static class PortaExecutionConstants
 
     public static class OverloadStabilization
     {
+        // Reviewed after the pressure split: overload activation stays
+        // intentionally conservative and separate from the more expressive
+        // user-facing pressure signal.
         public const double ThresholdOn = 0.72;
         public const double ThresholdOff = 0.58;
         public const int DwellOnSeconds = 60;

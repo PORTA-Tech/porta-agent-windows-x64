@@ -188,6 +188,21 @@ public sealed class OverloadStabilizationComputerTests
     }
 
     [Fact]
+    public void ComputeForFinalizedBucket_HighPressureWithoutConservativeOverloadSignal_DoesNotActivate()
+    {
+        OverloadStabilizationResult result = OverloadStabilizationComputer.ComputeForFinalizedBucket(
+            BuildBucket(bucketSeq: 9, quality: 0.90d),
+            BuildInference(overload: 0.60d, confidence: 0.90d, quality: 0.90d, pressure: 0.86d),
+            previous: default);
+
+        Assert.True(result.Eligible);
+        Assert.False(result.OnSignal);
+        Assert.False(result.Transitioned);
+        Assert.False(result.OverloadActive);
+        Assert.Equal("between_hold", result.DebugMode);
+    }
+
+    [Fact]
     public void ComputeForFinalizedBucket_SingleBucketDipWithinGapAllow_DoesNotResetOnDwell()
     {
         var state = new OverloadStabilizationRuntimeState(
@@ -358,6 +373,30 @@ public sealed class OverloadStabilizationComputerTests
     }
 
     [Fact]
+    public void ComputeForFinalizedBucket_LowConfidenceBlocksActivation_EvenWhenPressureWouldBeVisible()
+    {
+        var previous = new OverloadStabilizationRuntimeState(
+            OverloadActive: false,
+            OnDwellMs: 55_000,
+            OffDwellMs: 0,
+            LastGoodTsMs: Time.bucketStartEnd(60).endUtcMs,
+            LastBucketSeq: 60,
+            LastTransitionTsMs: 0);
+
+        OverloadStabilizationResult result = OverloadStabilizationComputer.ComputeForFinalizedBucket(
+            BuildBucket(bucketSeq: 61, quality: 0.90d),
+            BuildInference(overload: 0.90d, confidence: 0.50d, quality: 0.90d, pressure: 0.88d),
+            previous);
+
+        Assert.False(result.Eligible);
+        Assert.False(result.OnSignal);
+        Assert.False(result.Transitioned);
+        Assert.False(result.OverloadActive);
+        Assert.Equal("ineligible_hold", result.DebugMode);
+        Assert.Equal(55_000, result.RuntimeState.OnDwellMs);
+    }
+
+    [Fact]
     public void ComputeForFinalizedBucket_LowQualityNearOffTransition_DoesNotDeactivate()
     {
         var previous = new OverloadStabilizationRuntimeState(
@@ -413,7 +452,7 @@ public sealed class OverloadStabilizationComputerTests
             ContributorsJson: "{\"schema_ver\":1}");
     }
 
-    private static OverloadInferenceResult BuildInference(double overload, double confidence, double quality)
+    private static OverloadInferenceResult BuildInference(double overload, double confidence, double quality, double? pressure = null)
     {
         return new OverloadInferenceResult(
             OverloadLikelihood: overload,
@@ -430,6 +469,7 @@ public sealed class OverloadStabilizationComputerTests
             MissingPrimitiveCount: 0,
             UsedSnapshotFallback: false,
             Source: "bucket_finalizer",
-            ComponentsRegistryVersion: 1);
+            ComponentsRegistryVersion: 1,
+            PressureLevel: pressure ?? overload);
     }
 }
