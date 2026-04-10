@@ -29,6 +29,7 @@ public sealed class TodayPageMetricsBuilderTests
         Assert.Equal(600d, metrics.DistractionTodaySeconds, precision: 3);
         Assert.Equal(900d, metrics.BestFocusBlockSeconds, precision: 3);
         Assert.Equal(900d, metrics.TrackedTodaySeconds, precision: 3);
+        Assert.Equal(900d, metrics.DisplayedTrackedTodaySeconds, precision: 3);
         Assert.Equal(46.666666666666664d, metrics.AverageFocusPercent, precision: 6);
         int localHour = baseUtc.ToLocalTime().Hour;
         Assert.Equal($"{localHour:00}:00-{localHour:00}:59", metrics.MostDistractedHourLabel);
@@ -44,8 +45,51 @@ public sealed class TodayPageMetricsBuilderTests
         Assert.Equal(0d, metrics.DistractionTodaySeconds);
         Assert.Equal(0d, metrics.BestFocusBlockSeconds);
         Assert.Equal(0d, metrics.TrackedTodaySeconds);
+        Assert.Equal(0d, metrics.DisplayedTrackedTodaySeconds);
         Assert.Equal(0d, metrics.AverageFocusPercent);
         Assert.Equal("Not available", metrics.MostDistractedHourLabel);
+    }
+
+    [Fact]
+    public void Build_ProjectsWorkTodayForwardWhileLiveSessionRemainsActive()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-04-10T09:00:20Z");
+        DateTimeOffset snapshotUtc = nowUtc.AddSeconds(-20);
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            snapshotUtc,
+            focusStrength: 0.80d,
+            sustainedAttentionSeconds: 900d);
+        LocalApiTimelineResponse timeline = new(
+            FromUtc: snapshotUtc.AddMinutes(-10),
+            ToUtc: snapshotUtc,
+            BucketSeconds: 60,
+            Snapshots:
+            [
+                BuildSnapshot(snapshotUtc.AddMinutes(-2), focusStrength: 0.80d, sustainedAttentionSeconds: 600d),
+                BuildSnapshot(snapshotUtc.AddMinutes(-1), focusStrength: 0.85d, sustainedAttentionSeconds: 660d),
+                snapshot
+            ],
+            Interventions: []);
+        LocalApiLiveSessionStateResponse liveSession = new(
+            UpdatedAtUtc: nowUtc,
+            SessionStartedAtUtc: nowUtc.AddMinutes(-25),
+            LastInputEventUtc: nowUtc.AddSeconds(-1),
+            AgentInstanceId: "ua-1",
+            SessionId: "session-1",
+            KeyboardActive: true,
+            MouseActive: true,
+            UserActive: true,
+            Idle: false,
+            IdleSeconds: 0.5d,
+            FocusAppHash: "focus-app",
+            Freshness: "fresh",
+            DegradedReason: null,
+            FocusStartedAtUtc: nowUtc.AddMinutes(-4));
+
+        TodayPageMetrics metrics = TodayPageMetricsBuilder.Build(timeline, snapshot, liveSession, nowUtc);
+
+        Assert.Equal(180d, metrics.TrackedTodaySeconds, precision: 3);
+        Assert.Equal(200d, metrics.DisplayedTrackedTodaySeconds, precision: 3);
     }
 
     private static LocalApiCurrentSnapshotResponse BuildSnapshot(

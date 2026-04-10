@@ -8,14 +8,23 @@ internal sealed record TodayPageMetrics(
     double DistractionTodaySeconds,
     double BestFocusBlockSeconds,
     double TrackedTodaySeconds,
+    double DisplayedTrackedTodaySeconds,
     double AverageFocusPercent,
     string MostDistractedHourLabel);
 
 internal static class TodayPageMetricsBuilder
 {
-    public static TodayPageMetrics Build(LocalApiTimelineResponse? timeline)
+    public static TodayPageMetrics Build(
+        LocalApiTimelineResponse? timeline,
+        LocalApiCurrentSnapshotResponse? snapshot = null,
+        LocalApiLiveSessionStateResponse? liveSession = null,
+        DateTimeOffset? nowUtc = null)
     {
-        LocalTodaySummaryMetrics summary = LocalTodaySummaryMetricsBuilder.Build(timeline);
+        LocalTodaySummaryMetrics summary = LocalTodaySummaryMetricsBuilder.Build(
+            timeline,
+            snapshot,
+            liveSession,
+            nowUtc);
 
         return new TodayPageMetrics(
             HasProcessedTimeline: summary.HasProcessedTimeline,
@@ -23,6 +32,7 @@ internal static class TodayPageMetricsBuilder
             DistractionTodaySeconds: summary.DistractionTodaySeconds,
             BestFocusBlockSeconds: summary.BestFocusBlockSeconds,
             TrackedTodaySeconds: summary.TrackedTodaySeconds,
+            DisplayedTrackedTodaySeconds: summary.DisplayedTrackedTodaySeconds,
             AverageFocusPercent: summary.AverageFocusPercent,
             MostDistractedHourLabel: summary.MostDistractedHourLabel);
     }

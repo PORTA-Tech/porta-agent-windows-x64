@@ -7,6 +7,7 @@ public sealed record LocalTodaySummaryMetrics(
     double AwayTodaySeconds,
     double ContextExcursionTodaySeconds,
     double TrackedTodaySeconds,
+    double DisplayedTrackedTodaySeconds,
     double BestFocusBlockSeconds,
     double AverageFocusPercent,
     string MostDistractedHourLabel);
@@ -15,7 +16,11 @@ public static class LocalTodaySummaryMetricsBuilder
 {
     public const string NotAvailableText = "Not available";
 
-    public static LocalTodaySummaryMetrics Build(LocalApiTimelineResponse? timeline)
+    public static LocalTodaySummaryMetrics Build(
+        LocalApiTimelineResponse? timeline,
+        LocalApiCurrentSnapshotResponse? snapshot = null,
+        LocalApiLiveSessionStateResponse? liveSession = null,
+        DateTimeOffset? nowUtc = null)
     {
         IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = timeline?.Snapshots ?? [];
         if (timeline == null || snapshots.Count == 0)
@@ -27,6 +32,7 @@ public static class LocalTodaySummaryMetricsBuilder
                 AwayTodaySeconds: 0d,
                 ContextExcursionTodaySeconds: 0d,
                 TrackedTodaySeconds: 0d,
+                DisplayedTrackedTodaySeconds: 0d,
                 BestFocusBlockSeconds: 0d,
                 AverageFocusPercent: 0d,
                 MostDistractedHourLabel: NotAvailableText);
@@ -38,29 +44,34 @@ public static class LocalTodaySummaryMetricsBuilder
         double awayTodaySeconds = 0d;
         double contextExcursionTodaySeconds = 0d;
         double trackedTodaySeconds = 0d;
-        foreach (LocalApiCurrentSnapshotResponse snapshot in snapshots)
+        foreach (LocalApiCurrentSnapshotResponse candidate in snapshots)
         {
-            double focusStrength = Math.Clamp(snapshot.FocusStrength, 0d, 1d);
+            double focusStrength = Math.Clamp(candidate.FocusStrength, 0d, 1d);
             focusedTodaySeconds += bucketSeconds * focusStrength;
             trackedTodaySeconds += bucketSeconds;
 
-            if (LocalAttentionSegmentAnalytics.IsDistractionEpisode(snapshot))
+            if (LocalAttentionSegmentAnalytics.IsDistractionEpisode(candidate))
             {
                 distractionTodaySeconds += bucketSeconds;
             }
-            else if (LocalAttentionSegmentAnalytics.IsAwaySegment(snapshot))
+            else if (LocalAttentionSegmentAnalytics.IsAwaySegment(candidate))
             {
                 awayTodaySeconds += bucketSeconds;
             }
-            else if (LocalAttentionSegmentAnalytics.IsContextExcursionSegment(snapshot))
+            else if (LocalAttentionSegmentAnalytics.IsContextExcursionSegment(candidate))
             {
                 contextExcursionTodaySeconds += bucketSeconds;
             }
         }
 
-        double bestFocusBlockSeconds = snapshots.Max(static snapshot => Math.Max(0d, snapshot.SustainedAttentionDurationSec));
-        double averageFocusPercent = snapshots.Average(static snapshot => Math.Clamp(snapshot.FocusStrength, 0d, 1d)) * 100d;
+        double bestFocusBlockSeconds = snapshots.Max(static candidate => Math.Max(0d, candidate.SustainedAttentionDurationSec));
+        double averageFocusPercent = snapshots.Average(static candidate => Math.Clamp(candidate.FocusStrength, 0d, 1d)) * 100d;
         string mostDistractedHourLabel = ComputeMostDistractedHourLabel(snapshots, bucketSeconds);
+        double displayedTrackedTodaySeconds = trackedTodaySeconds + ResolveLiveTrackedProjectionSeconds(
+            snapshots,
+            snapshot,
+            liveSession,
+            nowUtc ?? DateTimeOffset.UtcNow);
 
         return new LocalTodaySummaryMetrics(
             HasProcessedTimeline: true,
@@ -69,9 +80,45 @@ public static class LocalTodaySummaryMetricsBuilder
             AwayTodaySeconds: awayTodaySeconds,
             ContextExcursionTodaySeconds: contextExcursionTodaySeconds,
             TrackedTodaySeconds: trackedTodaySeconds,
+            DisplayedTrackedTodaySeconds: displayedTrackedTodaySeconds,
             BestFocusBlockSeconds: bestFocusBlockSeconds,
             AverageFocusPercent: averageFocusPercent,
             MostDistractedHourLabel: mostDistractedHourLabel);
+    }
+
+    private static double ResolveLiveTrackedProjectionSeconds(
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiLiveSessionStateResponse? liveSession,
+        DateTimeOffset nowUtc)
+    {
+        if (snapshots.Count == 0
+            || !IsFreshLiveSession(liveSession)
+            || liveSession!.idle
+            || !liveSession.user_active)
+        {
+            return 0d;
+        }
+
+        DateTimeOffset latestTrackedUtc = snapshots.Max(static candidate => candidate.TimestampUtc);
+        if (snapshot != null && snapshot.TimestampUtc > latestTrackedUtc)
+        {
+            latestTrackedUtc = snapshot.TimestampUtc;
+        }
+
+        DateTimeOffset latestKnownUtc = liveSession.UpdatedAtUtc ?? nowUtc;
+        if (latestKnownUtc <= latestTrackedUtc)
+        {
+            return 0d;
+        }
+
+        return Math.Clamp((latestKnownUtc - latestTrackedUtc).TotalSeconds, 0d, 90d);
+    }
+
+    private static bool IsFreshLiveSession(LocalApiLiveSessionStateResponse? liveSession)
+    {
+        return liveSession != null
+            && string.Equals(liveSession.freshness_state, "fresh", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ComputeMostDistractedHourLabel(

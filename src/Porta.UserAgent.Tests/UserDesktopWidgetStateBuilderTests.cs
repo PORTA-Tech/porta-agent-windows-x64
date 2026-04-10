@@ -325,6 +325,72 @@ public sealed class UserDesktopWidgetStateBuilderTests
     }
 
     [Fact]
+    public void Build_ProjectsWorkTodayForwardWhileLiveSessionRemainsActive()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-04-10T09:00:20Z");
+        DateTimeOffset snapshotUtc = nowUtc.AddSeconds(-20);
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.42,
+            sustainedAttentionSeconds: 1500,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false) with
+        {
+            TimestampUtc = snapshotUtc
+        };
+        LocalApiLiveSessionStateResponse liveSession = new(
+            UpdatedAtUtc: nowUtc,
+            SessionStartedAtUtc: nowUtc.AddMinutes(-17),
+            LastInputEventUtc: nowUtc.AddSeconds(-1),
+            AgentInstanceId: "ua-1",
+            SessionId: "session-1",
+            KeyboardActive: true,
+            MouseActive: true,
+            UserActive: true,
+            Idle: false,
+            IdleSeconds: 0.4d,
+            FocusAppHash: "abc123",
+            Freshness: "fresh",
+            DegradedReason: null,
+            FocusStartedAtUtc: nowUtc.AddMinutes(-3));
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+        LocalApiTimelineResponse timeline = new(
+            FromUtc: nowUtc.AddHours(-2),
+            ToUtc: snapshotUtc,
+            BucketSeconds: 60,
+            Snapshots: Enumerable
+                .Range(0, 120)
+                .Select(index => snapshot with
+                {
+                    TimestampUtc = nowUtc.AddMinutes(-(119 - index)).AddSeconds(-20),
+                    SustainedAttentionDurationSec = 0
+                })
+                .ToArray(),
+            Interventions: []);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status,
+            snapshot,
+            liveSession,
+            signals,
+            degradedToast: null,
+            recentEvents: [],
+            timeline: timeline,
+            settings: null,
+            nowUtc: nowUtc);
+
+        AssertMetric(state.PrimaryMetric, "Work today", "2h 00m 20s");
+    }
+
+    [Fact]
     public void Build_UsesCachedSnapshotVocabularyWhenRuntimeStateIsStale()
     {
         LocalApiStatusResponse status = BuildStatus(
@@ -505,9 +571,55 @@ public sealed class UserDesktopWidgetStateBuilderTests
             nowUtc: nowUtc);
 
         AssertMetric(state.PrimaryMetric, "Work today", "Updating...");
-        AssertMetric(state.SecondaryMetric, "Last focus session", "Active");
+        AssertMetric(state.SecondaryMetric, "Last focus session", "0s");
         AssertMetric(state.TertiaryMetric, "Pressure", "50%");
         Assert.Equal("Confidence High | Tracking quality pending", state.FooterText);
+    }
+
+    [Fact]
+    public void Build_KeepsLastFocusDurationVisibleWhenLiveSessionIsIdle()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.30,
+            sustainedAttentionSeconds: 180,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false);
+        LocalApiLiveSessionStateResponse liveSession = new(
+            UpdatedAtUtc: nowUtc,
+            SessionStartedAtUtc: nowUtc.AddMinutes(-12),
+            LastInputEventUtc: nowUtc.AddMinutes(-2),
+            AgentInstanceId: "ua-1",
+            SessionId: "session-1",
+            KeyboardActive: false,
+            MouseActive: false,
+            UserActive: false,
+            Idle: true,
+            IdleSeconds: 120d,
+            FocusAppHash: null,
+            Freshness: "fresh",
+            DegradedReason: null,
+            FocusStartedAtUtc: nowUtc.AddMinutes(-5));
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status,
+            snapshot,
+            liveSession,
+            signals,
+            degradedToast: null,
+            nowUtc: nowUtc);
+
+        AssertMetric(state.SecondaryMetric, "Last focus session", "3m");
     }
 
     [Fact]

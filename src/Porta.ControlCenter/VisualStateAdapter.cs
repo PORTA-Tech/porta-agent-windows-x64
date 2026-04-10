@@ -154,7 +154,7 @@ internal static class VisualStateAdapter
             return $"Last focus session: {FormatFocusedTime(experience.FocusEpisodeSeconds.Value)}";
         }
 
-        if (experience.LiveSessionFresh && experience.LiveSessionIdle)
+        if (experience.LiveSessionFresh)
         {
             return "Last focus session: 0 sec";
         }

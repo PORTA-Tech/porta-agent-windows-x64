@@ -22,7 +22,11 @@ internal static class UserDesktopWidgetStateBuilder
         _ = signals;
         DateTimeOffset now = nowUtc ?? DateTimeOffset.UtcNow;
         IReadOnlyList<LocalApiEventResponse> events = recentEvents ?? [];
-        LocalTodaySummaryMetrics todaySummary = LocalTodaySummaryMetricsBuilder.Build(timeline);
+        LocalTodaySummaryMetrics todaySummary = LocalTodaySummaryMetricsBuilder.Build(
+            timeline,
+            snapshot,
+            liveSession,
+            now);
         LocalCurrentExperienceState experience = LocalCurrentExperienceStateAdapter.Build(
             status,
             snapshot,
@@ -273,7 +277,7 @@ internal static class UserDesktopWidgetStateBuilder
         string value = mode switch
         {
             UserDesktopWidgetMode.Paused => "Paused",
-            _ when todaySummary.HasProcessedTimeline => FormatCompactDuration(TimeSpan.FromSeconds(Math.Max(0d, todaySummary.TrackedTodaySeconds))),
+            _ when todaySummary.HasProcessedTimeline => LocalMetricDurationFormatter.FormatMetricDuration(todaySummary.DisplayedTrackedTodaySeconds),
             _ when status == null || !status.ServiceRunning || !status.LocalApiAuthReady => "n/a",
             _ => "Updating..."
         };
@@ -294,11 +298,11 @@ internal static class UserDesktopWidgetStateBuilder
         }
         else if (experience.FocusEpisodeSeconds.HasValue)
         {
-            value = FormatCompactDuration(TimeSpan.FromSeconds(experience.FocusEpisodeSeconds.Value));
+            value = LocalMetricDurationFormatter.FormatMetricDuration(experience.FocusEpisodeSeconds.Value);
         }
-        else if (experience.LiveSessionFresh && liveSession != null)
+        else if (experience.LiveSessionFresh)
         {
-            value = BuildLivePresenceMetric(liveSession);
+            value = "0s";
         }
         else if (status == null || !status.ServiceRunning || !status.LocalApiAuthReady)
         {
@@ -373,21 +377,6 @@ internal static class UserDesktopWidgetStateBuilder
         string typingText = liveSession.keyboard_active ? "typing active" : "typing idle";
         string mouseText = liveSession.mouse_active ? "mouse active" : "mouse idle";
         return $"{focusText} | {typingText} | {mouseText}.";
-    }
-
-    private static string BuildLivePresenceMetric(LocalApiLiveSessionStateResponse liveSession)
-    {
-        if (liveSession.idle)
-        {
-            return "Idle";
-        }
-
-        if (!string.IsNullOrWhiteSpace(liveSession.focus_app_hash))
-        {
-            return "Active";
-        }
-
-        return liveSession.user_active ? "Active" : "Watching";
     }
 
     private static string BuildConfidenceFooterText(
@@ -473,29 +462,6 @@ internal static class UserDesktopWidgetStateBuilder
     {
         double normalized = double.IsFinite(value) ? Math.Clamp(value, 0d, 1d) : 0d;
         return $"{Math.Round(normalized * 100d, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture)}%";
-    }
-
-    private static string FormatCompactDuration(TimeSpan duration)
-    {
-        if (duration <= TimeSpan.Zero)
-        {
-            return "0m";
-        }
-
-        if (duration.TotalMinutes < 1d)
-        {
-            int seconds = Math.Max(0, (int)Math.Round(duration.TotalSeconds, MidpointRounding.AwayFromZero));
-            return $"{seconds.ToString(CultureInfo.InvariantCulture)}s";
-        }
-
-        if (duration.TotalHours < 1d)
-        {
-            int minutes = Math.Max(0, (int)Math.Floor(duration.TotalMinutes));
-            return $"{minutes.ToString(CultureInfo.InvariantCulture)}m";
-        }
-
-        int hours = Math.Max(0, (int)Math.Floor(duration.TotalHours));
-        return $"{hours.ToString(CultureInfo.InvariantCulture)}h {duration.Minutes.ToString("00", CultureInfo.InvariantCulture)}m";
     }
 
     private static string FormatAgeShort(double seconds)

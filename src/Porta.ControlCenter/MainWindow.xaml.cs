@@ -1242,20 +1242,23 @@ public partial class MainWindow : Window
     {
         _ = inputSummary;
         _ = previousSnapshot;
-        PopulateNowCards(nowTruth, liveSession, recentEvents, _latestVisualState);
+        PopulateNowCards(nowTruth, liveSession, _latestVisualState);
     }
 
     private void PopulateNowCards(
         NowTruth nowTruth,
         LocalApiLiveSessionStateResponse? liveSession,
-        IReadOnlyList<LocalApiEventResponse> recentEvents,
         PortaVisualState visualState)
     {
         LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
-        TodayPageMetrics todayMetrics = TodayPageMetricsBuilder.Build(_todayTimeline);
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        TodayPageMetrics todayMetrics = TodayPageMetricsBuilder.Build(
+            _todayTimeline,
+            snapshot,
+            liveSession,
+            nowUtc);
         TodayTrackingState todayState = TodayPageCopyBuilder.ResolveTrackingState(_latestStatus, snapshot, liveSession);
         string readableExplanation = TodayPageCopyBuilder.BuildReadableExplanation(todayState, nowTruth.Explanation);
-        LocalApiEventResponse? latestActionEvent = recentEvents.FirstOrDefault();
         string currentStatusText = BuildCurrentStatusSentence(liveSession) ?? visualState.OperatingSentence;
 
         TodaySummaryText.Text = BuildTodaySummarySentence(
@@ -1267,13 +1270,7 @@ public partial class MainWindow : Window
         PopulateTodayWorkCard(todayMetrics, todayState, visualState);
         PopulateTodayLastFocusCard(todayState, liveSession, visualState);
         PopulateTodayOverloadCard(todayState, snapshot, visualState);
-        PopulateTodayStatusCard(
-            todayState,
-            currentStatusText,
-            BuildTodayNextStepText(snapshot, recentEvents),
-            latestActionEvent,
-            visualState,
-            readableExplanation);
+        PopulateTodaySupportingStatusLine(todayState, currentStatusText, readableExplanation);
         PopulateTodayRecoveryBanner(todayState, readableExplanation, visualState);
     }
 
@@ -1284,13 +1281,13 @@ public partial class MainWindow : Window
     {
         if (todayState == TodayTrackingState.Paused)
         {
-            NowOverloadValueText.Text = "Work today: Paused";
+            NowOverloadValueText.Text = ResolveTodayWorkMetricText(todayState, todayMetrics, _latestStatus);
             NowOverloadActiveText.Text = "History status: paused";
             NowOverloadSummaryText.Text = "History stays pinned here and resumes once tracking is unpaused.";
         }
         else if (todayState == TodayTrackingState.Unavailable)
         {
-            NowOverloadValueText.Text = "Work today: n/a";
+            NowOverloadValueText.Text = ResolveTodayWorkMetricText(todayState, todayMetrics, _latestStatus);
             NowOverloadActiveText.Text = "History status: unavailable";
             NowOverloadSummaryText.Text = "Open System to reconnect the local service, then History will resume here.";
         }
@@ -1298,14 +1295,14 @@ public partial class MainWindow : Window
         {
             AnimateTopMetric(
                 metricKey: "today_work_total",
-                targetValue: Math.Max(0d, todayMetrics.TrackedTodaySeconds / 60d),
-                applyValue: value => NowOverloadValueText.Text = $"Work today: {FormatReadableDuration(value * 60d)}");
+                targetValue: Math.Max(0d, todayMetrics.DisplayedTrackedTodaySeconds),
+                applyValue: value => NowOverloadValueText.Text = $"Work today: {LocalMetricDurationFormatter.FormatMetricDuration(value)}");
             NowOverloadActiveText.Text = BuildTodayHistoryStatusText();
             NowOverloadSummaryText.Text = "Open History to review the day-by-hour focus map for today.";
         }
         else
         {
-            NowOverloadValueText.Text = $"Work today: {FillingInText}";
+            NowOverloadValueText.Text = ResolveTodayWorkMetricText(todayState, todayMetrics, _latestStatus);
             NowOverloadActiveText.Text = "History status: waiting for processed buckets";
             NowOverloadSummaryText.Text = "History stays visible and fills hour by hour as processed buckets land.";
         }
@@ -1327,28 +1324,20 @@ public partial class MainWindow : Window
         PortaVisualState visualState)
     {
         double? focusEpisodeSeconds = visualState.FocusEpisodeSeconds;
-        if (todayState == TodayTrackingState.Paused)
-        {
-            NowFocusStreakValueText.Text = "Last focus session: Paused";
-        }
-        else if (IsLiveSessionFresh(liveSession) && liveSession!.idle)
-        {
-            NowFocusStreakValueText.Text = "Last focus session: Idle";
-        }
-        else if (focusEpisodeSeconds.HasValue)
+        if (focusEpisodeSeconds.HasValue)
         {
             AnimateTopMetric(
                 metricKey: "today_last_focus",
-                targetValue: Math.Max(0d, focusEpisodeSeconds.Value / 60d),
-                applyValue: value => NowFocusStreakValueText.Text = $"Last focus session: {FormatReadableDuration(value * 60d)}");
-        }
-        else if (_latestStatus == null || !_latestStatus.ServiceRunning || !_latestStatus.LocalApiAuthReady)
-        {
-            NowFocusStreakValueText.Text = "Last focus session: n/a";
+                targetValue: Math.Max(0d, focusEpisodeSeconds.Value),
+                applyValue: value => NowFocusStreakValueText.Text = $"Last focus session: {LocalMetricDurationFormatter.FormatMetricDuration(value)}");
         }
         else
         {
-            NowFocusStreakValueText.Text = $"Last focus session: {FillingInText}";
+            NowFocusStreakValueText.Text = ResolveTodayLastFocusMetricText(
+                todayState,
+                focusEpisodeSeconds,
+                IsLiveSessionFresh(liveSession),
+                _latestStatus);
         }
 
         string focusedNowText = BuildTodayFocusedNowLabel(liveSession, focusEpisodeSeconds);
@@ -1423,35 +1412,24 @@ public partial class MainWindow : Window
         NowCalibrationTrustCapText.Visibility = snapshot.analysis_ready ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private void PopulateTodayStatusCard(
+    private void PopulateTodaySupportingStatusLine(
         TodayTrackingState todayState,
         string currentStatusText,
-        string nextStepText,
-        LocalApiEventResponse? latestActionEvent,
-        PortaVisualState visualState,
         string readableExplanation)
     {
-        NowDataQualityScoreText.Text = TodayPageCopyBuilder.BuildStateLabel(todayState, _latestStatus?.PauseUntilUtc);
-        NowDataQualityScoreText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
-        NowDataQualityPartialText.Text = todayState switch
+        string supportingText = todayState switch
         {
             TodayTrackingState.StillTracking => string.IsNullOrWhiteSpace(currentStatusText)
-                ? "Ari is tracking normally."
+                ? "Status: Today is updating normally."
                 : currentStatusText,
-            TodayTrackingState.TrackingLimited => readableExplanation,
-            TodayTrackingState.Paused => readableExplanation,
-            _ => readableExplanation
+            _ => string.IsNullOrWhiteSpace(readableExplanation)
+                ? "Status: Updating."
+                : readableExplanation
         };
-        NowDataQualitySummaryText.Text = todayState switch
-        {
-            TodayTrackingState.StillTracking => latestActionEvent == null
-                ? $"{nextStepText}. Open Actions for more detail."
-                : $"Latest action: {ToActionTitle(latestActionEvent)}. Open Actions for details.",
-            TodayTrackingState.TrackingLimited => $"{nextStepText}. Open System if the page stays limited.",
-            TodayTrackingState.Paused => TodayPageCopyBuilder.BuildEmptyStateGuidance(todayState),
-            _ => TodayPageCopyBuilder.BuildEmptyStateGuidance(todayState)
-        };
-        NowDataQualityMissingText.Visibility = Visibility.Collapsed;
+        NowWaitingDataText.Text = supportingText;
+        NowWaitingDataText.Visibility = string.IsNullOrWhiteSpace(supportingText)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     private void PopulateTodayRecoveryBanner(
@@ -1476,7 +1454,6 @@ public partial class MainWindow : Window
             bannerText = readableExplanation;
         }
 
-        NowWaitingDataText.Visibility = Visibility.Collapsed;
         _activeRecoveryEventId = bannerEventId;
         NowRecoveryDismissButton.Visibility = allowDismiss ? Visibility.Visible : Visibility.Collapsed;
 
@@ -1510,7 +1487,7 @@ public partial class MainWindow : Window
         {
             if (todayMetrics.HasProcessedTimeline)
             {
-                return $"Tracking limited. Work today is {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}. {readableExplanation}";
+                return $"Tracking limited. Work today is {FormatReadableDuration(todayMetrics.DisplayedTrackedTodaySeconds)}. {readableExplanation}";
             }
 
             if (focusEpisodeSeconds.HasValue)
@@ -1525,10 +1502,10 @@ public partial class MainWindow : Window
         {
             if (focusEpisodeSeconds.HasValue)
             {
-                return $"Still tracking. Work today is {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}, and your last focus session is {FormatReadableDuration(focusEpisodeSeconds.Value)}.";
+                return $"Still tracking. Work today is {FormatReadableDuration(todayMetrics.DisplayedTrackedTodaySeconds)}, and your last focus session is {FormatReadableDuration(focusEpisodeSeconds.Value)}.";
             }
 
-            return $"Still tracking. Work today is {FormatReadableDuration(todayMetrics.TrackedTodaySeconds)}. Open History to inspect the day-by-hour focus map.";
+            return $"Still tracking. Work today is {FormatReadableDuration(todayMetrics.DisplayedTrackedTodaySeconds)}. Open History to inspect the day-by-hour focus map.";
         }
 
         if (focusEpisodeSeconds.HasValue)
@@ -1617,30 +1594,6 @@ public partial class MainWindow : Window
         }
 
         return $"History status: Updated {latestProcessedSnapshot.TimestampUtc.ToLocalTime():h:mm tt}";
-    }
-
-    private static string BuildTodayNextStepText(
-        LocalApiCurrentSnapshotResponse? snapshot,
-        IReadOnlyList<LocalApiEventResponse> recentEvents)
-    {
-        if (snapshot != null && !string.IsNullOrWhiteSpace(snapshot.BreakPendingAction))
-        {
-            string pendingAction = IsSuggestionEvent(snapshot.BreakPendingAction)
-                ? BuildSuggestionTitle(snapshot.BreakPendingAction)
-                : HumanizeActionName(snapshot.BreakPendingAction);
-            return $"Next recommendation: {pendingAction}";
-        }
-
-        LocalApiEventResponse? latestSuggestion = recentEvents.FirstOrDefault(static evt => IsSuggestionEvent(evt.Action));
-        if (latestSuggestion != null)
-        {
-            return $"Next recommendation: {ToActionTitle(latestSuggestion)}";
-        }
-
-        LocalApiEventResponse? latestAction = recentEvents.FirstOrDefault();
-        return latestAction == null
-            ? "Next recommendation: None right now"
-            : $"Recent action: {ToActionTitle(latestAction)}";
     }
 
     private string BuildNowOverloadSummary(LocalApiCurrentSnapshotResponse? snapshot)
@@ -2024,6 +1977,57 @@ public partial class MainWindow : Window
 
         double minutes = Math.Floor(sustainedAttentionSeconds / 60d);
         return $"{minutes:F0} min";
+    }
+
+    internal static string ResolveTodayWorkMetricText(
+        TodayTrackingState todayState,
+        TodayPageMetrics todayMetrics,
+        LocalApiStatusResponse? status)
+    {
+        if (todayState == TodayTrackingState.Paused)
+        {
+            return "Work today: Paused";
+        }
+
+        if (todayState == TodayTrackingState.Unavailable)
+        {
+            return "Work today: n/a";
+        }
+
+        if (todayMetrics.HasProcessedTimeline)
+        {
+            return $"Work today: {LocalMetricDurationFormatter.FormatMetricDuration(todayMetrics.DisplayedTrackedTodaySeconds)}";
+        }
+
+        return status == null || !status.ServiceRunning || !status.LocalApiAuthReady
+            ? "Work today: n/a"
+            : $"Work today: {FillingInText}";
+    }
+
+    internal static string ResolveTodayLastFocusMetricText(
+        TodayTrackingState todayState,
+        double? focusEpisodeSeconds,
+        bool liveSessionFresh,
+        LocalApiStatusResponse? status)
+    {
+        if (todayState == TodayTrackingState.Paused)
+        {
+            return "Last focus session: Paused";
+        }
+
+        if (focusEpisodeSeconds.HasValue)
+        {
+            return $"Last focus session: {LocalMetricDurationFormatter.FormatMetricDuration(focusEpisodeSeconds.Value)}";
+        }
+
+        if (liveSessionFresh)
+        {
+            return "Last focus session: 0s";
+        }
+
+        return status == null || !status.ServiceRunning || !status.LocalApiAuthReady
+            ? "Last focus session: n/a"
+            : $"Last focus session: {FillingInText}";
     }
 
     private static string FormatReadableDuration(double seconds)

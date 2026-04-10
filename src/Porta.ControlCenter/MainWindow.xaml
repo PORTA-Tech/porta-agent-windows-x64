@@ -433,7 +433,7 @@
                 <ScrollViewer x:Name="OverviewPanel" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
                         <TextBlock x:Name="TodaySummaryText"
-                                   Text="Today keeps work, last focus session, pressure, and status in one place."
+                                   Text="Today keeps work, last focus session, and pressure synced with the widget."
                                    Foreground="#9AA4B2"
                                    FontSize="13"
                                    Margin="0,0,0,10" />
@@ -497,8 +497,9 @@
                             </Grid.ColumnDefinitions>
                             <Border x:Name="NowCalibrationCard"
                                     Grid.Column="0"
+                                    Grid.ColumnSpan="2"
                                     Style="{StaticResource QuietHoverCardStyle}"
-                                    Margin="0,0,8,0"
+                                    Margin="0"
                                     Cursor="Hand"
                                     MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
                                     Tag="today-overload"
@@ -515,26 +516,6 @@
                                                Foreground="#93C5FD"
                                                TextWrapping="Wrap" />
                                     <TextBlock x:Name="NowCalibrationTrustCapText" Text="Analysis is still catching up for overload details." Foreground="#FB923C" Margin="0,8,0,0" Visibility="Collapsed" />
-                                </StackPanel>
-                            </Border>
-                            <Border x:Name="NowDataQualityCard"
-                                    Grid.Column="1"
-                                    Style="{StaticResource QuietHoverCardStyle}"
-                                    Margin="8,0,0,0"
-                                    Cursor="Hand"
-                                    MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
-                                    Tag="current-status"
-                                    ToolTip="Open Actions for recommendations and recent changes">
-                                <StackPanel>
-                                    <TextBlock Text="Current status" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowDataQualityScoreText" Text="Current status: Not available" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowDataQualityPartialText" Text="Next recommendation: Not available" Margin="0,6,0,0" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowDataQualitySummaryText"
-                                               Text="Open Actions for full recommendation and action history."
-                                               Margin="0,8,0,0"
-                                               Foreground="#93C5FD"
-                                               TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowDataQualityMissingText" Text="" Margin="0,6,0,0" Visibility="Collapsed" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -2207,7 +2188,7 @@
                                         <TextBlock Text="- Background runtime: AriAgent service + the live desktop session agent keep tracking active in the background."
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,6" />
-                                        <TextBlock Text="- Today shows Work today, Last focus session, Pressure, and Current status."
+                                        <TextBlock Text="- Today shows Work today, Last focus session, and Pressure."
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,6" />
                                         <TextBlock Text="- Tracking explains privacy, controls, and what improves tracking quality."
