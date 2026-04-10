@@ -96,6 +96,21 @@ function Merge-PayloadDirectory {
     }
 }
 
+function Restore-ProjectForRuntime {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectPath,
+        [Parameter(Mandatory = $true)]
+        [string]$Runtime
+    )
+
+    Write-Host "Restoring $(Split-Path $ProjectPath -Leaf) for runtime $Runtime..."
+    dotnet restore $ProjectPath -r $Runtime
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet restore for '$ProjectPath' failed with exit code $LASTEXITCODE."
+    }
+}
+
 function Resolve-SignTool {
     param(
         [string]$ConfiguredPath
@@ -166,6 +181,7 @@ function Sign-MsiIfConfigured {
 }
 
 Write-Host "Publishing ari.exe ($Configuration, $Runtime)..."
+Restore-ProjectForRuntime -ProjectPath $serviceProject -Runtime $Runtime
 dotnet publish $serviceProject -c $Configuration -r $Runtime --self-contained true /p:PublishSingleFile=true
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE."
@@ -176,6 +192,7 @@ if (-not (Test-Path $ariExe)) {
 }
 
 Write-Host "Publishing Porta.UserAgent.exe ($Configuration, $Runtime)..."
+Restore-ProjectForRuntime -ProjectPath $userAgentProject -Runtime $Runtime
 dotnet publish $userAgentProject -c $Configuration -r $Runtime --self-contained true /p:PublishSingleFile=false
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish for Porta.UserAgent failed with exit code $LASTEXITCODE."
@@ -186,6 +203,7 @@ if (-not (Test-Path $userAgentExe)) {
 }
 
 Write-Host "Publishing Porta.ControlCenter.exe ($Configuration, $Runtime)..."
+Restore-ProjectForRuntime -ProjectPath $controlCenterProject -Runtime $Runtime
 dotnet publish $controlCenterProject -c $Configuration -r $Runtime --self-contained true /p:PublishSingleFile=false
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish for Porta.ControlCenter failed with exit code $LASTEXITCODE."
