@@ -1014,9 +1014,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
     private static DateTimeOffset ResolveWidgetTimelineStartUtc(DateTimeOffset nowUtc)
     {
-        DateTimeOffset localNow = nowUtc.ToLocalTime();
-        DateTimeOffset startOfDayLocal = new(localNow.Year, localNow.Month, localNow.Day, 0, 0, 0, localNow.Offset);
-        return startOfDayLocal.ToUniversalTime();
+        return LocalTimelineRangeResolver.ResolveLocalDayStartUtc(nowUtc);
     }
 
     private async Task<IReadOnlyList<LocalApiEventResponse>> RefreshRecentEventsAsync(DateTimeOffset nowUtc, CancellationToken token)

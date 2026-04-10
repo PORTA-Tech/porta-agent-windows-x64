@@ -85,6 +85,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private double _expandedAnchorTop;
     private bool _allowClose;
     private int _windowLifecycleState = WindowLifecycleOpen;
+    private int _surfaceVisibleForHeartbeat;
     private DateTimeOffset _reexpandNotBeforeUtc = DateTimeOffset.MinValue;
     private UserDesktopWidgetState? _currentState;
     private UserInterventionPrompt? _activePrompt;
@@ -471,8 +472,19 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         _rootBorder.Child = shellGrid;
         Content = _rootBorder;
-        SourceInitialized += (_, _) => InitializePlacement();
-        SizeChanged += (_, _) => ApplyAnchorPosition();
+        SourceInitialized += (_, _) =>
+        {
+            InitializePlacement();
+            RefreshSurfaceVisibilityHealth();
+        };
+        Loaded += (_, _) => RefreshSurfaceVisibilityHealth();
+        IsVisibleChanged += (_, _) => RefreshSurfaceVisibilityHealth();
+        SizeChanged += (_, _) =>
+        {
+            ApplyAnchorPosition();
+            RefreshSurfaceVisibilityHealth();
+        };
+        LocationChanged += (_, _) => RefreshSurfaceVisibilityHealth();
     }
 
     public void ApplyState(UserDesktopWidgetState state)
@@ -548,6 +560,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _hiddenByUser = true;
         _menuPopup.IsOpen = false;
         Hide();
+        RefreshSurfaceVisibilityHealth();
     }
 
     public void ShowWidgetIfHidden()
@@ -561,6 +574,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         Show();
         ApplyAnchorPosition();
         UpdateWindowHeight();
+        EnsureVisibleForRecovery();
     }
 
     public void AllowCloseForShutdown()
@@ -571,6 +585,41 @@ internal sealed class UserDesktopWidgetWindow : Window
     internal bool CanAcceptUiActions => Volatile.Read(ref _windowLifecycleState) == WindowLifecycleOpen;
 
     internal bool IsClosingOrClosed => Volatile.Read(ref _windowLifecycleState) != WindowLifecycleOpen;
+
+    internal bool IsSurfaceVisibleForHeartbeat => Volatile.Read(ref _surfaceVisibleForHeartbeat) == 1 && CanAcceptUiActions;
+
+    internal void EnsureVisibleForRecovery()
+    {
+        if (!CanAcceptUiActions)
+        {
+            return;
+        }
+
+        if (_hiddenByUser)
+        {
+            _hiddenByUser = false;
+        }
+
+        if (!IsVisible)
+        {
+            Show();
+        }
+
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        if (_collapsed)
+        {
+            Expand();
+        }
+
+        ApplyAnchorPosition();
+        UpdateWindowHeight();
+        NudgeTopmostWithoutActivation();
+        RefreshSurfaceVisibilityHealth();
+    }
 
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -584,15 +633,18 @@ internal sealed class UserDesktopWidgetWindow : Window
             | NativeMethods.WsExToolWindow
             | NativeMethods.WsExNoActivate;
         _ = NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GwlExStyle, new IntPtr(updatedStyle));
+        RefreshSurfaceVisibilityHealth();
     }
 
     protected override void OnClosing(CancelEventArgs e)
     {
         SetWindowLifecycleState(WindowLifecycleClosing);
+        RefreshSurfaceVisibilityHealth();
         if (!_allowClose)
         {
             e.Cancel = true;
             SetWindowLifecycleState(WindowLifecycleOpen);
+            RefreshSurfaceVisibilityHealth();
             return;
         }
 
@@ -602,6 +654,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         SetWindowLifecycleState(WindowLifecycleClosed);
+        RefreshSurfaceVisibilityHealth();
         base.OnClosed(e);
     }
 
@@ -941,6 +994,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         });
+        RefreshSurfaceVisibilityHealth();
     }
 
     private void AnimateWindowHeight(double targetHeight)
@@ -949,6 +1003,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         });
+        RefreshSurfaceVisibilityHealth();
     }
 
     private void BeginDragFromHeader(object sender, MouseButtonEventArgs e)
@@ -1064,6 +1119,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             ? _expandedAnchorLeft + (ExpandedWidth - currentWidth)
             : _expandedAnchorLeft;
         Top = _expandedAnchorTop;
+        RefreshSurfaceVisibilityHealth();
     }
 
     private void SaveCurrentPlacement()
@@ -1594,6 +1650,43 @@ internal sealed class UserDesktopWidgetWindow : Window
         Interlocked.Exchange(ref _windowLifecycleState, state);
     }
 
+    private void RefreshSurfaceVisibilityHealth()
+    {
+        bool visible =
+            CanAcceptUiActions
+            && !_hiddenByUser
+            && Visibility == Visibility.Visible
+            && IsVisible
+            && Width > 0d
+            && Height > 0d
+            && _hwndSource is not null
+            && !_hwndSource.IsDisposed;
+        Interlocked.Exchange(ref _surfaceVisibleForHeartbeat, visible ? 1 : 0);
+    }
+
+    private void NudgeTopmostWithoutActivation()
+    {
+        if (_hwndSource is null || _hwndSource.IsDisposed)
+        {
+            return;
+        }
+
+        IntPtr hwnd = _hwndSource.Handle;
+        if (hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        _ = NativeMethods.SetWindowPos(
+            hwnd,
+            NativeMethods.HwndTopMost,
+            (int)Math.Round(Left),
+            (int)Math.Round(Top),
+            (int)Math.Round(ActualWidth > 0d ? ActualWidth : Width),
+            (int)Math.Round(ActualHeight > 0d ? ActualHeight : Height),
+            NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow);
+    }
+
     private sealed record WidgetAttentionMessage(string Title, string Message);
 
     private sealed record WidgetTakeoverMessage(
@@ -1616,11 +1709,24 @@ internal sealed class UserDesktopWidgetWindow : Window
         internal const int HtTransparent = -1;
         internal const long WsExToolWindow = 0x00000080L;
         internal const long WsExNoActivate = 0x08000000L;
+        internal static readonly IntPtr HwndTopMost = new(-1);
+        internal const uint SwpNoActivate = 0x0010;
+        internal const uint SwpShowWindow = 0x0040;
 
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
         internal static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
 
         [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
         internal static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        internal static extern bool SetWindowPos(
+            IntPtr hWnd,
+            IntPtr hWndInsertAfter,
+            int X,
+            int Y,
+            int cx,
+            int cy,
+            uint uFlags);
     }
 }

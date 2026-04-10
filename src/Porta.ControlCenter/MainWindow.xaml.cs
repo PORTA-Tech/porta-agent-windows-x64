@@ -517,7 +517,7 @@ public partial class MainWindow : Window
                 || (DateTimeOffset.UtcNow - _lastSlowRefreshUtc) >= SlowRefreshInterval);
         if (needsSlowRefresh)
         {
-            DateTimeOffset fromUtc = DateTimeOffset.UtcNow.Date;
+            DateTimeOffset fromUtc = LocalTimelineRangeResolver.ResolveLocalDayStartUtc(DateTimeOffset.UtcNow);
             _todayTimeline = PreferFreshTimeline(
                 _todayTimeline,
                 await _apiClient.GetTimelineAsync(fromUtc, DateTimeOffset.UtcNow, 60).ConfigureAwait(true));
@@ -5564,13 +5564,14 @@ public partial class MainWindow : Window
 
     private (DateTimeOffset FromUtc, DateTimeOffset ToUtc) ResolveHistoryDisplayRangeUtc(DateTimeOffset nowUtc)
     {
+        DateTimeOffset todayFromUtc = LocalTimelineRangeResolver.ResolveLocalDayStartUtc(nowUtc);
         return _historyRange switch
         {
             HistoryRange.Last1Hour => (nowUtc.AddHours(-1), nowUtc),
             HistoryRange.Last4Hours => (nowUtc.AddHours(-4), nowUtc),
-            HistoryRange.Today => (nowUtc.Date, nowUtc),
+            HistoryRange.Today => (todayFromUtc, nowUtc),
             HistoryRange.AllTime => (nowUtc.AddDays(-Math.Max(1, Math.Min(_retention?.RetentionDays ?? 7, 7))), nowUtc),
-            _ => (nowUtc.Date, nowUtc)
+            _ => (todayFromUtc, nowUtc)
         };
     }
 

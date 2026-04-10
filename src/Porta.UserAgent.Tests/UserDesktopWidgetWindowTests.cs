@@ -417,6 +417,32 @@ public sealed class UserDesktopWidgetWindowTests
         });
     }
 
+    [Fact]
+    public void ShowAndHideWidget_UpdatesHeartbeatSurfaceVisibility()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.Show();
+            window.EnsureVisibleForRecovery();
+            Assert.True(window.IsSurfaceVisibleForHeartbeat);
+
+            window.HideWidget();
+            Assert.False(window.IsSurfaceVisibleForHeartbeat);
+
+            window.ShowWidgetIfHidden();
+            Assert.True(window.IsSurfaceVisibleForHeartbeat);
+
+            window.AllowCloseForShutdown();
+            window.Close();
+        });
+    }
+
     private static UserDesktopWidgetState BuildCriticalState(string message)
     {
         return new UserDesktopWidgetState(

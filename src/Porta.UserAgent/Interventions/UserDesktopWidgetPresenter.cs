@@ -384,10 +384,12 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                     else
                     {
                         currentWindow.ShowWidgetIfHidden();
+                        currentWindow.EnsureVisibleForRecovery();
                     }
 
-                    SetWidgetHealthStateOnWidgetThread(WidgetHealthReady);
-                    _widgetReady.TrySetResult(true);
+                    bool ready = _visibilityStore.IsHidden() || currentWindow.IsSurfaceVisibleForHeartbeat;
+                    SetWidgetHealthStateOnWidgetThread(ready ? WidgetHealthReady : WidgetHealthUnavailable);
+                    _widgetReady.TrySetResult(ready);
                     return;
                 }
                 catch (Exception ex)
@@ -420,10 +422,15 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             {
                 window.HideWidget();
             }
+            else
+            {
+                window.EnsureVisibleForRecovery();
+            }
 
-            SetWidgetHealthStateOnWidgetThread(WidgetHealthReady);
+            bool ready = _visibilityStore.IsHidden() || window.IsSurfaceVisibleForHeartbeat;
+            SetWidgetHealthStateOnWidgetThread(ready ? WidgetHealthReady : WidgetHealthUnavailable);
             UserAgentFileLog.Info("desktop_widget_window_shown");
-            _widgetReady.TrySetResult(true);
+            _widgetReady.TrySetResult(ready);
         }
         catch (Exception ex)
         {
@@ -615,7 +622,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     {
         return _widgetThread is { IsAlive: true }
             && _widgetDispatcher is { HasShutdownStarted: false, HasShutdownFinished: false }
-            && _widgetWindow is { CanAcceptUiActions: true }
+            && _widgetWindow is { CanAcceptUiActions: true, IsSurfaceVisibleForHeartbeat: true }
             && GetWidgetHealthState() == WidgetHealthReady;
     }
 
@@ -628,8 +635,17 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
     private bool IsWidgetHealthyForHeartbeat()
     {
-        int state = GetWidgetHealthState();
-        return state == WidgetHealthReady || (state == WidgetHealthStarting && IsWidgetStartingForHeartbeat());
+        lock (_widgetLifecycleGate)
+        {
+            int state = GetWidgetHealthState();
+            if (state == WidgetHealthStarting)
+            {
+                return IsWidgetStartingLocked(DateTimeOffset.UtcNow);
+            }
+
+            return state == WidgetHealthReady
+                && IsWidgetOperationalLocked();
+        }
     }
 
     private bool IsWidgetStartingForHeartbeat()

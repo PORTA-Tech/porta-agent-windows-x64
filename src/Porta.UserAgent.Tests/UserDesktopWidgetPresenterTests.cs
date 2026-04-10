@@ -61,7 +61,10 @@ public sealed class UserDesktopWidgetPresenterTests
             Assert.NotNull(foreignThreadWindow);
 
             SetPrivateField(presenter, "_widgetWindow", foreignThreadWindow);
+            SetPrivateField(presenter, "_widgetDispatcher", Dispatcher.CurrentDispatcher);
+            SetPrivateField(presenter, "_widgetThread", Thread.CurrentThread);
             SetPrivateField(presenter, "_widgetHealthState", 2);
+            SetPrivateField(foreignThreadWindow, "_surfaceVisibleForHeartbeat", 1);
 
             Exception? heartbeatFailure = null;
             bool heartbeatHealthy = false;
@@ -95,6 +98,49 @@ public sealed class UserDesktopWidgetPresenterTests
 
             Directory.Delete(tempDirectory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void HeartbeatHealthCheck_RequiresVisibleSurfaceState()
+    {
+        RunOnStaThread(() =>
+        {
+            string tempDirectory = Path.Combine(Path.GetTempPath(), "porta-widget-tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDirectory);
+
+            var breakOverlayPresenter = new FakeBreakOverlayPresenter();
+            var presenter = new UserDesktopWidgetPresenter(
+                new UserDesktopWidgetRollout(WidgetEnabled: true, ForceToastFallback: false),
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory, "widget-placement.json")),
+                new UserDesktopWidgetVisibilityStore(Path.Combine(tempDirectory, "widget-hidden.flag")),
+                breakOverlayPresenter,
+                startWidgetThread: false);
+
+            UserDesktopWidgetWindow? window = null;
+            try
+            {
+                window = new UserDesktopWidgetWindow(
+                    _ => { },
+                    _ => { },
+                    new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory, "widget-window-placement.json")));
+
+                SetPrivateField(presenter, "_widgetDispatcher", Dispatcher.CurrentDispatcher);
+                SetPrivateField(presenter, "_widgetWindow", window);
+                SetPrivateField(presenter, "_widgetHealthState", 2);
+                SetPrivateField(window, "_surfaceVisibleForHeartbeat", 0);
+
+                Assert.False(presenter.IsWidgetHealthyForSessionHeartbeat);
+            }
+            finally
+            {
+                CloseWindow(window);
+                SetPrivateField<Thread?>(presenter, "_widgetThread", null);
+                SetPrivateField<Dispatcher?>(presenter, "_widgetDispatcher", null);
+                SetPrivateField<UserDesktopWidgetWindow?>(presenter, "_widgetWindow", null);
+                presenter.Dispose();
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        });
     }
 
     [Fact]

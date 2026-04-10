@@ -1316,111 +1316,108 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         DateTimeOffset toUtc,
         int bucketSeconds = Time.bucketSeconds)
     {
-        lock (_gate)
+        if (toUtc < fromUtc)
         {
-            if (toUtc < fromUtc)
-            {
-                return [];
-            }
-
-            int bucket = Math.Clamp(bucketSeconds, 1, 3600);
-            var rawRows = new List<AgentBrainSnapshot>();
-
-            using var connection = DbOpen.OpenReadConnection(_connectionString);
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText =
-                """
-                SELECT
-                    b.timestamp_utc,
-                    b.typing_burst_intensity,
-                    b.scroll_velocity_index,
-                    b.focus_switch_rate,
-                    b.smoothed_typing_burst_intensity,
-                    b.smoothed_scroll_velocity_index,
-                    b.smoothed_focus_switch_rate,
-                    b.focus_strength,
-                    b.overload_likelihood,
-                    b.fatigue_probability,
-                    b.cognitive_stability,
-                    b.dominant_state_name,
-                    b.dominant_state_value,
-                    b.confidence,
-                    b.last_action,
-                    b.activation_window_triggered,
-                    b.cooldown_triggered,
-                    b.activation_window_open,
-                    b.contributors_json,
-                    b.policy_id,
-                    b.domain,
-                    b.escalation_level,
-                    b.planned_end_timestamp_utc,
-                    b.actual_end_timestamp_utc,
-                    b.cooldown_end_timestamp_utc,
-                    sb.sustained_attention_duration_sec,
-                    sb.idle_fragmentation_index,
-                    sb.state_flags_json,
-                    sb.contributors_json
-                FROM brain_snapshots b
-                LEFT JOIN state_buckets sb ON sb.timestamp_utc = b.timestamp_utc
-                WHERE b.timestamp_utc >= $from AND b.timestamp_utc <= $to
-                ORDER BY b.timestamp_utc ASC;
-                """;
-            cmd.Parameters.AddWithValue("$from", fromUtc.ToString("O"));
-            cmd.Parameters.AddWithValue("$to", toUtc.ToString("O"));
-
-            using SqliteDataReader reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                rawRows.Add(new AgentBrainSnapshot(
-                    TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
-                    TypingBurstIntensity: reader.GetDouble(1),
-                    ScrollVelocityIndex: reader.GetDouble(2),
-                    FocusSwitchRate: reader.GetDouble(3),
-                    SmoothedTypingBurstIntensity: ReadDoubleOrFallback(reader, 4, fallback: reader.GetDouble(1)),
-                    SmoothedScrollVelocityIndex: ReadDoubleOrFallback(reader, 5, fallback: reader.GetDouble(2)),
-                    SmoothedFocusSwitchRate: ReadDoubleOrFallback(reader, 6, fallback: reader.GetDouble(3)),
-                    FocusStrength: reader.GetDouble(7),
-                    OverloadLikelihood: reader.GetDouble(8),
-                    FatigueProbability: reader.GetDouble(9),
-                    CognitiveStability: reader.GetDouble(10),
-                    DominantStateName: ReadStringOrFallback(reader, 11, ResolveDominantStateName(reader.GetDouble(7), reader.GetDouble(8), reader.GetDouble(9))),
-                    DominantStateValue: ReadDoubleOrFallback(reader, 12, Math.Max(reader.GetDouble(7), Math.Max(reader.GetDouble(8), reader.GetDouble(9)))),
-                    Confidence: reader.GetDouble(13),
-                    LastAction: reader.GetString(14),
-                    ActivationWindowTriggered: ReadBoolOrFallback(reader, 15, false),
-                    CooldownTriggered: ReadBoolOrFallback(reader, 16, false),
-                    ActivationWindowOpen: ReadBoolOrFallback(reader, 17, false),
-                    Contributors: DeserializeContributors(reader.GetString(18)),
-                    PolicyId: ReadStringOrFallback(reader, 19, "n/a"),
-                    Domain: ReadStringOrFallback(reader, 20, "control"),
-                    EscalationLevel: ReadStringOrFallback(reader, 21, "Inform"),
-                    PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 22, string.Empty)),
-                    ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 23, string.Empty)),
-                    CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 24, string.Empty)),
-                    SustainedAttentionDurationSec: ReadDoubleOrFallback(reader, 25, 0d),
-                    IdleFragmentationIndex: ReadDoubleOrFallback(reader, 26, 0d),
-                    OverloadActive: ParseOverloadActive(ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}")),
-                    StateFlagsJson: ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}"),
-                    ContributorsJson: ReadStringOrFallback(reader, 28, "{\"schema_ver\":1}")));
-            }
-
-            if (bucket == 1 || rawRows.Count <= 1)
-            {
-                return rawRows;
-            }
-
-            var byBucket = new Dictionary<long, AgentBrainSnapshot>();
-            foreach (AgentBrainSnapshot row in rawRows)
-            {
-                long key = row.TimestampUtc.ToUnixTimeSeconds() / bucket;
-                byBucket[key] = row;
-            }
-
-            return byBucket
-                .OrderBy(pair => pair.Key)
-                .Select(pair => pair.Value)
-                .ToList();
+            return [];
         }
+
+        int bucket = Math.Clamp(bucketSeconds, 1, 3600);
+        var rawRows = new List<AgentBrainSnapshot>();
+
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT
+                b.timestamp_utc,
+                b.typing_burst_intensity,
+                b.scroll_velocity_index,
+                b.focus_switch_rate,
+                b.smoothed_typing_burst_intensity,
+                b.smoothed_scroll_velocity_index,
+                b.smoothed_focus_switch_rate,
+                b.focus_strength,
+                b.overload_likelihood,
+                b.fatigue_probability,
+                b.cognitive_stability,
+                b.dominant_state_name,
+                b.dominant_state_value,
+                b.confidence,
+                b.last_action,
+                b.activation_window_triggered,
+                b.cooldown_triggered,
+                b.activation_window_open,
+                b.contributors_json,
+                b.policy_id,
+                b.domain,
+                b.escalation_level,
+                b.planned_end_timestamp_utc,
+                b.actual_end_timestamp_utc,
+                b.cooldown_end_timestamp_utc,
+                sb.sustained_attention_duration_sec,
+                sb.idle_fragmentation_index,
+                sb.state_flags_json,
+                sb.contributors_json
+            FROM brain_snapshots b
+            LEFT JOIN state_buckets sb ON sb.timestamp_utc = b.timestamp_utc
+            WHERE b.timestamp_utc >= $from AND b.timestamp_utc <= $to
+            ORDER BY b.timestamp_utc ASC;
+            """;
+        cmd.Parameters.AddWithValue("$from", fromUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$to", toUtc.ToString("O"));
+
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            rawRows.Add(new AgentBrainSnapshot(
+                TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
+                TypingBurstIntensity: reader.GetDouble(1),
+                ScrollVelocityIndex: reader.GetDouble(2),
+                FocusSwitchRate: reader.GetDouble(3),
+                SmoothedTypingBurstIntensity: ReadDoubleOrFallback(reader, 4, fallback: reader.GetDouble(1)),
+                SmoothedScrollVelocityIndex: ReadDoubleOrFallback(reader, 5, fallback: reader.GetDouble(2)),
+                SmoothedFocusSwitchRate: ReadDoubleOrFallback(reader, 6, fallback: reader.GetDouble(3)),
+                FocusStrength: reader.GetDouble(7),
+                OverloadLikelihood: reader.GetDouble(8),
+                FatigueProbability: reader.GetDouble(9),
+                CognitiveStability: reader.GetDouble(10),
+                DominantStateName: ReadStringOrFallback(reader, 11, ResolveDominantStateName(reader.GetDouble(7), reader.GetDouble(8), reader.GetDouble(9))),
+                DominantStateValue: ReadDoubleOrFallback(reader, 12, Math.Max(reader.GetDouble(7), Math.Max(reader.GetDouble(8), reader.GetDouble(9)))),
+                Confidence: reader.GetDouble(13),
+                LastAction: reader.GetString(14),
+                ActivationWindowTriggered: ReadBoolOrFallback(reader, 15, false),
+                CooldownTriggered: ReadBoolOrFallback(reader, 16, false),
+                ActivationWindowOpen: ReadBoolOrFallback(reader, 17, false),
+                Contributors: DeserializeContributors(reader.GetString(18)),
+                PolicyId: ReadStringOrFallback(reader, 19, "n/a"),
+                Domain: ReadStringOrFallback(reader, 20, "control"),
+                EscalationLevel: ReadStringOrFallback(reader, 21, "Inform"),
+                PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 22, string.Empty)),
+                ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 23, string.Empty)),
+                CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 24, string.Empty)),
+                SustainedAttentionDurationSec: ReadDoubleOrFallback(reader, 25, 0d),
+                IdleFragmentationIndex: ReadDoubleOrFallback(reader, 26, 0d),
+                OverloadActive: ParseOverloadActive(ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}")),
+                StateFlagsJson: ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}"),
+                ContributorsJson: ReadStringOrFallback(reader, 28, "{\"schema_ver\":1}")));
+        }
+
+        if (bucket == 1 || rawRows.Count <= 1)
+        {
+            return rawRows;
+        }
+
+        var byBucket = new Dictionary<long, AgentBrainSnapshot>();
+        foreach (AgentBrainSnapshot row in rawRows)
+        {
+            long key = row.TimestampUtc.ToUnixTimeSeconds() / bucket;
+            byBucket[key] = row;
+        }
+
+        return byBucket
+            .OrderBy(pair => pair.Key)
+            .Select(pair => pair.Value)
+            .ToList();
     }
 
     public IReadOnlyList<AgentInputSignalWindow> ReadInputSignalWindows(
@@ -1549,204 +1546,195 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null)
     {
-        lock (_gate)
+        int boundedLimit = Math.Clamp(limit, 1, 500);
+        var rows = new List<AgentControlEvent>(boundedLimit);
+
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT
+                id,
+                ts_utc,
+                timestamp_utc,
+                action,
+                trigger_state,
+                trigger_value,
+                confidence,
+                duration_seconds,
+                escalation,
+                reversible,
+                why,
+                contributors_json,
+                intervention_id,
+                policy_id,
+                domain,
+                planned_end_timestamp_utc,
+                actual_end_timestamp_utc,
+                previous_system_state_json,
+                what_changed,
+                how_to_undo,
+                reversal_applied,
+                cooldown_end_timestamp_utc,
+                lifecycle_state,
+                idempotency_key,
+                why_json,
+                state_flags_json,
+                (SELECT command_type FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS command_type,
+                (SELECT execution_state FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS execution_state,
+                (SELECT decided_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS decided_at_utc,
+                (SELECT applied_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS applied_at_utc,
+                (SELECT acked_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS acked_at_utc,
+                (SELECT error_code FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS error_code,
+                (SELECT executor_agent_instance_id FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS executor_agent_instance_id
+            FROM events
+            WHERE ($since = '' OR ts_utc >= $since)
+              AND action <> 'none'
+              AND action <> 'monitor_only'
+            ORDER BY ts_utc DESC, id DESC
+            LIMIT $limit;
+            """;
+        cmd.Parameters.AddWithValue("$limit", boundedLimit);
+        cmd.Parameters.AddWithValue("$since", sinceUtc?.ToString("O") ?? string.Empty);
+
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
         {
-            int boundedLimit = Math.Clamp(limit, 1, 500);
-            var rows = new List<AgentControlEvent>(boundedLimit);
-
-            using var connection = DbOpen.OpenReadConnection(_connectionString);
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText =
-                """
-                SELECT
-                    id,
-                    ts_utc,
-                    timestamp_utc,
-                    action,
-                    trigger_state,
-                    trigger_value,
-                    confidence,
-                    duration_seconds,
-                    escalation,
-                    reversible,
-                    why,
-                    contributors_json,
-                    intervention_id,
-                    policy_id,
-                    domain,
-                    planned_end_timestamp_utc,
-                    actual_end_timestamp_utc,
-                    previous_system_state_json,
-                    what_changed,
-                    how_to_undo,
-                    reversal_applied,
-                    cooldown_end_timestamp_utc,
-                    lifecycle_state,
-                    idempotency_key,
-                    why_json,
-                    state_flags_json,
-                    (SELECT command_type FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS command_type,
-                    (SELECT execution_state FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS execution_state,
-                    (SELECT decided_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS decided_at_utc,
-                    (SELECT applied_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS applied_at_utc,
-                    (SELECT acked_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS acked_at_utc,
-                    (SELECT error_code FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS error_code,
-                    (SELECT executor_agent_instance_id FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS executor_agent_instance_id
-                FROM events
-                WHERE ($since = '' OR ts_utc >= $since)
-                  AND action <> 'none'
-                  AND action <> 'monitor_only'
-                ORDER BY ts_utc DESC, id DESC
-                LIMIT $limit;
-                """;
-            cmd.Parameters.AddWithValue("$limit", boundedLimit);
-            cmd.Parameters.AddWithValue("$since", sinceUtc?.ToString("O") ?? string.Empty);
-
-            using SqliteDataReader reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                rows.Add(ReadControlEvent(reader));
-            }
-
-            return rows;
+            rows.Add(ReadControlEvent(reader));
         }
+
+        return rows;
     }
 
     public IReadOnlyList<AgentControlEvent> ReadEventsSinceId(long sinceIdExclusive, int limit = 200)
     {
-        lock (_gate)
+        int boundedLimit = Math.Clamp(limit, 1, 1000);
+        long safeSinceId = Math.Max(0, sinceIdExclusive);
+        var rows = new List<AgentControlEvent>(boundedLimit);
+
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT
+                id,
+                ts_utc,
+                timestamp_utc,
+                action,
+                trigger_state,
+                trigger_value,
+                confidence,
+                duration_seconds,
+                escalation,
+                reversible,
+                why,
+                contributors_json,
+                intervention_id,
+                policy_id,
+                domain,
+                planned_end_timestamp_utc,
+                actual_end_timestamp_utc,
+                previous_system_state_json,
+                what_changed,
+                how_to_undo,
+                reversal_applied,
+                cooldown_end_timestamp_utc,
+                lifecycle_state,
+                idempotency_key,
+                why_json,
+                state_flags_json,
+                (SELECT command_type FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS command_type,
+                (SELECT execution_state FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS execution_state,
+                (SELECT decided_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS decided_at_utc,
+                (SELECT applied_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS applied_at_utc,
+                (SELECT acked_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS acked_at_utc,
+                (SELECT error_code FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS error_code,
+                (SELECT executor_agent_instance_id FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS executor_agent_instance_id
+            FROM events
+            WHERE id > $since_id
+              AND action <> 'none'
+              AND action <> 'monitor_only'
+            ORDER BY id ASC
+            LIMIT $limit;
+            """;
+        cmd.Parameters.AddWithValue("$since_id", safeSinceId);
+        cmd.Parameters.AddWithValue("$limit", boundedLimit);
+
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
         {
-            int boundedLimit = Math.Clamp(limit, 1, 1000);
-            long safeSinceId = Math.Max(0, sinceIdExclusive);
-            var rows = new List<AgentControlEvent>(boundedLimit);
-
-            using var connection = DbOpen.OpenReadConnection(_connectionString);
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText =
-                """
-                SELECT
-                    id,
-                    ts_utc,
-                    timestamp_utc,
-                    action,
-                    trigger_state,
-                    trigger_value,
-                    confidence,
-                    duration_seconds,
-                    escalation,
-                    reversible,
-                    why,
-                    contributors_json,
-                    intervention_id,
-                    policy_id,
-                    domain,
-                    planned_end_timestamp_utc,
-                    actual_end_timestamp_utc,
-                    previous_system_state_json,
-                    what_changed,
-                    how_to_undo,
-                    reversal_applied,
-                    cooldown_end_timestamp_utc,
-                    lifecycle_state,
-                    idempotency_key,
-                    why_json,
-                    state_flags_json,
-                    (SELECT command_type FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS command_type,
-                    (SELECT execution_state FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS execution_state,
-                    (SELECT decided_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS decided_at_utc,
-                    (SELECT applied_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS applied_at_utc,
-                    (SELECT acked_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS acked_at_utc,
-                    (SELECT error_code FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS error_code,
-                    (SELECT executor_agent_instance_id FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS executor_agent_instance_id
-                FROM events
-                WHERE id > $since_id
-                  AND action <> 'none'
-                  AND action <> 'monitor_only'
-                ORDER BY id ASC
-                LIMIT $limit;
-                """;
-            cmd.Parameters.AddWithValue("$since_id", safeSinceId);
-            cmd.Parameters.AddWithValue("$limit", boundedLimit);
-
-            using SqliteDataReader reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                rows.Add(ReadControlEvent(reader));
-            }
-
-            return rows;
+            rows.Add(ReadControlEvent(reader));
         }
+
+        return rows;
     }
 
     public IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000)
     {
-        lock (_gate)
+        if (toUtc < fromUtc)
         {
-            if (toUtc < fromUtc)
-            {
-                return [];
-            }
-
-            int boundedLimit = Math.Clamp(limit, 1, 10000);
-            var rows = new List<AgentControlEvent>();
-
-            using var connection = DbOpen.OpenReadConnection(_connectionString);
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText =
-                """
-                SELECT
-                    id,
-                    ts_utc,
-                    timestamp_utc,
-                    action,
-                    trigger_state,
-                    trigger_value,
-                    confidence,
-                    duration_seconds,
-                    escalation,
-                    reversible,
-                    why,
-                    contributors_json,
-                    intervention_id,
-                    policy_id,
-                    domain,
-                    planned_end_timestamp_utc,
-                    actual_end_timestamp_utc,
-                    previous_system_state_json,
-                    what_changed,
-                    how_to_undo,
-                    reversal_applied,
-                    cooldown_end_timestamp_utc,
-                    lifecycle_state,
-                    idempotency_key,
-                    why_json,
-                    state_flags_json,
-                    (SELECT command_type FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS command_type,
-                    (SELECT execution_state FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS execution_state,
-                    (SELECT decided_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS decided_at_utc,
-                    (SELECT applied_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS applied_at_utc,
-                    (SELECT acked_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS acked_at_utc,
-                    (SELECT error_code FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS error_code,
-                    (SELECT executor_agent_instance_id FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS executor_agent_instance_id
-                FROM events
-                WHERE ts_utc >= $from AND ts_utc <= $to
-                  AND action <> 'none'
-                  AND action <> 'monitor_only'
-                ORDER BY ts_utc ASC, id ASC
-                LIMIT $limit;
-                """;
-            cmd.Parameters.AddWithValue("$from", fromUtc.ToString("O"));
-            cmd.Parameters.AddWithValue("$to", toUtc.ToString("O"));
-            cmd.Parameters.AddWithValue("$limit", boundedLimit);
-
-            using SqliteDataReader reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                rows.Add(ReadControlEvent(reader));
-            }
-
-            return rows;
+            return [];
         }
+
+        int boundedLimit = Math.Clamp(limit, 1, 10000);
+        var rows = new List<AgentControlEvent>();
+
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT
+                id,
+                ts_utc,
+                timestamp_utc,
+                action,
+                trigger_state,
+                trigger_value,
+                confidence,
+                duration_seconds,
+                escalation,
+                reversible,
+                why,
+                contributors_json,
+                intervention_id,
+                policy_id,
+                domain,
+                planned_end_timestamp_utc,
+                actual_end_timestamp_utc,
+                previous_system_state_json,
+                what_changed,
+                how_to_undo,
+                reversal_applied,
+                cooldown_end_timestamp_utc,
+                lifecycle_state,
+                idempotency_key,
+                why_json,
+                state_flags_json,
+                (SELECT command_type FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS command_type,
+                (SELECT execution_state FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS execution_state,
+                (SELECT decided_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS decided_at_utc,
+                (SELECT applied_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS applied_at_utc,
+                (SELECT acked_at_utc FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS acked_at_utc,
+                (SELECT error_code FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS error_code,
+                (SELECT executor_agent_instance_id FROM interventions delivery WHERE delivery.intervention_id = events.intervention_id ORDER BY delivery.id DESC LIMIT 1) AS executor_agent_instance_id
+            FROM events
+            WHERE ts_utc >= $from AND ts_utc <= $to
+              AND action <> 'none'
+              AND action <> 'monitor_only'
+            ORDER BY ts_utc ASC, id ASC
+            LIMIT $limit;
+            """;
+        cmd.Parameters.AddWithValue("$from", fromUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$to", toUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$limit", boundedLimit);
+
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            rows.Add(ReadControlEvent(reader));
+        }
+
+        return rows;
     }
 
     public IReadOnlyList<AgentPendingIntervention> ReadPendingInterventions(string sessionId, int limit = 20)

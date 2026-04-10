@@ -28,38 +28,41 @@ internal static class SnapshotMapper
 
         string normalizedStateFlagsJson = EnsureSchemaV1Json(stateFlagsJson, SchemaV1EmptyJson);
         string normalizedContributorsJson = EnsureSchemaV1Json(contributorsJson, SchemaV1EmptyJson);
-        LocalApiCooldownsRemainingResponse cooldownsRemaining = BuildCooldownsRemaining(normalizedStateFlagsJson);
+        using JsonObjectScope stateFlagsScope = ParseJsonObject(normalizedStateFlagsJson);
+        using JsonObjectScope contributorsScope = ParseJsonObject(normalizedContributorsJson);
 
-        overloadActive = ReadBoolFlag(normalizedStateFlagsJson, "overload_active", overloadActive);
-        bool deepWorkActive = ReadBoolFlag(normalizedStateFlagsJson, "deep_work_active");
-        bool notificationsSuppressed = ReadBoolFlag(normalizedStateFlagsJson, "notifications_suppressed");
-        bool brightnessAdjusted = ReadBoolFlag(normalizedStateFlagsJson, "brightness_adjusted");
-        double taskContinuityScore = ReadDoubleFlag(normalizedStateFlagsJson, "task_continuity_score", fallback: 0d);
-        double taskContinuitySeconds = ReadDoubleFlag(normalizedStateFlagsJson, "task_continuity_seconds", fallback: sustainedAttentionSeconds);
-        string continuityState = ReadStringFlag(normalizedStateFlagsJson, "continuity_state", fallback: "reset");
-        double continuityConfidence = ReadDoubleFlag(normalizedStateFlagsJson, "continuity_confidence", fallback: confidence);
+        LocalApiCooldownsRemainingResponse cooldownsRemaining = BuildCooldownsRemaining(stateFlagsScope.Root);
+
+        overloadActive = ReadBoolFlag(stateFlagsScope.Root, "overload_active", overloadActive);
+        bool deepWorkActive = ReadBoolFlag(stateFlagsScope.Root, "deep_work_active");
+        bool notificationsSuppressed = ReadBoolFlag(stateFlagsScope.Root, "notifications_suppressed");
+        bool brightnessAdjusted = ReadBoolFlag(stateFlagsScope.Root, "brightness_adjusted");
+        double taskContinuityScore = ReadDoubleFlag(stateFlagsScope.Root, "task_continuity_score", fallback: 0d);
+        double taskContinuitySeconds = ReadDoubleFlag(stateFlagsScope.Root, "task_continuity_seconds", fallback: sustainedAttentionSeconds);
+        string continuityState = ReadStringFlag(stateFlagsScope.Root, "continuity_state", fallback: "reset");
+        double continuityConfidence = ReadDoubleFlag(stateFlagsScope.Root, "continuity_confidence", fallback: confidence);
         string attentionSegmentKind = LocalAttentionSegmentAnalytics.NormalizeAttentionSegmentKind(
-            ReadStringFlag(normalizedStateFlagsJson, "attention_segment_kind", fallback: LocalAttentionSegmentAnalytics.FocusSegmentKind));
-        double attentionSegmentSeconds = ReadDoubleFlag(normalizedStateFlagsJson, "attention_segment_seconds", fallback: 0d);
+            ReadStringFlag(stateFlagsScope.Root, "attention_segment_kind", fallback: LocalAttentionSegmentAnalytics.FocusSegmentKind));
+        double attentionSegmentSeconds = ReadDoubleFlag(stateFlagsScope.Root, "attention_segment_seconds", fallback: 0d);
         bool distractionEpisodeActive = ReadBoolFlag(
-            normalizedStateFlagsJson,
+            stateFlagsScope.Root,
             "distraction_episode_active",
             fallback: string.Equals(attentionSegmentKind, LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind, StringComparison.Ordinal)
                 || string.Equals(attentionSegmentKind, LocalAttentionSegmentAnalytics.FragmentationDistractionSegmentKind, StringComparison.Ordinal));
         double distractionEpisodeSeconds = ReadDoubleFlag(
-            normalizedStateFlagsJson,
+            stateFlagsScope.Root,
             "distraction_episode_seconds",
             fallback: distractionEpisodeActive ? attentionSegmentSeconds : 0d);
         string attentionSegmentReasonCode = LocalAttentionSegmentAnalytics.NormalizeReasonCode(
-            ReadStringFlag(normalizedStateFlagsJson, "attention_segment_reason_code", fallback: LocalAttentionSegmentAnalytics.SteadyFocusReasonCode));
+            ReadStringFlag(stateFlagsScope.Root, "attention_segment_reason_code", fallback: LocalAttentionSegmentAnalytics.SteadyFocusReasonCode));
         string attentionSegmentReasonText = ReadStringFlag(
-            normalizedStateFlagsJson,
+            stateFlagsScope.Root,
             "attention_segment_reason_text",
             fallback: string.Empty);
         string focusEpisodeReasonCode = LocalAttentionSegmentAnalytics.NormalizeReasonCode(
-            ReadStringFlag(normalizedStateFlagsJson, "focus_episode_reason_code", fallback: LocalAttentionSegmentAnalytics.FocusEpisodeActiveReasonCode));
+            ReadStringFlag(stateFlagsScope.Root, "focus_episode_reason_code", fallback: LocalAttentionSegmentAnalytics.FocusEpisodeActiveReasonCode));
         string focusEpisodeReasonText = ReadStringFlag(
-            normalizedStateFlagsJson,
+            stateFlagsScope.Root,
             "focus_episode_reason_text",
             fallback: string.Empty);
         if (string.IsNullOrWhiteSpace(attentionSegmentReasonText))
@@ -84,18 +87,18 @@ internal static class SnapshotMapper
             };
         }
         double signalQualityScore = ReadDoubleFlag(
-            normalizedStateFlagsJson,
+            stateFlagsScope.Root,
             "signal_quality_score",
             fallback: latestState?.CurrentQualityScore ?? 0d);
         double modelConfidence = ReadDoubleFlag(
-            normalizedStateFlagsJson,
+            stateFlagsScope.Root,
             "model_confidence",
             fallback: confidence);
         double pressureLevel = ReadDoubleFlag(
-            normalizedStateFlagsJson,
+            stateFlagsScope.Root,
             "pressure_level",
             fallback: overloadLikelihood);
-        (double? fComponent, double? iComponent, double? vComponent) = ReadFivComponents(normalizedContributorsJson);
+        (double? fComponent, double? iComponent, double? vComponent) = ReadFivComponents(contributorsScope.Root);
 
         // Pinned null/partial behavior: if there is no finalized state row, keep endpoint healthy
         // with safe defaults and explicit cold-start semantics.
@@ -191,14 +194,14 @@ internal static class SnapshotMapper
             PressureConfidence: modelConfidence);
     }
 
-    private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(string? stateFlagsJson)
+    private static LocalApiCooldownsRemainingResponse BuildCooldownsRemaining(JsonElement root)
     {
         long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        int deepWorkNotificationEnableSeconds = RemainingSeconds(ReadInt64Flag(stateFlagsJson, "notification_enable_cooldown_until_utc_ms"), nowMs);
-        int deepWorkNotificationMinOnSeconds = RemainingSeconds(ReadInt64Flag(stateFlagsJson, "notification_min_on_until_utc_ms"), nowMs);
-        int brightnessActionSeconds = RemainingSeconds(ReadInt64Flag(stateFlagsJson, "brightness_cooldown_until_utc_ms"), nowMs);
+        int deepWorkNotificationEnableSeconds = RemainingSeconds(ReadInt64Flag(root, "notification_enable_cooldown_until_utc_ms"), nowMs);
+        int deepWorkNotificationMinOnSeconds = RemainingSeconds(ReadInt64Flag(root, "notification_min_on_until_utc_ms"), nowMs);
+        int brightnessActionSeconds = RemainingSeconds(ReadInt64Flag(root, "brightness_cooldown_until_utc_ms"), nowMs);
         int breakSuggestionSeconds = RemainingSeconds(
-            ReadInt64Flag(stateFlagsJson, "break_cooldown_until_utc_ms", "cooldown_end_ts_ms"),
+            ReadInt64Flag(root, "break_cooldown_until_utc_ms", "cooldown_end_ts_ms"),
             nowMs);
 
         return new LocalApiCooldownsRemainingResponse(
@@ -241,6 +244,30 @@ internal static class SnapshotMapper
         return secs > 0 && minutes < 3 ? $"{minutes}m {secs}s" : $"{minutes}m";
     }
 
+    private static JsonObjectScope ParseJsonObject(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return default;
+        }
+
+        try
+        {
+            JsonDocument document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                document.Dispose();
+                return default;
+            }
+
+            return new JsonObjectScope(document);
+        }
+        catch
+        {
+            return default;
+        }
+    }
+
     private static long ReadInt64Flag(string? json, params string[] names)
     {
         if (string.IsNullOrWhiteSpace(json) || names.Length == 0)
@@ -269,6 +296,26 @@ internal static class SnapshotMapper
         }
         catch
         {
+        }
+
+        return 0;
+    }
+
+    private static long ReadInt64Flag(JsonElement root, params string[] names)
+    {
+        if (root.ValueKind != JsonValueKind.Object || names.Length == 0)
+        {
+            return 0;
+        }
+
+        foreach (string name in names)
+        {
+            if (root.TryGetProperty(name, out JsonElement node)
+                && node.ValueKind == JsonValueKind.Number
+                && node.TryGetInt64(out long value))
+            {
+                return Math.Max(0, value);
+            }
         }
 
         return 0;
@@ -305,6 +352,24 @@ internal static class SnapshotMapper
         }
     }
 
+    private static bool ReadBoolFlag(JsonElement root, string name, bool fallback = false)
+    {
+        if (root.ValueKind != JsonValueKind.Object
+            || string.IsNullOrWhiteSpace(name)
+            || !root.TryGetProperty(name, out JsonElement node))
+        {
+            return fallback;
+        }
+
+        return node.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Number when node.TryGetInt32(out int numeric) => numeric != 0,
+            _ => fallback
+        };
+    }
+
     private static double ReadDoubleFlag(string? json, string name, double fallback = 0d)
     {
         if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(name))
@@ -329,6 +394,23 @@ internal static class SnapshotMapper
         }
         catch
         {
+        }
+
+        return fallback;
+    }
+
+    private static double ReadDoubleFlag(JsonElement root, string name, double fallback = 0d)
+    {
+        if (root.ValueKind != JsonValueKind.Object
+            || string.IsNullOrWhiteSpace(name)
+            || !root.TryGetProperty(name, out JsonElement node))
+        {
+            return fallback;
+        }
+
+        if (node.ValueKind == JsonValueKind.Number && node.TryGetDouble(out double numeric))
+        {
+            return numeric;
         }
 
         return fallback;
@@ -360,33 +442,32 @@ internal static class SnapshotMapper
         }
     }
 
-    private static (double? F, double? I, double? V) ReadFivComponents(string? contributorsJson)
+    private static string ReadStringFlag(JsonElement root, string name, string fallback = "")
     {
-        if (string.IsNullOrWhiteSpace(contributorsJson))
+        if (root.ValueKind != JsonValueKind.Object
+            || string.IsNullOrWhiteSpace(name)
+            || !root.TryGetProperty(name, out JsonElement node)
+            || node.ValueKind != JsonValueKind.String)
+        {
+            return fallback;
+        }
+
+        return node.GetString() ?? fallback;
+    }
+
+    private static (double? F, double? I, double? V) ReadFivComponents(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("components", out JsonElement components)
+            || components.ValueKind != JsonValueKind.Object)
         {
             return (null, null, null);
         }
 
-        try
-        {
-            using JsonDocument doc = JsonDocument.Parse(contributorsJson);
-            JsonElement root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object
-                || !root.TryGetProperty("components", out JsonElement components)
-                || components.ValueKind != JsonValueKind.Object)
-            {
-                return (null, null, null);
-            }
-
-            return (
-                ReadComponentValue(components, "F"),
-                ReadComponentValue(components, "I"),
-                ReadComponentValue(components, "V"));
-        }
-        catch
-        {
-            return (null, null, null);
-        }
+        return (
+            ReadComponentValue(components, "F"),
+            ReadComponentValue(components, "I"),
+            ReadComponentValue(components, "V"));
     }
 
     private static double? ReadComponentValue(JsonElement components, string key)
@@ -430,6 +511,16 @@ internal static class SnapshotMapper
         catch
         {
             return fallbackJson;
+        }
+    }
+
+    private readonly record struct JsonObjectScope(JsonDocument? Document) : IDisposable
+    {
+        public JsonElement Root => Document?.RootElement ?? default;
+
+        public void Dispose()
+        {
+            Document?.Dispose();
         }
     }
 }
