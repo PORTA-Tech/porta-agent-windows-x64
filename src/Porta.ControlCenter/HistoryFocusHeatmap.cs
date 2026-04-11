@@ -15,6 +15,11 @@ internal sealed record HistoryFocusHeatmapCell(
     int Hour,
     double FocusedSeconds,
     double TrackedSeconds,
+    double FocusEpisodeSeconds,
+    double ContextExcursionSeconds,
+    double DistractionEpisodeSeconds,
+    double AwayEpisodeSeconds,
+    double OverloadEpisodeSeconds,
     double AverageFocusPercent,
     double AverageOverloadPercent,
     double AverageConfidencePercent,
@@ -116,12 +121,46 @@ internal static class HistoryFocusHeatmapBuilder
 
                 double focusedSeconds = 0d;
                 double trackedSeconds = 0d;
+                double focusEpisodeSeconds = 0d;
+                double contextExcursionSeconds = 0d;
+                double distractionEpisodeSeconds = 0d;
+                double awayEpisodeSeconds = 0d;
+                double overloadEpisodeSeconds = 0d;
                 double averageOverloadPercent = 0d;
                 double averageConfidencePercent = 0d;
                 double longestFocusBlockSeconds = 0d;
                 IReadOnlyList<HistoryTimelineEpisode> cellEpisodes = episodes
                     .Where(episode => episode.OverlapsHour(day.LocalDate, hour))
                     .ToArray();
+
+                foreach (HistoryTimelineEpisode episode in cellEpisodes)
+                {
+                    double overlapSeconds = episode.GetOverlapSeconds(day.LocalDate, hour);
+                    if (overlapSeconds <= 0d)
+                    {
+                        continue;
+                    }
+
+                    switch (episode.Kind)
+                    {
+                        case HistoryTimelineEpisodeKind.FocusEpisode:
+                            focusEpisodeSeconds += overlapSeconds;
+                            break;
+                        case HistoryTimelineEpisodeKind.ContextExcursion:
+                            contextExcursionSeconds += overlapSeconds;
+                            break;
+                        case HistoryTimelineEpisodeKind.OffTaskDistraction:
+                        case HistoryTimelineEpisodeKind.FragmentationDistraction:
+                            distractionEpisodeSeconds += overlapSeconds;
+                            break;
+                        case HistoryTimelineEpisodeKind.Away:
+                            awayEpisodeSeconds += overlapSeconds;
+                            break;
+                        case HistoryTimelineEpisodeKind.OverloadEpisode:
+                            overloadEpisodeSeconds += overlapSeconds;
+                            break;
+                    }
+                }
 
                 if (cellSnapshots.Count > 0)
                 {
@@ -148,6 +187,11 @@ internal static class HistoryFocusHeatmapBuilder
                     Hour: hour,
                     FocusedSeconds: focusedSeconds,
                     TrackedSeconds: trackedSeconds,
+                    FocusEpisodeSeconds: focusEpisodeSeconds,
+                    ContextExcursionSeconds: contextExcursionSeconds,
+                    DistractionEpisodeSeconds: distractionEpisodeSeconds,
+                    AwayEpisodeSeconds: awayEpisodeSeconds,
+                    OverloadEpisodeSeconds: overloadEpisodeSeconds,
                     AverageFocusPercent: averageFocusPercent,
                     AverageOverloadPercent: averageOverloadPercent,
                     AverageConfidencePercent: averageConfidencePercent,

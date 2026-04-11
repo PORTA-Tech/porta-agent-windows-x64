@@ -47,6 +47,8 @@ public sealed class HistoryFocusHeatmapBuilderTests
         Assert.NotNull(firstCell);
         Assert.Equal(360d, firstCell!.FocusedSeconds, precision: 3);
         Assert.Equal(600d, firstCell.TrackedSeconds, precision: 3);
+        Assert.Equal(600d, firstCell.FocusEpisodeSeconds, precision: 3);
+        Assert.Equal(300d, firstCell.DistractionEpisodeSeconds, precision: 3);
         Assert.Equal(60d, firstCell.AverageFocusPercent, precision: 3);
         Assert.Single(firstCell.Interventions);
         Assert.True(firstCell.Episodes.Count >= 1);
@@ -100,7 +102,40 @@ public sealed class HistoryFocusHeatmapBuilderTests
 
         Assert.NotNull(cell);
         Assert.True(cell!.Episodes.Count >= 4);
+        Assert.Equal(1500d, cell.FocusEpisodeSeconds, precision: 3);
+        Assert.Equal(900d, cell.DistractionEpisodeSeconds, precision: 3);
+        Assert.Equal(300d, cell.AwayEpisodeSeconds, precision: 3);
+        Assert.Equal(600d, cell.OverloadEpisodeSeconds, precision: 3);
         Assert.Contains(cell.Episodes, episode => episode.Interventions.Count == 1);
+    }
+
+    [Fact]
+    public void Build_KeepsEachRetainedDayVisibleAcrossTheRequestedRange()
+    {
+        DateTimeOffset fromUtc = DateTimeOffset.Parse("2026-04-01T00:00:00Z");
+        DateTimeOffset toUtc = DateTimeOffset.Parse("2026-04-04T23:59:59Z");
+
+        LocalApiTimelineResponse timeline = new(
+            FromUtc: fromUtc,
+            ToUtc: toUtc,
+            BucketSeconds: 300,
+            Snapshots:
+            [
+                BuildSnapshot(fromUtc.AddHours(9), focusStrength: 0.7d, sustainedAttentionSeconds: 900d, overloadLikelihood: 0.2d, focusEpisodeSeconds: 900d),
+                BuildSnapshot(toUtc.AddHours(-10), focusStrength: 0.5d, sustainedAttentionSeconds: 600d, overloadLikelihood: 0.3d, focusEpisodeSeconds: 600d)
+            ],
+            Interventions: []);
+
+        HistoryFocusHeatmap heatmap = HistoryFocusHeatmapBuilder.Build(
+            timeline,
+            fallbackFromUtc: fromUtc,
+            fallbackToUtc: toUtc);
+
+        int expectedDayCount = (toUtc.ToLocalTime().Date - fromUtc.ToLocalTime().Date).Days + 1;
+        Assert.Equal(expectedDayCount, heatmap.Days.Count);
+        Assert.Equal(heatmap.Days.Count * 24, heatmap.Cells.Count);
+        Assert.Equal(fromUtc.ToLocalTime().Date, heatmap.Days[0].LocalDate);
+        Assert.Equal(toUtc.ToLocalTime().Date, heatmap.Days[^1].LocalDate);
     }
 
     [Fact]

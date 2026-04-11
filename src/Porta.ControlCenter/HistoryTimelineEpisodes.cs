@@ -49,6 +49,38 @@ internal sealed record HistoryTimelineEpisode(
         DateTime episodeEndLocal = EndUtc.ToLocalTime().DateTime;
         return episodeStartLocal < hourEndLocal && episodeEndLocal > hourStartLocal;
     }
+
+    public double GetOverlapSeconds(DateTime localDate, int hour)
+    {
+        GetOverlap(localDate, hour, out _, out double overlapSeconds);
+        return overlapSeconds;
+    }
+
+    public double GetStartOffsetSeconds(DateTime localDate, int hour)
+    {
+        GetOverlap(localDate, hour, out double startOffsetSeconds, out _);
+        return startOffsetSeconds;
+    }
+
+    private void GetOverlap(DateTime localDate, int hour, out double startOffsetSeconds, out double overlapSeconds)
+    {
+        DateTime hourStartLocal = localDate.Date.AddHours(hour);
+        DateTime hourEndLocal = hourStartLocal.AddHours(1);
+        DateTime episodeStartLocal = StartUtc.ToLocalTime().DateTime;
+        DateTime episodeEndLocal = EndUtc.ToLocalTime().DateTime;
+        DateTime overlapStart = episodeStartLocal > hourStartLocal ? episodeStartLocal : hourStartLocal;
+        DateTime overlapEnd = episodeEndLocal < hourEndLocal ? episodeEndLocal : hourEndLocal;
+
+        if (overlapEnd <= overlapStart)
+        {
+            startOffsetSeconds = 0d;
+            overlapSeconds = 0d;
+            return;
+        }
+
+        startOffsetSeconds = (overlapStart - hourStartLocal).TotalSeconds;
+        overlapSeconds = (overlapEnd - overlapStart).TotalSeconds;
+    }
 }
 
 internal static class HistoryTimelineEpisodeBuilder

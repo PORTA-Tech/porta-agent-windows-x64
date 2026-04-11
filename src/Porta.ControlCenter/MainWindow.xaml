@@ -1237,9 +1237,9 @@
                 <ScrollViewer x:Name="TimelinePanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="20,20,20,32">
                             <TextBlock Text="History" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock Text="See your focus by day and inspect the moments that mattered." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+                            <TextBlock Text="See retained days by hour and inspect the real episode timeline inside each block." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
                             <TextBlock x:Name="HistorySummaryLeadText"
-                                       Text="History keeps the map visible and lets you open any hour for a short summary."
+                                       Text="History stays visible and keeps retained days on screen while Ari refreshes."
                                        Foreground="#93C5FD"
                                        Margin="0,0,0,12"
                                        TextWrapping="Wrap" />
@@ -1248,7 +1248,7 @@
                                 <Button x:Name="HistoryRange4hButton" Content="Last 4h" Padding="10,4" Margin="0,0,8,0" Click="HistoryRange4hButton_Click" />
                                 <Button x:Name="HistoryRangeTodayButton" Content="Today" Padding="10,4" Margin="0,0,8,0" Click="HistoryRangeTodayButton_Click" />
                                 <Button x:Name="HistoryRangeAllTimeButton" Content="All time" Padding="10,4" Margin="0,0,14,0" Click="HistoryRangeAllTimeButton_Click" />
-                                <CheckBox x:Name="HistoryExplainModeCheckBox" Content="Advanced" VerticalAlignment="Center" Foreground="#E5E7EB" Checked="HistoryExplainModeCheckBox_Changed" Unchecked="HistoryExplainModeCheckBox_Changed" />
+                                <CheckBox x:Name="HistoryExplainModeCheckBox" Content="Advanced" VerticalAlignment="Center" Foreground="#E5E7EB" Checked="HistoryExplainModeCheckBox_Changed" Unchecked="HistoryExplainModeCheckBox_Changed" Visibility="Collapsed" />
                             </WrapPanel>
 
                             <Grid Margin="0,0,0,12">
@@ -1260,26 +1260,26 @@
                                 </Grid.ColumnDefinitions>
                                 <Border Grid.Column="0" Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Tracked time" Foreground="#94A3B8" FontSize="11" />
-                                        <TextBlock x:Name="HistoryRangeSummaryText" Text="No data yet" Foreground="#F8FAFC" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                        <TextBlock Text="Focus episodes" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock x:Name="HistoryRangeSummaryText" Text="No data yet" Foreground="#DCFCE7" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="1" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Focused time" Foreground="#94A3B8" FontSize="11" />
-                                        <TextBlock x:Name="HistoryFocusSummaryText" Text="No data yet" Foreground="#DCFCE7" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                        <TextBlock Text="Distraction episodes" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock x:Name="HistoryFocusSummaryText" Text="No data yet" Foreground="#FDE68A" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="2" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Best hour" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock Text="Overload episodes" Foreground="#94A3B8" FontSize="11" />
                                         <TextBlock x:Name="HistoryOverloadSummaryText" Text="No data yet" Foreground="#FECACA" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="3" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,0,0">
                                     <StackPanel>
-                                        <TextBlock Text="Actions in this range" Foreground="#94A3B8" FontSize="11" />
-                                        <TextBlock x:Name="HistoryTrustSummaryText" Text="No data yet" Foreground="#DBEAFE" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                        <TextBlock Text="Away segments" Foreground="#94A3B8" FontSize="11" />
+                                        <TextBlock x:Name="HistoryTrustSummaryText" Text="No data yet" Foreground="#E2E8F0" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                         <TextBlock x:Name="HistoryActionsSummaryText" Text="No data yet" Foreground="#CBD5E1" FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
@@ -1287,24 +1287,30 @@
 
                             <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                                 <TextBlock x:Name="HistoryGuideText"
-                                           Text="Each column is a day and each row is an hour."
+                                           Text="Each column is a day, each row is an hour, and 00:00 sits at the bottom."
                                            Foreground="#CBD5E1"
                                            TextWrapping="Wrap" />
                             </Border>
 
                             <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                                 <StackPanel>
-                                    <TextBlock Text="Focus hours by day" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                    <TextBlock Text="Hours run top to bottom and days run left to right. Click a cell to inspect that hour." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                    <TextBlock Text="Episodes by day and hour" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                    <TextBlock Text="Each hour block shows the episode mix for that hour. Click a populated block to inspect the episode list." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
                                     <WrapPanel Margin="0,0,0,10">
-                                        <Border Background="#123524" BorderBrush="#1B6B3A" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="More focused time" Foreground="#86EFAC" FontSize="11" />
+                                        <Border Background="#14532D" BorderBrush="#22C55E" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Focus" Foreground="#DCFCE7" FontSize="11" />
                                         </Border>
-                                        <Border Background="#1E293B" BorderBrush="#334155" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Tracked, low focus" Foreground="#CBD5E1" FontSize="11" />
+                                        <Border Background="#92400E" BorderBrush="#F59E0B" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Distraction" Foreground="#FEF3C7" FontSize="11" />
                                         </Border>
-                                        <Border Background="#0B1220" BorderBrush="#243042" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="No tracked time" Foreground="#94A3B8" FontSize="11" />
+                                        <Border Background="#1D4ED8" BorderBrush="#60A5FA" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Excursion" Foreground="#DBEAFE" FontSize="11" />
+                                        </Border>
+                                        <Border Background="#334155" BorderBrush="#94A3B8" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Away" Foreground="#E2E8F0" FontSize="11" />
+                                        </Border>
+                                        <Border Background="#7F1D1D" BorderBrush="#EF4444" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Overload" Foreground="#FEE2E2" FontSize="11" />
                                         </Border>
                                     </WrapPanel>
                                     <Grid>
@@ -1328,7 +1334,7 @@
                                                 </ScrollViewer>
                                             </Border>
                                             <TextBlock x:Name="HistoryCoordinateEmptyText"
-                                                       Text="No tracked focus episodes are available in this range yet."
+                                                       Text="No retained history is available in this range yet."
                                                        Foreground="#CBD5E1"
                                                        FontWeight="SemiBold"
                                                        HorizontalAlignment="Center"
@@ -1339,15 +1345,15 @@
                                         <TextBlock Grid.Column="1"
                                                    Grid.Row="1"
                                                    x:Name="HistoryCoordinateXAxisText"
-                                                   Text="Days run left to right"
+                                                   Text="Oldest day on the left, newest day on the right"
                                                    Foreground="#94A3B8"
                                                    Margin="6,8,0,0" />
                                     </Grid>
                                 </StackPanel>
                             </Border>
 
-                            <TextBlock Text="Action markers in this range" FontWeight="SemiBold" />
-                            <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
+                            <TextBlock Text="Action markers in this range" FontWeight="SemiBold" Visibility="Collapsed" />
+                            <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10" Visibility="Collapsed">
                                 <ScrollViewer x:Name="TimelineInterventionsScrollViewer" Height="36" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                     <StackPanel x:Name="TimelineInterventionTrackPanel" Orientation="Horizontal" VerticalAlignment="Center" />
                                 </ScrollViewer>
@@ -1385,14 +1391,14 @@
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,24">
                             <StackPanel>
-                                <TextBlock Text="Selection" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <TextBlock x:Name="TimelineDetailTimestamp" Text="Select a heatmap cell or action marker to inspect that part of the day." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailClassification" Text="What happened here: Ari will summarize the selected hour here." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
-                                <TextBlock x:Name="TimelineDetailFocus" Text="Focus episode in that hour: This appears after you select a heatmap cell." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailOverload" Text="Pressure in that hour: This appears after you select a heatmap cell." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailExecution" Text="Action around this moment: Select an action marker to see what Ari suggested or changed." TextWrapping="Wrap" Margin="0,0,0,10" Foreground="#93C5FD" />
+                                <TextBlock Text="Selected hour" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                <TextBlock x:Name="TimelineDetailTimestamp" Text="Select a day/hour block to inspect the retained episodes in that hour." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                <TextBlock x:Name="TimelineDetailClassification" Text="Summary: Ari will summarize the selected hour here." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
+                                <TextBlock x:Name="TimelineDetailFocus" Text="Episode mix: This appears after you select a day/hour block." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                <TextBlock x:Name="TimelineDetailOverload" Text="Pressure in that hour: This appears after you select a day/hour block." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
+                                <TextBlock x:Name="TimelineDetailExecution" Text="Interventions in that hour: These appear inside the episode list below." TextWrapping="Wrap" Margin="0,0,0,10" Foreground="#93C5FD" />
                                 <StackPanel x:Name="HistorySelectionExplainPanel" Visibility="Collapsed">
-                                    <TextBlock x:Name="TimelineDetailTrust" Text="Confidence in that hour: This appears after you select a heatmap cell." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="TimelineDetailTrust" Text="Confidence in that hour: This appears after you select a day/hour block." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
                                     <TextBlock x:Name="TimelineDetailWhyHeader" Text="What Ari saw in that hour" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
                                     <TextBlock x:Name="TimelineDetailWhyFiv" Text="Focus / pressure / movement: Ari will explain this after you select an hour." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
                                     <TextBlock x:Name="TimelineDetailWhyReasons" Text="Main signals: Ari will list the strongest signals after you select an hour." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
@@ -1400,7 +1406,7 @@
                                     <TextBlock x:Name="TimelineDetailStabilization" Text="Context: Use this panel to understand what Ari saw around the selected hour." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
                                 </StackPanel>
                                 <TextBlock Text="Episodes" FontWeight="SemiBold" Margin="0,6,0,6" Foreground="#93C5FD" />
-                                <TextBlock x:Name="TimelineEpisodeSummaryText" Text="Episodes in this hour will appear after you select a heatmap cell or action marker." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#CBD5E1" FontSize="13" />
+                                <TextBlock x:Name="TimelineEpisodeSummaryText" Text="Episodes in this hour will appear after you select a day/hour block." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#CBD5E1" FontSize="13" />
                                 <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="240">
                                     <StackPanel x:Name="TimelineEpisodeListPanel" />
                                 </ScrollViewer>

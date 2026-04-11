@@ -50,9 +50,10 @@ public partial class MainWindow : Window
     private const double StartupWindowTargetWidth = 1280d;
     private const double StartupWindowTargetHeight = 820d;
     private const double ActionCategoryBarWidth = 170d;
-    private const double HistoryHeatmapHeaderHeight = 28d;
-    private const double HistoryHeatmapCellWidth = 104d;
-    private const double HistoryHeatmapCellHeight = 22d;
+    private const double HistoryHeatmapHeaderHeight = 8d;
+    private const double HistoryHeatmapFooterHeight = 28d;
+    private const double HistoryHeatmapCellWidth = 116d;
+    private const double HistoryHeatmapCellHeight = 30d;
     private const double HistoryHeatmapCanvasPadding = 12d;
 
     private readonly LocalApiClient _apiClient = new();
@@ -79,18 +80,16 @@ public partial class MainWindow : Window
     private long _dismissedRecoveryEventId;
     private long _activeRecoveryEventId;
     private DateTimeOffset _lastManualRefreshUtc = DateTimeOffset.MinValue;
-    private HistoryRange _historyRange = HistoryRange.Today;
+    private HistoryRange _historyRange = HistoryRange.AllTime;
     private bool _historyExplainMode;
     private ActionsView _actionsView = ActionsView.Suggestions;
     private readonly DispatcherTimer _settingsAutoSaveTimer;
     private string _settingsAutoSaveReason = "settings_auto";
     private DateTimeOffset _settingsDirtyUntilUtc = DateTimeOffset.MinValue;
     private bool _settingsSaveInFlight;
-    private static readonly TimeSpan HistorySelectionHold = TimeSpan.FromSeconds(12);
     private DateTimeOffset? _selectedHistorySnapshotTimestampUtc;
     private long? _selectedHistoryInterventionId;
     private string? _selectedHistoryCellKey;
-    private DateTimeOffset? _historySelectionExpiresUtc;
     private readonly Dictionary<string, DispatcherTimer> _topMetricAnimationTimers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _topMetricAnimationLastValues = new(StringComparer.Ordinal);
     private UiSection _activeSection = UiSection.Overview;
@@ -5310,10 +5309,12 @@ public partial class MainWindow : Window
         TimelineOverloadActiveOverlayPanel.Children.Clear();
 
         (DateTimeOffset displayFromUtc, DateTimeOffset displayToUtc) = ResolveHistoryDisplayRangeUtc(DateTimeOffset.UtcNow);
-        HistoryFocusHeatmap heatmap = HistoryFocusHeatmapBuilder.Build(
-            timeline,
-            fallbackFromUtc: displayFromUtc,
-            fallbackToUtc: displayToUtc);
+        HistoryFocusHeatmap heatmap = timeline == null && _latestHistoryHeatmap != null
+            ? _latestHistoryHeatmap
+            : HistoryFocusHeatmapBuilder.Build(
+                timeline,
+                fallbackFromUtc: displayFromUtc,
+                fallbackToUtc: displayToUtc);
         _latestHistoryHeatmap = heatmap;
         PopulateHistorySummary(heatmap);
         RenderHistoryCoordinateHeatmap(heatmap);
@@ -5351,7 +5352,7 @@ public partial class MainWindow : Window
         {
             TimelineInterventionTrackPanel.Children.Add(new TextBlock
             {
-                Text = "No action markers in this range.",
+                Text = "No interventions in this range.",
                 Foreground = Brushes.Gainsboro
             });
         }
@@ -5361,15 +5362,6 @@ public partial class MainWindow : Window
             {
                 TimelineInterventionTrackPanel.Children.Add(BuildInterventionMarker(intervention));
             }
-        }
-
-        if (_historySelectionExpiresUtc.HasValue
-            && DateTimeOffset.UtcNow >= _historySelectionExpiresUtc.Value)
-        {
-            _selectedHistorySnapshotTimestampUtc = null;
-            _selectedHistoryInterventionId = null;
-            _selectedHistoryCellKey = null;
-            _historySelectionExpiresUtc = null;
         }
 
         LocalApiEventResponse? selectedIntervention = _selectedHistoryInterventionId.HasValue
@@ -5396,31 +5388,49 @@ public partial class MainWindow : Window
 
     private void PopulateHistorySummary(HistoryFocusHeatmap heatmap)
     {
+        HistoryGuideText.Text = "Each column is a day, each row is an hour, and 00:00 sits at the bottom.";
+
         if (!heatmap.HasAnyTracking)
         {
             HistorySummaryLeadText.Text = BuildHistoryEmptyLeadSentence();
-            HistoryRangeSummaryText.Text = "Tracked 0 min";
-            HistoryFocusSummaryText.Text = "Focused 0 min";
-            HistoryOverloadSummaryText.Text = "Best hour will appear here";
-            HistoryTrustSummaryText.Text = "No action markers yet";
-            HistoryActionsSummaryText.Text = "The heatmap stays visible and will fill as Ari records tracked hours.";
-            HistoryGuideText.Text = _historyExplainMode
-                ? "Advanced is on. Select a populated hour or action marker to inspect raw details."
-                : "Each cell shows focused time inside that hour. Click a populated hour or action marker for details.";
+            HistoryRangeSummaryText.Text = "0 episodes | 0m";
+            HistoryFocusSummaryText.Text = "0 episodes | 0m";
+            HistoryOverloadSummaryText.Text = "0 episodes | 0m";
+            HistoryTrustSummaryText.Text = "0 segments | 0m";
+            HistoryActionsSummaryText.Text = BuildHistoryRangeFootnote(heatmap);
             return;
         }
 
         HistorySummaryLeadText.Text = BuildHistoryLeadSentence(heatmap);
-        HistoryRangeSummaryText.Text = $"Tracked {FormatReadableDuration(heatmap.TotalTrackedSeconds)}";
-        HistoryFocusSummaryText.Text = $"Focused {FormatReadableDuration(heatmap.TotalFocusedSeconds)}";
-        HistoryOverloadSummaryText.Text = BuildHistoryBestHourSummary(heatmap.BestFocusCell);
-        HistoryTrustSummaryText.Text = heatmap.ActionMarkerCount == 1
-            ? "1 action marker"
-            : $"{heatmap.ActionMarkerCount} action markers";
-        HistoryActionsSummaryText.Text = BuildHistoryActionsSummary(heatmap);
-        HistoryGuideText.Text = _historyExplainMode
-            ? "Advanced is on. Click a populated hour or action marker to inspect the raw explanation and decision details for that block."
-            : "Hours run top to bottom and days run left to right. Click a populated hour for the block detail or use action markers for interventions.";
+        HistoryRangeSummaryText.Text = BuildHistoryEpisodeMetricSummary(
+            heatmap.FocusEpisodeCount,
+            heatmap.Episodes
+                .Where(static episode => episode.Kind == HistoryTimelineEpisodeKind.FocusEpisode)
+                .Sum(static episode => episode.DurationSeconds),
+            singularLabel: "episode",
+            pluralLabel: "episodes");
+        HistoryFocusSummaryText.Text = BuildHistoryEpisodeMetricSummary(
+            heatmap.DistractionEpisodeCount,
+            heatmap.Episodes
+                .Where(static episode => episode.Kind is HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction)
+                .Sum(static episode => episode.DurationSeconds),
+            singularLabel: "episode",
+            pluralLabel: "episodes");
+        HistoryOverloadSummaryText.Text = BuildHistoryEpisodeMetricSummary(
+            heatmap.OverloadEpisodeCount,
+            heatmap.Episodes
+                .Where(static episode => episode.Kind == HistoryTimelineEpisodeKind.OverloadEpisode)
+                .Sum(static episode => episode.DurationSeconds),
+            singularLabel: "episode",
+            pluralLabel: "episodes");
+        HistoryTrustSummaryText.Text = BuildHistoryEpisodeMetricSummary(
+            heatmap.AwayEpisodeCount,
+            heatmap.Episodes
+                .Where(static episode => episode.Kind == HistoryTimelineEpisodeKind.Away)
+                .Sum(static episode => episode.DurationSeconds),
+            singularLabel: "segment",
+            pluralLabel: "segments");
+        HistoryActionsSummaryText.Text = BuildHistoryRangeFootnote(heatmap);
     }
 
     private void RenderHistoryCoordinateHeatmap(HistoryFocusHeatmap heatmap)
@@ -5431,7 +5441,10 @@ public partial class MainWindow : Window
         HistoryCoordinateEmptyText.Visibility = heatmap.HasAnyTracking ? Visibility.Collapsed : Visibility.Visible;
         HistoryCoordinateXAxisText.Text = BuildHistoryXAxisText(heatmap);
 
-        double canvasHeight = HistoryHeatmapHeaderHeight + (24d * HistoryHeatmapCellHeight) + HistoryHeatmapCanvasPadding;
+        double chartHeight = 24d * HistoryHeatmapCellHeight;
+        double gridTop = HistoryHeatmapHeaderHeight;
+        double gridBottom = gridTop + chartHeight;
+        double canvasHeight = gridBottom + HistoryHeatmapFooterHeight + HistoryHeatmapCanvasPadding;
         double canvasWidth = Math.Max(
             320d,
             (HistoryHeatmapCanvasPadding * 2d) + (heatmap.Days.Count * HistoryHeatmapCellWidth));
@@ -5441,31 +5454,30 @@ public partial class MainWindow : Window
         foreach (HistoryFocusHeatmapDay day in heatmap.Days)
         {
             double x = HistoryHeatmapCanvasPadding + (day.DayIndex * HistoryHeatmapCellWidth);
-            double headerWidth = HistoryHeatmapCellWidth;
-
-            var header = new TextBlock
-            {
-                Text = heatmap.Days.Count > 8 ? day.ShortLabel : day.HeaderLabel,
-                Foreground = new SolidColorBrush(Color.FromRgb(203, 213, 225)),
-                FontWeight = FontWeights.SemiBold,
-                TextAlignment = TextAlignment.Center,
-                Width = headerWidth
-            };
-            Canvas.SetLeft(header, x);
-            Canvas.SetTop(header, 4d);
-            HistoryCoordinateCanvas.Children.Add(header);
 
             var divider = new Line
             {
                 X1 = x,
                 X2 = x,
-                Y1 = HistoryHeatmapHeaderHeight,
-                Y2 = canvasHeight,
+                Y1 = gridTop,
+                Y2 = gridBottom,
                 Stroke = new SolidColorBrush(Color.FromRgb(36, 48, 66)),
                 StrokeThickness = 0.8d,
                 SnapsToDevicePixels = true
             };
             HistoryCoordinateCanvas.Children.Add(divider);
+
+            var dayLabel = new TextBlock
+            {
+                Text = heatmap.Days.Count > 8 ? day.ShortLabel : day.HeaderLabel,
+                Foreground = new SolidColorBrush(Color.FromRgb(203, 213, 225)),
+                FontWeight = FontWeights.SemiBold,
+                TextAlignment = TextAlignment.Center,
+                Width = HistoryHeatmapCellWidth
+            };
+            Canvas.SetLeft(dayLabel, x);
+            Canvas.SetTop(dayLabel, gridBottom + 6d);
+            HistoryCoordinateCanvas.Children.Add(dayLabel);
         }
 
         double rightEdge = HistoryHeatmapCanvasPadding + (heatmap.Days.Count * HistoryHeatmapCellWidth);
@@ -5473,8 +5485,8 @@ public partial class MainWindow : Window
         {
             X1 = rightEdge,
             X2 = rightEdge,
-            Y1 = HistoryHeatmapHeaderHeight,
-            Y2 = canvasHeight,
+            Y1 = gridTop,
+            Y2 = gridBottom,
             Stroke = new SolidColorBrush(Color.FromRgb(36, 48, 66)),
             StrokeThickness = 0.8d,
             SnapsToDevicePixels = true
@@ -5482,7 +5494,7 @@ public partial class MainWindow : Window
 
         for (int hour = 0; hour <= 24; hour++)
         {
-            double y = HistoryHeatmapHeaderHeight + (hour * HistoryHeatmapCellHeight);
+            double y = gridTop + (hour * HistoryHeatmapCellHeight);
             HistoryCoordinateCanvas.Children.Add(new Line
             {
                 X1 = HistoryHeatmapCanvasPadding,
@@ -5498,19 +5510,8 @@ public partial class MainWindow : Window
         foreach (HistoryFocusHeatmapCell cell in heatmap.Cells)
         {
             double left = HistoryHeatmapCanvasPadding + (cell.DayIndex * HistoryHeatmapCellWidth) + 1d;
-            double top = HistoryHeatmapHeaderHeight + (cell.Hour * HistoryHeatmapCellHeight) + 1d;
+            double top = gridTop + (GetHistoryHeatmapRowIndex(cell.Hour) * HistoryHeatmapCellHeight) + 1d;
             bool selected = string.Equals(_selectedHistoryCellKey, cell.Key, StringComparison.Ordinal);
-
-            var label = new TextBlock
-            {
-                Text = BuildHistoryCellValueText(cell),
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = CreateHistoryHeatmapCellTextBrush(cell),
-                TextAlignment = TextAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Center
-            };
 
             var button = new Button
             {
@@ -5525,7 +5526,7 @@ public partial class MainWindow : Window
                         ? new SolidColorBrush(Color.FromRgb(245, 158, 11))
                         : new SolidColorBrush(Color.FromRgb(51, 65, 85)),
                 Background = CreateHistoryHeatmapCellBackground(cell, heatmap.MaxFocusedSecondsPerHour),
-                Content = label,
+                Content = BuildHistoryHeatmapCellContent(cell),
                 Tag = cell,
                 Cursor = Cursors.Hand,
                 Focusable = false,
@@ -5544,7 +5545,7 @@ public partial class MainWindow : Window
         HistoryHourLabelsPanel.Children.Clear();
         HistoryHourLabelsPanel.Children.Add(new Border { Height = HistoryHeatmapHeaderHeight });
 
-        for (int hour = 0; hour < 24; hour++)
+        for (int hour = 23; hour >= 0; hour--)
         {
             HistoryHourLabelsPanel.Children.Add(new Border
             {
@@ -5561,6 +5562,8 @@ public partial class MainWindow : Window
             });
         }
     }
+
+    private static int GetHistoryHeatmapRowIndex(int hour) => 23 - Math.Clamp(hour, 0, 23);
 
     private (DateTimeOffset FromUtc, DateTimeOffset ToUtc) ResolveHistoryDisplayRangeUtc(DateTimeOffset nowUtc)
     {
@@ -5579,13 +5582,13 @@ public partial class MainWindow : Window
     {
         if (heatmap.Days.Count == 0)
         {
-            return "Days run left to right";
+            return "Oldest day on the left, newest day on the right";
         }
 
         HistoryFocusHeatmapDay first = heatmap.Days[0];
         HistoryFocusHeatmapDay last = heatmap.Days[^1];
         return heatmap.Days.Count == 1
-            ? $"{first.HeaderLabel} | hours top to bottom"
+            ? $"{first.HeaderLabel} | single retained day"
             : $"{first.ShortLabel} on the left through {last.ShortLabel} on the right";
     }
 
@@ -5594,14 +5597,41 @@ public partial class MainWindow : Window
         string rangeLabel = heatmap.Days.Count == 1
             ? heatmap.Days[0].HeaderLabel
             : $"{heatmap.Days[0].ShortLabel} through {heatmap.Days[^1].ShortLabel}";
-        string episodeSummary = BuildHistoryEpisodeSummary(heatmap);
+        string focusSummary = BuildHistoryEpisodeMetricSummary(
+            heatmap.FocusEpisodeCount,
+            heatmap.Episodes.Where(static episode => episode.Kind == HistoryTimelineEpisodeKind.FocusEpisode).Sum(static episode => episode.DurationSeconds),
+            singularLabel: "episode",
+            pluralLabel: "episodes");
+        string distractionSummary = BuildHistoryEpisodeMetricSummary(
+            heatmap.DistractionEpisodeCount,
+            heatmap.Episodes.Where(static episode => episode.Kind is HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction).Sum(static episode => episode.DurationSeconds),
+            singularLabel: "episode",
+            pluralLabel: "episodes");
+        string overloadSummary = BuildHistoryEpisodeMetricSummary(
+            heatmap.OverloadEpisodeCount,
+            heatmap.Episodes.Where(static episode => episode.Kind == HistoryTimelineEpisodeKind.OverloadEpisode).Sum(static episode => episode.DurationSeconds),
+            singularLabel: "episode",
+            pluralLabel: "episodes");
 
-        if (heatmap.BestFocusCell == null)
+        return $"Showing {rangeLabel}. Focus {focusSummary}, distraction {distractionSummary}, overload {overloadSummary}.";
+    }
+
+    private static string BuildHistoryEpisodeMetricSummary(int count, double totalSeconds, string singularLabel, string pluralLabel)
+    {
+        string countLabel = count == 1 ? singularLabel : pluralLabel;
+        return $"{count} {countLabel} | {FormatReadableDuration(totalSeconds)}";
+    }
+
+    private static string BuildHistoryRangeFootnote(HistoryFocusHeatmap heatmap)
+    {
+        if (heatmap.Days.Count == 0)
         {
-            return $"Across {rangeLabel}, Ari mapped {FormatReadableDuration(heatmap.TotalFocusedSeconds)} of focused work inside {FormatReadableDuration(heatmap.TotalTrackedSeconds)} of tracked time. {episodeSummary}";
+            return "Retained days will appear here.";
         }
 
-        return $"Across {rangeLabel}, Ari mapped {FormatReadableDuration(heatmap.TotalFocusedSeconds)} of focused work inside {FormatReadableDuration(heatmap.TotalTrackedSeconds)} of tracked time. The strongest hour was {heatmap.BestFocusCell.LocalDate:ddd} {heatmap.BestFocusCell.Hour:00}:00 with {FormatReadableDuration(heatmap.BestFocusCell.FocusedSeconds)} focused. {episodeSummary}";
+        return heatmap.Days.Count == 1
+            ? $"Showing {heatmap.Days[0].HeaderLabel}"
+            : $"Showing {heatmap.Days[0].ShortLabel} through {heatmap.Days[^1].ShortLabel}";
     }
 
     private string BuildHistoryBestHourSummary(HistoryFocusHeatmapCell? bestCell)
@@ -5636,42 +5666,151 @@ public partial class MainWindow : Window
             return $"{prefix}{Environment.NewLine}No tracked work in this hour yet.";
         }
 
-        string episodeSummary = cell.Episodes.Count switch
-        {
-            0 => "No derived episodes in this hour",
-            1 => $"1 episode in this hour ({cell.Episodes[0].DisplayLabel})",
-            _ => $"{cell.Episodes.Count} episodes in this hour"
-        };
-        return $"{prefix}{Environment.NewLine}Focused {FormatReadableDuration(cell.FocusedSeconds)} of {FormatReadableDuration(cell.TrackedSeconds)} tracked{Environment.NewLine}Pressure {cell.AverageOverloadPercent:F0}% | Confidence {cell.AverageConfidencePercent:F0}%{Environment.NewLine}{episodeSummary}";
+        return $"{prefix}{Environment.NewLine}Focus {FormatReadableDuration(cell.FocusEpisodeSeconds)} | Distraction {FormatReadableDuration(cell.DistractionEpisodeSeconds)} | Away {FormatReadableDuration(cell.AwayEpisodeSeconds)}{Environment.NewLine}Overload {FormatReadableDuration(cell.OverloadEpisodeSeconds)} | Pressure {cell.AverageOverloadPercent:F0}% | Confidence {cell.AverageConfidencePercent:F0}%";
     }
 
-    private static string BuildHistoryEpisodeSummary(HistoryFocusHeatmap heatmap)
+    private FrameworkElement BuildHistoryHeatmapCellContent(HistoryFocusHeatmapCell cell)
     {
-        List<string> parts = new();
-        if (heatmap.FocusEpisodeCount > 0)
+        Grid root = new()
         {
-            parts.Add(heatmap.FocusEpisodeCount == 1 ? "1 focus episode" : $"{heatmap.FocusEpisodeCount} focus episodes");
-        }
+            Margin = new Thickness(5, 3, 5, 3)
+        };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        if (heatmap.DistractionEpisodeCount > 0)
+        root.Children.Add(new TextBlock
         {
-            parts.Add(heatmap.DistractionEpisodeCount == 1 ? "1 distraction episode" : $"{heatmap.DistractionEpisodeCount} distraction episodes");
-        }
+            Text = BuildHistoryCellValueText(cell),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = CreateHistoryHeatmapCellTextBrush(cell),
+            Margin = new Thickness(0, 0, 0, 3),
+            TextAlignment = TextAlignment.Left
+        });
 
-        if (heatmap.AwayEpisodeCount > 0)
+        Border attentionTrack = new()
         {
-            parts.Add(heatmap.AwayEpisodeCount == 1 ? "1 away segment" : $"{heatmap.AwayEpisodeCount} away segments");
-        }
+            Height = 8,
+            Background = new SolidColorBrush(Color.FromRgb(15, 23, 42)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(51, 65, 85)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(999),
+            Child = BuildHistoryEpisodeTrackCanvas(
+                cell,
+                includeAttentionEpisodes: true,
+                includeOverloadEpisodes: false,
+                trackWidth: HistoryHeatmapCellWidth - 12d,
+                trackHeight: 8d)
+        };
+        Grid.SetRow(attentionTrack, 1);
+        root.Children.Add(attentionTrack);
 
-        if (heatmap.OverloadEpisodeCount > 0)
+        Border overloadTrack = new()
         {
-            parts.Add(heatmap.OverloadEpisodeCount == 1 ? "1 overload episode" : $"{heatmap.OverloadEpisodeCount} overload episodes");
-        }
+            Height = 4,
+            Margin = new Thickness(0, 3, 0, 0),
+            Background = new SolidColorBrush(Color.FromRgb(30, 41, 59)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(71, 85, 105)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(999),
+            Child = BuildHistoryEpisodeTrackCanvas(
+                cell,
+                includeAttentionEpisodes: false,
+                includeOverloadEpisodes: true,
+                trackWidth: HistoryHeatmapCellWidth - 12d,
+                trackHeight: 4d)
+        };
+        Grid.SetRow(overloadTrack, 2);
+        root.Children.Add(overloadTrack);
 
-        return parts.Count == 0
-            ? "Episode drilldown will appear as soon as Ari retains processed history for this range."
-            : $"Episode drilldown found {string.Join(", ", parts)}.";
+        return root;
     }
+
+    private Canvas BuildHistoryEpisodeTrackCanvas(
+        HistoryFocusHeatmapCell cell,
+        bool includeAttentionEpisodes,
+        bool includeOverloadEpisodes,
+        double trackWidth,
+        double trackHeight)
+    {
+        Canvas canvas = new()
+        {
+            Width = trackWidth,
+            Height = trackHeight,
+            ClipToBounds = true,
+            IsHitTestVisible = false
+        };
+
+        if (!cell.HasTracking)
+        {
+            return canvas;
+        }
+
+        foreach (HistoryTimelineEpisode episode in cell.Episodes.OrderBy(static episode => episode.StartUtc))
+        {
+            bool isOverload = episode.Kind == HistoryTimelineEpisodeKind.OverloadEpisode;
+            if (isOverload != includeOverloadEpisodes)
+            {
+                continue;
+            }
+
+            if (!isOverload && !includeAttentionEpisodes)
+            {
+                continue;
+            }
+
+            if (isOverload && !includeOverloadEpisodes)
+            {
+                continue;
+            }
+
+            double overlapSeconds = episode.GetOverlapSeconds(cell.LocalDate, cell.Hour);
+            if (overlapSeconds <= 0d)
+            {
+                continue;
+            }
+
+            double startOffsetSeconds = episode.GetStartOffsetSeconds(cell.LocalDate, cell.Hour);
+            double left = Math.Clamp((startOffsetSeconds / 3600d) * trackWidth, 0d, trackWidth);
+            if (left >= trackWidth)
+            {
+                continue;
+            }
+
+            double width = Math.Min(trackWidth - left, (overlapSeconds / 3600d) * trackWidth);
+            if (width <= 0d)
+            {
+                continue;
+            }
+
+            width = Math.Max(2d, width);
+
+            Border segment = new()
+            {
+                Width = width,
+                Height = trackHeight,
+                Background = CreateHistoryEpisodeSegmentBrush(episode.Kind),
+                CornerRadius = new CornerRadius(trackHeight / 2d)
+            };
+            Canvas.SetLeft(segment, left);
+            Canvas.SetTop(segment, 0d);
+            canvas.Children.Add(segment);
+        }
+
+        return canvas;
+    }
+
+    private static Brush CreateHistoryEpisodeSegmentBrush(HistoryTimelineEpisodeKind kind) => kind switch
+    {
+        HistoryTimelineEpisodeKind.FocusEpisode => new SolidColorBrush(Color.FromRgb(34, 197, 94)),
+        HistoryTimelineEpisodeKind.ContextExcursion => new SolidColorBrush(Color.FromRgb(59, 130, 246)),
+        HistoryTimelineEpisodeKind.OffTaskDistraction => new SolidColorBrush(Color.FromRgb(245, 158, 11)),
+        HistoryTimelineEpisodeKind.FragmentationDistraction => new SolidColorBrush(Color.FromRgb(249, 115, 22)),
+        HistoryTimelineEpisodeKind.Away => new SolidColorBrush(Color.FromRgb(148, 163, 184)),
+        HistoryTimelineEpisodeKind.OverloadEpisode => new SolidColorBrush(Color.FromRgb(239, 68, 68)),
+        _ => new SolidColorBrush(Color.FromRgb(148, 163, 184))
+    };
 
     private static string BuildHistoryCellValueText(HistoryFocusHeatmapCell cell)
     {
@@ -5680,8 +5819,8 @@ public partial class MainWindow : Window
             return string.Empty;
         }
 
-        double minutes = Math.Max(0d, Math.Round(cell.FocusedSeconds / 60d));
-        return minutes <= 0d ? "<1m" : $"{minutes:F0}m";
+        int minutes = (int)Math.Round(Math.Max(0d, cell.FocusedSeconds) / 60d, MidpointRounding.AwayFromZero);
+        return $"{minutes}m";
     }
 
     private static Brush CreateHistoryHeatmapCellTextBrush(HistoryFocusHeatmapCell cell)
@@ -5703,19 +5842,11 @@ public partial class MainWindow : Window
             return new SolidColorBrush(Color.FromRgb(11, 18, 32));
         }
 
-        if (cell.FocusedSeconds <= 0.5d)
-        {
-            return new SolidColorBrush(Color.FromRgb(30, 41, 59));
-        }
-
-        double intensity = maxFocusedSecondsPerHour <= 0d
+        double emphasis = maxFocusedSecondsPerHour <= 0d
             ? Math.Clamp(cell.AverageFocusPercent / 100d, 0d, 1d)
             : Math.Clamp(cell.FocusedSeconds / maxFocusedSecondsPerHour, 0d, 1d);
-        byte alpha = (byte)Math.Round(90d + (intensity * 125d));
-        byte red = (byte)Math.Round(17d + (intensity * 18d));
-        byte green = (byte)Math.Round(58d + (intensity * 105d));
-        byte blue = (byte)Math.Round(42d + (intensity * 47d));
-        return new SolidColorBrush(Color.FromArgb(alpha, red, green, blue));
+        byte channel = (byte)Math.Round(20d + (emphasis * 10d));
+        return new SolidColorBrush(Color.FromRgb(channel, (byte)(channel + 6), (byte)(channel + 14)));
     }
 
     private void TimelineHeatmapCellButton_Click(object sender, RoutedEventArgs e)
@@ -5725,7 +5856,6 @@ public partial class MainWindow : Window
             _selectedHistoryInterventionId = null;
             _selectedHistorySnapshotTimestampUtc = null;
             _selectedHistoryCellKey = cell.Key;
-            _historySelectionExpiresUtc = DateTimeOffset.UtcNow.Add(HistorySelectionHold);
             SetTimelineCellDetail(cell);
         }
     }
@@ -5736,56 +5866,56 @@ public partial class MainWindow : Window
         {
             TimelineDetailTimestamp.Text = _historyExplainMode
                 ? $"Hour: {NotAvailableText}"
-                : "Hour: Select a heatmap cell or action marker to inspect a block of time.";
+                : "Hour: Select a day/hour block to inspect the retained episode list for that hour.";
             TimelineDetailOverload.Text = _historyExplainMode
                 ? $"Tracked: {NotAvailableText}"
-                : "Tracked time in that hour: This will appear after you select a heatmap cell.";
+                : "Pressure in that hour: This will appear after you select a day/hour block.";
             TimelineDetailTrust.Text = _historyExplainMode
                 ? $"Confidence: {NotAvailableText}"
-                : "Confidence in that hour: This will appear after you select a heatmap cell.";
+                : "Confidence in that hour: This will appear after you select a day/hour block.";
             TimelineDetailFocus.Text = _historyExplainMode
                 ? $"Focus episode: {NotAvailableText}"
-                : "Focus episode in that hour: This will appear after you select a heatmap cell.";
+                : "Episode mix: This will appear after you select a day/hour block.";
             TimelineDetailClassification.Text = _historyExplainMode
-                ? "Hour type: Select a heatmap cell to inspect raw details."
-                : "What happened here: Select a heatmap hour to see what Ari understood about that block.";
+                ? "Hour type: Select a day/hour block to inspect raw details."
+                : "Summary: Select a day/hour block to see the episode mix in that hour.";
             TimelineDetailExecution.Text = _historyExplainMode
-                ? "Decision / execution: Select an action marker to inspect the exact recommendation or change."
-                : "Action around this hour: Select an action marker to see what Ari suggested or changed.";
+                ? "Decision / execution: Interventions inside the selected hour will appear here."
+                : "Interventions in that hour: These appear inside the episode list below.";
             TimelineDetailWhyHeader.Text = _historyExplainMode ? "Why? (Detailed)" : "What Ari saw in that hour";
             TimelineDetailWhyFiv.Text = _historyExplainMode
-                ? "Focus / pressure / movement: Select a heatmap cell to inspect the raw breakdown."
-                : "Focus / pressure / movement: Ari will explain this after you select an hour.";
+                ? "Focus / pressure / movement: Select a day/hour block to inspect the raw breakdown."
+                : "Focus / pressure / movement: Ari will summarize the selected hour here.";
             TimelineDetailWhyReasons.Text = _historyExplainMode
-                ? "Top reasons: Select a heatmap cell to inspect the strongest contributors."
-                : "Main signals: Ari will list the strongest signals after you select an hour.";
+                ? "Top reasons: Select a day/hour block to inspect the strongest contributors."
+                : "Main signals: Ari will list the strongest reasons after you select an hour.";
             TimelineDetailWhyQuality.Text = _historyExplainMode
-                ? "Quality: Select a heatmap cell to inspect the tracked snapshots behind it."
+                ? "Quality: Select a day/hour block to inspect the tracked snapshots behind it."
                 : "Tracking quality: This will appear with the selected hour.";
             TimelineDetailStabilization.Text = _historyExplainMode
-                ? "Stabilization: Select a heatmap cell to inspect the latest processed block in that hour."
+                ? "Stabilization: Select a day/hour block to inspect the latest processed block in that hour."
                 : "Context: Use this panel to understand what Ari saw around the selected hour.";
-            PopulateTimelineEpisodeDrilldown([], "this block");
+            PopulateTimelineEpisodeDrilldown([], "the selected hour");
             return;
         }
 
         TimelineDetailTimestamp.Text = $"Hour: {cell.LocalDate:dddd, MMM d} {cell.HourLabel}";
         TimelineDetailOverload.Text = _historyExplainMode
-            ? $"Tracked: {FormatReadableDuration(cell.TrackedSeconds)} | Focused: {FormatReadableDuration(cell.FocusedSeconds)}"
-            : $"Tracked time in that hour: {FormatReadableDuration(cell.TrackedSeconds)} | Focused: {FormatReadableDuration(cell.FocusedSeconds)}";
+            ? $"Pressure avg {cell.AverageOverloadPercent:F0}% | confidence {cell.AverageConfidencePercent:F0}%"
+            : $"Pressure in that hour: avg {cell.AverageOverloadPercent:F0}% | confidence {cell.AverageConfidencePercent:F0}%";
         TimelineDetailTrust.Text = _historyExplainMode
             ? $"Confidence: {cell.AverageConfidencePercent:F0}% | Avg pressure: {cell.AverageOverloadPercent:F0}%"
             : $"Confidence in that hour: {cell.AverageConfidencePercent:F0}% | Average pressure: {cell.AverageOverloadPercent:F0}%";
         TimelineDetailFocus.Text = _historyExplainMode
-            ? $"Focus episode: {FormatFocusedTime(cell.LongestFocusBlockSeconds)}"
-            : $"Focus episode in that hour: {FormatFocusedTime(cell.LongestFocusBlockSeconds)} | Focused time: {FormatReadableDuration(cell.FocusedSeconds)}";
+            ? $"Episode mix: {BuildHistoryCellWhatHappened(cell)}"
+            : $"Episode mix: {BuildHistoryCellWhatHappened(cell)}";
         TimelineDetailClassification.Text = _historyExplainMode
             ? $"Hour type: {BuildHistoryCellWhatHappened(cell)}"
-            : $"What happened here: {BuildHistoryCellWhatHappened(cell)}";
+            : $"Summary: {BuildHistoryCellWhatHappened(cell)}";
         TimelineDetailExecution.Text = BuildHistoryCellExecutionText(cell);
         TimelineDetailWhyHeader.Text = _historyExplainMode ? "Why? (Detailed)" : "What Ari saw in that hour";
         TimelineDetailWhyFiv.Text = _historyExplainMode
-            ? $"focus_avg={cell.AverageFocusPercent:F1}% | overload_avg={cell.AverageOverloadPercent:F1}% | snapshots={cell.SnapshotCount}"
+            ? $"focus={FormatReadableDuration(cell.FocusEpisodeSeconds)} | distraction={FormatReadableDuration(cell.DistractionEpisodeSeconds)} | away={FormatReadableDuration(cell.AwayEpisodeSeconds)} | overload={FormatReadableDuration(cell.OverloadEpisodeSeconds)}"
             : $"Focus / pressure / movement: {BuildHistoryCellMomentSummary(cell)}";
         TimelineDetailWhyReasons.Text = BuildHistoryCellSignalsText(cell);
         TimelineDetailWhyQuality.Text = BuildHistoryCellTrackingQualityText(cell);
@@ -5800,39 +5930,35 @@ public partial class MainWindow : Window
             return "No tracked work landed in this hour.";
         }
 
-        if (cell.Episodes.Count > 0)
+        List<string> parts = new();
+        if (cell.FocusEpisodeSeconds > 0d)
         {
-            HistoryTimelineEpisode primaryEpisode = cell.Episodes
-                .OrderByDescending(static episode => episode.DurationSeconds)
-                .First();
-            return primaryEpisode.Kind switch
-            {
-                HistoryTimelineEpisodeKind.FocusEpisode => "This hour was anchored by a durable focus episode.",
-                HistoryTimelineEpisodeKind.ContextExcursion => "This hour included a short excursion outside the focus context.",
-                HistoryTimelineEpisodeKind.OffTaskDistraction => "This hour included a sustained off-task distraction episode.",
-                HistoryTimelineEpisodeKind.FragmentationDistraction => "This hour included a fragmentation distraction episode with rapid switching.",
-                HistoryTimelineEpisodeKind.Away => "This hour included away time rather than active distraction.",
-                HistoryTimelineEpisodeKind.OverloadEpisode => "This hour included an overload episode.",
-                _ => "This hour included a derived episode."
-            };
+            parts.Add($"Focus {FormatReadableDuration(cell.FocusEpisodeSeconds)}");
         }
 
-        if (cell.FocusedSeconds >= 2700d && cell.AverageOverloadPercent <= 35d)
+        if (cell.DistractionEpisodeSeconds > 0d)
         {
-            return "This was a strong, sustained focus hour.";
+            parts.Add($"Distraction {FormatReadableDuration(cell.DistractionEpisodeSeconds)}");
         }
 
-        if (cell.AverageFocusPercent <= 25d)
+        if (cell.ContextExcursionSeconds > 0d)
         {
-            return "This hour was mostly scattered or away from steady focus.";
+            parts.Add($"Excursion {FormatReadableDuration(cell.ContextExcursionSeconds)}");
         }
 
-        if (cell.TrackedSeconds <= 900d)
+        if (cell.AwayEpisodeSeconds > 0d)
         {
-            return "Only a short tracked window landed in this hour.";
+            parts.Add($"Away {FormatReadableDuration(cell.AwayEpisodeSeconds)}");
         }
 
-        return "This hour mixed focused work with some switching or lighter activity.";
+        if (cell.OverloadEpisodeSeconds > 0d)
+        {
+            parts.Add($"Overload {FormatReadableDuration(cell.OverloadEpisodeSeconds)}");
+        }
+
+        return parts.Count == 0
+            ? $"Tracked {FormatReadableDuration(cell.TrackedSeconds)} with no derived episodes."
+            : string.Join(" | ", parts);
     }
 
     private string BuildHistoryCellMomentSummary(HistoryFocusHeatmapCell cell)
@@ -5842,9 +5968,7 @@ public partial class MainWindow : Window
             return "No tracked work landed in this hour yet.";
         }
 
-        return cell.Episodes.Count == 0
-            ? $"Ari mapped {FormatReadableDuration(cell.FocusedSeconds)} of focused work inside {FormatReadableDuration(cell.TrackedSeconds)} tracked during this hour."
-            : $"Ari mapped {FormatReadableDuration(cell.FocusedSeconds)} of focused work inside {FormatReadableDuration(cell.TrackedSeconds)} tracked during this hour, with {cell.Episodes.Count} derived episodes overlapping it.";
+        return $"{BuildHistoryCellWhatHappened(cell)} | Tracked {FormatReadableDuration(cell.TrackedSeconds)}";
     }
 
     private string BuildHistoryCellSignalsText(HistoryFocusHeatmapCell cell)
@@ -5874,16 +5998,16 @@ public partial class MainWindow : Window
         if (cell.Interventions.Count == 0)
         {
             return _historyExplainMode
-                ? "Decision / execution: No action marker landed in this hour."
-                : "Action around this hour: No action marker landed in this hour.";
+                ? "Decision / execution: No intervention landed in this hour."
+                : "Interventions in that hour: none.";
         }
 
         LocalApiEventResponse latest = cell.Interventions[^1];
         string actionLabel = ToActionTitle(latest);
-        string markerLabel = cell.Interventions.Count == 1 ? "marker" : "markers";
+        string markerLabel = cell.Interventions.Count == 1 ? "intervention" : "interventions";
         return _historyExplainMode
-            ? $"Decision / execution: {cell.Interventions.Count} action {markerLabel} in this hour. Latest: {actionLabel}."
-            : $"Action around this hour: {cell.Interventions.Count} action {markerLabel} landed here. Latest: {actionLabel}.";
+            ? $"Decision / execution: {cell.Interventions.Count} {markerLabel} in this hour. Latest: {actionLabel}."
+            : $"Interventions in that hour: {cell.Interventions.Count} {markerLabel}. Latest: {actionLabel}.";
     }
 
     private string BuildHistoryCellContextText(HistoryFocusHeatmapCell cell)
@@ -6487,7 +6611,6 @@ public partial class MainWindow : Window
             _selectedHistoryInterventionId = null;
             _selectedHistoryCellKey = null;
             _selectedHistorySnapshotTimestampUtc = snapshot.TimestampUtc;
-            _historySelectionExpiresUtc = DateTimeOffset.UtcNow.Add(HistorySelectionHold);
             SetTimelineDetail(snapshot, null);
         }
     }
@@ -6499,7 +6622,6 @@ public partial class MainWindow : Window
             _selectedHistoryCellKey = null;
             _selectedHistorySnapshotTimestampUtc = null;
             _selectedHistoryInterventionId = intervention.Id;
-            _historySelectionExpiresUtc = DateTimeOffset.UtcNow.Add(HistorySelectionHold);
             SetTimelineDetail(null, intervention);
         }
     }

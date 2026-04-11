@@ -74,20 +74,20 @@ public sealed class ControlCenterShellContentTests
             "<ScrollViewer x:Name=\"TimelinePanel\"",
             "<ScrollViewer x:Name=\"AccountPanel\"");
 
-        Assert.Contains("Text=\"Tracked time\"", historySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Focused time\"", historySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Best hour\"", historySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Actions in this range\"", historySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Action markers in this range\"", historySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Focus hours by day\"", historySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Focus episode at each snapshot\"", historySection, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Selection\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Focus episodes\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Distraction episodes\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Overload episodes\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Away segments\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Episodes by day and hour\"", historySection, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Selected hour\"", historySection, StringComparison.Ordinal);
         Assert.Contains("Text=\"Episodes\"", historySection, StringComparison.Ordinal);
         Assert.Contains("Content=\"Advanced\"", historySection, StringComparison.Ordinal);
 
-        Assert.DoesNotContain("Content=\"Technical view\"", historySection, StringComparison.Ordinal);
-        Assert.DoesNotContain("No history chart data yet.", historySection, StringComparison.Ordinal);
-        Assert.DoesNotContain("Text=\"Selected detail\"", historySection, StringComparison.Ordinal);
+        Assert.DoesNotContain("Text=\"Tracked time\"", historySection, StringComparison.Ordinal);
+        Assert.DoesNotContain("Text=\"Focused time\"", historySection, StringComparison.Ordinal);
+        Assert.DoesNotContain("Text=\"Best hour\"", historySection, StringComparison.Ordinal);
+        Assert.DoesNotContain("Text=\"Focus hours by day\"", historySection, StringComparison.Ordinal);
+        Assert.DoesNotContain("Text=\"Selection\"", historySection, StringComparison.Ordinal);
     }
 
     [Fact]
