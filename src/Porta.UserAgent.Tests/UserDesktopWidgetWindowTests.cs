@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
+using System.Windows.Media;
 using Porta.UserAgent.Interventions;
 
 namespace Porta.UserAgent.Tests;
@@ -45,8 +46,8 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal("Work today", primaryMetricLabel.Text);
             Assert.Equal("5h 14m", primaryMetricValue.Text);
             Assert.Equal(Visibility.Collapsed, summaryMetaPanel.Visibility);
-            Assert.True(window.Width <= 184d);
-            Assert.True(window.Height <= 80d);
+            Assert.True(window.Width <= 198d);
+            Assert.True(window.Height <= 68d);
         });
     }
 
@@ -61,8 +62,34 @@ public sealed class UserDesktopWidgetWindowTests
                 _ => { },
                 new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
 
-            Assert.True(window.Width <= 184d);
-            Assert.True(window.Height <= 60d);
+            Assert.True(window.Width <= 198d);
+            Assert.True(window.Height <= 54d);
+        });
+    }
+
+    [Fact]
+    public void ApplyState_UsesFlatInnerSurfaceWithoutMetricOrMessageCards()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(BuildSummaryState());
+
+            Border primaryMetricChip = GetPrivateField<Border>(window, "_primaryMetricChip");
+            Border titleBadge = GetPrivateField<Border>(window, "_titleBadge");
+            Border messageCard = GetPrivateField<Border>(window, "_messageCard");
+
+            Assert.Equal(new Thickness(0), primaryMetricChip.BorderThickness);
+            Assert.Equal(Colors.Transparent, ((SolidColorBrush)primaryMetricChip.Background).Color);
+            Assert.Equal(new Thickness(0), titleBadge.BorderThickness);
+            Assert.Equal(Colors.Transparent, ((SolidColorBrush)titleBadge.Background).Color);
+            Assert.Equal(new Thickness(0), messageCard.BorderThickness);
+            Assert.Equal(Colors.Transparent, ((SolidColorBrush)messageCard.Background).Color);
         });
     }
 
@@ -108,7 +135,7 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal("Tracking limited", messageTitle.Text);
             Assert.Equal("Open System", primaryActionButton.Content);
             Assert.Equal(Visibility.Visible, primaryActionButton.Visibility);
-            Assert.True(window.Height >= 60d);
+            Assert.True(window.Height >= 54d);
         });
     }
 
