@@ -257,6 +257,30 @@ public sealed class UserDesktopWidgetWindowTests
     }
 
     [Fact]
+    public void Collapse_WithMenuOpen_DoesNotCollapse()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(BuildSummaryState());
+            SetPrivateField(window, "_menuOpen", true);
+
+            InvokePrivateMethod(window, "Collapse");
+
+            Assert.False(GetPrivateField<bool>(window, "_collapsed"));
+            Assert.True(GetPrivateField<bool>(window, "_menuOpen"));
+
+            window.AllowCloseForShutdown();
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void Expand_AfterSummaryCollapse_RestoresSummarySurface()
     {
         RunOnStaThread(() =>
@@ -316,6 +340,67 @@ public sealed class UserDesktopWidgetWindowTests
     }
 
     [Fact]
+    public void PresentAttention_ShowsInlineMessageAndRestoresSummaryWhenCleared()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(BuildSummaryState());
+            window.PresentAttention("Focus drift", "Ari noticed your context changed. The summary should return after this message clears.");
+
+            Border messageCard = GetPrivateField<Border>(window, "_messageCard");
+            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            TextBlock messageTitle = GetPrivateField<TextBlock>(window, "_messageTitleText");
+
+            Assert.Equal(Visibility.Visible, messageCard.Visibility);
+            Assert.Equal(Visibility.Collapsed, metricsPanel.Visibility);
+            Assert.Equal("Focus drift", messageTitle.Text);
+
+            InvokePrivateMethod(window, "SetAttentionVisible", false);
+
+            Assert.Equal(Visibility.Collapsed, messageCard.Visibility);
+            Assert.Equal(Visibility.Visible, metricsPanel.Visibility);
+            Assert.Null(GetPrivateFieldOrNull<object>(window, "_attentionMessage"));
+
+            GetPrivateField<DispatcherTimer>(window, "_attentionTimer").Stop();
+            window.AllowCloseForShutdown();
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void Collapse_SetsReexpandDelayWithinOneToTwoSeconds()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(BuildSummaryState());
+            DateTimeOffset beforeCollapseUtc = DateTimeOffset.UtcNow;
+
+            InvokePrivateMethod(window, "Collapse");
+
+            DateTimeOffset reexpandNotBeforeUtc = GetPrivateField<DateTimeOffset>(window, "_reexpandNotBeforeUtc");
+
+            Assert.True(reexpandNotBeforeUtc >= beforeCollapseUtc.AddSeconds(1));
+            Assert.True(reexpandNotBeforeUtc <= beforeCollapseUtc.AddSeconds(2));
+
+            GetPrivateField<DispatcherTimer>(window, "_reexpandTimer").Stop();
+            window.AllowCloseForShutdown();
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void Menu_UsesCurrentControlCenterLabels()
     {
         RunOnStaThread(() =>
@@ -356,6 +441,9 @@ public sealed class UserDesktopWidgetWindowTests
             menuButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, menuButton));
 
             Assert.True(popup.IsOpen);
+            popup.IsOpen = false;
+            window.AllowCloseForShutdown();
+            window.Close();
         });
     }
 
@@ -518,11 +606,33 @@ public sealed class UserDesktopWidgetWindowTests
         return (T)(field.GetValue(target) ?? throw new InvalidOperationException($"Field '{fieldName}' was null."));
     }
 
+    private static T? GetPrivateFieldOrNull<T>(object target, string fieldName)
+    {
+        FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"Missing field '{fieldName}'.");
+        object? value = field.GetValue(target);
+        return value is null ? default : (T)value;
+    }
+
+    private static void SetPrivateField(object target, string fieldName, object? value)
+    {
+        FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"Missing field '{fieldName}'.");
+        field.SetValue(target, value);
+    }
+
     private static void InvokePrivateMethod(object target, string methodName)
     {
         MethodInfo method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException($"Missing method '{methodName}'.");
         method.Invoke(target, null);
+    }
+
+    private static void InvokePrivateMethod(object target, string methodName, params object?[] arguments)
+    {
+        MethodInfo method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"Missing method '{methodName}'.");
+        method.Invoke(target, arguments);
     }
 
     private static string ReadAllText(object? node)
