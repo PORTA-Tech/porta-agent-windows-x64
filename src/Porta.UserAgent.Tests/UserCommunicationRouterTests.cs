@@ -161,7 +161,7 @@ public sealed class UserCommunicationRouterTests
             nowUtc: nowUtc);
 
         Assert.NotNull(state);
-        Assert.Equal("Unavailable", state!.Title);
+        Assert.Equal("Core service offline", state!.Title);
         Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.PrimaryAction);
         Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.SecondaryAction);
     }
@@ -179,7 +179,7 @@ public sealed class UserCommunicationRouterTests
             statusHttpCode: 401);
 
         Assert.NotNull(state);
-        Assert.Equal("Unavailable", state!.Title);
+        Assert.Equal("System access needs attention", state!.Title);
         Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.PrimaryAction);
         Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.SecondaryAction);
     }

@@ -149,6 +149,36 @@ public sealed class UserDesktopWidgetWindowTests
     }
 
     [Fact]
+    public void ApplyState_BlankMetricValueFallsBackToUpdatingInsteadOfNa()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(new UserDesktopWidgetState(
+                Mode: UserDesktopWidgetMode.Monitoring,
+                Title: "Today",
+                StatusText: "Starting Ari locally.",
+                MessageSeverity: UserDesktopWidgetMessageSeverity.Neutral,
+                FooterText: "Confidence updating | Tracking quality updating",
+                PrimaryMetric: new UserDesktopWidgetMetric("Work today", string.Empty),
+                SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "Updating..."),
+                TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "Updating..."),
+                CanPause: false,
+                CanResume: false,
+                CriticalState: null));
+
+            TextBlock primaryMetricValue = GetPrivateField<TextBlock>(window, "_primaryMetricText");
+
+            Assert.Equal("Updating...", primaryMetricValue.Text);
+        });
+    }
+
+    [Fact]
     public void Collapse_WithSummarySurface_CollapsesToMenuAnchor()
     {
         RunOnStaThread(() =>

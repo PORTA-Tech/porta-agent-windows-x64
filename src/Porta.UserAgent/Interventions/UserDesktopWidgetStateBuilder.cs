@@ -82,10 +82,11 @@ internal static class UserDesktopWidgetStateBuilder
 
     private static string BuildTitle(UserDesktopWidgetMode mode, LocalApiStatusResponse? status)
     {
+        _ = status;
         return mode switch
         {
             UserDesktopWidgetMode.Paused => "Paused",
-            UserDesktopWidgetMode.Limited => IsUnavailableState(status) ? "Unavailable" : "Tracking limited",
+            UserDesktopWidgetMode.Limited => "Limited",
             _ => "Today"
         };
     }
@@ -149,12 +150,12 @@ internal static class UserDesktopWidgetStateBuilder
 
         if (!status.ServiceRunning)
         {
-            return "Current status is unavailable while the service reconnects.";
+            return "Reconnecting to the local service.";
         }
 
         if (!status.LocalApiAuthReady)
         {
-            return "Current status is unavailable until System access reloads.";
+            return "Reloading local service access.";
         }
 
         if (!IsFresh(status.freshness_state))
@@ -278,7 +279,7 @@ internal static class UserDesktopWidgetStateBuilder
         {
             UserDesktopWidgetMode.Paused => "Paused",
             _ when todaySummary.HasProcessedTimeline => LocalMetricDurationFormatter.FormatMetricDuration(todaySummary.DisplayedTrackedTodaySeconds),
-            _ when status == null || !status.ServiceRunning || !status.LocalApiAuthReady => "n/a",
+            _ when status == null || !status.ServiceRunning || !status.LocalApiAuthReady => "Updating...",
             _ => "Updating..."
         };
 
@@ -306,7 +307,7 @@ internal static class UserDesktopWidgetStateBuilder
         }
         else if (status == null || !status.ServiceRunning || !status.LocalApiAuthReady)
         {
-            value = "n/a";
+            value = "Updating...";
         }
         else
         {
@@ -332,7 +333,7 @@ internal static class UserDesktopWidgetStateBuilder
             value = pressure.HasValue
                 ? FormatPercent(pressure.Value)
                 : status == null || !status.ServiceRunning || !status.LocalApiAuthReady
-                    ? "n/a"
+                    ? "Updating..."
                     : "Updating...";
         }
 
@@ -385,9 +386,7 @@ internal static class UserDesktopWidgetStateBuilder
     {
         if (!experience.SnapshotAvailable)
         {
-            return status == null || !status.ServiceRunning || !status.LocalApiAuthReady
-                ? "Confidence unavailable"
-                : "Confidence updating";
+            return "Confidence updating";
         }
 
         return $"Confidence {experience.ConfidenceLabel}";
@@ -410,7 +409,7 @@ internal static class UserDesktopWidgetStateBuilder
 
         if (status == null || !status.ServiceRunning || !status.LocalApiAuthReady)
         {
-            return "Tracking quality unavailable";
+            return "Tracking quality updating";
         }
 
         if (!IsFresh(status.freshness_state) || (snapshot != null && !IsFresh(snapshot.freshness_state)))
@@ -454,10 +453,6 @@ internal static class UserDesktopWidgetStateBuilder
 
         return "Tracking quality limited";
     }
-
-    private static bool IsUnavailableState(LocalApiStatusResponse? status) =>
-        status == null || !status.ServiceRunning || !status.LocalApiAuthReady;
-
     private static string FormatPercent(double value)
     {
         double normalized = double.IsFinite(value) ? Math.Clamp(value, 0d, 1d) : 0d;

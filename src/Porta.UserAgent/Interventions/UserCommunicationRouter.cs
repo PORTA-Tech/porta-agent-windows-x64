@@ -190,7 +190,7 @@ internal static class UserCommunicationRouter
             if (statusHttpCode is 401 or 403)
             {
                 return BuildCriticalState(
-                    title: "Unavailable",
+                    title: "System access needs attention",
                     message: "Ari can see the local runtime, but this session needs refreshed local service access. Open System or retry.",
                     primaryAction: UserDesktopWidgetAction.OpenHealth,
                     primaryLabel: "Open System",
@@ -206,7 +206,7 @@ internal static class UserCommunicationRouter
         if (!status.LocalApiAuthReady)
         {
             return BuildCriticalState(
-                title: "Unavailable",
+                title: "System access needs attention",
                 message: "Ari is alive, but this session cannot read the local service yet. Open System for details or retry the runtime check.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
                 primaryLabel: "Open System",
@@ -219,7 +219,7 @@ internal static class UserCommunicationRouter
         if (!status.ServiceRunning)
         {
             return BuildCriticalState(
-                title: "Unavailable",
+                title: "Core service offline",
                 message: "The desktop service is offline. Open System to inspect the runtime, or retry the connection.",
                 primaryAction: UserDesktopWidgetAction.OpenHealth,
                 primaryLabel: "Open System",

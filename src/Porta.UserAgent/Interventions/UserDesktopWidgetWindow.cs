@@ -710,7 +710,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         UserDesktopWidgetMetric metric)
     {
         labelTextBlock.Text = string.IsNullOrWhiteSpace(metric.Label) ? string.Empty : metric.Label.Trim();
-        valueTextBlock.Text = string.IsNullOrWhiteSpace(metric.Value) ? "n/a" : metric.Value.Trim();
+        valueTextBlock.Text = string.IsNullOrWhiteSpace(metric.Value) ? "Updating..." : metric.Value.Trim();
         chip.Visibility = Visibility.Visible;
     }
 

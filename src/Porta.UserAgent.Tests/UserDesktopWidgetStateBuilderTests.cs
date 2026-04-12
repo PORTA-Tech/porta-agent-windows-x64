@@ -34,13 +34,14 @@ public sealed class UserDesktopWidgetStateBuilderTests
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, null, signals, degraded);
 
         Assert.Equal(UserDesktopWidgetMode.Limited, state.Mode);
-        Assert.Equal("Tracking limited", state.Title);
+        Assert.Equal("Limited", state.Title);
         Assert.Contains("partial capture", state.StatusText, StringComparison.OrdinalIgnoreCase);
         AssertMetric(state.PrimaryMetric, "Work today", "Updating...");
         AssertMetric(state.SecondaryMetric, "Last focus session", "4m");
         AssertMetric(state.TertiaryMetric, "Pressure", "18%");
         Assert.Equal("Confidence High | Tracking quality strong", state.FooterText);
         Assert.Null(state.CriticalState);
+        AssertRoutineWidgetText(state);
     }
 
     [Fact]
@@ -100,11 +101,14 @@ public sealed class UserDesktopWidgetStateBuilderTests
 
         Assert.Equal(UserDesktopWidgetMode.Limited, state.Mode);
         Assert.NotNull(state.CriticalState);
-        Assert.Equal("Unavailable", state.CriticalState!.Title);
+        Assert.Equal("Core service offline", state.CriticalState!.Title);
         Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.CriticalState.PrimaryAction);
         Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.CriticalState.SecondaryAction);
         Assert.Equal(UserDesktopWidgetAction.OpenSettings, state.CriticalState.TertiaryAction);
         Assert.Contains("service is offline", state.StatusText, StringComparison.OrdinalIgnoreCase);
+        AssertMetric(state.PrimaryMetric, "Work today", "Updating...");
+        AssertMetric(state.SecondaryMetric, "Last focus session", "3m");
+        AssertMetric(state.TertiaryMetric, "Pressure", "12%");
     }
 
     [Fact]
@@ -130,6 +134,11 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.Equal("Today", state.Title);
         Assert.Equal("Starting Ari locally.", state.StatusText);
         Assert.Null(state.CriticalState);
+        AssertMetric(state.PrimaryMetric, "Work today", "Updating...");
+        AssertMetric(state.SecondaryMetric, "Last focus session", "Updating...");
+        AssertMetric(state.TertiaryMetric, "Pressure", "Updating...");
+        Assert.Equal("Confidence updating | Tracking quality updating", state.FooterText);
+        AssertRoutineWidgetText(state);
     }
 
     [Fact]
@@ -762,6 +771,16 @@ public sealed class UserDesktopWidgetStateBuilderTests
     {
         Assert.Equal(expectedLabel, actual.Label);
         Assert.Equal(expectedValue, actual.Value);
+    }
+
+    private static void AssertRoutineWidgetText(UserDesktopWidgetState state)
+    {
+        Assert.DoesNotContain("unavailable", state.Title, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("unavailable", state.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("unavailable", state.FooterText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("n/a", state.PrimaryMetric.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("n/a", state.SecondaryMetric.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("n/a", state.TertiaryMetric.Value, StringComparison.OrdinalIgnoreCase);
     }
 
     private static LocalApiStatusResponse BuildStatus(
