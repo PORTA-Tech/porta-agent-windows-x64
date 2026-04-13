@@ -43,11 +43,11 @@ public sealed class UserDesktopWidgetWindowTests
 
             Assert.Equal(Visibility.Visible, metricsPanel.Visibility);
             Assert.Equal(Visibility.Collapsed, messageCard.Visibility);
-            Assert.Equal("Work today", primaryMetricLabel.Text);
+            Assert.Equal("Work", primaryMetricLabel.Text);
             Assert.Equal("5h 14m", primaryMetricValue.Text);
             Assert.Equal(Visibility.Collapsed, summaryMetaPanel.Visibility);
-            Assert.True(window.Width <= 198d);
-            Assert.True(window.Height <= 68d);
+            Assert.True(window.Width <= 244d);
+            Assert.True(window.Height <= 56d);
         });
     }
 
@@ -62,8 +62,8 @@ public sealed class UserDesktopWidgetWindowTests
                 _ => { },
                 new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
 
-            Assert.True(window.Width <= 198d);
-            Assert.True(window.Height <= 54d);
+            Assert.True(window.Width <= 244d);
+            Assert.True(window.Height <= 40d);
         });
     }
 
@@ -90,6 +90,29 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal(Colors.Transparent, ((SolidColorBrush)titleBadge.Background).Color);
             Assert.Equal(new Thickness(0), messageCard.BorderThickness);
             Assert.Equal(Colors.Transparent, ((SolidColorBrush)messageCard.Background).Color);
+        });
+    }
+
+    [Fact]
+    public void ApplyState_UsesSingleHeaderRowForSummaryMetrics()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(BuildSummaryState());
+
+            Grid headerRow = GetPrivateField<Grid>(window, "_headerRow");
+            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            Border headerDragSurface = GetPrivateField<Border>(window, "_headerDragSurface");
+
+            Assert.Same(headerRow, VisualTreeHelper.GetParent(metricsPanel));
+            Assert.Same(headerRow, VisualTreeHelper.GetParent(headerDragSurface));
+            Assert.Equal(2, Grid.GetColumn(metricsPanel));
         });
     }
 
@@ -135,7 +158,7 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal("Tracking limited", messageTitle.Text);
             Assert.Equal("Open System", primaryActionButton.Content);
             Assert.Equal(Visibility.Visible, primaryActionButton.Visibility);
-            Assert.True(window.Height >= 54d);
+            Assert.True(window.Height >= 40d);
         });
     }
 
