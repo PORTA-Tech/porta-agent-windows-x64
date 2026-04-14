@@ -19,9 +19,9 @@ internal sealed class UserDesktopWidgetWindow : Window
     private const int WindowLifecycleOpen = 0;
     private const int WindowLifecycleClosing = 1;
     private const int WindowLifecycleClosed = 2;
-    private const double ExpandedWidth = 244d;
+    private const double ExpandedWidth = 262d;
     private const double CollapsedWidth = 28d;
-    private const double BaseHeight = 40d;
+    private const double BaseHeight = 36d;
     private const double CollapsedHeight = 28d;
     private const double TopMargin = 16d;
     private const double RightMargin = 16d;
@@ -29,7 +29,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private static readonly TimeSpan AttentionDuration = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan StateTakeoverDuration = TimeSpan.FromSeconds(18);
     private static readonly TimeSpan ReexpandPollInterval = TimeSpan.FromMilliseconds(180);
-    private static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(220);
+    private static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(420);
     private static readonly TimeSpan ReexpandDelay = TimeSpan.FromMilliseconds(1200);
 
     private readonly Action<UserDesktopWidgetAction> _actionRequested;
@@ -148,7 +148,7 @@ internal sealed class UserDesktopWidgetWindow : Window
                 return;
             }
 
-            if (!IsPointerNearWidget())
+            if (!IsPointerInsideWidget())
             {
                 Expand();
             }
@@ -198,7 +198,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         Grid bodyGrid = new()
         {
-            Margin = new Thickness(6, 3, 6, 3)
+            Margin = new Thickness(6, 2, 6, 2)
         };
         bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         shellGrid.Children.Add(bodyGrid);
@@ -221,8 +221,8 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         _menuButton = new Button
         {
-            Width = 18,
-            Height = 18,
+            Width = 16,
+            Height = 16,
             Padding = new Thickness(0),
             BorderThickness = new Thickness(1),
             Background = new SolidColorBrush(Color.FromRgb(28, 35, 43)),
@@ -240,7 +240,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             Content = new TextBlock
             {
                 Text = "\u2630",
-                FontSize = 10.2,
+                FontSize = 9.6,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -253,7 +253,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             Background = Brushes.Transparent,
             Cursor = Cursors.SizeAll,
-            Margin = new Thickness(5, 0, 5, 0),
+            Margin = new Thickness(4, 0, 5, 0),
             Padding = new Thickness(0)
         };
         _headerDragSurface.PreviewMouseLeftButtonDown += BeginDragFromHeader;
@@ -267,12 +267,12 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         Border dragHandle = new()
         {
-            Width = 8,
+            Width = 7,
             Height = 2,
             CornerRadius = new CornerRadius(2),
             Background = new SolidColorBrush(Color.FromRgb(77, 88, 102)),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 3, 0)
+            Margin = new Thickness(0, 0, 2, 0)
         };
         Grid.SetColumn(dragHandle, 0);
         dragContent.Children.Add(dragHandle);
@@ -280,7 +280,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _titleText = new TextBlock
         {
             FontWeight = FontWeights.SemiBold,
-            FontSize = 7.4,
+            FontSize = 7.0,
             VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed
         };
@@ -311,7 +311,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _primaryMetricChip = CreateMetricChip(out _primaryMetricLabelText, out _primaryMetricText);
         _secondaryMetricChip = CreateMetricChip(out _secondaryMetricLabelText, out _secondaryMetricText);
         _tertiaryMetricChip = CreateMetricChip(out _tertiaryMetricLabelText, out _tertiaryMetricText);
-        _secondaryMetricChip.Margin = new Thickness(4, 0, 4, 0);
+        _secondaryMetricChip.Margin = new Thickness(5, 0, 5, 0);
         _tertiaryMetricChip.Margin = new Thickness(0);
         _metricsPanel.Children.Add(_primaryMetricChip);
         _metricsPanel.Children.Add(_secondaryMetricChip);
@@ -673,23 +673,23 @@ internal sealed class UserDesktopWidgetWindow : Window
         labelTextBlock = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(147, 161, 177)),
-            FontSize = 6.6,
+            FontSize = 6.1,
             FontWeight = FontWeights.Medium,
             TextWrapping = TextWrapping.NoWrap,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 4, 0),
-            MaxWidth = 34d
+            Margin = new Thickness(0, 0, 3, 0),
+            MaxWidth = 30d
         };
 
         valueTextBlock = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(236, 241, 246)),
-            FontSize = 18.4,
+            FontSize = 16.8,
             FontWeight = FontWeights.Bold,
             VerticalAlignment = VerticalAlignment.Center,
             TextWrapping = TextWrapping.NoWrap,
-            MaxWidth = 42d
+            MaxWidth = 40d
         };
 
         DockPanel contentPanel = new()
@@ -702,7 +702,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         return new Border
         {
-            Width = 64d,
+            Width = 72d,
             Background = Brushes.Transparent,
             BorderBrush = Brushes.Transparent,
             BorderThickness = new Thickness(0),

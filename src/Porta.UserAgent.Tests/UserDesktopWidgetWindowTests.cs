@@ -46,8 +46,8 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal("Work", primaryMetricLabel.Text);
             Assert.Equal("5h 14m", primaryMetricValue.Text);
             Assert.Equal(Visibility.Collapsed, summaryMetaPanel.Visibility);
-            Assert.True(window.Width <= 244d);
-            Assert.True(window.Height <= 56d);
+            Assert.True(window.Width <= 262d);
+            Assert.True(window.Height <= 52d);
         });
     }
 
@@ -62,8 +62,8 @@ public sealed class UserDesktopWidgetWindowTests
                 _ => { },
                 new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
 
-            Assert.True(window.Width <= 244d);
-            Assert.True(window.Height <= 40d);
+            Assert.True(window.Width <= 262d);
+            Assert.True(window.Height <= 36d);
         });
     }
 
@@ -158,7 +158,7 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal("Tracking limited", messageTitle.Text);
             Assert.Equal("Open System", primaryActionButton.Content);
             Assert.Equal(Visibility.Visible, primaryActionButton.Visibility);
-            Assert.True(window.Height >= 40d);
+            Assert.True(window.Height >= 36d);
         });
     }
 
