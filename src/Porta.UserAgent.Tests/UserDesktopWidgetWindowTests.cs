@@ -331,6 +331,47 @@ public sealed class UserDesktopWidgetWindowTests
     }
 
     [Fact]
+    public void Collapse_WithRevealGuardActive_DoesNotCollapse()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(BuildSummaryState());
+            SetPrivateField(window, "_suspendAutoCollapseUntilPointerLeaves", true);
+
+            InvokePrivateMethod(window, "Collapse");
+
+            Assert.False(GetPrivateField<bool>(window, "_collapsed"));
+            Assert.Equal(Visibility.Visible, GetPrivateField<StackPanel>(window, "_metricsPanel").Visibility);
+        });
+    }
+
+    [Fact]
+    public void HandlePointerLeave_ClearsRevealGuard()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+
+            window.ApplyState(BuildSummaryState());
+            SetPrivateField(window, "_suspendAutoCollapseUntilPointerLeaves", true);
+
+            InvokePrivateMethod(window, "HandlePointerLeave");
+
+            Assert.False(GetPrivateField<bool>(window, "_suspendAutoCollapseUntilPointerLeaves"));
+        });
+    }
+
+    [Fact]
     public void Expand_AfterSummaryCollapse_RestoresSummarySurface()
     {
         RunOnStaThread(() =>

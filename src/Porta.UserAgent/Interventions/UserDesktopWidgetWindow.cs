@@ -80,6 +80,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private bool _menuOpen;
     private bool _dragInProgress;
     private bool _hiddenByUser;
+    private bool _suspendAutoCollapseUntilPointerLeaves;
     private bool _placementInitialized;
     private double _expandedAnchorLeft;
     private double _expandedAnchorTop;
@@ -581,6 +582,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         Show();
         ApplyAnchorPosition();
         UpdateWindowHeight();
+        ResetAutoCollapseAfterReveal();
         EnsureVisibleForRecovery();
     }
 
@@ -624,6 +626,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         ApplyAnchorPosition();
         UpdateWindowHeight();
+        ResetAutoCollapseAfterReveal();
         NudgeTopmostWithoutActivation();
         RefreshSurfaceVisibilityHealth();
     }
@@ -1096,10 +1099,18 @@ internal sealed class UserDesktopWidgetWindow : Window
     private void HandlePointerLeave()
     {
         _collapseTimer.Stop();
+        _suspendAutoCollapseUntilPointerLeaves = false;
         if (_collapsed && !_menuOpen)
         {
             _reexpandTimer.Start();
         }
+    }
+
+    private void ResetAutoCollapseAfterReveal()
+    {
+        _collapseTimer.Stop();
+        _reexpandTimer.Stop();
+        _suspendAutoCollapseUntilPointerLeaves = IsPointerInsideWidget();
     }
 
     private void UpdateWindowHeight()
@@ -1632,6 +1643,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             && !_collapsed
             && !_menuOpen
             && !_dragInProgress
+            && !_suspendAutoCollapseUntilPointerLeaves
             && _activePrompt == null
             && _attentionMessage == null
             && _stateTakeoverMessage == null
