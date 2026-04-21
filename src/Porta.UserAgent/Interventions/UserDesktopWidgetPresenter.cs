@@ -267,10 +267,18 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         {
             _widgetDispatcher.BeginInvoke(() =>
             {
-                if (_widgetWindow is { CanAcceptUiActions: true } activeWindow)
+                if (_widgetWindow is not { } activeWindow)
                 {
-                    action(activeWindow);
+                    return;
                 }
+
+                if (!ReferenceEquals(activeWindow.Dispatcher, Dispatcher.CurrentDispatcher)
+                    || !activeWindow.CanAcceptUiActions)
+                {
+                    return;
+                }
+
+                action(activeWindow);
             });
             return true;
         }
@@ -355,10 +363,25 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             return;
         }
 
+        Dispatcher currentDispatcher = Dispatcher.CurrentDispatcher;
         UserDesktopWidgetWindow? currentWindow;
         lock (_widgetLifecycleGate)
         {
             currentWindow = _widgetWindow;
+        }
+
+        if (currentWindow is not null
+            && !ReferenceEquals(currentWindow.Dispatcher, currentDispatcher))
+        {
+            lock (_widgetLifecycleGate)
+            {
+                if (ReferenceEquals(_widgetWindow, currentWindow))
+                {
+                    _widgetWindow = null;
+                }
+            }
+
+            currentWindow = null;
         }
 
         if (currentWindow is { IsLoaded: true })
@@ -478,14 +501,19 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
         if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.HasShutdownFinished)
         {
+            bool canCloseWindow = widgetWindow is not null
+                && ReferenceEquals(widgetWindow.Dispatcher, dispatcher);
             try
             {
                 dispatcher.BeginInvoke(new Action(() =>
                 {
                     try
                     {
-                        widgetWindow?.AllowCloseForShutdown();
-                        widgetWindow?.Close();
+                        if (canCloseWindow)
+                        {
+                            widgetWindow!.AllowCloseForShutdown();
+                            widgetWindow.Close();
+                        }
                     }
                     catch
                     {
@@ -620,9 +648,14 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
     private bool IsWidgetOperationalLocked()
     {
+        if (_widgetDispatcher is not { HasShutdownStarted: false, HasShutdownFinished: false } dispatcher)
+        {
+            return false;
+        }
+
         return _widgetThread is { IsAlive: true }
-            && _widgetDispatcher is { HasShutdownStarted: false, HasShutdownFinished: false }
-            && _widgetWindow is { CanAcceptUiActions: true, IsSurfaceVisibleForHeartbeat: true }
+            && _widgetWindow is { CanAcceptUiActions: true, IsSurfaceVisibleForHeartbeat: true } window
+            && ReferenceEquals(window.Dispatcher, dispatcher)
             && GetWidgetHealthState() == WidgetHealthReady;
     }
 

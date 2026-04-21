@@ -8,7 +8,7 @@ namespace Porta.UserAgent.Tests;
 public sealed class UserDesktopWidgetPresenterTests
 {
     [Fact]
-    public async Task HeartbeatHealthCheck_DoesNotTouchCrossThreadWindowState()
+    public async Task HeartbeatHealthCheck_TreatsCrossThreadWindowAsUnhealthyWithoutThrowing()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "porta-widget-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -84,7 +84,7 @@ public sealed class UserDesktopWidgetPresenterTests
             await worker.WaitAsync(TimeSpan.FromSeconds(5));
 
             Assert.Null(heartbeatFailure);
-            Assert.True(heartbeatHealthy);
+            Assert.False(heartbeatHealthy);
         }
         finally
         {
@@ -194,6 +194,126 @@ public sealed class UserDesktopWidgetPresenterTests
                 SetPrivateField<Dispatcher?>(presenter, "_widgetDispatcher", null);
                 SetPrivateField<UserDesktopWidgetWindow?>(presenter, "_widgetWindow", null);
                 presenter.Dispose();
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        });
+    }
+
+    [Fact]
+    public void Recovery_RecreatesForeignDispatcherWindowWithoutThrowing()
+    {
+        RunOnStaThread(() =>
+        {
+            string tempDirectory = Path.Combine(Path.GetTempPath(), "porta-widget-tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDirectory);
+
+            UserDesktopWidgetPresenter? presenter = null;
+            Thread? widgetOwnerThread = null;
+            var created = new ManualResetEventSlim(false);
+            Exception? widgetCreationFailure = null;
+            UserDesktopWidgetWindow? foreignThreadWindow = null;
+
+            try
+            {
+                var breakOverlayPresenter = new FakeBreakOverlayPresenter();
+                presenter = new UserDesktopWidgetPresenter(
+                    new UserDesktopWidgetRollout(WidgetEnabled: true, ForceToastFallback: false),
+                    new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory, "widget-placement.json")),
+                    new UserDesktopWidgetVisibilityStore(Path.Combine(tempDirectory, "widget-hidden.flag")),
+                    breakOverlayPresenter,
+                    startWidgetThread: false);
+
+                string placementPath = Path.Combine(tempDirectory, "widget-owner-placement.json");
+                widgetOwnerThread = new Thread(() =>
+                {
+                    try
+                    {
+                        foreignThreadWindow = new UserDesktopWidgetWindow(
+                            _ => { },
+                            _ => { },
+                            new UserDesktopWidgetPlacementStore(placementPath));
+                        foreignThreadWindow.Show();
+                    }
+                    catch (Exception ex)
+                    {
+                        widgetCreationFailure = ex;
+                    }
+                    finally
+                    {
+                        created.Set();
+                    }
+
+                    Dispatcher.Run();
+                });
+
+                widgetOwnerThread.SetApartmentState(ApartmentState.STA);
+                widgetOwnerThread.IsBackground = true;
+                widgetOwnerThread.Start();
+
+                Assert.True(created.Wait(TimeSpan.FromSeconds(5)), "Timed out waiting for foreign widget window creation.");
+                Assert.Null(widgetCreationFailure);
+                Assert.NotNull(foreignThreadWindow);
+
+                SetPrivateField(presenter!, "_widgetDispatcher", Dispatcher.CurrentDispatcher);
+                SetPrivateField(presenter!, "_widgetWindow", foreignThreadWindow);
+
+                Exception? recoveryFailure = Record.Exception(() => InvokePrivateMethod(presenter!, "EnsureWidgetWindowOnCurrentDispatcher"));
+                Assert.Null(recoveryFailure);
+
+                UserDesktopWidgetWindow recoveredWindow = GetPrivateField<UserDesktopWidgetWindow>(presenter!, "_widgetWindow");
+                Assert.NotNull(recoveredWindow);
+                Assert.NotSame(foreignThreadWindow, recoveredWindow);
+                Assert.True(ReferenceEquals(recoveredWindow.Dispatcher, Dispatcher.CurrentDispatcher));
+            }
+            finally
+            {
+                UserDesktopWidgetWindow? recoveredWindow = null;
+                if (presenter != null)
+                {
+                    try
+                    {
+                        recoveredWindow = GetPrivateField<UserDesktopWidgetWindow>(presenter, "_widgetWindow");
+                    }
+                    catch
+                    {
+                    }
+
+                    CloseWindow(recoveredWindow);
+                    SetPrivateField<Thread?>(presenter, "_widgetThread", null);
+                    SetPrivateField<Dispatcher?>(presenter, "_widgetDispatcher", null);
+                    SetPrivateField<UserDesktopWidgetWindow?>(presenter, "_widgetWindow", null);
+                    presenter.Dispose();
+                }
+
+                if (foreignThreadWindow != null && widgetOwnerThread is { IsAlive: true })
+                {
+                    try
+                    {
+                        foreignThreadWindow.Dispatcher.Invoke(() =>
+                        {
+                            if (!foreignThreadWindow.IsClosingOrClosed)
+                            {
+                                foreignThreadWindow.AllowCloseForShutdown();
+                            }
+
+                            if (foreignThreadWindow.IsLoaded)
+                            {
+                                foreignThreadWindow.Close();
+                            }
+
+                            Dispatcher.CurrentDispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
+                        });
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                if (widgetOwnerThread is { IsAlive: true })
+                {
+                    Assert.True(widgetOwnerThread.Join(TimeSpan.FromSeconds(5)), "Timed out waiting for foreign widget owner thread shutdown.");
+                }
+
                 Directory.Delete(tempDirectory, recursive: true);
             }
         });
