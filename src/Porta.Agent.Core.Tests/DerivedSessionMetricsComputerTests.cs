@@ -559,6 +559,84 @@ public sealed class DerivedSessionMetricsComputerTests
     }
 
     [Fact]
+    public void ComputeForFinalizedBucket_ContextExcursionPastThreshold_NoInteraction_StaysContextExcursion()
+    {
+        // Proves the interaction gate: extended context switch does NOT become off_task_distraction
+        // when the user has no keyboard or mouse activity (passive display / screen share).
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 120d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityContextSwitchSeconds: 120d); // well past the 90 s off-task threshold
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            DominantAppHash = "app_hash_other",
+            KeyboardIkiMean = 0d,
+            KeyboardIkiCv = 0d,
+            KeyboardBurstRate = 0d,
+            KeyboardBackspaceRate = 0d,
+            ScrollVelocityIndex = 0d,
+            MouseSpeedMean = 0d,
+            MouseJerkP95 = 0d,
+            MouseScrollSpeed = 0d,
+            MouseMicroCorrectionRate = 0d
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.Equal("context_excursion", result.AttentionSegmentKind);
+        Assert.False(result.DistractionEpisodeActive);
+        Assert.Equal(0d, result.DistractionEpisodeSeconds);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_InstabilityWithLowChurnSignals_DoesNotClassifyFragmentation()
+    {
+        // Proves the chaotic-churn gate: moderate instability (below FocusSwitchesSpikeMin,
+        // EntropySpikeMin, and FragmentationHighAppCountMin) stays "focus", not
+        // "fragmentation_distraction", even when instability seconds exceed the reset threshold.
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 120d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityInstabilitySeconds: 150d); // past FragmentationDistractionStartSeconds (120 s)
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            FocusSwitchCount = 3,     // below FocusSwitchesSpikeMin (5) — moderate only
+            FocusAppEntropy = 1.9d,   // below EntropySpikeMin (2.50) — moderate only
+            FocusActiveAppCount = 2d  // below FragmentationHighAppCountMin (4)
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.NotEqual("fragmentation_distraction", result.AttentionSegmentKind);
+        Assert.False(result.DistractionEpisodeActive);
+        Assert.Equal(0d, result.DistractionEpisodeSeconds);
+    }
+
+    [Fact]
     public void Acceptance_PassiveViewingBuckets_DoNotAccumulateFocusContinuity()
     {
         using var connection = OpenInMemoryDb();
