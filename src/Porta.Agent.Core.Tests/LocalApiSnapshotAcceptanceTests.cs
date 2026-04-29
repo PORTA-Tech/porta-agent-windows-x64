@@ -61,12 +61,12 @@ public sealed class LocalApiSnapshotAcceptanceTests
         Assert.InRange((dto.I ?? 0d) - 0.6d, -0.000001d, 0.000001d);
         Assert.InRange((dto.V ?? 0d) - 0.3d, -0.000001d, 0.000001d);
         Assert.InRange(dto.behavior_continuity_score - 0.72d, -0.000001d, 0.000001d);
-        Assert.InRange(dto.focus_episode_quality - 0.72d, -0.000001d, 0.000001d);
+        Assert.InRange(dto.focus_episode_quality - 0.81d, -0.000001d, 0.000001d);
         Assert.InRange(dto.focus_episode_seconds - 1810d, -0.000001d, 0.000001d);
         Assert.Equal("keep", dto.focus_episode_state);
         Assert.InRange((dto.signal_quality_score ?? 0d) - 0.90d, -0.000001d, 0.000001d);
         Assert.InRange(dto.model_confidence - 0.91d, -0.000001d, 0.000001d);
-        Assert.InRange(dto.current.focus_episode_quality - 0.72d, -0.000001d, 0.000001d);
+        Assert.InRange(dto.current.focus_episode_quality - 0.81d, -0.000001d, 0.000001d);
         Assert.InRange(dto.current.focus_episode_seconds - 1810d, -0.000001d, 0.000001d);
         Assert.Equal("keep", dto.current.focus_episode_state);
         Assert.Equal("stretch_break_suggestion", dto.break_pending_action);

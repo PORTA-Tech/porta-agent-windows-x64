@@ -15,7 +15,8 @@ public sealed class LocalCurrentExperienceStateAdapterTests
             BuildSnapshot(
                 sustainedAttentionSeconds: 10d,
                 focusEpisodeSeconds: 600d,
-                analyzedStateAvailable: false),
+                analyzedStateAvailable: false,
+                timestampUtc: nowUtc),
             BuildLiveSession(nowUtc, nowUtc.AddMinutes(-4)),
             recentEvents: [],
             nowUtc: nowUtc);
@@ -174,10 +175,11 @@ public sealed class LocalCurrentExperienceStateAdapterTests
         string? stateFlagsJson = null,
         bool deepWorkActive = false,
         bool partialData = false,
-        IReadOnlyList<string>? missingMajorChannels = null)
+        IReadOnlyList<string>? missingMajorChannels = null,
+        DateTimeOffset? timestampUtc = null)
     {
         return new LocalApiCurrentSnapshotResponse(
-            TimestampUtc: DateTimeOffset.Parse("2026-04-04T10:00:00Z"),
+            TimestampUtc: timestampUtc ?? DateTimeOffset.Parse("2026-04-04T10:00:00Z"),
             TypingBurstIntensity: 0.2d,
             ScrollVelocityIndex: 0.1d,
             FocusSwitchRate: 0.1d,

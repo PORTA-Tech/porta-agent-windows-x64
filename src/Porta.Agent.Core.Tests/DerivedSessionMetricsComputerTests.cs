@@ -1062,6 +1062,180 @@ public sealed class DerivedSessionMetricsComputerTests
         cmd.ExecuteNonQuery();
     }
 
+    [Fact]
+    public void FocusEpisode_SurvivesContextSwitch_Within60sGrace()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 120d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityContextSwitchSeconds: 45d,
+            continuityState: "pause",
+            continuityScore: 1d);
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            DominantAppHash = "app_hash_other"
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.Equal(120d, result.TaskContinuitySeconds, precision: 6);
+        Assert.NotEqual("reset", result.ContinuityState);
+        Assert.Equal("context_excursion", result.SaFreezeReason);
+    }
+
+    [Fact]
+    public void FocusEpisode_Resets_AfterMajorContextShift_360s()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 300d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityContextSwitchSeconds: 360d,
+            continuityState: "decay",
+            continuityScore: 0.35d);
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            DominantAppHash = "app_hash_other"
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.Equal(0d, result.TaskContinuitySeconds, precision: 6);
+        Assert.Equal("reset", result.ContinuityState);
+        Assert.Equal("major_context_shift", result.FocusEpisodeReasonCode);
+    }
+
+    [Fact]
+    public void FocusEpisode_ContinuesDuringPassiveFocus_At15sAccumulatedIdle()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 60d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityIdlePauseSeconds: 14d,
+            continuityState: "keep",
+            continuityScore: 1d);
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            IdleSeconds = 3d,
+            KeyboardIkiMean = 0d,
+            KeyboardIkiCv = 0d,
+            KeyboardBurstRate = 0d,
+            KeyboardBackspaceRate = 0d,
+            ScrollVelocityIndex = 0d,
+            MouseSpeedMean = 0d,
+            MouseJerkP95 = 0d,
+            MouseScrollSpeed = 0d,
+            MouseMicroCorrectionRate = 0d
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.True(result.TaskContinuitySeconds >= 60d);
+        Assert.Equal("keep", result.ContinuityState);
+        Assert.Equal("passive_focus", result.SaFreezeReason);
+    }
+
+    [Fact]
+    public void FocusEpisode_Pauses_NotResets_UnderShortInstability_120s()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 120d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityState: "keep",
+            continuityScore: 1d,
+            continuityInstabilitySeconds: 120d);
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            FocusSwitchCount = 5
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.True(result.TaskContinuitySeconds > 0d);
+        Assert.NotEqual("reset", result.ContinuityState);
+        Assert.Equal("focus_instability", result.SaFreezeReason);
+    }
+
+    [Fact]
+    public void FocusEpisode_Resets_AfterSustainedInstability_200s()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 120d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityState: "decay",
+            continuityScore: 0.35d,
+            continuityInstabilitySeconds: 200d);
+
+        InputBucketRow row = BuildStableRow() with
+        {
+            FocusSwitchCount = 5
+        };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection,
+            tx,
+            row,
+            BuildPrimitive(focusAvailable: true),
+            BaselineGatingResult.Warm);
+
+        Assert.Equal(0d, result.TaskContinuitySeconds, precision: 6);
+        Assert.Equal("reset", result.ContinuityState);
+        Assert.Equal("instability_reset", result.FocusEpisodeReasonCode);
+    }
+
     private static void PersistResultAsRuntimeState(
         SqliteConnection connection,
         SqliteTransaction tx,

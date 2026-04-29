@@ -179,7 +179,7 @@ internal static class SnapshotMapper
             status?.RuntimeStateRefreshError,
             AnalyzedStateAvailable: latestState is not null,
             ModelSource: latestState is not null ? "analyzed_state" : "brain_fallback",
-            FocusEpisodeQuality: taskContinuityScore,
+            FocusEpisodeQuality: continuityConfidence,
             FocusEpisodeSeconds: taskContinuitySeconds,
             FocusEpisodeState: continuityState,
             AttentionSegmentKind: attentionSegmentKind,

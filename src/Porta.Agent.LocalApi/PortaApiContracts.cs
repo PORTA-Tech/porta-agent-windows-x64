@@ -516,6 +516,7 @@ public sealed record LocalApiLiveSessionStateResponse(
     public string? degraded_reason => DegradedReason;
     public double? session_elapsed_seconds => ComputeAgeSecondsFrom(SessionStartedAtUtc);
     public double? last_input_age_seconds => ComputeAgeSecondsFrom(LastInputEventUtc);
+    // Deprecated: live-first timer bound to FocusStartedAtUtc (foreground-app session). Use FocusEpisodeSeconds from the snapshot instead.
     public double? focus_elapsed_seconds => ComputeAgeSecondsFrom(FocusStartedAtUtc);
     public LocalApiFreshnessView freshness => new(
         generated_at_utc: updated_at_utc,

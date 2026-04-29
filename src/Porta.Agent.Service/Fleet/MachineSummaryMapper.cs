@@ -57,7 +57,9 @@ internal sealed class MachineSummaryMapper
         ArgumentNullException.ThrowIfNull(status);
         ArgumentNullException.ThrowIfNull(identityLink);
 
-        double focusEpisodeQuality = Math.Clamp(latestState?.TaskContinuityScore ?? 0d, 0d, 1d);
+        double focusEpisodeQuality = ResolveContinuityConfidence(
+            latestState?.StateFlagsJson,
+            latestState?.Confidence ?? 0d);
         double focusEpisodeSeconds = Math.Max(
             0d,
             latestState?.TaskContinuitySeconds
@@ -168,6 +170,11 @@ internal sealed class MachineSummaryMapper
     private static double ResolvePressureLevel(string? stateFlagsJson, double fallback)
     {
         return Math.Clamp(ReadDoubleFlag(stateFlagsJson, "pressure_level", fallback), 0d, 1d);
+    }
+
+    private static double ResolveContinuityConfidence(string? stateFlagsJson, double fallback)
+    {
+        return Math.Clamp(ReadDoubleFlag(stateFlagsJson, "continuity_confidence", fallback), 0d, 1d);
     }
 
     private static double ResolvePressureConfidence(string? stateFlagsJson, double fallback)

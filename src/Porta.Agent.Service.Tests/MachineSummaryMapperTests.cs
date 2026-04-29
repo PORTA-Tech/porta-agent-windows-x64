@@ -90,7 +90,7 @@ public sealed class MachineSummaryMapperTests
             IdleFragmentationIndex: 0.12,
             FocusAppEntropy: 0.22,
             OverloadActive: false,
-            StateFlagsJson: "{\"schema_ver\":1,\"attention_segment_kind\":\"fragmentation_distraction\",\"attention_segment_seconds\":300,\"distraction_episode_active\":1,\"distraction_episode_seconds\":300,\"pressure_level\":0.63,\"model_confidence\":0.92}",
+            StateFlagsJson: "{\"schema_ver\":1,\"attention_segment_kind\":\"fragmentation_distraction\",\"attention_segment_seconds\":300,\"distraction_episode_active\":1,\"distraction_episode_seconds\":300,\"pressure_level\":0.63,\"model_confidence\":0.92,\"continuity_confidence\":0.88}",
             ContributorsJson: "{\"schema_ver\":1}",
             CalibrationStage: "calibrated",
             TrustTier: "high",
