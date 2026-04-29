@@ -277,13 +277,15 @@ public static class LocalCurrentExperienceStateAdapter
             return 0d;
         }
 
-        DateTimeOffset latestKnownUtc = liveSession.UpdatedAtUtc ?? nowUtc;
-        if (latestKnownUtc <= snapshot.TimestampUtc)
+        // Use wall-clock time, not liveSession.UpdatedAtUtc, so the projection amount
+        // is decoupled from live session timing. The live session gates the projection
+        // (active / idle / fresh); the amount is snapshot staleness only.
+        if (nowUtc <= snapshot.TimestampUtc)
         {
             return 0d;
         }
 
-        double projectionSeconds = (latestKnownUtc - snapshot.TimestampUtc).TotalSeconds;
+        double projectionSeconds = (nowUtc - snapshot.TimestampUtc).TotalSeconds;
         return Math.Clamp(projectionSeconds, 0d, 90d);
     }
 
