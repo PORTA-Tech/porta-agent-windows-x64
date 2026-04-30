@@ -45,9 +45,10 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal(Visibility.Collapsed, messageCard.Visibility);
             Assert.Equal("Work", primaryMetricLabel.Text);
             Assert.Equal("5h 14m", primaryMetricValue.Text);
+            // "Today is updating normally." is filtered — nothing to show in the status rail.
             Assert.Equal(Visibility.Collapsed, summaryMetaPanel.Visibility);
-            Assert.True(window.Width <= 262d);
-            Assert.True(window.Height <= 52d);
+            Assert.True(window.Width <= 280d);
+            Assert.True(window.Height <= 50d);
         });
     }
 
@@ -62,8 +63,8 @@ public sealed class UserDesktopWidgetWindowTests
                 _ => { },
                 new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
 
-            Assert.True(window.Width <= 262d);
-            Assert.True(window.Height <= 36d);
+            Assert.True(window.Width <= 280d);
+            Assert.True(window.Height <= 32d);
         });
     }
 
@@ -158,7 +159,7 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal("Tracking limited", messageTitle.Text);
             Assert.Equal("Open System", primaryActionButton.Content);
             Assert.Equal(Visibility.Visible, primaryActionButton.Visibility);
-            Assert.True(window.Height >= 36d);
+            Assert.True(window.Height >= 28d);
         });
     }
 
@@ -190,11 +191,15 @@ public sealed class UserDesktopWidgetWindowTests
             Border messageCard = GetPrivateField<Border>(window, "_messageCard");
             TextBlock titleText = GetPrivateField<TextBlock>(window, "_titleText");
             StackPanel summaryMetaPanel = GetPrivateField<StackPanel>(window, "_summaryMetaPanel");
+            TextBlock summaryStatusText = GetPrivateField<TextBlock>(window, "_summaryStatusText");
 
+            // Metrics stay visible — routine limited is not a takeover.
             Assert.Equal(Visibility.Visible, metricsPanel.Visibility);
             Assert.Equal(Visibility.Collapsed, messageCard.Visibility);
             Assert.Equal("Limited", titleText.Text);
-            Assert.Equal(Visibility.Collapsed, summaryMetaPanel.Visibility);
+            // Status rail IS shown for non-routine status text (useful-first behavior).
+            Assert.Equal(Visibility.Visible, summaryMetaPanel.Visibility);
+            Assert.Equal("Limited: partial capture. Retrying full input.", summaryStatusText.Text);
         });
     }
 

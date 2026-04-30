@@ -19,10 +19,10 @@ internal sealed class UserDesktopWidgetWindow : Window
     private const int WindowLifecycleOpen = 0;
     private const int WindowLifecycleClosing = 1;
     private const int WindowLifecycleClosed = 2;
-    private const double ExpandedWidth = 262d;
-    private const double CollapsedWidth = 28d;
-    private const double BaseHeight = 36d;
-    private const double CollapsedHeight = 28d;
+    private const double ExpandedWidth = 280d;
+    private const double CollapsedWidth = 24d;
+    private const double BaseHeight = 30d;
+    private const double CollapsedHeight = 24d;
     private const double TopMargin = 16d;
     private const double RightMargin = 16d;
     private static readonly TimeSpan TransitionDuration = TimeSpan.FromMilliseconds(160);
@@ -311,7 +311,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _primaryMetricChip = CreateMetricChip(out _primaryMetricLabelText, out _primaryMetricText);
         _secondaryMetricChip = CreateMetricChip(out _secondaryMetricLabelText, out _secondaryMetricText);
         _tertiaryMetricChip = CreateMetricChip(out _tertiaryMetricLabelText, out _tertiaryMetricText);
-        _secondaryMetricChip.Margin = new Thickness(5, 0, 5, 0);
+        _secondaryMetricChip.Margin = new Thickness(4, 0, 4, 0);
         _tertiaryMetricChip.Margin = new Thickness(0);
         _metricsPanel.Children.Add(_primaryMetricChip);
         _metricsPanel.Children.Add(_secondaryMetricChip);
@@ -324,18 +324,18 @@ internal sealed class UserDesktopWidgetWindow : Window
         };
         _summaryStatusText = new TextBlock
         {
-            Foreground = new SolidColorBrush(Color.FromRgb(207, 216, 225)),
-            FontSize = 8.2,
+            Foreground = new SolidColorBrush(Color.FromRgb(180, 193, 208)),
+            FontSize = 7.8,
             TextWrapping = TextWrapping.Wrap,
-            MaxWidth = ExpandedWidth - 18d
+            MaxWidth = ExpandedWidth - 14d
         };
         _summaryFooterText = new TextBlock
         {
-            Foreground = new SolidColorBrush(Color.FromRgb(143, 158, 174)),
-            FontSize = 7.4,
+            Foreground = new SolidColorBrush(Color.FromRgb(130, 146, 163)),
+            FontSize = 7.2,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 2, 0, 0),
-            MaxWidth = ExpandedWidth - 18d
+            Margin = new Thickness(0, 1, 0, 0),
+            MaxWidth = ExpandedWidth - 14d
         };
         _summaryMetaPanel.Children.Add(_summaryStatusText);
         _summaryMetaPanel.Children.Add(_summaryFooterText);
@@ -511,7 +511,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _resumeButton.IsEnabled = state.CanResume;
         UpdateStateTakeover(state);
         RefreshInlineMessage();
-        ApplyModeChrome(state.Mode);
+        ApplyModeChrome(state.Mode, state.ShowLimitedBadge);
         UpdateWindowHeight();
     }
 
@@ -525,8 +525,12 @@ internal sealed class UserDesktopWidgetWindow : Window
         _attentionMessage = new WidgetAttentionMessage(
             Title: NormalizeCardTitle(title, fallback: string.Empty),
             Message: string.IsNullOrWhiteSpace(message) ? "There is an update." : message.Trim());
-        RefreshInlineMessage();
+        // Expand first so the window is visible, then render and measure.
+        // If already expanded, Expand() returns early — UpdateWindowHeight must
+        // be called unconditionally so the window grows to fit the message content.
         Expand();
+        RefreshInlineMessage();
+        UpdateWindowHeight();
         _attentionTimer.Stop();
         _attentionTimer.Start();
     }
@@ -579,10 +583,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
 
         _hiddenByUser = false;
-        Show();
-        ApplyAnchorPosition();
-        UpdateWindowHeight();
-        ResetAutoCollapseAfterReveal();
+        // EnsureVisibleForRecovery handles Show, Expand (if collapsed), position,
+        // height, and topmost — calling UpdateWindowHeight/ApplyAnchorPosition here
+        // first would start a competing collapsed-height animation before Expand runs.
         EnsureVisibleForRecovery();
     }
 
@@ -685,11 +688,11 @@ internal sealed class UserDesktopWidgetWindow : Window
         valueTextBlock = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(236, 241, 246)),
-            FontSize = 16.8,
+            FontSize = 13.8,
             FontWeight = FontWeights.Bold,
             VerticalAlignment = VerticalAlignment.Center,
             TextWrapping = TextWrapping.NoWrap,
-            MaxWidth = 40d
+            MaxWidth = 54d
         };
 
         DockPanel contentPanel = new()
@@ -702,7 +705,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         return new Border
         {
-            Width = 72d,
+            Width = 78d,
             Background = Brushes.Transparent,
             BorderBrush = Brushes.Transparent,
             BorderThickness = new Thickness(0),
@@ -1026,6 +1029,12 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void AnimateWindowHeight(double targetHeight)
     {
+        double current = ActualHeight > 0d ? ActualHeight : Height;
+        if (Math.Abs(targetHeight - current) < 0.5d)
+        {
+            return;
+        }
+
         BeginAnimation(HeightProperty, new DoubleAnimation(targetHeight, TransitionDuration)
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
@@ -1121,8 +1130,11 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
-        _rootBorder.Measure(new Size(ExpandedWidth, double.PositiveInfinity));
-        double targetHeight = Math.Max(BaseHeight, _rootBorder.DesiredSize.Height);
+        // Measure against the logical expanded width with a generous but finite cap
+        // so TextWrapping elements never force an arbitrarily tall window.
+        _rootBorder.Measure(new Size(ExpandedWidth, 480d));
+        double measured = _rootBorder.DesiredSize.Height;
+        double targetHeight = Math.Ceiling(Math.Max(BaseHeight, measured));
         AnimateWindowHeight(targetHeight);
     }
 
@@ -1296,7 +1308,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         return new Point(x, y);
     }
 
-    private void ApplyModeChrome(UserDesktopWidgetMode mode)
+    private void ApplyModeChrome(UserDesktopWidgetMode mode, bool showLimitedBadge = false)
     {
         Color accent = mode switch
         {
@@ -1304,7 +1316,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             UserDesktopWidgetMode.Overload => Color.FromRgb(114, 77, 32),
             UserDesktopWidgetMode.Limited => Color.FromRgb(90, 74, 40),
             UserDesktopWidgetMode.Paused => Color.FromRgb(70, 76, 88),
-            _ => Color.FromRgb(28, 35, 43)
+            _ => showLimitedBadge ? Color.FromRgb(34, 32, 28) : Color.FromRgb(28, 35, 43)
         };
         Color border = mode switch
         {
@@ -1312,7 +1324,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             UserDesktopWidgetMode.Overload => Color.FromRgb(134, 97, 43),
             UserDesktopWidgetMode.Limited => Color.FromRgb(120, 97, 57),
             UserDesktopWidgetMode.Paused => Color.FromRgb(92, 101, 116),
-            _ => Color.FromRgb(38, 47, 59)
+            _ => showLimitedBadge ? Color.FromRgb(78, 68, 48) : Color.FromRgb(38, 47, 59)
         };
         Color badgeForeground = mode switch
         {
@@ -1320,7 +1332,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             UserDesktopWidgetMode.Overload => Color.FromRgb(248, 227, 190),
             UserDesktopWidgetMode.Limited => Color.FromRgb(244, 233, 190),
             UserDesktopWidgetMode.Paused => Color.FromRgb(228, 233, 240),
-            _ => Color.FromRgb(154, 170, 187)
+            _ => showLimitedBadge ? Color.FromRgb(210, 195, 160) : Color.FromRgb(154, 170, 187)
         };
 
         _menuButton.Background = new SolidColorBrush(accent);
@@ -1417,17 +1429,47 @@ internal sealed class UserDesktopWidgetWindow : Window
     {
         UpdateHeaderCaption(_currentState);
         _metricsPanel.Visibility = Visibility.Visible;
-        _summaryStatusText.Text = string.Empty;
+
+        // Show status text when it carries information beyond "everything is normal".
+        // The footer (confidence / quality) is intentionally hidden here to keep the
+        // resting widget compact; it is available in the ControlCenter Today panel.
+        string statusText = ResolveWidgetStatusText(_currentState?.StatusText, _currentState?.ShowLimitedBadge == true);
+        _summaryStatusText.Text = statusText;
+        _summaryStatusText.Visibility = string.IsNullOrWhiteSpace(statusText)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         _summaryFooterText.Text = string.Empty;
-        _summaryStatusText.Visibility = Visibility.Collapsed;
         _summaryFooterText.Visibility = Visibility.Collapsed;
-        _summaryMetaPanel.Visibility = Visibility.Collapsed;
+        _summaryMetaPanel.Visibility = string.IsNullOrWhiteSpace(statusText)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
         _messageCard.Visibility = Visibility.Collapsed;
         _messageTitleText.Text = string.Empty;
         _messageBodyText.Text = string.Empty;
         _messageFooterText.Text = string.Empty;
         _messageActionsPanel.Visibility = Visibility.Collapsed;
         _messageSuppressButton.Visibility = Visibility.Collapsed;
+    }
+
+    private static string ResolveWidgetStatusText(string? raw, bool showLimitedBadge)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        string trimmed = raw.Trim();
+        // These are "everything is normal" messages — no value in showing them in the
+        // compact widget strip; the metrics already communicate the state.
+        return trimmed switch
+        {
+            "Today is updating normally." => string.Empty,
+            "Today is updating normally" => string.Empty,
+            "Overload is elevated." => string.Empty,
+            "Deep work is active." => string.Empty,
+            _ => trimmed
+        };
     }
 
     private void UpdateHeaderCaption(UserDesktopWidgetState? state)
@@ -1440,6 +1482,12 @@ internal sealed class UserDesktopWidgetWindow : Window
             UserDesktopWidgetMode.Paused => "Paused",
             _ => string.Empty
         };
+
+        // Routine-degraded states keep Monitoring mode but show a subtle badge.
+        if (string.IsNullOrEmpty(caption) && state?.ShowLimitedBadge == true)
+        {
+            caption = "Limited";
+        }
 
         _titleText.Text = caption;
         _titleText.Visibility = string.IsNullOrWhiteSpace(caption)
