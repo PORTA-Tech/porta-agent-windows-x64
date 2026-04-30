@@ -91,7 +91,7 @@ public sealed class BreakSuggestionPolicyTests
             });
 
         Assert.True(decision.ShouldEmit);
-        Assert.Equal("stretch_break_suggestion", decision.Action);
+        Assert.Equal("short_break", decision.Action);
         Assert.Equal("short_break", decision.BreakKind);
         Assert.Equal("preconditions_met", decision.ReasonCode);
         Assert.Equal(1, cooldownReads);
@@ -114,7 +114,7 @@ public sealed class BreakSuggestionPolicyTests
             resolveCooldown: () => new BreakPolicyCooldownSnapshot(true, 0, 0));
 
         Assert.True(decision.ShouldEmit);
-        Assert.Equal("break_suggestion", decision.Action);
+        Assert.Equal("long_break", decision.Action);
         Assert.Equal("long_break", decision.BreakKind);
         Assert.True(decision.HighPressure);
         Assert.Equal("typing_quiet", decision.DeliveryBoundaryKind);
@@ -167,7 +167,7 @@ public sealed class BreakSuggestionPolicyTests
         Assert.False(withoutOverride.ShouldEmit);
         Assert.Equal("effective_focus_below_min", withoutOverride.ReasonCode);
         Assert.True(withOverride.ShouldEmit);
-        Assert.Equal("stretch_break_suggestion", withOverride.Action);
+        Assert.Equal("short_break", withOverride.Action);
         Assert.Equal("short_break", withOverride.BreakKind);
         Assert.Equal(3600, withOverride.EffectiveFocusWindowSeconds);
     }
@@ -193,7 +193,7 @@ public sealed class BreakSuggestionPolicyTests
 
         Assert.False(decision.ShouldEmit);
         Assert.Equal("awaiting_delivery_boundary", decision.ReasonCode);
-        Assert.Equal("stretch_break_suggestion", decision.Action);
+        Assert.Equal("short_break", decision.Action);
         Assert.Equal(0, cooldownReads);
     }
 
@@ -360,7 +360,7 @@ public sealed class BreakSuggestionPolicyTests
         OverloadStabilizationResult stabilization = BuildStabilization(overloadActive: true);
         BreakSuggestionDecision decision = new(
             ShouldEmit: true,
-            Action: "break_suggestion",
+            Action: "long_break",
             BreakKind: "long_break",
             ReasonCode: "preconditions_met",
             CooldownChecked: true,
@@ -382,7 +382,7 @@ public sealed class BreakSuggestionPolicyTests
         JsonElement root = doc.RootElement;
 
         Assert.Equal(1, root.GetProperty("schema_ver").GetInt32());
-        Assert.Equal("break_suggestion:local-default", root.GetProperty("policy").GetString());
+        Assert.Equal("break_suggestion:local-default", root.GetProperty("policy").GetString()); // policy key is stable for historical compat
         JsonElement reasons = root.GetProperty("reasons");
         Assert.True(reasons.GetProperty("suggestions_enabled").GetBoolean());
         Assert.True(reasons.GetProperty("overload_active").GetBoolean());
@@ -391,7 +391,7 @@ public sealed class BreakSuggestionPolicyTests
         Assert.Equal(3725d, reasons.GetProperty("task_continuity_s").GetDouble(), precision: 6);
         Assert.Equal(3250d, reasons.GetProperty("effective_focus_s").GetDouble(), precision: 6);
         Assert.Equal(PortaExecutionConstants.BreakPolicy.LongBreakWindowSeconds, reasons.GetProperty("effective_focus_window_s").GetInt32());
-        Assert.Equal("break_suggestion", reasons.GetProperty("action").GetString());
+        Assert.Equal("long_break", reasons.GetProperty("action").GetString());
         Assert.Equal("long_break", reasons.GetProperty("break_kind").GetString());
         Assert.Equal("short_idle", reasons.GetProperty("delivery_boundary").GetString());
         Assert.True(reasons.GetProperty("cooldown_expired").GetBoolean());
@@ -421,7 +421,7 @@ public sealed class BreakSuggestionPolicyTests
         DerivedSessionMetricsResult session = BuildSession(saSeconds: 3900d);
         BreakSuggestionDecision decision = new(
             ShouldEmit: true,
-            Action: "break_suggestion",
+            Action: "long_break",
             BreakKind: "long_break",
             ReasonCode: "preconditions_met",
             CooldownChecked: true,
@@ -470,7 +470,7 @@ public sealed class BreakSuggestionPolicyTests
         Assert.Equal(1L, CountBreakEvents(connection));
 
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT ts_utc, idempotency_key, why_json, state_flags_json FROM events WHERE action = 'break_suggestion' LIMIT 1;";
+        cmd.CommandText = "SELECT ts_utc, idempotency_key, why_json, state_flags_json FROM events WHERE action = 'long_break' LIMIT 1;";
         using SqliteDataReader reader = cmd.ExecuteReader();
         Assert.True(reader.Read());
         Assert.Equal(Time.toIsoUtcMsString(Time.bucketStartEnd(bucketA.BucketSeq).endUtcMs), reader.GetString(0));
@@ -791,7 +791,7 @@ public sealed class BreakSuggestionPolicyTests
     private static long CountBreakEvents(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM events WHERE action = 'break_suggestion';";
+        cmd.CommandText = "SELECT COUNT(*) FROM events WHERE action = 'long_break';";
         return (long)(cmd.ExecuteScalar() ?? 0L);
     }
 }

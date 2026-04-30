@@ -209,7 +209,7 @@ public sealed class Phase10RolloutAuditTests
                 && CalibrationTruth.AllowsSuggestionsForTrust(trustTier)
                 && !CalibrationTruth.AllowsAutomaticActionsForTrust(trustTier)
                 && decision.ShouldEmit
-                && string.Equals(decision.Action, "stretch_break_suggestion", StringComparison.Ordinal);
+                && string.Equals(decision.Action, "short_break", StringComparison.Ordinal);
             report.AddCheck(
                 gateName: "current_vs_v2",
                 scenarioName: "medium_trust_suggestion_only",

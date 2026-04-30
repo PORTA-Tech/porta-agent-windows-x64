@@ -96,19 +96,19 @@ internal static class BreakSuggestionPolicy
         string breakKind;
         int windowSeconds;
         double effectiveFocusSeconds;
-        // Step 12 migration map:
-        // break_suggestion and stretch_break_suggestion are legacy transport IDs.
-        // Product-facing naming is moving to long break and short break.
+        // Canonical action IDs are now long_break and short_break.
+        // stretch_break_suggestion and break_suggestion are legacy transport IDs kept
+        // only for normalising historical events; new events never emit them.
         if (Math.Max(0d, focusWindow.LongBreakWindowEffectiveFocusSeconds) >= longBreakThresholdSeconds)
         {
-            action = PortaBreakSemantics.LongBreakAction;
+            action = PortaBreakSemantics.LongBreakKind;
             breakKind = PortaBreakSemantics.LongBreakKind;
             windowSeconds = settings.LongBreakWindowSeconds;
             effectiveFocusSeconds = Math.Max(0d, focusWindow.LongBreakWindowEffectiveFocusSeconds);
         }
         else if (Math.Max(0d, focusWindow.ShortBreakWindowEffectiveFocusSeconds) >= shortBreakThresholdSeconds)
         {
-            action = PortaBreakSemantics.ShortBreakAction;
+            action = PortaBreakSemantics.ShortBreakKind;
             breakKind = PortaBreakSemantics.ShortBreakKind;
             windowSeconds = settings.ShortBreakWindowSeconds;
             effectiveFocusSeconds = Math.Max(0d, focusWindow.ShortBreakWindowEffectiveFocusSeconds);

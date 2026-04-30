@@ -1665,9 +1665,11 @@ public sealed class AgentCoreController : IAgentCoreController
 
         return action switch
         {
-            "break_suggestion" => "Long break suggestion was presented to the user.",
+            PortaBreakSemantics.LongBreakKind or PortaBreakSemantics.LegacyLongBreakAction
+                => "Long break suggestion was presented to the user.",
             "focus_lock_in_suggestion" => "Focus lock-in suggestion was presented in the user interface.",
-            "stretch_break_suggestion" => "Short break suggestion was presented to the user.",
+            PortaBreakSemantics.ShortBreakKind or PortaBreakSemantics.LegacyShortBreakAction
+                => "Short break suggestion was presented to the user.",
             "deep_work_notifications_suppressed" => "Notification suppression was requested for deep work protection.",
             "deep_work_notifications_restored" => "Notification restoration was requested after deep work ended.",
             "inform_overload_risk" => "Overload risk was logged (inform-only).",
@@ -1686,7 +1688,11 @@ public sealed class AgentCoreController : IAgentCoreController
 
         return action switch
         {
-            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion"
+            PortaBreakSemantics.LongBreakKind
+                or PortaBreakSemantics.ShortBreakKind
+                or PortaBreakSemantics.LegacyLongBreakAction
+                or PortaBreakSemantics.LegacyShortBreakAction
+                or "focus_lock_in_suggestion"
                 => "Dismiss the suggestion overlay or let it auto-expire.",
             "inform_overload_risk" or "inform_focus_protection" or "inform_fatigue_prevention"
                 => "No undo needed. Inform-only event.",
@@ -1741,20 +1747,22 @@ public sealed class AgentCoreController : IAgentCoreController
     private static string NormalizeTestAction(string action)
     {
         string normalized = action.Trim().ToLowerInvariant();
-        return normalized switch
+        // Normalize legacy break action IDs to canonical names.
+        string canonical = PortaBreakSemantics.ResolveBreakKind(normalized) ?? normalized;
+        return canonical switch
         {
-            "inform_overload_risk" => normalized,
-            "inform_focus_protection" => normalized,
-            "inform_fatigue_prevention" => normalized,
-            "break_suggestion" => normalized,
-            "focus_lock_in_suggestion" => normalized,
-            "stretch_break_suggestion" => normalized,
-            "deep_work_notifications_suppressed" => normalized,
-            "deep_work_notifications_restored" => normalized,
-            "focus_mode_enabled" => normalized,
-            "focus_assist_enabled" => normalized,
-            "fatigue_relief_enabled" => normalized,
-            "temporary_app_restriction_enabled" => normalized,
+            "inform_overload_risk" => canonical,
+            "inform_focus_protection" => canonical,
+            "inform_fatigue_prevention" => canonical,
+            PortaBreakSemantics.LongBreakKind => canonical,
+            PortaBreakSemantics.ShortBreakKind => canonical,
+            "focus_lock_in_suggestion" => canonical,
+            "deep_work_notifications_suppressed" => canonical,
+            "deep_work_notifications_restored" => canonical,
+            "focus_mode_enabled" => canonical,
+            "focus_assist_enabled" => canonical,
+            "fatigue_relief_enabled" => canonical,
+            "temporary_app_restriction_enabled" => canonical,
             _ => throw new InvalidOperationException("unsupported_test_action")
         };
     }
@@ -1768,9 +1776,11 @@ public sealed class AgentCoreController : IAgentCoreController
             "focus_mode_enabled" => ("overload", 0.86, "Nudge", true, 600),
             "focus_assist_enabled" => ("focus", 0.86, "Nudge", true, 600),
             "fatigue_relief_enabled" => ("fatigue", 0.86, "Nudge", true, 600),
-            "break_suggestion" => ("fatigue", 0.82, "Suggest", false, 300),
+            PortaBreakSemantics.LongBreakKind or PortaBreakSemantics.LegacyLongBreakAction
+                => ("fatigue", 0.82, "Suggest", false, 300),
             "focus_lock_in_suggestion" => ("focus", 0.83, "Suggest", false, 300),
-            "stretch_break_suggestion" => ("fatigue", 0.84, "Suggest", false, 300),
+            PortaBreakSemantics.ShortBreakKind or PortaBreakSemantics.LegacyShortBreakAction
+                => ("fatigue", 0.84, "Suggest", false, 300),
             "deep_work_notifications_suppressed" => ("focus", 0.88, "Nudge", true, 600),
             "deep_work_notifications_restored" => ("focus", 0.74, "Inform", true, 600),
             "inform_overload_risk" => ("overload", 0.72, "Inform", false, 60),
@@ -1784,11 +1794,13 @@ public sealed class AgentCoreController : IAgentCoreController
     {
         return action switch
         {
-            "break_suggestion" => "fatigue-prevention-v1",
+            PortaBreakSemantics.LongBreakKind or PortaBreakSemantics.LegacyLongBreakAction
+                => "fatigue-prevention-v1",
             "focus_lock_in_suggestion" => "focus-protection-v1",
             "focus_assist_enabled" => "focus-protection-v1",
             "inform_focus_protection" => "focus-protection-v1",
-            "stretch_break_suggestion" => "fatigue-prevention-v1",
+            PortaBreakSemantics.ShortBreakKind or PortaBreakSemantics.LegacyShortBreakAction
+                => "fatigue-prevention-v1",
             "fatigue_relief_enabled" => "fatigue-prevention-v1",
             "inform_fatigue_prevention" => "fatigue-prevention-v1",
             "deep_work_notifications_suppressed" => "deep_work_notifications:local-default",
@@ -1804,11 +1816,11 @@ public sealed class AgentCoreController : IAgentCoreController
     {
         return action switch
         {
-            "break_suggestion" => "fatigue",
+            PortaBreakSemantics.LongBreakKind or PortaBreakSemantics.LegacyLongBreakAction => "fatigue",
             "focus_lock_in_suggestion" => "focus",
             "focus_assist_enabled" => "focus",
             "inform_focus_protection" => "focus",
-            "stretch_break_suggestion" => "fatigue",
+            PortaBreakSemantics.ShortBreakKind or PortaBreakSemantics.LegacyShortBreakAction => "fatigue",
             "fatigue_relief_enabled" => "fatigue",
             "inform_fatigue_prevention" => "fatigue",
             "deep_work_notifications_suppressed" => "focus",
@@ -1835,16 +1847,16 @@ public sealed class AgentCoreController : IAgentCoreController
             "focus_lock_in_suggestion" => 0.33,
             "inform_focus_protection" => 0.30,
             "fatigue_relief_enabled" => 0.34,
-            "stretch_break_suggestion" => 0.36,
+            PortaBreakSemantics.ShortBreakKind or PortaBreakSemantics.LegacyShortBreakAction => 0.36,
             "inform_fatigue_prevention" => 0.40,
             _ => Math.Max(baseline.OverloadLikelihood, 0.45)
         };
 
         double fatigue = action switch
         {
-            "break_suggestion" => 0.82,
+            PortaBreakSemantics.LongBreakKind or PortaBreakSemantics.LegacyLongBreakAction => 0.82,
             "fatigue_relief_enabled" => 0.88,
-            "stretch_break_suggestion" => 0.86,
+            PortaBreakSemantics.ShortBreakKind or PortaBreakSemantics.LegacyShortBreakAction => 0.86,
             "inform_fatigue_prevention" => 0.78,
             _ => Math.Max(baseline.FatigueProbability, 0.33)
         };
@@ -1857,9 +1869,9 @@ public sealed class AgentCoreController : IAgentCoreController
             "deep_work_notifications_suppressed" => 0.91,
             "deep_work_notifications_restored" => 0.82,
             "fatigue_relief_enabled" => 0.36,
-            "stretch_break_suggestion" => 0.34,
+            PortaBreakSemantics.ShortBreakKind or PortaBreakSemantics.LegacyShortBreakAction => 0.34,
             "inform_fatigue_prevention" => 0.40,
-            "break_suggestion" => 0.41,
+            PortaBreakSemantics.LongBreakKind or PortaBreakSemantics.LegacyLongBreakAction => 0.41,
             "temporary_app_restriction_enabled" => 0.38,
             _ => Math.Max(baseline.FocusStrength, 0.48)
         };

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Porta.Agent.Common;
 using Microsoft.Data.Sqlite;
 using Porta.Agent.Core.Tests.Harness;
 
@@ -734,8 +735,7 @@ public sealed class Step20FinalAcceptanceGatesTests
 
     private static bool IsBreakFamilyAction(string action)
     {
-        return string.Equals(action, "break_suggestion", StringComparison.Ordinal)
-            || string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal);
+        return PortaBreakSemantics.IsBreakSuggestionAction(action);
     }
 
     private static void SeedBreakContinuityHistory(

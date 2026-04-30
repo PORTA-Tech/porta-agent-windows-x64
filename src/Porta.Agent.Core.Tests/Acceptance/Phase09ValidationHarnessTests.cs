@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Porta.Agent.Common;
 using Porta.Agent.Core.Tests.Harness;
 using Porta.Agent.Core.Analysis;
 
@@ -265,7 +266,7 @@ public sealed class Phase09ValidationHarnessTests
         Assert.True(CalibrationTruth.AllowsSuggestionsForTrust(trustTier));
         Assert.False(CalibrationTruth.AllowsAutomaticActionsForTrust(trustTier));
         Assert.True(decision.ShouldEmit);
-        Assert.Equal("stretch_break_suggestion", decision.Action);
+        Assert.Equal("short_break", decision.Action);
     }
 
     [Fact]
@@ -412,8 +413,7 @@ public sealed class Phase09ValidationHarnessTests
 
     private static bool IsBreakFamilyAction(string action)
     {
-        return string.Equals(action, "break_suggestion", StringComparison.Ordinal)
-            || string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal);
+        return PortaBreakSemantics.IsBreakSuggestionAction(action);
     }
 
     private static string? ReadLatestBreakAction(DeterministicFinalizerScenarioRunner runner)

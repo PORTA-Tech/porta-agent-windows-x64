@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Porta.Agent.Common;
 
 namespace Porta.Agent.Core;
 
@@ -469,8 +470,7 @@ public sealed class DefaultRegulationStage : IRegulationStage
         return string.Equals(action, "focus_mode_enabled", StringComparison.Ordinal)
             || string.Equals(action, "focus_assist_enabled", StringComparison.Ordinal)
             || string.Equals(action, "fatigue_relief_enabled", StringComparison.Ordinal)
-            || string.Equals(action, "break_suggestion", StringComparison.Ordinal)
-            || string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal)
+            || PortaBreakSemantics.IsBreakSuggestionAction(action)
             || string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal)
             || string.Equals(action, "temporary_app_restriction_enabled", StringComparison.Ordinal)
             || string.Equals(action, "inform_overload_risk", StringComparison.Ordinal)
@@ -490,13 +490,13 @@ public sealed class DefaultRegulationStage : IRegulationStage
         // continuity, delivery boundaries, and cooldowns. The generic overload/fatigue
         // regulator should degrade to transparent guidance instead of emitting break toasts.
         if (domain == RegulationDomain.Overload
-            && string.Equals(action, "break_suggestion", StringComparison.Ordinal))
+            && string.Equals(PortaBreakSemantics.ResolveBreakKind(action), PortaBreakSemantics.LongBreakKind, StringComparison.Ordinal))
         {
             return "inform_overload_risk";
         }
 
         if (domain == RegulationDomain.Fatigue
-            && string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal))
+            && string.Equals(PortaBreakSemantics.ResolveBreakKind(action), PortaBreakSemantics.ShortBreakKind, StringComparison.Ordinal))
         {
             return "inform_fatigue_prevention";
         }
@@ -592,9 +592,11 @@ public sealed class DefaultRegulationStage : IRegulationStage
             "focus_mode_enabled" => 600,
             "focus_assist_enabled" => 600,
             "fatigue_relief_enabled" => 600,
-            "break_suggestion" => 300,
+            PortaBreakSemantics.LongBreakKind => 300,
+            PortaBreakSemantics.LegacyLongBreakAction => 300,
             "focus_lock_in_suggestion" => 300,
-            "stretch_break_suggestion" => 300,
+            PortaBreakSemantics.ShortBreakKind => 300,
+            PortaBreakSemantics.LegacyShortBreakAction => 300,
             "inform_overload_risk" => 60,
             "inform_focus_protection" => 60,
             "inform_fatigue_prevention" => 60,

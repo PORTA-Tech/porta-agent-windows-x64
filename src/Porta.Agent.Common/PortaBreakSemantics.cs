@@ -2,10 +2,14 @@ namespace Porta.Agent.Common;
 
 public static class PortaBreakSemantics
 {
+    // Canonical break kinds — used as both action ID and break kind in new events.
     public const string ShortBreakKind = "short_break";
     public const string LongBreakKind = "long_break";
-    public const string ShortBreakAction = "stretch_break_suggestion";
-    public const string LongBreakAction = "break_suggestion";
+    // Legacy transport IDs from before the taxonomy simplification.
+    // New events emit ShortBreakKind / LongBreakKind directly.
+    // These constants exist only for reading and normalising historical events.
+    public const string LegacyShortBreakAction = "stretch_break_suggestion";
+    public const string LegacyLongBreakAction = "break_suggestion";
 
     public static bool IsBreakSuggestionAction(string? action) =>
         ResolveBreakKind(action) is not null;
@@ -15,8 +19,8 @@ public static class PortaBreakSemantics
         string normalized = Normalize(actionOrKind);
         return normalized switch
         {
-            ShortBreakKind or ShortBreakAction => ShortBreakKind,
-            LongBreakKind or LongBreakAction => LongBreakKind,
+            ShortBreakKind or LegacyShortBreakAction => ShortBreakKind,
+            LongBreakKind or LegacyLongBreakAction => LongBreakKind,
             _ => null
         };
     }
@@ -41,12 +45,14 @@ public static class PortaBreakSemantics
         };
     }
 
+    // Returns the old transport ID for systems that have not yet migrated to
+    // reading canonical break kinds. Prefer ShortBreakKind / LongBreakKind directly.
     public static string? ResolveLegacyActionId(string? actionOrKind)
     {
         return ResolveBreakKind(actionOrKind) switch
         {
-            ShortBreakKind => ShortBreakAction,
-            LongBreakKind => LongBreakAction,
+            ShortBreakKind => LegacyShortBreakAction,
+            LongBreakKind => LegacyLongBreakAction,
             _ => null
         };
     }

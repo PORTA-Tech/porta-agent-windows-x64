@@ -3120,8 +3120,15 @@ public partial class MainWindow : Window
 
     private static string ToActionTitle(LocalApiEventResponse actionEvent)
     {
-        if (string.Equals(actionEvent.Type, "BREAK_SUGGESTION", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(actionEvent.Action, "BREAK_SUGGESTION", StringComparison.OrdinalIgnoreCase))
+        // Resolve canonical break kind first so both new (short_break / long_break)
+        // and legacy (stretch_break_suggestion / break_suggestion) show human labels.
+        string? breakKind = PortaBreakSemantics.ResolveBreakKind(actionEvent.Action);
+        if (breakKind != null)
+        {
+            return $"{PortaBreakSemantics.ResolveBreakLabel(breakKind)} suggested";
+        }
+
+        if (string.Equals(actionEvent.Type, "BREAK_SUGGESTION", StringComparison.OrdinalIgnoreCase))
         {
             return "Break suggested";
         }
@@ -3968,7 +3975,8 @@ public partial class MainWindow : Window
     private static ActionCategory ResolveActionCategory(LocalApiEventResponse ev)
     {
         string action = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
-        if (action.Contains("break", StringComparison.Ordinal))
+        if (PortaBreakSemantics.IsBreakSuggestionAction(action)
+            || action.Contains("break", StringComparison.Ordinal))
         {
             return ActionCategory.Breaks;
         }
@@ -4325,12 +4333,14 @@ public partial class MainWindow : Window
 
     private static string BuildSuggestionTitle(string? action)
     {
+        // Handles canonical (short_break / long_break) and legacy action IDs.
+        string? breakKind = PortaBreakSemantics.ResolveBreakKind(action);
+        if (breakKind == PortaBreakSemantics.LongBreakKind) return "Take a long break";
+        if (breakKind == PortaBreakSemantics.ShortBreakKind) return "Take a short break";
         string normalized = action?.Trim().ToLowerInvariant() ?? string.Empty;
         return normalized switch
         {
-            "break_suggestion" => "Take a long break",
             "focus_lock_in_suggestion" => "Lock in focus",
-            "stretch_break_suggestion" => "Take a short break",
             _ => HumanizeActionName(action)
         };
     }
