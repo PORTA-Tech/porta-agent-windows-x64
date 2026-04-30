@@ -47,7 +47,8 @@ public sealed class HistoryFocusHeatmapBuilderTests
         Assert.NotNull(firstCell);
         Assert.Equal(360d, firstCell!.FocusedSeconds, precision: 3);
         Assert.Equal(600d, firstCell.TrackedSeconds, precision: 3);
-        Assert.Equal(600d, firstCell.FocusEpisodeSeconds, precision: 3);
+        // Only snapshot 1 has an explicit focus episode; snapshot 2 is off-task distraction.
+        Assert.Equal(300d, firstCell.FocusEpisodeSeconds, precision: 3);
         Assert.Equal(300d, firstCell.DistractionEpisodeSeconds, precision: 3);
         Assert.Equal(60d, firstCell.AverageFocusPercent, precision: 3);
         Assert.Single(firstCell.Interventions);
@@ -102,7 +103,8 @@ public sealed class HistoryFocusHeatmapBuilderTests
 
         Assert.NotNull(cell);
         Assert.True(cell!.Episodes.Count >= 4);
-        Assert.Equal(1500d, cell.FocusEpisodeSeconds, precision: 3);
+        // Snapshots 1+2 have explicit focusEpisodeSeconds; distraction snapshots correctly excluded.
+        Assert.Equal(600d, cell.FocusEpisodeSeconds, precision: 3);
         Assert.Equal(900d, cell.DistractionEpisodeSeconds, precision: 3);
         Assert.Equal(300d, cell.AwayEpisodeSeconds, precision: 3);
         Assert.Equal(600d, cell.OverloadEpisodeSeconds, precision: 3);

@@ -351,18 +351,6 @@ internal static class HistoryTimelineEpisodeBuilder
     private static double ResolvePressureLevel(LocalApiCurrentSnapshotResponse snapshot) =>
         Math.Clamp(snapshot.PressureLevel ?? snapshot.OverloadLikelihood, 0d, 1d);
 
-    private static double ResolveFocusEpisodeSeconds(LocalApiCurrentSnapshotResponse snapshot)
-    {
-        if (snapshot.FocusEpisodeSeconds > 0d)
-        {
-            return snapshot.FocusEpisodeSeconds;
-        }
-
-        if (snapshot.TaskContinuitySeconds > 0d)
-        {
-            return snapshot.TaskContinuitySeconds;
-        }
-
-        return Math.Max(0d, snapshot.SustainedAttentionDurationSec);
-    }
+    private static double ResolveFocusEpisodeSeconds(LocalApiCurrentSnapshotResponse snapshot) =>
+        Math.Max(0d, snapshot.FocusEpisodeSeconds);
 }

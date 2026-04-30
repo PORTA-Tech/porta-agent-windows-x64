@@ -269,18 +269,6 @@ internal static class HistoryFocusHeatmapBuilder
     private static string BuildCellKey(DateTime localDate, int hour) =>
         $"{localDate:yyyy-MM-dd}|{hour:00}";
 
-    private static double ResolveFocusEpisodeSeconds(LocalApiCurrentSnapshotResponse snapshot)
-    {
-        if (snapshot.FocusEpisodeSeconds > 0d)
-        {
-            return snapshot.FocusEpisodeSeconds;
-        }
-
-        if (snapshot.TaskContinuitySeconds > 0d)
-        {
-            return snapshot.TaskContinuitySeconds;
-        }
-
-        return Math.Max(0d, snapshot.SustainedAttentionDurationSec);
-    }
+    private static double ResolveFocusEpisodeSeconds(LocalApiCurrentSnapshotResponse snapshot) =>
+        Math.Max(0d, snapshot.FocusEpisodeSeconds);
 }

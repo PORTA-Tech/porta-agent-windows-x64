@@ -6173,62 +6173,6 @@ public partial class MainWindow : Window
         };
     }
 
-    private void PopulateHistorySummary(
-        LocalApiTimelineResponse? timeline,
-        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots)
-    {
-        HistoryPageInsights insights = HistoryPageInsightsBuilder.Build(timeline);
-        if (!insights.HasTimeline || snapshots.Count == 0)
-        {
-            HistorySummaryLeadText.Text = BuildHistoryEmptyLeadSentence();
-            HistoryRangeSummaryText.Text = "Tracked time will appear here";
-            HistoryFocusSummaryText.Text = "Focused time will appear here";
-            HistoryOverloadSummaryText.Text = "Best hour will appear here";
-            HistoryTrustSummaryText.Text = "Actions will appear here";
-            HistoryActionsSummaryText.Text = _historyRange == HistoryRange.Today
-                ? "Keep working and action markers will start showing here."
-                : "Try a wider range or keep working and this view will stay pinned here as history arrives.";
-            HistoryGuideText.Text = _historyExplainMode
-                ? "Advanced is on. Open any hour to inspect the raw detail."
-                : "The hour map stays visible and fills as Ari tracks more time in this range.";
-            return;
-        }
-
-        if (timeline == null)
-        {
-            HistorySummaryLeadText.Text = BuildHistoryEmptyLeadSentence();
-            HistoryRangeSummaryText.Text = "Tracked time will appear here";
-            HistoryFocusSummaryText.Text = "Focused time will appear here";
-            HistoryOverloadSummaryText.Text = "Best hour will appear here";
-            HistoryTrustSummaryText.Text = "Actions will appear here";
-            HistoryActionsSummaryText.Text = "Action markers will appear here once this range has retained history.";
-            HistoryGuideText.Text = "History is waiting for timeline data for this range.";
-            return;
-        }
-
-        HistorySummaryLeadText.Text = BuildHistoryLeadSentence(insights, timeline, snapshots);
-        HistoryRangeSummaryText.Text = BuildHistoryFocusedSummary(insights);
-        HistoryFocusSummaryText.Text = $"Longest focus {FormatReadableDuration(insights.LongestFocusBlockSeconds)}";
-        HistoryOverloadSummaryText.Text = insights.MostDistractedPeriodLabel == NotAvailableText
-            ? $"Distraction time {FormatReadableDuration(insights.DistractionSeconds)}"
-            : $"Most distractions {insights.MostDistractedPeriodLabel}";
-        HistoryTrustSummaryText.Text = insights.MostDistractedPeriodLabel == NotAvailableText
-            ? $"Viewing {_historyRange switch
-            {
-                HistoryRange.Last1Hour => "the last hour",
-                HistoryRange.Last4Hours => "the last 4 hours",
-                HistoryRange.Today => "today",
-                HistoryRange.AllTime => "retained history",
-                _ => "this range"
-            }}"
-            : $"Most distractions happened in the {insights.MostDistractedPeriodLabel}";
-        HistoryActionsSummaryText.Text = BuildHistoryActionsSummary(insights);
-        string baseGuideText = _historyExplainMode
-            ? "Advanced is on. Click any hour or action marker for the raw detail."
-            : "Click any hour or action marker for a short summary.";
-        HistoryGuideText.Text = baseGuideText;
-    }
-
     private static IReadOnlyList<LocalApiCurrentSnapshotResponse> DownsampleSnapshots(
         IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots,
         int maxPoints)

@@ -1324,44 +1324,39 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         int bucket = Math.Clamp(bucketSeconds, 1, 3600);
         var rawRows = new List<AgentBrainSnapshot>();
 
+        // Read from state_buckets (the analyzed-state table) so that StateFlagsJson always
+        // carries focus-episode, distraction, and pressure fields for episode derivation.
+        // The old brain_snapshots LEFT JOIN missed these because state_buckets.timestamp_utc
+        // uses bucket-start time while brain_snapshots.timestamp_utc uses bucket-end time.
         using var connection = DbOpen.OpenReadConnection(_connectionString);
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
             """
             SELECT
-                b.timestamp_utc,
-                b.typing_burst_intensity,
-                b.scroll_velocity_index,
-                b.focus_switch_rate,
-                b.smoothed_typing_burst_intensity,
-                b.smoothed_scroll_velocity_index,
-                b.smoothed_focus_switch_rate,
-                b.focus_strength,
-                b.overload_likelihood,
-                b.fatigue_probability,
-                b.cognitive_stability,
-                b.dominant_state_name,
-                b.dominant_state_value,
-                b.confidence,
-                b.last_action,
-                b.activation_window_triggered,
-                b.cooldown_triggered,
-                b.activation_window_open,
-                b.contributors_json,
-                b.policy_id,
-                b.domain,
-                b.escalation_level,
-                b.planned_end_timestamp_utc,
-                b.actual_end_timestamp_utc,
-                b.cooldown_end_timestamp_utc,
+                sb.timestamp_utc,
+                sb.typing_burst_intensity_raw,
+                sb.scroll_velocity_index_raw,
+                sb.focus_switch_rate_raw,
+                sb.typing_burst_intensity_smoothed,
+                sb.scroll_velocity_index_smoothed,
+                sb.focus_switch_rate_smoothed,
+                sb.focus_strength,
+                sb.overload_likelihood,
+                sb.fatigue_probability,
+                sb.cognitive_stability,
+                sb.dominant_state_name,
+                sb.dominant_state_value,
+                sb.confidence,
                 sb.sustained_attention_duration_sec,
                 sb.idle_fragmentation_index,
-                sb.state_flags_json,
-                sb.contributors_json
-            FROM brain_snapshots b
-            LEFT JOIN state_buckets sb ON sb.timestamp_utc = b.timestamp_utc
-            WHERE b.timestamp_utc >= $from AND b.timestamp_utc <= $to
-            ORDER BY b.timestamp_utc ASC;
+                sb.activation_window_triggered,
+                sb.cooldown_triggered,
+                sb.activation_window_open,
+                sb.contributors_json,
+                sb.state_flags_json
+            FROM state_buckets sb
+            WHERE sb.timestamp_utc >= $from AND sb.timestamp_utc <= $to
+            ORDER BY sb.timestamp_utc ASC;
             """;
         cmd.Parameters.AddWithValue("$from", fromUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$to", toUtc.ToString("O"));
@@ -1369,37 +1364,32 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         using SqliteDataReader reader = cmd.ExecuteReader();
         while (reader.Read())
         {
+            string stateFlagsJson = ReadStringOrFallback(reader, 20, "{\"schema_ver\":1}");
             rawRows.Add(new AgentBrainSnapshot(
                 TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
-                TypingBurstIntensity: reader.GetDouble(1),
-                ScrollVelocityIndex: reader.GetDouble(2),
-                FocusSwitchRate: reader.GetDouble(3),
-                SmoothedTypingBurstIntensity: ReadDoubleOrFallback(reader, 4, fallback: reader.GetDouble(1)),
-                SmoothedScrollVelocityIndex: ReadDoubleOrFallback(reader, 5, fallback: reader.GetDouble(2)),
-                SmoothedFocusSwitchRate: ReadDoubleOrFallback(reader, 6, fallback: reader.GetDouble(3)),
-                FocusStrength: reader.GetDouble(7),
-                OverloadLikelihood: reader.GetDouble(8),
-                FatigueProbability: reader.GetDouble(9),
-                CognitiveStability: reader.GetDouble(10),
-                DominantStateName: ReadStringOrFallback(reader, 11, ResolveDominantStateName(reader.GetDouble(7), reader.GetDouble(8), reader.GetDouble(9))),
-                DominantStateValue: ReadDoubleOrFallback(reader, 12, Math.Max(reader.GetDouble(7), Math.Max(reader.GetDouble(8), reader.GetDouble(9)))),
-                Confidence: reader.GetDouble(13),
-                LastAction: reader.GetString(14),
-                ActivationWindowTriggered: ReadBoolOrFallback(reader, 15, false),
-                CooldownTriggered: ReadBoolOrFallback(reader, 16, false),
-                ActivationWindowOpen: ReadBoolOrFallback(reader, 17, false),
-                Contributors: DeserializeContributors(reader.GetString(18)),
-                PolicyId: ReadStringOrFallback(reader, 19, "n/a"),
-                Domain: ReadStringOrFallback(reader, 20, "control"),
-                EscalationLevel: ReadStringOrFallback(reader, 21, "Inform"),
-                PlannedEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 22, string.Empty)),
-                ActualEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 23, string.Empty)),
-                CooldownEndTimestampUtc: ParseOptionalDateTimeOffset(ReadStringOrFallback(reader, 24, string.Empty)),
-                SustainedAttentionDurationSec: ReadDoubleOrFallback(reader, 25, 0d),
-                IdleFragmentationIndex: ReadDoubleOrFallback(reader, 26, 0d),
-                OverloadActive: ParseOverloadActive(ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}")),
-                StateFlagsJson: ReadStringOrFallback(reader, 27, "{\"schema_ver\":1}"),
-                ContributorsJson: ReadStringOrFallback(reader, 28, "{\"schema_ver\":1}")));
+                TypingBurstIntensity: ReadDoubleOrFallback(reader, 1, 0d),
+                ScrollVelocityIndex: ReadDoubleOrFallback(reader, 2, 0d),
+                FocusSwitchRate: ReadDoubleOrFallback(reader, 3, 0d),
+                SmoothedTypingBurstIntensity: ReadDoubleOrFallback(reader, 4, 0d),
+                SmoothedScrollVelocityIndex: ReadDoubleOrFallback(reader, 5, 0d),
+                SmoothedFocusSwitchRate: ReadDoubleOrFallback(reader, 6, 0d),
+                FocusStrength: ReadDoubleOrFallback(reader, 7, 0d),
+                OverloadLikelihood: ReadDoubleOrFallback(reader, 8, 0d),
+                FatigueProbability: ReadDoubleOrFallback(reader, 9, 0d),
+                CognitiveStability: ReadDoubleOrFallback(reader, 10, 0d),
+                DominantStateName: ReadStringOrFallback(reader, 11, "focus"),
+                DominantStateValue: ReadDoubleOrFallback(reader, 12, 0d),
+                Confidence: ReadDoubleOrFallback(reader, 13, 0d),
+                LastAction: string.Empty,
+                ActivationWindowTriggered: ReadBoolOrFallback(reader, 16, false),
+                CooldownTriggered: ReadBoolOrFallback(reader, 17, false),
+                ActivationWindowOpen: ReadBoolOrFallback(reader, 18, false),
+                Contributors: [],
+                SustainedAttentionDurationSec: ReadDoubleOrFallback(reader, 14, 0d),
+                IdleFragmentationIndex: ReadDoubleOrFallback(reader, 15, 0d),
+                OverloadActive: ParseOverloadActive(stateFlagsJson),
+                StateFlagsJson: stateFlagsJson,
+                ContributorsJson: ReadStringOrFallback(reader, 19, "{\"schema_ver\":1}")));
         }
 
         if (bucket == 1 || rawRows.Count <= 1)
