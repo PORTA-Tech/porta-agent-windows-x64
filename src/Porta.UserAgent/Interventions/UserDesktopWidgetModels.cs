@@ -57,4 +57,8 @@ internal sealed record UserDesktopWidgetState(
     UserDesktopWidgetMetric TertiaryMetric,
     bool CanPause,
     bool CanResume,
-    UserDesktopWidgetCriticalState? CriticalState = null);
+    UserDesktopWidgetCriticalState? CriticalState = null,
+    // True when tracking is degraded in a routine way (partial capture, stale analysis,
+    // session reconnecting). Does NOT change the mode — just shows a small badge.
+    // Reserved false for genuine unavailability or action-required states.
+    bool ShowLimitedBadge = false);

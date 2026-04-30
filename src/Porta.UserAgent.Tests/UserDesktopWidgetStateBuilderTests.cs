@@ -33,8 +33,11 @@ public sealed class UserDesktopWidgetStateBuilderTests
 
         UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(status, snapshot, null, signals, degraded);
 
-        Assert.Equal(UserDesktopWidgetMode.Limited, state.Mode);
-        Assert.Equal("Limited", state.Title);
+        // Routine capture degradation: title stays "Today", mode stays Monitoring,
+        // badge is shown, metrics remain visible.
+        Assert.Equal(UserDesktopWidgetMode.Monitoring, state.Mode);
+        Assert.Equal("Today", state.Title);
+        Assert.True(state.ShowLimitedBadge);
         Assert.Contains("partial capture", state.StatusText, StringComparison.OrdinalIgnoreCase);
         AssertMetric(state.PrimaryMetric, "Work today", "Updating...");
         AssertMetric(state.SecondaryMetric, "Last focus session", "4m");
@@ -732,6 +735,82 @@ public sealed class UserDesktopWidgetStateBuilderTests
         Assert.NotNull(state.CriticalState);
         Assert.Equal("Notifications need attention", state.CriticalState!.Title);
         Assert.Contains("restore windows notification settings", state.StatusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Build_ShowsBadgeNotTakeover_ForRoutineStaleAndPartialStates()
+    {
+        // Stale analysis and partial data are routine — widget stays in Monitoring with
+        // a badge, title stays "Today", and all 3 metrics remain visible.
+        LocalApiStatusResponse status = BuildStatus(
+            runtimeStateFreshness: "stale",
+            runtimeStateRefreshError: "db_busy");
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.38,
+            sustainedAttentionSeconds: 720,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false,
+            runtimeStateFreshness: "stale",
+            runtimeStateRefreshError: "db_busy");
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status, snapshot, null, signals, degradedToast: null);
+
+        Assert.Equal(UserDesktopWidgetMode.Monitoring, state.Mode);
+        Assert.Equal("Today", state.Title);
+        Assert.True(state.ShowLimitedBadge);
+        Assert.Null(state.CriticalState);
+        Assert.Equal(UserDesktopWidgetMessageSeverity.Neutral, state.MessageSeverity);
+        AssertMetric(state.SecondaryMetric, "Last focus session", "12m");
+        AssertMetric(state.TertiaryMetric, "Pressure", "38%");
+        AssertRoutineWidgetText(state);
+    }
+
+    [Fact]
+    public void Build_KeepsUsefulMetricsVisible_WhenCaptureIsPartiallyDegraded()
+    {
+        // A degraded toast (keyboard missing) is routine — widget stays Monitoring with
+        // badge, keeps showing pressure and last focus session from snapshot.
+        LocalApiStatusResponse status = BuildStatus();
+        LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
+            overloadLikelihood: 0.44,
+            sustainedAttentionSeconds: 600,
+            deepWorkActive: false,
+            notificationsSuppressed: false,
+            brightnessAdjusted: false);
+        UserCommunicationToast degraded = new(
+            Key: "capture:keyboard_missing",
+            Title: "Ari limited",
+            Message: "Keyboard capture is retrying.");
+        UserAgentVisualSignals signals = new(
+            Mode: UserAgentVisualMode.Normal,
+            TooltipText: "PORTA | Watching activity",
+            ShowDeepWorkStreak: false,
+            DeepWorkStreakText: string.Empty,
+            ShowRecoveryToast: false,
+            RecoveryEventId: 0,
+            RecoveryMessage: string.Empty);
+
+        UserDesktopWidgetState state = UserDesktopWidgetStateBuilder.Build(
+            status, snapshot, null, signals, degraded);
+
+        Assert.Equal(UserDesktopWidgetMode.Monitoring, state.Mode);
+        Assert.Equal("Today", state.Title);
+        Assert.True(state.ShowLimitedBadge);
+        Assert.Null(state.CriticalState);
+        AssertMetric(state.SecondaryMetric, "Last focus session", "10m");
+        AssertMetric(state.TertiaryMetric, "Pressure", "44%");
+        Assert.DoesNotContain("n/a", state.SecondaryMetric.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("n/a", state.TertiaryMetric.Value, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

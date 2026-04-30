@@ -42,18 +42,26 @@ internal static class UserDesktopWidgetStateBuilder
 
         bool paused = status?.Paused == true;
         bool staleOrPending = HasRoutineUpdatingState(status, snapshot, experience);
-        bool limited = paused
-            ? false
-            : criticalState != null
-            || degradedToast != null
-            || status?.ConsentActive == false
+
+        // Action-required: consent gate or a diagnosed critical failure.
+        // These are the only cases where the widget enters Limited mode and shows
+        // a takeover message — the user must act to restore full function.
+        bool actionRequired = !paused && (
+            criticalState != null
+            || status?.ConsentActive == false);
+
+        // Routine degraded: capture is partially missing, analysis is still pending,
+        // or the local DB is catching up. Show a small badge and a subtle status line;
+        // keep the 3 useful metrics visible with last-known values.
+        bool routineDegraded = !paused && !actionRequired && (
+            degradedToast != null
             || (status != null
                 && !string.Equals(status.CaptureContext, "UserSession", StringComparison.OrdinalIgnoreCase))
-            || staleOrPending;
+            || staleOrPending);
 
         UserDesktopWidgetMode mode = paused
             ? UserDesktopWidgetMode.Paused
-            : limited
+            : actionRequired
                 ? UserDesktopWidgetMode.Limited
                 : experience.Mode switch
                 {
@@ -77,18 +85,16 @@ internal static class UserDesktopWidgetStateBuilder
             TertiaryMetric: BuildOverloadMetric(status, snapshot, mode),
             CanPause: status?.ServiceRunning == true && status.ConsentActive && !paused,
             CanResume: paused,
-            CriticalState: criticalState);
+            CriticalState: criticalState,
+            ShowLimitedBadge: routineDegraded);
     }
 
     private static string BuildTitle(UserDesktopWidgetMode mode, LocalApiStatusResponse? status)
     {
         _ = status;
-        return mode switch
-        {
-            UserDesktopWidgetMode.Paused => "Paused",
-            UserDesktopWidgetMode.Limited => "Limited",
-            _ => "Today"
-        };
+        // Limited mode keeps "Today" — the critical state card explains what's wrong.
+        // Routine degraded states also keep "Today" and use ShowLimitedBadge instead.
+        return mode == UserDesktopWidgetMode.Paused ? "Paused" : "Today";
     }
 
     private static UserDesktopWidgetMessageSeverity BuildMessageSeverity(
@@ -104,6 +110,7 @@ internal static class UserDesktopWidgetStateBuilder
         {
             UserDesktopWidgetMode.DeepWork => UserDesktopWidgetMessageSeverity.Info,
             UserDesktopWidgetMode.Overload => UserDesktopWidgetMessageSeverity.Warning,
+            // Limited with no critical state means consent is missing — warn, do not critical.
             UserDesktopWidgetMode.Limited => UserDesktopWidgetMessageSeverity.Warning,
             _ => UserDesktopWidgetMessageSeverity.Neutral
         };
@@ -275,15 +282,20 @@ internal static class UserDesktopWidgetStateBuilder
         LocalTodaySummaryMetrics todaySummary,
         UserDesktopWidgetMode mode)
     {
-        string value = mode switch
+        if (mode == UserDesktopWidgetMode.Paused)
         {
-            UserDesktopWidgetMode.Paused => "Paused",
-            _ when todaySummary.HasProcessedTimeline => LocalMetricDurationFormatter.FormatMetricDuration(todaySummary.DisplayedTrackedTodaySeconds),
-            _ when status == null || !status.ServiceRunning || !status.LocalApiAuthReady => "Updating...",
-            _ => "Updating..."
-        };
+            return new UserDesktopWidgetMetric("Work today", "Paused");
+        }
 
-        return new UserDesktopWidgetMetric("Work today", value);
+        // Show last-known timeline value even during degraded/limited states.
+        if (todaySummary.HasProcessedTimeline)
+        {
+            return new UserDesktopWidgetMetric(
+                "Work today",
+                LocalMetricDurationFormatter.FormatMetricDuration(todaySummary.DisplayedTrackedTodaySeconds));
+        }
+
+        return new UserDesktopWidgetMetric("Work today", "Updating...");
     }
 
     private static UserDesktopWidgetMetric BuildLastFocusMetric(
@@ -292,29 +304,27 @@ internal static class UserDesktopWidgetStateBuilder
         LocalCurrentExperienceState experience,
         UserDesktopWidgetMode mode)
     {
-        string value;
         if (mode == UserDesktopWidgetMode.Paused)
         {
-            value = "Paused";
-        }
-        else if (experience.FocusEpisodeSeconds.HasValue)
-        {
-            value = LocalMetricDurationFormatter.FormatMetricDuration(experience.FocusEpisodeSeconds.Value);
-        }
-        else if (experience.LiveSessionFresh)
-        {
-            value = "0s";
-        }
-        else if (status == null || !status.ServiceRunning || !status.LocalApiAuthReady)
-        {
-            value = "Updating...";
-        }
-        else
-        {
-            value = "Updating...";
+            return new UserDesktopWidgetMetric("Last focus session", "Paused");
         }
 
-        return new UserDesktopWidgetMetric("Last focus session", value);
+        // Show episode duration whenever available — this is the durable focus episode,
+        // not a live timer, so it stays stable across degraded and stale states.
+        if (experience.FocusEpisodeSeconds.HasValue)
+        {
+            return new UserDesktopWidgetMetric(
+                "Last focus session",
+                LocalMetricDurationFormatter.FormatMetricDuration(experience.FocusEpisodeSeconds.Value));
+        }
+
+        // Live session is fresh but no episode yet: show 0 so the user sees a real value.
+        if (experience.LiveSessionFresh)
+        {
+            return new UserDesktopWidgetMetric("Last focus session", "0s");
+        }
+
+        return new UserDesktopWidgetMetric("Last focus session", "Updating...");
     }
 
     private static UserDesktopWidgetMetric BuildOverloadMetric(
@@ -322,22 +332,18 @@ internal static class UserDesktopWidgetStateBuilder
         LocalApiCurrentSnapshotResponse? snapshot,
         UserDesktopWidgetMode mode)
     {
-        string value;
         if (mode == UserDesktopWidgetMode.Paused)
         {
-            value = "Paused";
-        }
-        else
-        {
-            double? pressure = snapshot?.PressureLevel ?? snapshot?.OverloadLikelihood;
-            value = pressure.HasValue
-                ? FormatPercent(pressure.Value)
-                : status == null || !status.ServiceRunning || !status.LocalApiAuthReady
-                    ? "Updating..."
-                    : "Updating...";
+            return new UserDesktopWidgetMetric("Pressure", "Paused");
         }
 
-        return new UserDesktopWidgetMetric("Pressure", value);
+        // Show last-known pressure whenever a snapshot is available — do not hide it
+        // during degraded or stale states. pressure_level already prefers the expressive
+        // signal and falls back to overload_likelihood for older agent versions.
+        double? pressure = snapshot?.pressure_level;
+        return new UserDesktopWidgetMetric(
+            "Pressure",
+            pressure.HasValue ? FormatPercent(pressure.Value) : "Updating...");
     }
 
     private static string BuildFooterText(
