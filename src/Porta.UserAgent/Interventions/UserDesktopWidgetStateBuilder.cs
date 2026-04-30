@@ -372,12 +372,10 @@ internal static class UserDesktopWidgetStateBuilder
             return $"Idle {FormatAgeShort(liveSession.idle_seconds)}.";
         }
 
-        string focusText = string.IsNullOrWhiteSpace(liveSession.focus_app_hash)
-            ? (liveSession.user_active ? "Active now" : "Watching live")
-            : "Focused now";
+        string activityText = liveSession.user_active ? "Active now" : "Watching live";
         string typingText = liveSession.keyboard_active ? "typing active" : "typing idle";
         string mouseText = liveSession.mouse_active ? "mouse active" : "mouse idle";
-        return $"{focusText} | {typingText} | {mouseText}.";
+        return $"{activityText} | {typingText} | {mouseText}.";
     }
 
     private static string BuildConfidenceFooterText(

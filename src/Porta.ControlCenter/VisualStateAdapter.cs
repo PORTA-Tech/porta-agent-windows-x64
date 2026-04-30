@@ -39,7 +39,10 @@ internal sealed record PortaVisualState(
     bool ShowRecoveryBanner,
     long RecoveryEventId,
     string RecoveryBannerText,
-    string WhySummary);
+    string WhySummary,
+    // Human-readable episode status: attention-segment or focus-episode reason for the current state.
+    string EpisodeStatusText,
+    string AttentionSegmentReasonText);
 
 internal static class VisualStateAdapter
 {
@@ -110,7 +113,9 @@ internal static class VisualStateAdapter
                 ShowRecoveryBanner: false,
                 RecoveryEventId: 0,
                 RecoveryBannerText: string.Empty,
-                WhySummary: NotAvailableText);
+                WhySummary: NotAvailableText,
+                EpisodeStatusText: string.Empty,
+                AttentionSegmentReasonText: string.Empty);
         }
 
         PortaVisualMode mode = MapMode(experience.Mode);
@@ -141,7 +146,9 @@ internal static class VisualStateAdapter
             ShowRecoveryBanner: experience.HasRecentRecoveryEvent && mode != PortaVisualMode.Overload,
             RecoveryEventId: experience.HasRecentRecoveryEvent ? experience.RecentRecoveryEventId : 0,
             RecoveryBannerText: experience.HasRecentRecoveryEvent ? experience.RecentRecoveryMessage : string.Empty,
-            WhySummary: whySummary);
+            WhySummary: whySummary,
+            EpisodeStatusText: experience.EpisodeStatusText,
+            AttentionSegmentReasonText: experience.AttentionSegmentReasonText);
     }
 
     // Step 4:
@@ -311,18 +318,15 @@ internal static class VisualStateAdapter
         if (snapshot.PartialData == true && snapshot.MissingMajorChannels is { Count: > 0 })
         {
             string missing = string.Join("/", snapshot.MissingMajorChannels.Select(ToDisplayChannelName));
-            return $"Focus session paused: missing {missing} signals.";
+            return $"Focus episode paused: missing {missing} signals.";
         }
 
         if (snapshot.PartialData == true)
         {
-            return "Focus session timing is conservative while data is partial.";
+            return "Focus episode timing is conservative while data is partial.";
         }
 
-        double focusEpisodeSeconds = snapshot.FocusEpisodeSeconds > 0d
-            ? snapshot.FocusEpisodeSeconds
-            : snapshot.TaskContinuitySeconds;
-        if (focusEpisodeSeconds <= 0.5d)
+        if (snapshot.FocusEpisodeSeconds <= 0.5d)
         {
             return "No focus episode detected yet.";
         }

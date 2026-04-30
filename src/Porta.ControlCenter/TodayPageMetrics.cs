@@ -6,10 +6,8 @@ internal sealed record TodayPageMetrics(
     bool HasProcessedTimeline,
     double FocusedTodaySeconds,
     double DistractionTodaySeconds,
-    double BestFocusBlockSeconds,
     double TrackedTodaySeconds,
     double DisplayedTrackedTodaySeconds,
-    double AverageFocusPercent,
     string MostDistractedHourLabel);
 
 internal static class TodayPageMetricsBuilder
@@ -30,10 +28,8 @@ internal static class TodayPageMetricsBuilder
             HasProcessedTimeline: summary.HasProcessedTimeline,
             FocusedTodaySeconds: summary.FocusedTodaySeconds,
             DistractionTodaySeconds: summary.DistractionTodaySeconds,
-            BestFocusBlockSeconds: summary.BestFocusBlockSeconds,
             TrackedTodaySeconds: summary.TrackedTodaySeconds,
             DisplayedTrackedTodaySeconds: summary.DisplayedTrackedTodaySeconds,
-            AverageFocusPercent: summary.AverageFocusPercent,
             MostDistractedHourLabel: summary.MostDistractedHourLabel);
     }
 }

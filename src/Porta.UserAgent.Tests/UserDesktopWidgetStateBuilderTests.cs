@@ -475,7 +475,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
             degradedToast: null,
             nowUtc: nowUtc);
 
-        Assert.Equal("Focused now | typing active | mouse idle.", state.StatusText);
+        Assert.Equal("Active now | typing active | mouse idle.", state.StatusText);
         AssertMetric(state.PrimaryMetric, "Work today", "Updating...");
         AssertMetric(state.SecondaryMetric, "Last focus session", "15m");
         AssertMetric(state.TertiaryMetric, "Pressure", "42%");

@@ -27,10 +27,8 @@ public sealed class TodayPageMetricsBuilderTests
         Assert.True(metrics.HasProcessedTimeline);
         Assert.Equal(420d, metrics.FocusedTodaySeconds, precision: 3);
         Assert.Equal(600d, metrics.DistractionTodaySeconds, precision: 3);
-        Assert.Equal(900d, metrics.BestFocusBlockSeconds, precision: 3);
         Assert.Equal(900d, metrics.TrackedTodaySeconds, precision: 3);
         Assert.Equal(900d, metrics.DisplayedTrackedTodaySeconds, precision: 3);
-        Assert.Equal(46.666666666666664d, metrics.AverageFocusPercent, precision: 6);
         int localHour = baseUtc.ToLocalTime().Hour;
         Assert.Equal($"{localHour:00}:00-{localHour:00}:59", metrics.MostDistractedHourLabel);
     }
@@ -43,10 +41,8 @@ public sealed class TodayPageMetricsBuilderTests
         Assert.False(metrics.HasProcessedTimeline);
         Assert.Equal(0d, metrics.FocusedTodaySeconds);
         Assert.Equal(0d, metrics.DistractionTodaySeconds);
-        Assert.Equal(0d, metrics.BestFocusBlockSeconds);
         Assert.Equal(0d, metrics.TrackedTodaySeconds);
         Assert.Equal(0d, metrics.DisplayedTrackedTodaySeconds);
-        Assert.Equal(0d, metrics.AverageFocusPercent);
         Assert.Equal("Not available", metrics.MostDistractedHourLabel);
     }
 

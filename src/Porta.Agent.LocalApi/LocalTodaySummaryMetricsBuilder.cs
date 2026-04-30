@@ -8,8 +8,6 @@ public sealed record LocalTodaySummaryMetrics(
     double ContextExcursionTodaySeconds,
     double TrackedTodaySeconds,
     double DisplayedTrackedTodaySeconds,
-    double BestFocusBlockSeconds,
-    double AverageFocusPercent,
     string MostDistractedHourLabel);
 
 public static class LocalTodaySummaryMetricsBuilder
@@ -33,8 +31,6 @@ public static class LocalTodaySummaryMetricsBuilder
                 ContextExcursionTodaySeconds: 0d,
                 TrackedTodaySeconds: 0d,
                 DisplayedTrackedTodaySeconds: 0d,
-                BestFocusBlockSeconds: 0d,
-                AverageFocusPercent: 0d,
                 MostDistractedHourLabel: NotAvailableText);
         }
 
@@ -64,8 +60,6 @@ public static class LocalTodaySummaryMetricsBuilder
             }
         }
 
-        double bestFocusBlockSeconds = snapshots.Max(static candidate => Math.Max(0d, candidate.SustainedAttentionDurationSec));
-        double averageFocusPercent = snapshots.Average(static candidate => Math.Clamp(candidate.FocusStrength, 0d, 1d)) * 100d;
         string mostDistractedHourLabel = ComputeMostDistractedHourLabel(snapshots, bucketSeconds);
         double displayedTrackedTodaySeconds = trackedTodaySeconds + ResolveLiveTrackedProjectionSeconds(
             snapshots,
@@ -81,8 +75,6 @@ public static class LocalTodaySummaryMetricsBuilder
             ContextExcursionTodaySeconds: contextExcursionTodaySeconds,
             TrackedTodaySeconds: trackedTodaySeconds,
             DisplayedTrackedTodaySeconds: displayedTrackedTodaySeconds,
-            BestFocusBlockSeconds: bestFocusBlockSeconds,
-            AverageFocusPercent: averageFocusPercent,
             MostDistractedHourLabel: mostDistractedHourLabel);
     }
 

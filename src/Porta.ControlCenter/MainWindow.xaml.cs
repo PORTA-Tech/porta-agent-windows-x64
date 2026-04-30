@@ -1350,7 +1350,9 @@ public partial class MainWindow : Window
             NowDeepWorkStreakText.Visibility = Visibility.Visible;
         }
 
-        NowFocusChoppinessText.Text = BuildTodayCurrentFocusSupportText(liveSession);
+        NowFocusChoppinessText.Text = !string.IsNullOrWhiteSpace(visualState.EpisodeStatusText)
+            ? visualState.EpisodeStatusText
+            : BuildTodayCurrentFocusSupportText(liveSession);
         NowFocusSummaryText.Text = BuildTodayCurrentFocusSummary(todayState, liveSession, visualState);
         NowFocusFootnoteText.Text = "This matches the widget's last focus metric.";
         NowFocusFootnoteText.Visibility = Visibility.Visible;
@@ -1526,17 +1528,17 @@ public partial class MainWindow : Window
 
         if (liveSession!.idle)
         {
-            return "Focused now: No";
+            return "Episode: idle now";
         }
 
         if (focusEpisodeSeconds.HasValue && focusEpisodeSeconds.Value > 0d)
         {
-            return "Focused now: Yes";
+            return "Episode: active";
         }
 
         return liveSession.user_active
-            ? "Focused now: Checking live activity"
-            : "Focused now: No";
+            ? "Episode: starting"
+            : "Episode: idle now";
     }
 
     private static string BuildTodayCurrentFocusSupportText(LocalApiLiveSessionStateResponse? liveSession)
@@ -2248,11 +2250,9 @@ public partial class MainWindow : Window
             return $"Idle now | {lastInputText}";
         }
 
-        string focusText = !string.IsNullOrWhiteSpace(liveSession.focus_app_hash)
-            ? "Focused now"
-            : liveSession.user_active
-                ? "User active"
-                : "Watching live";
+        string focusText = liveSession.user_active
+            ? "Active now"
+            : "Watching live";
         return $"{focusText} | typing {(liveSession.keyboard_active ? "active" : "idle")} | mouse {(liveSession.mouse_active ? "active" : "idle")}";
     }
 
@@ -5252,17 +5252,7 @@ public partial class MainWindow : Window
 
     private static double ResolveFocusEpisodeSeconds(LocalApiCurrentSnapshotResponse snapshot)
     {
-        if (snapshot.FocusEpisodeSeconds > 0d)
-        {
-            return snapshot.FocusEpisodeSeconds;
-        }
-
-        if (snapshot.TaskContinuitySeconds > 0d)
-        {
-            return snapshot.TaskContinuitySeconds;
-        }
-
-        return Math.Max(0d, snapshot.SustainedAttentionDurationSec);
+        return Math.Max(0d, snapshot.FocusEpisodeSeconds);
     }
 
     private static double ResolvePressureLevel(LocalApiCurrentSnapshotResponse snapshot)
