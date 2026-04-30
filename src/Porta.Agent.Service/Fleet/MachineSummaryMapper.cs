@@ -87,10 +87,11 @@ internal sealed class MachineSummaryMapper
             latestState?.StateFlagsJson,
             distractionEpisodeActive,
             attentionSegmentSeconds);
-        string focusEpisodeReasonCode = ResolveFocusEpisodeReasonCode(latestState?.StateFlagsJson, focusEpisodeState);
+        string focusEpisodeReasonCode = ResolveFocusEpisodeReasonCode(latestState?.StateFlagsJson, focusEpisodeState, attentionSegmentKind);
         string focusEpisodeReasonText = ResolveFocusEpisodeReasonText(
             latestState?.StateFlagsJson,
-            focusEpisodeState);
+            focusEpisodeState,
+            attentionSegmentKind);
         double pressureLevel = ResolvePressureLevel(latestState?.StateFlagsJson, status.OverloadLikelihood);
         double pressureConfidence = ResolvePressureConfidence(latestState?.StateFlagsJson, latestState?.Confidence ?? 0d);
         string? breakPendingKind = PortaBreakSemantics.ResolveBreakKind(latestState?.BreakPendingKind ?? latestState?.BreakPendingAction);
@@ -296,7 +297,7 @@ internal sealed class MachineSummaryMapper
         return distractionEpisodeActive ? attentionSegmentSeconds : 0d;
     }
 
-    private static string ResolveFocusEpisodeReasonCode(string? stateFlagsJson, string continuityState)
+    private static string ResolveFocusEpisodeReasonCode(string? stateFlagsJson, string focusEpisodeState, string attentionSegmentKind)
     {
         string explicitCode = NormalizeReasonCode(ReadStringFlag(stateFlagsJson, "focus_episode_reason_code"));
         if (!string.IsNullOrWhiteSpace(explicitCode))
@@ -304,16 +305,27 @@ internal sealed class MachineSummaryMapper
             return explicitCode;
         }
 
-        return continuityState switch
+        return (focusEpisodeState, attentionSegmentKind) switch
         {
-            "reset" => "focus_episode_reset",
-            "pause" => "focus_episode_paused",
-            "decay" => "focus_episode_decay",
+            ("reset", "away") => "long_break",
+            ("reset", "off_task_distraction") or ("reset", "context_excursion") => "major_context_shift",
+            ("reset", "fragmentation_distraction") => "instability_reset",
+            ("reset", _) => "focus_episode_reset",
+            ("pause", "away") => "break_pause",
+            ("pause", "context_excursion") => "context_excursion",
+            ("pause", "off_task_distraction") => "outside_focus_context",
+            ("pause", "fragmentation_distraction") => "focus_unstable",
+            ("pause", _) => "focus_episode_paused",
+            ("decay", "away") => "extended_break_decay",
+            ("decay", "context_excursion") => "context_excursion_decay",
+            ("decay", "off_task_distraction") => "outside_focus_context_decay",
+            ("decay", "fragmentation_distraction") => "focus_instability",
+            ("decay", _) => "focus_episode_decay",
             _ => "focus_episode_active"
         };
     }
 
-    private static string ResolveFocusEpisodeReasonText(string? stateFlagsJson, string continuityState)
+    private static string ResolveFocusEpisodeReasonText(string? stateFlagsJson, string focusEpisodeState, string attentionSegmentKind)
     {
         string? explicitText = ReadStringFlag(stateFlagsJson, "focus_episode_reason_text");
         if (!string.IsNullOrWhiteSpace(explicitText))
@@ -321,11 +333,22 @@ internal sealed class MachineSummaryMapper
             return explicitText.Trim();
         }
 
-        return continuityState switch
+        return (focusEpisodeState, attentionSegmentKind) switch
         {
-            "reset" => "Focus episode ended.",
-            "pause" => "Focus episode is paused.",
-            "decay" => "Focus episode is fading.",
+            ("reset", "away") => "Long break ended the focus episode.",
+            ("reset", "off_task_distraction") or ("reset", "context_excursion") => "Major context shift ended the focus episode.",
+            ("reset", "fragmentation_distraction") => "Sustained instability ended the focus episode.",
+            ("reset", _) => "Focus episode ended.",
+            ("pause", "away") => "Focus episode is on hold during a break.",
+            ("pause", "context_excursion") => "Focus episode is preserved during a context excursion.",
+            ("pause", "off_task_distraction") => "Focus episode is on hold while away from the focus context.",
+            ("pause", "fragmentation_distraction") => "Focus episode is paused due to switching instability.",
+            ("pause", _) => "Focus episode is paused.",
+            ("decay", "away") => "Focus episode is fading during an extended break.",
+            ("decay", "context_excursion") => "Focus episode is decaying during an extended context excursion.",
+            ("decay", "off_task_distraction") => "Focus episode is decaying after extended absence from the focus context.",
+            ("decay", "fragmentation_distraction") => "Focus episode is decaying due to sustained switching instability.",
+            ("decay", _) => "Focus episode is fading.",
             _ => "Focus episode active."
         };
     }

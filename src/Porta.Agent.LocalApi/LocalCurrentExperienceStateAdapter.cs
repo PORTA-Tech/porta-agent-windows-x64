@@ -29,7 +29,14 @@ public sealed record LocalCurrentExperienceState(
     string DeepWorkStreakText,
     bool HasRecentRecoveryEvent,
     long RecentRecoveryEventId,
-    string RecentRecoveryMessage);
+    string RecentRecoveryMessage,
+    // Human-readable explanation of the current episode state for local UI surfaces.
+    // Prefers the attention-segment reason (explains what is happening right now —
+    // away, off-task, fragmentation, etc.) and falls back to the focus-episode reason
+    // (why the episode is active, paused, decaying, or ended).
+    string EpisodeStatusText,
+    string FocusEpisodeReasonText,
+    string AttentionSegmentReasonText);
 
 public static class LocalCurrentExperienceStateAdapter
 {
@@ -60,7 +67,10 @@ public static class LocalCurrentExperienceStateAdapter
                 DeepWorkStreakText: string.Empty,
                 HasRecentRecoveryEvent: false,
                 RecentRecoveryEventId: 0,
-                RecentRecoveryMessage: string.Empty);
+                RecentRecoveryMessage: string.Empty,
+                EpisodeStatusText: string.Empty,
+                FocusEpisodeReasonText: string.Empty,
+                AttentionSegmentReasonText: string.Empty);
         }
 
         bool deepWorkIndicator = status?.DeepWorkActive == true
@@ -82,6 +92,11 @@ public static class LocalCurrentExperienceStateAdapter
             nowUtc);
         (bool hasRecentRecoveryEvent, long recentRecoveryEventId, string recentRecoveryMessage) =
             BuildRecentRecoveryEvent(recentEvents ?? [], nowUtc);
+        string attentionSegmentReasonText = snapshot.AttentionSegmentReasonText?.Trim() ?? string.Empty;
+        string focusEpisodeReasonText = snapshot.FocusEpisodeReasonText?.Trim() ?? string.Empty;
+        string episodeStatusText = attentionSegmentReasonText.Length > 0
+            ? attentionSegmentReasonText
+            : focusEpisodeReasonText;
 
         return new LocalCurrentExperienceState(
             Mode: mode,
@@ -99,7 +114,10 @@ public static class LocalCurrentExperienceStateAdapter
             DeepWorkStreakText: deepWorkStreakText,
             HasRecentRecoveryEvent: hasRecentRecoveryEvent,
             RecentRecoveryEventId: recentRecoveryEventId,
-            RecentRecoveryMessage: recentRecoveryMessage);
+            RecentRecoveryMessage: recentRecoveryMessage,
+            EpisodeStatusText: episodeStatusText,
+            FocusEpisodeReasonText: focusEpisodeReasonText,
+            AttentionSegmentReasonText: attentionSegmentReasonText);
     }
 
     private static LocalCurrentExperienceMode ResolveMode(string? visualModeFromStatus, bool overloadActive, bool deepWorkActive)
