@@ -79,10 +79,17 @@ public sealed record LocalApiStatusResponse(
     string RuntimeStateFreshness = "unknown",
     DateTimeOffset? RuntimeStateLastSuccessfulRefreshUtc = null,
     DateTimeOffset? RuntimeStateLastAttemptUtc = null,
-    string? RuntimeStateRefreshError = null)
+    string? RuntimeStateRefreshError = null,
+    // Canonical expressive pressure signal, separate from the conservative
+    // OverloadLikelihood used as the stabilization gate input.
+    // Always show with PressureConfidence labeled separately.
+    double PressureLevel = 0d,
+    double PressureConfidence = 0d)
 {
     // Step 18 pinned snake_case aliases for operational truth consumers.
     public bool overload_active => OverloadActive;
+    public double pressure_level => PressureLevel > 0d ? PressureLevel : OverloadLikelihood;
+    public double pressure_confidence => PressureConfidence;
     public bool deep_work_active => DeepWorkActive;
     public bool notifications_suppressed => NotificationsSuppressed;
     public bool brightness_adjusted => BrightnessAdjusted;

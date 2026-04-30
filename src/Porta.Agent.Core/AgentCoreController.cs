@@ -376,6 +376,8 @@ public sealed class AgentCoreController : IAgentCoreController
                 && parsedOverloadActive);
         bool deepWorkActive = TryReadBoolFromStateFlags(stateFlagsJson, "deep_work_active", out bool parsedDeepWorkActive)
             && parsedDeepWorkActive;
+        double pressureLevel = ReadDoubleFromStateFlags(stateFlagsJson, "pressure_level", _latestSnapshot.OverloadLikelihood);
+        double pressureConfidence = ReadDoubleFromStateFlags(stateFlagsJson, "model_confidence", _latestSnapshot.Confidence);
         long deepWorkStartedAtUtcMs = ReadInt64FromStateFlags(stateFlagsJson, "deep_work_started_at_utc_ms");
         double fallbackSustainedAttentionSeconds = latestState?.SustainedAttentionDurationSec ?? _latestSnapshot.SustainedAttentionDurationSec;
         int deepWorkStreakSeconds = ComputeDeepWorkStreakSeconds(
@@ -513,7 +515,9 @@ public sealed class AgentCoreController : IAgentCoreController
             RuntimeStateFreshness: runtimeStateFreshness,
             RuntimeStateLastSuccessfulRefreshUtc: runtimeStateLastSuccessfulRefreshUtc,
             RuntimeStateLastAttemptUtc: runtimeStateLastAttemptUtc,
-            RuntimeStateRefreshError: runtimeStateRefreshError);
+            RuntimeStateRefreshError: runtimeStateRefreshError,
+            PressureLevel: pressureLevel,
+            PressureConfidence: pressureConfidence);
 
         _lastStatusSnapshot = snapshot;
         BuildCurrentSnapshotProjectionLocked(snapshot);
@@ -710,7 +714,9 @@ public sealed class AgentCoreController : IAgentCoreController
             RuntimeStateFreshness: runtimeStateFreshness,
             RuntimeStateLastSuccessfulRefreshUtc: runtimeStateLastSuccessfulRefreshUtc,
             RuntimeStateLastAttemptUtc: runtimeStateLastAttemptUtc,
-            RuntimeStateRefreshError: runtimeStateRefreshError);
+            RuntimeStateRefreshError: runtimeStateRefreshError,
+            PressureLevel: ReadDoubleFromStateFlags(_latestSnapshot.StateFlagsJson, "pressure_level", _latestSnapshot.OverloadLikelihood),
+            PressureConfidence: ReadDoubleFromStateFlags(_latestSnapshot.StateFlagsJson, "model_confidence", _latestSnapshot.Confidence));
     }
 
     public AgentInputSummary GetInputsSummary(int windowSeconds = 60)
@@ -3376,6 +3382,33 @@ public sealed class AgentCoreController : IAgentCoreController
         catch
         {
             return false;
+        }
+    }
+
+    private static double ReadDoubleFromStateFlags(string? stateFlagsJson, string propertyName, double fallback)
+    {
+        if (string.IsNullOrWhiteSpace(stateFlagsJson) || string.IsNullOrWhiteSpace(propertyName))
+        {
+            return fallback;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(stateFlagsJson);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty(propertyName, out JsonElement prop))
+            {
+                return fallback;
+            }
+
+            return prop.ValueKind == JsonValueKind.Number && prop.TryGetDouble(out double parsed) && double.IsFinite(parsed)
+                ? Math.Clamp(parsed, 0d, 1d)
+                : fallback;
+        }
+        catch
+        {
+            return fallback;
         }
     }
 

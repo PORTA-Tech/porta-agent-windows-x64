@@ -36,7 +36,11 @@ public sealed record LocalCurrentExperienceState(
     // (why the episode is active, paused, decaying, or ended).
     string EpisodeStatusText,
     string FocusEpisodeReasonText,
-    string AttentionSegmentReasonText);
+    string AttentionSegmentReasonText,
+    // Expressive pressure value (0.0–1.0) for local UI display.
+    // Separate from OverloadActive — show this always, label PressureConfidence separately.
+    double PressureLevel,
+    double PressureConfidence);
 
 public static class LocalCurrentExperienceStateAdapter
 {
@@ -70,7 +74,9 @@ public static class LocalCurrentExperienceStateAdapter
                 RecentRecoveryMessage: string.Empty,
                 EpisodeStatusText: string.Empty,
                 FocusEpisodeReasonText: string.Empty,
-                AttentionSegmentReasonText: string.Empty);
+                AttentionSegmentReasonText: string.Empty,
+                PressureLevel: 0d,
+                PressureConfidence: 0d);
         }
 
         bool deepWorkIndicator = status?.DeepWorkActive == true
@@ -97,6 +103,8 @@ public static class LocalCurrentExperienceStateAdapter
         string episodeStatusText = attentionSegmentReasonText.Length > 0
             ? attentionSegmentReasonText
             : focusEpisodeReasonText;
+        double pressureLevel = snapshot.pressure_level;
+        double pressureConfidence = snapshot.pressure_confidence;
 
         return new LocalCurrentExperienceState(
             Mode: mode,
@@ -117,7 +125,9 @@ public static class LocalCurrentExperienceStateAdapter
             RecentRecoveryMessage: recentRecoveryMessage,
             EpisodeStatusText: episodeStatusText,
             FocusEpisodeReasonText: focusEpisodeReasonText,
-            AttentionSegmentReasonText: attentionSegmentReasonText);
+            AttentionSegmentReasonText: attentionSegmentReasonText,
+            PressureLevel: pressureLevel,
+            PressureConfidence: pressureConfidence);
     }
 
     private static LocalCurrentExperienceMode ResolveMode(string? visualModeFromStatus, bool overloadActive, bool deepWorkActive)

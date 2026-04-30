@@ -84,6 +84,8 @@ internal static class StatusMapper
             status.RuntimeStateFreshness,
             status.RuntimeStateLastSuccessfulRefreshUtc,
             status.RuntimeStateLastAttemptUtc,
-            status.RuntimeStateRefreshError);
+            status.RuntimeStateRefreshError,
+            status.PressureLevel,
+            status.PressureConfidence);
     }
 }

@@ -101,6 +101,28 @@ public sealed class LocalCurrentExperienceStateAdapterTests
         Assert.Equal("Recovery complete.", state.RecentRecoveryMessage);
     }
 
+    [Fact]
+    public void Build_ExposesPressureLevelAndConfidence_Separately()
+    {
+        // Proves pressure (expressive, allowed to spike) is exposed separately from
+        // OverloadActive (conservative, stabilized) and from OverloadLikelihood.
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        LocalCurrentExperienceState state = LocalCurrentExperienceStateAdapter.Build(
+            BuildStatus(),
+            BuildSnapshot(
+                sustainedAttentionSeconds: 120d,
+                analyzedStateAvailable: true,
+                pressureLevel: 0.74d,
+                pressureConfidence: 0.88d),
+            liveSession: null,
+            recentEvents: [],
+            nowUtc: nowUtc);
+
+        Assert.Equal(0.74d, state.PressureLevel, precision: 6);
+        Assert.Equal(0.88d, state.PressureConfidence, precision: 6);
+        Assert.False(state.OverloadActive); // stabilized gate is separate from expressive pressure
+    }
+
     private static LocalApiStatusResponse BuildStatus(string visualMode = "NORMAL")
     {
         return new LocalApiStatusResponse(
@@ -176,7 +198,9 @@ public sealed class LocalCurrentExperienceStateAdapterTests
         bool deepWorkActive = false,
         bool partialData = false,
         IReadOnlyList<string>? missingMajorChannels = null,
-        DateTimeOffset? timestampUtc = null)
+        DateTimeOffset? timestampUtc = null,
+        double? pressureLevel = null,
+        double? pressureConfidence = null)
     {
         return new LocalApiCurrentSnapshotResponse(
             TimestampUtc: timestampUtc ?? DateTimeOffset.Parse("2026-04-04T10:00:00Z"),
@@ -230,7 +254,9 @@ public sealed class LocalCurrentExperienceStateAdapterTests
             ModelSource: analyzedStateAvailable ? "analyzed_state" : "brain_fallback",
             FocusEpisodeQuality: focusEpisodeSeconds.HasValue && focusEpisodeSeconds.Value > 0d ? 0.78d : 0d,
             FocusEpisodeSeconds: focusEpisodeSeconds ?? sustainedAttentionSeconds,
-            FocusEpisodeState: focusEpisodeSeconds.HasValue && focusEpisodeSeconds.Value > 0d ? "keep" : "reset");
+            FocusEpisodeState: focusEpisodeSeconds.HasValue && focusEpisodeSeconds.Value > 0d ? "keep" : "reset",
+            PressureLevel: pressureLevel,
+            PressureConfidence: pressureConfidence);
     }
 
     private static LocalApiLiveSessionStateResponse BuildLiveSession(DateTimeOffset nowUtc, DateTimeOffset focusStartedAtUtc)

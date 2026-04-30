@@ -77,4 +77,6 @@ public sealed record AgentServiceStatusSnapshot(
     string RuntimeStateFreshness = "unknown",
     DateTimeOffset? RuntimeStateLastSuccessfulRefreshUtc = null,
     DateTimeOffset? RuntimeStateLastAttemptUtc = null,
-    string? RuntimeStateRefreshError = null);
+    string? RuntimeStateRefreshError = null,
+    double PressureLevel = 0d,
+    double PressureConfidence = 0d);
