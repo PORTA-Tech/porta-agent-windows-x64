@@ -333,7 +333,7 @@ public sealed class UserDesktopWidgetPresenterTests
         bool shown = presenter.TryPresentPrompt(
             new UserInterventionPrompt(
                 InterventionId: "break-1",
-                TipKey: "break_suggestion",
+                TipKey: "break_suggestion",   // legacy name still routes to overlay
                 Title: "Long break",
                 Message: "Ready for a long break?",
                 AcceptLabel: "Take break",
@@ -344,6 +344,41 @@ public sealed class UserDesktopWidgetPresenterTests
             _ => { },
             out string errorCode);
 
+        Assert.True(shown);
+        Assert.Equal(string.Empty, errorCode);
+        Assert.Equal(1, breakOverlayPresenter.PromptCalls);
+    }
+
+    [Theory]
+    [InlineData("short_break")]
+    [InlineData("long_break")]
+    [InlineData("stretch_break_suggestion")]
+    [InlineData("break_suggestion")]
+    public void TryPresentPrompt_AnyBreakKind_AlwaysRoutesToOverlayNeverToWidget(string tipKey)
+    {
+        var breakOverlayPresenter = new FakeBreakOverlayPresenter { ShowResult = true };
+        using var presenter = new UserDesktopWidgetPresenter(
+            new UserDesktopWidgetRollout(WidgetEnabled: true, ForceToastFallback: false),
+            new UserDesktopWidgetPlacementStore(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "widget-placement.json")),
+            new UserDesktopWidgetVisibilityStore(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "widget-hidden.flag")),
+            breakOverlayPresenter,
+            startWidgetThread: false);
+
+        bool shown = presenter.TryPresentPrompt(
+            new UserInterventionPrompt(
+                InterventionId: $"break-{tipKey}",
+                TipKey: tipKey,
+                Title: "Break time",
+                Message: "Time for a break.",
+                AcceptLabel: "Take break",
+                DismissLabel: "Skip",
+                SnoozeLabel: "Snooze",
+                SuppressLabel: string.Empty,
+                DurationSeconds: 120),
+            _ => { },
+            out string errorCode);
+
+        // The widget surface must never receive break prompts regardless of kind.
         Assert.True(shown);
         Assert.Equal(string.Empty, errorCode);
         Assert.Equal(1, breakOverlayPresenter.PromptCalls);

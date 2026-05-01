@@ -166,11 +166,11 @@ internal sealed class UserBreakOverlayWindow : Window
         _eyebrowText.Text = "Ari break";
         _titleText.Text = string.IsNullOrWhiteSpace(prompt.Title) ? breakLabel : prompt.Title.Trim();
         _messageText.Text = string.IsNullOrWhiteSpace(prompt.Message)
-            ? $"Ready for a {breakLabel.ToLowerInvariant()}?"
+            ? $"You have been in a focus episode for a while. A {breakLabel.ToLowerInvariant()} now will help you sustain the session."
             : prompt.Message.Trim();
         _countdownText.Visibility = Visibility.Collapsed;
         _countdownText.Text = string.Empty;
-        _footerText.Text = "Choose Take break to start the countdown. Skip or Snooze keeps Ari from blocking your screen right now.";
+        _footerText.Text = "Take break starts the countdown and holds this screen. Skip dismisses now. Snooze reminds you in 30 minutes.";
         ConfigureButton(_acceptButton, prompt.AcceptLabel, visible: true);
         ConfigureButton(_dismissButton, prompt.DismissLabel, visible: true);
         ConfigureButton(_snoozeButton, prompt.SnoozeLabel, visible: true);
@@ -188,10 +188,12 @@ internal sealed class UserBreakOverlayWindow : Window
         _enforceForeground = true;
         _eyebrowText.Text = "Ari break in progress";
         _titleText.Text = state.Title;
-        _messageText.Text = $"{state.Message} Ari is holding this screen so you can actually take the break.";
+        _messageText.Text = string.IsNullOrWhiteSpace(state.Message)
+            ? "Ari is holding this screen. Step away — you accepted the break."
+            : $"{state.Message.Trim()} Ari is holding this screen so you can step away.";
         _countdownText.Visibility = Visibility.Visible;
         _countdownText.Text = FormatRemaining(remaining);
-        _footerText.Text = "Emergency exit: press Esc if you must get back immediately. Ari will stop blocking the screen, but the accepted break will be marked as interrupted locally.";
+        _footerText.Text = "Press Esc for an emergency exit if you must return immediately. The break will be recorded as interrupted.";
         ConfigureButton(_acceptButton, string.Empty, visible: false);
         ConfigureButton(_dismissButton, string.Empty, visible: false);
         ConfigureButton(_snoozeButton, string.Empty, visible: false);

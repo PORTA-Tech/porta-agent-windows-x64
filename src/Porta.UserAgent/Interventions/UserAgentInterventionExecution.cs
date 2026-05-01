@@ -746,7 +746,14 @@ internal sealed class UserAgentInterventionExecutor
     private static bool IsPromptCommand(string? commandType)
     {
         string normalized = commandType?.Trim().ToLowerInvariant() ?? string.Empty;
-        return normalized is "show_break_toast" or "show_focus_lock_in_toast" or "show_stretch_break_toast";
+        // show_break_overlay is the canonical command type for break presentation.
+        // Legacy command types (show_break_toast, show_stretch_break_toast) are kept
+        // for backward compat with historical events.
+        return normalized is
+            "show_break_overlay"
+            or "show_break_toast"
+            or "show_stretch_break_toast"
+            or "show_focus_lock_in_toast";
     }
 
     private static string MapPromptResult(UserInterventionPromptResponseKind kind)
@@ -773,26 +780,24 @@ internal sealed class UserAgentInterventionExecutor
 
     private static int ResolvePromptPriority(string? action)
     {
-        // Step 2 migration map:
-        // break_suggestion and stretch_break_suggestion remain legacy transport IDs
-        // even though break presentation now uses the dedicated Ari overlay.
-        return (action ?? string.Empty).Trim().ToLowerInvariant() switch
-        {
-            "break_suggestion" => 30,
-            "stretch_break_suggestion" => 20,
-            "focus_lock_in_suggestion" => 10,
-            _ => 0
-        };
+        // Canonical break actions (short_break / long_break) take highest priority.
+        // Legacy transport IDs (break_suggestion / stretch_break_suggestion) are
+        // also handled here for any historical events still flowing through.
+        string? breakKind = PortaBreakSemantics.ResolveBreakKind(action);
+        if (breakKind == PortaBreakSemantics.LongBreakKind) return 30;
+        if (breakKind == PortaBreakSemantics.ShortBreakKind) return 20;
+        string normalized = (action ?? string.Empty).Trim().ToLowerInvariant();
+        return normalized == "focus_lock_in_suggestion" ? 10 : 0;
     }
 
     private static DateTimeOffset ResolvePromptSnoozeUntilUtc(string? action, DateTimeOffset nowUtc)
     {
-        TimeSpan duration = (action ?? string.Empty).Trim().ToLowerInvariant() switch
-        {
-            "break_suggestion" or "stretch_break_suggestion" => TimeSpan.FromMinutes(30),
-            "focus_lock_in_suggestion" => TimeSpan.FromMinutes(15),
-            _ => TimeSpan.FromMinutes(12)
-        };
+        // Breaks snooze for 30 min so the user can finish a focused session.
+        TimeSpan duration = PortaBreakSemantics.IsBreakSuggestionAction(action)
+            ? TimeSpan.FromMinutes(30)
+            : (action ?? string.Empty).Trim().ToLowerInvariant() == "focus_lock_in_suggestion"
+                ? TimeSpan.FromMinutes(15)
+                : TimeSpan.FromMinutes(12);
         return nowUtc.Add(duration);
     }
 
