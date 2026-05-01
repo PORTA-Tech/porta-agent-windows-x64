@@ -1,5 +1,7 @@
 namespace Porta.UserAgent.Interventions;
 
+using Porta.Agent.Common;
+
 internal readonly record struct UserInterventionGateDecision(
     bool Allowed,
     string ReasonCode);
@@ -113,16 +115,11 @@ internal sealed class UserInterventionAntiSpamGate
 
     private static string ResolvePromptFamily(string? action)
     {
-        // Step 2 migration map:
-        // Recovery-family break prompts now render through the dedicated overlay,
-        // but they still share the legacy break_suggestion and
-        // stretch_break_suggestion transport action IDs.
-        return NormalizeAction(action) switch
-        {
-            "break_suggestion" or "stretch_break_suggestion" => "prompt:recovery",
-            "focus_lock_in_suggestion" => "prompt:focus",
-            _ => "prompt:general"
-        };
+        // Break prompts (short_break, long_break, and legacy IDs) all share the
+        // recovery family. Anti-spam uses this to enforce the 30-minute family window.
+        string normalized = NormalizeAction(action);
+        if (PortaBreakSemantics.IsBreakSuggestionAction(normalized)) return "prompt:recovery";
+        return normalized == "focus_lock_in_suggestion" ? "prompt:focus" : "prompt:general";
     }
 
     private static TimeSpan ResolvePromptFamilyWindow(string family)

@@ -6565,11 +6565,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         string normalized = string.IsNullOrWhiteSpace(action)
             ? string.Empty
             : action.Trim().ToLowerInvariant();
+        // Canonical break names emit show_break_overlay.
+        // Legacy transport IDs kept for historical event compat.
         return normalized switch
         {
-            "break_suggestion" => "show_break_toast",
+            PortaBreakSemantics.LongBreakKind => "show_break_overlay",
+            PortaBreakSemantics.ShortBreakKind => "show_break_overlay",
+            PortaBreakSemantics.LegacyLongBreakAction => "show_break_overlay",
+            PortaBreakSemantics.LegacyShortBreakAction => "show_break_overlay",
             "focus_lock_in_suggestion" => "show_focus_lock_in_toast",
-            "stretch_break_suggestion" => "show_stretch_break_toast",
             "inform_overload_risk" => "show_status_toast",
             "inform_focus_protection" => "show_status_toast",
             "inform_fatigue_prevention" => "show_status_toast",
@@ -6630,14 +6634,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private static string ResolveInterventionToastTitle(string action)
     {
-        // Step 2 migration map:
-        // Keep legacy action IDs in transport, but surface canonical short-break and
-        // long-break naming in user-facing titles during migration.
         return action switch
         {
-            "break_suggestion" => "Long break",
+            PortaBreakSemantics.LongBreakKind or PortaBreakSemantics.LegacyLongBreakAction => "Long break",
+            PortaBreakSemantics.ShortBreakKind or PortaBreakSemantics.LegacyShortBreakAction => "Short break",
             "focus_lock_in_suggestion" => "Focus suggestion",
-            "stretch_break_suggestion" => "Short break",
             "inform_overload_risk" => "Overload watch",
             "inform_focus_protection" => "Focus watch",
             "inform_fatigue_prevention" => "Fatigue watch",
@@ -6731,29 +6732,32 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private static string ResolveInterventionTipKey(string action)
     {
+        // Canonical break kinds are their own tip keys.
+        // Legacy IDs preserved so historical events resolve correctly.
+        if (PortaBreakSemantics.IsBreakSuggestionAction(action))
+        {
+            return PortaBreakSemantics.ResolveBreakKind(action) ?? action;
+        }
+
         return action switch
         {
-            "break_suggestion" => "break_suggestion",
             "focus_lock_in_suggestion" => "focus_lock_in_suggestion",
-            "stretch_break_suggestion" => "stretch_break_suggestion",
             _ => string.Empty
         };
     }
 
     private static string ResolveInterventionInteractionKind(string action)
     {
-        return action switch
-        {
-            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion" => "choice_prompt",
-            _ => "status"
-        };
+        return PortaBreakSemantics.IsBreakSuggestionAction(action) || action == "focus_lock_in_suggestion"
+            ? "choice_prompt"
+            : "status";
     }
 
     private static string ResolveInterventionDeliverySurface(string action)
     {
+        if (PortaBreakSemantics.IsBreakSuggestionAction(action)) return "break_overlay";
         return action switch
         {
-            "break_suggestion" or "stretch_break_suggestion" => "break_overlay",
             "focus_lock_in_suggestion" => "widget",
             _ => "toast"
         };
@@ -6764,42 +6768,27 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private static string ResolveInterventionAcceptLabel(string action)
     {
-        return action switch
-        {
-            "break_suggestion" => "Take break",
-            "focus_lock_in_suggestion" => "Yes",
-            "stretch_break_suggestion" => "Take break",
-            _ => string.Empty
-        };
+        if (PortaBreakSemantics.IsBreakSuggestionAction(action)) return "Take break";
+        return action == "focus_lock_in_suggestion" ? "Yes" : string.Empty;
     }
 
     private static string ResolveInterventionDismissLabel(string action)
     {
-        return action switch
-        {
-            "break_suggestion" or "stretch_break_suggestion" => "Skip",
-            "focus_lock_in_suggestion" => "No",
-            _ => string.Empty
-        };
+        if (PortaBreakSemantics.IsBreakSuggestionAction(action)) return "Skip";
+        return action == "focus_lock_in_suggestion" ? "No" : string.Empty;
     }
 
     private static string ResolveInterventionSnoozeLabel(string action)
     {
-        return action switch
-        {
-            "break_suggestion" or "stretch_break_suggestion" => "Snooze",
-            "focus_lock_in_suggestion" => "Later",
-            _ => string.Empty
-        };
+        if (PortaBreakSemantics.IsBreakSuggestionAction(action)) return "Snooze";
+        return action == "focus_lock_in_suggestion" ? "Later" : string.Empty;
     }
 
     private static string ResolveInterventionSuppressLabel(string action)
     {
-        return action switch
-        {
-            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion" => "Turn off this tip",
-            _ => string.Empty
-        };
+        return PortaBreakSemantics.IsBreakSuggestionAction(action) || action == "focus_lock_in_suggestion"
+            ? "Turn off this tip"
+            : string.Empty;
     }
 
     private static bool IsPendingInterventionState(string executionState) =>
@@ -6848,12 +6837,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private static int ResolveInterventionPromptDurationSeconds(AgentControlEvent controlEvent, string action)
     {
-        return action switch
-        {
-            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion"
-                => Math.Clamp(controlEvent.DurationSeconds ?? 120, 30, 300),
-            _ => controlEvent.DurationSeconds ?? 8
-        };
+        return PortaBreakSemantics.IsBreakSuggestionAction(action) || action == "focus_lock_in_suggestion"
+            ? Math.Clamp(controlEvent.DurationSeconds ?? 120, 30, 300)
+            : controlEvent.DurationSeconds ?? 8;
     }
 
     private static int? ResolveInterventionCountdownSeconds(string action)
