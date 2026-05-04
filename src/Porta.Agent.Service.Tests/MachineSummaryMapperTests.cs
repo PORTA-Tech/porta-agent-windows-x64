@@ -86,11 +86,14 @@ public sealed class MachineSummaryMapperTests
             TimestampUtc: nowUtc,
             OverloadLikelihood: 0.41,
             Confidence: 0.86,
-            SustainedAttentionDurationSec: 1800,
+            // SustainedAttentionDurationSec is deliberately set to a different value from
+            // TaskContinuitySeconds to prove the mapper uses task_continuity_seconds from
+            // StateFlagsJson (or TaskContinuitySeconds as fallback), not SustainedAttentionDurationSec.
+            SustainedAttentionDurationSec: 99,
             IdleFragmentationIndex: 0.12,
             FocusAppEntropy: 0.22,
             OverloadActive: false,
-            StateFlagsJson: "{\"schema_ver\":1,\"attention_segment_kind\":\"fragmentation_distraction\",\"attention_segment_seconds\":300,\"distraction_episode_active\":1,\"distraction_episode_seconds\":300,\"pressure_level\":0.63,\"model_confidence\":0.92,\"continuity_confidence\":0.88}",
+            StateFlagsJson: "{\"schema_ver\":1,\"task_continuity_seconds\":1800,\"attention_segment_kind\":\"fragmentation_distraction\",\"attention_segment_seconds\":300,\"distraction_episode_active\":1,\"distraction_episode_seconds\":300,\"pressure_level\":0.63,\"model_confidence\":0.92,\"continuity_confidence\":0.88}",
             ContributorsJson: "{\"schema_ver\":1}",
             CalibrationStage: "calibrated",
             TrustTier: "high",
@@ -234,7 +237,7 @@ public sealed class MachineSummaryMapperTests
             TimestampUtc: nowUtc,
             OverloadLikelihood: 0.2,
             Confidence: 0.8,
-            SustainedAttentionDurationSec: 900,
+            SustainedAttentionDurationSec: 0,
             IdleFragmentationIndex: 0.1,
             FocusAppEntropy: 0.2,
             OverloadActive: false,

@@ -60,11 +60,16 @@ internal sealed class MachineSummaryMapper
         double focusEpisodeQuality = ResolveContinuityConfidence(
             latestState?.StateFlagsJson,
             latestState?.Confidence ?? 0d);
+        // Canonical focus episode duration. Read the StateFlagsJson key first so the
+        // fleet report uses the same source as the local API snapshot; fall back to
+        // the pre-computed AgentLatestStateDetails field. SustainedAttentionDurationSec
+        // is the old whole-session timer and must not be used as a fallback here.
         double focusEpisodeSeconds = Math.Max(
             0d,
-            latestState?.TaskContinuitySeconds
-            ?? latestState?.SustainedAttentionDurationSec
-            ?? 0d);
+            ReadDoubleFlag(
+                latestState?.StateFlagsJson,
+                "task_continuity_seconds",
+                fallback: latestState?.TaskContinuitySeconds ?? 0d));
         string focusEpisodeState = NormalizeContinuityState(latestState?.ContinuityState);
         bool activityDetected = status.KeyboardSignalActive || status.MouseSignalActive;
         string? baseCaptureFailureReason = DeriveBaseCaptureFailureReason(status);
