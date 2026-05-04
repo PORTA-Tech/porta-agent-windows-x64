@@ -1471,34 +1471,39 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
 
         string trimmed = raw.Trim();
-        // These are "everything is normal" messages — no value in showing them in the
-        // compact widget strip; the metrics already communicate the state.
-        return trimmed switch
+        // Filter routine / system-internal messages — only show text that is meaningful
+        // to the user as an explanation of a degraded or abnormal state.
+        if (trimmed is "Today is updating normally." or "Today is updating normally"
+                      or "Overload is elevated." or "Deep work is active.")
         {
-            "Today is updating normally." => string.Empty,
-            "Today is updating normally" => string.Empty,
-            "Overload is elevated." => string.Empty,
-            "Deep work is active." => string.Empty,
-            _ => trimmed
-        };
+            return string.Empty;
+        }
+
+        // Live-session activity facts ("Active now | typing active | mouse active") are
+        // background signal data — the user does not need to see them in the widget strip.
+        if (trimmed.StartsWith("Active now", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("Idle ", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("Watching live", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        return trimmed;
     }
 
     private void UpdateHeaderCaption(UserDesktopWidgetState? state)
     {
+        // Only show the mode badge for meaningful states (DeepWork, Overload, Paused).
+        // Limited mode (action-required) gets no badge either — the critical card explains it.
+        // Routine-degraded (ShowLimitedBadge) is communicated only via the amber border tint
+        // so the badge area stays empty and the full metric strip is visible.
         string caption = state?.Mode switch
         {
             UserDesktopWidgetMode.DeepWork => "Focused",
             UserDesktopWidgetMode.Overload => "Overload",
-            UserDesktopWidgetMode.Limited => "Limited",
             UserDesktopWidgetMode.Paused => "Paused",
             _ => string.Empty
         };
-
-        // Routine-degraded states keep Monitoring mode but show a subtle badge.
-        if (string.IsNullOrEmpty(caption) && state?.ShowLimitedBadge == true)
-        {
-            caption = "Limited";
-        }
 
         _titleText.Text = caption;
         _titleText.Visibility = string.IsNullOrWhiteSpace(caption)

@@ -31,11 +31,21 @@ public partial class App : Application
         _mutex = new Mutex(initiallyOwned: true, name: AppMutexName, createdNew: out bool createdNew);
         if (!createdNew)
         {
-            ControlCenterFileLog.Info("second_instance_signal_existing");
             ControlCenterActivationRequestStore.Save(startupTarget);
-            TrySignalExistingWindow();
-            Shutdown();
-            return;
+            if (TrySignalExistingWindow())
+            {
+                // A live instance received the signal and will foreground itself.
+                ControlCenterFileLog.Info("second_instance_signal_existing");
+                Shutdown();
+                return;
+            }
+
+            // Signal failed — the mutex owner is a dead (orphaned) process.
+            // This happens when the process was force-killed (e.g. during MSI upgrade).
+            // Dispose the stale mutex and take ownership so we can start fresh.
+            ControlCenterFileLog.Info("second_instance_orphaned_mutex_restarting");
+            _mutex.Dispose();
+            _mutex = new Mutex(initiallyOwned: true, name: AppMutexName, createdNew: out _);
         }
 
         ControlCenterActivationRequestStore.Clear();
@@ -116,15 +126,17 @@ public partial class App : Application
         ControlCenterFileLog.Error("dispatcher_unhandled_exception", e.Exception);
     }
 
-    private static void TrySignalExistingWindow()
+    private static bool TrySignalExistingWindow()
     {
         try
         {
             using EventWaitHandle signal = EventWaitHandle.OpenExisting(FocusEventName);
             signal.Set();
+            return true;
         }
         catch
         {
+            return false;
         }
     }
 

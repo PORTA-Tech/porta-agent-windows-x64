@@ -198,7 +198,9 @@ public sealed class UserDesktopWidgetWindowTests
             // Metrics stay visible — routine limited is not a takeover.
             Assert.Equal(Visibility.Visible, metricsPanel.Visibility);
             Assert.Equal(Visibility.Collapsed, messageCard.Visibility);
-            Assert.Equal("Limited", titleText.Text);
+            // Routine degraded no longer shows "Limited" text in the badge area —
+            // the amber border tint already signals it without consuming header space.
+            Assert.Equal(string.Empty, titleText.Text);
             // Status rail IS shown for non-routine status text (useful-first behavior).
             Assert.Equal(Visibility.Visible, summaryMetaPanel.Visibility);
             Assert.Equal("Limited: partial capture. Retrying full input.", summaryStatusText.Text);
