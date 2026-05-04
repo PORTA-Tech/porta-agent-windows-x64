@@ -3,7 +3,7 @@
     <OutputName>AriAgentInstaller</OutputName>
     <Platform>x64</Platform>
     <InstallerPlatform>x64</InstallerPlatform>
-    <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.47</ProductVersion>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">1.2.0</ProductVersion>
     <UpgradeCode>3f3d99ec-79c5-4721-b45e-7fb15be6dd62</UpgradeCode>
     <AriBackendUrlDefault Condition="'$(AriBackendUrlDefault)' == ''">https://porta-control-plane.onrender.com</AriBackendUrlDefault>
     <AriExeSource Condition="'$(AriExeSource)' == ''">$(MSBuildProjectDirectory)\payload\ari.exe</AriExeSource>
