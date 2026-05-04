@@ -4865,7 +4865,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             ?? DefaultBreakPolicySettings();
         string policyVersion = policyEnvelope?.Version ?? "local-default";
         string action = string.IsNullOrWhiteSpace(decision.Action)
-            ? "break_suggestion"
+            ? PortaBreakSemantics.LongBreakKind
             : decision.Action.Trim().ToLowerInvariant();
         string whyJson = BuildBreakSuggestionWhyJson(
             inputBucket,
@@ -6029,9 +6029,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private static bool IsSuggestionAction(string action)
     {
-        return string.Equals(action, "break_suggestion", StringComparison.Ordinal)
-            || string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal)
-            || string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal);
+        return PortaBreakSemantics.IsBreakSuggestionAction(action)
+            || string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal);
     }
 
     private static bool IsSystemAction(string action)
@@ -6047,11 +6046,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return NormalizeDomain(domain) switch
         {
             "focus" => "focus_lock_in_suggestion",
-            "fatigue" => "stretch_break_suggestion",
-            "overload" => "break_suggestion",
+            "fatigue" => PortaBreakSemantics.ShortBreakKind,
+            "overload" => PortaBreakSemantics.LongBreakKind,
             _ when string.Equals(fallbackAction, "focus_assist_enabled", StringComparison.Ordinal) => "focus_lock_in_suggestion",
-            _ when string.Equals(fallbackAction, "fatigue_relief_enabled", StringComparison.Ordinal) => "stretch_break_suggestion",
-            _ => "break_suggestion"
+            _ when PortaBreakSemantics.IsBreakSuggestionAction(fallbackAction)
+                => PortaBreakSemantics.ResolveBreakKind(fallbackAction) ?? PortaBreakSemantics.ShortBreakKind,
+            _ => PortaBreakSemantics.LongBreakKind
         };
     }
 
@@ -6071,7 +6071,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             "overload" => "inform_overload_risk",
             _ when string.Equals(fallbackAction, "focus_lock_in_suggestion", StringComparison.Ordinal)
                 || string.Equals(fallbackAction, "focus_assist_enabled", StringComparison.Ordinal) => "inform_focus_protection",
-            _ when string.Equals(fallbackAction, "stretch_break_suggestion", StringComparison.Ordinal)
+            _ when (PortaBreakSemantics.IsBreakSuggestionAction(fallbackAction)
+                    && string.Equals(PortaBreakSemantics.ResolveBreakKind(fallbackAction), PortaBreakSemantics.ShortBreakKind, StringComparison.Ordinal))
                 || string.Equals(fallbackAction, "fatigue_relief_enabled", StringComparison.Ordinal) => "inform_fatigue_prevention",
             _ => "inform_overload_risk"
         };
@@ -6091,14 +6092,19 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             return "focus";
         }
 
-        if (string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal)
-            || string.Equals(action, "fatigue_relief_enabled", StringComparison.Ordinal)
+        if (PortaBreakSemantics.IsBreakSuggestionAction(action)
+            && string.Equals(PortaBreakSemantics.ResolveBreakKind(action), PortaBreakSemantics.ShortBreakKind, StringComparison.Ordinal))
+        {
+            return "fatigue";
+        }
+
+        if (string.Equals(action, "fatigue_relief_enabled", StringComparison.Ordinal)
             || string.Equals(action, "inform_fatigue_prevention", StringComparison.Ordinal))
         {
             return "fatigue";
         }
 
-        if (string.Equals(action, "break_suggestion", StringComparison.Ordinal)
+        if (PortaBreakSemantics.IsBreakSuggestionAction(action)
             || string.Equals(action, "focus_mode_enabled", StringComparison.Ordinal)
             || string.Equals(action, "temporary_app_restriction_enabled", StringComparison.Ordinal)
             || string.Equals(action, "inform_overload_risk", StringComparison.Ordinal))
@@ -6137,7 +6143,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             return ("fatigue", snapshot.FatigueProbability);
         }
 
-        if (string.Equals(snapshot.LastAction, "break_suggestion", StringComparison.Ordinal))
+        if (PortaBreakSemantics.IsBreakSuggestionAction(snapshot.LastAction))
         {
             return ("fatigue", snapshot.FatigueProbability);
         }
@@ -6172,10 +6178,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             return ("focus", snapshot.FocusStrength);
         }
 
-        if (string.Equals(snapshot.LastAction, "stretch_break_suggestion", StringComparison.Ordinal))
-        {
-            return ("fatigue", snapshot.FatigueProbability);
-        }
+        // stretch_break_suggestion kept for historical events before Step 12 migration.
+        // Canonical short_break is already handled by the IsBreakSuggestionAction check above.
 
         if (string.Equals(snapshot.LastAction, "inform_fatigue_prevention", StringComparison.Ordinal))
         {
@@ -6219,17 +6223,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             return "Nudge";
         }
 
-        if (string.Equals(action, "break_suggestion", StringComparison.Ordinal))
-        {
-            return "Suggest";
-        }
-
-        if (string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal))
-        {
-            return "Suggest";
-        }
-
-        if (string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal))
+        if (PortaBreakSemantics.IsBreakSuggestionAction(action)
+            || string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal))
         {
             return "Suggest";
         }
@@ -6267,17 +6262,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             return 600;
         }
 
-        if (string.Equals(action, "break_suggestion", StringComparison.Ordinal))
-        {
-            return 300;
-        }
-
-        if (string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal))
-        {
-            return 300;
-        }
-
-        if (string.Equals(action, "stretch_break_suggestion", StringComparison.Ordinal))
+        if (PortaBreakSemantics.IsBreakSuggestionAction(action)
+            || string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal))
         {
             return 300;
         }
@@ -6328,11 +6314,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             return PortaActionSemantics.DescribePolicyIntent(action, lifecycleState);
         }
 
+        string? breakKind = PortaBreakSemantics.ResolveBreakKind(action);
+        if (breakKind == PortaBreakSemantics.LongBreakKind) return "Long break suggestion displayed to user.";
+        if (breakKind == PortaBreakSemantics.ShortBreakKind) return "Short break suggestion displayed to user.";
         return action switch
         {
-            "break_suggestion" => "Long break suggestion displayed to user.",
             "focus_lock_in_suggestion" => "Focus lock-in suggestion displayed to user.",
-            "stretch_break_suggestion" => "Short break suggestion displayed to user.",
             "inform_overload_risk" => "Overload risk logged for transparency; no direct system setting changed.",
             "inform_focus_protection" => "Focus protection signal logged for transparency; no direct system setting changed.",
             "inform_fatigue_prevention" => "Fatigue prevention signal logged for transparency; no direct system setting changed.",
@@ -6347,10 +6334,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             return "No action required. PORTA already attempted automatic reversal.";
         }
 
+        if (PortaBreakSemantics.IsBreakSuggestionAction(action)
+            || string.Equals(action, "focus_lock_in_suggestion", StringComparison.Ordinal))
+        {
+            return "Dismiss the suggestion overlay or wait for auto-expiry.";
+        }
+
         return action switch
         {
-            "break_suggestion" or "focus_lock_in_suggestion" or "stretch_break_suggestion"
-                => "Dismiss the suggestion overlay or wait for auto-expiry.",
             "inform_overload_risk" or "inform_focus_protection" or "inform_fatigue_prevention"
                 => "No undo required; this action is informational only.",
             _ when reversible

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Porta.Agent.Common;
 
 namespace Porta.Agent.Core;
 
@@ -652,9 +653,11 @@ public sealed class AgentCuratedVideoTraceBuilder
         {
             "deep_work_notifications_suppressed" => 6.0d,
             "overload_brightness_reduced" => 6.0d,
-            "break_suggestion" => 5.0d,
+            PortaBreakSemantics.LongBreakKind => 5.0d,
+            PortaBreakSemantics.LegacyLongBreakAction => 5.0d,
             "focus_lock_in_suggestion" => 5.0d,
-            "stretch_break_suggestion" => 4.5d,
+            PortaBreakSemantics.ShortBreakKind => 4.5d,
+            PortaBreakSemantics.LegacyShortBreakAction => 4.5d,
             "deep_work_notifications_restored" => 4.0d,
             "overload_brightness_restored" => 4.0d,
             _ when normalized.EndsWith("_failed", StringComparison.Ordinal) => 2.0d,

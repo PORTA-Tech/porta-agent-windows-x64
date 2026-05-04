@@ -2203,11 +2203,9 @@ public partial class MainWindow : Window
             return $"Live session is idle ({FormatAgeLabel(liveSession.idle_seconds)}) | {lastInputText} | {sessionText}";
         }
 
-        string focusText = !string.IsNullOrWhiteSpace(liveSession.focus_app_hash)
-            ? "focused now"
-            : liveSession.user_active
-                ? "user active"
-                : "watching live session";
+        string focusText = liveSession.user_active
+            ? "active now"
+            : "watching live";
         string typingText = liveSession.keyboard_active ? "typing active" : "typing idle";
         string mouseText = liveSession.mouse_active ? "mouse active" : "mouse idle";
         return $"{focusText} | {typingText} | {mouseText} | {lastInputText} | {sessionText}";
@@ -2227,11 +2225,7 @@ public partial class MainWindow : Window
             return $"Current status: typing idle, mouse idle, idle {FormatAgeLabel(liveSession.idle_seconds)}, {lastInputText}, {sessionText}.";
         }
 
-        string focusText = !string.IsNullOrWhiteSpace(liveSession.focus_app_hash)
-            ? "focused now"
-            : liveSession.user_active
-                ? "user active"
-                : "watching";
+        string focusText = liveSession.user_active ? "active now" : "watching";
         return $"Current status: typing {(liveSession.keyboard_active ? "active" : "idle")}, mouse {(liveSession.mouse_active ? "active" : "idle")}, {focusText}, {lastInputText}, {sessionText}.";
     }
 
