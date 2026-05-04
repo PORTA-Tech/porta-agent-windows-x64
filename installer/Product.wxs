@@ -36,6 +36,18 @@
                            Timeout="10"
                            TerminateProcess="0" />
 
+    <!-- Force-stop the Ari Agent service process before file replacement.
+         ServiceControl Stop alone does not guarantee the file lock is released
+         in time. This ensures ari.exe is terminated so the MSI can overwrite it. -->
+    <util:CloseApplication Id="CloseAriAgentProcess"
+                           Target="ari.exe"
+                           Description="Stopping the Ari Agent service process before upgrade."
+                           CloseMessage="no"
+                           ElevatedCloseMessage="yes"
+                           RebootPrompt="no"
+                           Timeout="30"
+                           TerminateProcess="5" />
+
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Ari">
         <Component Id="AriExeComponent" Guid="0364a772-0f3d-4440-a3df-89fcfd474226">

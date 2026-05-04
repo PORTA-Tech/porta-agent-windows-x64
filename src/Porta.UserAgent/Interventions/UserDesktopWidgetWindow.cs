@@ -19,9 +19,9 @@ internal sealed class UserDesktopWidgetWindow : Window
     private const int WindowLifecycleOpen = 0;
     private const int WindowLifecycleClosing = 1;
     private const int WindowLifecycleClosed = 2;
-    private const double ExpandedWidth = 280d;
+    private const double ExpandedWidth = 300d;
     private const double CollapsedWidth = 24d;
-    private const double BaseHeight = 30d;
+    private const double BaseHeight = 34d;
     private const double CollapsedHeight = 24d;
     private const double TopMargin = 16d;
     private const double RightMargin = 16d;
@@ -44,7 +44,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly StackPanel _expandedStack;
     private readonly Grid _headerRow;
     private readonly Border _headerDragSurface;
-    private readonly StackPanel _metricsPanel;
+    private readonly Grid _metricsPanel;
     private readonly StackPanel _summaryMetaPanel;
     private readonly Border _titleBadge;
     private readonly TextBlock _titleText;
@@ -210,59 +210,32 @@ internal sealed class UserDesktopWidgetWindow : Window
         Grid.SetColumn(_expandedStack, 0);
         bodyGrid.Children.Add(_expandedStack);
 
+        // Header layout: [drag+badge | metrics | menu]
+        // Menu is on the RIGHT so it doesn't push the metric chips.
+        // Metrics occupy the star column so all three chips always fill the available space.
         _headerRow = new Grid
         {
             Margin = new Thickness(0)
         };
-        _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });          // col 0: drag + badge
+        _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // col 1: metrics
+        _headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });          // col 2: menu
         _expandedStack.Children.Add(_headerRow);
-
-        _menuButton = new Button
-        {
-            Width = 16,
-            Height = 16,
-            Padding = new Thickness(0),
-            BorderThickness = new Thickness(1),
-            Background = new SolidColorBrush(Color.FromRgb(28, 35, 43)),
-            Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
-            Cursor = Cursors.Hand,
-            Focusable = false,
-            FocusVisualStyle = null,
-            Template = CreateFlatButtonTemplate(
-                cornerRadius: new CornerRadius(8),
-                hoverBackground: Color.FromRgb(36, 45, 55),
-                hoverBorder: Color.FromRgb(67, 82, 99),
-                pressedBackground: Color.FromRgb(22, 29, 36),
-                pressedBorder: Color.FromRgb(79, 97, 118)),
-            ToolTip = "Widget menu",
-            Content = new TextBlock
-            {
-                Text = "\u2630",
-                FontSize = 9.6,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            }
-        };
-        _menuButton.Click += (_, _) => ToggleMenu();
-        Grid.SetColumn(_menuButton, 0);
-        _headerRow.Children.Add(_menuButton);
 
         _headerDragSurface = new Border
         {
             Background = Brushes.Transparent,
             Cursor = Cursors.SizeAll,
-            Margin = new Thickness(4, 0, 5, 0),
+            Margin = new Thickness(0, 0, 4, 0),
             Padding = new Thickness(0)
         };
         _headerDragSurface.PreviewMouseLeftButtonDown += BeginDragFromHeader;
-        Grid.SetColumn(_headerDragSurface, 1);
+        Grid.SetColumn(_headerDragSurface, 0);
         _headerRow.Children.Add(_headerDragSurface);
 
         Grid dragContent = new();
         dragContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        dragContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        dragContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _headerDragSurface.Child = dragContent;
 
         Border dragHandle = new()
@@ -272,7 +245,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             CornerRadius = new CornerRadius(2),
             Background = new SolidColorBrush(Color.FromRgb(77, 88, 102)),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 2, 0)
+            Margin = new Thickness(0, 0, 3, 0)
         };
         Grid.SetColumn(dragHandle, 0);
         dragContent.Children.Add(dragHandle);
@@ -299,23 +272,59 @@ internal sealed class UserDesktopWidgetWindow : Window
         Grid.SetColumn(_titleBadge, 1);
         dragContent.Children.Add(_titleBadge);
 
-        _metricsPanel = new StackPanel
+        // Metrics: 3 equal star columns so each chip fills 1/3 of the available width.
+        _metricsPanel = new Grid
         {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
-        Grid.SetColumn(_metricsPanel, 2);
+        _metricsPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _metricsPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _metricsPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(_metricsPanel, 1);
         _headerRow.Children.Add(_metricsPanel);
 
         _primaryMetricChip = CreateMetricChip(out _primaryMetricLabelText, out _primaryMetricText);
         _secondaryMetricChip = CreateMetricChip(out _secondaryMetricLabelText, out _secondaryMetricText);
         _tertiaryMetricChip = CreateMetricChip(out _tertiaryMetricLabelText, out _tertiaryMetricText);
-        _secondaryMetricChip.Margin = new Thickness(4, 0, 4, 0);
-        _tertiaryMetricChip.Margin = new Thickness(0);
+        Grid.SetColumn(_primaryMetricChip, 0);
+        Grid.SetColumn(_secondaryMetricChip, 1);
+        Grid.SetColumn(_tertiaryMetricChip, 2);
         _metricsPanel.Children.Add(_primaryMetricChip);
         _metricsPanel.Children.Add(_secondaryMetricChip);
         _metricsPanel.Children.Add(_tertiaryMetricChip);
+
+        _menuButton = new Button
+        {
+            Width = 18,
+            Height = 18,
+            Padding = new Thickness(0),
+            Margin = new Thickness(4, 0, 0, 0),
+            BorderThickness = new Thickness(1),
+            Background = new SolidColorBrush(Color.FromRgb(28, 35, 43)),
+            Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
+            Cursor = Cursors.Hand,
+            Focusable = false,
+            FocusVisualStyle = null,
+            VerticalAlignment = VerticalAlignment.Center,
+            Template = CreateFlatButtonTemplate(
+                cornerRadius: new CornerRadius(9),
+                hoverBackground: Color.FromRgb(36, 45, 55),
+                hoverBorder: Color.FromRgb(67, 82, 99),
+                pressedBackground: Color.FromRgb(22, 29, 36),
+                pressedBorder: Color.FromRgb(79, 97, 118)),
+            ToolTip = "Widget menu",
+            Content = new TextBlock
+            {
+                Text = "\u2630",
+                FontSize = 9.6,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        _menuButton.Click += (_, _) => ToggleMenu();
+        Grid.SetColumn(_menuButton, 2);
+        _headerRow.Children.Add(_menuButton);
 
         _summaryMetaPanel = new StackPanel
         {
@@ -325,9 +334,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         _summaryStatusText = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(180, 193, 208)),
-            FontSize = 7.8,
+            FontSize = 8.0,
             TextWrapping = TextWrapping.Wrap,
-            MaxWidth = ExpandedWidth - 14d
+            MaxWidth = ExpandedWidth - 12d
         };
         _summaryFooterText = new TextBlock
         {
@@ -335,7 +344,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             FontSize = 7.2,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 1, 0, 0),
-            MaxWidth = ExpandedWidth - 14d
+            MaxWidth = ExpandedWidth - 12d
         };
         _summaryMetaPanel.Children.Add(_summaryStatusText);
         _summaryMetaPanel.Children.Add(_summaryFooterText);
@@ -673,46 +682,48 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private static Border CreateMetricChip(out TextBlock labelTextBlock, out TextBlock valueTextBlock)
     {
+        // Vertical layout: label on top (small), value below (large).
+        // No fixed width — each chip expands to fill its Grid column (1/3 of the metrics panel).
         labelTextBlock = new TextBlock
         {
-            Foreground = new SolidColorBrush(Color.FromRgb(147, 161, 177)),
-            FontSize = 6.1,
+            Foreground = new SolidColorBrush(Color.FromRgb(130, 148, 167)),
+            FontSize = 6.2,
             FontWeight = FontWeights.Medium,
+            TextAlignment = TextAlignment.Center,
             TextWrapping = TextWrapping.NoWrap,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 3, 0),
-            MaxWidth = 30d
+            HorizontalAlignment = HorizontalAlignment.Center
         };
 
         valueTextBlock = new TextBlock
         {
             Foreground = new SolidColorBrush(Color.FromRgb(236, 241, 246)),
-            FontSize = 13.8,
+            FontSize = 12.5,
             FontWeight = FontWeights.Bold,
-            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
             TextWrapping = TextWrapping.NoWrap,
-            MaxWidth = 54d
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            HorizontalAlignment = HorizontalAlignment.Center
         };
 
-        DockPanel contentPanel = new()
+        StackPanel stack = new()
         {
+            Orientation = Orientation.Vertical,
+            HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
-        DockPanel.SetDock(labelTextBlock, Dock.Left);
-        contentPanel.Children.Add(labelTextBlock);
-        contentPanel.Children.Add(valueTextBlock);
+        stack.Children.Add(labelTextBlock);
+        stack.Children.Add(valueTextBlock);
 
         return new Border
         {
-            Width = 78d,
             Background = Brushes.Transparent,
             BorderBrush = Brushes.Transparent,
             BorderThickness = new Thickness(0),
-            CornerRadius = new CornerRadius(0),
-            Padding = new Thickness(0),
-            Margin = new Thickness(0),
-            Child = contentPanel
+            Padding = new Thickness(2, 1, 2, 1),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = stack
         };
     }
 

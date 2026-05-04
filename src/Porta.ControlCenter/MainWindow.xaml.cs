@@ -1353,9 +1353,8 @@ public partial class MainWindow : Window
         NowFocusChoppinessText.Text = !string.IsNullOrWhiteSpace(visualState.EpisodeStatusText)
             ? visualState.EpisodeStatusText
             : BuildTodayCurrentFocusSupportText(liveSession);
-        NowFocusSummaryText.Text = BuildTodayCurrentFocusSummary(todayState, liveSession, visualState);
-        NowFocusFootnoteText.Text = "This matches the widget's last focus metric.";
-        NowFocusFootnoteText.Visibility = Visibility.Visible;
+        NowFocusSummaryText.Visibility = Visibility.Collapsed;
+        NowFocusFootnoteText.Visibility = Visibility.Collapsed;
         NowFocusStatusText.Visibility = Visibility.Collapsed;
     }
 

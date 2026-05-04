@@ -295,7 +295,7 @@ internal static class UserDesktopWidgetStateBuilder
                 LocalMetricDurationFormatter.FormatMetricDuration(todaySummary.DisplayedTrackedTodaySeconds));
         }
 
-        return new UserDesktopWidgetMetric("Work today", "Updating...");
+        return new UserDesktopWidgetMetric("Work today", "—");
     }
 
     private static UserDesktopWidgetMetric BuildLastFocusMetric(
@@ -318,13 +318,13 @@ internal static class UserDesktopWidgetStateBuilder
                 LocalMetricDurationFormatter.FormatMetricDuration(experience.FocusEpisodeSeconds.Value));
         }
 
-        // Live session is fresh but no episode yet: show 0 so the user sees a real value.
+        // Live session is fresh but no analyzed episode yet (warming up): show dash.
         if (experience.LiveSessionFresh)
         {
-            return new UserDesktopWidgetMetric("Last focus session", "0s");
+            return new UserDesktopWidgetMetric("Last focus session", "—");
         }
 
-        return new UserDesktopWidgetMetric("Last focus session", "Updating...");
+        return new UserDesktopWidgetMetric("Last focus session", "—");
     }
 
     private static UserDesktopWidgetMetric BuildOverloadMetric(
@@ -343,7 +343,7 @@ internal static class UserDesktopWidgetStateBuilder
         double? pressure = snapshot?.pressure_level;
         return new UserDesktopWidgetMetric(
             "Pressure",
-            pressure.HasValue ? FormatPercent(pressure.Value) : "Updating...");
+            pressure.HasValue ? FormatPercent(pressure.Value) : "—");
     }
 
     private static string BuildFooterText(

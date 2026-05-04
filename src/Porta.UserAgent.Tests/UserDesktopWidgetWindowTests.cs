@@ -35,7 +35,7 @@ public sealed class UserDesktopWidgetWindowTests
                 CanResume: false,
                 CriticalState: null));
 
-            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            Grid metricsPanel = GetPrivateField<Grid>(window, "_metricsPanel");
             Border messageCard = GetPrivateField<Border>(window, "_messageCard");
             TextBlock primaryMetricLabel = GetPrivateField<TextBlock>(window, "_primaryMetricLabelText");
             TextBlock primaryMetricValue = GetPrivateField<TextBlock>(window, "_primaryMetricText");
@@ -47,8 +47,8 @@ public sealed class UserDesktopWidgetWindowTests
             Assert.Equal("5h 14m", primaryMetricValue.Text);
             // "Today is updating normally." is filtered — nothing to show in the status rail.
             Assert.Equal(Visibility.Collapsed, summaryMetaPanel.Visibility);
-            Assert.True(window.Width <= 280d);
-            Assert.True(window.Height <= 50d);
+            Assert.True(window.Width <= 300d);
+            Assert.True(window.Height <= 54d);
         });
     }
 
@@ -63,8 +63,8 @@ public sealed class UserDesktopWidgetWindowTests
                 _ => { },
                 new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
 
-            Assert.True(window.Width <= 280d);
-            Assert.True(window.Height <= 32d);
+            Assert.True(window.Width <= 300d);
+            Assert.True(window.Height <= 36d);
         });
     }
 
@@ -108,12 +108,14 @@ public sealed class UserDesktopWidgetWindowTests
             window.ApplyState(BuildSummaryState());
 
             Grid headerRow = GetPrivateField<Grid>(window, "_headerRow");
-            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            Grid metricsPanel = GetPrivateField<Grid>(window, "_metricsPanel");
             Border headerDragSurface = GetPrivateField<Border>(window, "_headerDragSurface");
 
             Assert.Same(headerRow, VisualTreeHelper.GetParent(metricsPanel));
             Assert.Same(headerRow, VisualTreeHelper.GetParent(headerDragSurface));
-            Assert.Equal(2, Grid.GetColumn(metricsPanel));
+            // Metrics are in col 1 (star); drag is col 0; menu is col 2 (rightmost)
+            Assert.Equal(1, Grid.GetColumn(metricsPanel));
+            Assert.Equal(0, Grid.GetColumn(headerDragSurface));
         });
     }
 
@@ -149,7 +151,7 @@ public sealed class UserDesktopWidgetWindowTests
                     TertiaryAction: UserDesktopWidgetAction.OpenSettings,
                     TertiaryLabel: "Settings")));
 
-            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            Grid metricsPanel = GetPrivateField<Grid>(window, "_metricsPanel");
             Border messageCard = GetPrivateField<Border>(window, "_messageCard");
             TextBlock messageTitle = GetPrivateField<TextBlock>(window, "_messageTitleText");
             Button primaryActionButton = GetPrivateField<Button>(window, "_messagePrimaryButton");
@@ -180,14 +182,14 @@ public sealed class UserDesktopWidgetWindowTests
                 StatusText: "Limited: partial capture. Retrying full input.",
                 MessageSeverity: UserDesktopWidgetMessageSeverity.Warning,
                 FooterText: "Confidence High | Tracking quality limited",
-                PrimaryMetric: new UserDesktopWidgetMetric("Work today", "Updating..."),
+                PrimaryMetric: new UserDesktopWidgetMetric("Work today", "—"),
                 SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "6m"),
                 TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "48%"),
                 CanPause: true,
                 CanResume: false,
                 CriticalState: null));
 
-            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            Grid metricsPanel = GetPrivateField<Grid>(window, "_metricsPanel");
             Border messageCard = GetPrivateField<Border>(window, "_messageCard");
             TextBlock titleText = GetPrivateField<TextBlock>(window, "_titleText");
             StackPanel summaryMetaPanel = GetPrivateField<StackPanel>(window, "_summaryMetaPanel");
@@ -221,7 +223,7 @@ public sealed class UserDesktopWidgetWindowTests
                 MessageSeverity: UserDesktopWidgetMessageSeverity.Neutral,
                 FooterText: "Confidence updating | Tracking quality updating",
                 PrimaryMetric: new UserDesktopWidgetMetric("Work today", string.Empty),
-                SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "Updating..."),
+                SecondaryMetric: new UserDesktopWidgetMetric("Last focus session", "—"),
                 TertiaryMetric: new UserDesktopWidgetMetric("Pressure", "Updating..."),
                 CanPause: false,
                 CanResume: false,
@@ -247,7 +249,7 @@ public sealed class UserDesktopWidgetWindowTests
             window.ApplyState(BuildSummaryState());
             InvokePrivateMethod(window, "Collapse");
 
-            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            Grid metricsPanel = GetPrivateField<Grid>(window, "_metricsPanel");
             StackPanel summaryMetaPanel = GetPrivateField<StackPanel>(window, "_summaryMetaPanel");
             Border headerDragSurface = GetPrivateField<Border>(window, "_headerDragSurface");
             Button menuButton = GetPrivateField<Button>(window, "_menuButton");
@@ -352,7 +354,7 @@ public sealed class UserDesktopWidgetWindowTests
             InvokePrivateMethod(window, "Collapse");
 
             Assert.False(GetPrivateField<bool>(window, "_collapsed"));
-            Assert.Equal(Visibility.Visible, GetPrivateField<StackPanel>(window, "_metricsPanel").Visibility);
+            Assert.Equal(Visibility.Visible, GetPrivateField<Grid>(window, "_metricsPanel").Visibility);
         });
     }
 
@@ -392,7 +394,7 @@ public sealed class UserDesktopWidgetWindowTests
             InvokePrivateMethod(window, "Expand");
 
             Assert.False(GetPrivateField<bool>(window, "_collapsed"));
-            Assert.Equal(Visibility.Visible, GetPrivateField<StackPanel>(window, "_metricsPanel").Visibility);
+            Assert.Equal(Visibility.Visible, GetPrivateField<Grid>(window, "_metricsPanel").Visibility);
             Assert.Equal(Visibility.Collapsed, GetPrivateField<StackPanel>(window, "_summaryMetaPanel").Visibility);
             Assert.Equal(Visibility.Collapsed, GetPrivateField<Border>(window, "_messageCard").Visibility);
         });
@@ -421,7 +423,7 @@ public sealed class UserDesktopWidgetWindowTests
                 SuppressLabel: "Hide suggestions",
                 DurationSeconds: 60));
 
-            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            Grid metricsPanel = GetPrivateField<Grid>(window, "_metricsPanel");
             Border messageCard = GetPrivateField<Border>(window, "_messageCard");
             TextBlock messageTitle = GetPrivateField<TextBlock>(window, "_messageTitleText");
             Button primaryActionButton = GetPrivateField<Button>(window, "_messagePrimaryButton");
@@ -450,7 +452,7 @@ public sealed class UserDesktopWidgetWindowTests
             window.PresentAttention("Focus drift", "Ari noticed your context changed. The summary should return after this message clears.");
 
             Border messageCard = GetPrivateField<Border>(window, "_messageCard");
-            StackPanel metricsPanel = GetPrivateField<StackPanel>(window, "_metricsPanel");
+            Grid metricsPanel = GetPrivateField<Grid>(window, "_metricsPanel");
             TextBlock messageTitle = GetPrivateField<TextBlock>(window, "_messageTitleText");
 
             Assert.Equal(Visibility.Visible, messageCard.Visibility);
