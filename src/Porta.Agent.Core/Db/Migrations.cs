@@ -8,7 +8,7 @@ namespace Porta.Agent.Core.Db;
 
 internal static class Migrations
 {
-    private const int LatestSchemaVersion = 18;
+    private const int LatestSchemaVersion = 19;
 
     private static readonly MigrationStep[] OrderedSteps =
     [
@@ -83,7 +83,11 @@ internal static class Migrations
         new(
             Version: 18,
             Name: "interventions_delivery_contract_v18",
-            Apply: Schema.ApplyInterventionsDeliveryContractV18)
+            Apply: Schema.ApplyInterventionsDeliveryContractV18),
+        new(
+            Version: 19,
+            Name: "brain_snapshots_cleanup_vacuum_v19",
+            Apply: Schema.ApplyBrainSnapshotsCleanupV19)
     ];
 
     internal static void Migrate(SqliteConnection connection)

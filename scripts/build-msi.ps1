@@ -182,7 +182,7 @@ function Sign-MsiIfConfigured {
 
 Write-Host "Publishing ari.exe ($Configuration, $Runtime)..."
 Restore-ProjectForRuntime -ProjectPath $serviceProject -Runtime $Runtime
-dotnet publish $serviceProject -c $Configuration -r $Runtime --self-contained true /p:PublishSingleFile=true
+dotnet publish $serviceProject -c $Configuration -r $Runtime --self-contained true /p:PublishSingleFile=false
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE."
 }

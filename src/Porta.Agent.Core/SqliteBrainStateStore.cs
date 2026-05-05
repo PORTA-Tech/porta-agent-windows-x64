@@ -423,7 +423,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     policyEnvelope);
                 UpsertPrimitiveBucket(connection, tx, primitiveRow);
                 UpsertStateBucket(connection, tx, stateRow);
-                InsertLegacySnapshot(connection, tx, inferredSnapshot);
+                // InsertLegacySnapshot removed: ReadTimeline now reads from state_buckets
+                // directly (Step 9). brain_snapshots is no longer written to; a migration
+                // deletes all existing rows and runs VACUUM to reclaim disk space.
                 bool breakInserted = TryInsertBreakSuggestionPolicyEvent(
                     connection,
                     tx,
@@ -7275,7 +7277,6 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             DELETE FROM settings WHERE timestamp_utc < $cutoff;
             DELETE FROM interventions WHERE timestamp_utc < $cutoff;
             DELETE FROM diagnostics_snapshots WHERE timestamp_utc < $cutoff;
-            DELETE FROM brain_snapshots WHERE timestamp_utc < $cutoff;
             """;
         cmd.Parameters.AddWithValue("$cutoff", cutoffRaw);
         cmd.ExecuteNonQuery();

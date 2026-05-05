@@ -583,7 +583,8 @@ public sealed class UserDesktopWidgetStateBuilderTests
             nowUtc: nowUtc);
 
         AssertMetric(state.PrimaryMetric, "Work today", "—");
-        AssertMetric(state.SecondaryMetric, "Last focus session", "—");
+        // Live session has been running 11 min — shown as proxy until first bucket analyzes.
+        AssertMetric(state.SecondaryMetric, "Last focus session", "11m");
         AssertMetric(state.TertiaryMetric, "Pressure", "50%");
         Assert.Equal("Confidence High | Tracking quality pending", state.FooterText);
     }

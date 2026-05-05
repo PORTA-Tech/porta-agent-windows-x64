@@ -424,6 +424,28 @@ internal static class Schema
         }
     }
 
+    internal static void ApplyBrainSnapshotsCleanupV19(SqliteConnection connection)
+    {
+        // brain_snapshots was written at the 5-second pipeline cadence (~17 000 rows/day).
+        // ReadTimeline now reads from state_buckets (Step 9), so brain_snapshots is no
+        // longer needed and can be purged. Deleting it and running VACUUM recovers roughly
+        // 1 GB of disk space on a typical installation and removes a major source of
+        // write-amplification that was slowing the service down.
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = "DELETE FROM brain_snapshots;";
+            cmd.ExecuteNonQuery();
+        }
+
+        // VACUUM outside a transaction to compact the file on disk.
+        // This runs once, blocks the service for a few seconds, and is worth it.
+        using (var vacuumCmd = connection.CreateCommand())
+        {
+            vacuumCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE); VACUUM;";
+            vacuumCmd.ExecuteNonQuery();
+        }
+    }
+
     internal static void ApplyContractSchemaV3(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

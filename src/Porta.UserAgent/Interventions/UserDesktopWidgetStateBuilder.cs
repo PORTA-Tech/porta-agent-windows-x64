@@ -318,10 +318,18 @@ internal static class UserDesktopWidgetStateBuilder
                 LocalMetricDurationFormatter.FormatMetricDuration(experience.FocusEpisodeSeconds.Value));
         }
 
-        // Live session is fresh but no analyzed episode yet (warming up): show dash.
-        if (experience.LiveSessionFresh)
+        // Live session is fresh but no analyzed episode yet (warming up).
+        // Show the live session elapsed time so the user sees something real immediately;
+        // this is replaced by the durable episode duration once the first bucket analyzes.
+        if (experience.LiveSessionFresh && liveSession?.SessionStartedAtUtc.HasValue == true)
         {
-            return new UserDesktopWidgetMetric("Last focus session", "—");
+            double sessionElapsed = (DateTimeOffset.UtcNow - liveSession.SessionStartedAtUtc!.Value).TotalSeconds;
+            if (sessionElapsed >= 10d)
+            {
+                return new UserDesktopWidgetMetric(
+                    "Last focus session",
+                    LocalMetricDurationFormatter.FormatMetricDuration(sessionElapsed));
+            }
         }
 
         return new UserDesktopWidgetMetric("Last focus session", "—");

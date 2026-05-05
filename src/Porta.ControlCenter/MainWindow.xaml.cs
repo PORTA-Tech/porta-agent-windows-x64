@@ -526,7 +526,13 @@ public partial class MainWindow : Window
             _fourHourTimeline = PreferFreshTimeline(
                 _fourHourTimeline,
                 await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddHours(-4), DateTimeOffset.UtcNow, 15).ConfigureAwait(true));
-            _retention = await _apiClient.GetDataRetentionAsync().ConfigureAwait(true);
+            var freshRetention = await _apiClient.GetDataRetentionAsync().ConfigureAwait(true);
+            // Keep any previously loaded retention so history doesn't go blank if the
+            // API call is temporarily slow or returns null (e.g. service warming up).
+            if (freshRetention != null)
+            {
+                _retention = freshRetention;
+            }
             if (ShouldRefreshAllTimeTimeline(forceSlowRefresh))
             {
                 _allTimeTimeline = PreferFreshTimeline(
@@ -1139,7 +1145,8 @@ public partial class MainWindow : Window
 
     private bool ShouldRefreshAllTimeTimeline(bool forceSlowRefresh)
     {
-        if (_retention == null || _retention.RetentionDays <= 0)
+        int retentionCheck = _retention?.RetentionDays ?? 90;
+        if (retentionCheck <= 0)
         {
             return false;
         }
@@ -1160,12 +1167,8 @@ public partial class MainWindow : Window
 
     private async Task<LocalApiTimelineResponse?> GetAllTimeTimelineAsync(DateTimeOffset nowUtc)
     {
-        if (_retention == null || _retention.RetentionDays <= 0)
-        {
-            return null;
-        }
-
-        int retentionDays = Math.Max(1, _retention.RetentionDays);
+        // Fall back to 90 days when _retention hasn't loaded yet so history doesn't stay blank.
+        int retentionDays = Math.Max(1, _retention?.RetentionDays ?? 90);
         DateTimeOffset fromUtc = nowUtc.AddDays(-retentionDays);
         int bucketSeconds = ResolveAllTimeBucketSeconds(retentionDays);
         return await _apiClient.GetTimelineAsync(fromUtc, nowUtc, bucketSeconds).ConfigureAwait(true);
