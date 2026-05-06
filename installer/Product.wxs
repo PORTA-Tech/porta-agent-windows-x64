@@ -36,10 +36,32 @@
                            Timeout="10"
                            TerminateProcess="0" />
 
-    <!-- ari.exe is a Windows service — ServiceControl Stop="both" Wait="yes" (below)
-         handles process termination cleanly via the SCM. A separate CloseApplication
-         kill here triggers SCM recovery (restart after N seconds), causing ari.exe to
-         respawn and re-lock the file before InstallFiles can replace it. -->
+    <!-- Disable SCM recovery for AriAgent before stopping it.
+         Without this, the SCM auto-restarts ari.exe after the stop-timeout force-kill,
+         re-locking the file before InstallFiles can replace it.
+         WixQuietExec runs the sc.exe command elevated and deferred, before StopServices.
+         ServiceConfig on the new component re-enables recovery after install. -->
+    <SetProperty Id="WixQuietExecCmdLine"
+                 Value='"[System64Folder]sc.exe" failure AriAgent reset= 0 actions= none'
+                 Before="CM_DisableAriRecovery"
+                 Sequence="execute" />
+    <CustomAction Id="CM_DisableAriRecovery"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec64"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <!-- After service stop, kill any orphaned ari.exe process so InstallFiles can replace it. -->
+    <util:CloseApplication Id="CloseAriAgentProcess"
+                           Target="ari.exe"
+                           Description="Terminating Ari Agent process before file replacement."
+                           CloseMessage="no"
+                           ElevatedCloseMessage="yes"
+                           RebootPrompt="no"
+                           Timeout="15"
+                           TerminateProcess="5" />
+
 
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -157,6 +179,9 @@
                   Return="ignore" />
 
     <InstallExecuteSequence>
+      <!-- Disable SCM recovery before stopping the service, so a stop-timeout force-kill
+           does not trigger an auto-restart that re-locks ari.exe before InstallFiles runs. -->
+      <Custom Action="CM_DisableAriRecovery" Before="StopServices" />
       <Custom Action="LaunchControlCenterAfterInstall"
               After="InstallFinalize"
               Condition="NOT Installed AND NOT WIX_UPGRADE_DETECTED AND UILevel &gt;= 5" />
