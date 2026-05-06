@@ -7293,10 +7293,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private void ScheduleBackgroundVacuumIfNeeded()
     {
-        // Run VACUUM once, 60 seconds after startup, in a background thread.
-        // This reclaims disk space freed by the V19 migration (brain_snapshots purge)
-        // without blocking the service startup or the SCM timeout window.
-        // The flag prevents repeated vacuums on subsequent service restarts.
+        // PASSIVE WAL checkpoint only — no VACUUM, no TRUNCATE.
+        // VACUUM and wal_checkpoint(TRUNCATE) both require exclusive DB access and block
+        // all service reads/writes until they complete. On a large WAL (>1 GB), that
+        // exhausts the .NET thread pool and hangs the HTTP server.
+        // A PASSIVE checkpoint is safe: it copies WAL frames without waiting for any lock.
+        // SQLite's default wal_autocheckpoint=1000 handles routine WAL maintenance.
         if (_backgroundVacuumScheduled)
         {
             return;
@@ -7305,21 +7307,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         _backgroundVacuumScheduled = true;
         _ = Task.Run(async () =>
         {
-            await Task.Delay(TimeSpan.FromSeconds(60)).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMinutes(5)).ConfigureAwait(false);
             try
             {
                 using var connection = DbOpen.OpenConnection(_connectionString);
                 using var cmd = connection.CreateCommand();
-                cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                cmd.CommandText = "PRAGMA wal_checkpoint(PASSIVE);";
                 cmd.ExecuteNonQuery();
-                using var vacuum = connection.CreateCommand();
-                vacuum.CommandText = "VACUUM;";
-                vacuum.ExecuteNonQuery();
-                Console.WriteLine("[SqliteBrainStateStore] Background VACUUM completed.");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[SqliteBrainStateStore] Background VACUUM failed: {ex.Message}");
+                Console.WriteLine($"[SqliteBrainStateStore] WAL checkpoint failed: {ex.Message}");
             }
         });
     }
