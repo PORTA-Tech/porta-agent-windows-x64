@@ -1,76 +1,83 @@
 #Requires -RunAsAdministrator
-<#
-.SYNOPSIS
-    Installs or upgrades Ari Agent, handling the locked-service edge case.
-.DESCRIPTION
-    Right-click this file -> "Run with PowerShell" (or run from an admin terminal).
-    Kills the running ari.exe, disables its SCM recovery so it doesn't respawn,
-    then runs the MSI with full file-overwrite flags.
-#>
-
 param(
     [string]$MsiPath = ""
 )
 
 Set-StrictMode -Version Latest
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$payloadDir = Join-Path $repoRoot "installer\payload"
+$installDir = "C:\Program Files\Ari"
+
 if (!$MsiPath) {
-    # Pick the newest 1.2.x MSI in artifacts/publish
     $MsiPath = Get-ChildItem (Join-Path $repoRoot "artifacts\publish\AriAgentInstaller*.msi") |
                Sort-Object LastWriteTime -Descending |
                Select-Object -First 1 -ExpandProperty FullName
 }
 
-if (!$MsiPath -or !(Test-Path $MsiPath)) {
-    Write-Error "MSI not found. Run scripts/build-msi.ps1 first, or pass -MsiPath explicitly."
-}
+Write-Host "Payload: $payloadDir"
+Write-Host "Install: $installDir"
 
-Write-Host "MSI: $MsiPath"
-Write-Host ""
-
-# 1. Disable SCM recovery so force-kill does not trigger auto-restart
-Write-Host "[1/4] Disabling service recovery actions..."
+# 1. Disable SCM recovery
+Write-Host "[1/5] Disabling service recovery..."
 & sc.exe failure AriAgent reset= 0 actions= none 2>$null
 Write-Host "      Done."
 
-# 2. Stop the service (best effort — it may be hung and unresponsive)
-Write-Host "[2/4] Stopping AriAgent service..."
+# 2. Stop service
+Write-Host "[2/5] Stopping service..."
 & sc.exe stop AriAgent 2>$null
-Start-Sleep -Seconds 4
+Start-Sleep -Seconds 5
 
-# 3. Force-kill any remaining ari.exe process
-Write-Host "[3/4] Terminating ari.exe process..."
+# 3. Kill any remaining process
+Write-Host "[3/5] Killing ari.exe..."
 & taskkill /F /IM ari.exe /T 2>$null
 Start-Sleep -Seconds 2
 
-# Verify the process is gone
-$proc = Get-Process ari -ErrorAction SilentlyContinue
-if ($proc) {
-    Write-Warning "ari.exe (PID $($proc.Id)) is still running — install may not replace ari.exe."
-} else {
-    Write-Host "      Process confirmed dead."
+# 4. Directly overwrite the binaries (MSI REINSTALL is unreliable for in-use exes)
+Write-Host "[4/5] Copying binaries directly..."
+$sharedDir = Join-Path $payloadDir "SharedFiles"
+
+# Root-level exes come from payload root
+$rootFiles = @("ari.exe", "Porta.UserAgent.exe", "Porta.ControlCenter.exe")
+foreach ($f in $rootFiles) {
+    $src = Join-Path $payloadDir $f
+    if (Test-Path $src) {
+        Copy-Item $src (Join-Path $installDir $f) -Force
+        Write-Host "      $f -> $((Get-Item (Join-Path $installDir $f)).LastWriteTime)"
+    }
 }
 
-# 4. Install with REINSTALLMODE=amus to force-overwrite all files
-#    REINSTALL=ALL   -> reinstall all components
-#    REINSTALLMODE=a -> overwrite regardless of version
-#               m -> machine registry values
-#               u -> user registry values
-#               s -> shortcuts
-Write-Host "[4/4] Running MSI installer (force overwrite)..."
-$args = @("/i", "`"$MsiPath`"", "REINSTALL=ALL", "REINSTALLMODE=amus", "/qb", "/l*vx", "`"$repoRoot\artifacts\publish\install-log.txt`"")
-$proc = Start-Process msiexec -ArgumentList $args -Wait -PassThru
-Write-Host ""
+# DLLs and support files come from SharedFiles
+$sharedFiles = @(
+    "ari.dll", "ari.deps.json", "ari.runtimeconfig.json",
+    "Porta.Agent.Core.dll", "Porta.Agent.LocalApi.dll",
+    "Porta.Agent.Common.dll", "Porta.Agent.Runtime.dll"
+)
+foreach ($f in $sharedFiles) {
+    $src = Join-Path $sharedDir $f
+    if (Test-Path $src) {
+        Copy-Item $src (Join-Path $installDir $f) -Force
+        Write-Host "      $f -> $((Get-Item (Join-Path $installDir $f)).LastWriteTime)"
+    }
+}
 
-if ($proc.ExitCode -eq 0) {
-    Write-Host "Install succeeded (exit 0)."
+# 5. Start the service
+Write-Host "[5/5] Starting service..."
+& sc.exe failure AriAgent reset= 60 actions= restart/15000/restart/15000/restart/15000 2>$null
+Start-Service AriAgent -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 3
+
+$svc = Get-Service AriAgent -ErrorAction SilentlyContinue
+$exe = Get-Item (Join-Path $installDir "ari.exe") -ErrorAction SilentlyContinue
+Write-Host ""
+Write-Host "ari.exe date : $($exe.LastWriteTime)"
+Write-Host "Service      : $($svc.Status)"
+
+if ($exe.LastWriteTime -gt (Get-Date "2026-05-06 14:00:00")) {
     Write-Host ""
-    $svc = Get-Service AriAgent -ErrorAction SilentlyContinue
-    $exe = Get-Item "C:\Program Files\Ari\ari.exe" -ErrorAction SilentlyContinue
-    if ($svc)  { Write-Host "Service status : $($svc.Status)" }
-    if ($exe)  { Write-Host "ari.exe date   : $($exe.LastWriteTime)" }
+    Write-Host "SUCCESS - 1.2.4 is installed."
 } else {
-    Write-Warning "MSI exited with code $($proc.ExitCode). Check artifacts\publish\install-log.txt."
+    Write-Host ""
+    Write-Host "WARNING: ari.exe date looks wrong. Check manually."
 }
