@@ -27,6 +27,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private readonly IRuntimePolicyProvider _runtimePolicyProvider;
     private readonly TimeSpan _retention = TimeSpan.FromDays(DefaultRetentionDays);
     private DateTimeOffset _lastPruneUtc = DateTimeOffset.MinValue;
+    private bool _backgroundVacuumScheduled;
     private string? _lastAutoEventAction;
     private DateTimeOffset _lastAutoEventAtUtc = DateTimeOffset.MinValue;
     private ActiveInterventionState? _activeIntervention;
@@ -118,6 +119,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         EnsureSchema();
         TryReconcileNotificationSuppressionOnStartup();
         TryReconcileBrightnessActionOnStartup();
+        ScheduleBackgroundVacuumIfNeeded();
     }
 
     public string ReadActivePolicyVersion()
@@ -7287,6 +7289,39 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private void EnsureSchema()
     {
         CoreStateDbStartup.InitializeAndMigrate(logPragmasAtBoot: true, dbPathOverride: _dbPath);
+    }
+
+    private void ScheduleBackgroundVacuumIfNeeded()
+    {
+        // Run VACUUM once, 60 seconds after startup, in a background thread.
+        // This reclaims disk space freed by the V19 migration (brain_snapshots purge)
+        // without blocking the service startup or the SCM timeout window.
+        // The flag prevents repeated vacuums on subsequent service restarts.
+        if (_backgroundVacuumScheduled)
+        {
+            return;
+        }
+
+        _backgroundVacuumScheduled = true;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(60)).ConfigureAwait(false);
+            try
+            {
+                using var connection = DbOpen.OpenConnection(_connectionString);
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                cmd.ExecuteNonQuery();
+                using var vacuum = connection.CreateCommand();
+                vacuum.CommandText = "VACUUM;";
+                vacuum.ExecuteNonQuery();
+                Console.WriteLine("[SqliteBrainStateStore] Background VACUUM completed.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SqliteBrainStateStore] Background VACUUM failed: {ex.Message}");
+            }
+        });
     }
 
     private static List<string> DeserializeContributors(string? raw)
