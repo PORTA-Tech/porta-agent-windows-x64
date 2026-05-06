@@ -36,17 +36,11 @@
                            Timeout="10"
                            TerminateProcess="0" />
 
-    <!-- Force-stop the Ari Agent service process before file replacement.
-         ServiceControl Stop alone does not guarantee the file lock is released
-         in time. This ensures ari.exe is terminated so the MSI can overwrite it. -->
-    <util:CloseApplication Id="CloseAriAgentProcess"
-                           Target="ari.exe"
-                           Description="Stopping the Ari Agent service process before upgrade."
-                           CloseMessage="no"
-                           ElevatedCloseMessage="yes"
-                           RebootPrompt="no"
-                           Timeout="30"
-                           TerminateProcess="5" />
+    <!-- ari.exe is a Windows service — ServiceControl Stop="both" Wait="yes" (below)
+         handles process termination cleanly via the SCM. A separate CloseApplication
+         kill here triggers SCM recovery (restart after N seconds), causing ari.exe to
+         respawn and re-lock the file before InstallFiles can replace it. -->
+
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Ari">
