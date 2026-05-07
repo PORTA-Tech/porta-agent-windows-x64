@@ -26,7 +26,7 @@
 
 - Hosts the local HTTP API on `127.0.0.1:17887–17950` (port chosen at install, stored in `C:\ProgramData\PortaAgent\local-api.endpoint.json`).
 - Runs the full signal pipeline: input ingestion → bucket finalization → state inference → snapshot update.
-- Persists everything to SQLite at `C:\ProgramData\PortaAgent\core-state.db` (WAL mode, FULL synchronous).
+- Persists everything to SQLite at `C:\ProgramData\PortaAgent\core-state.db` (WAL mode, NORMAL synchronous, autocheckpoint=100).
 - Auth token stored (DPAPI, LocalMachine scope) at `C:\ProgramData\PortaAgent\security\api_token.bin`. Runtime settings at `C:\ProgramData\PortaAgent\security\local-api.runtime.json`.
 
 ### Porta.UserAgent.exe
@@ -113,7 +113,7 @@ Key tables:
 - `runtime_state` — live service diagnostics
 - `brain_snapshots` — **legacy, emptied by V19 migration, no longer written**
 
-**WAL file** (`core-state.db-wal`) can grow large. The service uses `wal_autocheckpoint=1000` (SQLite default) for passive checkpointing. **Never run `VACUUM` or `wal_checkpoint(TRUNCATE)` from a background thread** — both require exclusive DB access and exhaust the .NET thread pool on large databases, hanging the HTTP server.
+**WAL file** (`core-state.db-wal`) — the service pins `wal_autocheckpoint=100` (~400 KB cap) to keep the WAL small. Windows Defender real-time protection scans the WAL on every write; a large WAL (was 2.46 GB) caused multi-second fsync stalls that exhausted the .NET thread pool and hung the HTTP server. **Never run `VACUUM` or `wal_checkpoint(TRUNCATE)` from a background thread** — both require exclusive DB access and cause the same hang.
 
 ---
 
@@ -148,10 +148,10 @@ $tc.Connect("127.0.0.1", (Get-Content C:\ProgramData\PortaAgent\local-api.endpoi
 
 **Fix:** Install the latest MSI from `artifacts/publish/`.
 
-### Computer is slow after install
-**Cause:** A background VACUUM or `wal_checkpoint(TRUNCATE)` is running. These operations lock the entire SQLite DB exclusively and hammer disk I/O on multi-GB databases.
+### Computer is slow after install / API times out every few minutes
+**Cause:** Either (a) a background VACUUM/TRUNCATE is running (exclusive DB lock, hammers disk), or (b) WAL file grew large and Windows Defender scans it on every write commit (multi-second fsync stall → thread pool exhaustion → HTTP server hangs). Check `core-state.db-wal` size — if >1 MB, the autocheckpoint setting is too high.
 
-**Fix:** Never run VACUUM or TRUNCATE checkpoint from background tasks. Use only `PRAGMA wal_checkpoint(PASSIVE)` if needed.
+**Fix:** Ensure `wal_autocheckpoint=100` is set in `DbOpen.cs`. Never run VACUUM or wal_checkpoint(TRUNCATE) from a background thread. The current service has both of these correct.
 
 ### "Tracking limited" banner always showing
 **Cause:** `freshness_state != "fresh"` — the service hasn't completed a full state refresh cycle recently. Clears automatically after a clean service cycle (~10-30s).
@@ -164,15 +164,34 @@ $tc.Connect("127.0.0.1", (Get-Content C:\ProgramData\PortaAgent\local-api.endpoi
 
 ---
 
-## Version History (recent)
+## SQLite Pragmas (DbOpen.cs — do not change without understanding the chain)
+
+| Pragma | Value | Why |
+|---|---|---|
+| `journal_mode` | `WAL` | Concurrent reads + single writer; required for 5s bucket cadence |
+| `synchronous` | `NORMAL` | One fsync per commit (was FULL=2 fsyncs); safe for WAL, halves write latency |
+| `busy_timeout` | 5000ms writes / 250ms reads | Prevents infinite blocking; reads fail fast and return cached data |
+| `wal_autocheckpoint` | 100 frames | Keeps WAL at ~400 KB; Windows Defender scans the WAL on every write — a 2.46 GB WAL caused 3-8s stalls that hung the HTTP server |
+
+**Never change these without testing under load.** Each change has caused production hangs.
+
+---
+
+## Version History
 
 | Version | Key change |
 |---|---|
-| 1.2.4 | Replace blocking VACUUM/TRUNCATE with safe PASSIVE checkpoint |
-| 1.2.3 | Remove VACUUM from V19 migration (was crashing service in loop) |
-| 1.2.2 | V19 migration: stop writing brain_snapshots, schedule cleanup |
-| 1.2.1 | PublishSingleFile=false (was causing Defender scan hang on first run) |
-| 1.2.0 | Major version bump (1.1.x MSIs existed, causing WiX downgrade rejection) |
+| 1.2.10 | `wal_autocheckpoint=100` keeps WAL at ~400KB, ending Defender-induced stalls |
+| 1.2.9 | Revert 50MB page cache (caused GC pressure); keep NORMAL sync + id/stride |
+| 1.2.8 | `synchronous=NORMAL` for WAL (was FULL — 2 fsyncs per commit); fix PRAGMA/constant mismatch that killed service |
+| 1.2.7 | Fix `ReadTimeline` GROUP BY: use `id/stride` (state_buckets has no bucket_seq column) |
+| 1.2.6 | Fix `ReadTimeline` GROUP BY: bucket_seq → id/stride (wrong column name in 1.2.6) |
+| 1.2.5 | Push timeline bucketing into SQL (`GROUP BY id/stride`); was loading 352K rows into .NET heap → thread pool exhaustion at ~3min |
+| 1.2.4 | Replace blocking VACUUM/TRUNCATE with PASSIVE checkpoint; fix installer CloseApplication race with SCM recovery |
+| 1.2.3 | Remove VACUUM from V19 migration (SQLite forbids VACUUM inside BEGIN IMMEDIATE) |
+| 1.2.2 | V19 migration: stop writing brain_snapshots (3.5 GB table, never read since Step 9) |
+| 1.2.1 | PublishSingleFile=false (was causing Defender to scan 200MB .NET runtime on first run) |
+| 1.2.0 | Version bump to skip 1.1.x MSIs that WiX rejected as downgrade |
 
 ---
 
