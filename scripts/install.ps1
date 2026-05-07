@@ -80,8 +80,8 @@ Write-Host "Service              : $($svc.Status)"
 $cutoff = Get-Date "2026-05-07 08:00:00"
 if ($exe.LastWriteTime -gt $cutoff -and $core.LastWriteTime -gt $cutoff) {
     Write-Host ""
-    Write-Host "SUCCESS - 1.2.5 is installed."
+    Write-Host "SUCCESS - installed (binaries: $($exe.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))."
 } else {
     Write-Host ""
-    Write-Host "WARNING: some files are old. Check the dates above."
+    Write-Host "WARNING: some files may be old. Check the dates above."
 }
