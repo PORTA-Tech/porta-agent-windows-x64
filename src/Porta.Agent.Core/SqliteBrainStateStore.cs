@@ -1338,7 +1338,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         if (bucket > 1)
         {
             // Returns one row per bucket (the last row in each bucket, matching prior behaviour).
-            // julianday arithmetic converts the ISO-8601 timestamp to Unix seconds for grouping.
+            // Uses bucket_seq integer division — vastly faster than julianday() string parsing
+            // which computed a floating-point function for every row in range (352K rows at
+            // 5-10μs each = 3+ seconds, exhausting the thread pool on large time ranges).
+            // bucket_seq is already an integer aligned to Time.bucketSeconds so the division
+            // is a trivial integer op per row.
+            int rawBucketsPerOutputBucket = Math.Max(1, bucket / Time.bucketSeconds);
             cmd.CommandText =
                 """
                 SELECT
@@ -1368,10 +1373,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     SELECT MAX(id) AS max_id
                     FROM state_buckets
                     WHERE timestamp_utc >= $from AND timestamp_utc <= $to
-                    GROUP BY CAST((julianday(timestamp_utc) - 2440587.5) * 86400 AS INTEGER) / $bucket
+                    GROUP BY bucket_seq / $raw_per_output
                 ) latest ON sb.id = latest.max_id
                 ORDER BY sb.timestamp_utc ASC;
                 """;
+            cmd.Parameters.AddWithValue("$raw_per_output", rawBucketsPerOutputBucket);
         }
         else
         {
