@@ -6,7 +6,20 @@ public sealed class BucketFinalizerWorker(IBucketFinalizerPump finalizerPump) : 
 {
     private static readonly TimeSpan TickCadence = TimeSpan.FromMilliseconds(200);
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        // Run on a dedicated OS thread, NOT from the shared thread pool.
+        // SQLite write operations (bucket finalization) block the calling thread while
+        // Windows Defender scans the WAL file. Running on the thread pool exhausts it,
+        // starving Kestrel of threads to dispatch HTTP requests (API becomes unreachable).
+        return Task.Factory.StartNew(
+            () => RunLoop(stoppingToken),
+            stoppingToken,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+    }
+
+    private void RunLoop(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -23,7 +36,7 @@ public sealed class BucketFinalizerWorker(IBucketFinalizerPump finalizerPump) : 
                 Console.WriteLine($"bucket_finalizer_tick_failed error={ex.GetType().Name}:{ex.Message}");
             }
 
-            await Task.Delay(TickCadence, stoppingToken).ConfigureAwait(false);
+            stoppingToken.WaitHandle.WaitOne(TickCadence);
         }
     }
 }

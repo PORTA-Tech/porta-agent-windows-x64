@@ -19,18 +19,24 @@ if (!$MsiPath) {
 Write-Host "Payload: $payloadDir"
 Write-Host "Install: $installDir"
 
+# Add Defender exclusion — prevents Defender scanning the WAL file on every write,
+# which causes multi-second fsync stalls that exhaust the .NET thread pool.
+Write-Host "[0/5] Adding Defender exclusion for C:\ProgramData\PortaAgent..."
+Add-MpPreference -ExclusionPath "C:\ProgramData\PortaAgent" -ErrorAction SilentlyContinue
+Write-Host "      Done."
+
 # 1. Disable SCM recovery so kills don't trigger auto-restart
-Write-Host "[1/5] Disabling service recovery..."
+Write-Host "[1/6] Disabling service recovery..."
 & sc.exe failure AriAgent reset= 0 actions= none 2>$null
 Write-Host "      Done."
 
 # 2. Stop service
-Write-Host "[2/5] Stopping service..."
+Write-Host "[2/6] Stopping service..."
 & sc.exe stop AriAgent 2>$null
 Start-Sleep -Seconds 5
 
 # 3. Kill ALL Ari processes (UserAgent and ControlCenter load the same DLLs)
-Write-Host "[3/5] Killing all Ari processes..."
+Write-Host "[3/6] Killing all Ari processes..."
 & taskkill /F /IM ari.exe /T 2>$null
 & taskkill /F /IM Porta.UserAgent.exe /T 2>$null
 & taskkill /F /IM Porta.ControlCenter.exe /T 2>$null
@@ -38,7 +44,7 @@ Start-Sleep -Seconds 3
 Write-Host "      Done."
 
 # 4. Overwrite all binaries
-Write-Host "[4/5] Copying binaries..."
+Write-Host "[4/6] Copying binaries..."
 $sharedDir = Join-Path $payloadDir "SharedFiles"
 
 $rootFiles = @("ari.exe", "Porta.UserAgent.exe", "Porta.ControlCenter.exe")
@@ -64,7 +70,7 @@ foreach ($f in $sharedFiles) {
 }
 
 # 5. Re-enable recovery and start service
-Write-Host "[5/5] Starting service..."
+Write-Host "[6/6] Starting service..."
 & sc.exe failure AriAgent reset= 60 actions= restart/15000/restart/15000/restart/15000 2>$null
 Start-Service AriAgent -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 3

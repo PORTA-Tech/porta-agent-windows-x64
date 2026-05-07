@@ -64,10 +64,12 @@ internal static class DbOpen
         ExecuteNonQuery(connection, "PRAGMA synchronous=NORMAL;");
         ExecuteNonQuery(connection, "PRAGMA foreign_keys=ON;");
         ExecuteNonQuery(connection, $"PRAGMA busy_timeout={Math.Max(0, busyTimeoutMs)};");
-        // Keep WAL at ~400KB (100 frames × 4096 bytes). Smaller WAL means Windows
-        // Defender real-time scans are short, preventing multi-second fsync stalls
-        // that exhaust the thread pool. Default is 1000 frames (4 MB).
-        ExecuteNonQuery(connection, "PRAGMA wal_autocheckpoint=100;");
+        // WAL cap: 500 frames (~2 MB). The service also adds C:\ProgramData\PortaAgent
+        // to Defender exclusions on startup (the root fix for fsync stalls). This
+        // autocheckpoint value is a defence-in-depth fallback in case the exclusion
+        // hasn't applied yet. 100 was too aggressive (constant checkpoint writes to
+        // the 3.5 GB main DB); 500 is a reasonable middle ground.
+        ExecuteNonQuery(connection, "PRAGMA wal_autocheckpoint=500;");
 
         string journalMode = ExecuteScalarString(connection, "PRAGMA journal_mode;");
         int synchronous = ExecuteScalarInt(connection, "PRAGMA synchronous;");
