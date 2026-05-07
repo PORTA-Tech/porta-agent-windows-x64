@@ -1326,50 +1326,96 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
 
         int bucket = Math.Clamp(bucketSeconds, 1, 3600);
-        var rawRows = new List<AgentBrainSnapshot>();
 
-        // Read from state_buckets (the analyzed-state table) so that StateFlagsJson always
-        // carries focus-episode, distraction, and pressure fields for episode derivation.
-        // The old brain_snapshots LEFT JOIN missed these because state_buckets.timestamp_utc
-        // uses bucket-start time while brain_snapshots.timestamp_utc uses bucket-end time.
+        // When bucket > 1, push the bucketing into SQL so only one row per bucket is
+        // returned. The old approach read ALL rows into memory first then reduced them in
+        // C# — with 352K rows and a large WAL this blocked the calling thread for seconds,
+        // exhausting the .NET thread pool and hanging the HTTP server.
+        // When bucket == 1 (no reduction needed) apply a row cap to prevent runaway reads.
         using var connection = DbOpen.OpenReadConnection(_connectionString);
         using var cmd = connection.CreateCommand();
-        cmd.CommandText =
-            """
-            SELECT
-                sb.timestamp_utc,
-                sb.typing_burst_intensity_raw,
-                sb.scroll_velocity_index_raw,
-                sb.focus_switch_rate_raw,
-                sb.typing_burst_intensity_smoothed,
-                sb.scroll_velocity_index_smoothed,
-                sb.focus_switch_rate_smoothed,
-                sb.focus_strength,
-                sb.overload_likelihood,
-                sb.fatigue_probability,
-                sb.cognitive_stability,
-                sb.dominant_state_name,
-                sb.dominant_state_value,
-                sb.confidence,
-                sb.sustained_attention_duration_sec,
-                sb.idle_fragmentation_index,
-                sb.activation_window_triggered,
-                sb.cooldown_triggered,
-                sb.activation_window_open,
-                sb.contributors_json,
-                sb.state_flags_json
-            FROM state_buckets sb
-            WHERE sb.timestamp_utc >= $from AND sb.timestamp_utc <= $to
-            ORDER BY sb.timestamp_utc ASC;
-            """;
+
+        if (bucket > 1)
+        {
+            // Returns one row per bucket (the last row in each bucket, matching prior behaviour).
+            // julianday arithmetic converts the ISO-8601 timestamp to Unix seconds for grouping.
+            cmd.CommandText =
+                """
+                SELECT
+                    sb.timestamp_utc,
+                    sb.typing_burst_intensity_raw,
+                    sb.scroll_velocity_index_raw,
+                    sb.focus_switch_rate_raw,
+                    sb.typing_burst_intensity_smoothed,
+                    sb.scroll_velocity_index_smoothed,
+                    sb.focus_switch_rate_smoothed,
+                    sb.focus_strength,
+                    sb.overload_likelihood,
+                    sb.fatigue_probability,
+                    sb.cognitive_stability,
+                    sb.dominant_state_name,
+                    sb.dominant_state_value,
+                    sb.confidence,
+                    sb.sustained_attention_duration_sec,
+                    sb.idle_fragmentation_index,
+                    sb.activation_window_triggered,
+                    sb.cooldown_triggered,
+                    sb.activation_window_open,
+                    sb.contributors_json,
+                    sb.state_flags_json
+                FROM state_buckets sb
+                INNER JOIN (
+                    SELECT MAX(id) AS max_id
+                    FROM state_buckets
+                    WHERE timestamp_utc >= $from AND timestamp_utc <= $to
+                    GROUP BY CAST((julianday(timestamp_utc) - 2440587.5) * 86400 AS INTEGER) / $bucket
+                ) latest ON sb.id = latest.max_id
+                ORDER BY sb.timestamp_utc ASC;
+                """;
+        }
+        else
+        {
+            cmd.CommandText =
+                """
+                SELECT
+                    sb.timestamp_utc,
+                    sb.typing_burst_intensity_raw,
+                    sb.scroll_velocity_index_raw,
+                    sb.focus_switch_rate_raw,
+                    sb.typing_burst_intensity_smoothed,
+                    sb.scroll_velocity_index_smoothed,
+                    sb.focus_switch_rate_smoothed,
+                    sb.focus_strength,
+                    sb.overload_likelihood,
+                    sb.fatigue_probability,
+                    sb.cognitive_stability,
+                    sb.dominant_state_name,
+                    sb.dominant_state_value,
+                    sb.confidence,
+                    sb.sustained_attention_duration_sec,
+                    sb.idle_fragmentation_index,
+                    sb.activation_window_triggered,
+                    sb.cooldown_triggered,
+                    sb.activation_window_open,
+                    sb.contributors_json,
+                    sb.state_flags_json
+                FROM state_buckets sb
+                WHERE sb.timestamp_utc >= $from AND sb.timestamp_utc <= $to
+                ORDER BY sb.timestamp_utc ASC
+                LIMIT 100000;
+                """;
+        }
+
         cmd.Parameters.AddWithValue("$from", fromUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$to", toUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$bucket", bucket);
 
+        var rows = new List<AgentBrainSnapshot>();
         using SqliteDataReader reader = cmd.ExecuteReader();
         while (reader.Read())
         {
             string stateFlagsJson = ReadStringOrFallback(reader, 20, "{\"schema_ver\":1}");
-            rawRows.Add(new AgentBrainSnapshot(
+            rows.Add(new AgentBrainSnapshot(
                 TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
                 TypingBurstIntensity: ReadDoubleOrFallback(reader, 1, 0d),
                 ScrollVelocityIndex: ReadDoubleOrFallback(reader, 2, 0d),
@@ -1396,22 +1442,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 ContributorsJson: ReadStringOrFallback(reader, 19, "{\"schema_ver\":1}")));
         }
 
-        if (bucket == 1 || rawRows.Count <= 1)
-        {
-            return rawRows;
-        }
-
-        var byBucket = new Dictionary<long, AgentBrainSnapshot>();
-        foreach (AgentBrainSnapshot row in rawRows)
-        {
-            long key = row.TimestampUtc.ToUnixTimeSeconds() / bucket;
-            byBucket[key] = row;
-        }
-
-        return byBucket
-            .OrderBy(pair => pair.Key)
-            .Select(pair => pair.Value)
-            .ToList();
+        return rows;
     }
 
     public IReadOnlyList<AgentInputSignalWindow> ReadInputSignalWindows(
