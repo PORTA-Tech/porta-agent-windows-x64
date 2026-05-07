@@ -4,9 +4,13 @@ namespace Porta.Agent.Core.Db;
 
 internal static class DbOpen
 {
-    // Pinned durability contract for bucket/state commits: WAL + FULL synchronous.
+    // WAL + NORMAL synchronous: safe for WAL mode per SQLite docs, eliminates the second
+    // fsync on every commit. FULL required two syncs (WAL data + WAL header update) which
+    // caused 1-5s stalls on Windows when the I/O subsystem was busy, exhausting the thread
+    // pool and causing intermittent API timeouts. NORMAL is sufficient — the WAL guarantees
+    // crash-safety without the header sync.
     private const string PinnedJournalMode = "wal";
-    private const int PinnedSynchronousMode = 2; // FULL
+    private const int PinnedSynchronousMode = 1; // NORMAL (was FULL=2, safe to reduce with WAL)
     private const int PinnedForeignKeys = 1; // ON
     private const int DefaultBusyTimeoutMs = 5000;
     private static int _bootPragmasLogged;
@@ -57,7 +61,7 @@ internal static class DbOpen
                 $"SQLite journal_mode contract violation. Expected '{PinnedJournalMode}', got '{requestedJournalMode}'.");
         }
 
-        ExecuteNonQuery(connection, "PRAGMA synchronous=FULL;");
+        ExecuteNonQuery(connection, "PRAGMA synchronous=NORMAL;");
         ExecuteNonQuery(connection, "PRAGMA foreign_keys=ON;");
         ExecuteNonQuery(connection, $"PRAGMA busy_timeout={Math.Max(0, busyTimeoutMs)};");
 
@@ -75,7 +79,7 @@ internal static class DbOpen
         if (synchronous != PinnedSynchronousMode)
         {
             throw new InvalidOperationException(
-                $"SQLite synchronous contract violation. Expected '{PinnedSynchronousMode}' (FULL), got '{synchronous}'.");
+                $"SQLite synchronous contract violation. Expected '{PinnedSynchronousMode}' (NORMAL), got '{synchronous}'.");
         }
 
         if (foreignKeys != PinnedForeignKeys)
