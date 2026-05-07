@@ -1337,12 +1337,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
         if (bucket > 1)
         {
-            // Returns one row per bucket (the last row in each bucket, matching prior behaviour).
-            // Uses bucket_seq integer division — vastly faster than julianday() string parsing
-            // which computed a floating-point function for every row in range (352K rows at
-            // 5-10μs each = 3+ seconds, exhausting the thread pool on large time ranges).
-            // bucket_seq is already an integer aligned to Time.bucketSeconds so the division
-            // is a trivial integer op per row.
+            // Groups by (id / stride) — id is the autoincrement primary key, written one row
+            // per 5-second bucket, so it is sequential in time order. Integer division is
+            // trivially fast (~0.1μs per row vs 5-10μs for julianday/strftime string parsing).
+            // state_buckets has no bucket_seq column (that column only exists on input_buckets),
+            // so id-based grouping is the correct approach here.
             int rawBucketsPerOutputBucket = Math.Max(1, bucket / Time.bucketSeconds);
             cmd.CommandText =
                 """
@@ -1373,7 +1372,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     SELECT MAX(id) AS max_id
                     FROM state_buckets
                     WHERE timestamp_utc >= $from AND timestamp_utc <= $to
-                    GROUP BY bucket_seq / $raw_per_output
+                    GROUP BY id / $raw_per_output
                 ) latest ON sb.id = latest.max_id
                 ORDER BY sb.timestamp_utc ASC;
                 """;
