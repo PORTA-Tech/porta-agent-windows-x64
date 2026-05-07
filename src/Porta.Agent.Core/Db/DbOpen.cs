@@ -64,6 +64,11 @@ internal static class DbOpen
         ExecuteNonQuery(connection, "PRAGMA synchronous=NORMAL;");
         ExecuteNonQuery(connection, "PRAGMA foreign_keys=ON;");
         ExecuteNonQuery(connection, $"PRAGMA busy_timeout={Math.Max(0, busyTimeoutMs)};");
+        // 50 MB page cache keeps the state_buckets B-tree in memory so that the
+        // ReadTimeline INNER JOIN (489 primary-key lookups) hits the cache rather
+        // than causing random disk reads (~1-5ms each = 2-10s per timeline call).
+        // Default is -2000 (2 MB) which is far too small for a 3.5 GB database.
+        ExecuteNonQuery(connection, "PRAGMA cache_size=-51200;");
 
         string journalMode = ExecuteScalarString(connection, "PRAGMA journal_mode;");
         int synchronous = ExecuteScalarInt(connection, "PRAGMA synchronous;");
