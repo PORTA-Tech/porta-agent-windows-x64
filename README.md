@@ -62,6 +62,25 @@ scripts/
 
 ---
 
+## Installing on This Machine
+
+When upgrading from a running (or hung) service, use the admin PowerShell script — the MSI alone fails if the service is hung (it runs in "reconfiguration" mode and skips file replacement):
+
+```powershell
+# Run as Administrator:
+powershell -ExecutionPolicy Bypass -File "scripts\install.ps1"
+```
+
+This disables SCM recovery, kills all Ari processes, copies binaries directly from `installer/payload/` (exes) and `installer/payload/SharedFiles/` (DLLs), then starts the service.
+
+The MSI double-click install works fine for clean/non-hung installs.
+
+**Normal post-install warmup (not bugs):**
+- "Work today: —" for first 1-5 minutes — waiting for first bucket
+- "Limited: partial capture" for first 30-60s — capture hooks establishing
+- "Tracking limited" banner for first 30s — freshness_state initializing
+- Focus and Pressure show from last known snapshot immediately
+
 ## Building a Release MSI
 
 **Always use `scripts/build-msi.ps1`** — never `dotnet publish` directly, because the MSI reads from `installer/payload/` which only this script populates.
