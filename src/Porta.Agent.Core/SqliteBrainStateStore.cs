@@ -610,34 +610,32 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     public AgentConsentRecord? ReadLatestConsent()
     {
-        lock (_gate)
+        // WAL mode: reads run concurrently with writes; no lock needed.
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT
+                timestamp_utc,
+                active,
+                version,
+                disclosure_hash
+            FROM consent
+            ORDER BY id DESC
+            LIMIT 1;
+            """;
+
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        if (!reader.Read())
         {
-            using var connection = DbOpen.OpenReadConnection(_connectionString);
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText =
-                """
-                SELECT
-                    timestamp_utc,
-                    active,
-                    version,
-                    disclosure_hash
-                FROM consent
-                ORDER BY id DESC
-                LIMIT 1;
-                """;
-
-            using SqliteDataReader reader = cmd.ExecuteReader();
-            if (!reader.Read())
-            {
-                return null;
-            }
-
-            return new AgentConsentRecord(
-                TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
-                Active: reader.GetInt32(1) == 1,
-                Version: reader.GetString(2),
-                DisclosureHash: reader.GetString(3));
+            return null;
         }
+
+        return new AgentConsentRecord(
+            TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
+            Active: reader.GetInt32(1) == 1,
+            Version: reader.GetString(2),
+            DisclosureHash: reader.GetString(3));
     }
 
     public void WriteSettings(AgentSettingsRecord settings)
@@ -685,46 +683,44 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     public AgentSettingsRecord? ReadLatestSettings()
     {
-        lock (_gate)
+        // WAL mode: reads run concurrently with writes; no lock needed.
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT
+                timestamp_utc,
+                privacy_level,
+                regulation_intensity,
+                disabled_categories_json,
+                notification_reduction_enabled,
+                focus_mode_enabled,
+                animation_reduction_enabled,
+                temporary_app_restriction_enabled,
+                baseline_recalibration_started_utc,
+                baseline_recalibration_until_utc
+            FROM settings
+            ORDER BY id DESC
+            LIMIT 1;
+            """;
+
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        if (!reader.Read())
         {
-            using var connection = DbOpen.OpenReadConnection(_connectionString);
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText =
-                """
-                SELECT
-                    timestamp_utc,
-                    privacy_level,
-                    regulation_intensity,
-                    disabled_categories_json,
-                    notification_reduction_enabled,
-                    focus_mode_enabled,
-                    animation_reduction_enabled,
-                    temporary_app_restriction_enabled,
-                    baseline_recalibration_started_utc,
-                    baseline_recalibration_until_utc
-                FROM settings
-                ORDER BY id DESC
-                LIMIT 1;
-                """;
-
-            using SqliteDataReader reader = cmd.ExecuteReader();
-            if (!reader.Read())
-            {
-                return null;
-            }
-
-            return new AgentSettingsRecord(
-                TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
-                PrivacyLevel: reader.GetString(1),
-                RegulationIntensity: reader.GetString(2),
-                DisabledCategories: DeserializeStringList(reader.GetString(3)),
-                NotificationReductionEnabled: reader.GetInt32(4) == 1,
-                FocusModeEnabled: reader.GetInt32(5) == 1,
-                AnimationReductionEnabled: reader.GetInt32(6) == 1,
-                TemporaryAppRestrictionEnabled: reader.GetInt32(7) == 1,
-                BaselineRecalibrationStartedUtc: ParseOptionalDateTimeOffset(reader.GetString(8)),
-                BaselineRecalibrationUntilUtc: ParseOptionalDateTimeOffset(reader.GetString(9)));
+            return null;
         }
+
+        return new AgentSettingsRecord(
+            TimestampUtc: DateTimeOffset.Parse(reader.GetString(0)),
+            PrivacyLevel: reader.GetString(1),
+            RegulationIntensity: reader.GetString(2),
+            DisabledCategories: DeserializeStringList(reader.GetString(3)),
+            NotificationReductionEnabled: reader.GetInt32(4) == 1,
+            FocusModeEnabled: reader.GetInt32(5) == 1,
+            AnimationReductionEnabled: reader.GetInt32(6) == 1,
+            TemporaryAppRestrictionEnabled: reader.GetInt32(7) == 1,
+            BaselineRecalibrationStartedUtc: ParseOptionalDateTimeOffset(reader.GetString(8)),
+            BaselineRecalibrationUntilUtc: ParseOptionalDateTimeOffset(reader.GetString(9)));
     }
 
     public void DeleteLocalData()
@@ -781,17 +777,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     public AgentBrainSnapshot? ReadLatestSnapshot()
     {
-        lock (_gate)
+        // WAL mode: reads run concurrently with writes; no lock needed.
+        try
         {
-            try
-            {
-                using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
-                return TryReadLatestSignalDrivenSnapshot(connection) ?? TryReadLatestLegacySnapshot(connection);
-            }
-            catch
-            {
-                return null;
-            }
+            using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
+            return TryReadLatestSignalDrivenSnapshot(connection) ?? TryReadLatestLegacySnapshot(connection);
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -1003,10 +997,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     public AgentLatestStateDetails? ReadLatestStateDetails()
     {
-        lock (_gate)
+        // WAL mode: reads run concurrently with writes; no lock needed.
+        try
         {
-            try
-            {
             using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
             bool? baselineReady = null;
             double? baselineReadyPct = null;
@@ -1312,7 +1305,6 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             {
                 return null;
             }
-        }
     }
 
     public IReadOnlyList<AgentBrainSnapshot> ReadTimeline(
@@ -1455,11 +1447,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         DateTimeOffset toUtc,
         int limit = 50000)
     {
-        lock (_gate)
+        // WAL mode: reads run concurrently with writes; no lock needed.
+        if (toUtc < fromUtc)
         {
-            if (toUtc < fromUtc)
-            {
-                return [];
+            return [];
             }
 
             int boundedLimit = Math.Clamp(limit, 1, 200000);
@@ -1571,7 +1562,6 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             }
 
             return rows;
-        }
     }
 
     public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null)
@@ -2091,55 +2081,53 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     public AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null)
     {
-        lock (_gate)
-        {
-            DateOnly day = dateUtc ?? DateOnly.FromDateTime(DateTime.UtcNow);
-            DateTimeOffset startUtc = new(day.Year, day.Month, day.Day, 0, 0, 0, TimeSpan.Zero);
-            DateTimeOffset endUtc = startUtc.AddDays(1);
+        // WAL mode: reads run concurrently with writes; no lock needed.
+        DateOnly day = dateUtc ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        DateTimeOffset startUtc = new(day.Year, day.Month, day.Day, 0, 0, 0, TimeSpan.Zero);
+        DateTimeOffset endUtc = startUtc.AddDays(1);
 
-            using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
 
-            int totalInterventions = ReadSingleInt(connection,
-                """
-                SELECT COUNT(1) FROM events
-                WHERE timestamp_utc >= $start AND timestamp_utc < $end;
-                """,
-                startUtc, endUtc);
+        int totalInterventions = ReadSingleInt(connection,
+            """
+            SELECT COUNT(1) FROM events
+            WHERE timestamp_utc >= $start AND timestamp_utc < $end;
+            """,
+            startUtc, endUtc);
 
-            double avgFocus = ReadSingleDouble(connection,
-                """
-                SELECT COALESCE(AVG(focus_strength), 0)
-                FROM state_buckets
-                WHERE timestamp_utc >= $start AND timestamp_utc < $end;
-                """,
-                startUtc, endUtc);
+        double avgFocus = ReadSingleDouble(connection,
+            """
+            SELECT COALESCE(AVG(focus_strength), 0)
+            FROM state_buckets
+            WHERE timestamp_utc >= $start AND timestamp_utc < $end;
+            """,
+            startUtc, endUtc);
 
-            double peakOverload = ReadSingleDouble(connection,
-                """
-                SELECT COALESCE(MAX(overload_likelihood), 0)
-                FROM state_buckets
-                WHERE timestamp_utc >= $start AND timestamp_utc < $end;
-                """,
-                startUtc, endUtc);
+        double peakOverload = ReadSingleDouble(connection,
+            """
+            SELECT COALESCE(MAX(overload_likelihood), 0)
+            FROM state_buckets
+            WHERE timestamp_utc >= $start AND timestamp_utc < $end;
+            """,
+            startUtc, endUtc);
 
-            double idleFragmentation = ReadSingleDouble(connection,
-                """
-                SELECT COALESCE(AVG(idle_fragmentation_index), 0)
-                FROM state_buckets
-                WHERE timestamp_utc >= $start AND timestamp_utc < $end;
-                """,
-                startUtc, endUtc);
+        double idleFragmentation = ReadSingleDouble(connection,
+            """
+            SELECT COALESCE(AVG(idle_fragmentation_index), 0)
+            FROM state_buckets
+            WHERE timestamp_utc >= $start AND timestamp_utc < $end;
+            """,
+            startUtc, endUtc);
 
-            int? mostVolatileHour = ReadMostVolatileHour(connection, startUtc, endUtc);
+        int? mostVolatileHour = ReadMostVolatileHour(connection, startUtc, endUtc);
 
-            return new AgentTodaySummary(
-                DateUtc: day,
-                TotalInterventions: totalInterventions,
-                AverageFocusStrength: avgFocus,
-                PeakOverloadLikelihood: peakOverload,
-                IdleFragmentationIndex: idleFragmentation,
-                MostVolatileHourUtc: mostVolatileHour);
-        }
+        return new AgentTodaySummary(
+            DateUtc: day,
+            TotalInterventions: totalInterventions,
+            AverageFocusStrength: avgFocus,
+            PeakOverloadLikelihood: peakOverload,
+            IdleFragmentationIndex: idleFragmentation,
+            MostVolatileHourUtc: mostVolatileHour);
     }
 
     public string ExportBundle(
@@ -3064,11 +3052,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus()
     {
-        lock (_gate)
+        // WAL mode: reads run concurrently with writes; no lock needed.
+        try
         {
-            try
-            {
-                using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
+            using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
                 using var cmd = connection.CreateCommand();
                 cmd.CommandText =
                     """
@@ -3123,16 +3110,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     MinOnUntilUtc: null,
                     RestorePending: false);
             }
-        }
     }
 
     public AgentBrightnessActionStatus ReadBrightnessActionStatus()
     {
-        lock (_gate)
+        // WAL mode: reads run concurrently with writes; no lock needed.
+        try
         {
-            try
-            {
-                using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
+            using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
                 using var cmd = connection.CreateCommand();
                 cmd.CommandText =
                     """
@@ -3193,31 +3178,28 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     BackoffUntilUtc: null,
                     CooldownUntilUtc: null);
             }
-        }
     }
 
     public bool ReadDbMigrationFailed()
     {
-        lock (_gate)
-        {
-            using var connection = DbOpen.OpenReadConnection(_connectionString);
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText =
-                """
-                SELECT value
-                FROM diagnostics
-                WHERE key = 'db_migration_failed'
-                LIMIT 1;
-                """;
+        // WAL mode: reads run concurrently with writes; no lock needed.
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT value
+            FROM diagnostics
+            WHERE key = 'db_migration_failed'
+            LIMIT 1;
+            """;
 
-            object? scalar = cmd.ExecuteScalar();
-            string value = scalar == null || scalar == DBNull.Value
-                ? string.Empty
-                : Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+        object? scalar = cmd.ExecuteScalar();
+        string value = scalar == null || scalar == DBNull.Value
+            ? string.Empty
+            : Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
 
-            return value.Equals("true", StringComparison.OrdinalIgnoreCase)
-                || value.Equals("1", StringComparison.Ordinal);
-        }
+        return value.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("1", StringComparison.Ordinal);
     }
 
     private static OverloadStabilizationRuntimeState ReadOverloadStabilizationRuntimeState(
