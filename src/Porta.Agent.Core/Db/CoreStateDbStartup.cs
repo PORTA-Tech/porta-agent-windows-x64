@@ -22,6 +22,8 @@ public static class CoreStateDbStartup
 
             string connectionString = DbOpen.BuildConnectionString(dbPath);
 
+            TryStartupWalTruncate(dbPath);
+
             try
             {
                 using var connection = DbOpen.OpenConnection(connectionString, logPragmasAtBoot);
@@ -38,38 +40,34 @@ public static class CoreStateDbStartup
         }
     }
 
+    private static void TryStartupWalTruncate(string dbPath)
+    {
+        string walPath = dbPath + "-wal";
+        if (!File.Exists(walPath))
+            return;
+        try
+        {
+            long walBytes = new FileInfo(walPath).Length;
+            if (walBytes < 64 * 1024 * 1024) // skip if WAL is under 64 MB — normal, no action needed
+                return;
+            Console.WriteLine($"startup_wal_truncate wal_before_bytes={walBytes}");
+            using var conn = new SqliteConnection(DbOpen.BuildConnectionString(dbPath));
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            cmd.ExecuteNonQuery();
+            long walAfter = File.Exists(walPath) ? new FileInfo(walPath).Length : 0;
+            Console.WriteLine($"startup_wal_truncate done wal_after_bytes={walAfter}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"startup_wal_truncate failed (non-fatal): {ex.Message}");
+        }
+    }
+
     public static void TrySetMigrationFailed(string? dbPath = null)
     {
         try
         {
             string resolvedPath = string.IsNullOrWhiteSpace(dbPath) ? DbPaths.GetCoreStateDbPath() : dbPath;
-            string? directory = Path.GetDirectoryName(resolvedPath);
-            if (!string.IsNullOrWhiteSpace(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            using var connection = new SqliteConnection($"Data Source={resolvedPath}");
-            connection.Open();
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText =
-                """
-                CREATE TABLE IF NOT EXISTS diagnostics (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL,
-                    updated_utc TEXT NOT NULL
-                );
-                INSERT INTO diagnostics (key, value, updated_utc)
-                VALUES ('db_migration_failed', 'true', $updated_utc)
-                ON CONFLICT(key) DO UPDATE SET
-                    value = excluded.value,
-                    updated_utc = excluded.updated_utc;
-                """;
-            cmd.Parameters.AddWithValue("$updated_utc", DateTimeOffset.UtcNow.ToString("O"));
-            cmd.ExecuteNonQuery();
-        }
-        catch
-        {
-        }
-    }
-}
+            string? director
