@@ -571,6 +571,19 @@ internal sealed class UserDesktopWidgetWindow : Window
         ApplyAnchorPosition();
     }
 
+    /// <summary>
+    /// Initialises the Win32 HWND (fires OnSourceInitialized hooks) and marks the widget
+    /// as hidden-by-user without ever calling Show(). Call this instead of Show() when the
+    /// hidden flag is already set at startup, so the window is never rendered visible and
+    /// there is no one-frame flicker before HideWidget() can run.
+    /// </summary>
+    internal void StartHidden()
+    {
+        _hiddenByUser = true;
+        new WindowInteropHelper(this).EnsureHandle();
+        RefreshSurfaceVisibilityHealth();
+    }
+
     public void HideWidget()
     {
         if (_hiddenByUser || !CanAcceptUiActions)

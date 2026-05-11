@@ -440,17 +440,20 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 _widgetWindow = window;
             }
 
-            window.Show();
-            if (_visibilityStore.IsHidden())
+            // Read the hidden flag once, BEFORE Show(), so the window is never rendered
+            // visible and then hidden — that sequence caused a 1-frame flicker on startup.
+            bool startHidden = _visibilityStore.IsHidden();
+            if (startHidden)
             {
-                window.HideWidget();
+                window.StartHidden(); // HWND initialised, hidden flag set — no Show() call
             }
             else
             {
+                window.Show();
                 window.EnsureVisibleForRecovery();
             }
 
-            bool ready = _visibilityStore.IsHidden() || window.IsSurfaceVisibleForHeartbeat;
+            bool ready = startHidden || window.IsSurfaceVisibleForHeartbeat;
             SetWidgetHealthStateOnWidgetThread(ready ? WidgetHealthReady : WidgetHealthUnavailable);
             UserAgentFileLog.Info("desktop_widget_window_shown");
             _widgetReady.TrySetResult(ready);
