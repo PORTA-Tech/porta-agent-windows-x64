@@ -287,8 +287,11 @@ internal static class UserDesktopWidgetStateBuilder
             return new UserDesktopWidgetMetric("Work today", "Paused");
         }
 
-        // Show last-known timeline value even during degraded/limited states.
-        if (todaySummary.HasProcessedTimeline)
+        // Show last-known timeline value during routine degraded/limited states
+        // (stale analysis, partial capture, etc.) — but only when the service is
+        // reachable (status != null). During a complete API outage the cached
+        // timeline would be misleadingly stale, so fall through to "—".
+        if (status != null && todaySummary.HasProcessedTimeline)
         {
             return new UserDesktopWidgetMetric(
                 "Work today",
