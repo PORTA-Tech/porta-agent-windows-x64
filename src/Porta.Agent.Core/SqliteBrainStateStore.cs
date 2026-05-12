@@ -1809,7 +1809,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                       AND (
                           i.execution_state = 'decided'
                           OR (
-                              i.command_type IN ('show_break_toast', 'show_stretch_break_toast')
+                              i.command_type IN ('show_break_overlay', 'show_break_toast', 'show_stretch_break_toast')
                               AND i.execution_state IN ('overlay_started', 'accepted', 'overlay_recovered')
                           )
                       )
@@ -4929,7 +4929,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             InterventionId: Guid.NewGuid().ToString("N"),
             PolicyId: $"break-policy:{policyVersion}",
             Domain: "fatigue",
-            PlannedEndTimestampUtc: finalizeTimestampUtc.AddMinutes(5),
+            PlannedEndTimestampUtc: finalizeTimestampUtc.AddSeconds(breakPolicy.CooldownSeconds),
             ActualEndTimestampUtc: null,
             PreviousSystemStateJson: "{\"previous_action\":\"none\"}",
             WhatChanged: ResolveWhatChanged(action, "activated"),
@@ -5702,7 +5702,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             string stateFlagsJson = ReadStringOrFallback(reader, 1, string.Empty);
             if (!TryResolveStoredBreakActiveFocusSeconds(stateFlagsJson, out double rowEffectiveFocusSeconds))
             {
-                break;
+                // Non-active bucket (pause/decay/reset or missing state): contributes 0 focus seconds
+                // but must not abort the scan — genuine data gaps are already caught by the gap check above.
+                segmentCursorUtcMs = timestampUtcMs;
+                continue;
             }
 
             longBreakWindowEffectiveFocusSeconds += rowEffectiveFocusSeconds;

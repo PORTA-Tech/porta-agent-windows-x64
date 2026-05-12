@@ -1778,6 +1778,30 @@ internal sealed class UserDesktopWidgetWindow : Window
         Interlocked.Exchange(ref _surfaceVisibleForHeartbeat, visible ? 1 : 0);
     }
 
+    internal void NudgeTopmost()
+    {
+        if (_hwndSource is null || _hwndSource.IsDisposed)
+        {
+            return;
+        }
+
+        IntPtr hwnd = _hwndSource.Handle;
+        if (hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // Re-assert HWND_TOPMOST z-order only — SWP_NOMOVE | SWP_NOSIZE leaves
+        // position and size untouched so WPF logical-unit values are never passed
+        // to a physical-pixel API.
+        _ = NativeMethods.SetWindowPos(
+            hwnd,
+            NativeMethods.HwndTopMost,
+            0, 0, 0, 0,
+            NativeMethods.SwpNoActivate | NativeMethods.SwpNoMove | NativeMethods.SwpNoSize);
+    }
+
+
     private void NudgeTopmostWithoutActivation()
     {
         if (_hwndSource is null || _hwndSource.IsDisposed)
@@ -1825,6 +1849,8 @@ internal sealed class UserDesktopWidgetWindow : Window
         internal const long WsExNoActivate = 0x08000000L;
         internal static readonly IntPtr HwndTopMost = new(-1);
         internal const uint SwpNoActivate = 0x0010;
+        internal const uint SwpNoMove = 0x0002;
+        internal const uint SwpNoSize = 0x0001;
         internal const uint SwpShowWindow = 0x0040;
 
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]

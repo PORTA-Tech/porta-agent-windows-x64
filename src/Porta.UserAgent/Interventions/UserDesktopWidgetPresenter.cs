@@ -34,6 +34,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private int _widgetHealthState = WidgetHealthUnavailable;
     private int _widgetNotReadyLogged;
     private int _widgetFailedLogged;
+    private int _topmostNudgeCounter;
     private bool _disposed;
 
     public UserDesktopWidgetPresenter(UserDesktopWidgetRollout? rollout = null)
@@ -98,7 +99,20 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         bool isStarting = IsWidgetStartingForHeartbeat();
         bool needsRestart = !IsWidgetHealthyForHeartbeat();
 
-        if (!needsRestart || isStarting)
+        if (!needsRestart && !isStarting)
+        {
+            // Periodically re-assert HWND_TOPMOST so apps like Electron/CEF can't bury the widget.
+            _topmostNudgeCounter++;
+            if (_topmostNudgeCounter >= 5)
+            {
+                _topmostNudgeCounter = 0;
+                TryDispatchToWidget(static window => window.NudgeTopmost(), out _);
+            }
+
+            return;
+        }
+
+        if (isStarting)
         {
             return;
         }
