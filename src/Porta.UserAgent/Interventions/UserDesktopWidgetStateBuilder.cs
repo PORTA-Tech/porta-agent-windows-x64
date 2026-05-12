@@ -200,6 +200,15 @@ internal static class UserDesktopWidgetStateBuilder
             return BuildLiveSessionStatusText(liveSession!);
         }
 
+        if (snapshot != null && LocalAttentionSegmentAnalytics.IsDistractionEpisode(snapshot))
+        {
+            string distractionText = LocalAttentionSegmentAnalytics.ResolveAttentionSegmentReasonText(snapshot);
+            if (!string.IsNullOrWhiteSpace(distractionText))
+            {
+                return distractionText;
+            }
+        }
+
         return mode switch
         {
             UserDesktopWidgetMode.DeepWork => "Deep work is active.",

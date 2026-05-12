@@ -100,7 +100,7 @@ internal sealed class UserAgentInterventionExecutor
 
         LocalApiInterventionAckRequest? ack = (intervention.CommandType ?? string.Empty).Trim().ToLowerInvariant() switch
         {
-            "show_break_toast" or "show_focus_lock_in_toast" or "show_stretch_break_toast"
+            "show_break_overlay" or "show_break_toast" or "show_focus_lock_in_toast" or "show_stretch_break_toast"
                 => BuildPromptAck(intervention, sessionId, agentInstanceId),
             "show_status_toast"
                 => BuildToastAck(intervention, sessionId, agentInstanceId),

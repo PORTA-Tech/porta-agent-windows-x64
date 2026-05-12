@@ -127,13 +127,6 @@ internal static class DerivedSessionMetricsComputer
             ? bucket.DominantAppHash
             : anchorAppHash;
         double idlePauseSeconds = ResolveIdlePauseSeconds(previous, bucket);
-        bool contextChanged = evidence.FocusAvailable
-            && !string.IsNullOrWhiteSpace(anchorAppHash)
-            && !string.IsNullOrWhiteSpace(currentContextAppHash)
-            && !string.Equals(anchorAppHash, currentContextAppHash, StringComparison.Ordinal);
-        double contextSwitchSeconds = contextChanged
-            ? ClampNonNegativeFinite(previous.ContextSwitchSeconds + Time.bucketSeconds)
-            : 0d;
         double instabilitySeconds = ClampNonNegativeFinite(previous.InstabilitySeconds);
 
         if (resetForGap)
@@ -147,8 +140,6 @@ internal static class DerivedSessionMetricsComputer
             idlePauseSeconds = bucket.IdleSeconds <= 0.25d
                 ? 0d
                 : ClampNonNegativeFinite(bucket.IdleSeconds);
-            contextChanged = false;
-            contextSwitchSeconds = 0d;
             instabilitySeconds = 0d;
         }
 
@@ -164,45 +155,6 @@ internal static class DerivedSessionMetricsComputer
                 instabilitySeconds: 0d,
                 state: "reset",
                 reasonCode: "long_break");
-        }
-
-        if (contextChanged)
-        {
-            if (contextSwitchSeconds <= PortaExecutionConstants.DerivedSessionMetrics.ContextShiftGraceSeconds)
-            {
-                return BuildDecision(
-                    previousContinuitySeconds,
-                    previousCandidateSeconds,
-                    anchorAppHash,
-                    idlePauseSeconds,
-                    contextSwitchSeconds,
-                    0d,
-                    "pause",
-                    "context_excursion");
-            }
-
-            if (contextSwitchSeconds >= PortaExecutionConstants.DerivedSessionMetrics.ContextShiftResetSeconds)
-            {
-                return BuildDecision(
-                    0d,
-                    0d,
-                    currentContextAppHash,
-                    idlePauseSeconds,
-                    contextSwitchSeconds,
-                    0d,
-                    "reset",
-                    "context_shift_reset");
-            }
-
-            return BuildDecision(
-                ClampNonNegativeFinite(previousContinuitySeconds - PortaExecutionConstants.DerivedSessionMetrics.ContextShiftDecayPerBucketSeconds),
-                ClampNonNegativeFinite(previousCandidateSeconds - Time.bucketSeconds),
-                anchorAppHash,
-                idlePauseSeconds,
-                contextSwitchSeconds,
-                0d,
-                "decay",
-                "context_excursion_decay");
         }
 
         if (!evidence.FocusAvailable)
