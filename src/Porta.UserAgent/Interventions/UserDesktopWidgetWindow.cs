@@ -878,6 +878,11 @@ internal sealed class UserDesktopWidgetWindow : Window
         button.Click += (_, _) =>
         {
             _menuPopup.IsOpen = false;
+            // Stop the collapse timer so the widget does not shrink the instant
+            // the user clicks to open the Control Center (or any other action).
+            // Suspend until the pointer actually leaves — HandlePointerLeave resets this.
+            _collapseTimer.Stop();
+            _suspendAutoCollapseUntilPointerLeaves = true;
             _actionRequested(action);
         };
 
@@ -1681,6 +1686,10 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        // Same as CreateMenuButton: don't let the collapse timer fire immediately
+        // after the user clicks a message-card action button.
+        _collapseTimer.Stop();
+        _suspendAutoCollapseUntilPointerLeaves = true;
         _actionRequested(action);
     }
 
