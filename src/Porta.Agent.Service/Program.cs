@@ -19,6 +19,7 @@ if (!instanceLease.HasHandle)
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddHostedService<AgentService>();
+builder.Services.AddHostedService<LocalApiHealthWatchdog>();
 builder.Services.AddWindowsService(options =>
 {
     options.ServiceName = "AriAgent";

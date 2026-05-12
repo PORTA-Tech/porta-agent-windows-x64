@@ -48,6 +48,7 @@ internal static class DbOpen
 
         var connection = new SqliteConnection(builder.ToString());
         connection.Open();
+        connection.DefaultTimeout = 8; // fail fast if Defender blocks the file handle
         ApplyReadSessionPragmas(connection, busyTimeoutMs ?? DefaultBusyTimeoutMs);
         return connection;
     }

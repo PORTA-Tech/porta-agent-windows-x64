@@ -18,6 +18,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private const int DefaultEventCooldownSeconds = 20;
     private const int ResponsiveReadBusyTimeoutMs = 250;
     private static readonly Lazy<string> BreakInstallIdHash = new(ResolveBreakInstallIdHash, isThreadSafe: true);
+    private static readonly SemaphoreSlim _readGate = new(3, 3);
 
     private readonly object _gate = new();
     private readonly string _dbPath;
@@ -611,6 +612,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     public AgentConsentRecord? ReadLatestConsent()
     {
         // WAL mode: reads run concurrently with writes; no lock needed.
+        using ReadGateLease _ = AcquireReadGate();
         using var connection = DbOpen.OpenReadConnection(_connectionString);
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
@@ -684,6 +686,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     public AgentSettingsRecord? ReadLatestSettings()
     {
         // WAL mode: reads run concurrently with writes; no lock needed.
+        using ReadGateLease _ = AcquireReadGate();
         using var connection = DbOpen.OpenReadConnection(_connectionString);
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
@@ -778,6 +781,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     public AgentBrainSnapshot? ReadLatestSnapshot()
     {
         // WAL mode: reads run concurrently with writes; no lock needed.
+        using ReadGateLease _ = AcquireReadGate();
         try
         {
             using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
@@ -998,6 +1002,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     public AgentLatestStateDetails? ReadLatestStateDetails()
     {
         // WAL mode: reads run concurrently with writes; no lock needed.
+        using ReadGateLease _ = AcquireReadGate();
         try
         {
             using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
@@ -1324,6 +1329,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         // C# — with 352K rows and a large WAL this blocked the calling thread for seconds,
         // exhausting the .NET thread pool and hanging the HTTP server.
         // When bucket == 1 (no reduction needed) apply a row cap to prevent runaway reads.
+        using ReadGateLease _ = AcquireReadGate();
         using var connection = DbOpen.OpenReadConnection(_connectionString);
         using var cmd = connection.CreateCommand();
 
@@ -1456,6 +1462,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             int boundedLimit = Math.Clamp(limit, 1, 200000);
             var rows = new List<AgentInputSignalWindow>(Math.Min(boundedLimit, 4096));
 
+            using ReadGateLease _ = AcquireReadGate();
             using var connection = DbOpen.OpenReadConnection(_connectionString);
             using var cmd = connection.CreateCommand();
             cmd.CommandText =
@@ -1569,6 +1576,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         int boundedLimit = Math.Clamp(limit, 1, 500);
         var rows = new List<AgentControlEvent>(boundedLimit);
 
+        using ReadGateLease _ = AcquireReadGate();
         using var connection = DbOpen.OpenReadConnection(_connectionString);
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
@@ -1632,6 +1640,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         long safeSinceId = Math.Max(0, sinceIdExclusive);
         var rows = new List<AgentControlEvent>(boundedLimit);
 
+        using ReadGateLease _ = AcquireReadGate();
         using var connection = DbOpen.OpenReadConnection(_connectionString);
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
@@ -1699,6 +1708,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         int boundedLimit = Math.Clamp(limit, 1, 10000);
         var rows = new List<AgentControlEvent>();
 
+        using ReadGateLease _ = AcquireReadGate();
         using var connection = DbOpen.OpenReadConnection(_connectionString);
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
@@ -2086,6 +2096,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         DateTimeOffset startUtc = new(day.Year, day.Month, day.Day, 0, 0, 0, TimeSpan.Zero);
         DateTimeOffset endUtc = startUtc.AddDays(1);
 
+        using ReadGateLease _ = AcquireReadGate();
         using var connection = DbOpen.OpenReadConnection(_connectionString);
 
         int totalInterventions = ReadSingleInt(connection,
@@ -3053,6 +3064,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus()
     {
         // WAL mode: reads run concurrently with writes; no lock needed.
+        using ReadGateLease _ = AcquireReadGate();
         try
         {
             using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
@@ -3115,6 +3127,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     public AgentBrightnessActionStatus ReadBrightnessActionStatus()
     {
         // WAL mode: reads run concurrently with writes; no lock needed.
+        using ReadGateLease _ = AcquireReadGate();
         try
         {
             using var connection = DbOpen.OpenReadConnection(_connectionString, busyTimeoutMs: ResponsiveReadBusyTimeoutMs);
@@ -3183,6 +3196,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     public bool ReadDbMigrationFailed()
     {
         // WAL mode: reads run concurrently with writes; no lock needed.
+        using ReadGateLease _ = AcquireReadGate();
         using var connection = DbOpen.OpenReadConnection(_connectionString);
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
@@ -7663,6 +7677,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         catch
         {
         }
+    }
+
+    private static ReadGateLease AcquireReadGate()
+    {
+        if (!_readGate.Wait(TimeSpan.FromSeconds(5)))
+            throw new TimeoutException("read_gate_timeout");
+        return new ReadGateLease();
+    }
+
+    private readonly struct ReadGateLease : IDisposable
+    {
+        public void Dispose() => _readGate.Release();
     }
 }
 
