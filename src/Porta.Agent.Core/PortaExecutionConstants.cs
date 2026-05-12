@@ -151,13 +151,13 @@ public static class PortaExecutionConstants
 
     public static class DeepWorkDetection
     {
-        public const int SustainedAttentionSeconds = 900;
-        public const double ConfidenceMin = 0.65;
+        public const int SustainedAttentionSeconds = 600;
+        public const double ConfidenceMin = 0.55;
         public const double FragmentationMax = 0.50;
         public const double VolatilityMax = 0.50;
         public const double IntensityMin = 0.40;
         public const double IntensityMax = 0.75;
-        public const int DwellOnSeconds = 120;
+        public const int DwellOnSeconds = 60;
         public const int DwellOffSeconds = 60;
         public const int GapAllowSeconds = 10;
         public const string RuntimeStateKey = "deep_work_stabilization:current";

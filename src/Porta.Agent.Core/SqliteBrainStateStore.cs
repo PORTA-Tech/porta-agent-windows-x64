@@ -5116,7 +5116,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             InterventionId: interventionId,
             PolicyId: $"deep_work_notifications:{policyVersion}",
             Domain: "output_action",
-            PlannedEndTimestampUtc: null,
+            PlannedEndTimestampUtc: eventTimestampUtc.AddMinutes(10),
             ActualEndTimestampUtc: null,
             PreviousSystemStateJson: "{}",
             WhatChanged: ResolveDeepWorkNotificationWhatChanged(action),
