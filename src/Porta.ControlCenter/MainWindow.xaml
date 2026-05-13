@@ -849,14 +849,6 @@
                 </ScrollViewer>
                 <ScrollViewer x:Name="InputsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <!-- Tracking page header -->
-                        <Grid Margin="0,0,0,14">
-                            <StackPanel>
-                                <TextBlock Text="Tracking" FontSize="18" FontWeight="Medium" Foreground="#F1F5F9" />
-                                <TextBlock Text="Pattern-level activity only — never content"
-                                           FontSize="13" Foreground="#475569" Margin="0,2,0,0" />
-                            </StackPanel>
-                        </Grid>
                         <TextBlock x:Name="TrackingCollectionSummaryText" Visibility="Collapsed" Text="" />
 
                         <!-- What Ari observes — icon grid -->
@@ -1095,22 +1087,15 @@
                               IsManipulationEnabled="True"
                               PanningMode="VerticalOnly">
                     <StackPanel Margin="20,20,20,32">
-                            <!-- Actions page header -->
-                            <Grid Margin="0,0,0,14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="Actions" FontSize="18" FontWeight="Medium" Foreground="#F1F5F9" VerticalAlignment="Center" />
-                                <WrapPanel Grid.Column="1" VerticalAlignment="Center">
-                                    <Border CornerRadius="100" Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
-                                        <TextBlock x:Name="ActionsSuggestionsCountChip" Text="0 suggestions" FontSize="11" Foreground="#64748B" />
-                                    </Border>
-                                    <Border CornerRadius="100" Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" Padding="8,3">
-                                        <TextBlock x:Name="ActionsTotalCountChip" Text="0 total" FontSize="11" Foreground="#64748B" />
-                                    </Border>
-                                </WrapPanel>
-                            </Grid>
+                            <!-- Actions header chips -->
+                            <WrapPanel Margin="0,0,0,14" HorizontalAlignment="Right">
+                                <Border CornerRadius="100" Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
+                                    <TextBlock x:Name="ActionsSuggestionsCountChip" Text="0 suggestions" FontSize="11" Foreground="#64748B" />
+                                </Border>
+                                <Border CornerRadius="100" Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" Padding="8,3">
+                                    <TextBlock x:Name="ActionsTotalCountChip" Text="0 total" FontSize="11" Foreground="#64748B" />
+                                </Border>
+                            </WrapPanel>
                             <TextBlock Visibility="Collapsed" Text="" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
                             <TextBlock Visibility="Collapsed" Text="" Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
                             <TextBlock x:Name="ActionsSummaryLeadText" Visibility="Collapsed"
@@ -1569,8 +1554,6 @@
                         </Style>
                     </ScrollViewer.Resources>
                     <StackPanel Margin="20">
-                        <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                        <TextBlock Text="Adjust behavior without overwhelming settings." Foreground="#CBD5E1" Margin="0,0,0,12" />
 
                         <!-- Hidden slider — still drives code-behind logic -->
                         <Slider x:Name="IntensitySlider" Minimum="0" Maximum="2" TickFrequency="1"
@@ -1721,14 +1704,8 @@
 
                 <ScrollViewer x:Name="TimelinePanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="20,20,20,32">
-                            <!-- History page header -->
-                            <Grid Margin="0,0,0,14">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="History" FontSize="18" FontWeight="Medium" Foreground="#F1F5F9" VerticalAlignment="Center" />
-                                <WrapPanel Grid.Column="1" VerticalAlignment="Center">
+                            <!-- History time filter buttons -->
+                            <WrapPanel Margin="0,0,0,14" HorizontalAlignment="Right">
                                     <Button x:Name="HistoryRangeTodayButton" Content="Today" Padding="5,12" FontSize="12"
                                             Background="#1C1C2E" BorderBrush="#252535" Foreground="#64748B"
                                             Margin="0,0,6,0" Click="HistoryRangeTodayButton_Click" />
@@ -1741,8 +1718,7 @@
                                     <Button x:Name="HistoryRangeAllTimeButton" Content="All time" Padding="5,12" FontSize="12"
                                             Background="#1C1C2E" BorderBrush="#252535" Foreground="#64748B"
                                             Click="HistoryRangeAllTimeButton_Click" />
-                                </WrapPanel>
-                            </Grid>
+                            </WrapPanel>
                             <TextBlock x:Name="HistorySummaryLeadText" Visibility="Collapsed"
                                        Text="" Foreground="#93C5FD" Margin="0,0,0,12" TextWrapping="Wrap" />
                             <CheckBox x:Name="HistoryExplainModeCheckBox" Visibility="Collapsed"
@@ -1886,33 +1862,43 @@
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,24">
                             <StackPanel>
-                                <TextBlock Text="Selected hour" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <TextBlock x:Name="TimelineDetailTimestamp" Text="Select a day/hour block to inspect the retained episodes in that hour." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailClassification" Text="Summary: Ari will summarize the selected hour here." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FDE68A" />
-                                <TextBlock x:Name="TimelineDetailFocus" Text="Episode mix: This appears after you select a day/hour block." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                <TextBlock x:Name="TimelineDetailOverload" Text="Pressure in that hour: This appears after you select a day/hour block." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#F8FAFC" />
-                                <TextBlock x:Name="TimelineDetailExecution" Text="Interventions in that hour: These appear inside the episode list below." TextWrapping="Wrap" Margin="0,0,0,10" Foreground="#93C5FD" />
-                                <StackPanel x:Name="HistorySelectionExplainPanel" Visibility="Collapsed">
-                                    <TextBlock x:Name="TimelineDetailTrust" Text="Confidence in that hour: This appears after you select a day/hour block." Margin="0,0,0,6" Foreground="#F8FAFC" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="TimelineDetailWhyHeader" Text="What Ari saw in that hour" FontWeight="SemiBold" Margin="0,0,0,6" Foreground="#93C5FD" />
-                                    <TextBlock x:Name="TimelineDetailWhyFiv" Text="Focus / pressure / movement: Ari will explain this after you select an hour." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
-                                    <TextBlock x:Name="TimelineDetailWhyReasons" Text="Main signals: Ari will list the strongest signals after you select an hour." TextWrapping="Wrap" Margin="0,0,0,6" Foreground="#FFFFFF" FontSize="13" />
-                                    <TextBlock x:Name="TimelineDetailWhyQuality" Text="Tracking quality: This will appear with the selected hour." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
-                                    <TextBlock x:Name="TimelineDetailStabilization" Text="Context: Use this panel to understand what Ari saw around the selected hour." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#FFFFFF" FontSize="13" />
-                                </StackPanel>
-                                <TextBlock Text="Episodes" FontWeight="SemiBold" Margin="0,6,0,6" Foreground="#93C5FD" />
-                                <TextBlock x:Name="TimelineEpisodeSummaryText" Text="Episodes in this hour will appear after you select a day/hour block." TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#CBD5E1" FontSize="13" />
-                                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="240">
+                                <!-- Header row: time range -->
+                                <TextBlock x:Name="TimelineDetailTimestamp"
+                                           Text="Select a cell to inspect that hour"
+                                           FontSize="15" FontWeight="Medium"
+                                           Foreground="#F1F5F9" TextWrapping="Wrap"
+                                           Margin="0,0,0,10" />
+                                <!-- State summary chips — populated by code-behind via TimelineDetailClassification -->
+                                <TextBlock x:Name="TimelineDetailClassification"
+                                           Text="" TextWrapping="Wrap"
+                                           Margin="0,0,0,8" Foreground="#94A3B8"
+                                           FontSize="13" />
+                                <!-- Episode list -->
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="320">
                                     <StackPanel x:Name="TimelineEpisodeListPanel" />
                                 </ScrollViewer>
+
+                                <!-- All developer fields kept invisible so code-behind can write to them -->
+                                <StackPanel Visibility="Collapsed">
+                                    <TextBlock x:Name="TimelineDetailFocus" Text="" />
+                                    <TextBlock x:Name="TimelineDetailOverload" Text="" />
+                                    <TextBlock x:Name="TimelineDetailExecution" Text="" />
+                                    <TextBlock x:Name="TimelineEpisodeSummaryText" Text="" />
+                                    <StackPanel x:Name="HistorySelectionExplainPanel">
+                                        <TextBlock x:Name="TimelineDetailTrust" Text="" />
+                                        <TextBlock x:Name="TimelineDetailWhyHeader" Text="" />
+                                        <TextBlock x:Name="TimelineDetailWhyFiv" Text="" />
+                                        <TextBlock x:Name="TimelineDetailWhyReasons" Text="" />
+                                        <TextBlock x:Name="TimelineDetailWhyQuality" Text="" />
+                                        <TextBlock x:Name="TimelineDetailStabilization" Text="" />
+                                    </StackPanel>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                     </StackPanel>
                 </ScrollViewer>
                 <ScrollViewer x:Name="AccountPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <!-- Account page header -->
-                        <TextBlock Text="Account" FontSize="18" FontWeight="Medium" Foreground="#F1F5F9" Margin="0,0,0,14" />
 
                         <!-- Profile card — shown when signed in -->
                         <Border x:Name="AccountProfileCard" Style="{StaticResource QuietHoverCardStyle}"
@@ -2270,23 +2256,17 @@
                 </ScrollViewer>
                 <ScrollViewer x:Name="DiagnosticsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <!-- System page header -->
-                        <Grid Margin="0,0,0,14">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="System" FontSize="18" FontWeight="Medium" Foreground="#F1F5F9" VerticalAlignment="Center" />
-                            <Border x:Name="SystemHealthChipBorder" Grid.Column="1"
+                        <!-- System page controls -->
+                        <DockPanel Margin="0,0,0,14">
+                            <Button x:Name="SystemRefreshButton" DockPanel.Dock="Right" Content="↺ Refresh"
+                                    Padding="10,5" FontSize="12" Click="RefreshButton_Click" VerticalAlignment="Center" />
+                            <Border x:Name="SystemHealthChipBorder" DockPanel.Dock="Right"
                                     CornerRadius="100" Background="#14F59E0B" BorderBrush="#22F59E0B"
                                     BorderThickness="1" Padding="10,5" Margin="0,0,8,0" VerticalAlignment="Center">
                                 <TextBlock x:Name="SystemHealthChipText" Text="● Stale"
                                            FontSize="12" FontWeight="SemiBold" Foreground="#F59E0B" />
                             </Border>
-                            <Button x:Name="SystemRefreshButton" Grid.Column="2" Content="↺ Refresh"
-                                    Padding="10,5" FontSize="12" Click="RefreshButton_Click" VerticalAlignment="Center" />
-                        </Grid>
+                        </DockPanel>
 
                         <WrapPanel Margin="0,0,0,12">
                             <Button x:Name="SystemAdvancedButton"
@@ -2297,8 +2277,7 @@
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="Engine health" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <TextBlock Text="Is the backend healthy enough to produce trustworthy state?" Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                <TextBlock Text="ENGINE HEALTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                                 <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="260" />
@@ -2334,8 +2313,8 @@
                                 <TextBlock Grid.Row="5" Grid.Column="0" Text="Local API reachable" Foreground="#CBD5E1" />
                                 <TextBlock x:Name="HealthApiValue" Grid.Row="5" Grid.Column="1" Text="Not available" />
 
-                                <TextBlock Grid.Row="6" Grid.Column="0" Text="Last update time" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthLastUpdateValue" Grid.Row="6" Grid.Column="1" Text="Not available" />
+                                <TextBlock Grid.Row="6" Grid.Column="0" Text="Last update time" Foreground="#CBD5E1" Visibility="Collapsed" />
+                                <TextBlock x:Name="HealthLastUpdateValue" Grid.Row="6" Grid.Column="1" Text="Not available" Visibility="Collapsed" />
 
                                 <TextBlock Grid.Row="7" Grid.Column="0" Text="Last error" Foreground="#CBD5E1" />
                                 <TextBlock x:Name="HealthLastErrorValue" Grid.Row="7" Grid.Column="1" Text="None" TextWrapping="Wrap" />
@@ -2345,8 +2324,7 @@
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="Session truth" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <TextBlock Text="Is PORTA attached to the right interactive session, and who owns it?" Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                <TextBlock Text="SESSION TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="260" />
@@ -2400,8 +2378,7 @@
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="Input truth" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <TextBlock Text="Are live keyboard and mouse signals arriving from the current session?" Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                <TextBlock Text="INPUT TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="260" />
@@ -2444,8 +2421,7 @@
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="State truth" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <TextBlock Text="What state does the backend believe, and how live is that state?" Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                <TextBlock Text="STATE TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="260" />
@@ -2483,8 +2459,7 @@
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="Action truth" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <TextBlock Text="What was the latest action decision, and did it actually apply?" Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                <TextBlock Text="ACTION TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="260" />
@@ -2933,6 +2908,8 @@
         </Border>
     </Grid>
 </Window>
+
+
 
 
 

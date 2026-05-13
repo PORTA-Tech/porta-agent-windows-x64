@@ -59,6 +59,18 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly Border _tertiaryMetricChip;
     private readonly TextBlock _tertiaryMetricLabelText;
     private readonly TextBlock _tertiaryMetricText;
+    // State-driven display elements
+    private readonly Border _stateDot;
+    private readonly TextBlock _stateLabel;
+    private readonly TextBlock _primaryValueDisplay;
+    private readonly TextBlock _primaryLabelDisplay;
+    private readonly Border _progressBarFill;
+    private readonly TextBlock _stat1Label;
+    private readonly TextBlock _stat1Value;
+    private readonly TextBlock _stat2Label;
+    private readonly TextBlock _stat2Value;
+    private readonly TextBlock _stat3Label;
+    private readonly TextBlock _stat3Value;
     private readonly Border _messageCard;
     private readonly TextBlock _messageTitleText;
     private readonly TextBlock _messageBodyText;
@@ -272,27 +284,112 @@ internal sealed class UserDesktopWidgetWindow : Window
         Grid.SetColumn(_titleBadge, 1);
         dragContent.Children.Add(_titleBadge);
 
-        // Metrics: 3 equal star columns so each chip fills 1/3 of the available width.
+        // State-driven single-primary-metric layout.
+        // _metricsPanel occupies the star column of _headerRow.
         _metricsPanel = new Grid
         {
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
         _metricsPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        _metricsPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        _metricsPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         Grid.SetColumn(_metricsPanel, 1);
         _headerRow.Children.Add(_metricsPanel);
 
+        // ── New state-driven display ────────────────────────────────
+        _stateDot = new Border
+        {
+            Width = 7, Height = 7,
+            CornerRadius = new CornerRadius(999),
+            Background = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        };
+        _stateLabel = new TextBlock
+        {
+            FontSize = 8,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        var stateLabelRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 1)
+        };
+        stateLabelRow.Children.Add(_stateDot);
+        stateLabelRow.Children.Add(_stateLabel);
+
+        _primaryValueDisplay = new TextBlock
+        {
+            FontSize = 22,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
+            LineHeight = 22,
+            Margin = new Thickness(0, 1, 0, 0)
+        };
+        _primaryLabelDisplay = new TextBlock
+        {
+            FontSize = 8,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+            Margin = new Thickness(0, 1, 0, 2)
+        };
+        _progressBarFill = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Width = 0
+        };
+        var progressBarTrack = new Border
+        {
+            Height = 3,
+            Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+            CornerRadius = new CornerRadius(2),
+            Margin = new Thickness(0, 0, 0, 3),
+            Child = _progressBarFill
+        };
+
+        // Secondary stats: 3 small items in a row
+        _stat1Label = new TextBlock { FontSize = 8, Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)) };
+        _stat1Value = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)), Margin = new Thickness(0, 1, 0, 0) };
+        _stat2Label = new TextBlock { FontSize = 8, Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)) };
+        _stat2Value = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)), Margin = new Thickness(0, 1, 0, 0) };
+        _stat3Label = new TextBlock { FontSize = 8, Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)) };
+        _stat3Value = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)), Margin = new Thickness(0, 1, 0, 0) };
+
+        var statsGrid = new Grid { Margin = new Thickness(0, 0, 0, 0) };
+        statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var stat1Stack = new StackPanel(); stat1Stack.Children.Add(_stat1Label); stat1Stack.Children.Add(_stat1Value);
+        var stat2Stack = new StackPanel(); stat2Stack.Children.Add(_stat2Label); stat2Stack.Children.Add(_stat2Value);
+        var stat3Stack = new StackPanel(); stat3Stack.Children.Add(_stat3Label); stat3Stack.Children.Add(_stat3Value);
+        Grid.SetColumn(stat1Stack, 0); Grid.SetColumn(stat2Stack, 1); Grid.SetColumn(stat3Stack, 2);
+        statsGrid.Children.Add(stat1Stack); statsGrid.Children.Add(stat2Stack); statsGrid.Children.Add(stat3Stack);
+
+        var newMetricsStack = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            Margin = new Thickness(2, 4, 2, 4)
+        };
+        newMetricsStack.Children.Add(stateLabelRow);
+        newMetricsStack.Children.Add(_primaryValueDisplay);
+        newMetricsStack.Children.Add(_primaryLabelDisplay);
+        newMetricsStack.Children.Add(progressBarTrack);
+        newMetricsStack.Children.Add(statsGrid);
+
+        Grid.SetColumn(newMetricsStack, 0);
+        _metricsPanel.Children.Add(newMetricsStack);
+
+        // ── Old chips kept invisible for code-behind compatibility ──
         _primaryMetricChip = CreateMetricChip(out _primaryMetricLabelText, out _primaryMetricText);
         _secondaryMetricChip = CreateMetricChip(out _secondaryMetricLabelText, out _secondaryMetricText);
         _tertiaryMetricChip = CreateMetricChip(out _tertiaryMetricLabelText, out _tertiaryMetricText);
-        Grid.SetColumn(_primaryMetricChip, 0);
-        Grid.SetColumn(_secondaryMetricChip, 1);
-        Grid.SetColumn(_tertiaryMetricChip, 2);
-        _metricsPanel.Children.Add(_primaryMetricChip);
-        _metricsPanel.Children.Add(_secondaryMetricChip);
-        _metricsPanel.Children.Add(_tertiaryMetricChip);
+        var hiddenChips = new StackPanel { Visibility = Visibility.Collapsed };
+        hiddenChips.Children.Add(_primaryMetricChip);
+        hiddenChips.Children.Add(_secondaryMetricChip);
+        hiddenChips.Children.Add(_tertiaryMetricChip);
+        _metricsPanel.Children.Add(hiddenChips);
 
         _menuButton = new Button
         {
@@ -515,6 +612,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         SetMetric(_primaryMetricChip, _primaryMetricLabelText, _primaryMetricText, state.PrimaryMetric);
         SetMetric(_secondaryMetricChip, _secondaryMetricLabelText, _secondaryMetricText, state.SecondaryMetric);
         SetMetric(_tertiaryMetricChip, _tertiaryMetricLabelText, _tertiaryMetricText, state.TertiaryMetric);
+        ApplyStateMetrics(state);
         _pauseFifteenButton.IsEnabled = state.CanPause;
         _pauseHourButton.IsEnabled = state.CanPause;
         _resumeButton.IsEnabled = state.CanResume;
@@ -738,6 +836,102 @@ internal sealed class UserDesktopWidgetWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Child = stack
         };
+    }
+
+    private void ApplyStateMetrics(UserDesktopWidgetState state)
+    {
+        // Determine state colour and primary content.
+        bool overloadMode = state.Mode is UserDesktopWidgetMode.Overload;
+        bool paused = state.Mode is UserDesktopWidgetMode.Paused;
+        bool deepWork = state.Mode is UserDesktopWidgetMode.DeepWork;
+
+        string primaryValue;
+        string primaryLabel;
+        string stateLabelText;
+        Color stateColour;
+
+        if (paused)
+        {
+            primaryValue = "Paused";
+            primaryLabel = "tracking paused";
+            stateLabelText = "PAUSED";
+            stateColour = Color.FromRgb(0x47, 0x55, 0x69);
+        }
+        else if (overloadMode)
+        {
+            // Use pressure % — tertiary metric is "Pressure"
+            string pressureVal = state.TertiaryMetric.Value;
+            double pct = TryParsePercent(pressureVal);
+            stateColour = pct >= 0.80 ? Color.FromRgb(0xEF, 0x44, 0x44) : Color.FromRgb(0xF5, 0x9E, 0x0B);
+            stateLabelText = pct >= 0.80 ? "OVERLOADED" : "WATCH THIS";
+            primaryValue = pressureVal;
+            primaryLabel = "overload risk";
+        }
+        else
+        {
+            // Focus or away — use secondary metric (focus session duration) as focus proxy
+            string focusVal = state.SecondaryMetric.Value;
+            bool hasSession = !string.Equals(focusVal, "—", StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(focusVal);
+
+            if (hasSession || deepWork)
+            {
+                stateColour = Color.FromRgb(0x16, 0xC7, 0x84);
+                stateLabelText = deepWork ? "DEEP WORK" : "FOCUSED";
+                primaryValue = focusVal;
+                primaryLabel = "focus episode";
+            }
+            else
+            {
+                stateColour = Color.FromRgb(0x3B, 0x82, 0xF6);
+                stateLabelText = "AWAY";
+                primaryValue = state.PrimaryMetric.Value;
+                primaryLabel = "work today";
+            }
+        }
+
+        var colourBrush = new SolidColorBrush(stateColour);
+        _stateDot.Background = colourBrush;
+        _stateLabel.Text = stateLabelText;
+        _stateLabel.Foreground = colourBrush;
+        _primaryValueDisplay.Text = primaryValue;
+        _primaryValueDisplay.Foreground = colourBrush;
+        _primaryLabelDisplay.Text = primaryLabel;
+
+        // Progress bar fill — parse percentage for pressure/focus
+        double fillPct = TryParsePercent(primaryValue);
+        _progressBarFill.Background = colourBrush;
+        if (fillPct > 0d && _progressBarFill.Parent is Border track && track.ActualWidth > 0d)
+        {
+            _progressBarFill.Width = Math.Max(3d, track.ActualWidth * fillPct);
+        }
+        else
+        {
+            _progressBarFill.Width = 0;
+        }
+
+        // Secondary stats: Work today | Last session | Pressure
+        _stat1Label.Text = "WORK";
+        _stat1Value.Text = state.PrimaryMetric.Value;
+        _stat2Label.Text = "SESSION";
+        _stat2Value.Text = state.SecondaryMetric.Value;
+        _stat3Label.Text = "PRESSURE";
+        _stat3Value.Text = state.TertiaryMetric.Value;
+    }
+
+    private static double TryParsePercent(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return 0d;
+        ReadOnlySpan<char> span = value.AsSpan().Trim();
+        if (span.EndsWith("%".AsSpan(), StringComparison.Ordinal))
+        {
+            span = span.Slice(0, span.Length - 1);
+        }
+
+        return double.TryParse(span, System.Globalization.NumberStyles.Number,
+            System.Globalization.CultureInfo.InvariantCulture, out double d)
+            ? d / 100d
+            : 0d;
     }
 
     private static void SetMetric(

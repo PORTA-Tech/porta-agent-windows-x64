@@ -59,7 +59,9 @@ foreach ($f in $rootFiles) {
 $sharedFiles = @(
     "ari.dll", "ari.deps.json", "ari.runtimeconfig.json",
     "Porta.Agent.Core.dll", "Porta.Agent.LocalApi.dll",
-    "Porta.Agent.Common.dll", "Porta.Agent.Runtime.dll"
+    "Porta.Agent.Common.dll", "Porta.Agent.Runtime.dll",
+    "Porta.ControlCenter.dll",
+    "Porta.UserAgent.dll"
 )
 foreach ($f in $sharedFiles) {
     $src = Join-Path $sharedDir $f

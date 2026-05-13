@@ -1290,6 +1290,8 @@ public partial class MainWindow : Window
         PopulateTodayOverloadCard(todayState, snapshot, visualState);
         PopulateTodaySupportingStatusLine(todayState, currentStatusText, readableExplanation);
         PopulateTodayRecoveryBanner(todayState, readableExplanation, visualState);
+        PopulateCurrentSessionCard(todayState, liveSession);
+        PopulatePressureProgressBar(snapshot);
     }
 
     private void PopulateTodayWorkCard(
@@ -1300,14 +1302,12 @@ public partial class MainWindow : Window
         if (todayState == TodayTrackingState.Paused)
         {
             NowOverloadValueText.Text = ResolveTodayWorkMetricText(todayState, todayMetrics, _latestStatus);
-            NowOverloadActiveText.Text = "History status: paused";
-            NowOverloadSummaryText.Text = "History stays pinned here and resumes once tracking is unpaused.";
+            NowOverloadActiveText.Text = "Tracking paused";
         }
         else if (todayState == TodayTrackingState.Unavailable)
         {
             NowOverloadValueText.Text = ResolveTodayWorkMetricText(todayState, todayMetrics, _latestStatus);
-            NowOverloadActiveText.Text = "History status: unavailable";
-            NowOverloadSummaryText.Text = "Open System to reconnect the local service, then History will resume here.";
+            NowOverloadActiveText.Text = "Service reconnecting";
         }
         else if (todayMetrics.HasProcessedTimeline)
         {
@@ -1315,25 +1315,17 @@ public partial class MainWindow : Window
                 metricKey: "today_work_total",
                 targetValue: Math.Max(0d, todayMetrics.DisplayedTrackedTodaySeconds),
                 applyValue: value => NowOverloadValueText.Text = LocalMetricDurationFormatter.FormatMetricDuration(value));
-            NowOverloadActiveText.Text = BuildTodayHistoryStatusText();
-            NowOverloadSummaryText.Text = "Open History to review the day-by-hour focus map for today.";
+            // Show start time only — no internal status language
+            NowOverloadActiveText.Text = BuildTodayWorkStartText(todayMetrics);
         }
         else
         {
             NowOverloadValueText.Text = ResolveTodayWorkMetricText(todayState, todayMetrics, _latestStatus);
-            NowOverloadActiveText.Text = "History status: waiting for processed buckets";
-            NowOverloadSummaryText.Text = "History stays visible and fills hour by hour as processed buckets land.";
+            NowOverloadActiveText.Text = "Updating";
         }
 
-        if (visualState.SnapshotAnalysisReady)
-        {
-            NowOverloadTrustText.Text = $"Confidence: {visualState.ConfidenceLabel}";
-            NowOverloadTrustText.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            NowOverloadTrustText.Visibility = Visibility.Collapsed;
-        }
+        // Never show confidence on the home screen
+        NowOverloadTrustText.Visibility = Visibility.Collapsed;
     }
 
     private void PopulateTodayLastFocusCard(
@@ -1341,37 +1333,37 @@ public partial class MainWindow : Window
         LocalApiLiveSessionStateResponse? liveSession,
         PortaVisualState visualState)
     {
-        double? focusEpisodeSeconds = visualState.FocusEpisodeSeconds;
+        // Show task continuity score as a % — this is the focus quality signal, not a duration.
+        LocalApiCurrentSnapshotResponse? snapshot = _lastSnapshot;
+        bool hasScore = snapshot?.analysis_ready == true
+            && double.IsFinite(snapshot.TaskContinuityScore)
+            && snapshot.TaskContinuityScore > 0d;
+
         NowFocusStreakValueText.Foreground = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84));
-        if (focusEpisodeSeconds.HasValue)
+        NowDeepWorkStreakText.Visibility = Visibility.Collapsed;
+
+        if (hasScore)
         {
             AnimateTopMetric(
-                metricKey: "today_last_focus",
-                targetValue: Math.Max(0d, focusEpisodeSeconds.Value),
-                applyValue: value => NowFocusStreakValueText.Text = LocalMetricDurationFormatter.FormatMetricDuration(value));
+                metricKey: "today_focus_score",
+                targetValue: Math.Max(0d, snapshot!.TaskContinuityScore * 100d),
+                applyValue: value => NowFocusStreakValueText.Text = $"{value:F0}%");
+        }
+        else if (todayState == TodayTrackingState.Paused)
+        {
+            NowFocusStreakValueText.Text = "Paused";
+            NowFocusStreakValueText.Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69));
         }
         else
         {
-            NowFocusStreakValueText.Text = ResolveTodayLastFocusMetricText(
-                todayState,
-                focusEpisodeSeconds,
-                IsLiveSessionFresh(liveSession),
-                _latestStatus);
+            NowFocusStreakValueText.Text = "—";
         }
 
-        string focusedNowText = BuildTodayFocusedNowLabel(liveSession, focusEpisodeSeconds);
-        if (string.IsNullOrWhiteSpace(focusedNowText))
-        {
-            NowDeepWorkStreakText.Visibility = Visibility.Collapsed;
-        }
-        else
-        {
-            NowDeepWorkStreakText.Text = focusedNowText;
-            NowDeepWorkStreakText.Visibility = Visibility.Visible;
-        }
-
-        NowFocusChoppinessText.Text = !string.IsNullOrWhiteSpace(visualState.EpisodeStatusText)
-            ? visualState.EpisodeStatusText
+        // Subtext: confidence label or building baseline — no internal state language.
+        string confidenceLabel = visualState.ConfidenceLabel;
+        NowFocusChoppinessText.Text = !string.IsNullOrWhiteSpace(confidenceLabel)
+            && !string.Equals(confidenceLabel, NotAvailableText, StringComparison.OrdinalIgnoreCase)
+            ? $"{confidenceLabel} confidence"
             : BuildTodayCurrentFocusSupportText(liveSession);
         NowFocusSummaryText.Visibility = Visibility.Collapsed;
         NowFocusFootnoteText.Visibility = Visibility.Collapsed;
@@ -1502,53 +1494,101 @@ public partial class MainWindow : Window
         NowRecoveryBannerBorder.Visibility = Visibility.Visible;
     }
 
+    private void PopulateCurrentSessionCard(
+        TodayTrackingState todayState,
+        LocalApiLiveSessionStateResponse? liveSession)
+    {
+        if (todayState == TodayTrackingState.Paused)
+        {
+            CurrentSessionValueText.Text = "Paused";
+            CurrentSessionValueText.Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69));
+            CurrentSessionSubText.Text = string.Empty;
+            return;
+        }
+
+        bool fresh = IsLiveSessionFresh(liveSession);
+        if (!fresh || liveSession == null)
+        {
+            CurrentSessionValueText.Text = "—";
+            CurrentSessionValueText.Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8));
+            CurrentSessionSubText.Text = "Connecting";
+            return;
+        }
+
+        if (liveSession.idle)
+        {
+            CurrentSessionValueText.Text = "Away";
+            CurrentSessionValueText.Foreground = new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6));
+            CurrentSessionSubText.Text = liveSession.last_input_age_seconds.HasValue
+                ? $"{FormatAgeLabel(liveSession.last_input_age_seconds)} idle"
+                : "Idle";
+        }
+        else
+        {
+            CurrentSessionValueText.Text = "Focused now";
+            CurrentSessionValueText.Foreground = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84));
+            string typing = liveSession.keyboard_active ? "typing active" : "typing idle";
+            string mouse = liveSession.mouse_active ? "mouse active" : "mouse idle";
+            CurrentSessionSubText.Text = $"{typing} · {mouse}";
+        }
+    }
+
+    private void PopulatePressureProgressBar(LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        double pressure = snapshot != null ? ResolvePressureLevel(snapshot) : 0d;
+        Color fillColor = PressureColor(pressure);
+        PressureProgressFill.Background = new SolidColorBrush(fillColor);
+        // Width is set by proportion — container width is measured by WPF layout
+        // We bind the fill width via ActualWidth when available
+        PressureProgressFill.Tag = pressure; // store for use in SizeChanged if needed
+    }
+
     private string BuildTodaySummarySentence(
         TodayTrackingState todayState,
         TodayPageMetrics todayMetrics,
         double? focusEpisodeSeconds,
         string readableExplanation)
     {
+        // Conversational Ari sentence — one line, colleague tone, no system language.
         if (todayState == TodayTrackingState.Paused)
         {
-            return $"Paused. {readableExplanation}";
+            return "Tracking is paused — pick up where you left off when you're ready.";
         }
 
         if (todayState == TodayTrackingState.Unavailable)
         {
-            return $"Unavailable. {readableExplanation}";
+            return "Can't reach the local service right now — check the System page if this persists.";
         }
 
-        if (todayState == TodayTrackingState.TrackingLimited)
-        {
-            if (todayMetrics.HasProcessedTimeline)
-            {
-                return $"Tracking limited. Work today is {FormatReadableDuration(todayMetrics.DisplayedTrackedTodaySeconds)}. {readableExplanation}";
-            }
-
-            if (focusEpisodeSeconds.HasValue)
-            {
-                return $"Tracking limited. Ari still sees your last focus session while the history map catches up. {readableExplanation}";
-            }
-
-            return $"Tracking limited. {readableExplanation}";
-        }
+        LocalApiCurrentSnapshotResponse? snap = _lastSnapshot;
+        double pressureLevel = snap != null ? ResolvePressureLevel(snap) : 0d;
+        string pressureText = snap?.analysis_ready == true
+            ? $"pressure is at {(int)(pressureLevel * 100)}%"
+            : "pressure is still updating";
 
         if (todayMetrics.HasProcessedTimeline)
         {
-            if (focusEpisodeSeconds.HasValue)
-            {
-                return $"Still tracking. Work today is {FormatReadableDuration(todayMetrics.DisplayedTrackedTodaySeconds)}, and your last focus session is {FormatReadableDuration(focusEpisodeSeconds.Value)}.";
-            }
-
-            return $"Still tracking. Work today is {FormatReadableDuration(todayMetrics.DisplayedTrackedTodaySeconds)}. Open History to inspect the day-by-hour focus map.";
+            string workText = FormatReadableDuration(todayMetrics.DisplayedTrackedTodaySeconds);
+            string pressureContext = pressureLevel >= 0.80 ? "— you might want a break soon"
+                : pressureLevel >= 0.65 ? "— watch the pressure"
+                : "— staying in a good zone";
+            return $"You've been working {workText} and {pressureText} {pressureContext}.";
         }
 
-        if (focusEpisodeSeconds.HasValue)
+        return "Ari is warming up — your work stats will appear shortly.";
+    }
+
+    private string BuildTodayWorkStartText(TodayPageMetrics todayMetrics)
+    {
+        // "Since 8:43 AM" — no history status language
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = _todayTimeline?.Snapshots ?? [];
+        if (snapshots.Count > 0)
         {
-            return "Still tracking. Ari sees your last focus session now, and the history map is catching up.";
+            DateTimeOffset first = snapshots[0].TimestampUtc.ToLocalTime();
+            return $"Since {first:h:mm tt}";
         }
 
-        return $"Still tracking. {TodayPageCopyBuilder.BuildEmptyStateGuidance(todayState)}";
+        return string.Empty;
     }
 
     private static string BuildTodayFocusedNowLabel(
@@ -1577,19 +1617,20 @@ public partial class MainWindow : Window
 
     private static string BuildTodayCurrentFocusSupportText(LocalApiLiveSessionStateResponse? liveSession)
     {
+        // Friendly subtext: no internal state language, no "Episode: X"
         if (!IsLiveSessionFresh(liveSession))
         {
-            return "Live activity: waiting to reconnect";
+            return "Building baseline";
         }
 
         if (liveSession!.idle)
         {
             return liveSession.last_input_age_seconds.HasValue
-                ? $"Last input: {FormatAgeLabel(liveSession.last_input_age_seconds)}"
-                : "Last input: not available";
+                ? $"Away · {FormatAgeLabel(liveSession.last_input_age_seconds)}"
+                : "Away";
         }
 
-        return $"Typing {(liveSession.keyboard_active ? "active" : "idle")} | Mouse {(liveSession.mouse_active ? "active" : "idle")}";
+        return liveSession.keyboard_active ? "Typing active" : "Active now";
     }
 
     private static string BuildTodayCurrentFocusSummary(
@@ -5621,16 +5662,16 @@ public partial class MainWindow : Window
                 Height = HistoryHeatmapCellHeight - 2d,
                 Padding = new Thickness(0),
                 Margin = new Thickness(0),
-                BorderThickness = new Thickness(selected ? 1.6d : cell.Interventions.Count > 0 ? 1.2d : 0.8d),
+                BorderThickness = new Thickness(selected ? 1.5d : cell.HasTracking ? 1d : 0d),
                 BorderBrush = selected
-                    ? new SolidColorBrush(Color.FromRgb(147, 197, 253))
-                    : cell.Interventions.Count > 0
-                        ? new SolidColorBrush(Color.FromRgb(245, 158, 11))
-                        : new SolidColorBrush(Color.FromRgb(51, 65, 85)),
+                    ? new SolidColorBrush(Color.FromRgb(99, 102, 241))
+                    : cell.HasTracking
+                        ? new SolidColorBrush(Color.FromRgb(44, 44, 70))
+                        : Brushes.Transparent,
                 Background = CreateHistoryHeatmapCellBackground(cell, heatmap.MaxFocusedSecondsPerHour),
-                Content = BuildHistoryHeatmapCellContent(cell),
+                Content = cell.HasTracking ? BuildHistoryHeatmapCellContent(cell) : null,
                 Tag = cell,
-                Cursor = Cursors.Hand,
+                Cursor = cell.HasTracking ? Cursors.Hand : Cursors.Arrow,
                 Focusable = false,
                 ToolTip = BuildHistoryHeatmapCellTooltip(cell)
             };
@@ -5797,7 +5838,7 @@ public partial class MainWindow : Window
             Background = new SolidColorBrush(Color.FromRgb(15, 23, 42)),
             BorderBrush = new SolidColorBrush(Color.FromRgb(51, 65, 85)),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(999),
+            CornerRadius = new CornerRadius(3),
             Child = BuildHistoryEpisodeTrackCanvas(
                 cell,
                 includeAttentionEpisodes: true,
@@ -5905,13 +5946,13 @@ public partial class MainWindow : Window
 
     private static Brush CreateHistoryEpisodeSegmentBrush(HistoryTimelineEpisodeKind kind) => kind switch
     {
-        HistoryTimelineEpisodeKind.FocusEpisode => new SolidColorBrush(Color.FromRgb(34, 197, 94)),
-        HistoryTimelineEpisodeKind.ContextExcursion => new SolidColorBrush(Color.FromRgb(59, 130, 246)),
-        HistoryTimelineEpisodeKind.OffTaskDistraction => new SolidColorBrush(Color.FromRgb(245, 158, 11)),
-        HistoryTimelineEpisodeKind.FragmentationDistraction => new SolidColorBrush(Color.FromRgb(249, 115, 22)),
-        HistoryTimelineEpisodeKind.Away => new SolidColorBrush(Color.FromRgb(148, 163, 184)),
-        HistoryTimelineEpisodeKind.OverloadEpisode => new SolidColorBrush(Color.FromRgb(239, 68, 68)),
-        _ => new SolidColorBrush(Color.FromRgb(148, 163, 184))
+        HistoryTimelineEpisodeKind.FocusEpisode           => new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)), // #16C784 green
+        HistoryTimelineEpisodeKind.ContextExcursion       => new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6)), // #3B82F6 blue
+        HistoryTimelineEpisodeKind.OffTaskDistraction     => new SolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6)), // #8B5CF6 purple
+        HistoryTimelineEpisodeKind.FragmentationDistraction => new SolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6)),
+        HistoryTimelineEpisodeKind.Away                   => new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6)), // #3B82F6 blue
+        HistoryTimelineEpisodeKind.OverloadEpisode        => new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44)), // #EF4444 red
+        _                                                 => new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69))
     };
 
     private static string BuildHistoryCellValueText(HistoryFocusHeatmapCell cell)
@@ -5939,16 +5980,10 @@ public partial class MainWindow : Window
 
     private static Brush CreateHistoryHeatmapCellBackground(HistoryFocusHeatmapCell cell, double maxFocusedSecondsPerHour)
     {
-        if (!cell.HasTracking)
-        {
-            return new SolidColorBrush(Color.FromRgb(11, 18, 32));
-        }
-
-        double emphasis = maxFocusedSecondsPerHour <= 0d
-            ? Math.Clamp(cell.AverageFocusPercent / 100d, 0d, 1d)
-            : Math.Clamp(cell.FocusedSeconds / maxFocusedSecondsPerHour, 0d, 1d);
-        byte channel = (byte)Math.Round(20d + (emphasis * 10d));
-        return new SolidColorBrush(Color.FromRgb(channel, (byte)(channel + 6), (byte)(channel + 14)));
+        // Empty cells are plain dark rectangles — no gradient, no depth.
+        return new SolidColorBrush(cell.HasTracking
+            ? Color.FromRgb(0x1C, 0x1C, 0x2E)
+            : Color.FromRgb(0x1C, 0x1C, 0x2E));
     }
 
     private void TimelineHeatmapCellButton_Click(object sender, RoutedEventArgs e)
@@ -5966,62 +6001,16 @@ public partial class MainWindow : Window
     {
         if (cell == null)
         {
-            TimelineDetailTimestamp.Text = _historyExplainMode
-                ? $"Hour: {NotAvailableText}"
-                : "Hour: Select a day/hour block to inspect the retained episode list for that hour.";
-            TimelineDetailOverload.Text = _historyExplainMode
-                ? $"Tracked: {NotAvailableText}"
-                : "Pressure in that hour: This will appear after you select a day/hour block.";
-            TimelineDetailTrust.Text = _historyExplainMode
-                ? $"Confidence: {NotAvailableText}"
-                : "Confidence in that hour: This will appear after you select a day/hour block.";
-            TimelineDetailFocus.Text = _historyExplainMode
-                ? $"Focus episode: {NotAvailableText}"
-                : "Episode mix: This will appear after you select a day/hour block.";
-            TimelineDetailClassification.Text = _historyExplainMode
-                ? "Hour type: Select a day/hour block to inspect raw details."
-                : "Summary: Select a day/hour block to see the episode mix in that hour.";
-            TimelineDetailExecution.Text = _historyExplainMode
-                ? "Decision / execution: Interventions inside the selected hour will appear here."
-                : "Interventions in that hour: These appear inside the episode list below.";
-            TimelineDetailWhyHeader.Text = _historyExplainMode ? "Why? (Detailed)" : "What Ari saw in that hour";
-            TimelineDetailWhyFiv.Text = _historyExplainMode
-                ? "Focus / pressure / movement: Select a day/hour block to inspect the raw breakdown."
-                : "Focus / pressure / movement: Ari will summarize the selected hour here.";
-            TimelineDetailWhyReasons.Text = _historyExplainMode
-                ? "Top reasons: Select a day/hour block to inspect the strongest contributors."
-                : "Main signals: Ari will list the strongest reasons after you select an hour.";
-            TimelineDetailWhyQuality.Text = _historyExplainMode
-                ? "Quality: Select a day/hour block to inspect the tracked snapshots behind it."
-                : "Tracking quality: This will appear with the selected hour.";
-            TimelineDetailStabilization.Text = _historyExplainMode
-                ? "Stabilization: Select a day/hour block to inspect the latest processed block in that hour."
-                : "Context: Use this panel to understand what Ari saw around the selected hour.";
+            TimelineDetailTimestamp.Text = "Select a cell to inspect that hour";
+            TimelineDetailClassification.Text = string.Empty;
             PopulateTimelineEpisodeDrilldown([], "the selected hour");
             return;
         }
 
-        TimelineDetailTimestamp.Text = $"Hour: {cell.LocalDate:dddd, MMM d} {cell.HourLabel}";
-        TimelineDetailOverload.Text = _historyExplainMode
-            ? $"Pressure avg {cell.AverageOverloadPercent:F0}% | confidence {cell.AverageConfidencePercent:F0}%"
-            : $"Pressure in that hour: avg {cell.AverageOverloadPercent:F0}% | confidence {cell.AverageConfidencePercent:F0}%";
-        TimelineDetailTrust.Text = _historyExplainMode
-            ? $"Confidence: {cell.AverageConfidencePercent:F0}% | Avg pressure: {cell.AverageOverloadPercent:F0}%"
-            : $"Confidence in that hour: {cell.AverageConfidencePercent:F0}% | Average pressure: {cell.AverageOverloadPercent:F0}%";
-        TimelineDetailFocus.Text = _historyExplainMode
-            ? $"Episode mix: {BuildHistoryCellWhatHappened(cell)}"
-            : $"Episode mix: {BuildHistoryCellWhatHappened(cell)}";
-        TimelineDetailClassification.Text = _historyExplainMode
-            ? $"Hour type: {BuildHistoryCellWhatHappened(cell)}"
-            : $"Summary: {BuildHistoryCellWhatHappened(cell)}";
-        TimelineDetailExecution.Text = BuildHistoryCellExecutionText(cell);
-        TimelineDetailWhyHeader.Text = _historyExplainMode ? "Why? (Detailed)" : "What Ari saw in that hour";
-        TimelineDetailWhyFiv.Text = _historyExplainMode
-            ? $"focus={FormatReadableDuration(cell.FocusEpisodeSeconds)} | distraction={FormatReadableDuration(cell.DistractionEpisodeSeconds)} | away={FormatReadableDuration(cell.AwayEpisodeSeconds)} | overload={FormatReadableDuration(cell.OverloadEpisodeSeconds)}"
-            : $"Focus / pressure / movement: {BuildHistoryCellMomentSummary(cell)}";
-        TimelineDetailWhyReasons.Text = BuildHistoryCellSignalsText(cell);
-        TimelineDetailWhyQuality.Text = BuildHistoryCellTrackingQualityText(cell);
-        TimelineDetailStabilization.Text = BuildHistoryCellContextText(cell);
+        // Clean header: "Wed 13 May · 18:00–19:00"
+        TimelineDetailTimestamp.Text = $"{cell.LocalDate:ddd d MMM} · {cell.Hour:00}:00–{(cell.Hour + 1) % 24:00}:00";
+        // Summary: episode composition as a readable sentence
+        TimelineDetailClassification.Text = BuildHistoryCellWhatHappened(cell);
         PopulateTimelineEpisodeDrilldown(cell.Episodes, $"{cell.LocalDate:ddd MMM d} {cell.HourLabel}");
     }
 
@@ -6131,37 +6120,19 @@ public partial class MainWindow : Window
         IReadOnlyList<HistoryTimelineEpisode> episodes,
         string contextLabel)
     {
+        _ = contextLabel;
         TimelineEpisodeListPanel.Children.Clear();
 
         if (episodes.Count == 0)
         {
-            TimelineEpisodeSummaryText.Text = _historyExplainMode
-                ? $"Episode drilldown: no derived episodes overlap {contextLabel}."
-                : $"Episodes in this block: no derived episodes overlap {contextLabel} yet.";
-            TimelineEpisodeListPanel.Children.Add(new Border
-            {
-                Background = new SolidColorBrush(Color.FromRgb(15, 23, 42)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(36, 48, 66)),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(12),
-                Padding = new Thickness(10),
-                Child = new TextBlock
-                {
-                    Text = "As processed snapshots accumulate, focus, distraction, away, and overload episodes will appear here.",
-                    Foreground = new SolidColorBrush(Color.FromRgb(203, 213, 225)),
-                    TextWrapping = TextWrapping.Wrap
-                }
-            });
+            TimelineEpisodeSummaryText.Text = string.Empty;
             return;
         }
 
-        TimelineEpisodeSummaryText.Text = _historyExplainMode
-            ? $"Episode drilldown: {episodes.Count} derived episodes overlap {contextLabel}."
-            : $"Episodes in this block: {episodes.Count} derived episodes overlap {contextLabel}.";
+        TimelineEpisodeSummaryText.Text = string.Empty;
 
         foreach (HistoryTimelineEpisode episode in episodes
-                     .OrderByDescending(static episode => episode.DurationSeconds)
-                     .ThenBy(static episode => episode.StartUtc))
+                     .OrderBy(static episode => episode.StartUtc))
         {
             TimelineEpisodeListPanel.Children.Add(BuildTimelineEpisodeCard(episode));
         }
@@ -6184,104 +6155,88 @@ public partial class MainWindow : Window
 
     private Border BuildTimelineEpisodeCard(HistoryTimelineEpisode episode)
     {
-        Brush accent = episode.Kind switch
+        // Spec: type chip + time range + rectangular duration badge. No developer text.
+        (Color accentColor, Color dimColor, string kindLabel) = episode.Kind switch
         {
-            HistoryTimelineEpisodeKind.FocusEpisode => new SolidColorBrush(Color.FromRgb(34, 197, 94)),
-            HistoryTimelineEpisodeKind.ContextExcursion => new SolidColorBrush(Color.FromRgb(59, 130, 246)),
-            HistoryTimelineEpisodeKind.OffTaskDistraction => new SolidColorBrush(Color.FromRgb(245, 158, 11)),
-            HistoryTimelineEpisodeKind.FragmentationDistraction => new SolidColorBrush(Color.FromRgb(249, 115, 22)),
-            HistoryTimelineEpisodeKind.Away => new SolidColorBrush(Color.FromRgb(148, 163, 184)),
-            HistoryTimelineEpisodeKind.OverloadEpisode => new SolidColorBrush(Color.FromRgb(239, 68, 68)),
-            _ => new SolidColorBrush(Color.FromRgb(148, 163, 184))
+            HistoryTimelineEpisodeKind.FocusEpisode
+                => (Color.FromRgb(0x16, 0xC7, 0x84), Color.FromArgb(0x20, 0x16, 0xC7, 0x84), "Focus"),
+            HistoryTimelineEpisodeKind.ContextExcursion
+                => (Color.FromRgb(0x3B, 0x82, 0xF6), Color.FromArgb(0x20, 0x3B, 0x82, 0xF6), "Away"),
+            HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction
+                => (Color.FromRgb(0x8B, 0x5C, 0xF6), Color.FromArgb(0x20, 0x8B, 0x5C, 0xF6), "Distraction"),
+            HistoryTimelineEpisodeKind.Away
+                => (Color.FromRgb(0x3B, 0x82, 0xF6), Color.FromArgb(0x20, 0x3B, 0x82, 0xF6), "Away"),
+            HistoryTimelineEpisodeKind.OverloadEpisode
+                => (Color.FromRgb(0xEF, 0x44, 0x44), Color.FromArgb(0x20, 0xEF, 0x44, 0x44), "Overload"),
+            _ => (Color.FromRgb(0x64, 0x74, 0x8B), Color.FromArgb(0x20, 0x64, 0x74, 0x8B), "Unknown")
         };
 
-        string pressureSummary = $"Pressure avg {episode.AveragePressurePercent:F0}% | peak {episode.PeakPressurePercent:F0}% | confidence {episode.AverageConfidencePercent:F0}%";
-        string overloadSummary = episode.OverloadActive
-            ? "Overload active during this episode."
-            : "Overload stayed inactive during this episode.";
-        string interventionsSummary = episode.Interventions.Count switch
+        // Type chip
+        var typeChip = new Border
         {
-            0 => "Interventions: none inside this episode.",
-            1 => $"Interventions: {ToActionTitle(episode.Interventions[0])}.",
-            _ => $"Interventions: {episode.Interventions.Count} inside this episode. Latest: {ToActionTitle(episode.Interventions[^1])}."
-        };
-
-        Grid header = new()
-        {
-            Margin = new Thickness(0, 0, 0, 6)
-        };
-        header.ColumnDefinitions.Add(new ColumnDefinition());
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.Children.Add(new TextBlock
-        {
-            Text = episode.DisplayLabel,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = Brushes.White,
-            TextWrapping = TextWrapping.Wrap
-        });
-        Border durationBadge = new()
-        {
-            Background = accent,
-            CornerRadius = new CornerRadius(999),
+            Background = new SolidColorBrush(dimColor),
+            BorderBrush = new SolidColorBrush(accentColor),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(100),
             Padding = new Thickness(8, 2, 8, 2),
-            Margin = new Thickness(8, 0, 0, 0),
+            Margin = new Thickness(0, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = kindLabel,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(accentColor)
+            }
+        };
+
+        // Time range
+        var timeText = new TextBlock
+        {
+            Text = $"{episode.StartUtc.ToLocalTime():HH:mm} → {episode.EndUtc.ToLocalTime():HH:mm}",
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+
+        // Duration badge — rectangular (not oval)
+        var durationBadge = new Border
+        {
+            Background = new SolidColorBrush(dimColor),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(8, 2, 8, 2),
+            Margin = new Thickness(0, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock
             {
                 Text = FormatReadableDuration(episode.DurationSeconds),
-                Foreground = Brushes.Black,
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold
+                FontSize = 12,
+                FontWeight = FontWeights.Medium,
+                Foreground = new SolidColorBrush(accentColor)
             }
         };
-        Grid.SetColumn(durationBadge, 1);
-        header.Children.Add(durationBadge);
 
-        StackPanel content = new();
-        content.Children.Add(header);
-        content.Children.Add(new TextBlock
-        {
-            Text = $"{episode.StartUtc.ToLocalTime():MMM d HH:mm} to {episode.EndUtc.ToLocalTime():MMM d HH:mm}",
-            Foreground = new SolidColorBrush(Color.FromRgb(147, 197, 253)),
-            Margin = new Thickness(0, 0, 0, 6),
-            TextWrapping = TextWrapping.Wrap
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = $"Reason: {episode.ReasonText}",
-            Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
-            Margin = new Thickness(0, 0, 0, 6),
-            TextWrapping = TextWrapping.Wrap
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = pressureSummary,
-            Foreground = new SolidColorBrush(Color.FromRgb(203, 213, 225)),
-            Margin = new Thickness(0, 0, 0, 4),
-            TextWrapping = TextWrapping.Wrap
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = overloadSummary,
-            Foreground = new SolidColorBrush(Color.FromRgb(203, 213, 225)),
-            Margin = new Thickness(0, 0, 0, 4),
-            TextWrapping = TextWrapping.Wrap
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = interventionsSummary,
-            Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
-            TextWrapping = TextWrapping.Wrap
-        });
+        var row = new Grid { Margin = new Thickness(0, 0, 0, 0) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(typeChip, 0);
+        Grid.SetColumn(timeText, 1);
+        Grid.SetColumn(durationBadge, 2);
+        row.Children.Add(typeChip);
+        row.Children.Add(timeText);
+        row.Children.Add(durationBadge);
 
         return new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(15, 23, 42)),
-            BorderBrush = accent,
+            Background = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(10),
-            Margin = new Thickness(0, 0, 0, 8),
-            Child = content
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 0, 4),
+            Child = row
         };
     }
 

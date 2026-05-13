@@ -369,6 +369,28 @@ public partial class MainWindow
         AccountSignedOutPanel.Visibility = signedIn ? Visibility.Collapsed : Visibility.Visible;
         AccountSignedInPanel.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
 
+        // Profile card: show when signed in
+        AccountProfileCard.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
+        if (signedIn && _accountProfile?.Account is { } prof)
+        {
+            string displayName = !string.IsNullOrWhiteSpace(prof.DisplayName) ? prof.DisplayName : prof.PrimaryEmail ?? "Account";
+            AccountProfileNameText.Text = displayName;
+            AccountProfileEmailText.Text = prof.PrimaryEmail ?? string.Empty;
+            AccountAvatarInitialText.Text = displayName.Length > 0
+                ? displayName[0].ToString().ToUpperInvariant()
+                : "A";
+            // Device: use first device from profile, or the linked device name
+            ControlPlaneDeviceProfile? thisDevice = _accountProfile?.Devices.FirstOrDefault();
+            AccountProfileDeviceText.Text = thisDevice?.DeviceDisplayName ?? thisDevice?.MachineName ?? "—";
+            // Workspace: first org name
+            ControlPlaneAccountMembershipView? firstOrg = _accountProfile?.Organizations.FirstOrDefault();
+            AccountProfileWorkspaceText.Text = firstOrg?.Organization?.OrgName ?? "—";
+            // Session ID: abbreviate
+            AccountProfileSessionText.Text = _accountSession?.AccountId is { Length: > 0 } aid
+                ? (aid.Length > 14 ? aid[..14] + "…" : aid)
+                : "—";
+        }
+
         AccountSignInButton.IsEnabled = !signedIn && backendConfigured;
         AccountRefreshButton.IsEnabled = signedIn;
 
