@@ -612,6 +612,36 @@
             <Grid Grid.Row="1">
                 <ScrollViewer x:Name="OverviewPanel" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
+                        <!-- Greeting row -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock x:Name="TodayGreetingText"
+                                           Text="Good morning"
+                                           FontSize="22" FontWeight="SemiBold"
+                                           Foreground="#F1F5F9" />
+                                <TextBlock x:Name="TodayDateText"
+                                           FontSize="13"
+                                           Foreground="#475569"
+                                           Margin="0,2,0,0" />
+                            </StackPanel>
+                            <Border x:Name="TodayStateChipBorder"
+                                    Grid.Column="1"
+                                    CornerRadius="100"
+                                    Background="#1E16C784"
+                                    BorderBrush="#3316C784"
+                                    BorderThickness="1"
+                                    Padding="10,5"
+                                    VerticalAlignment="Center">
+                                <TextBlock x:Name="TodayStateChipText"
+                                           Text="● Focused now"
+                                           FontSize="12" FontWeight="SemiBold"
+                                           Foreground="#16C784" />
+                            </Border>
+                        </Grid>
                         <!-- Ari bubble -->
                         <Border Background="#1216C784"
                                 BorderBrush="#3316C784"
@@ -632,15 +662,11 @@
                                            TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
+                        <!-- Three metric cards -->
+                        <UniformGrid Columns="3" Margin="0,0,0,10">
                             <Border x:Name="NowOverloadCard"
-                                    Grid.Column="0"
                                     Style="{StaticResource QuietHoverCardStyle}"
-                                    Margin="0,0,8,0"
+                                    Margin="0,0,5,0"
                                     Cursor="Hand"
                                     MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
                                     Tag="today-work"
@@ -648,66 +674,51 @@
                                 <StackPanel>
                                     <TextBlock Text="WORK TODAY"
                                                FontSize="11" FontWeight="SemiBold"
-                                               Foreground="{StaticResource PortaTextMutedBrush}"
+                                               Foreground="#475569"
                                                Margin="0,0,0,6" />
-                                    <TextBlock x:Name="NowOverloadValueText" Text="Updating" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap"
-                                               Foreground="{StaticResource PortaTextPrimaryBrush}" />
-                                    <TextBlock x:Name="NowOverloadActiveText" Text="Updating" Margin="0,5,0,0"
-                                               FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" />
+                                    <TextBlock x:Name="NowOverloadValueText" Text="—" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               Foreground="#F1F5F9" />
+                                    <TextBlock x:Name="NowOverloadActiveText" Text="" Margin="0,4,0,0"
+                                               FontSize="12" Foreground="#475569" />
                                     <TextBlock x:Name="NowOverloadTrustText" Text="" Margin="0,3,0,0" Visibility="Collapsed"
-                                               FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" />
-                                    <TextBlock x:Name="NowOverloadSummaryText"
-                                               Text="Open History to see today's focus map hour by hour."
-                                               Margin="0,6,0,0"
-                                               FontSize="12"
-                                               Foreground="{StaticResource PortaTextMutedBrush}"
-                                               TextWrapping="Wrap" />
+                                               FontSize="12" Foreground="#475569" />
+                                    <Border Height="4" CornerRadius="2" Background="#252535" Margin="0,8,0,0">
+                                        <Border x:Name="WorkTodayProgressFill" Background="#3B82F6" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
+                                    </Border>
+                                    <TextBlock x:Name="NowOverloadSummaryText" Visibility="Collapsed"
+                                               Text="" FontSize="12" Foreground="#475569" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="NowFocusCard"
-                                    Grid.Column="1"
                                     Style="{StaticResource QuietHoverCardStyle}"
-                                    Margin="8,0,0,0"
+                                    Margin="5,0,5,0"
                                     Cursor="Hand"
                                     MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
                                     Tag="last-focus"
-                                    ToolTip="Open History for last focus details">
+                                    BorderBrush="#2216C784"
+                                    ToolTip="Current focus episode">
                                 <StackPanel>
-                                    <TextBlock Text="LAST FOCUS SESSION"
+                                    <TextBlock Text="FOCUS SCORE"
                                                FontSize="11" FontWeight="SemiBold"
-                                               Foreground="{StaticResource PortaTextMutedBrush}"
+                                               Foreground="#475569"
                                                Margin="0,0,0,6" />
-                                    <TextBlock x:Name="NowFocusStreakValueText" Text="Not available" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap"
+                                    <TextBlock x:Name="NowFocusStreakValueText" Text="—" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"
                                                Foreground="#16C784" />
-                                    <TextBlock x:Name="NowDeepWorkStreakText"
-                                               Text=""
-                                               Margin="0,5,0,0"
-                                               FontSize="12" FontWeight="SemiBold"
-                                               Foreground="{StaticResource PortaFocusBrush}"
-                                               Visibility="Collapsed" />
-                                    <TextBlock x:Name="NowFocusChoppinessText" Text="Not available" Margin="0,5,0,0"
-                                               FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" />
-                                    <TextBlock x:Name="NowFocusSummaryText"
-                                               Text="Same focus-timer definition as the widget."
-                                               Margin="0,6,0,0"
-                                               FontSize="12"
-                                               Foreground="{StaticResource PortaTextMutedBrush}"
-                                               TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowFocusFootnoteText" Text="Short pauses do not clear the focus episode." Margin="0,5,0,0" FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" TextWrapping="Wrap" Visibility="Collapsed" />
-                                    <TextBlock x:Name="NowFocusStatusText" Text="" Margin="0,5,0,0" Foreground="{StaticResource PortaWarningBrush}" TextWrapping="Wrap" Visibility="Collapsed" />
+                                    <TextBlock x:Name="NowDeepWorkStreakText" Text="" Margin="0,5,0,0"
+                                               FontSize="12" FontWeight="SemiBold" Foreground="#16C784" Visibility="Collapsed" />
+                                    <TextBlock x:Name="NowFocusChoppinessText" Text="" Margin="0,4,0,0"
+                                               FontSize="12" Foreground="#475569" />
+                                    <Border Height="4" CornerRadius="2" Background="#252535" Margin="0,8,0,0">
+                                        <Border x:Name="FocusScoreProgressFill" Background="#16C784" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
+                                    </Border>
+                                    <TextBlock x:Name="NowFocusSummaryText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#475569" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowFocusFootnoteText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#475569" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowFocusStatusText" Visibility="Collapsed" Text="" Foreground="{StaticResource PortaWarningBrush}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
-                        </Grid>
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
                             <Border x:Name="NowCalibrationCard"
-                                    Grid.Column="0"
-                                    Grid.ColumnSpan="2"
                                     Style="{StaticResource QuietHoverCardStyle}"
-                                    Margin="0"
+                                    Margin="5,0,0,0"
                                     Cursor="Hand"
                                     MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
                                     Tag="today-overload"
@@ -715,26 +726,94 @@
                                 <StackPanel>
                                     <TextBlock Text="PRESSURE"
                                                FontSize="11" FontWeight="SemiBold"
-                                               Foreground="{StaticResource PortaTextMutedBrush}"
+                                               Foreground="#475569"
                                                Margin="0,0,0,6" />
-                                    <TextBlock x:Name="NowCalibrationStatusText" Text="Updating" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap"
+                                    <TextBlock x:Name="NowCalibrationStatusText" Text="—" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"
                                                Foreground="#16C784" />
-                                    <TextBlock x:Name="NowCalibrationProgressText" Text="Regulation · Updating" Margin="0,5,0,0"
-                                               FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" />
-                                    <TextBlock x:Name="NowCalibrationQualityText" Text="Today peak · Updating" Margin="0,3,0,0"
-                                               FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" />
-                                    <TextBlock x:Name="NowCalibrationColdStartText" Text="Confidence · Updating" Margin="0,3,0,0"
-                                               FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" />
-                                    <TextBlock x:Name="NowCalibrationSummaryText"
-                                               Text="Open Why to inspect Ari's current pressure reasoning."
-                                               Margin="0,6,0,0"
-                                               FontSize="12"
-                                               Foreground="{StaticResource PortaTextMutedBrush}"
-                                               TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowCalibrationTrustCapText" Text="Analysis is still catching up for overload details." Foreground="{StaticResource PortaWarningBrush}" Margin="0,6,0,0" FontSize="12" Visibility="Collapsed" />
+                                    <TextBlock x:Name="NowCalibrationProgressText" Text="" Margin="0,4,0,0"
+                                               FontSize="12" Foreground="#475569" />
+                                    <TextBlock x:Name="NowCalibrationQualityText" Text="" Margin="0,3,0,0"
+                                               FontSize="12" Foreground="#475569" />
+                                    <Border Height="4" CornerRadius="2" Background="#252535" Margin="0,8,0,0">
+                                        <Border x:Name="PressureProgressFill" Background="#16C784" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
+                                    </Border>
+                                    <TextBlock x:Name="NowCalibrationColdStartText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#475569" />
+                                    <TextBlock x:Name="NowCalibrationSummaryText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#475569" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowCalibrationTrustCapText" Visibility="Collapsed" Text="Analysis catching up." Foreground="{StaticResource PortaWarningBrush}" FontSize="12" />
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
+                        <!-- Two supporting cards -->
+                        <Grid Margin="0,0,0,14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="CurrentSessionCard" Grid.Column="0"
+                                    Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,5,0">
+                                <StackPanel>
+                                    <TextBlock Text="CURRENT SESSION"
+                                               FontSize="11" FontWeight="SemiBold"
+                                               Foreground="#475569" Margin="0,0,0,6" />
+                                    <TextBlock x:Name="CurrentSessionValueText" Text="—"
+                                               FontSize="22" FontWeight="SemiBold" Foreground="#16C784" />
+                                    <TextBlock x:Name="CurrentSessionSubText" Text=""
+                                               FontSize="12" Foreground="#475569" Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="DistractionsCard" Grid.Column="1"
+                                    Style="{StaticResource QuietHoverCardStyle}" Margin="5,0,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="DISTRACTIONS TODAY"
+                                               FontSize="11" FontWeight="SemiBold"
+                                               Foreground="#475569" Margin="0,0,0,6" />
+                                    <TextBlock x:Name="DistractionsValueText" Text="—"
+                                               FontSize="22" FontWeight="SemiBold" Foreground="#8B5CF6" />
+                                    <TextBlock x:Name="DistractionsSubText" Text="Ari needs more data"
+                                               FontSize="12" Foreground="#475569" Margin="0,4,0,0" />
                                 </StackPanel>
                             </Border>
                         </Grid>
+                        <!-- Session timeline -->
+                        <TextBlock Text="SESSION TIMELINE — TODAY"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   Foreground="#475569"
+                                   Margin="0,6,0,10" />
+                        <Border Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
+                                CornerRadius="10" Padding="12" Margin="0,0,0,14">
+                            <StackPanel>
+                                <Grid x:Name="SessionTimelineBar" Height="22">
+                                    <Border Background="#252535" CornerRadius="4" />
+                                </Grid>
+                                <WrapPanel Margin="0,8,0,0">
+                                    <Border CornerRadius="100" Background="#1416C784" BorderBrush="#2216C784" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
+                                        <TextBlock Text="Focus" Foreground="#16C784" FontSize="11" />
+                                    </Border>
+                                    <Border CornerRadius="100" Background="#148B5CF6" BorderBrush="#228B5CF6" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
+                                        <TextBlock Text="Distraction" Foreground="#8B5CF6" FontSize="11" />
+                                    </Border>
+                                    <Border CornerRadius="100" Background="#143B82F6" BorderBrush="#223B82F6" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
+                                        <TextBlock Text="Away" Foreground="#3B82F6" FontSize="11" />
+                                    </Border>
+                                    <Border CornerRadius="100" Background="#14F59E0B" BorderBrush="#22F59E0B" BorderThickness="1" Padding="8,3">
+                                        <TextBlock Text="Pressure edge" Foreground="#F59E0B" FontSize="11" />
+                                    </Border>
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+                        <!-- Quick action buttons -->
+                        <WrapPanel Margin="0,0,0,20">
+                            <Border CornerRadius="8" Background="#1416C784" BorderBrush="#3516C784" BorderThickness="1"
+                                    Padding="10,7" Margin="0,0,10,0" Cursor="Hand"
+                                    MouseLeftButtonUp="WhyDrawerToggleButton_Click">
+                                <TextBlock Text="Why overload risk? ↗" FontSize="13" FontWeight="Medium" Foreground="#16C784" />
+                            </Border>
+                            <Border CornerRadius="8" Background="#141C1C2E" BorderBrush="#35252535" BorderThickness="1"
+                                    Padding="10,7" Cursor="Hand"
+                                    MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp" Tag="today-overload">
+                                <TextBlock Text="What should I do now? ↗" FontSize="13" FontWeight="Medium" Foreground="#94A3B8" />
+                            </Border>
+                        </WrapPanel>
                         <TextBlock x:Name="NowWaitingDataText"
                                    Text="Waiting for service data"
                                    Foreground="#9AA4B2"
@@ -770,59 +849,165 @@
                 </ScrollViewer>
                 <ScrollViewer x:Name="InputsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <TextBlock Text="Tracking" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                        <TextBlock Text="See what Ari observes, what it never collects, and how to keep tracking useful." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <!-- Tracking page header -->
+                        <Grid Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="Tracking" FontSize="18" FontWeight="Medium" Foreground="#F1F5F9" />
+                                <TextBlock Text="Pattern-level activity only — never content"
+                                           FontSize="13" Foreground="#475569" Margin="0,2,0,0" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock x:Name="TrackingCollectionSummaryText" Visibility="Collapsed" Text="" />
 
+                        <!-- What Ari observes — icon grid -->
+                        <TextBlock Text="WHAT ARI OBSERVES"
+                                   FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
+                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
+                            <UniformGrid Columns="2">
+                                <!-- Keyboard rhythm -->
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,8">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Viewbox Width="20" Height="20" Margin="0,0,10,0" VerticalAlignment="Top">
+                                            <Canvas Width="24" Height="24">
+                                                <Path Fill="Transparent" Stroke="#16C784" StrokeThickness="1.5"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                      Data="M2 6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6zm4 3h1m3 0h1m3 0h1m3 0h1M6 13h12" />
+                                            </Canvas>
+                                        </Viewbox>
+                                        <StackPanel>
+                                            <TextBlock Text="Keyboard rhythm" FontSize="13" FontWeight="Medium" Foreground="#F1F5F9" />
+                                            <TextBlock Text="How active typing is — never what you typed" Foreground="#475569" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <!-- Mouse movement -->
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,8">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Viewbox Width="20" Height="20" Margin="0,0,10,0" VerticalAlignment="Top">
+                                            <Canvas Width="24" Height="24">
+                                                <Path Fill="Transparent" Stroke="#16C784" StrokeThickness="1.5"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                      Data="M12 3c3.3 0 6 2.7 6 6v6c0 3.3-2.7 6-6 6s-6-2.7-6-6V9c0-3.3 2.7-6 6-6zm0 3v5" />
+                                            </Canvas>
+                                        </Viewbox>
+                                        <StackPanel>
+                                            <TextBlock Text="Mouse movement" FontSize="13" FontWeight="Medium" Foreground="#F1F5F9" />
+                                            <TextBlock Text="Movement, scrolling and pace — never screen content" Foreground="#475569" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <!-- App switching -->
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Viewbox Width="20" Height="20" Margin="0,0,10,0" VerticalAlignment="Top">
+                                            <Canvas Width="24" Height="24">
+                                                <Path Fill="Transparent" Stroke="#16C784" StrokeThickness="1.5"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                      Data="M4 4h6v8H4zm10 0h6v4h-6zm0 8h6v8h-6zM4 16h6v4H4z" />
+                                            </Canvas>
+                                        </Viewbox>
+                                        <StackPanel>
+                                            <TextBlock Text="App switching" FontSize="13" FontWeight="Medium" Foreground="#F1F5F9" />
+                                            <TextBlock Text="Which apps are active — identifiers hashed before storage" Foreground="#475569" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <!-- Activity gaps -->
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Viewbox Width="20" Height="20" Margin="0,0,10,0" VerticalAlignment="Top">
+                                            <Canvas Width="24" Height="24">
+                                                <Path Fill="Transparent" Stroke="#16C784" StrokeThickness="1.5"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                      Data="M6 5h2v14H6zm10 0h2v14h-2z" />
+                                            </Canvas>
+                                        </Viewbox>
+                                        <StackPanel>
+                                            <TextBlock Text="Activity gaps" FontSize="13" FontWeight="Medium" Foreground="#F1F5F9" />
+                                            <TextBlock Text="When you step away or pause — not why" Foreground="#475569" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </UniformGrid>
+                        </Border>
+
+                        <!-- What Ari never collects -->
+                        <TextBlock Text="WHAT ARI NEVER COLLECTS"
+                                   FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="What Ari tracks" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
-                                <TextBlock x:Name="TrackingCollectionSummaryText"
-                                           Text="Ari observes pattern-level activity in your signed-in Windows session."
-                                           Foreground="#CBD5E1"
-                                           Margin="0,0,0,10"
-                                           TextWrapping="Wrap" />
-                                <UniformGrid Columns="2">
-                                    <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,8">
-                                        <StackPanel>
-                                            <TextBlock Text="Keyboard rhythm" FontWeight="SemiBold" />
-                                            <TextBlock Text="How active typing is, never what you typed." Foreground="#94A3B8" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </Border>
-                                    <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,8">
-                                        <StackPanel>
-                                            <TextBlock Text="Mouse movement" FontWeight="SemiBold" />
-                                            <TextBlock Text="Movement, scrolling, and pace, never screen content." Foreground="#94A3B8" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </Border>
-                                    <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,0">
-                                        <StackPanel>
-                                            <TextBlock Text="App switching" FontWeight="SemiBold" />
-                                            <TextBlock Text="Which apps or windows are active, with identifiers hashed before storage." Foreground="#94A3B8" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </Border>
-                                    <Border Style="{StaticResource QuietHoverSubCardStyle}">
-                                        <StackPanel>
-                                            <TextBlock Text="Activity gaps" FontWeight="SemiBold" />
-                                            <TextBlock Text="When you step away or pause, not why you did." Foreground="#94A3B8" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </Border>
-                                </UniformGrid>
+                                <Border BorderBrush="#1A1A2A" BorderThickness="0,0,0,1" Padding="0,9">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Viewbox Width="15" Height="15" Margin="0,0,10,0">
+                                            <Canvas Width="24" Height="24">
+                                                <Path Fill="Transparent" Stroke="#EF4444" StrokeThickness="2"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                      Data="M18 6L6 18M6 6l12 12" />
+                                            </Canvas>
+                                        </Viewbox>
+                                        <TextBlock Text="Typed words or message content" FontSize="13" Foreground="#94A3B8" />
+                                    </StackPanel>
+                                </Border>
+                                <Border BorderBrush="#1A1A2A" BorderThickness="0,0,0,1" Padding="0,9">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Viewbox Width="15" Height="15" Margin="0,0,10,0">
+                                            <Canvas Width="24" Height="24">
+                                                <Path Fill="Transparent" Stroke="#EF4444" StrokeThickness="2"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                      Data="M18 6L6 18M6 6l12 12" />
+                                            </Canvas>
+                                        </Viewbox>
+                                        <TextBlock Text="Screenshots or screen recordings" FontSize="13" Foreground="#94A3B8" />
+                                    </StackPanel>
+                                </Border>
+                                <Border BorderBrush="#1A1A2A" BorderThickness="0,0,0,1" Padding="0,9">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Viewbox Width="15" Height="15" Margin="0,0,10,0">
+                                            <Canvas Width="24" Height="24">
+                                                <Path Fill="Transparent" Stroke="#EF4444" StrokeThickness="2"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                      Data="M18 6L6 18M6 6l12 12" />
+                                            </Canvas>
+                                        </Viewbox>
+                                        <TextBlock Text="Clipboard contents" FontSize="13" Foreground="#94A3B8" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Padding="0,9">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Viewbox Width="15" Height="15" Margin="0,0,10,0">
+                                            <Canvas Width="24" Height="24">
+                                                <Path Fill="Transparent" Stroke="#EF4444" StrokeThickness="2"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                      Data="M18 6L6 18M6 6l12 12" />
+                                            </Canvas>
+                                        </Viewbox>
+                                        <TextBlock Text="Microphone or camera data" FontSize="13" Foreground="#94A3B8" />
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </Border>
 
+                        <TextBlock Text="TRACKING QUALITY"
+                                   FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="What Ari never tracks" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10" />
-                                <TextBlock Text="- Typed words or message content" Margin="0,0,0,6" />
-                                <TextBlock Text="- Screenshots or screen recordings" Margin="0,0,0,6" />
-                                <TextBlock Text="- Clipboard contents" Margin="0,0,0,6" />
-                                <TextBlock Text="- Microphone or camera data" />
-                            </StackPanel>
-                        </Border>
-
-                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
-                            <StackPanel>
-                                <TextBlock Text="What improves tracking quality" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
+                                <!-- Quality header row -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Current quality" FontSize="13" FontWeight="Medium" Foreground="#F1F5F9" VerticalAlignment="Center" />
+                                    <Border x:Name="TrackingQualityChipBorder" Grid.Column="1"
+                                            CornerRadius="100" Background="#14F59E0B" BorderBrush="#22F59E0B"
+                                            BorderThickness="1" Padding="8,3" VerticalAlignment="Center">
+                                        <TextBlock x:Name="TrackingQualityChipText" Text="● Limited"
+                                                   FontSize="11" FontWeight="SemiBold" Foreground="#F59E0B" />
+                                    </Border>
+                                </Grid>
+                                <Border Height="4" CornerRadius="2" Background="#252535" Margin="0,0,0,12">
+                                    <Border x:Name="TrackingQualityProgressFill" Background="#F59E0B" CornerRadius="2" HorizontalAlignment="Left" Width="60" Height="4" />
+                                </Border>
                                 <TextBlock x:Name="TrackingQualityHeadlineText"
                                            Text="Tracking quality is updating."
                                            FontWeight="SemiBold"
@@ -910,43 +1095,55 @@
                               IsManipulationEnabled="True"
                               PanningMode="VerticalOnly">
                     <StackPanel Margin="20,20,20,32">
-                            <TextBlock Text="Actions" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock Text="See what Ari recommended, what it changed, and why it mattered." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
-                            <TextBlock x:Name="ActionsSummaryLeadText"
-                                       Text="Recommendations and recent actions appear here in plain language so you can understand what Ari did and why."
+                            <!-- Actions page header -->
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Actions" FontSize="18" FontWeight="Medium" Foreground="#F1F5F9" VerticalAlignment="Center" />
+                                <WrapPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <Border CornerRadius="100" Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
+                                        <TextBlock x:Name="ActionsSuggestionsCountChip" Text="0 suggestions" FontSize="11" Foreground="#64748B" />
+                                    </Border>
+                                    <Border CornerRadius="100" Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" Padding="8,3">
+                                        <TextBlock x:Name="ActionsTotalCountChip" Text="0 total" FontSize="11" Foreground="#64748B" />
+                                    </Border>
+                                </WrapPanel>
+                            </Grid>
+                            <TextBlock Visibility="Collapsed" Text="" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <TextBlock Visibility="Collapsed" Text="" Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" />
+                            <TextBlock x:Name="ActionsSummaryLeadText" Visibility="Collapsed"
+                                       Text=""
                                        Foreground="#93C5FD"
                                        Margin="0,0,0,12"
                                        TextWrapping="Wrap" />
 
-                            <Grid Margin="0,0,0,10">
+                            <!-- Hidden legacy count elements — referenced by code-behind -->
+                            <StackPanel Visibility="Collapsed">
+                                <TextBlock x:Name="SuggestionsCountText" Text="0" />
+                                <TextBlock x:Name="ChangesCountText" Text="0" />
+                                <TextBlock x:Name="ActionsTotalCountText" Text="0" />
+                                <TextBlock x:Name="ActionsLastSeenText" Text="" />
+                            </StackPanel>
+                            <!-- 2-card summary row -->
+                            <Grid Margin="0,0,0,12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <Border Grid.Column="0" Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,0">
+                                <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,5,0">
                                     <StackPanel>
-                                        <TextBlock Text="Recommendations" Foreground="#94A3B8" FontSize="11" />
-                                        <TextBlock x:Name="SuggestionsCountText" Text="0" FontSize="20" FontWeight="SemiBold" Foreground="#DBEAFE" Margin="0,4,0,0" />
+                                        <TextBlock Text="LAST ACTION" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,6" />
+                                        <TextBlock x:Name="ActionsLastActionValueText" Text="None yet" FontSize="22" FontWeight="SemiBold" Foreground="#F1F5F9" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="ActionsLastActionTimeText" Text="" FontSize="12" Foreground="#475569" Margin="0,4,0,0" />
                                     </StackPanel>
                                 </Border>
-                                <Border Grid.Column="1" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
+                                <Border Grid.Column="1" Style="{StaticResource QuietHoverCardStyle}" Margin="5,0,0,0">
                                     <StackPanel>
-                                        <TextBlock Text="Recent actions" Foreground="#94A3B8" FontSize="11" />
-                                        <TextBlock x:Name="ChangesCountText" Text="0" FontSize="20" FontWeight="SemiBold" Foreground="#DCFCE7" Margin="0,4,0,0" />
-                                    </StackPanel>
-                                </Border>
-                                <Border Grid.Column="2" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
-                                    <StackPanel>
-                                        <TextBlock Text="Total" Foreground="#94A3B8" FontSize="11" />
-                                        <TextBlock x:Name="ActionsTotalCountText" Text="0" FontSize="20" FontWeight="SemiBold" Foreground="#E6E9ED" Margin="0,4,0,0" />
-                                    </StackPanel>
-                                </Border>
-                                <Border Grid.Column="3" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,0,0">
-                                    <StackPanel>
-                                        <TextBlock Text="Latest activity" Foreground="#94A3B8" FontSize="11" />
-                                        <TextBlock x:Name="ActionsLastSeenText" Text="No recent actions" FontSize="13" FontWeight="SemiBold" Foreground="#E6E9ED" Margin="0,6,0,0" TextWrapping="Wrap" />
+                                        <TextBlock Text="TOTAL LOGGED" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,6" />
+                                        <TextBlock x:Name="ActionsActiveSuggestionsText" Text="0" FontSize="22" FontWeight="SemiBold" Foreground="#F1F5F9" />
+                                        <TextBlock Text="0 active suggestions" FontSize="12" Foreground="#475569" Margin="0,4,0,0" />
                                     </StackPanel>
                                 </Border>
                             </Grid>
@@ -1047,22 +1244,36 @@
                                 <CheckBox x:Name="InterventionAppRestrictionToggle" Content="Allow temporary app restriction (auto)" Click="InterventionCategoryToggle_Click" />
                             </StackPanel>
 
-                            <TextBlock Text="Pick a row to see what Ari suggested or changed and why it mattered." Foreground="#94A3B8" Margin="0,0,0,8" TextWrapping="Wrap" />
                             <WrapPanel Margin="0,0,0,8">
-                                <Button x:Name="ActionsSuggestionsTabButton" Content="Recommendations" Padding="12,6" Margin="0,0,8,0" Click="ActionsSuggestionsTabButton_Click" />
-                                <Button x:Name="ActionsChangesTabButton" Content="Recent actions" Padding="12,6" Click="ActionsChangesTabButton_Click" />
+                                <Button x:Name="ActionsSuggestionsTabButton" Content="Suggestions" Padding="5,12" FontSize="12"
+                                        Background="#1C1C2E" BorderBrush="#252535" Foreground="#64748B"
+                                        Margin="0,0,6,0" Click="ActionsSuggestionsTabButton_Click" />
+                                <Button x:Name="ActionsChangesTabButton" Content="Recent actions" Padding="5,12" FontSize="12"
+                                        Background="#1C1C2E" BorderBrush="#252535" Foreground="#64748B"
+                                        Click="ActionsChangesTabButton_Click" />
                             </WrapPanel>
                             <Border Style="{StaticResource QuietHoverCardStyle}" Padding="10" MinHeight="420" MaxHeight="560">
                                 <Grid>
                                     <Grid x:Name="SuggestionsTabContent" Margin="4">
-                                        <TextBlock x:Name="SuggestionsEmptyStateText"
-                                                   Text="No recommendations yet. Keep working and Ari will surface the next useful suggestion here."
-                                                   Foreground="#CBD5E1"
-                                                   FontWeight="SemiBold"
-                                                   VerticalAlignment="Center"
-                                                   HorizontalAlignment="Center"
-                                                   TextWrapping="Wrap"
-                                                   Visibility="Collapsed" />
+                                        <TextBlock x:Name="SuggestionsEmptyStateText" Visibility="Collapsed" Text="" />
+                                        <StackPanel x:Name="SuggestionsEmptyStatePanel"
+                                                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                    Visibility="Collapsed">
+                                            <TextBlock Text="⚡" FontSize="36" Foreground="#2A2A4A"
+                                                       HorizontalAlignment="Center" Margin="0,0,0,12" />
+                                            <TextBlock Text="No suggestions yet"
+                                                       FontSize="14" FontWeight="Medium" Foreground="#94A3B8"
+                                                       HorizontalAlignment="Center" Margin="0,0,0,6" />
+                                            <TextBlock Text="Ari surfaces recommendations here when your pattern signals something actionable."
+                                                       FontSize="13" Foreground="#475569"
+                                                       TextWrapping="Wrap" MaxWidth="260"
+                                                       TextAlignment="Center" HorizontalAlignment="Center"
+                                                       Margin="0,0,0,16" />
+                                            <Border CornerRadius="8" Background="#1C1C2E" BorderBrush="#252535"
+                                                    BorderThickness="1" Padding="10,7" HorizontalAlignment="Center" Cursor="Hand">
+                                                <TextBlock Text="What will Ari suggest? ↗" FontSize="13" FontWeight="Medium" Foreground="#94A3B8" />
+                                            </Border>
+                                        </StackPanel>
                                         <ListView x:Name="SuggestionsListView"
                                                   SelectionChanged="SuggestionsListView_SelectionChanged"
                                                   PreviewMouseWheel="SuggestionsListView_PreviewMouseWheel"
@@ -1361,22 +1572,78 @@
                         <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
                         <TextBlock Text="Adjust behavior without overwhelming settings." Foreground="#CBD5E1" Margin="0,0,0,12" />
 
+                        <!-- Hidden slider — still drives code-behind logic -->
+                        <Slider x:Name="IntensitySlider" Minimum="0" Maximum="2" TickFrequency="1"
+                                IsSnapToTickEnabled="True" ValueChanged="IntensitySlider_ValueChanged"
+                                Visibility="Collapsed" />
+                        <TextBlock x:Name="IntensityValueText" Visibility="Collapsed" Text="Balanced" />
+
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
                                 <TextBlock Text="INTENSITY" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource PortaTextMutedBrush}" Margin="0,0,0,10" />
-                                <TextBlock Text="Intensity" />
-                                <Slider x:Name="IntensitySlider" Minimum="0" Maximum="2" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="IntensitySlider_ValueChanged" Margin="0,4,0,0" />
-                                <TextBlock x:Name="IntensityValueText" Text="Balanced" Margin="0,6,0,10" />
-                                <TextBlock Text="Privacy mode" />
-                                <Border Style="{StaticResource RoundedInputChromeStyle}" Width="240" Margin="0,4,0,0">
+                                <UniformGrid x:Name="IntensityCardGrid" Columns="3" Margin="0,0,0,10">
+                                    <Border x:Name="IntensityLightCard"
+                                            CornerRadius="10" Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
+                                            Padding="14" Margin="0,0,6,0" Cursor="Hand"
+                                            MouseLeftButtonUp="IntensityCard_Click" Tag="0">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center">
+                                                <Canvas Width="24" Height="24">
+                                                    <Path x:Name="IntensityLightIcon" Fill="Transparent" Stroke="#64748B" StrokeThickness="1.5"
+                                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                          Data="M12 19.5c1-3.5 5-4.5 5-9a6 6 0 0 0-12 0c0 4.5 4 5.5 5 9zm0 0v2.5m-1-2h2" />
+                                                </Canvas>
+                                            </Viewbox>
+                                            <TextBlock Text="Light" FontSize="13" FontWeight="Medium" Foreground="#F1F5F9" HorizontalAlignment="Center" />
+                                            <TextBlock Text="Gentle signals only" FontSize="11" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border x:Name="IntensityBalancedCard"
+                                            CornerRadius="10" Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
+                                            Padding="14" Margin="0,0,6,0" Cursor="Hand"
+                                            MouseLeftButtonUp="IntensityCard_Click" Tag="1">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center">
+                                                <Canvas Width="24" Height="24">
+                                                    <Path x:Name="IntensityBalancedIcon" Fill="Transparent" Stroke="#64748B" StrokeThickness="1.5"
+                                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                          Data="M4 10h16M4 14h16M7 7l-3 3 3 3M17 7l3 3-3 3" />
+                                                </Canvas>
+                                            </Viewbox>
+                                            <TextBlock Text="Balanced" FontSize="13" FontWeight="Medium" Foreground="#F1F5F9" HorizontalAlignment="Center" />
+                                            <TextBlock Text="Recommended default" FontSize="11" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border x:Name="IntensityDeepCard"
+                                            CornerRadius="10" Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
+                                            Padding="14" Cursor="Hand"
+                                            MouseLeftButtonUp="IntensityCard_Click" Tag="2">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center">
+                                                <Canvas Width="24" Height="24">
+                                                    <Path x:Name="IntensityDeepIcon" Fill="Transparent" Stroke="#64748B" StrokeThickness="1.5"
+                                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                          Data="M15.5 5C16.5 5 18 6.5 18 10s-2 5-3.5 5H12m-3.5-10C7.5 5 6 6.5 6 10s2 5 3.5 5H12m0 0v4m0-14v.5" />
+                                                </Canvas>
+                                            </Viewbox>
+                                            <TextBlock Text="Deep" FontSize="13" FontWeight="Medium" Foreground="#F1F5F9" HorizontalAlignment="Center" />
+                                            <TextBlock Text="Full intervention mode" FontSize="11" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </UniformGrid>
+                                <TextBlock Text="Controls how actively Ari intervenes when it detects focus or overload patterns."
+                                           FontSize="12" Foreground="#475569" Margin="0,0,0,12" TextWrapping="Wrap" />
+
+                                <TextBlock Text="PRIVACY" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource PortaTextMutedBrush}" Margin="0,0,0,8" />
+                                <TextBlock Text="Privacy mode" FontSize="13" Foreground="#94A3B8" Margin="0,0,0,4" />
+                                <Border Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" CornerRadius="8" Width="240" Margin="0,0,0,0" HorizontalAlignment="Left">
                                     <ComboBox x:Name="PrivacyLevelComboBox"
                                               SelectionChanged="PrivacyLevelComboBox_SelectionChanged"
-                                              ItemContainerStyle="{StaticResource ReadableSettingsComboItemStyle}"
-                                              Background="Transparent"
-                                              BorderThickness="0">
-                                        <ComboBoxItem Content="Minimal" Foreground="#111827" Background="#F8FAFC" />
-                                        <ComboBoxItem Content="Standard" Foreground="#111827" Background="#F8FAFC" />
-                                        <ComboBoxItem Content="Detailed" Foreground="#111827" Background="#F8FAFC" />
+                                              Background="#1C1C2E" Foreground="#F1F5F9"
+                                              BorderThickness="0" Padding="6,6">
+                                        <ComboBoxItem Content="Minimal" Foreground="#F1F5F9" Background="#1C1C2E" />
+                                        <ComboBoxItem Content="Standard" Foreground="#F1F5F9" Background="#1C1C2E" />
+                                        <ComboBoxItem Content="Detailed" Foreground="#F1F5F9" Background="#1C1C2E" />
                                     </ComboBox>
                                 </Border>
                             </StackPanel>
@@ -1385,24 +1652,26 @@
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
                                 <TextBlock Text="COLLECTION" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource PortaTextMutedBrush}" Margin="0,0,0,10" />
-                                <WrapPanel Margin="0,0,0,10">
-                                    <Button Content="Pause now" Padding="12,6" Margin="0,0,10,0" Click="PauseButton_Click" />
-                                    <Button Content="Revoke consent" Padding="12,6" Click="RevokeConsentFromSettingsButton_Click" />
+                                <WrapPanel Margin="0,0,0,0">
+                                    <Button Content="⏸ Pause now" Padding="10,6" Margin="0,0,8,0" Click="PauseButton_Click" />
+                                    <Button x:Name="SchedulePauseToggleButton" Content="Schedule pause" Padding="10,6" Margin="0,0,8,0" Click="SchedulePauseToggleButton_Click" />
+                                    <Button Content="Revoke consent" Padding="10,6" Click="RevokeConsentFromSettingsButton_Click" />
                                 </WrapPanel>
-                                <TextBlock Text="Pause until" Margin="0,0,0,4" />
-                                <WrapPanel>
-                                    <Border Style="{StaticResource RoundedInputChromeStyle}" Width="160" Margin="0,0,8,0">
-                                        <DatePicker x:Name="PauseUntilDatePicker" Background="Transparent" BorderThickness="0" />
-                                    </Border>
-                                    <Border Style="{StaticResource RoundedInputChromeStyle}" Width="110" Margin="0,0,8,0">
-                                        <ComboBox x:Name="PauseUntilTimeComboBox"
-                                                  ItemContainerStyle="{StaticResource ReadableSettingsComboItemStyle}"
-                                                  Foreground="#111827"
-                                                  Background="Transparent"
-                                                  BorderThickness="0" />
-                                    </Border>
-                                    <Button Content="Pause until selected time" Padding="12,6" Click="PauseUntilSelectedButton_Click" />
-                                </WrapPanel>
+                                <!-- Schedule pause panel — hidden by default -->
+                                <StackPanel x:Name="SchedulePausePanel" Visibility="Collapsed" Margin="0,10,0,0">
+                                    <TextBlock Text="Pause until" Margin="0,0,0,4" />
+                                    <WrapPanel>
+                                        <Border Style="{StaticResource RoundedInputChromeStyle}" Width="160" Margin="0,0,8,0">
+                                            <DatePicker x:Name="PauseUntilDatePicker" Background="Transparent" BorderThickness="0" />
+                                        </Border>
+                                        <Border Style="{StaticResource RoundedInputChromeStyle}" Width="110" Margin="0,0,8,0">
+                                            <ComboBox x:Name="PauseUntilTimeComboBox"
+                                                      ItemContainerStyle="{StaticResource ReadableSettingsComboItemStyle}"
+                                                      Foreground="#111827" Background="Transparent" BorderThickness="0" />
+                                        </Border>
+                                        <Button Content="Pause until selected time" Padding="12,6" Click="PauseUntilSelectedButton_Click" />
+                                    </WrapPanel>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
 
@@ -1452,21 +1721,35 @@
 
                 <ScrollViewer x:Name="TimelinePanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="20,20,20,32">
-                            <TextBlock Text="History" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock Text="See retained days by hour and inspect the real episode timeline inside each block." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
-                            <TextBlock x:Name="HistorySummaryLeadText"
-                                       Text="History stays visible and keeps retained days on screen while Ari refreshes."
-                                       Foreground="#93C5FD"
-                                       Margin="0,0,0,12"
-                                       TextWrapping="Wrap" />
-                            <WrapPanel Margin="0,0,0,10">
-                                <Button x:Name="HistoryRange1hButton" Content="Last 1h" Padding="10,4" Margin="0,0,8,0" Click="HistoryRange1hButton_Click" />
-                                <Button x:Name="HistoryRange4hButton" Content="Last 4h" Padding="10,4" Margin="0,0,8,0" Click="HistoryRange4hButton_Click" />
-                                <Button x:Name="HistoryRangeTodayButton" Content="Today" Padding="10,4" Margin="0,0,8,0" Click="HistoryRangeTodayButton_Click" />
-                                <Button x:Name="HistoryRangeAllTimeButton" Content="All time" Padding="10,4" Margin="0,0,14,0" Click="HistoryRangeAllTimeButton_Click" />
-                                <CheckBox x:Name="HistoryExplainModeCheckBox" Content="Advanced" VerticalAlignment="Center" Foreground="#E5E7EB" Checked="HistoryExplainModeCheckBox_Changed" Unchecked="HistoryExplainModeCheckBox_Changed" Visibility="Collapsed" />
-                            </WrapPanel>
+                            <!-- History page header -->
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="History" FontSize="18" FontWeight="Medium" Foreground="#F1F5F9" VerticalAlignment="Center" />
+                                <WrapPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <Button x:Name="HistoryRangeTodayButton" Content="Today" Padding="5,12" FontSize="12"
+                                            Background="#1C1C2E" BorderBrush="#252535" Foreground="#64748B"
+                                            Margin="0,0,6,0" Click="HistoryRangeTodayButton_Click" />
+                                    <Button x:Name="HistoryRange4hButton" Content="Last 4h" Padding="5,12" FontSize="12"
+                                            Background="#1C1C2E" BorderBrush="#252535" Foreground="#64748B"
+                                            Margin="0,0,6,0" Click="HistoryRange4hButton_Click" />
+                                    <Button x:Name="HistoryRange1hButton" Content="Last 1h" Padding="5,12" FontSize="12"
+                                            Background="#1C1C2E" BorderBrush="#252535" Foreground="#64748B"
+                                            Margin="0,0,6,0" Click="HistoryRange1hButton_Click" />
+                                    <Button x:Name="HistoryRangeAllTimeButton" Content="All time" Padding="5,12" FontSize="12"
+                                            Background="#1C1C2E" BorderBrush="#252535" Foreground="#64748B"
+                                            Click="HistoryRangeAllTimeButton_Click" />
+                                </WrapPanel>
+                            </Grid>
+                            <TextBlock x:Name="HistorySummaryLeadText" Visibility="Collapsed"
+                                       Text="" Foreground="#93C5FD" Margin="0,0,0,12" TextWrapping="Wrap" />
+                            <CheckBox x:Name="HistoryExplainModeCheckBox" Visibility="Collapsed"
+                                      Content="Advanced" Foreground="#E5E7EB"
+                                      Checked="HistoryExplainModeCheckBox_Changed" Unchecked="HistoryExplainModeCheckBox_Changed" />
 
+                            <!-- Colour-coded stat cards -->
                             <Grid Margin="0,0,0,12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -1474,59 +1757,55 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <Border Grid.Column="0" Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,0">
+                                <Border Grid.Column="0" Background="#1C1C2E" BorderBrush="#2816C784" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Focus episodes" Foreground="#94A3B8" FontSize="11" />
-                                        <TextBlock x:Name="HistoryRangeSummaryText" Text="No data yet" Foreground="#DCFCE7" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                        <TextBlock Text="FOCUS" Foreground="#475569" FontSize="11" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="HistoryRangeSummaryText" Text="0 ep" Foreground="#16C784" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
-                                <Border Grid.Column="1" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
+                                <Border Grid.Column="1" Background="#1C1C2E" BorderBrush="#288B5CF6" BorderThickness="1" CornerRadius="10" Padding="12" Margin="8,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Distraction episodes" Foreground="#94A3B8" FontSize="11" />
-                                        <TextBlock x:Name="HistoryFocusSummaryText" Text="No data yet" Foreground="#FDE68A" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                        <TextBlock Text="DISTRACTION" Foreground="#475569" FontSize="11" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="HistoryFocusSummaryText" Text="0 ep" Foreground="#8B5CF6" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
-                                <Border Grid.Column="2" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,8,0">
+                                <Border Grid.Column="2" Background="#1C1C2E" BorderBrush="#28EF4444" BorderThickness="1" CornerRadius="10" Padding="12" Margin="8,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="Overload episodes" Foreground="#94A3B8" FontSize="11" />
-                                        <TextBlock x:Name="HistoryOverloadSummaryText" Text="No data yet" Foreground="#FECACA" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                        <TextBlock Text="OVERLOAD" Foreground="#475569" FontSize="11" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="HistoryOverloadSummaryText" Text="0 ep" Foreground="#EF4444" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
-                                <Border Grid.Column="3" Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,0,0">
+                                <Border Grid.Column="3" Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" CornerRadius="10" Padding="12" Margin="8,0,0,0">
                                     <StackPanel>
-                                        <TextBlock Text="Away segments" Foreground="#94A3B8" FontSize="11" />
-                                        <TextBlock x:Name="HistoryTrustSummaryText" Text="No data yet" Foreground="#E2E8F0" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
-                                        <TextBlock x:Name="HistoryActionsSummaryText" Text="No data yet" Foreground="#CBD5E1" FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                        <TextBlock Text="AWAY" Foreground="#475569" FontSize="11" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="HistoryTrustSummaryText" Text="0 ep" Foreground="#3B82F6" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="HistoryActionsSummaryText" Visibility="Collapsed" Text="" Foreground="#CBD5E1" FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                             </Grid>
 
-                            <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
-                                <TextBlock x:Name="HistoryGuideText"
-                                           Text="Each column is a day, each row is an hour, and 00:00 sits at the bottom."
-                                           Foreground="#CBD5E1"
-                                           TextWrapping="Wrap" />
-                            </Border>
+                            <!-- Heatmap section -->
+                            <TextBlock Text="HistoryGuideText_hidden" x:Name="HistoryGuideText" Visibility="Collapsed" />
+                            <TextBlock Text="EPISODES BY DAY AND HOUR"
+                                       FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
 
                             <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                                 <StackPanel>
-                                    <TextBlock Text="Episodes by day and hour" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                    <TextBlock Text="Each hour block shows the episode mix for that hour. Click a populated block to inspect the episode list." Foreground="#94A3B8" Margin="0,0,0,10" TextWrapping="Wrap" />
                                     <WrapPanel Margin="0,0,0,10">
-                                        <Border Background="#14532D" BorderBrush="#22C55E" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Focus" Foreground="#DCFCE7" FontSize="11" />
+                                        <Border Background="#1416C784" BorderBrush="#2216C784" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Focus" Foreground="#16C784" FontSize="11" />
                                         </Border>
-                                        <Border Background="#92400E" BorderBrush="#F59E0B" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Distraction" Foreground="#FEF3C7" FontSize="11" />
+                                        <Border Background="#148B5CF6" BorderBrush="#228B5CF6" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Distraction" Foreground="#8B5CF6" FontSize="11" />
                                         </Border>
-                                        <Border Background="#1D4ED8" BorderBrush="#60A5FA" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Excursion" Foreground="#DBEAFE" FontSize="11" />
+                                        <Border Background="#143B82F6" BorderBrush="#223B82F6" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Away" Foreground="#3B82F6" FontSize="11" />
                                         </Border>
-                                        <Border Background="#334155" BorderBrush="#94A3B8" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Away" Foreground="#E2E8F0" FontSize="11" />
+                                        <Border Background="#14F59E0B" BorderBrush="#22F59E0B" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Pressure edge" Foreground="#F59E0B" FontSize="11" />
                                         </Border>
-                                        <Border Background="#7F1D1D" BorderBrush="#EF4444" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Overload" Foreground="#FEE2E2" FontSize="11" />
+                                        <Border Background="#14EF4444" BorderBrush="#22EF4444" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
+                                            <TextBlock Text="Overload" Foreground="#EF4444" FontSize="11" />
                                         </Border>
                                     </WrapPanel>
                                     <Grid>
@@ -1550,9 +1829,9 @@
                                                 </ScrollViewer>
                                             </Border>
                                             <TextBlock x:Name="HistoryCoordinateEmptyText"
-                                                       Text="No retained history is available in this range yet."
-                                                       Foreground="#CBD5E1"
-                                                       FontWeight="SemiBold"
+                                                       Text="No history yet — the map fills as stored days arrive."
+                                                       Foreground="#475569"
+                                                       FontSize="12"
                                                        HorizontalAlignment="Center"
                                                        VerticalAlignment="Center"
                                                        Visibility="Collapsed" />
@@ -1632,8 +1911,58 @@
                 </ScrollViewer>
                 <ScrollViewer x:Name="AccountPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <TextBlock Text="Account" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                        <TextBlock Text="Open one section at a time so your account, workspace, device, and consent details stay easy to scan." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <!-- Account page header -->
+                        <TextBlock Text="Account" FontSize="18" FontWeight="Medium" Foreground="#F1F5F9" Margin="0,0,0,14" />
+
+                        <!-- Profile card — shown when signed in -->
+                        <Border x:Name="AccountProfileCard" Style="{StaticResource QuietHoverCardStyle}"
+                                Margin="0,0,0,12" Visibility="Collapsed">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Width="44" Height="44" CornerRadius="22"
+                                            Background="#1F1A33" VerticalAlignment="Center">
+                                        <TextBlock x:Name="AccountAvatarInitialText" Text="U"
+                                                   FontSize="16" FontWeight="SemiBold" Foreground="#A5B4FC"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock x:Name="AccountProfileNameText" Text=""
+                                                   FontSize="15" FontWeight="Medium" Foreground="#F1F5F9" />
+                                        <TextBlock x:Name="AccountProfileEmailText" Text=""
+                                                   FontSize="12" Foreground="#475569" />
+                                    </StackPanel>
+                                    <Border Grid.Column="2" CornerRadius="100"
+                                            Background="#1416C784" BorderBrush="#2216C784"
+                                            BorderThickness="1" Padding="8,3" VerticalAlignment="Center">
+                                        <TextBlock Text="● Signed in" FontSize="11" FontWeight="SemiBold" Foreground="#16C784" />
+                                    </Border>
+                                </Grid>
+                                <Border BorderBrush="#252535" BorderThickness="0,1,0,0" Margin="0,12,0,0" Padding="0,12,0,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Device" FontSize="12" Foreground="#475569" Margin="0,0,0,6" />
+                                        <TextBlock x:Name="AccountProfileDeviceText" Grid.Row="0" Grid.Column="1" Text="—" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Workspace" FontSize="12" Foreground="#475569" Margin="0,0,0,6" />
+                                        <TextBlock x:Name="AccountProfileWorkspaceText" Grid.Row="1" Grid.Column="1" Text="—" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Session ID" FontSize="12" Foreground="#475569" />
+                                        <TextBlock x:Name="AccountProfileSessionText" Grid.Row="2" Grid.Column="1" Text="—" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" />
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </Border>
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
@@ -1941,8 +2270,23 @@
                 </ScrollViewer>
                 <ScrollViewer x:Name="DiagnosticsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <TextBlock Text="System" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                        <TextBlock Text="Use this page for technical truth: service health, local API, snapshot freshness, session heartbeat, input publish, capture health, and recent errors." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <!-- System page header -->
+                        <Grid Margin="0,0,0,14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="System" FontSize="18" FontWeight="Medium" Foreground="#F1F5F9" VerticalAlignment="Center" />
+                            <Border x:Name="SystemHealthChipBorder" Grid.Column="1"
+                                    CornerRadius="100" Background="#14F59E0B" BorderBrush="#22F59E0B"
+                                    BorderThickness="1" Padding="10,5" Margin="0,0,8,0" VerticalAlignment="Center">
+                                <TextBlock x:Name="SystemHealthChipText" Text="● Stale"
+                                           FontSize="12" FontWeight="SemiBold" Foreground="#F59E0B" />
+                            </Border>
+                            <Button x:Name="SystemRefreshButton" Grid.Column="2" Content="↺ Refresh"
+                                    Padding="10,5" FontSize="12" Click="RefreshButton_Click" VerticalAlignment="Center" />
+                        </Grid>
 
                         <WrapPanel Margin="0,0,0,12">
                             <Button x:Name="SystemAdvancedButton"
@@ -2033,17 +2377,17 @@
                                     <TextBlock Grid.Row="3" Grid.Column="0" Text="Observed heartbeat" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="HealthSessionObservedHeartbeatValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="UserAgent instance" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionAgentValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Visibility="Collapsed" Text="UserAgent instance" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthSessionAgentValue" Grid.Row="4" Grid.Column="1" Visibility="Collapsed" Text="Not available" TextWrapping="Wrap" />
 
                                     <TextBlock Grid.Row="5" Grid.Column="0" Text="UserAgent session" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="HealthSessionIdValue" Grid.Row="5" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Startup source" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionStartupSourceValue" Grid.Row="6" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Visibility="Collapsed" Text="Startup source" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthSessionStartupSourceValue" Grid.Row="6" Grid.Column="1" Visibility="Collapsed" Text="Not available" TextWrapping="Wrap" />
 
-                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Last launch reason" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionLaunchReasonValue" Grid.Row="7" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Visibility="Collapsed" Text="Last launch reason" Foreground="#CBD5E1" />
+                                    <TextBlock x:Name="HealthSessionLaunchReasonValue" Grid.Row="7" Grid.Column="1" Visibility="Collapsed" Text="Not available" TextWrapping="Wrap" />
 
                                     <TextBlock Grid.Row="8" Grid.Column="0" Text="Recovery state" Foreground="#CBD5E1" />
                                     <TextBlock x:Name="HealthSessionRecoveryValue" Grid.Row="8" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
@@ -2589,5 +2933,6 @@
         </Border>
     </Grid>
 </Window>
+
 
 

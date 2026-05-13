@@ -1261,6 +1261,12 @@ public partial class MainWindow : Window
     {
         LocalApiCurrentSnapshotResponse? snapshot = nowTruth.Snapshot;
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+
+        // Greeting + date
+        int hour = DateTime.Now.Hour;
+        TodayGreetingText.Text = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+        TodayDateText.Text = DateTime.Now.ToString("ddd d MMM", System.Globalization.CultureInfo.InvariantCulture);
+
         TodayPageMetrics todayMetrics = TodayPageMetricsBuilder.Build(
             _todayTimeline,
             snapshot,
@@ -1275,6 +1281,9 @@ public partial class MainWindow : Window
             todayMetrics,
             visualState.FocusEpisodeSeconds,
             readableExplanation);
+
+        // Update state chip on Today greeting row
+        UpdateTodayStateChip(visualState, snapshot);
 
         PopulateTodayWorkCard(todayMetrics, todayState, visualState);
         PopulateTodayLastFocusCard(todayState, liveSession, visualState);
@@ -4883,6 +4892,80 @@ public partial class MainWindow : Window
             >= 1.5 => "Strong",
             _ => "Balanced"
         };
+        // Sync intensity card selection visuals
+        UpdateIntensityCardSelection((int)Math.Round(IntensitySlider.Value));
+    }
+
+    private void UpdateIntensityCardSelection(int selected)
+    {
+        foreach (var (card, icon, idx) in new[]
+        {
+            (IntensityLightCard, IntensityLightIcon, 0),
+            (IntensityBalancedCard, IntensityBalancedIcon, 1),
+            (IntensityDeepCard, IntensityDeepIcon, 2)
+        })
+        {
+            bool active = idx == selected;
+            card.BorderBrush = new SolidColorBrush(active
+                ? Color.FromRgb(0x63, 0x66, 0xF1)
+                : Color.FromRgb(0x25, 0x25, 0x35));
+            card.Background = new SolidColorBrush(active
+                ? Color.FromArgb(0x1A, 0x63, 0x66, 0xF1)
+                : Color.FromRgb(0x1C, 0x1C, 0x2E));
+            icon.Stroke = new SolidColorBrush(active
+                ? Color.FromRgb(0x63, 0x66, 0xF1)
+                : Color.FromRgb(0x64, 0x74, 0x8B));
+        }
+    }
+
+    private void IntensityCard_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Border card && card.Tag is string tag && int.TryParse(tag, out int value))
+        {
+            IntensitySlider.Value = value;
+        }
+    }
+
+    private void SchedulePauseToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        SchedulePausePanel.Visibility = SchedulePausePanel.Visibility == Visibility.Collapsed
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void UpdateTodayStateChip(PortaVisualState visualState, LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        double pressure = snapshot != null ? ResolvePressureLevel(snapshot) : 0d;
+        bool hasSession = visualState.FocusEpisodeSeconds.HasValue && visualState.FocusEpisodeSeconds.Value > 0d;
+
+        if (pressure >= 0.80)
+        {
+            TodayStateChipText.Text = "● Overloaded";
+            TodayStateChipText.Foreground = new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44));
+            TodayStateChipBorder.Background = new SolidColorBrush(Color.FromArgb(0x1E, 0xEF, 0x44, 0x44));
+            TodayStateChipBorder.BorderBrush = new SolidColorBrush(Color.FromArgb(0x33, 0xEF, 0x44, 0x44));
+        }
+        else if (pressure >= 0.65)
+        {
+            TodayStateChipText.Text = "● Watch this";
+            TodayStateChipText.Foreground = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B));
+            TodayStateChipBorder.Background = new SolidColorBrush(Color.FromArgb(0x1E, 0xF5, 0x9E, 0x0B));
+            TodayStateChipBorder.BorderBrush = new SolidColorBrush(Color.FromArgb(0x33, 0xF5, 0x9E, 0x0B));
+        }
+        else if (hasSession)
+        {
+            TodayStateChipText.Text = "● Focused now";
+            TodayStateChipText.Foreground = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84));
+            TodayStateChipBorder.Background = new SolidColorBrush(Color.FromArgb(0x1E, 0x16, 0xC7, 0x84));
+            TodayStateChipBorder.BorderBrush = new SolidColorBrush(Color.FromArgb(0x33, 0x16, 0xC7, 0x84));
+        }
+        else
+        {
+            TodayStateChipText.Text = "● Away";
+            TodayStateChipText.Foreground = new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6));
+            TodayStateChipBorder.Background = new SolidColorBrush(Color.FromArgb(0x1E, 0x3B, 0x82, 0xF6));
+            TodayStateChipBorder.BorderBrush = new SolidColorBrush(Color.FromArgb(0x33, 0x3B, 0x82, 0xF6));
+        }
     }
 
     private void PrivacyLevelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
