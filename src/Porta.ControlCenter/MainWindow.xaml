@@ -12,7 +12,7 @@
         WindowStartupLocation="Manual"
         WindowStyle="None"
         ResizeMode="CanResize"
-        Background="#0F1114"
+        Background="#0C0C14"
         Foreground="#E6E9ED"
         FontFamily="Segoe UI Variable, Segoe UI, Inter">
     <Window.TaskbarItemInfo>
@@ -26,13 +26,70 @@
                             UseAeroCaptionButtons="False" />
     </shell:WindowChrome.WindowChrome>
     <Window.Resources>
-        <SolidColorBrush x:Key="PortaSurfaceBaseBrush" Color="#15181C" />
+        <!-- Surface / border / text -->
+        <SolidColorBrush x:Key="PortaSurfaceBaseBrush" Color="#1C1C2E" />
         <SolidColorBrush x:Key="PortaSurfaceElevatedBrush" Color="#1B1F25" />
         <SolidColorBrush x:Key="PortaSurfaceHoverBrush" Color="#1D232A" />
-        <SolidColorBrush x:Key="PortaBorderBrush" Color="#262B33" />
-        <SolidColorBrush x:Key="PortaBorderHoverBrush" Color="#3A4656" />
-        <SolidColorBrush x:Key="PortaTextPrimaryBrush" Color="#E6E9ED" />
-        <SolidColorBrush x:Key="PortaTextSecondaryBrush" Color="#9AA4B2" />
+        <SolidColorBrush x:Key="PortaBorderBrush" Color="#252535" />
+        <SolidColorBrush x:Key="PortaBorderHoverBrush" Color="#3A3A50" />
+        <SolidColorBrush x:Key="PortaTextPrimaryBrush" Color="#F1F5F9" />
+        <SolidColorBrush x:Key="PortaTextSecondaryBrush" Color="#94A3B8" />
+        <SolidColorBrush x:Key="PortaTextMutedBrush" Color="#475569" />
+        <!-- Semantic colours -->
+        <SolidColorBrush x:Key="PortaFocusBrush" Color="#16C784" />
+        <SolidColorBrush x:Key="PortaWarningBrush" Color="#F59E0B" />
+        <SolidColorBrush x:Key="PortaDangerBrush" Color="#EF4444" />
+        <SolidColorBrush x:Key="PortaAccentBrush" Color="#6366F1" />
+
+        <!-- Nav button style — icon + label, green active state with left accent -->
+        <Style x:Key="NavButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#475569" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="NavBg"
+                                Background="{TemplateBinding Background}"
+                                BorderThickness="0"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <Rectangle x:Name="LeftAccent"
+                                           Width="2"
+                                           HorizontalAlignment="Left"
+                                           Fill="Transparent" />
+                                <ContentPresenter Margin="16,9,16,9"
+                                                  HorizontalAlignment="Left"
+                                                  VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="NavBg" Property="Background" Value="#0F0F1A" />
+                                <Setter Property="Foreground" Value="#94A3B8" />
+                            </Trigger>
+                            <Trigger Property="Tag" Value="active">
+                                <Setter TargetName="NavBg" Property="Background" Value="#1416C784" />
+                                <Setter TargetName="LeftAccent" Property="Fill" Value="#16C784" />
+                                <Setter Property="Foreground" Value="#16C784" />
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True" />
+                                    <Condition Property="Tag" Value="active" />
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="NavBg" Property="Background" Value="#1E16C784" />
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
         <Style TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource PortaTextPrimaryBrush}" />
@@ -86,8 +143,8 @@
             <Setter Property="Background" Value="{StaticResource PortaSurfaceBaseBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource PortaBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="12" />
-            <Setter Property="Padding" Value="12" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="16" />
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="{StaticResource PortaSurfaceHoverBrush}" />
@@ -178,7 +235,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="240" />
+            <ColumnDefinition Width="172" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
@@ -223,44 +280,149 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" Grid.Column="0" Background="#0C0E11" BorderBrush="#262B33" BorderThickness="0,0,1,0">
-            <StackPanel Margin="16">
-                <Button x:Name="OverviewNavButton" Content="Today" Margin="0,0,0,8" Padding="10,8" Click="OverviewNavButton_Click" />
-                <Button x:Name="TimelineNavButton" Content="History" Margin="0,0,0,8" Padding="10,8" Click="TimelineNavButton_Click" />
-                <Button x:Name="InterventionsNavButton" Content="Actions" Margin="0,0,0,8" Padding="10,8" Click="InterventionsNavButton_Click" />
-                <Button x:Name="InputsNavButton" Content="Tracking" Margin="0,0,0,8" Padding="10,8" Click="InputsNavButton_Click" />
-                <Button x:Name="StatesNavButton" Content="Advanced" Margin="0,0,0,8" Padding="10,8" Click="StatesNavButton_Click" Visibility="Collapsed" />
-                <Button x:Name="SettingsNavButton" Content="Settings" Margin="0,0,0,8" Padding="10,8" Click="SettingsNavButton_Click" />
-                <Button x:Name="AccountNavButton" Margin="0,0,0,8" Padding="10,8" Click="AccountNavButton_Click">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Account"
-                                   VerticalAlignment="Center" />
-                        <Border x:Name="AccountNavUpdateBadgeBorder"
-                                Grid.Column="1"
-                                Margin="10,0,0,0"
-                                Background="#C1121F"
-                                BorderBrush="#F87171"
-                                BorderThickness="1"
-                                CornerRadius="9"
-                                Padding="6,1"
-                                VerticalAlignment="Center"
-                                Visibility="Collapsed">
-                            <TextBlock x:Name="AccountNavUpdateBadgeText"
-                                       Text="1"
-                                       FontSize="11"
-                                       FontWeight="Bold"
-                                       Foreground="White"
-                                       VerticalAlignment="Center"
-                                       HorizontalAlignment="Center" />
-                        </Border>
-                    </Grid>
-                </Button>
-                <Button x:Name="DiagnosticsNavButton" Content="System" Margin="0,0,0,0" Padding="10,8" Click="DiagnosticsNavButton_Click" />
-            </StackPanel>
+        <Border Grid.Row="1" Grid.Column="0" Background="#080810" BorderBrush="#141425" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <!-- Brand area -->
+                <StackPanel DockPanel.Dock="Top" Margin="16,16,16,10">
+                    <TextBlock Text="PORTA"
+                               FontSize="17" FontWeight="Bold"
+                               Foreground="{StaticResource PortaTextPrimaryBrush}" />
+                    <TextBlock x:Name="SidebarDateText"
+                               FontSize="11"
+                               Foreground="{StaticResource PortaTextMutedBrush}"
+                               Margin="0,2,0,0" />
+                </StackPanel>
+                <Border DockPanel.Dock="Top" Height="1" Background="#141425" Margin="0,0,0,6" />
+
+                <!-- Primary nav -->
+                <StackPanel DockPanel.Dock="Top">
+                    <Button x:Name="OverviewNavButton" Style="{StaticResource NavButtonStyle}" Click="OverviewNavButton_Click">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
+                                <Canvas Width="24" Height="24">
+                                    <Path Fill="Transparent"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          Data="M4 5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5zm10 0a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V5zM4 13a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2zm10 0a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-4z" />
+                                </Canvas>
+                            </Viewbox>
+                            <TextBlock Text="Today" FontSize="13" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="TimelineNavButton" Style="{StaticResource NavButtonStyle}" Click="TimelineNavButton_Click">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
+                                <Canvas Width="24" Height="24">
+                                    <Path Fill="Transparent"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          Data="M4 19L8 13l4 4 4-8 4 4" />
+                                </Canvas>
+                            </Viewbox>
+                            <TextBlock Text="History" FontSize="13" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="InterventionsNavButton" Style="{StaticResource NavButtonStyle}" Click="InterventionsNavButton_Click">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
+                                <Canvas Width="24" Height="24">
+                                    <Path Fill="Transparent"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          Data="M13 3L5 14h7l-1 7 9-11h-7z" />
+                                </Canvas>
+                            </Viewbox>
+                            <TextBlock Text="Actions" FontSize="13" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="InputsNavButton" Style="{StaticResource NavButtonStyle}" Click="InputsNavButton_Click">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
+                                <Canvas Width="24" Height="24">
+                                    <Path Fill="Transparent"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          Data="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7zm10-3a3 3 0 1 1 0 6 3 3 0 0 1 0-6z" />
+                                </Canvas>
+                            </Viewbox>
+                            <TextBlock Text="Tracking" FontSize="13" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="StatesNavButton" Style="{StaticResource NavButtonStyle}" Click="StatesNavButton_Click" Visibility="Collapsed">
+                        <TextBlock Text="Advanced" FontSize="13" VerticalAlignment="Center" />
+                    </Button>
+                </StackPanel>
+
+                <!-- Divider -->
+                <Border DockPanel.Dock="Top" Height="1" Background="#141425" Margin="16,6,16,6" />
+
+                <!-- Secondary nav -->
+                <StackPanel DockPanel.Dock="Top">
+                    <Button x:Name="SettingsNavButton" Style="{StaticResource NavButtonStyle}" Click="SettingsNavButton_Click">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
+                                <Canvas Width="24" Height="24">
+                                    <Path Fill="Transparent"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          Data="M10.325 4.317a1.724 1.724 0 0 0 3.35 0 1.724 1.724 0 0 1 2.573 1.066 1.724 1.724 0 0 0 2.372 2.372 1.724 1.724 0 0 1 1.065 2.572 1.724 1.724 0 0 0 0 3.35 1.724 1.724 0 0 1-1.065 2.573 1.724 1.724 0 0 0-2.372 2.372 1.724 1.724 0 0 1-2.573 1.065 1.724 1.724 0 0 0-3.35 0 1.724 1.724 0 0 1-2.572-1.065 1.724 1.724 0 0 0-2.372-2.372 1.724 1.724 0 0 1-1.066-2.573 1.724 1.724 0 0 0 0-3.35 1.724 1.724 0 0 1 1.066-2.572 1.724 1.724 0 0 0 2.372-2.372 1.724 1.724 0 0 1 2.572-1.066zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" />
+                                </Canvas>
+                            </Viewbox>
+                            <TextBlock Text="Settings" FontSize="13" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="AccountNavButton" Style="{StaticResource NavButtonStyle}" Click="AccountNavButton_Click">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Fill="Transparent"
+                                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                              StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                              Data="M12 2a10 10 0 1 1 0 20A10 10 0 0 1 12 2zm0 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 13c-2.67 0-5-.93-6.3-2.3A9.96 9.96 0 0 1 12 15c2.66 0 5.07 1.07 6.3 2.7A9.96 9.96 0 0 1 12 20z" />
+                                    </Canvas>
+                                </Viewbox>
+                                <TextBlock Text="Account" FontSize="13" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Border x:Name="AccountNavUpdateBadgeBorder"
+                                    Grid.Column="1"
+                                    Margin="8,0,0,0"
+                                    Background="#C1121F"
+                                    BorderBrush="#F87171"
+                                    BorderThickness="1"
+                                    CornerRadius="9"
+                                    Padding="5,1"
+                                    VerticalAlignment="Center"
+                                    Visibility="Collapsed">
+                                <TextBlock x:Name="AccountNavUpdateBadgeText"
+                                           Text="1"
+                                           FontSize="10"
+                                           FontWeight="Bold"
+                                           Foreground="White"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Center" />
+                            </Border>
+                        </Grid>
+                    </Button>
+                    <Button x:Name="DiagnosticsNavButton" Style="{StaticResource NavButtonStyle}" Click="DiagnosticsNavButton_Click">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
+                                <Canvas Width="24" Height="24">
+                                    <Path Fill="Transparent"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          Data="M3 12h3l3-7 3 14 2-7h5" />
+                                </Canvas>
+                            </Viewbox>
+                            <TextBlock Text="System" FontSize="13" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </DockPanel>
         </Border>
 
         <Grid Grid.Row="1" Grid.Column="1">
@@ -270,10 +432,10 @@
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0"
-                    Background="#15181C"
-                    BorderBrush="#262B33"
+                    Background="#080810"
+                    BorderBrush="#1A1A2A"
                     BorderThickness="0,0,0,1"
-                    MinHeight="64"
+                    MinHeight="48"
                     ClipToBounds="True">
                 <Grid Margin="16,10">
                     <Grid.ColumnDefinitions>
@@ -287,11 +449,12 @@
                                 Margin="0,0,16,0">
                         <TextBlock x:Name="SectionTitleText"
                                    Text="Today"
-                                   FontSize="20"
-                                   FontWeight="SemiBold"
+                                   FontSize="18"
+                                   FontWeight="Medium"
                                    VerticalAlignment="Center"
-                                   Margin="0,0,0,8" />
-                        <WrapPanel VerticalAlignment="Center">
+                                   Foreground="{StaticResource PortaTextPrimaryBrush}" />
+                        <!-- Legacy status pills — kept for code-behind compatibility, not visible -->
+                        <WrapPanel Visibility="Collapsed">
                             <Border x:Name="StatusPillBorder" CornerRadius="12" Background="#1D4ED8" Padding="10,4" Margin="0,0,10,8">
                                 <TextBlock x:Name="StatusPillText" Text="Running" FontWeight="Bold" />
                             </Border>
@@ -345,10 +508,27 @@
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center">
-                        <Button x:Name="WhyDrawerToggleButton" Content="Why" Padding="12,6" Margin="0,0,10,0" Click="WhyDrawerToggleButton_Click" />
-                        <Button x:Name="QuickPauseResumeButton" Content="Pause" Padding="12,6" Margin="0,0,10,0" Click="QuickPauseResumeButton_Click" />
-                        <Button x:Name="RefreshButton" Content="Refresh" Padding="12,6" Margin="0,0,10,0" Click="RefreshButton_Click" />
-                        <Grid VerticalAlignment="Center">
+                        <!-- Consolidated status chip -->
+                        <Border x:Name="HeaderStatusChipBorder"
+                                CornerRadius="100"
+                                Background="#1E16C784"
+                                BorderBrush="#3316C784"
+                                BorderThickness="1"
+                                Padding="10,5"
+                                Margin="0,0,10,0"
+                                VerticalAlignment="Center">
+                            <TextBlock x:Name="HeaderStatusChipText"
+                                       Text="● Running · High"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="#16C784"
+                                       VerticalAlignment="Center" />
+                        </Border>
+                        <!-- Why/Refresh/Versions hidden — moved to contextual page locations -->
+                        <Button x:Name="WhyDrawerToggleButton" Content="Why" Padding="12,6" Margin="0,0,10,0" Click="WhyDrawerToggleButton_Click" Visibility="Collapsed" />
+                        <Button x:Name="QuickPauseResumeButton" Content="Pause" Padding="10,5" Margin="0,0,0,0" Click="QuickPauseResumeButton_Click" />
+                        <Button x:Name="RefreshButton" Content="Refresh" Padding="12,6" Margin="0,0,10,0" Click="RefreshButton_Click" Visibility="Collapsed" />
+                        <Grid VerticalAlignment="Center" Visibility="Collapsed">
                             <Button x:Name="VersionsButton"
                                     Padding="12,6"
                                     MinWidth="102"
@@ -432,11 +612,26 @@
             <Grid Grid.Row="1">
                 <ScrollViewer x:Name="OverviewPanel" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <TextBlock x:Name="TodaySummaryText"
-                                   Text="Today keeps work, last focus session, and pressure synced with the widget."
-                                   Foreground="#9AA4B2"
-                                   FontSize="13"
-                                   Margin="0,0,0,10" />
+                        <!-- Ari bubble -->
+                        <Border Background="#1216C784"
+                                BorderBrush="#3316C784"
+                                BorderThickness="1"
+                                CornerRadius="10"
+                                Padding="14,12"
+                                Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="● ARI"
+                                           FontSize="10"
+                                           FontWeight="Bold"
+                                           Foreground="#16C784"
+                                           Margin="0,0,0,5" />
+                                <TextBlock x:Name="TodaySummaryText"
+                                           Text="Today keeps work, last focus session, and pressure synced with the widget."
+                                           Foreground="#A7F3D0"
+                                           FontSize="13"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
                         <Grid Margin="0,0,0,12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -451,14 +646,21 @@
                                     Tag="today-work"
                                     ToolTip="Open History for today's work map">
                                 <StackPanel>
-                                    <TextBlock Text="Work today" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowOverloadValueText" Text="Work today: Updating" FontSize="26" FontWeight="Bold" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowOverloadActiveText" Text="History status: Updating" Margin="0,6,0,0" />
-                                    <TextBlock x:Name="NowOverloadTrustText" Text="Confidence: Not available" Margin="0,4,0,8" Visibility="Collapsed" />
+                                    <TextBlock Text="WORK TODAY"
+                                               FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{StaticResource PortaTextMutedBrush}"
+                                               Margin="0,0,0,6" />
+                                    <TextBlock x:Name="NowOverloadValueText" Text="Updating" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               Foreground="{StaticResource PortaTextPrimaryBrush}" />
+                                    <TextBlock x:Name="NowOverloadActiveText" Text="Updating" Margin="0,5,0,0"
+                                               FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" />
+                                    <TextBlock x:Name="NowOverloadTrustText" Text="" Margin="0,3,0,0" Visibility="Collapsed"
+                                               FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" />
                                     <TextBlock x:Name="NowOverloadSummaryText"
                                                Text="Open History to see today's focus map hour by hour."
-                                               Margin="0,0,0,8"
-                                               Foreground="#93C5FD"
+                                               Margin="0,6,0,0"
+                                               FontSize="12"
+                                               Foreground="{StaticResource PortaTextMutedBrush}"
                                                TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
@@ -471,22 +673,28 @@
                                     Tag="last-focus"
                                     ToolTip="Open History for last focus details">
                                 <StackPanel>
-                                    <TextBlock Text="Last focus session" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowFocusStreakValueText" Text="Last focus session: Not available" FontSize="26" FontWeight="Bold" TextWrapping="Wrap" />
+                                    <TextBlock Text="LAST FOCUS SESSION"
+                                               FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{StaticResource PortaTextMutedBrush}"
+                                               Margin="0,0,0,6" />
+                                    <TextBlock x:Name="NowFocusStreakValueText" Text="Not available" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               Foreground="#16C784" />
                                     <TextBlock x:Name="NowDeepWorkStreakText"
                                                Text=""
-                                               Margin="0,6,0,0"
-                                               Foreground="{StaticResource PortaTextSecondaryBrush}"
-                                               FontWeight="SemiBold"
+                                               Margin="0,5,0,0"
+                                               FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{StaticResource PortaFocusBrush}"
                                                Visibility="Collapsed" />
-                                    <TextBlock x:Name="NowFocusChoppinessText" Text="Live activity: Not available" Margin="0,8,0,0" />
+                                    <TextBlock x:Name="NowFocusChoppinessText" Text="Not available" Margin="0,5,0,0"
+                                               FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" />
                                     <TextBlock x:Name="NowFocusSummaryText"
-                                               Text="This follows the same focus-timer definition used in the widget."
-                                               Margin="0,8,0,0"
-                                               Foreground="#93C5FD"
+                                               Text="Same focus-timer definition as the widget."
+                                               Margin="0,6,0,0"
+                                               FontSize="12"
+                                               Foreground="{StaticResource PortaTextMutedBrush}"
                                                TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowFocusFootnoteText" Text="Short pauses do not immediately clear the current focus episode." Margin="0,8,0,0" Foreground="#94A3B8" TextWrapping="Wrap" Visibility="Collapsed" />
-                                    <TextBlock x:Name="NowFocusStatusText" Text="" Margin="0,6,0,0" Foreground="#F59E0B" TextWrapping="Wrap" Visibility="Collapsed" />
+                                    <TextBlock x:Name="NowFocusFootnoteText" Text="Short pauses do not clear the focus episode." Margin="0,5,0,0" FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" TextWrapping="Wrap" Visibility="Collapsed" />
+                                    <TextBlock x:Name="NowFocusStatusText" Text="" Margin="0,5,0,0" Foreground="{StaticResource PortaWarningBrush}" TextWrapping="Wrap" Visibility="Collapsed" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -505,17 +713,25 @@
                                     Tag="today-overload"
                                     ToolTip="Open Why for overload details">
                                 <StackPanel>
-                                    <TextBlock Text="Pressure" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                    <TextBlock x:Name="NowCalibrationStatusText" Text="Pressure: Updating" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowCalibrationProgressText" Text="Regulation: Updating" Margin="0,6,0,0" />
-                                    <TextBlock x:Name="NowCalibrationQualityText" Text="Today peak: Updating" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="NowCalibrationColdStartText" Text="Confidence: Updating" Margin="0,4,0,0" />
+                                    <TextBlock Text="PRESSURE"
+                                               FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{StaticResource PortaTextMutedBrush}"
+                                               Margin="0,0,0,6" />
+                                    <TextBlock x:Name="NowCalibrationStatusText" Text="Updating" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               Foreground="#16C784" />
+                                    <TextBlock x:Name="NowCalibrationProgressText" Text="Regulation · Updating" Margin="0,5,0,0"
+                                               FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" />
+                                    <TextBlock x:Name="NowCalibrationQualityText" Text="Today peak · Updating" Margin="0,3,0,0"
+                                               FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" />
+                                    <TextBlock x:Name="NowCalibrationColdStartText" Text="Confidence · Updating" Margin="0,3,0,0"
+                                               FontSize="12" Foreground="{StaticResource PortaTextMutedBrush}" />
                                     <TextBlock x:Name="NowCalibrationSummaryText"
                                                Text="Open Why to inspect Ari's current pressure reasoning."
-                                               Margin="0,8,0,0"
-                                               Foreground="#93C5FD"
+                                               Margin="0,6,0,0"
+                                               FontSize="12"
+                                               Foreground="{StaticResource PortaTextMutedBrush}"
                                                TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowCalibrationTrustCapText" Text="Analysis is still catching up for overload details." Foreground="#FB923C" Margin="0,8,0,0" Visibility="Collapsed" />
+                                    <TextBlock x:Name="NowCalibrationTrustCapText" Text="Analysis is still catching up for overload details." Foreground="{StaticResource PortaWarningBrush}" Margin="0,6,0,0" FontSize="12" Visibility="Collapsed" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -548,7 +764,7 @@
                                            VerticalAlignment="Center" />
                             </DockPanel>
                         </Border>
-                        <TextBlock x:Name="UpdatedValue" Margin="0,10,0,0" Foreground="#94A3B8" Text="Last refresh: Not available" />
+                        <TextBlock x:Name="UpdatedValue" Margin="0,10,0,0" Foreground="#94A3B8" Text="" Visibility="Collapsed" />
                         <TextBlock x:Name="DebugFooterText" Margin="0,6,0,0" Foreground="#F59E0B" FontFamily="Consolas" FontSize="11" Text="" Visibility="Collapsed" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>
@@ -1147,7 +1363,7 @@
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="A) Main controls" FontSize="16" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,8" />
+                                <TextBlock Text="INTENSITY" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource PortaTextMutedBrush}" Margin="0,0,0,10" />
                                 <TextBlock Text="Intensity" />
                                 <Slider x:Name="IntensitySlider" Minimum="0" Maximum="2" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="IntensitySlider_ValueChanged" Margin="0,4,0,0" />
                                 <TextBlock x:Name="IntensityValueText" Text="Balanced" Margin="0,6,0,10" />
@@ -1168,7 +1384,7 @@
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="B) Collection controls" FontSize="16" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,8" />
+                                <TextBlock Text="COLLECTION" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource PortaTextMutedBrush}" Margin="0,0,0,10" />
                                 <WrapPanel Margin="0,0,0,10">
                                     <Button Content="Pause now" Padding="12,6" Margin="0,0,10,0" Click="PauseButton_Click" />
                                     <Button Content="Revoke consent" Padding="12,6" Click="RevokeConsentFromSettingsButton_Click" />
@@ -1192,14 +1408,14 @@
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="C) Calibration controls" FontSize="16" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,8" />
+                                <TextBlock Text="CALIBRATION" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource PortaTextMutedBrush}" Margin="0,0,0,10" />
                                 <Button Content="Recalibrate baseline" Padding="12,6" Width="180" HorizontalAlignment="Left" Click="RecalibrateBaselineButton_Click" />
                             </StackPanel>
                         </Border>
 
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="D) Safety toggles" FontSize="16" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,8" />
+                                <TextBlock Text="FEATURES" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource PortaTextMutedBrush}" Margin="0,0,0,10" />
                                 <Border Style="{StaticResource QuietHoverSubCardCompactStyle}" Margin="0,0,0,8">
                                     <CheckBox x:Name="SettingsSuggestionsOnlyToggle" Content="Suggestions only (no system changes)" Click="SettingsSuggestionsOnlyToggle_Click" Margin="0" />
                                 </Border>

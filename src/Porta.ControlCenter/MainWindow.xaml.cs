@@ -172,6 +172,7 @@ public partial class MainWindow : Window
             await SaveSettingsAsync(_settingsAutoSaveReason).ConfigureAwait(true);
         };
 
+        SidebarDateText.Text = DateTime.Now.ToString("ddd d MMM", System.Globalization.CultureInfo.InvariantCulture);
         ShowSection(UiSection.Overview);
         UpdateHistoryControls();
         StateChanged += (_, _) => UpdateWindowChromeButtons();
@@ -1122,13 +1123,19 @@ public partial class MainWindow : Window
 
     private static void ApplyNavState(Button button, bool selected)
     {
-        button.Background = selected
-            ? new SolidColorBrush(Color.FromRgb(26, 31, 38))
-            : new SolidColorBrush(Color.FromRgb(17, 21, 26));
-        button.Foreground = new SolidColorBrush(Color.FromRgb(230, 233, 237));
-        button.BorderBrush = selected
-            ? new SolidColorBrush(Color.FromRgb(42, 47, 54))
-            : new SolidColorBrush(Color.FromRgb(38, 43, 51));
+        button.Tag = selected ? "active" : null;
+    }
+
+    private void UpdateHeaderStatusChip(string runState, string confidenceLabel)
+    {
+        bool running = string.Equals(runState, "Running", StringComparison.Ordinal);
+        HeaderStatusChipText.Text = $"● {runState} · {confidenceLabel}";
+        HeaderStatusChipText.Foreground = new SolidColorBrush(
+            running ? Color.FromRgb(0x16, 0xC7, 0x84) : Color.FromRgb(0x64, 0x74, 0x8B));
+        HeaderStatusChipBorder.Background = new SolidColorBrush(
+            running ? Color.FromArgb(0x1E, 0x16, 0xC7, 0x84) : Color.FromArgb(0x14, 0x47, 0x55, 0x69));
+        HeaderStatusChipBorder.BorderBrush = new SolidColorBrush(
+            running ? Color.FromArgb(0x33, 0x16, 0xC7, 0x84) : Color.FromArgb(0x1E, 0x47, 0x55, 0x69));
     }
 
     private LocalApiTimelineResponse? GetSelectedHistoryTimeline()
@@ -1298,7 +1305,7 @@ public partial class MainWindow : Window
             AnimateTopMetric(
                 metricKey: "today_work_total",
                 targetValue: Math.Max(0d, todayMetrics.DisplayedTrackedTodaySeconds),
-                applyValue: value => NowOverloadValueText.Text = $"Work today: {LocalMetricDurationFormatter.FormatMetricDuration(value)}");
+                applyValue: value => NowOverloadValueText.Text = LocalMetricDurationFormatter.FormatMetricDuration(value));
             NowOverloadActiveText.Text = BuildTodayHistoryStatusText();
             NowOverloadSummaryText.Text = "Open History to review the day-by-hour focus map for today.";
         }
@@ -1326,12 +1333,13 @@ public partial class MainWindow : Window
         PortaVisualState visualState)
     {
         double? focusEpisodeSeconds = visualState.FocusEpisodeSeconds;
+        NowFocusStreakValueText.Foreground = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84));
         if (focusEpisodeSeconds.HasValue)
         {
             AnimateTopMetric(
                 metricKey: "today_last_focus",
                 targetValue: Math.Max(0d, focusEpisodeSeconds.Value),
-                applyValue: value => NowFocusStreakValueText.Text = $"Last focus session: {LocalMetricDurationFormatter.FormatMetricDuration(value)}");
+                applyValue: value => NowFocusStreakValueText.Text = LocalMetricDurationFormatter.FormatMetricDuration(value));
         }
         else
         {
@@ -1368,10 +1376,11 @@ public partial class MainWindow : Window
     {
         if (todayState == TodayTrackingState.Paused)
         {
-            NowCalibrationStatusText.Text = "Pressure: Paused";
-            NowCalibrationProgressText.Text = "Regulation: paused";
-            NowCalibrationQualityText.Text = "Today peak: Paused";
-            NowCalibrationColdStartText.Text = "Confidence: Paused";
+            NowCalibrationStatusText.Text = "Paused";
+            NowCalibrationStatusText.Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69));
+            NowCalibrationProgressText.Text = "Regulation · paused";
+            NowCalibrationQualityText.Text = "Today peak · —";
+            NowCalibrationColdStartText.Text = "Confidence · —";
             NowCalibrationSummaryText.Text = "Pressure updates resume once tracking is unpaused.";
             NowCalibrationTrustCapText.Visibility = Visibility.Collapsed;
             return;
@@ -1380,26 +1389,35 @@ public partial class MainWindow : Window
         if (snapshot == null)
         {
             NowCalibrationStatusText.Text = _latestStatus == null || !_latestStatus.ServiceRunning || !_latestStatus.LocalApiAuthReady
-                ? "Pressure: n/a"
-                : $"Pressure: {FillingInText}";
-            NowCalibrationProgressText.Text = "Regulation: waiting for snapshot";
-            NowCalibrationQualityText.Text = "Today peak: n/a";
-            NowCalibrationColdStartText.Text = "Confidence: n/a";
+                ? "n/a"
+                : FillingInText;
+            NowCalibrationStatusText.Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69));
+            NowCalibrationProgressText.Text = "Regulation · waiting for snapshot";
+            NowCalibrationQualityText.Text = "Today peak · n/a";
+            NowCalibrationColdStartText.Text = "Confidence · n/a";
             NowCalibrationSummaryText.Text = "Open Why when a fresh snapshot lands to inspect pressure reasoning.";
             NowCalibrationTrustCapText.Visibility = Visibility.Collapsed;
             return;
         }
 
+        double pressureLevelNow = ResolvePressureLevel(snapshot);
+        Color pressureColor = PressureColor(pressureLevelNow);
+
         if (snapshot.analysis_ready)
         {
             AnimateTopMetric(
                 metricKey: "today_pressure_level",
-                targetValue: Math.Max(0d, ResolvePressureLevel(snapshot) * 100d),
-                applyValue: value => NowCalibrationStatusText.Text = $"Pressure: {value:F0}%");
+                targetValue: Math.Max(0d, pressureLevelNow * 100d),
+                applyValue: value =>
+                {
+                    NowCalibrationStatusText.Text = $"{value:F0}%";
+                    NowCalibrationStatusText.Foreground = new SolidColorBrush(PressureColor(value / 100d));
+                });
         }
         else
         {
-            NowCalibrationStatusText.Text = $"Pressure: {(ResolvePressureLevel(snapshot) * 100d):F0}%";
+            NowCalibrationStatusText.Text = $"{(pressureLevelNow * 100d):F0}%";
+            NowCalibrationStatusText.Foreground = new SolidColorBrush(pressureColor);
         }
 
         bool overloadActive = snapshot.OverloadActive || snapshot.ActivationWindowOpen;
@@ -1408,12 +1426,17 @@ public partial class MainWindow : Window
             ? "n/a"
             : $"{(todaySnapshots.Max(ResolvePressureLevel) * 100d):F0}%";
 
-        NowCalibrationProgressText.Text = $"Regulation: {(overloadActive ? "active" : "normal")}";
-        NowCalibrationQualityText.Text = $"Today peak: {peakText}";
-        NowCalibrationColdStartText.Text = $"Confidence: {visualState.ConfidenceLabel}";
+        NowCalibrationProgressText.Text = $"Regulation · {(overloadActive ? "active" : "normal")}";
+        NowCalibrationQualityText.Text = $"Today peak · {peakText}";
+        NowCalibrationColdStartText.Text = $"Confidence · {visualState.ConfidenceLabel}";
         NowCalibrationSummaryText.Text = BuildNowOverloadSummary(snapshot);
         NowCalibrationTrustCapText.Visibility = snapshot.analysis_ready ? Visibility.Collapsed : Visibility.Visible;
     }
+
+    private static Color PressureColor(double level) =>
+        level >= 0.80 ? Color.FromRgb(0xEF, 0x44, 0x44) :
+        level >= 0.65 ? Color.FromRgb(0xF5, 0x9E, 0x0B) :
+        Color.FromRgb(0x16, 0xC7, 0x84);
 
     private void PopulateTodaySupportingStatusLine(
         TodayTrackingState todayState,
@@ -1989,22 +2012,22 @@ public partial class MainWindow : Window
     {
         if (todayState == TodayTrackingState.Paused)
         {
-            return "Work today: Paused";
+            return "Paused";
         }
 
         if (todayState == TodayTrackingState.Unavailable)
         {
-            return "Work today: n/a";
+            return "n/a";
         }
 
         if (todayMetrics.HasProcessedTimeline)
         {
-            return $"Work today: {LocalMetricDurationFormatter.FormatMetricDuration(todayMetrics.DisplayedTrackedTodaySeconds)}";
+            return LocalMetricDurationFormatter.FormatMetricDuration(todayMetrics.DisplayedTrackedTodaySeconds);
         }
 
         return status == null || !status.ServiceRunning || !status.LocalApiAuthReady
-            ? "Work today: n/a"
-            : $"Work today: {FillingInText}";
+            ? "n/a"
+            : FillingInText;
     }
 
     internal static string ResolveTodayLastFocusMetricText(
@@ -2015,22 +2038,22 @@ public partial class MainWindow : Window
     {
         if (todayState == TodayTrackingState.Paused)
         {
-            return "Last focus session: Paused";
+            return "Paused";
         }
 
         if (focusEpisodeSeconds.HasValue)
         {
-            return $"Last focus session: {LocalMetricDurationFormatter.FormatMetricDuration(focusEpisodeSeconds.Value)}";
+            return LocalMetricDurationFormatter.FormatMetricDuration(focusEpisodeSeconds.Value);
         }
 
         if (liveSessionFresh)
         {
-            return "Last focus session: 0s";
+            return "0s";
         }
 
         return status == null || !status.ServiceRunning || !status.LocalApiAuthReady
-            ? "Last focus session: n/a"
-            : $"Last focus session: {FillingInText}";
+            ? "n/a"
+            : FillingInText;
     }
 
     private static string FormatReadableDuration(double seconds)
@@ -7004,10 +7027,11 @@ public partial class MainWindow : Window
         string confidenceLabel = visualState.ConfidenceLabel;
         TrustBadgeText.Text = $"Confidence: {confidenceLabel}";
         SetTrustBadgeVisual(confidenceLabel);
-        SectionTitleText.Foreground = new SolidColorBrush(visualState.Theme.AccentColor);
+        UpdateHeaderStatusChip(runState, confidenceLabel);
+        SectionTitleText.Foreground = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9));
         if (_activeSection == UiSection.Overview)
         {
-            SectionTitleText.Text = $"Today ({visualState.ModeLabel})";
+            SectionTitleText.Text = "Today";
         }
 
         AgentVersionText.Text = status?.AgentVersion ?? NotAvailableText;
