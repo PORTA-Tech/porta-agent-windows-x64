@@ -212,7 +212,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         Grid bodyGrid = new()
         {
-            Margin = new Thickness(14, 6, 14, 6),   // 6px top/bottom, 14px left/right per spec
+            Margin = new Thickness(12, 2, 12, 2),   // padding: 2px 12px
             MinWidth = 165
         };
         bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
