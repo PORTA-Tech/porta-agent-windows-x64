@@ -212,7 +212,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         Grid bodyGrid = new()
         {
-            Margin = new Thickness(10, 6, 10, 6),
+            Margin = new Thickness(14, 6, 14, 6),   // 6px top/bottom, 14px left/right per spec
             MinWidth = 165
         };
         bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -320,7 +320,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         var stateLabelRow = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 5)
+            Margin = new Thickness(0, 0, 0, 4)   // 4px gap between top row and bar
         };
         stateLabelRow.Children.Add(_stateDot);
         stateLabelRow.Children.Add(_stateLabel);
@@ -354,9 +354,9 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         // Row 3: 2-stat bottom row — WORK + PRESSURE only, no SESSION
         _stat1Label = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)) };
-        _stat1Value = new TextBlock { FontSize = 11, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)), Margin = new Thickness(0, 1, 0, 0) };
+        _stat1Value = new TextBlock { FontSize = 11, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)) };
         _stat2Label = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)) };
-        _stat2Value = new TextBlock { FontSize = 11, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)), Margin = new Thickness(0, 1, 0, 0) };
+        _stat2Value = new TextBlock { FontSize = 11, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)) };
         // stat3 fields exist for compat but are not shown
         _stat3Label = new TextBlock { Visibility = Visibility.Collapsed };
         _stat3Value = new TextBlock { Visibility = Visibility.Collapsed };
@@ -372,7 +372,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         var newMetricsStack = new StackPanel
         {
             Orientation = Orientation.Vertical,
-            Margin = new Thickness(0, 6, 0, 6)
+            Margin = new Thickness(0, 0, 0, 0)   // bodyGrid margin already provides top/bottom padding
         };
         newMetricsStack.Children.Add(stateLabelRow);
         newMetricsStack.Children.Add(progressBarTrackLocal);
@@ -909,8 +909,17 @@ internal sealed class UserDesktopWidgetWindow : Window
         string pressureDisp = state.TertiaryMetric.Value;
         _stat1Label.Text = "WORK";
         _stat1Value.Text = string.IsNullOrWhiteSpace(workVal) ? "—" : workVal;
+        // WORK stays neutral grey always — it's informational, no threshold signal
+        _stat1Value.Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8));
+
         _stat2Label.Text = "PRESSURE";
         _stat2Value.Text = string.IsNullOrWhiteSpace(pressureDisp) ? "—" : pressureDisp;
+        // PRESSURE coloured by level: grey < 65% | amber 65–80% | red > 80%
+        double pressurePct = TryParsePercent(pressureDisp);
+        _stat2Value.Foreground = new SolidColorBrush(
+            pressurePct >= 0.80d ? Color.FromRgb(0xEF, 0x44, 0x44) :
+            pressurePct >= 0.65d ? Color.FromRgb(0xF5, 0x9E, 0x0B) :
+            Color.FromRgb(0x94, 0xA3, 0xB8));
     }
 
     /// <summary>Updates progress bar fill width from stored percentage whenever the track is sized.</summary>
