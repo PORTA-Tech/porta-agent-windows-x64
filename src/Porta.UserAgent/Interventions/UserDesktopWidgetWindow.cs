@@ -881,12 +881,15 @@ internal sealed class UserDesktopWidgetWindow : Window
             }
             else
             {
-                stateColour     = Color.FromRgb(0x3B, 0x82, 0xF6);
-                stateName       = "AWAY";
-                // For away, show work-today as the duration slot
-                episodeDuration = !string.Equals(state.PrimaryMetric.Value, "—", StringComparison.Ordinal)
-                    ? state.PrimaryMetric.Value : string.Empty;
-                episodeSeconds  = 0d;
+                stateColour = Color.FromRgb(0x3B, 0x82, 0xF6);
+                stateName   = "AWAY";
+                // Secondary metric now returns idle duration when away (e.g. "2m 15s")
+                // — completely separate from work-today time.
+                string awayVal = state.SecondaryMetric.Value;
+                episodeDuration = !string.Equals(awayVal, "—", StringComparison.Ordinal)
+                    && !string.IsNullOrWhiteSpace(awayVal)
+                    ? awayVal : string.Empty;
+                episodeSeconds = ParseDurationSeconds(awayVal);
             }
         }
 

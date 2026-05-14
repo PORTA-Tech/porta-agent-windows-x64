@@ -330,6 +330,16 @@ internal static class UserDesktopWidgetStateBuilder
                 LocalMetricDurationFormatter.FormatMetricDuration(experience.FocusEpisodeSeconds.Value));
         }
 
+        // Session is idle — return the current idle/away duration so the AWAY state
+        // in the widget shows how long the user has been away, not work-today time.
+        if (experience.LiveSessionFresh && liveSession?.idle == true
+            && liveSession.idle_seconds >= 10d)
+        {
+            return new UserDesktopWidgetMetric(
+                "Away",
+                LocalMetricDurationFormatter.FormatMetricDuration(liveSession.idle_seconds));
+        }
+
         // Live session is fresh but no analyzed episode yet (warming up).
         // Show the live session elapsed time so the user sees something real immediately;
         // this is replaced by the durable episode duration once the first bucket analyzes.

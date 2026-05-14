@@ -1441,9 +1441,9 @@ public partial class MainWindow : Window
     }
 
     private static Color PressureColor(double level) =>
-        level >= 0.80 ? Color.FromRgb(0xEF, 0x44, 0x44) :
-        level >= 0.65 ? Color.FromRgb(0xF5, 0x9E, 0x0B) :
-        Color.FromRgb(0x16, 0xC7, 0x84);
+        level >= 0.80 ? Color.FromRgb(0xEF, 0x44, 0x44) :   // red  > 80%
+        level >= 0.65 ? Color.FromRgb(0xF5, 0x9E, 0x0B) :   // amber 65–80%
+        Color.FromRgb(0x64, 0x74, 0x8B);                     // grey  < 65%
 
     private void PopulateTodaySupportingStatusLine(
         TodayTrackingState todayState,
@@ -1465,6 +1465,9 @@ public partial class MainWindow : Window
         long bannerEventId = 0;
         bool allowDismiss = false;
 
+        // Only show the banner for genuine recovery events (e.g. capture channel restored).
+        // Status messages like "Today is showing the last confirmed update..." are suppressed entirely.
+        _ = todayState; _ = readableExplanation;
         if (visualState.ShowRecoveryBanner
             && visualState.RecoveryEventId > 0
             && visualState.RecoveryEventId != _dismissedRecoveryEventId)
@@ -1472,10 +1475,6 @@ public partial class MainWindow : Window
             bannerText = visualState.RecoveryBannerText;
             bannerEventId = visualState.RecoveryEventId;
             allowDismiss = true;
-        }
-        else if (todayState != TodayTrackingState.StillTracking && !string.IsNullOrWhiteSpace(readableExplanation))
-        {
-            bannerText = readableExplanation;
         }
 
         _activeRecoveryEventId = bannerEventId;
