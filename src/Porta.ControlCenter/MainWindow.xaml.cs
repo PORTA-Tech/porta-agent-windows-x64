@@ -68,6 +68,8 @@ public partial class MainWindow : Window
     private LocalApiTimelineResponse? _hourTimeline;
     private LocalApiTimelineResponse? _fourHourTimeline;
     private LocalApiTimelineResponse? _allTimeTimeline;
+    private LocalApiTimelineResponse? _weekTimeline;      // 7 days, 300s buckets — good episode resolution
+    private LocalApiTimelineResponse? _twoWeekTimeline;   // 14 days, 600s buckets
     private LocalApiSettingsResponse? _effectiveSettings;
     private LocalApiRetentionResponse? _retention;
     private bool _suppressSettingsEvents;
@@ -543,6 +545,15 @@ public partial class MainWindow : Window
                     _allTimeTimeline,
                     await GetAllTimeTimelineAsync(DateTimeOffset.UtcNow).ConfigureAwait(true));
                 _lastAllTimeHistoryRefreshUtc = DateTimeOffset.UtcNow;
+
+                // Week/2-week timelines with finer bucket resolution so Away/Distraction episodes are detected.
+                // 300s (5-min) for 7 days, 600s (10-min) for 14 days — both better than the 1800s all-time bucket.
+                _weekTimeline = PreferFreshTimeline(
+                    _weekTimeline,
+                    await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddDays(-7), DateTimeOffset.UtcNow, 300).ConfigureAwait(true));
+                _twoWeekTimeline = PreferFreshTimeline(
+                    _twoWeekTimeline,
+                    await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddDays(-14), DateTimeOffset.UtcNow, 600).ConfigureAwait(true));
             }
 
             _effectiveSettings = await _apiClient.GetEffectiveSettingsAsync().ConfigureAwait(true);
@@ -794,22 +805,31 @@ public partial class MainWindow : Window
 
     private void UpdateHistoryPeriodTabs()
     {
-        ApplyHistoryPeriodTab(HistoryTabDay, HistoryTabDayText, _historyPeriod == HistoryPeriod.Day);
-        ApplyHistoryPeriodTab(HistoryTabWeek, HistoryTabWeekText, _historyPeriod == HistoryPeriod.Week);
-        ApplyHistoryPeriodTab(HistoryTabTwoWeeks, HistoryTabTwoWeeksText, _historyPeriod == HistoryPeriod.TwoWeeks);
+        ApplyHistoryPeriodTab(HistoryTabDayText, HistoryTabDayLine, _historyPeriod == HistoryPeriod.Day);
+        ApplyHistoryPeriodTab(HistoryTabWeekText, HistoryTabWeekLine, _historyPeriod == HistoryPeriod.Week);
+        ApplyHistoryPeriodTab(HistoryTabTwoWeeksText, HistoryTabTwoWeeksLine, _historyPeriod == HistoryPeriod.TwoWeeks);
     }
 
-    private static void ApplyHistoryPeriodTab(Border tab, TextBlock text, bool active)
+    private static void ApplyHistoryPeriodTab(TextBlock text, Border underline, bool active)
     {
-        tab.Background = new SolidColorBrush(active
-            ? Color.FromArgb(0x1A, 0x63, 0x66, 0xF1)
-            : Color.FromRgb(0x1C, 0x1C, 0x2E));
-        tab.BorderBrush = new SolidColorBrush(active
-            ? Color.FromRgb(0x63, 0x66, 0xF1)
-            : Color.FromRgb(0x25, 0x25, 0x35));
+        // No box/background — just text colour + 2px underline
         text.Foreground = new SolidColorBrush(active
             ? Color.FromRgb(0xA5, 0xB4, 0xFC)
-            : Color.FromRgb(0x64, 0x74, 0x8B));
+            : Color.FromRgb(0x47, 0x55, 0x69));
+        text.FontWeight = active ? FontWeights.SemiBold : FontWeights.Medium;
+        underline.Background = new SolidColorBrush(active
+            ? Color.FromRgb(0x63, 0x66, 0xF1)
+            : Colors.Transparent);
+    }
+
+    // Legacy overload kept so old callsites compile (tabs now use Border+TextBlock pair)
+    private static void ApplyHistoryPeriodTab(Border tab, TextBlock text, bool active)
+    {
+        tab.Background = Brushes.Transparent;
+        tab.BorderBrush = Brushes.Transparent;
+        text.Foreground = new SolidColorBrush(active
+            ? Color.FromRgb(0xA5, 0xB4, 0xFC)
+            : Color.FromRgb(0x47, 0x55, 0x69));
     }
 
     private void TimelinePanel_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -1259,6 +1279,13 @@ public partial class MainWindow : Window
 
     private LocalApiTimelineResponse? GetSelectedHistoryTimeline()
     {
+        // For Week/2-week periods, use the higher-resolution dedicated timelines so
+        // short episodes (Away, Distraction < 30 min) are detected correctly.
+        if (_historyPeriod == HistoryPeriod.Week)
+            return _weekTimeline ?? _allTimeTimeline;
+        if (_historyPeriod == HistoryPeriod.TwoWeeks)
+            return _twoWeekTimeline ?? _allTimeTimeline;
+
         return _historyRange switch
         {
             HistoryRange.Last1Hour => _hourTimeline,
@@ -6577,7 +6604,7 @@ public partial class MainWindow : Window
     private Border BuildTimelineEpisodeCard(HistoryTimelineEpisode episode)
     {
         // Spec: type chip + time range + rectangular duration badge. No developer text.
-        (Color accentColor, Color dimColor, string kindLabel) = episode.Kind switch
+        (Color accentColor, Color _, string kindLabel) = episode.Kind switch
         {
             HistoryTimelineEpisodeKind.FocusEpisode
                 => (Color.FromRgb(0x16, 0xC7, 0x84), Color.FromArgb(0x20, 0x16, 0xC7, 0x84), "Focus"),
@@ -6592,26 +6619,18 @@ public partial class MainWindow : Window
             _ => (Color.FromRgb(0x64, 0x74, 0x8B), Color.FromArgb(0x20, 0x64, 0x74, 0x8B), "Unknown")
         };
 
-        // Type chip — rectangular (4px), NOT pill/oval
-        var typeChip = new Border
+        // State label — plain coloured text, NO border/background/box
+        var typeChip = new TextBlock
         {
-            Background = new SolidColorBrush(dimColor),
-            BorderBrush = new SolidColorBrush(accentColor),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4),
-            Padding = new Thickness(8, 2, 8, 2),
-            Margin = new Thickness(0, 0, 8, 0),
+            Text = kindLabel,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(accentColor),
             VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock
-            {
-                Text = kindLabel,
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(accentColor)
-            }
+            Margin = new Thickness(0, 0, 12, 0)
         };
 
-        // Time range
+        // Time range — muted secondary text
         var timeText = new TextBlock
         {
             Text = $"{episode.StartUtc.ToLocalTime():HH:mm} → {episode.EndUtc.ToLocalTime():HH:mm}",
@@ -6621,21 +6640,14 @@ public partial class MainWindow : Window
             Margin = new Thickness(0, 0, 8, 0)
         };
 
-        // Duration badge — rectangular (not oval)
-        var durationBadge = new Border
+        // Duration — plain coloured text, NO border/background/box
+        var durationBadge = new TextBlock
         {
-            Background = new SolidColorBrush(dimColor),
-            CornerRadius = new CornerRadius(4),
-            Padding = new Thickness(8, 2, 8, 2),
-            Margin = new Thickness(0, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock
-            {
-                Text = FormatReadableDuration(episode.DurationSeconds),
-                FontSize = 12,
-                FontWeight = FontWeights.Medium,
-                Foreground = new SolidColorBrush(accentColor)
-            }
+            Text = FormatReadableDuration(episode.DurationSeconds),
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(accentColor),
+            VerticalAlignment = VerticalAlignment.Center
         };
 
         var row = new Grid { Margin = new Thickness(0, 0, 0, 0) };

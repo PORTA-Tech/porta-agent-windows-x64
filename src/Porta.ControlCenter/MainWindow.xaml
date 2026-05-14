@@ -1657,29 +1657,41 @@
                               PreviewMouseWheel="TimelinePanel_PreviewMouseWheel">
                     <StackPanel Margin="20,20,20,40">
 
-                        <!-- Tab switcher -->
+                        <!-- Tab switcher — plain text + 2px underline indicator, no box/border/background -->
                         <DockPanel Margin="0,0,0,14">
-                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Bottom">
+                                <!-- Day tab -->
                                 <Border x:Name="HistoryTabDay"
-                                        CornerRadius="100" Cursor="Hand"
-                                        Background="#1A6366F1" BorderBrush="#6366F1" BorderThickness="1"
-                                        Padding="14,5" Margin="0,0,6,0"
+                                        Background="Transparent" BorderThickness="0"
+                                        Cursor="Hand" Margin="0,0,24,0"
                                         MouseLeftButtonUp="HistoryTabDay_Click">
-                                    <TextBlock x:Name="HistoryTabDayText" Text="Day" FontSize="12" FontWeight="Medium" Foreground="#A5B4FC" />
+                                    <StackPanel>
+                                        <TextBlock x:Name="HistoryTabDayText" Text="Day"
+                                                   FontSize="13" FontWeight="SemiBold" Foreground="#A5B4FC" />
+                                        <Border x:Name="HistoryTabDayLine" Height="2" Background="#6366F1" Margin="0,3,0,0" />
+                                    </StackPanel>
                                 </Border>
+                                <!-- Week tab -->
                                 <Border x:Name="HistoryTabWeek"
-                                        CornerRadius="100" Cursor="Hand"
-                                        Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
-                                        Padding="14,5" Margin="0,0,6,0"
+                                        Background="Transparent" BorderThickness="0"
+                                        Cursor="Hand" Margin="0,0,24,0"
                                         MouseLeftButtonUp="HistoryTabWeek_Click">
-                                    <TextBlock x:Name="HistoryTabWeekText" Text="Week" FontSize="12" FontWeight="Medium" Foreground="#64748B" />
+                                    <StackPanel>
+                                        <TextBlock x:Name="HistoryTabWeekText" Text="Week"
+                                                   FontSize="13" FontWeight="Medium" Foreground="#475569" />
+                                        <Border x:Name="HistoryTabWeekLine" Height="2" Background="Transparent" Margin="0,3,0,0" />
+                                    </StackPanel>
                                 </Border>
+                                <!-- 2 Weeks tab -->
                                 <Border x:Name="HistoryTabTwoWeeks"
-                                        CornerRadius="100" Cursor="Hand"
-                                        Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
-                                        Padding="14,5"
+                                        Background="Transparent" BorderThickness="0"
+                                        Cursor="Hand"
                                         MouseLeftButtonUp="HistoryTabTwoWeeks_Click">
-                                    <TextBlock x:Name="HistoryTabTwoWeeksText" Text="2 Weeks" FontSize="12" FontWeight="Medium" Foreground="#64748B" />
+                                    <StackPanel>
+                                        <TextBlock x:Name="HistoryTabTwoWeeksText" Text="2 Weeks"
+                                                   FontSize="13" FontWeight="Medium" Foreground="#475569" />
+                                        <Border x:Name="HistoryTabTwoWeeksLine" Height="2" Background="Transparent" Margin="0,3,0,0" />
+                                    </StackPanel>
                                 </Border>
                             </StackPanel>
                         </DockPanel>
@@ -2827,6 +2839,7 @@
         </Border>
     </Grid>
 </Window>
+
 
 
 
