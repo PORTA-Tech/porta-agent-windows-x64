@@ -464,7 +464,8 @@ internal sealed class UserDesktopWidgetWindow : Window
             Foreground = new SolidColorBrush(Color.FromRgb(234, 238, 243)),
             FontWeight = FontWeights.SemiBold,
             FontSize = 10.2,
-            TextWrapping = TextWrapping.Wrap
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = ExpandedWidth - 12d   // prevent overflow; body/footer already have MaxWidth
         };
         _messageBodyText = new TextBlock
         {
@@ -1415,9 +1416,8 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
-        // Measure against the logical expanded width with a generous but finite cap
-        // so TextWrapping elements never force an arbitrarily tall window.
-        _rootBorder.Measure(new Size(ExpandedWidth, 480d));
+        // Measure against the logical expanded width — tall cap so message text never clips.
+        _rootBorder.Measure(new Size(ExpandedWidth, 800d));
         double measured = _rootBorder.DesiredSize.Height;
         double targetHeight = Math.Ceiling(Math.Max(BaseHeight, measured));
         AnimateWindowHeight(targetHeight);

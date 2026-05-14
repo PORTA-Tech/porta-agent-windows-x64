@@ -4041,6 +4041,16 @@ public partial class MainWindow : Window
                 Source: e))
             .ToList();
 
+        IReadOnlyList<AlertRow> alerts = ordered
+            .Where(static e => IsUserFacingAlert(e))
+            .Select(e => new AlertRow(
+                Title: BuildAlertTitle(e),
+                When: e.TimestampUtc.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture),
+                Reason: !string.IsNullOrWhiteSpace(e.Reason) ? TrimSentence(e.Reason, 100) : "",
+                Source: e))
+            .ToList();
+
+        // Legacy list bindings (hidden elements — kept for compat)
         SuggestionsListView.ItemsSource = suggestions;
         ChangesListView.ItemsSource = changes;
         SuggestionsCountText.Text = suggestions.Count.ToString(CultureInfo.InvariantCulture);
@@ -4052,6 +4062,9 @@ public partial class MainWindow : Window
         ChangesEmptyStateText.Visibility = changes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ChangesListView.Visibility = changes.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         UpdateActionsTabControls();
+
+        // ── New Actions page UI ────────────────────────────────────────
+        PopulateActionsNewUI(suggestions, changes, alerts, ordered);
 
         bool selectedStillExists = _selectedIntervention != null
             && ordered.Any(e => e.Id == _selectedIntervention.Id);
@@ -4068,6 +4081,190 @@ public partial class MainWindow : Window
             _selectedIntervention = latestSelected;
             UpdateInterventionDrawer(_selectedIntervention);
         }
+    }
+
+    private void PopulateActionsNewUI(
+        IReadOnlyList<SuggestionRow> suggestions,
+        IReadOnlyList<ChangeRow> changes,
+        IReadOnlyList<AlertRow> alerts,
+        IReadOnlyList<LocalApiEventResponse> ordered)
+    {
+        // ── Summary cards ──────────────────────────────────────────────
+        ActionsCardSuggestionsCount.Text = suggestions.Count.ToString(CultureInfo.InvariantCulture);
+        ActionsCardSuggestionsRecent.Text = suggestions.Count > 0 ? suggestions[0].Title : "None yet";
+        ApplyActionBarFill(ActionsCardSuggestionsTrack, ActionsCardSuggestionsBarFill,
+            Math.Clamp(suggestions.Count / 10d, 0d, 1d));
+
+        ActionsCardActionsCount.Text = changes.Count.ToString(CultureInfo.InvariantCulture);
+        ActionsCardActionsRecent.Text = changes.Count > 0 ? changes[0].WhatChanged : "None yet";
+        ApplyActionBarFill(ActionsCardActionsTrack, ActionsCardActionsBarFill,
+            Math.Clamp(changes.Count / 10d, 0d, 1d));
+
+        ActionsCardAlertsCount.Text = alerts.Count.ToString(CultureInfo.InvariantCulture);
+        ActionsCardAlertsRecent.Text = alerts.Count > 0 ? alerts[0].Title : "None yet";
+        ApplyActionBarFill(ActionsCardAlertsTrack, ActionsCardAlertsBarFill,
+            Math.Clamp(alerts.Count / 10d, 0d, 1d));
+
+        // ── Unified feed ───────────────────────────────────────────────
+        ActionsUnifiedFeed.Children.Clear();
+        bool allEmpty = suggestions.Count == 0 && changes.Count == 0 && alerts.Count == 0;
+        ActionsEmptyState.Visibility = allEmpty ? Visibility.Visible : Visibility.Collapsed;
+        ActionsUnifiedFeed.Visibility = allEmpty ? Visibility.Collapsed : Visibility.Visible;
+        if (allEmpty) return;
+
+        // Merge all into one list sorted newest first
+        var allRows = ordered
+            .Where(e => IsSuggestionEvent(e.Action) || IsSystemChangeEvent(e) || IsUserFacingAlert(e))
+            .OrderByDescending(e => e.TimestampUtc)
+            .ToList();
+
+        DateTimeOffset now = DateTimeOffset.Now;
+        bool first = true;
+        foreach (var ev in allRows)
+        {
+            if (!first)
+            {
+                ActionsUnifiedFeed.Children.Add(new Border
+                {
+                    Height = 1,
+                    Background = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)),
+                    Margin = new Thickness(0)
+                });
+            }
+            first = false;
+            ActionsUnifiedFeed.Children.Add(BuildActionsUnifiedRow(ev, now));
+        }
+    }
+
+    private static void ApplyActionBarFill(Border track, Border fill, double fraction)
+    {
+        void Apply(object? s, SizeChangedEventArgs e)
+        {
+            track.SizeChanged -= Apply;
+            fill.Width = fraction > 0d ? Math.Max(2d, track.ActualWidth * fraction) : 0d;
+        }
+
+        if (track.ActualWidth > 0d)
+            fill.Width = fraction > 0d ? Math.Max(2d, track.ActualWidth * fraction) : 0d;
+        else
+            track.SizeChanged += Apply;
+    }
+
+    private static FrameworkElement BuildActionsUnifiedRow(LocalApiEventResponse ev, DateTimeOffset now)
+    {
+        bool isSuggestion = IsSuggestionEvent(ev.Action);
+        bool isAlert      = IsUserFacingAlert(ev);
+        // isChange = everything else
+
+        string chipLabel, title;
+        Color chipText, chipBg;
+
+        if (isSuggestion)
+        {
+            chipLabel = "Suggestion";
+            chipText  = Color.FromRgb(0xA5, 0xB4, 0xFC);
+            chipBg    = Color.FromArgb(0x26, 0x63, 0x66, 0xF1);
+            title     = BuildSuggestionTitle(ev.Action);
+        }
+        else if (isAlert)
+        {
+            chipLabel = "Alert";
+            chipText  = Color.FromRgb(0xF5, 0x9E, 0x0B);
+            chipBg    = Color.FromArgb(0x26, 0xF5, 0x9E, 0x0B);
+            title     = BuildAlertTitle(ev);
+        }
+        else
+        {
+            chipLabel = "Action";
+            chipText  = Color.FromRgb(0x16, 0xC7, 0x84);
+            chipBg    = Color.FromArgb(0x26, 0x16, 0xC7, 0x84);
+            title     = string.IsNullOrWhiteSpace(ev.WhatChanged) ? HumanizeActionName(ev.Action) : ev.WhatChanged;
+        }
+
+        // Truncate title to 60 chars
+        if (title.Length > 60) title = title[..57] + "…";
+
+        string timeStr = FormatRelativeTime(ev.TimestampUtc.ToLocalTime(), now);
+
+        string? reason = null;
+        if (!string.IsNullOrWhiteSpace(ev.Reason) && ev.Reason.Length > 6
+            && !ev.Reason.Contains("null", StringComparison.OrdinalIgnoreCase))
+        {
+            reason = ev.Reason.Length > 100 ? ev.Reason[..97] + "…" : ev.Reason;
+        }
+
+        // Type chip
+        var chip = new Border
+        {
+            Background       = new SolidColorBrush(chipBg),
+            CornerRadius     = new CornerRadius(4),
+            Padding          = new Thickness(8, 3, 8, 3),
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin           = new Thickness(0, 0, 10, 0),
+            Child = new TextBlock
+            {
+                Text       = chipLabel,
+                FontSize   = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(chipText)
+            }
+        };
+
+        var titleTb = new TextBlock
+        {
+            Text         = title,
+            FontSize     = 13,
+            FontWeight   = FontWeights.Medium,
+            Foreground   = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9)),
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+
+        var timeTb = new TextBlock
+        {
+            Text              = timeStr,
+            FontSize          = 11,
+            Foreground        = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin            = new Thickness(8, 0, 0, 0)
+        };
+
+        var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(chip, 0);
+        Grid.SetColumn(titleTb, 1);
+        Grid.SetColumn(timeTb, 2);
+        headerGrid.Children.Add(chip);
+        headerGrid.Children.Add(titleTb);
+        headerGrid.Children.Add(timeTb);
+
+        var content = new StackPanel { Margin = new Thickness(0, 10, 0, 10) };
+        content.Children.Add(headerGrid);
+
+        if (reason != null)
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text         = reason,
+                FontSize     = 11,
+                Foreground   = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin       = new Thickness(0, 4, 0, 0)
+            });
+        }
+
+        return content;
+    }
+
+    private static string FormatRelativeTime(DateTimeOffset local, DateTimeOffset now)
+    {
+        double minutesAgo = (now - local).TotalMinutes;
+        if (minutesAgo < 60) return $"{(int)minutesAgo}m ago";
+        if (minutesAgo < 60 * 24) return $"{(int)(minutesAgo / 60)}h ago";
+        if (local.Date == now.Date.AddDays(-1)) return $"Yesterday {local:HH:mm}";
+        return local.ToString("ddd d MMM", CultureInfo.InvariantCulture);
     }
 
     private void PopulateActionsOverview(IReadOnlyList<LocalApiEventResponse> ordered)
@@ -4573,6 +4770,45 @@ public partial class MainWindow : Window
 
         return !string.IsNullOrWhiteSpace(ev.WhatChanged)
             || !string.IsNullOrWhiteSpace(action);
+    }
+
+    private static bool IsUserFacingAlert(LocalApiEventResponse ev)
+    {
+        string action = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (!action.StartsWith("inform_", StringComparison.Ordinal))
+            return false;
+
+        bool isKnownUseful = action is
+            "inform_overload_watch" or
+            "inform_pressure_rising" or
+            "inform_break_due" or
+            "inform_focus_lock_in" or
+            "inform_overload_rising" or
+            "inform_pressure_watch" or
+            "inform_recovery_needed";
+
+        bool hasUserReason = !string.IsNullOrWhiteSpace(ev.Reason)
+            && ev.Reason.Length > 10
+            && !ev.Reason.Contains("null", StringComparison.OrdinalIgnoreCase)
+            && !ev.Reason.Contains("error", StringComparison.OrdinalIgnoreCase);
+
+        return isKnownUseful || hasUserReason;
+    }
+
+    private static string BuildAlertTitle(LocalApiEventResponse ev)
+    {
+        string action = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+        return action switch
+        {
+            "inform_overload_watch" or "inform_overload_rising" => "Overload watch",
+            "inform_pressure_rising" or "inform_pressure_watch" => "Pressure rising",
+            "inform_break_due"                                  => "Break reminder",
+            "inform_focus_lock_in"                              => "Focus coaching",
+            "inform_recovery_needed"                            => "Recovery needed",
+            _ => string.IsNullOrWhiteSpace(ev.Reason)
+                    ? HumanizeActionName(ev.Action)
+                    : TrimSentence(ev.Reason, 60)
+        };
     }
 
     private static string BuildSuggestionTitle(string? action)
@@ -6045,7 +6281,7 @@ public partial class MainWindow : Window
                     var labelPanel = new StackPanel { Margin = new Thickness(4, 3, 4, 3) };
                     labelPanel.Children.Add(new TextBlock
                     {
-                        Text = ep.Kind.ToString(),
+                        Text = GetCalendarEpisodeLabel(ep.Kind),
                         FontSize = 11,
                         FontWeight = FontWeights.SemiBold,
                         Foreground = Brushes.White,
@@ -6065,7 +6301,7 @@ public partial class MainWindow : Window
                     // One line: state name only
                     blockContent = new TextBlock
                     {
-                        Text = ep.Kind.ToString(),
+                        Text = GetCalendarEpisodeLabel(ep.Kind),
                         FontSize = 10,
                         FontWeight = FontWeights.SemiBold,
                         Foreground = Brushes.White,
@@ -6093,20 +6329,17 @@ public partial class MainWindow : Window
             }
         }
 
-        // ── Step 10: scroll to first activity ────────────────────────
-        Dispatcher.InvokeAsync(() =>
-        {
-            if (allEps.Count > 0)
-            {
-                int firstHour = allEps.Min(e => e.StartUtc.ToLocalTime().Hour);
-                double scrollTo = Math.Max(0, (firstHour - startHour - 1) * rowH);
-                TimelinePanel.ScrollToVerticalOffset(
-                    TimelinePanel.VerticalOffset +
-                    HistoryCalendarOuter.TranslatePoint(new Point(0, 0), TimelinePanel.Content as UIElement ?? HistoryCalendarOuter).Y +
-                    scrollTo);
-            }
-        }, System.Windows.Threading.DispatcherPriority.Loaded);
+        // Auto-scroll removed — page starts at top and user scrolls freely.
     }
+
+    private static string GetCalendarEpisodeLabel(HistoryTimelineEpisodeKind kind) => kind switch
+    {
+        HistoryTimelineEpisodeKind.FocusEpisode                                                            => "Focus",
+        HistoryTimelineEpisodeKind.Away or HistoryTimelineEpisodeKind.ContextExcursion                     => "Away",
+        HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction => "Distraction",
+        HistoryTimelineEpisodeKind.OverloadEpisode                                                         => "Overload",
+        _                                                                                                   => kind.ToString()
+    };
 
     private static Color GetCalendarEpisodeColor(HistoryTimelineEpisodeKind kind) => kind switch
     {
@@ -8583,5 +8816,7 @@ public partial class MainWindow : Window
         string When,
         string Why,
         LocalApiEventResponse Source);
+
+    private record AlertRow(string Title, string When, string Reason, LocalApiEventResponse Source);
 }
 
