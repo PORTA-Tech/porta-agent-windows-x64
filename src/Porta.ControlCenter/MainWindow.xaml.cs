@@ -5851,7 +5851,8 @@ public partial class MainWindow : Window
         int numCols = columns.Count;
         if (numCols == 0) return;
 
-        double colW = Math.Max(60d, canvasWidth / numCols);
+        // Day view: fixed 260px column so it doesn't stretch full page width
+        double colW = numCols == 1 ? 260d : Math.Max(60d, canvasWidth / numCols);
         double totalCanvasWidth = colW * numCols;
         HistoryCalendarCanvas.Width = totalCanvasWidth;
 
@@ -6036,14 +6037,54 @@ public partial class MainWindow : Window
                 double topOffset = (clampedStart - gridStartMin) / 60d * rowH;
                 double blockH    = Math.Max(4d, (clampedEnd - clampedStart) / 60d * rowH);
 
+                // Build label content based on block height
+                UIElement blockContent = null;
+                if (blockH >= 36d)
+                {
+                    // Two lines: state name + time range
+                    var labelPanel = new StackPanel { Margin = new Thickness(4, 3, 4, 3) };
+                    labelPanel.Children.Add(new TextBlock
+                    {
+                        Text = ep.Kind.ToString(),
+                        FontSize = 11,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = Brushes.White,
+                        TextTrimming = TextTrimming.CharacterEllipsis
+                    });
+                    labelPanel.Children.Add(new TextBlock
+                    {
+                        Text = $"{localStart:HH:mm} → {localEnd:HH:mm}",
+                        FontSize = 10,
+                        Foreground = new SolidColorBrush(Color.FromArgb(0xBB, 0xFF, 0xFF, 0xFF)),
+                        TextTrimming = TextTrimming.CharacterEllipsis
+                    });
+                    blockContent = labelPanel;
+                }
+                else if (blockH >= 18d)
+                {
+                    // One line: state name only
+                    blockContent = new TextBlock
+                    {
+                        Text = ep.Kind.ToString(),
+                        FontSize = 10,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = Brushes.White,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        Margin = new Thickness(4, 2, 4, 2),
+                        IsHitTestVisible = false
+                    };
+                }
+
                 var block = new Border
                 {
-                    Width       = colW - 4d,
-                    Height      = blockH,
-                    Background  = new SolidColorBrush(GetCalendarEpisodeColor(ep.Kind)),
-                    CornerRadius = new CornerRadius(3),
-                    Opacity      = 0.85,
-                    ToolTip      = BuildCalendarTooltip(ep)
+                    Width        = colW - 4d,
+                    Height       = blockH,
+                    Background   = new SolidColorBrush(GetCalendarEpisodeColor(ep.Kind)),
+                    CornerRadius  = new CornerRadius(3),
+                    Opacity       = 0.85,
+                    ToolTip       = BuildCalendarTooltip(ep),
+                    ClipToBounds  = true,
+                    Child         = blockContent
                 };
 
                 Canvas.SetLeft(block, colX + 2d);
