@@ -284,7 +284,7 @@
             <DockPanel>
                 <!-- Brand area -->
                 <StackPanel DockPanel.Dock="Top" Margin="16,16,16,10">
-                    <TextBlock Text="PORTA"
+                    <TextBlock Text="Ari"
                                FontSize="17" FontWeight="Bold"
                                Foreground="{StaticResource PortaTextPrimaryBrush}" />
                     <TextBlock x:Name="SidebarDateText"
@@ -610,7 +610,12 @@
             </Border>
 
             <Grid Grid.Row="1">
-                <ScrollViewer x:Name="OverviewPanel" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer x:Name="OverviewPanel"
+                              VerticalScrollBarVisibility="Auto"
+                              CanContentScroll="False"
+                              IsManipulationEnabled="True"
+                              PanningMode="VerticalOnly"
+                              PreviewMouseWheel="OverviewPanel_PreviewMouseWheel">
                     <StackPanel Margin="20">
                         <!-- Greeting row -->
                         <Grid Margin="0,0,0,16">
@@ -623,10 +628,10 @@
                                            Text="Good morning"
                                            FontSize="22" FontWeight="SemiBold"
                                            Foreground="#F1F5F9" />
+                                <!-- Date removed from content header — appears only in sidebar -->
                                 <TextBlock x:Name="TodayDateText"
-                                           FontSize="13"
-                                           Foreground="#475569"
-                                           Margin="0,2,0,0" />
+                                           FontSize="13" Foreground="#475569"
+                                           Margin="0,2,0,0" Visibility="Collapsed" />
                             </StackPanel>
                             <Border x:Name="TodayStateChipBorder"
                                     Grid.Column="1"
@@ -662,53 +667,54 @@
                                            TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
-                        <!-- Three metric cards -->
+                        <!-- Three metric cards — non-clickable; Work Today has View History link -->
                         <UniformGrid Columns="3" Margin="0,0,0,10">
+                            <!-- Work Today (only card with a link) -->
                             <Border x:Name="NowOverloadCard"
                                     Style="{StaticResource QuietHoverCardStyle}"
-                                    Margin="0,0,5,0"
-                                    Cursor="Hand"
-                                    MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
-                                    Tag="today-work"
-                                    ToolTip="Open History for today's work map">
+                                    Margin="0,0,5,0">
                                 <StackPanel>
                                     <TextBlock Text="WORK TODAY"
                                                FontSize="11" FontWeight="SemiBold"
-                                               Foreground="#475569"
-                                               Margin="0,0,0,6" />
+                                               Foreground="#475569" Margin="0,0,0,6" />
                                     <TextBlock x:Name="NowOverloadValueText" Text="—" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"
                                                Foreground="#F1F5F9" />
                                     <TextBlock x:Name="NowOverloadActiveText" Text="" Margin="0,4,0,0"
                                                FontSize="12" Foreground="#475569" />
                                     <TextBlock x:Name="NowOverloadTrustText" Text="" Margin="0,3,0,0" Visibility="Collapsed"
                                                FontSize="12" Foreground="#475569" />
-                                    <Border Height="4" CornerRadius="2" Background="#252535" Margin="0,8,0,0">
+                                    <Border x:Name="WorkTodayTrack" Height="4" CornerRadius="2" Background="#252535" Margin="0,8,0,6">
                                         <Border x:Name="WorkTodayProgressFill" Background="#3B82F6" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
                                     </Border>
+                                    <!-- View History link — bottom-right, only interactive element -->
+                                    <DockPanel LastChildFill="False">
+                                        <TextBlock DockPanel.Dock="Right"
+                                                   Text="View History →"
+                                                   FontSize="11" Foreground="#6366F1"
+                                                   Cursor="Hand"
+                                                   MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
+                                                   Tag="today-work" />
+                                    </DockPanel>
                                     <TextBlock x:Name="NowOverloadSummaryText" Visibility="Collapsed"
                                                Text="" FontSize="12" Foreground="#475569" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
+                            <!-- Focus Score — no link, no click -->
                             <Border x:Name="NowFocusCard"
                                     Style="{StaticResource QuietHoverCardStyle}"
                                     Margin="5,0,5,0"
-                                    Cursor="Hand"
-                                    MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
-                                    Tag="last-focus"
-                                    BorderBrush="#2216C784"
-                                    ToolTip="Current focus episode">
+                                    BorderBrush="#2216C784">
                                 <StackPanel>
                                     <TextBlock Text="FOCUS SCORE"
                                                FontSize="11" FontWeight="SemiBold"
-                                               Foreground="#475569"
-                                               Margin="0,0,0,6" />
+                                               Foreground="#475569" Margin="0,0,0,6" />
                                     <TextBlock x:Name="NowFocusStreakValueText" Text="—" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"
                                                Foreground="#16C784" />
                                     <TextBlock x:Name="NowDeepWorkStreakText" Text="" Margin="0,5,0,0"
                                                FontSize="12" FontWeight="SemiBold" Foreground="#16C784" Visibility="Collapsed" />
                                     <TextBlock x:Name="NowFocusChoppinessText" Text="" Margin="0,4,0,0"
                                                FontSize="12" Foreground="#475569" />
-                                    <Border Height="4" CornerRadius="2" Background="#252535" Margin="0,8,0,0">
+                                    <Border x:Name="FocusScoreTrack" Height="4" CornerRadius="2" Background="#252535" Margin="0,8,0,0">
                                         <Border x:Name="FocusScoreProgressFill" Background="#16C784" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
                                     </Border>
                                     <TextBlock x:Name="NowFocusSummaryText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#475569" TextWrapping="Wrap" />
@@ -716,26 +722,23 @@
                                     <TextBlock x:Name="NowFocusStatusText" Visibility="Collapsed" Text="" Foreground="{StaticResource PortaWarningBrush}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
+                            <!-- Pressure — no link, no click -->
                             <Border x:Name="NowCalibrationCard"
                                     Style="{StaticResource QuietHoverCardStyle}"
-                                    Margin="5,0,0,0"
-                                    Cursor="Hand"
-                                    MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
-                                    Tag="today-overload"
-                                    ToolTip="Open Why for overload details">
+                                    Margin="5,0,0,0">
                                 <StackPanel>
                                     <TextBlock Text="PRESSURE"
                                                FontSize="11" FontWeight="SemiBold"
-                                               Foreground="#475569"
-                                               Margin="0,0,0,6" />
+                                               Foreground="#475569" Margin="0,0,0,6" />
                                     <TextBlock x:Name="NowCalibrationStatusText" Text="—" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"
                                                Foreground="#16C784" />
-                                    <TextBlock x:Name="NowCalibrationProgressText" Text="" Margin="0,4,0,0"
+                                    <!-- NowCalibrationProgressText hidden — "Regulation · normal" is developer text -->
+                                    <TextBlock x:Name="NowCalibrationProgressText" Text="" Visibility="Collapsed"
                                                FontSize="12" Foreground="#475569" />
-                                    <TextBlock x:Name="NowCalibrationQualityText" Text="" Margin="0,3,0,0"
+                                    <TextBlock x:Name="NowCalibrationQualityText" Text="" Margin="0,4,0,0"
                                                FontSize="12" Foreground="#475569" />
-                                    <Border Height="4" CornerRadius="2" Background="#252535" Margin="0,8,0,0">
-                                        <Border x:Name="PressureProgressFill" Background="#16C784" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
+                                    <Border x:Name="PressureTrack" Height="4" CornerRadius="2" Background="#252535" Margin="0,8,0,0">
+                                        <Border x:Name="PressureProgressFill" Background="#64748B" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
                                     </Border>
                                     <TextBlock x:Name="NowCalibrationColdStartText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#475569" />
                                     <TextBlock x:Name="NowCalibrationSummaryText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#475569" TextWrapping="Wrap" />
@@ -743,37 +746,21 @@
                                 </StackPanel>
                             </Border>
                         </UniformGrid>
-                        <!-- Two supporting cards -->
-                        <Grid Margin="0,0,0,14">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Border x:Name="CurrentSessionCard" Grid.Column="0"
-                                    Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,5,0">
+                        <!-- Supporting cards hidden — only 3 metric cards shown -->
+                        <StackPanel Visibility="Collapsed">
+                            <Border x:Name="CurrentSessionCard">
                                 <StackPanel>
-                                    <TextBlock Text="CURRENT SESSION"
-                                               FontSize="11" FontWeight="SemiBold"
-                                               Foreground="#475569" Margin="0,0,0,6" />
-                                    <TextBlock x:Name="CurrentSessionValueText" Text="—"
-                                               FontSize="22" FontWeight="SemiBold" Foreground="#16C784" />
-                                    <TextBlock x:Name="CurrentSessionSubText" Text=""
-                                               FontSize="12" Foreground="#475569" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="CurrentSessionValueText" Text="—" />
+                                    <TextBlock x:Name="CurrentSessionSubText" Text="" />
                                 </StackPanel>
                             </Border>
-                            <Border x:Name="DistractionsCard" Grid.Column="1"
-                                    Style="{StaticResource QuietHoverCardStyle}" Margin="5,0,0,0">
+                            <Border x:Name="DistractionsCard">
                                 <StackPanel>
-                                    <TextBlock Text="DISTRACTIONS TODAY"
-                                               FontSize="11" FontWeight="SemiBold"
-                                               Foreground="#475569" Margin="0,0,0,6" />
-                                    <TextBlock x:Name="DistractionsValueText" Text="—"
-                                               FontSize="22" FontWeight="SemiBold" Foreground="#8B5CF6" />
-                                    <TextBlock x:Name="DistractionsSubText" Text="Ari needs more data"
-                                               FontSize="12" Foreground="#475569" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="DistractionsValueText" Text="—" />
+                                    <TextBlock x:Name="DistractionsSubText" Text="" />
                                 </StackPanel>
                             </Border>
-                        </Grid>
+                        </StackPanel>
                         <!-- Session timeline -->
                         <TextBlock Text="SESSION TIMELINE — TODAY"
                                    FontSize="11" FontWeight="SemiBold"
@@ -786,16 +773,16 @@
                                     <Border Background="#252535" CornerRadius="4" />
                                 </Grid>
                                 <WrapPanel Margin="0,8,0,0">
-                                    <Border CornerRadius="100" Background="#1416C784" BorderBrush="#2216C784" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
+                                    <Border CornerRadius="4" Background="#1416C784" BorderBrush="#2216C784" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
                                         <TextBlock Text="Focus" Foreground="#16C784" FontSize="11" />
                                     </Border>
-                                    <Border CornerRadius="100" Background="#148B5CF6" BorderBrush="#228B5CF6" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
+                                    <Border CornerRadius="4" Background="#148B5CF6" BorderBrush="#228B5CF6" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
                                         <TextBlock Text="Distraction" Foreground="#8B5CF6" FontSize="11" />
                                     </Border>
-                                    <Border CornerRadius="100" Background="#143B82F6" BorderBrush="#223B82F6" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
+                                    <Border CornerRadius="4" Background="#143B82F6" BorderBrush="#223B82F6" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
                                         <TextBlock Text="Away" Foreground="#3B82F6" FontSize="11" />
                                     </Border>
-                                    <Border CornerRadius="100" Background="#14F59E0B" BorderBrush="#22F59E0B" BorderThickness="1" Padding="8,3">
+                                    <Border CornerRadius="4" Background="#14F59E0B" BorderBrush="#22F59E0B" BorderThickness="1" Padding="8,3">
                                         <TextBlock Text="Pressure edge" Foreground="#F59E0B" FontSize="11" />
                                     </Border>
                                 </WrapPanel>
@@ -2908,6 +2895,7 @@
         </Border>
     </Grid>
 </Window>
+
 
 
 

@@ -709,6 +709,16 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void OverviewPanel_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        // Ensure outer ScrollViewer receives wheel events even when inner elements consume them
+        if (!e.Handled)
+        {
+            OverviewPanel.ScrollToVerticalOffset(OverviewPanel.VerticalOffset - e.Delta);
+            e.Handled = true;
+        }
+    }
+
     private void NowDetailCard_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (sender is not FrameworkElement card)
@@ -1291,7 +1301,7 @@ public partial class MainWindow : Window
         PopulateTodaySupportingStatusLine(todayState, currentStatusText, readableExplanation);
         PopulateTodayRecoveryBanner(todayState, readableExplanation, visualState);
         PopulateCurrentSessionCard(todayState, liveSession);
-        PopulatePressureProgressBar(snapshot);
+        UpdateCardProgressBars(todayMetrics, snapshot);
     }
 
     private void PopulateTodayWorkCard(
@@ -1359,12 +1369,8 @@ public partial class MainWindow : Window
             NowFocusStreakValueText.Text = "—";
         }
 
-        // Subtext: confidence label or building baseline — no internal state language.
-        string confidenceLabel = visualState.ConfidenceLabel;
-        NowFocusChoppinessText.Text = !string.IsNullOrWhiteSpace(confidenceLabel)
-            && !string.Equals(confidenceLabel, NotAvailableText, StringComparison.OrdinalIgnoreCase)
-            ? $"{confidenceLabel} confidence"
-            : BuildTodayCurrentFocusSupportText(liveSession);
+        // Subtext: live activity description only — no confidence labels
+        NowFocusChoppinessText.Text = BuildTodayCurrentFocusSupportText(liveSession);
         NowFocusSummaryText.Visibility = Visibility.Collapsed;
         NowFocusFootnoteText.Visibility = Visibility.Collapsed;
         NowFocusStatusText.Visibility = Visibility.Collapsed;
@@ -1427,9 +1433,9 @@ public partial class MainWindow : Window
             ? "n/a"
             : $"{(todaySnapshots.Max(ResolvePressureLevel) * 100d):F0}%";
 
-        NowCalibrationProgressText.Text = $"Regulation · {(overloadActive ? "active" : "normal")}";
+        NowCalibrationProgressText.Text = string.Empty; // hidden in XAML — "Regulation · X" is developer text
         NowCalibrationQualityText.Text = $"Today peak · {peakText}";
-        NowCalibrationColdStartText.Text = $"Confidence · {visualState.ConfidenceLabel}";
+        NowCalibrationColdStartText.Text = string.Empty; // hidden in XAML
         NowCalibrationSummaryText.Text = BuildNowOverloadSummary(snapshot);
         NowCalibrationTrustCapText.Visibility = snapshot.analysis_ready ? Visibility.Collapsed : Visibility.Visible;
     }
@@ -1444,19 +1450,10 @@ public partial class MainWindow : Window
         string currentStatusText,
         string readableExplanation)
     {
-        string supportingText = todayState switch
-        {
-            TodayTrackingState.StillTracking => string.IsNullOrWhiteSpace(currentStatusText)
-                ? "Status: Today is updating normally."
-                : currentStatusText,
-            _ => string.IsNullOrWhiteSpace(readableExplanation)
-                ? "Status: Updating."
-                : readableExplanation
-        };
-        NowWaitingDataText.Text = supportingText;
-        NowWaitingDataText.Visibility = string.IsNullOrWhiteSpace(supportingText)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        // The status line is removed per spec — the Ari bubble communicates state instead.
+        // NowWaitingDataText is kept in XAML (Visibility=Collapsed) for code-behind compat.
+        _ = todayState; _ = currentStatusText; _ = readableExplanation;
+        NowWaitingDataText.Visibility = Visibility.Collapsed;
     }
 
     private void PopulateTodayRecoveryBanner(
@@ -1533,14 +1530,57 @@ public partial class MainWindow : Window
         }
     }
 
-    private void PopulatePressureProgressBar(LocalApiCurrentSnapshotResponse? snapshot)
+    /// <summary>Fills the three progress bars on Work Today, Focus Score, and Pressure cards.</summary>
+    private void UpdateCardProgressBars(
+        TodayPageMetrics todayMetrics,
+        LocalApiCurrentSnapshotResponse? snapshot)
     {
+        // Work Today bar — fill = totalWorkMinutes / 480 (8-hour target), capped at 100%
+        double workMinutes = todayMetrics.HasProcessedTimeline
+            ? Math.Max(0d, todayMetrics.DisplayedTrackedTodaySeconds / 60d)
+            : 0d;
+        double workFraction = Math.Clamp(workMinutes / 480d, 0d, 1d);
+        ApplyBarFill(WorkTodayProgressFill, WorkTodayTrack, workFraction,
+            Color.FromRgb(0x3B, 0x82, 0xF6));
+
+        // Focus Score bar — fill = TaskContinuityScore (0–1)
+        double focusScore = snapshot?.analysis_ready == true
+            && double.IsFinite(snapshot.TaskContinuityScore)
+            ? Math.Clamp(snapshot.TaskContinuityScore, 0d, 1d)
+            : 0d;
+        ApplyBarFill(FocusScoreProgressFill, FocusScoreTrack, focusScore,
+            Color.FromRgb(0x16, 0xC7, 0x84));
+
+        // Pressure bar — fill = pressure level, colour by threshold
         double pressure = snapshot != null ? ResolvePressureLevel(snapshot) : 0d;
-        Color fillColor = PressureColor(pressure);
-        PressureProgressFill.Background = new SolidColorBrush(fillColor);
-        // Width is set by proportion — container width is measured by WPF layout
-        // We bind the fill width via ActualWidth when available
-        PressureProgressFill.Tag = pressure; // store for use in SizeChanged if needed
+        Color pressureBarColor = pressure >= 0.80d
+            ? Color.FromRgb(0xEF, 0x44, 0x44)
+            : pressure >= 0.65d
+                ? Color.FromRgb(0xF5, 0x9E, 0x0B)
+                : Color.FromRgb(0x64, 0x74, 0x8B);
+        ApplyBarFill(PressureProgressFill, PressureTrack, Math.Clamp(pressure, 0d, 1d),
+            pressureBarColor);
+    }
+
+    private static void ApplyBarFill(Border fill, Border track, double fraction, Color colour)
+    {
+        fill.Background = new SolidColorBrush(colour);
+        double trackWidth = track.ActualWidth;
+        if (trackWidth > 0d)
+        {
+            fill.Width = fraction > 0d ? Math.Max(2d, trackWidth * fraction) : 0d;
+        }
+        else
+        {
+            // ActualWidth not measured yet — defer via SizeChanged so bar fills after layout
+            fill.Width = 0d;
+            void OnSized(object? s, SizeChangedEventArgs e)
+            {
+                track.SizeChanged -= OnSized;
+                fill.Width = fraction > 0d ? Math.Max(2d, track.ActualWidth * fraction) : 0d;
+            }
+            track.SizeChanged += OnSized;
+        }
     }
 
     private string BuildTodaySummarySentence(
