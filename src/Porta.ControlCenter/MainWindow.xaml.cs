@@ -81,6 +81,7 @@ public partial class MainWindow : Window
     private long _activeRecoveryEventId;
     private DateTimeOffset _lastManualRefreshUtc = DateTimeOffset.MinValue;
     private HistoryRange _historyRange = HistoryRange.AllTime;
+    private HistoryPeriod _historyPeriod = HistoryPeriod.Day;
     private bool _historyExplainMode;
     private ActionsView _actionsView = ActionsView.Suggestions;
     private readonly DispatcherTimer _settingsAutoSaveTimer;
@@ -122,6 +123,8 @@ public partial class MainWindow : Window
         Today,
         AllTime
     }
+
+    private enum HistoryPeriod { Day, Week, TwoWeeks }
 
     private enum ActionsView
     {
@@ -758,8 +761,64 @@ public partial class MainWindow : Window
 
     private void TimelineNavButton_Click(object sender, RoutedEventArgs e)
     {
+        // Default to Day view, today's data — never show an empty page
+        _historyPeriod = HistoryPeriod.Day;
+        _historyRange = HistoryRange.Today;
         ShowSection(UiSection.Timeline);
+        PopulateTimeline(_todayTimeline ?? GetSelectedHistoryTimeline());
+    }
+
+    private void HistoryTabDay_Click(object sender, MouseButtonEventArgs e)
+    {
+        _historyPeriod = HistoryPeriod.Day;
+        _historyRange = HistoryRange.Today;
+        UpdateHistoryPeriodTabs();
+        PopulateTimeline(_todayTimeline ?? GetSelectedHistoryTimeline());
+    }
+
+    private void HistoryTabWeek_Click(object sender, MouseButtonEventArgs e)
+    {
+        _historyPeriod = HistoryPeriod.Week;
+        _historyRange = HistoryRange.AllTime;
+        UpdateHistoryPeriodTabs();
         PopulateTimeline(GetSelectedHistoryTimeline());
+    }
+
+    private void HistoryTabTwoWeeks_Click(object sender, MouseButtonEventArgs e)
+    {
+        _historyPeriod = HistoryPeriod.TwoWeeks;
+        _historyRange = HistoryRange.AllTime;
+        UpdateHistoryPeriodTabs();
+        PopulateTimeline(GetSelectedHistoryTimeline());
+    }
+
+    private void UpdateHistoryPeriodTabs()
+    {
+        ApplyHistoryPeriodTab(HistoryTabDay, HistoryTabDayText, _historyPeriod == HistoryPeriod.Day);
+        ApplyHistoryPeriodTab(HistoryTabWeek, HistoryTabWeekText, _historyPeriod == HistoryPeriod.Week);
+        ApplyHistoryPeriodTab(HistoryTabTwoWeeks, HistoryTabTwoWeeksText, _historyPeriod == HistoryPeriod.TwoWeeks);
+    }
+
+    private static void ApplyHistoryPeriodTab(Border tab, TextBlock text, bool active)
+    {
+        tab.Background = new SolidColorBrush(active
+            ? Color.FromArgb(0x1A, 0x63, 0x66, 0xF1)
+            : Color.FromRgb(0x1C, 0x1C, 0x2E));
+        tab.BorderBrush = new SolidColorBrush(active
+            ? Color.FromRgb(0x63, 0x66, 0xF1)
+            : Color.FromRgb(0x25, 0x25, 0x35));
+        text.Foreground = new SolidColorBrush(active
+            ? Color.FromRgb(0xA5, 0xB4, 0xFC)
+            : Color.FromRgb(0x64, 0x74, 0x8B));
+    }
+
+    private void TimelinePanel_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (!e.Handled)
+        {
+            TimelinePanel.ScrollToVerticalOffset(TimelinePanel.VerticalOffset - e.Delta);
+            e.Handled = true;
+        }
     }
 
     private void HistoryRange1hButton_Click(object sender, RoutedEventArgs e)
@@ -5532,6 +5591,7 @@ public partial class MainWindow : Window
     private void PopulateTimeline(LocalApiTimelineResponse? timeline)
     {
         UpdateHistoryControls();
+        UpdateHistoryPeriodTabs();
         HistoryCoordinateCanvas.Children.Clear();
         HistoryHourLabelsPanel.Children.Clear();
         TimelineOverloadTrackPanel.Children.Clear();
@@ -5549,7 +5609,10 @@ public partial class MainWindow : Window
                 fallbackToUtc: displayToUtc);
         _latestHistoryHeatmap = heatmap;
         PopulateHistorySummary(heatmap);
+        PopulateHistorySummaryNew(heatmap);
         RenderHistoryCoordinateHeatmap(heatmap);
+        RenderHistoryTimelineNew(heatmap);
+        PopulateHistoryEpisodeListNew(heatmap);
 
         int maxPoints = _historyRange switch
         {
@@ -5663,6 +5726,272 @@ public partial class MainWindow : Window
             singularLabel: "segment",
             pluralLabel: "segments");
         HistoryActionsSummaryText.Text = BuildHistoryRangeFootnote(heatmap);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // NEW HISTORY REDESIGN — summary cards, timeline bar, episode list
+    // ═══════════════════════════════════════════════════════════════
+
+    private void PopulateHistorySummaryNew(HistoryFocusHeatmap heatmap)
+    {
+        double totalWork = heatmap.TotalTrackedSeconds > 0d ? heatmap.TotalTrackedSeconds : 1d;
+
+        double focusSec = heatmap.Episodes
+            .Where(static e => e.Kind == HistoryTimelineEpisodeKind.FocusEpisode)
+            .Sum(static e => e.DurationSeconds);
+        double distrSec = heatmap.Episodes
+            .Where(static e => e.Kind is HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction)
+            .Sum(static e => e.DurationSeconds);
+        double overSec = heatmap.Episodes
+            .Where(static e => e.Kind == HistoryTimelineEpisodeKind.OverloadEpisode)
+            .Sum(static e => e.DurationSeconds);
+        double awaySec = heatmap.Episodes
+            .Where(static e => e.Kind == HistoryTimelineEpisodeKind.Away)
+            .Sum(static e => e.DurationSeconds);
+
+        SetHistoryCard(HistoryFocusDuration, HistoryFocusSubLabel, HistoryFocusTrack, HistoryFocusBarFill,
+            focusSec, heatmap.FocusEpisodeCount, "episode", "episodes", totalWork);
+        SetHistoryCard(HistoryDistractionDuration, HistoryDistractionSubLabel, HistoryDistractionTrack, HistoryDistractionBarFill,
+            distrSec, heatmap.DistractionEpisodeCount, "episode", "episodes", totalWork);
+        SetHistoryCard(HistoryOverloadDuration, HistoryOverloadSubLabel, HistoryOverloadTrack, HistoryOverloadBarFill,
+            overSec, heatmap.OverloadEpisodeCount, "episode", "episodes", totalWork);
+        SetHistoryCard(HistoryAwayDuration, HistoryAwaySubLabel, HistoryAwayTrack, HistoryAwayBarFill,
+            awaySec, heatmap.AwayEpisodeCount, "break", "breaks", totalWork);
+    }
+
+    private static void SetHistoryCard(
+        TextBlock valueTb, TextBlock subLabelTb, Border track, Border fill,
+        double seconds, int count, string singular, string plural, double totalWork)
+    {
+        if (seconds <= 0d || count == 0)
+        {
+            valueTb.Text = "—";
+            subLabelTb.Text = string.Empty;
+            fill.Width = 0;
+            return;
+        }
+
+        valueTb.Text = FormatReadableDuration(seconds);
+        subLabelTb.Text = count == 1 ? $"1 {singular}" : $"{count} {plural}";
+
+        double fraction = Math.Clamp(seconds / totalWork, 0d, 1d);
+        void ApplyFill(object? s, SizeChangedEventArgs e)
+        {
+            track.SizeChanged -= ApplyFill;
+            fill.Width = fraction > 0d ? Math.Max(2d, track.ActualWidth * fraction) : 0d;
+        }
+
+        if (track.ActualWidth > 0d)
+            fill.Width = Math.Max(2d, track.ActualWidth * fraction);
+        else
+            track.SizeChanged += ApplyFill;
+    }
+
+    private void RenderHistoryTimelineNew(HistoryFocusHeatmap heatmap)
+    {
+        if (!heatmap.HasAnyTracking)
+        {
+            HistoryTimelineEmptyText.Visibility = Visibility.Visible;
+            HistoryDayBarContainer.Visibility = Visibility.Collapsed;
+            HistoryMultiDayPanel.Visibility = Visibility.Collapsed;
+            HistoryTimeAxisLabel.Text = string.Empty;
+            return;
+        }
+
+        HistoryTimelineEmptyText.Visibility = Visibility.Collapsed;
+
+        if (_historyPeriod == HistoryPeriod.Day)
+        {
+            HistoryDayBarContainer.Visibility = Visibility.Visible;
+            HistoryMultiDayPanel.Visibility = Visibility.Collapsed;
+            RenderDayTimelineBar(heatmap.Episodes, HistoryDayTimelineGrid, HistoryTimeAxisLabel, height: 20d);
+        }
+        else
+        {
+            HistoryDayBarContainer.Visibility = Visibility.Collapsed;
+            HistoryMultiDayPanel.Visibility = Visibility.Visible;
+            HistoryMultiDayPanel.Children.Clear();
+            HistoryTimeAxisLabel.Text = string.Empty;
+
+            int days = _historyPeriod == HistoryPeriod.Week ? 7 : 14;
+            DateTimeOffset now = DateTimeOffset.Now;
+
+            for (int i = days - 1; i >= 0; i--)
+            {
+                DateTime day = now.Date.AddDays(-i);
+                DateTimeOffset dayStart = new DateTimeOffset(day, TimeZoneInfo.Local.GetUtcOffset(day));
+                DateTimeOffset dayEnd = dayStart.AddDays(1);
+
+                var dayEpisodes = heatmap.Episodes
+                    .Where(e => e.StartUtc.ToLocalTime() < dayEnd && e.EndUtc.ToLocalTime() > dayStart)
+                    .ToList();
+
+                var row = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                var dayLabel = new TextBlock
+                {
+                    Text = day.ToString("ddd d", System.Globalization.CultureInfo.InvariantCulture),
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B)),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(dayLabel, 0);
+                row.Children.Add(dayLabel);
+
+                var barTrack = new Border
+                {
+                    Height = 12,
+                    CornerRadius = new CornerRadius(4),
+                    Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+                    ClipToBounds = true
+                };
+                var barGrid = new Grid();
+                barTrack.Child = barGrid;
+                Grid.SetColumn(barTrack, 1);
+                row.Children.Add(barTrack);
+
+                // Day-click handler: switch to Day view for that day
+                int capturedIndex = i;
+                barTrack.MouseLeftButtonUp += (_, _) =>
+                {
+                    _ = capturedIndex;
+                    _historyPeriod = HistoryPeriod.Day;
+                    _historyRange = HistoryRange.Today;
+                    UpdateHistoryPeriodTabs();
+                    PopulateTimeline(_todayTimeline ?? GetSelectedHistoryTimeline());
+                };
+                barTrack.Cursor = Cursors.Hand;
+
+                // Dummy axis label for multi-day rows
+                var axisLabel = new TextBlock { Text = string.Empty };
+                RenderDayTimelineBar(dayEpisodes, barGrid, axisLabel, height: 12d);
+
+                HistoryMultiDayPanel.Children.Add(row);
+            }
+        }
+    }
+
+    private static void RenderDayTimelineBar(
+        IEnumerable<HistoryTimelineEpisode> episodeSource,
+        Grid grid,
+        TextBlock axisLabel,
+        double height)
+    {
+        grid.ColumnDefinitions.Clear();
+        grid.Children.Clear();
+
+        var episodes = episodeSource.OrderBy(e => e.StartUtc).ToList();
+        if (episodes.Count == 0)
+        {
+            return;
+        }
+
+        DateTimeOffset barStart = episodes[0].StartUtc.ToLocalTime();
+        DateTimeOffset barEnd = episodes[^1].EndUtc.ToLocalTime();
+        double totalSeconds = (barEnd - barStart).TotalSeconds;
+        if (totalSeconds <= 0d) return;
+
+        // Update axis label
+        axisLabel.Text = $"{barStart:HH:mm} → {barEnd:HH:mm}";
+
+        DateTimeOffset cursor = barStart;
+        int colIdx = 0;
+
+        foreach (var episode in episodes)
+        {
+            DateTimeOffset epStart = episode.StartUtc.ToLocalTime();
+            DateTimeOffset epEnd = episode.EndUtc.ToLocalTime();
+
+            // Gap before episode
+            double gapSecs = Math.Max(0d, (epStart - cursor).TotalSeconds);
+            if (gapSecs > 30d)
+            {
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(gapSecs, GridUnitType.Star) });
+                var gapBorder = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)) };
+                Grid.SetColumn(gapBorder, colIdx++);
+                grid.Children.Add(gapBorder);
+            }
+
+            // Episode segment
+            double epSecs = Math.Max(1d, episode.DurationSeconds);
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(epSecs, GridUnitType.Star) });
+            var segBorder = new Border
+            {
+                Background = new SolidColorBrush(GetEpisodeTimelineColor(episode.Kind)),
+                ToolTip = $"{episode.Kind.ToString().Replace("Episode", "").Replace("Distraction", "Distr")} · {FormatReadableDuration(epSecs)}"
+            };
+            Grid.SetColumn(segBorder, colIdx++);
+            grid.Children.Add(segBorder);
+
+            cursor = epEnd;
+        }
+
+        // Trailing gap
+        double trailSecs = (barEnd - cursor).TotalSeconds;
+        if (trailSecs > 30d)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(trailSecs, GridUnitType.Star) });
+            var trail = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)) };
+            Grid.SetColumn(trail, colIdx);
+            grid.Children.Add(trail);
+        }
+    }
+
+    private static Color GetEpisodeTimelineColor(HistoryTimelineEpisodeKind kind) => kind switch
+    {
+        HistoryTimelineEpisodeKind.FocusEpisode               => Color.FromRgb(0x16, 0xC7, 0x84),
+        HistoryTimelineEpisodeKind.OffTaskDistraction          => Color.FromRgb(0x8B, 0x5C, 0xF6),
+        HistoryTimelineEpisodeKind.FragmentationDistraction    => Color.FromRgb(0x8B, 0x5C, 0xF6),
+        HistoryTimelineEpisodeKind.ContextExcursion            => Color.FromRgb(0x3B, 0x82, 0xF6),
+        HistoryTimelineEpisodeKind.Away                        => Color.FromRgb(0x3B, 0x82, 0xF6),
+        HistoryTimelineEpisodeKind.OverloadEpisode             => Color.FromRgb(0xEF, 0x44, 0x44),
+        _                                                      => Color.FromRgb(0x47, 0x55, 0x69)
+    };
+
+    private void PopulateHistoryEpisodeListNew(HistoryFocusHeatmap heatmap)
+    {
+        TimelineEpisodeListPanel.Children.Clear();
+
+        if (!heatmap.HasAnyTracking || heatmap.Episodes.Count == 0)
+        {
+            HistoryEpisodeListTitle.Text = string.Empty;
+            return;
+        }
+
+        var episodes = heatmap.Episodes.OrderBy(static e => e.StartUtc).ToList();
+
+        if (_historyPeriod == HistoryPeriod.Day)
+        {
+            HistoryEpisodeListTitle.Text = episodes.Count == 1 ? "1 EPISODE" : $"{episodes.Count} EPISODES";
+            foreach (var ep in episodes)
+            {
+                TimelineEpisodeListPanel.Children.Add(BuildTimelineEpisodeCard(ep));
+            }
+        }
+        else
+        {
+            // Group by local date
+            HistoryEpisodeListTitle.Text = string.Empty;
+            var grouped = episodes.GroupBy(e => e.StartUtc.ToLocalTime().Date).OrderBy(g => g.Key);
+            foreach (var group in grouped)
+            {
+                var dayHeader = new TextBlock
+                {
+                    Text = group.Key.ToString("ddd d MMM", System.Globalization.CultureInfo.InvariantCulture),
+                    FontSize = 11,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B)),
+                    Margin = new Thickness(0, 12, 0, 6)
+                };
+                TimelineEpisodeListPanel.Children.Add(dayHeader);
+                foreach (var ep in group.OrderBy(e => e.StartUtc))
+                {
+                    TimelineEpisodeListPanel.Children.Add(BuildTimelineEpisodeCard(ep));
+                }
+            }
+        }
     }
 
     private void RenderHistoryCoordinateHeatmap(HistoryFocusHeatmap heatmap)

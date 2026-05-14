@@ -1649,199 +1649,171 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <ScrollViewer x:Name="TimelinePanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
-                        <StackPanel Margin="20,20,20,32">
-                            <!-- History time filter buttons -->
-                            <WrapPanel Margin="0,0,0,14" HorizontalAlignment="Right">
-                                    <Button x:Name="HistoryRangeTodayButton" Content="Today" Padding="5,12" FontSize="12"
-                                            Background="#1C1C2E" BorderBrush="#252535" Foreground="#64748B"
-                                            Margin="0,0,6,0" Click="HistoryRangeTodayButton_Click" />
-                                    <Button x:Name="HistoryRange4hButton" Content="Last 4h" Padding="5,12" FontSize="12"
-                                            Background="#1C1C2E" BorderBrush="#252535" Foreground="#64748B"
-                                            Margin="0,0,6,0" Click="HistoryRange4hButton_Click" />
-                                    <Button x:Name="HistoryRange1hButton" Content="Last 1h" Padding="5,12" FontSize="12"
-                                            Background="#1C1C2E" BorderBrush="#252535" Foreground="#64748B"
-                                            Margin="0,0,6,0" Click="HistoryRange1hButton_Click" />
-                                    <Button x:Name="HistoryRangeAllTimeButton" Content="All time" Padding="5,12" FontSize="12"
-                                            Background="#1C1C2E" BorderBrush="#252535" Foreground="#64748B"
-                                            Click="HistoryRangeAllTimeButton_Click" />
-                            </WrapPanel>
-                            <TextBlock x:Name="HistorySummaryLeadText" Visibility="Collapsed"
-                                       Text="" Foreground="#93C5FD" Margin="0,0,0,12" TextWrapping="Wrap" />
-                            <CheckBox x:Name="HistoryExplainModeCheckBox" Visibility="Collapsed"
-                                      Content="Advanced" Foreground="#E5E7EB"
-                                      Checked="HistoryExplainModeCheckBox_Changed" Unchecked="HistoryExplainModeCheckBox_Changed" />
+                                <ScrollViewer x:Name="TimelinePanel" Visibility="Collapsed"
+                              VerticalScrollBarVisibility="Auto"
+                              CanContentScroll="False"
+                              IsManipulationEnabled="True"
+                              PanningMode="VerticalOnly"
+                              PreviewMouseWheel="TimelinePanel_PreviewMouseWheel">
+                    <StackPanel Margin="20,20,20,40">
 
-                            <!-- Colour-coded stat cards -->
-                            <Grid Margin="0,0,0,12">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Border Grid.Column="0" Background="#1C1C2E" BorderBrush="#2816C784" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,8,0">
-                                    <StackPanel>
-                                        <TextBlock Text="FOCUS" Foreground="#475569" FontSize="11" FontWeight="SemiBold" />
-                                        <TextBlock x:Name="HistoryRangeSummaryText" Text="0 ep" Foreground="#16C784" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
-                                    </StackPanel>
+                        <!-- Tab switcher -->
+                        <DockPanel Margin="0,0,0,14">
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <Border x:Name="HistoryTabDay"
+                                        CornerRadius="100" Cursor="Hand"
+                                        Background="#1A6366F1" BorderBrush="#6366F1" BorderThickness="1"
+                                        Padding="14,5" Margin="0,0,6,0"
+                                        MouseLeftButtonUp="HistoryTabDay_Click">
+                                    <TextBlock x:Name="HistoryTabDayText" Text="Day" FontSize="12" FontWeight="Medium" Foreground="#A5B4FC" />
                                 </Border>
-                                <Border Grid.Column="1" Background="#1C1C2E" BorderBrush="#288B5CF6" BorderThickness="1" CornerRadius="10" Padding="12" Margin="8,0,8,0">
-                                    <StackPanel>
-                                        <TextBlock Text="DISTRACTION" Foreground="#475569" FontSize="11" FontWeight="SemiBold" />
-                                        <TextBlock x:Name="HistoryFocusSummaryText" Text="0 ep" Foreground="#8B5CF6" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
-                                    </StackPanel>
+                                <Border x:Name="HistoryTabWeek"
+                                        CornerRadius="100" Cursor="Hand"
+                                        Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
+                                        Padding="14,5" Margin="0,0,6,0"
+                                        MouseLeftButtonUp="HistoryTabWeek_Click">
+                                    <TextBlock x:Name="HistoryTabWeekText" Text="Week" FontSize="12" FontWeight="Medium" Foreground="#64748B" />
                                 </Border>
-                                <Border Grid.Column="2" Background="#1C1C2E" BorderBrush="#28EF4444" BorderThickness="1" CornerRadius="10" Padding="12" Margin="8,0,8,0">
-                                    <StackPanel>
-                                        <TextBlock Text="OVERLOAD" Foreground="#475569" FontSize="11" FontWeight="SemiBold" />
-                                        <TextBlock x:Name="HistoryOverloadSummaryText" Text="0 ep" Foreground="#EF4444" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </Border>
-                                <Border Grid.Column="3" Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" CornerRadius="10" Padding="12" Margin="8,0,0,0">
-                                    <StackPanel>
-                                        <TextBlock Text="AWAY" Foreground="#475569" FontSize="11" FontWeight="SemiBold" />
-                                        <TextBlock x:Name="HistoryTrustSummaryText" Text="0 ep" Foreground="#3B82F6" FontSize="20" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" />
-                                        <TextBlock x:Name="HistoryActionsSummaryText" Visibility="Collapsed" Text="" Foreground="#CBD5E1" FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </Border>
-                            </Grid>
-
-                            <!-- Heatmap section -->
-                            <TextBlock Text="HistoryGuideText_hidden" x:Name="HistoryGuideText" Visibility="Collapsed" />
-                            <TextBlock Text="EPISODES BY DAY AND HOUR"
-                                       FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
-
-                            <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
-                                <StackPanel>
-                                    <WrapPanel Margin="0,0,0,10">
-                                        <Border Background="#1416C784" BorderBrush="#2216C784" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Focus" Foreground="#16C784" FontSize="11" />
-                                        </Border>
-                                        <Border Background="#148B5CF6" BorderBrush="#228B5CF6" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Distraction" Foreground="#8B5CF6" FontSize="11" />
-                                        </Border>
-                                        <Border Background="#143B82F6" BorderBrush="#223B82F6" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Away" Foreground="#3B82F6" FontSize="11" />
-                                        </Border>
-                                        <Border Background="#14F59E0B" BorderBrush="#22F59E0B" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Pressure edge" Foreground="#F59E0B" FontSize="11" />
-                                        </Border>
-                                        <Border Background="#14EF4444" BorderBrush="#22EF4444" BorderThickness="1" CornerRadius="999" Padding="8,3" Margin="0,0,6,6">
-                                            <TextBlock Text="Overload" Foreground="#EF4444" FontSize="11" />
-                                        </Border>
-                                    </WrapPanel>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="36" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-
-                                        <StackPanel x:Name="HistoryHourLabelsPanel" Grid.Column="0" Grid.Row="0" VerticalAlignment="Top" Margin="0,0,8,0" />
-
-                                        <Grid Grid.Column="1" Grid.Row="0">
-                                            <Border Background="#0B1220" BorderBrush="#243042" BorderThickness="1" CornerRadius="12">
-                                                <ScrollViewer x:Name="HistoryCoordinateScrollViewer"
-                                                              HorizontalScrollBarVisibility="Auto"
-                                                              VerticalScrollBarVisibility="Disabled">
-                                                    <Canvas x:Name="HistoryCoordinateCanvas" Height="592" />
-                                                </ScrollViewer>
-                                            </Border>
-                                            <TextBlock x:Name="HistoryCoordinateEmptyText"
-                                                       Text="No history yet — the map fills as stored days arrive."
-                                                       Foreground="#475569"
-                                                       FontSize="12"
-                                                       HorizontalAlignment="Center"
-                                                       VerticalAlignment="Center"
-                                                       Visibility="Collapsed" />
-                                        </Grid>
-
-                                        <TextBlock Grid.Column="1"
-                                                   Grid.Row="1"
-                                                   x:Name="HistoryCoordinateXAxisText"
-                                                   Text="Oldest day on the left, newest day on the right"
-                                                   Foreground="#94A3B8"
-                                                   Margin="6,8,0,0" />
-                                    </Grid>
-                                </StackPanel>
-                            </Border>
-
-                            <TextBlock Text="Action markers in this range" FontWeight="SemiBold" Visibility="Collapsed" />
-                            <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10" Visibility="Collapsed">
-                                <ScrollViewer x:Name="TimelineInterventionsScrollViewer" Height="36" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                    <StackPanel x:Name="TimelineInterventionTrackPanel" Orientation="Horizontal" VerticalAlignment="Center" />
-                                </ScrollViewer>
-                            </Border>
-
-                            <StackPanel x:Name="HistoryAdvancedMetricsPanel" Visibility="Collapsed">
-                                <TextBlock Text="Pressure" FontWeight="SemiBold" />
-                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
-                                    <ScrollViewer x:Name="TimelineOverloadScrollViewer" Height="56" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                        <StackPanel x:Name="TimelineOverloadTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
-                                    </ScrollViewer>
-                                </Border>
-
-                                <TextBlock Text="Confidence" FontWeight="SemiBold" />
-                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
-                                    <ScrollViewer x:Name="TimelineTrustScrollViewer" Height="56" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                        <StackPanel x:Name="TimelineTrustTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
-                                    </ScrollViewer>
-                                </Border>
-
-                                    <TextBlock Text="Focus episode at each snapshot" FontWeight="SemiBold" />
-                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
-                                    <ScrollViewer x:Name="TimelineFocusScrollViewer" Height="72" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                        <StackPanel x:Name="TimelineFocusTrackPanel" Orientation="Horizontal" VerticalAlignment="Bottom" />
-                                    </ScrollViewer>
-                                </Border>
-
-                                <TextBlock Text="Overload-active windows" FontWeight="SemiBold" />
-                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Padding="8" Margin="0,0,0,10">
-                                    <ScrollViewer x:Name="TimelineOverloadActiveScrollViewer" Height="24" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                        <StackPanel x:Name="TimelineOverloadActiveOverlayPanel" Orientation="Horizontal" VerticalAlignment="Center" />
-                                    </ScrollViewer>
+                                <Border x:Name="HistoryTabTwoWeeks"
+                                        CornerRadius="100" Cursor="Hand"
+                                        Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
+                                        Padding="14,5"
+                                        MouseLeftButtonUp="HistoryTabTwoWeeks_Click">
+                                    <TextBlock x:Name="HistoryTabTwoWeeksText" Text="2 Weeks" FontSize="12" FontWeight="Medium" Foreground="#64748B" />
                                 </Border>
                             </StackPanel>
+                        </DockPanel>
 
-                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,24">
-                            <StackPanel>
-                                <!-- Header row: time range -->
-                                <TextBlock x:Name="TimelineDetailTimestamp"
-                                           Text="Select a cell to inspect that hour"
-                                           FontSize="15" FontWeight="Medium"
-                                           Foreground="#F1F5F9" TextWrapping="Wrap"
-                                           Margin="0,0,0,10" />
-                                <!-- State summary chips — populated by code-behind via TimelineDetailClassification -->
-                                <TextBlock x:Name="TimelineDetailClassification"
-                                           Text="" TextWrapping="Wrap"
-                                           Margin="0,0,0,8" Foreground="#94A3B8"
-                                           FontSize="13" />
-                                <!-- Episode list -->
-                                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="320">
-                                    <StackPanel x:Name="TimelineEpisodeListPanel" />
-                                </ScrollViewer>
-
-                                <!-- All developer fields kept invisible so code-behind can write to them -->
-                                <StackPanel Visibility="Collapsed">
-                                    <TextBlock x:Name="TimelineDetailFocus" Text="" />
-                                    <TextBlock x:Name="TimelineDetailOverload" Text="" />
-                                    <TextBlock x:Name="TimelineDetailExecution" Text="" />
-                                    <TextBlock x:Name="TimelineEpisodeSummaryText" Text="" />
-                                    <StackPanel x:Name="HistorySelectionExplainPanel">
-                                        <TextBlock x:Name="TimelineDetailTrust" Text="" />
-                                        <TextBlock x:Name="TimelineDetailWhyHeader" Text="" />
-                                        <TextBlock x:Name="TimelineDetailWhyFiv" Text="" />
-                                        <TextBlock x:Name="TimelineDetailWhyReasons" Text="" />
-                                        <TextBlock x:Name="TimelineDetailWhyQuality" Text="" />
-                                        <TextBlock x:Name="TimelineDetailStabilization" Text="" />
-                                    </StackPanel>
+                        <!-- Four summary cards -->
+                        <UniformGrid Columns="4" Margin="0,0,0,12">
+                            <Border x:Name="HistoryCardFocus"
+                                    Background="#1C1C2E" BorderBrush="#2016C784" BorderThickness="1" CornerRadius="10" Padding="16" Margin="0,0,8,0">
+                                <StackPanel>
+                                    <TextBlock Text="FOCUS" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
+                                    <TextBlock x:Name="HistoryFocusDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#16C784" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="HistoryFocusSubLabel" Text="" FontSize="11" Foreground="#64748B" Margin="0,2,0,8" />
+                                    <Border x:Name="HistoryFocusTrack" Height="3" CornerRadius="2" Background="#252535">
+                                        <Border x:Name="HistoryFocusBarFill" Background="#16C784" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
+                                    </Border>
                                 </StackPanel>
+                            </Border>
+                            <Border x:Name="HistoryCardDistraction"
+                                    Background="#1C1C2E" BorderBrush="#208B5CF6" BorderThickness="1" CornerRadius="10" Padding="16" Margin="0,0,8,0">
+                                <StackPanel>
+                                    <TextBlock Text="DISTRACTION" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
+                                    <TextBlock x:Name="HistoryDistractionDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#8B5CF6" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="HistoryDistractionSubLabel" Text="" FontSize="11" Foreground="#64748B" Margin="0,2,0,8" />
+                                    <Border x:Name="HistoryDistractionTrack" Height="3" CornerRadius="2" Background="#252535">
+                                        <Border x:Name="HistoryDistractionBarFill" Background="#8B5CF6" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="HistoryCardOverload"
+                                    Background="#1C1C2E" BorderBrush="#20EF4444" BorderThickness="1" CornerRadius="10" Padding="16" Margin="0,0,8,0">
+                                <StackPanel>
+                                    <TextBlock Text="OVERLOAD" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
+                                    <TextBlock x:Name="HistoryOverloadDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#EF4444" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="HistoryOverloadSubLabel" Text="" FontSize="11" Foreground="#64748B" Margin="0,2,0,8" />
+                                    <Border x:Name="HistoryOverloadTrack" Height="3" CornerRadius="2" Background="#252535">
+                                        <Border x:Name="HistoryOverloadBarFill" Background="#EF4444" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="HistoryCardAway"
+                                    Background="#1C1C2E" BorderBrush="#203B82F6" BorderThickness="1" CornerRadius="10" Padding="16">
+                                <StackPanel>
+                                    <TextBlock Text="AWAY" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
+                                    <TextBlock x:Name="HistoryAwayDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#3B82F6" Margin="0,4,0,0" />
+                                    <TextBlock x:Name="HistoryAwaySubLabel" Text="" FontSize="11" Foreground="#64748B" Margin="0,2,0,8" />
+                                    <Border x:Name="HistoryAwayTrack" Height="3" CornerRadius="2" Background="#252535">
+                                        <Border x:Name="HistoryAwayBarFill" Background="#3B82F6" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
+
+                        <!-- Timeline bar section -->
+                        <Border Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,12">
+                            <StackPanel>
+                                <!-- Day view: single bar -->
+                                <Border x:Name="HistoryDayBarContainer"
+                                        Height="20" CornerRadius="4" Background="#252535" ClipToBounds="True" Visibility="Visible">
+                                    <Grid x:Name="HistoryDayTimelineGrid" />
+                                </Border>
+                                <!-- Multi-day view: stacked bars (week / 2-week) -->
+                                <StackPanel x:Name="HistoryMultiDayPanel" Visibility="Collapsed" />
+                                <!-- Time axis labels -->
+                                <TextBlock x:Name="HistoryTimeAxisLabel"
+                                           Text="" FontSize="10" Foreground="#475569" Margin="0,6,0,0" />
+                                <!-- Empty state -->
+                                <TextBlock x:Name="HistoryTimelineEmptyText"
+                                           Text="No history yet — start working and episodes will appear here."
+                                           Foreground="#475569" FontSize="12" HorizontalAlignment="Center"
+                                           Margin="0,8,0,0" Visibility="Collapsed" />
                             </StackPanel>
                         </Border>
+
+                        <!-- Episode list -->
+                        <TextBlock x:Name="HistoryEpisodeListTitle"
+                                   Text="" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,8" />
+                        <StackPanel x:Name="TimelineEpisodeListPanel" />
+
+                        <!-- ═══ ALL LEGACY ELEMENTS — preserved for code-behind compat, never visible ═══ -->
+                        <StackPanel Visibility="Collapsed">
+                            <TextBlock x:Name="HistoryRangeSummaryText" Text="" />
+                            <TextBlock x:Name="HistoryFocusSummaryText" Text="" />
+                            <TextBlock x:Name="HistoryOverloadSummaryText" Text="" />
+                            <TextBlock x:Name="HistoryTrustSummaryText" Text="" />
+                            <TextBlock x:Name="HistoryActionsSummaryText" Text="" />
+                            <TextBlock x:Name="HistoryGuideText" Text="" />
+                            <TextBlock x:Name="HistorySummaryLeadText" Text="" />
+                            <CheckBox x:Name="HistoryExplainModeCheckBox"
+                                      Checked="HistoryExplainModeCheckBox_Changed" Unchecked="HistoryExplainModeCheckBox_Changed" />
+                            <Button x:Name="HistoryRangeTodayButton" Click="HistoryRangeTodayButton_Click" />
+                            <Button x:Name="HistoryRange4hButton" Click="HistoryRange4hButton_Click" />
+                            <Button x:Name="HistoryRange1hButton" Click="HistoryRange1hButton_Click" />
+                            <Button x:Name="HistoryRangeAllTimeButton" Click="HistoryRangeAllTimeButton_Click" />
+                            <StackPanel x:Name="HistoryHourLabelsPanel" />
+                            <Border>
+                                <ScrollViewer x:Name="HistoryCoordinateScrollViewer" HorizontalScrollBarVisibility="Auto">
+                                    <Canvas x:Name="HistoryCoordinateCanvas" Height="10" />
+                                </ScrollViewer>
+                            </Border>
+                            <TextBlock x:Name="HistoryCoordinateEmptyText" Text="" />
+                            <TextBlock x:Name="HistoryCoordinateXAxisText" Text="" />
+                            <ScrollViewer x:Name="TimelineInterventionsScrollViewer">
+                                <StackPanel x:Name="TimelineInterventionTrackPanel" Orientation="Horizontal" />
+                            </ScrollViewer>
+                            <StackPanel x:Name="HistoryAdvancedMetricsPanel">
+                                <ScrollViewer x:Name="TimelineOverloadScrollViewer">
+                                    <StackPanel x:Name="TimelineOverloadTrackPanel" Orientation="Horizontal" />
+                                </ScrollViewer>
+                                <ScrollViewer x:Name="TimelineTrustScrollViewer">
+                                    <StackPanel x:Name="TimelineTrustTrackPanel" Orientation="Horizontal" />
+                                </ScrollViewer>
+                                <ScrollViewer x:Name="TimelineFocusScrollViewer">
+                                    <StackPanel x:Name="TimelineFocusTrackPanel" Orientation="Horizontal" />
+                                </ScrollViewer>
+                                <ScrollViewer x:Name="TimelineOverloadActiveScrollViewer">
+                                    <StackPanel x:Name="TimelineOverloadActiveOverlayPanel" Orientation="Horizontal" />
+                                </ScrollViewer>
+                            </StackPanel>
+                            <TextBlock x:Name="TimelineDetailTimestamp" Text="" />
+                            <TextBlock x:Name="TimelineDetailClassification" Text="" />
+                            <TextBlock x:Name="TimelineDetailFocus" Text="" />
+                            <TextBlock x:Name="TimelineDetailOverload" Text="" />
+                            <TextBlock x:Name="TimelineDetailExecution" Text="" />
+                            <TextBlock x:Name="TimelineEpisodeSummaryText" Text="" />
+                            <StackPanel x:Name="HistorySelectionExplainPanel">
+                                <TextBlock x:Name="TimelineDetailTrust" Text="" />
+                                <TextBlock x:Name="TimelineDetailWhyHeader" Text="" />
+                                <TextBlock x:Name="TimelineDetailWhyFiv" Text="" />
+                                <TextBlock x:Name="TimelineDetailWhyReasons" Text="" />
+                                <TextBlock x:Name="TimelineDetailWhyQuality" Text="" />
+                                <TextBlock x:Name="TimelineDetailStabilization" Text="" />
+                            </StackPanel>
+                        </StackPanel>
+
                     </StackPanel>
                 </ScrollViewer>
                 <ScrollViewer x:Name="AccountPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
@@ -2855,6 +2827,7 @@
         </Border>
     </Grid>
 </Window>
+
 
 
 
