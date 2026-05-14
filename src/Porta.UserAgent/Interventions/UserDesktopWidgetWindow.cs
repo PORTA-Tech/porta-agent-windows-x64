@@ -1725,9 +1725,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             : Visibility.Visible;
         _summaryFooterText.Text = string.Empty;
         _summaryFooterText.Visibility = Visibility.Collapsed;
-        _summaryMetaPanel.Visibility = string.IsNullOrWhiteSpace(statusText)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        _summaryMetaPanel.Visibility = Visibility.Collapsed; // always hidden — no status text in widget
 
         _messageCard.Visibility = Visibility.Collapsed;
         _messageTitleText.Text = string.Empty;
@@ -1739,10 +1737,12 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private static string ResolveWidgetStatusText(string? raw, bool showLimitedBadge)
     {
-        // Per spec: no status text in the widget. The state top-row communicates everything.
-        // Only surface genuinely actionable messages (consent missing, service down).
-        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
-        _ = showLimitedBadge;
+        // SPEC: widget shows ZERO status text — state row + bar + WORK/PRESSURE only.
+        _ = raw; _ = showLimitedBadge;
+        return string.Empty;
+
+        // Dead code below retained for future reference only
+        if (false && !string.IsNullOrWhiteSpace(raw)) { _ = showLimitedBadge; }
 
         string trimmed = raw.Trim();
 

@@ -1023,7 +1023,7 @@ public partial class MainWindow : Window
     private async void DeleteLocalDataButton_Click(object sender, RoutedEventArgs e)
     {
         MessageBoxResult confirmation = MessageBox.Show(
-            "Delete all local PORTA data now? This removes SQLite state, logs, and stored consent.",
+            "Delete all local tracking data? This removes stored activity history and resets consent.",
             "Delete Local Data",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning);
@@ -1032,13 +1032,20 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Try via API first; if that fails, delete files directly.
         bool success = await _apiClient.DeleteLocalDataAsync().ConfigureAwait(true);
+        if (!success)
+        {
+            ControlCenterFileLog.Info("delete_local_data_api_unavailable_falling_back_to_direct");
+            success = await DeleteLocalDataDirectAsync().ConfigureAwait(true);
+        }
+
         if (!success)
         {
             ControlCenterFileLog.Error("delete_local_data_failed", null);
             MessageBox.Show(
-                "Delete local data failed. Ensure the service is running and try again.",
-                "PORTA Control Center",
+                "Delete failed. Try again from the Tracking page after restarting the app.",
+                "Ari",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             return;
@@ -1047,10 +1054,53 @@ public partial class MainWindow : Window
         ControlCenterFileLog.Info("delete_local_data_success");
         await RefreshDiagnosticsAsync().ConfigureAwait(true);
         MessageBox.Show(
-            "Local data deleted. Consent is reset and collection remains off until you grant consent again.",
-            "PORTA Control Center",
+            "Local data deleted. Ari will start fresh on the next activity.",
+            "Ari",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
+    }
+
+    private static async Task<bool> DeleteLocalDataDirectAsync()
+    {
+        // Direct-file fallback: stop service, delete DB files, restart.
+        return await Task.Run(() =>
+        {
+            try
+            {
+                string dataDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "PortaAgent");
+
+                // Stop the service so it releases the DB file lock.
+                using var sc = new System.ServiceProcess.ServiceController("AriAgent");
+                bool wasRunning = sc.Status == System.ServiceProcess.ServiceControllerStatus.Running;
+                if (wasRunning)
+                {
+                    sc.Stop();
+                    sc.WaitForStatus(System.ServiceProcess.ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(10));
+                }
+
+                foreach (string pattern in new[] { "core-state.db*", "core-state.legacy.db*" })
+                {
+                    foreach (string file in Directory.GetFiles(dataDir, pattern))
+                    {
+                        File.Delete(file);
+                    }
+                }
+
+                if (wasRunning)
+                {
+                    sc.Start();
+                    sc.WaitForStatus(System.ServiceProcess.ServiceControllerStatus.Running, TimeSpan.FromSeconds(10));
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }).ConfigureAwait(false);
     }
 
     private void OpenLogsFolderButton_Click(object sender, RoutedEventArgs e)

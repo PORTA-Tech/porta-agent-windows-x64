@@ -14,7 +14,7 @@ namespace Porta.Agent.Core;
 
 public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDbWriter
 {
-    private const int DefaultRetentionDays = 90;
+    private const int DefaultRetentionDays = 14;
     private const int DefaultEventCooldownSeconds = 20;
     private const int ResponsiveReadBusyTimeoutMs = 250;
     private static readonly Lazy<string> BreakInstallIdHash = new(ResolveBreakInstallIdHash, isThreadSafe: true);

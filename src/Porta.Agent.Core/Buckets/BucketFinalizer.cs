@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 
 namespace Porta.Agent.Core.Buckets;
 
@@ -12,7 +12,7 @@ internal sealed class BucketFinalizer
     private static readonly object BucketFinalizeLock = new();
     private static int _instanceCount;
 
-    private static readonly long RetentionWindowMs = checked((long)TimeSpan.FromDays(90).TotalMilliseconds);
+    private static readonly long RetentionWindowMs = checked((long)TimeSpan.FromDays(14).TotalMilliseconds);
     private const int FinalMarkerMemoryCap = 4096;
     private static readonly TimeSpan FinalMarkerRetention = TimeSpan.FromHours(1);
 
@@ -1052,3 +1052,4 @@ internal sealed class BucketFinalizer
         public long DurationMs => Math.Max(1, EndUtcMs - StartUtcMs);
     }
 }
+
