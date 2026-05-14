@@ -62,9 +62,11 @@ internal sealed class UserDesktopWidgetWindow : Window
     // State-driven display elements
     private readonly Border _stateDot;
     private readonly TextBlock _stateLabel;
-    private readonly TextBlock _primaryValueDisplay;
-    private readonly TextBlock _primaryLabelDisplay;
+    private readonly TextBlock _primaryValueDisplay;   // kept as field but not shown
+    private readonly TextBlock _primaryLabelDisplay;   // kept as field but not shown
     private readonly Border _progressBarFill;
+    private readonly Border _progressBarTrack;
+    private double _progressFillPct;                   // 0..1, updated by ApplyStateMetrics
     private readonly TextBlock _stat1Label;
     private readonly TextBlock _stat1Value;
     private readonly TextBlock _stat2Label;
@@ -181,15 +183,15 @@ internal sealed class UserDesktopWidgetWindow : Window
         _rootBorder = new Border
         {
             CornerRadius = new CornerRadius(14),
-            Background = new SolidColorBrush(Color.FromRgb(17, 21, 26)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(38, 47, 59)),
+            Background = new SolidColorBrush(Color.FromRgb(0x11, 0x11, 0x18)),  // #111118
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)), // #252535
             BorderThickness = new Thickness(1),
             Effect = new DropShadowEffect
             {
-                BlurRadius = 10,
+                BlurRadius = 8,
                 ShadowDepth = 0,
-                Opacity = 0.18,
-                Color = Color.FromRgb(6, 9, 12)
+                Opacity = 0.22,
+                Color = Color.FromRgb(0, 0, 0)
             }
         };
         _rootBorder.PreviewMouseLeftButtonDown += BeginDragFromSurface;
@@ -210,7 +212,8 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         Grid bodyGrid = new()
         {
-            Margin = new Thickness(6, 2, 6, 2)
+            Margin = new Thickness(10, 6, 10, 6),
+            MinWidth = 165
         };
         bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         shellGrid.Children.Add(bodyGrid);
@@ -238,8 +241,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             Background = Brushes.Transparent,
             Cursor = Cursors.SizeAll,
-            Margin = new Thickness(0, 0, 4, 0),
-            Padding = new Thickness(0)
+            Margin = new Thickness(0),
+            Padding = new Thickness(0),
+            Visibility = Visibility.Collapsed   // root border handles dragging; this caused the stray dash
         };
         _headerDragSurface.PreviewMouseLeftButtonDown += BeginDragFromHeader;
         Grid.SetColumn(_headerDragSurface, 0);
@@ -295,19 +299,20 @@ internal sealed class UserDesktopWidgetWindow : Window
         Grid.SetColumn(_metricsPanel, 1);
         _headerRow.Children.Add(_metricsPanel);
 
-        // ── New state-driven display ────────────────────────────────
+        // ── State-driven compact display ──────────────────────────────
+        // Row 1: [7px dot] [STATE · duration]  — single compact line, no large value below
         _stateDot = new Border
         {
             Width = 7, Height = 7,
             CornerRadius = new CornerRadius(999),
             Background = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 5, 0)
+            Margin = new Thickness(0, 0, 6, 0)
         };
         _stateLabel = new TextBlock
         {
-            FontSize = 8,
-            FontWeight = FontWeights.Bold,
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis
@@ -315,67 +320,62 @@ internal sealed class UserDesktopWidgetWindow : Window
         var stateLabelRow = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 1)
+            Margin = new Thickness(0, 0, 0, 5)
         };
         stateLabelRow.Children.Add(_stateDot);
         stateLabelRow.Children.Add(_stateLabel);
 
-        _primaryValueDisplay = new TextBlock
-        {
-            FontSize = 22,
-            FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
-            LineHeight = 22,
-            Margin = new Thickness(0, 1, 0, 0)
-        };
-        _primaryLabelDisplay = new TextBlock
-        {
-            FontSize = 8,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
-            Margin = new Thickness(0, 1, 0, 2)
-        };
+        // Large value and label exist as fields but are NOT added to the layout
+        _primaryValueDisplay = new TextBlock { Visibility = Visibility.Collapsed };
+        _primaryLabelDisplay = new TextBlock { Visibility = Visibility.Collapsed };
+
+        // Row 2: 3px progress bar (fills proportional to episode duration vs 2-hour max)
         _progressBarFill = new Border
         {
             Background = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
             HorizontalAlignment = HorizontalAlignment.Left,
-            Width = 0
+            CornerRadius = new CornerRadius(2),
+            Width = 0,
+            Height = 3
         };
-        var progressBarTrack = new Border
+        // _progressBarTrack is stored as field so SizeChanged can update fill width
+        // Cast to avoid "variable used before assignment" — assigned via the field initialiser pattern
+        var progressBarTrackLocal = new Border
         {
             Height = 3,
             Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
             CornerRadius = new CornerRadius(2),
-            Margin = new Thickness(0, 0, 0, 3),
+            Margin = new Thickness(0, 0, 0, 6),
+            ClipToBounds = true,
             Child = _progressBarFill
         };
+        _progressBarTrack = progressBarTrackLocal;
+        progressBarTrackLocal.SizeChanged += (_, _) => ApplyProgressBarWidth();
 
-        // Secondary stats: 3 small items in a row
-        _stat1Label = new TextBlock { FontSize = 8, Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)) };
-        _stat1Value = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)), Margin = new Thickness(0, 1, 0, 0) };
-        _stat2Label = new TextBlock { FontSize = 8, Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)) };
-        _stat2Value = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)), Margin = new Thickness(0, 1, 0, 0) };
-        _stat3Label = new TextBlock { FontSize = 8, Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)) };
-        _stat3Value = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)), Margin = new Thickness(0, 1, 0, 0) };
+        // Row 3: 2-stat bottom row — WORK + PRESSURE only, no SESSION
+        _stat1Label = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)) };
+        _stat1Value = new TextBlock { FontSize = 11, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)), Margin = new Thickness(0, 1, 0, 0) };
+        _stat2Label = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)) };
+        _stat2Value = new TextBlock { FontSize = 11, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)), Margin = new Thickness(0, 1, 0, 0) };
+        // stat3 fields exist for compat but are not shown
+        _stat3Label = new TextBlock { Visibility = Visibility.Collapsed };
+        _stat3Value = new TextBlock { Visibility = Visibility.Collapsed };
 
-        var statsGrid = new Grid { Margin = new Thickness(0, 0, 0, 0) };
-        statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var statsGrid = new Grid();
         statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var stat1Stack = new StackPanel(); stat1Stack.Children.Add(_stat1Label); stat1Stack.Children.Add(_stat1Value);
         var stat2Stack = new StackPanel(); stat2Stack.Children.Add(_stat2Label); stat2Stack.Children.Add(_stat2Value);
-        var stat3Stack = new StackPanel(); stat3Stack.Children.Add(_stat3Label); stat3Stack.Children.Add(_stat3Value);
-        Grid.SetColumn(stat1Stack, 0); Grid.SetColumn(stat2Stack, 1); Grid.SetColumn(stat3Stack, 2);
-        statsGrid.Children.Add(stat1Stack); statsGrid.Children.Add(stat2Stack); statsGrid.Children.Add(stat3Stack);
+        Grid.SetColumn(stat1Stack, 0); Grid.SetColumn(stat2Stack, 1);
+        statsGrid.Children.Add(stat1Stack); statsGrid.Children.Add(stat2Stack);
 
         var newMetricsStack = new StackPanel
         {
             Orientation = Orientation.Vertical,
-            Margin = new Thickness(2, 4, 2, 4)
+            Margin = new Thickness(0, 6, 0, 6)
         };
         newMetricsStack.Children.Add(stateLabelRow);
-        newMetricsStack.Children.Add(_primaryValueDisplay);
-        newMetricsStack.Children.Add(_primaryLabelDisplay);
-        newMetricsStack.Children.Add(progressBarTrack);
+        newMetricsStack.Children.Add(progressBarTrackLocal);
         newMetricsStack.Children.Add(statsGrid);
 
         Grid.SetColumn(newMetricsStack, 0);
@@ -840,83 +840,133 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void ApplyStateMetrics(UserDesktopWidgetState state)
     {
-        // Determine state colour and primary content.
         bool overloadMode = state.Mode is UserDesktopWidgetMode.Overload;
-        bool paused = state.Mode is UserDesktopWidgetMode.Paused;
-        bool deepWork = state.Mode is UserDesktopWidgetMode.DeepWork;
+        bool paused       = state.Mode is UserDesktopWidgetMode.Paused;
+        bool deepWork     = state.Mode is UserDesktopWidgetMode.DeepWork;
 
-        string primaryValue;
-        string primaryLabel;
-        string stateLabelText;
-        Color stateColour;
+        string stateName;
+        string episodeDuration;   // shown after state name: "FOCUSED · 5m 35s"
+        Color  stateColour;
+        double episodeSeconds;    // used for the progress bar (duration-based fill)
 
         if (paused)
         {
-            primaryValue = "Paused";
-            primaryLabel = "tracking paused";
-            stateLabelText = "PAUSED";
-            stateColour = Color.FromRgb(0x47, 0x55, 0x69);
+            stateName       = "PAUSED";
+            episodeDuration = string.Empty;
+            stateColour     = Color.FromRgb(0x47, 0x55, 0x69);
+            episodeSeconds  = 0d;
         }
         else if (overloadMode)
         {
-            // Use pressure % — tertiary metric is "Pressure"
             string pressureVal = state.TertiaryMetric.Value;
             double pct = TryParsePercent(pressureVal);
-            stateColour = pct >= 0.80 ? Color.FromRgb(0xEF, 0x44, 0x44) : Color.FromRgb(0xF5, 0x9E, 0x0B);
-            stateLabelText = pct >= 0.80 ? "OVERLOADED" : "WATCH THIS";
-            primaryValue = pressureVal;
-            primaryLabel = "overload risk";
+            stateColour     = pct >= 0.80 ? Color.FromRgb(0xEF, 0x44, 0x44) : Color.FromRgb(0xF5, 0x9E, 0x0B);
+            stateName       = pct >= 0.80 ? "OVERLOADED" : "WATCH THIS";
+            // Show pressure % as the "episode duration" slot — e.g. "WATCH THIS · 65%"
+            episodeDuration = !string.Equals(pressureVal, "—", StringComparison.Ordinal) ? pressureVal : string.Empty;
+            episodeSeconds  = 0d;
         }
         else
         {
-            // Focus or away — use secondary metric (focus session duration) as focus proxy
             string focusVal = state.SecondaryMetric.Value;
             bool hasSession = !string.Equals(focusVal, "—", StringComparison.Ordinal)
-                && !string.IsNullOrWhiteSpace(focusVal);
+                              && !string.IsNullOrWhiteSpace(focusVal);
 
             if (hasSession || deepWork)
             {
-                stateColour = Color.FromRgb(0x16, 0xC7, 0x84);
-                stateLabelText = deepWork ? "DEEP WORK" : "FOCUSED";
-                primaryValue = focusVal;
-                primaryLabel = "focus episode";
+                stateColour     = Color.FromRgb(0x16, 0xC7, 0x84);
+                stateName       = deepWork ? "DEEP WORK" : "FOCUSED";
+                episodeDuration = hasSession ? focusVal : string.Empty;
+                episodeSeconds  = ParseDurationSeconds(focusVal);
             }
             else
             {
-                stateColour = Color.FromRgb(0x3B, 0x82, 0xF6);
-                stateLabelText = "AWAY";
-                primaryValue = state.PrimaryMetric.Value;
-                primaryLabel = "work today";
+                stateColour     = Color.FromRgb(0x3B, 0x82, 0xF6);
+                stateName       = "AWAY";
+                // For away, show work-today as the duration slot
+                episodeDuration = !string.Equals(state.PrimaryMetric.Value, "—", StringComparison.Ordinal)
+                    ? state.PrimaryMetric.Value : string.Empty;
+                episodeSeconds  = 0d;
             }
         }
 
+        // ── Top row: [dot] STATE · duration ───────────────────────
         var colourBrush = new SolidColorBrush(stateColour);
         _stateDot.Background = colourBrush;
-        _stateLabel.Text = stateLabelText;
         _stateLabel.Foreground = colourBrush;
-        _primaryValueDisplay.Text = primaryValue;
-        _primaryValueDisplay.Foreground = colourBrush;
-        _primaryLabelDisplay.Text = primaryLabel;
+        _stateLabel.Text = string.IsNullOrEmpty(episodeDuration)
+            ? stateName
+            : $"{stateName} · {episodeDuration}";
 
-        // Progress bar fill — parse percentage for pressure/focus
-        double fillPct = TryParsePercent(primaryValue);
+        // ── Progress bar: fills by episode duration vs 2-hour max ─
+        const double maxSeconds = 2d * 60d * 60d;   // 2 hours = 100 %
+        _progressFillPct = Math.Clamp(episodeSeconds / maxSeconds, 0d, 1d);
         _progressBarFill.Background = colourBrush;
-        if (fillPct > 0d && _progressBarFill.Parent is Border track && track.ActualWidth > 0d)
+        ApplyProgressBarWidth();
+
+        // ── Bottom stats: WORK + PRESSURE only ────────────────────
+        string workVal      = state.PrimaryMetric.Value;
+        string pressureDisp = state.TertiaryMetric.Value;
+        _stat1Label.Text = "WORK";
+        _stat1Value.Text = string.IsNullOrWhiteSpace(workVal) ? "—" : workVal;
+        _stat2Label.Text = "PRESSURE";
+        _stat2Value.Text = string.IsNullOrWhiteSpace(pressureDisp) ? "—" : pressureDisp;
+    }
+
+    /// <summary>Updates progress bar fill width from stored percentage whenever the track is sized.</summary>
+    private void ApplyProgressBarWidth()
+    {
+        double trackWidth = _progressBarTrack.ActualWidth;
+        if (trackWidth <= 0d)
         {
-            _progressBarFill.Width = Math.Max(3d, track.ActualWidth * fillPct);
-        }
-        else
-        {
-            _progressBarFill.Width = 0;
+            return;
         }
 
-        // Secondary stats: Work today | Last session | Pressure
-        _stat1Label.Text = "WORK";
-        _stat1Value.Text = state.PrimaryMetric.Value;
-        _stat2Label.Text = "SESSION";
-        _stat2Value.Text = state.SecondaryMetric.Value;
-        _stat3Label.Text = "PRESSURE";
-        _stat3Value.Text = state.TertiaryMetric.Value;
+        // Minimum visible fill = 3px so the bar is never invisible when there's data
+        _progressBarFill.Width = _progressFillPct > 0d
+            ? Math.Max(3d, trackWidth * _progressFillPct)
+            : 0d;
+    }
+
+    /// <summary>Parses a human-readable duration ("5m 35s", "2h 10m", "45m") into seconds.</summary>
+    private static double ParseDurationSeconds(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return 0d;
+
+        double total = 0d;
+        ReadOnlySpan<char> span = text.AsSpan().Trim();
+
+        // Scan for tokens like "2h", "10m", "35s"
+        int i = 0;
+        while (i < span.Length)
+        {
+            // Skip spaces
+            while (i < span.Length && span[i] == ' ') i++;
+            if (i >= span.Length) break;
+
+            // Read digits
+            int numStart = i;
+            while (i < span.Length && char.IsDigit(span[i])) i++;
+            if (i == numStart) { i++; continue; } // skip non-digit
+
+            if (!int.TryParse(span.Slice(numStart, i - numStart), out int num)) continue;
+
+            // Read unit
+            if (i < span.Length)
+            {
+                char unit = char.ToLowerInvariant(span[i]);
+                i++;
+                total += unit switch
+                {
+                    'h' => num * 3600d,
+                    'm' => num * 60d,
+                    's' => num,
+                    _ => 0d
+                };
+            }
+        }
+
+        return total;
     }
 
     private static double TryParsePercent(string? value)
@@ -1211,7 +1261,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
 
         _collapsed = false;
-        _headerDragSurface.Visibility = Visibility.Visible;
+        // _headerDragSurface stays Collapsed — drag handle was the stray dash; root border handles dragging
         _expandedStack.Visibility = Visibility.Visible;
         _expandedStack.IsHitTestVisible = true;
         _expandedStack.BeginAnimation(OpacityProperty, null);
@@ -1677,29 +1727,29 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private static string ResolveWidgetStatusText(string? raw, bool showLimitedBadge)
     {
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return string.Empty;
-        }
+        // Per spec: no status text in the widget. The state top-row communicates everything.
+        // Only surface genuinely actionable messages (consent missing, service down).
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+        _ = showLimitedBadge;
 
         string trimmed = raw.Trim();
-        // Filter routine / system-internal messages — only show text that is meaningful
-        // to the user as an explanation of a degraded or abnormal state.
-        if (trimmed is "Today is updating normally." or "Today is updating normally"
-                      or "Overload is elevated." or "Deep work is active.")
-        {
-            return string.Empty;
-        }
 
-        // Live-session activity facts ("Active now | typing active | mouse active") are
-        // background signal data — the user does not need to see them in the widget strip.
-        if (trimmed.StartsWith("Active now", StringComparison.OrdinalIgnoreCase)
+        // Anything that is purely internal / routine → suppress
+        if (trimmed.StartsWith("Updating", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("Today is updating", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("Active now", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("Watching live", StringComparison.OrdinalIgnoreCase)
             || trimmed.StartsWith("Idle ", StringComparison.OrdinalIgnoreCase)
-            || trimmed.StartsWith("Watching live", StringComparison.OrdinalIgnoreCase))
+            || trimmed is "Overload is elevated." or "Deep work is active."
+            || trimmed.StartsWith("Working locally", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("Starting Ari", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("Reloading", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("Reconnecting", StringComparison.OrdinalIgnoreCase))
         {
             return string.Empty;
         }
 
+        // Show only genuinely user-actionable or critical messages
         return trimmed;
     }
 
