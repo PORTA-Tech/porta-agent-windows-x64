@@ -5677,8 +5677,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        HistoryFocusHeatmapCell? selectedCell = heatmap.FindCell(_selectedHistoryCellKey);
-        SetTimelineCellDetail(selectedCell?.HasTracking == true ? selectedCell : heatmap.LatestPopulatedCell);
+        // Do NOT call SetTimelineCellDetail here — PopulateHistoryEpisodeListNew owns the episode list.
+        // Calling it would overwrite the full episode list with only the latest cell's episodes (count mismatch bug).
     }
 
     private void PopulateHistorySummary(HistoryFocusHeatmap heatmap)
@@ -5766,10 +5766,13 @@ public partial class MainWindow : Window
         if (seconds <= 0d || count == 0)
         {
             valueTb.Text = "—";
+            valueTb.Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)); // muted grey when no data
             subLabelTb.Text = string.Empty;
             fill.Width = 0;
             return;
         }
+        // Restore state colour from the fill bar background (in case card was previously in empty state)
+        if (fill.Background is Brush stateBrush) valueTb.Foreground = stateBrush;
 
         valueTb.Text = FormatReadableDuration(seconds);
         subLabelTb.Text = count == 1 ? $"1 {singular}" : $"{count} {plural}";
@@ -6274,7 +6277,7 @@ public partial class MainWindow : Window
             Background = new SolidColorBrush(Color.FromRgb(30, 41, 59)),
             BorderBrush = new SolidColorBrush(Color.FromRgb(71, 85, 105)),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(999),
+            CornerRadius = new CornerRadius(2),
             Child = BuildHistoryEpisodeTrackCanvas(
                 cell,
                 includeAttentionEpisodes: false,
@@ -6589,13 +6592,13 @@ public partial class MainWindow : Window
             _ => (Color.FromRgb(0x64, 0x74, 0x8B), Color.FromArgb(0x20, 0x64, 0x74, 0x8B), "Unknown")
         };
 
-        // Type chip
+        // Type chip — rectangular (4px), NOT pill/oval
         var typeChip = new Border
         {
             Background = new SolidColorBrush(dimColor),
             BorderBrush = new SolidColorBrush(accentColor),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(100),
+            CornerRadius = new CornerRadius(4),
             Padding = new Thickness(8, 2, 8, 2),
             Margin = new Thickness(0, 0, 8, 0),
             VerticalAlignment = VerticalAlignment.Center,
