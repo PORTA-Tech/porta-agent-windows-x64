@@ -502,21 +502,9 @@
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center">
-                        <!-- Consolidated status chip -->
-                        <Border x:Name="HeaderStatusChipBorder"
-                                CornerRadius="100"
-                                Background="#1E16C784"
-                                BorderBrush="#3316C784"
-                                BorderThickness="1"
-                                Padding="10,5"
-                                Margin="0,0,10,0"
-                                VerticalAlignment="Center">
-                            <TextBlock x:Name="HeaderStatusChipText"
-                                       Text="● Running · High"
-                                       FontSize="12"
-                                       FontWeight="SemiBold"
-                                       Foreground="#16C784"
-                                       VerticalAlignment="Center" />
+                        <!-- Status chip removed — hidden elements kept for code-behind compat -->
+                        <Border x:Name="HeaderStatusChipBorder" Visibility="Collapsed">
+                            <TextBlock x:Name="HeaderStatusChipText" Text="" />
                         </Border>
                         <!-- Why/Refresh/Versions hidden — moved to contextual page locations -->
                         <Button x:Name="WhyDrawerToggleButton" Content="Why" Padding="12,6" Margin="0,0,10,0" Click="WhyDrawerToggleButton_Click" Visibility="Collapsed" />
