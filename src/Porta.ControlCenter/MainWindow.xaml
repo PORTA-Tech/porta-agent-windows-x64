@@ -1744,31 +1744,48 @@
                             </Border>
                         </UniformGrid>
 
-                        <!-- Timeline bar section -->
-                        <Border Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,12">
-                            <StackPanel>
-                                <!-- Day view: single bar -->
-                                <Border x:Name="HistoryDayBarContainer"
-                                        Height="20" CornerRadius="4" Background="#252535" ClipToBounds="True" Visibility="Visible">
-                                    <Grid x:Name="HistoryDayTimelineGrid" />
-                                </Border>
-                                <!-- Multi-day view: stacked bars (week / 2-week) -->
-                                <StackPanel x:Name="HistoryMultiDayPanel" Visibility="Collapsed" />
-                                <!-- Time axis labels -->
-                                <TextBlock x:Name="HistoryTimeAxisLabel"
-                                           Text="" FontSize="10" Foreground="#475569" Margin="0,6,0,0" />
-                                <!-- Empty state -->
-                                <TextBlock x:Name="HistoryTimelineEmptyText"
-                                           Text="No history yet — start working and episodes will appear here."
-                                           Foreground="#475569" FontSize="12" HorizontalAlignment="Center"
-                                           Margin="0,8,0,0" Visibility="Collapsed" />
-                            </StackPanel>
-                        </Border>
+                        <!-- Calendar Grid — Steps 2–11 of spec -->
+                        <!-- Row 0: sticky column headers (always visible above grid) -->
+                        <!-- Row 1: content with fixed hour-label column + canvas -->
+                        <Grid x:Name="HistoryCalendarOuter" Margin="0,0,0,12">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
 
-                        <!-- Episode list -->
-                        <TextBlock x:Name="HistoryEpisodeListTitle"
-                                   Text="" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,8" />
-                        <StackPanel x:Name="TimelineEpisodeListPanel" />
+                            <!-- Column headers row — sits above the canvas, scrolls with page -->
+                            <Grid Grid.Row="0" x:Name="HistoryCalendarHeaderRow"
+                                  Background="#0C0C14" Margin="48,0,0,0" MinHeight="28" />
+
+                            <!-- Hour labels + day canvas -->
+                            <Grid Grid.Row="1" x:Name="HistoryCalendarContent">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="48" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <!-- Hour label column (scrolls with content) -->
+                                <StackPanel x:Name="HistoryCalendarHourLabels"
+                                            Grid.Column="0"
+                                            Background="#0C0C14" />
+                                <!-- Day canvas — code-behind populates all blocks here -->
+                                <Canvas x:Name="HistoryCalendarCanvas"
+                                        Grid.Column="1"
+                                        ClipToBounds="True"
+                                        SizeChanged="HistoryCalendarCanvas_SizeChanged" />
+                            </Grid>
+                        </Grid>
+
+                        <!-- Legacy compat: hidden elements code-behind may reference -->
+                        <StackPanel Visibility="Collapsed">
+                            <TextBlock x:Name="HistoryTimeAxisLabel" Text="" />
+                            <TextBlock x:Name="HistoryTimelineEmptyText" Text="" />
+                            <TextBlock x:Name="HistoryEpisodeListTitle" Text="" />
+                            <StackPanel x:Name="TimelineEpisodeListPanel" />
+                            <Border x:Name="HistoryDayBarContainer">
+                                <Grid x:Name="HistoryDayTimelineGrid" />
+                            </Border>
+                            <StackPanel x:Name="HistoryMultiDayPanel" />
+                        </StackPanel>
 
                         <!-- ═══ ALL LEGACY ELEMENTS — preserved for code-behind compat, never visible ═══ -->
                         <StackPanel Visibility="Collapsed">
@@ -2839,6 +2856,7 @@
         </Border>
     </Grid>
 </Window>
+
 
 
 

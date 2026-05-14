@@ -5638,8 +5638,7 @@ public partial class MainWindow : Window
         PopulateHistorySummary(heatmap);
         PopulateHistorySummaryNew(heatmap);
         RenderHistoryCoordinateHeatmap(heatmap);
-        RenderHistoryTimelineNew(heatmap);
-        PopulateHistoryEpisodeListNew(heatmap);
+        RenderHistoryCalendarGrid(heatmap);
 
         int maxPoints = _historyRange switch
         {
@@ -5815,6 +5814,326 @@ public partial class MainWindow : Window
             fill.Width = Math.Max(2d, track.ActualWidth * fraction);
         else
             track.SizeChanged += ApplyFill;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CALENDAR GRID — Steps 2–11 of porta_history_calendar.md spec
+    // ═══════════════════════════════════════════════════════════════════
+
+    private HistoryFocusHeatmap? _calendarHeatmap;
+
+    private sealed record CalendarColumn(DateTime Date, string Label, bool IsToday);
+
+    private void RenderHistoryCalendarGrid(HistoryFocusHeatmap heatmap)
+    {
+        _calendarHeatmap = heatmap;
+        ApplyCalendarGrid(heatmap, HistoryCalendarCanvas.ActualWidth > 0
+            ? HistoryCalendarCanvas.ActualWidth
+            : 600d);
+    }
+
+    private void HistoryCalendarCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_calendarHeatmap != null && e.NewSize.Width > 0)
+            ApplyCalendarGrid(_calendarHeatmap, e.NewSize.Width);
+    }
+
+    private void ApplyCalendarGrid(HistoryFocusHeatmap heatmap, double canvasWidth)
+    {
+        // ── Clear previous render ──────────────────────────────────────
+        HistoryCalendarCanvas.Children.Clear();
+        HistoryCalendarHourLabels.Children.Clear();
+        HistoryCalendarHeaderRow.Children.Clear();
+        HistoryCalendarHeaderRow.ColumnDefinitions.Clear();
+
+        // ── Determine columns (Step 4) ─────────────────────────────────
+        var columns = GetCalendarColumns();
+        int numCols = columns.Count;
+        if (numCols == 0) return;
+
+        double colW = Math.Max(60d, canvasWidth / numCols);
+        double totalCanvasWidth = colW * numCols;
+        HistoryCalendarCanvas.Width = totalCanvasWidth;
+
+        // ── Determine hour range (Step 2 / Step 3) ────────────────────
+        var allEps = heatmap.Episodes
+            .Where(e => e.DurationSeconds >= 1d)
+            .ToList();
+
+        int startHour, endHour;
+        if (allEps.Count > 0)
+        {
+            startHour = Math.Max(0, allEps.Min(e => e.StartUtc.ToLocalTime().Hour));
+            endHour   = Math.Min(23, allEps.Max(e => (int)Math.Ceiling(e.EndUtc.ToLocalTime().TimeOfDay.TotalHours)));
+            endHour   = Math.Max(endHour, startHour + 1);
+        }
+        else
+        {
+            startHour = 8;
+            endHour   = Math.Max(startHour + 1, DateTime.Now.Hour + 1);
+        }
+        endHour = Math.Max(endHour, startHour + 2); // at least 2 hours
+
+        int totalHours = endHour - startHour;
+        const double rowH = 60d;
+        double totalH = totalHours * rowH;
+        HistoryCalendarCanvas.Height = totalH;
+
+        // ── Build column headers (Step 4) ────────────────────────────
+        for (int ci = 0; ci < numCols; ci++)
+        {
+            HistoryCalendarHeaderRow.ColumnDefinitions.Add(
+                new ColumnDefinition { Width = new GridLength(colW) });
+            var col = columns[ci];
+            var hdr = new TextBlock
+            {
+                Text = col.Label,
+                FontSize = numCols == 1 ? 11d : 10d,
+                Foreground = new SolidColorBrush(
+                    col.IsToday && numCols > 1
+                        ? Color.FromRgb(0xA5, 0xB4, 0xFC)
+                        : numCols == 1
+                            ? Color.FromRgb(0x94, 0xA3, 0xB8)
+                            : Color.FromRgb(0x64, 0x74, 0x8B)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Padding = new Thickness(0, 4, 0, 4)
+            };
+            Grid.SetColumn(hdr, ci);
+            HistoryCalendarHeaderRow.Children.Add(hdr);
+        }
+
+        // ── Hour labels (Step 3) ──────────────────────────────────────
+        for (int h = startHour; h < endHour; h++)
+        {
+            HistoryCalendarHourLabels.Children.Add(new TextBlock
+            {
+                Text = $"{h:00}:00",
+                FontSize = 10,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+                TextAlignment = TextAlignment.Right,
+                Height = rowH,
+                Width = 44,
+                VerticalAlignment = VerticalAlignment.Top,
+                Padding = new Thickness(0, 2, 4, 0)
+            });
+        }
+
+        // ── Build each day column on the canvas (Steps 5–11) ─────────
+        for (int ci = 0; ci < numCols; ci++)
+        {
+            var col = columns[ci];
+            double colX = ci * colW;
+            int gridStartMin = startHour * 60;
+
+            // Background clickable area (Step 8 – column click to Day view)
+            if (numCols > 1)
+            {
+                var bg = new Border
+                {
+                    Width = colW - 1d,
+                    Height = totalH,
+                    Background = Brushes.Transparent,
+                    Cursor = Cursors.Hand,
+                    ToolTip = $"View {col.Date:ddd d MMM}"
+                };
+                var capturedDate = col.Date;
+                bg.MouseLeftButtonUp += (_, _) =>
+                {
+                    _ = capturedDate;
+                    _historyPeriod = HistoryPeriod.Day;
+                    _historyRange = HistoryRange.Today;
+                    UpdateHistoryPeriodTabs();
+                    PopulateTimeline(_todayTimeline ?? GetSelectedHistoryTimeline());
+                };
+                Canvas.SetLeft(bg, colX);
+                Canvas.SetTop(bg, 0);
+                HistoryCalendarCanvas.Children.Add(bg);
+            }
+
+            // Vertical column divider (Step 11)
+            if (ci > 0)
+            {
+                var divVert = new Line
+                {
+                    X1 = 0, X2 = 0, Y1 = 0, Y2 = totalH,
+                    Stroke = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+                    StrokeThickness = 1
+                };
+                Canvas.SetLeft(divVert, colX);
+                Canvas.SetTop(divVert, 0);
+                HistoryCalendarCanvas.Children.Add(divVert);
+            }
+
+            // Half-hour dashed dividers (Step 7)
+            for (int h = 0; h < totalHours; h++)
+            {
+                // Half-hour dashed line
+                var dash = new Line
+                {
+                    X1 = colX, X2 = colX + colW,
+                    Y1 = h * rowH + 30d,
+                    Y2 = h * rowH + 30d,
+                    Stroke = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+                    StrokeThickness = 1,
+                    StrokeDashArray = new DoubleCollection { 3, 3 }
+                };
+                HistoryCalendarCanvas.Children.Add(dash);
+
+                // Hour solid line
+                if (h > 0)
+                {
+                    var hourLine = new Line
+                    {
+                        X1 = colX, X2 = colX + colW,
+                        Y1 = h * rowH, Y2 = h * rowH,
+                        Stroke = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)),
+                        StrokeThickness = 1
+                    };
+                    HistoryCalendarCanvas.Children.Add(hourLine);
+                }
+            }
+
+            // Episodes for this day (Step 5)
+            var dayEps = heatmap.Episodes
+                .Where(e =>
+                {
+                    var localDay = e.StartUtc.ToLocalTime().Date;
+                    return localDay == col.Date.Date;
+                })
+                .OrderBy(e => e.StartUtc)
+                .ToList();
+
+            if (dayEps.Count == 0)
+            {
+                // Empty column — "No data" (Step 9)
+                var noData = new TextBlock
+                {
+                    Text = "No data",
+                    FontSize = 10,
+                    Foreground = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Width = colW
+                };
+                Canvas.SetLeft(noData, colX);
+                Canvas.SetTop(noData, totalH / 2d - 8d);
+                HistoryCalendarCanvas.Children.Add(noData);
+                continue;
+            }
+
+            foreach (var ep in dayEps)
+            {
+                var localStart = ep.StartUtc.ToLocalTime();
+                var localEnd   = ep.EndUtc.ToLocalTime();
+
+                // Clamp to visible hour range
+                double epStartMin = localStart.Hour * 60d + localStart.Minute;
+                double epEndMin   = localEnd.Hour * 60d + localEnd.Minute;
+                double clampedStart = Math.Max(epStartMin, gridStartMin);
+                double clampedEnd   = Math.Min(epEndMin, endHour * 60d);
+                if (clampedEnd <= clampedStart) continue;
+
+                double topOffset = (clampedStart - gridStartMin) / 60d * rowH;
+                double blockH    = Math.Max(4d, (clampedEnd - clampedStart) / 60d * rowH);
+
+                var block = new Border
+                {
+                    Width       = colW - 4d,
+                    Height      = blockH,
+                    Background  = new SolidColorBrush(GetCalendarEpisodeColor(ep.Kind)),
+                    CornerRadius = new CornerRadius(3),
+                    Opacity      = 0.85,
+                    ToolTip      = BuildCalendarTooltip(ep)
+                };
+
+                Canvas.SetLeft(block, colX + 2d);
+                Canvas.SetTop(block, topOffset);
+                HistoryCalendarCanvas.Children.Add(block);
+            }
+        }
+
+        // ── Step 10: scroll to first activity ────────────────────────
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (allEps.Count > 0)
+            {
+                int firstHour = allEps.Min(e => e.StartUtc.ToLocalTime().Hour);
+                double scrollTo = Math.Max(0, (firstHour - startHour - 1) * rowH);
+                TimelinePanel.ScrollToVerticalOffset(
+                    TimelinePanel.VerticalOffset +
+                    HistoryCalendarOuter.TranslatePoint(new Point(0, 0), TimelinePanel.Content as UIElement ?? HistoryCalendarOuter).Y +
+                    scrollTo);
+            }
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private static Color GetCalendarEpisodeColor(HistoryTimelineEpisodeKind kind) => kind switch
+    {
+        HistoryTimelineEpisodeKind.FocusEpisode                                                   => Color.FromRgb(0x16, 0xC7, 0x84),
+        HistoryTimelineEpisodeKind.Away or HistoryTimelineEpisodeKind.ContextExcursion            => Color.FromRgb(0x3B, 0x82, 0xF6),
+        HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction => Color.FromRgb(0x8B, 0x5C, 0xF6),
+        HistoryTimelineEpisodeKind.OverloadEpisode                                                => Color.FromRgb(0xEF, 0x44, 0x44),
+        _                                                                                          => Color.FromRgb(0x47, 0x55, 0x69)
+    };
+
+    private static ToolTip BuildCalendarTooltip(HistoryTimelineEpisode ep)
+    {
+        string stateName = ep.Kind switch
+        {
+            HistoryTimelineEpisodeKind.FocusEpisode            => "Focus",
+            HistoryTimelineEpisodeKind.Away                    => "Away",
+            HistoryTimelineEpisodeKind.ContextExcursion        => "Away",
+            HistoryTimelineEpisodeKind.OffTaskDistraction      => "Distraction",
+            HistoryTimelineEpisodeKind.FragmentationDistraction => "Distraction",
+            HistoryTimelineEpisodeKind.OverloadEpisode         => "Overload",
+            _                                                  => "Unknown"
+        };
+        string duration = FormatReadableDuration(ep.DurationSeconds);
+        string range = $"{ep.StartUtc.ToLocalTime():HH:mm} → {ep.EndUtc.ToLocalTime():HH:mm}";
+
+        var panel = new StackPanel { Margin = new Thickness(6, 4, 6, 4) };
+        panel.Children.Add(new TextBlock { Text = stateName, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9)) });
+        panel.Children.Add(new TextBlock { Text = range,     FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9)), Margin = new Thickness(0,1,0,0) });
+        panel.Children.Add(new TextBlock { Text = duration,  FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)), Margin = new Thickness(0,1,0,0) });
+
+        return new ToolTip
+        {
+            Content = panel,
+            Background = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+            BorderThickness = new Thickness(1),
+            HasDropShadow = false,
+            Padding = new Thickness(0)
+        };
+    }
+
+    private List<CalendarColumn> GetCalendarColumns()
+    {
+        var cols = new List<CalendarColumn>();
+        DateTimeOffset now = DateTimeOffset.Now;
+
+        if (_historyPeriod == HistoryPeriod.Day)
+        {
+            cols.Add(new CalendarColumn(
+                now.Date,
+                now.ToString("ddd d MMM", System.Globalization.CultureInfo.InvariantCulture),
+                true));
+        }
+        else
+        {
+            int days = _historyPeriod == HistoryPeriod.Week ? 7 : 14;
+            bool abbrev = days == 14;
+            for (int i = days - 1; i >= 0; i--)
+            {
+                DateTime d = now.Date.AddDays(-i);
+                bool isToday = d == now.Date;
+                string label = abbrev
+                    ? d.ToString("ddd d", System.Globalization.CultureInfo.InvariantCulture)[..Math.Min(4, d.ToString("ddd d").Length)] + d.Day
+                    : d.ToString("ddd d", System.Globalization.CultureInfo.InvariantCulture);
+                cols.Add(new CalendarColumn(d, label, isToday));
+            }
+        }
+        return cols;
     }
 
     private void RenderHistoryTimelineNew(HistoryFocusHeatmap heatmap)
