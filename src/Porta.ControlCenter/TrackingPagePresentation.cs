@@ -11,7 +11,11 @@ internal sealed record TrackingPagePresentation(
     string PrivacySummary,
     string ControlsSummary,
     string PauseResumeLabel,
-    bool PauseResumeEnabled);
+    bool PauseResumeEnabled,
+    // Quality chip: "Good" | "Fair" | "Settling" | "Limited" | "Paused" | "Updating"
+    string QualityChipLabel,
+    // Progress 0.0–1.0 for the quality bar
+    double QualityProgress);
 
 internal static class TrackingPagePresentationBuilder
 {
@@ -32,6 +36,7 @@ internal static class TrackingPagePresentationBuilder
         string controlsSummary = BuildControlsSummary(settings);
         string pauseResumeLabel = status?.Paused == true ? "Resume tracking" : "Pause tracking";
         bool pauseResumeEnabled = status != null;
+        (string qualityChipLabel, double qualityProgress) = BuildQualityChip(status, snapshot);
 
         return new TrackingPagePresentation(
             CollectionSummary: collectionSummary,
@@ -42,7 +47,9 @@ internal static class TrackingPagePresentationBuilder
             PrivacySummary: privacySummary,
             ControlsSummary: controlsSummary,
             PauseResumeLabel: pauseResumeLabel,
-            PauseResumeEnabled: pauseResumeEnabled);
+            PauseResumeEnabled: pauseResumeEnabled,
+            QualityChipLabel: qualityChipLabel,
+            QualityProgress: qualityProgress);
     }
 
     private static string BuildCollectionSummary(LocalApiStatusResponse? status)
@@ -67,38 +74,58 @@ internal static class TrackingPagePresentationBuilder
 
     private static string BuildQualityHeadline(LocalApiStatusResponse? status, LocalApiCurrentSnapshotResponse? snapshot)
     {
-        if (status?.Paused == true)
+        var (label, _) = BuildQualityChip(status, snapshot);
+        return label switch
         {
-            return "Tracking is paused.";
-        }
+            "Paused"   => "Tracking is paused.",
+            "Updating" => "Tracking quality is updating.",
+            "Good"     => "Tracking quality looks strong.",
+            "Fair"     => "Tracking quality is good and still settling.",
+            "Settling" => "Ari is calibrating your baseline — quality is building up.",
+            _          => "Tracking is collecting data — quality will improve with use."
+        };
+    }
 
-        if (status?.ConsentActive == false)
-        {
-            return "Tracking is waiting for your consent.";
-        }
+    /// <summary>
+    /// Returns a human-readable chip label + progress (0–1) for the quality bar.
+    /// Uses confidence and calibration state as the primary signals because
+    /// CurrentQualityScore is often null and PartialData is almost always true early on.
+    /// </summary>
+    private static (string Label, double Progress) BuildQualityChip(
+        LocalApiStatusResponse? status,
+        LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        if (status?.Paused == true)   return ("Paused", 0d);
+        if (status?.ConsentActive == false) return ("No consent", 0d);
+        if (snapshot == null)         return ("Updating", 0.15d);
 
-        if (snapshot == null)
-        {
-            return "Tracking quality is updating.";
-        }
+        bool missingChannels = snapshot.MissingMajorChannels is { Count: > 0 };
+        bool coldStart  = snapshot.ColdStart == true;
+        bool analysisReady = snapshot.analysis_ready;
+        double confidence  = System.Math.Clamp(snapshot.Confidence, 0d, 1d);
+        double? rawScore   = snapshot.CurrentQualityScore;
 
-        if (snapshot.PartialData == true || snapshot.MissingMajorChannels is { Count: > 0 })
-        {
-            return "Tracking quality is limited right now.";
-        }
+        // Missing major capture channels → genuinely limited
+        if (missingChannels)
+            return ("Limited", 0.25d);
 
-        double score = snapshot.CurrentQualityScore ?? 0d;
-        if (score >= 0.85d)
-        {
-            return "Tracking quality looks strong.";
-        }
+        // No analysis yet (very fresh session)
+        if (!analysisReady && coldStart)
+            return ("Settling", 0.40d);
 
-        if (score >= 0.60d)
-        {
-            return "Tracking quality is usable and still settling.";
-        }
+        // Use the best available quality signal
+        double effectiveScore = rawScore.HasValue
+            ? rawScore.Value
+            : confidence; // confidence is always populated and tracks real quality
 
-        return "Tracking quality is limited right now.";
+        if (effectiveScore >= 0.72d)
+            return ("Good",     System.Math.Clamp(effectiveScore, 0d, 1d));
+        if (effectiveScore >= 0.45d)
+            return ("Fair",     System.Math.Clamp(effectiveScore + 0.1d, 0d, 1d));
+        if (analysisReady)
+            return ("Settling", 0.45d);
+
+        return ("Settling", 0.35d);
     }
 
     private static string BuildQualitySummary(LocalApiStatusResponse? status, LocalApiCurrentSnapshotResponse? snapshot)

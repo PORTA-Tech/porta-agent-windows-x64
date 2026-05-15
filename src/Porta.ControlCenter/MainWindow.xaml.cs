@@ -887,6 +887,55 @@ public partial class MainWindow : Window
             : Colors.Transparent);
     }
 
+    // ── Tracking page accordion ──────────────────────────────────────────────
+
+    private void TrackingNav_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Border navBorder && navBorder.Tag is string tag)
+            SetTrackingSection(tag);
+    }
+
+    private string _openTrackingSection = "Observes";
+
+    private void SetTrackingSection(string tag)
+    {
+        // (tag, navBorder, contentBorder, chevronTextBlock)
+        var sections = new (string Tag, Border Nav, Border Content, TextBlock Chevron)[]
+        {
+            ("Observes",      TrackingNavObserves,      TrackingContentObserves,      TrackingChevronObserves),
+            ("NeverCollects", TrackingNavNeverCollects, TrackingContentNeverCollects, TrackingChevronNeverCollects),
+            ("Quality",       TrackingNavQuality,       TrackingContentQuality,       TrackingChevronQuality),
+            ("Privacy",       TrackingNavPrivacy,       TrackingContentPrivacy,       TrackingChevronPrivacy),
+            ("Data",          TrackingNavData,          TrackingContentData,          TrackingChevronData),
+        };
+
+        // Toggle: clicking the already-open section closes it (optional UX — keep one open instead)
+        // Here we keep one open at all times: if same tag clicked, do nothing
+        if (_openTrackingSection == tag) return;
+
+        _openTrackingSection = tag;
+
+        foreach (var (sTag, nav, content, chevron) in sections)
+        {
+            bool isOpen = sTag == tag;
+
+            // Content visibility
+            content.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
+
+            // Nav border radius: open = top-rounded-only (connects to content panel below)
+            //                    closed = fully rounded pill
+            nav.CornerRadius = isOpen
+                ? new CornerRadius(10, 10, 0, 0)
+                : new CornerRadius(10);
+
+            // Chevron glyph and colour
+            chevron.Text = isOpen ? "−" : "+";
+            chevron.Foreground = new SolidColorBrush(isOpen
+                ? Color.FromRgb(0x63, 0x66, 0xF1)
+                : Color.FromRgb(0x47, 0x55, 0x69));
+        }
+    }
+
     // Legacy overload kept so old callsites compile (tabs now use Border+TextBlock pair)
     private static void ApplyHistoryPeriodTab(Border tab, TextBlock text, bool active)
     {
@@ -4052,6 +4101,40 @@ public partial class MainWindow : Window
         TrackingControlsValue.Text = presentation.ControlsSummary;
         TrackingPauseResumeButton.Content = presentation.PauseResumeLabel;
         TrackingPauseResumeButton.IsEnabled = presentation.PauseResumeEnabled;
+
+        // Quality chip label + colour
+        TrackingQualityChipText.Text = presentation.QualityChipLabel;
+        TrackingQualityChipText.Foreground = new SolidColorBrush(presentation.QualityChipLabel switch
+        {
+            "Good"       => Color.FromRgb(0x16, 0xC7, 0x84),
+            "Fair"       => Color.FromRgb(0xA5, 0xB4, 0xFC),
+            "Settling"   => Color.FromRgb(0xF5, 0x9E, 0x0B),
+            "No consent" => Color.FromRgb(0xEF, 0x44, 0x44),
+            _            => Color.FromRgb(0x64, 0x74, 0x8B)
+        });
+
+        // Quality progress bar fill
+        TrackingQualityProgressFill.Background = new SolidColorBrush(presentation.QualityChipLabel switch
+        {
+            "Good"    => Color.FromRgb(0x16, 0xC7, 0x84),
+            "Fair"    => Color.FromRgb(0x63, 0x66, 0xF1),
+            "Settling"=> Color.FromRgb(0xF5, 0x9E, 0x0B),
+            _         => Color.FromRgb(0x64, 0x74, 0x8B)
+        });
+        if (TrackingQualityProgressFill.Parent is Border qualityTrack)
+        {
+            double fillFrac = presentation.QualityProgress;
+            if (qualityTrack.ActualWidth > 0)
+                TrackingQualityProgressFill.Width = Math.Max(2d, qualityTrack.ActualWidth * fillFrac);
+            else
+            {
+                void OnSized(object? s, SizeChangedEventArgs e) {
+                    qualityTrack.SizeChanged -= OnSized;
+                    TrackingQualityProgressFill.Width = Math.Max(2d, qualityTrack.ActualWidth * fillFrac);
+                }
+                qualityTrack.SizeChanged += OnSized;
+            }
+        }
 
         if (retention == null)
         {
@@ -9529,4 +9612,5 @@ public partial class MainWindow : Window
 
     private record AlertRow(string Title, string When, string Reason, LocalApiEventResponse Source);
 }
+
 
