@@ -4105,35 +4105,29 @@ public partial class MainWindow : Window
         ApplyActionBarFill(ActionsCardAlertsTrack, ActionsCardAlertsBarFill,
             Math.Clamp(alerts.Count / 10d, 0d, 1d));
 
-        // ── Unified feed ───────────────────────────────────────────────
+        // ── Unified feed (visual redesign) ────────────────────────────
         ActionsUnifiedFeed.Children.Clear();
         bool allEmpty = suggestions.Count == 0 && changes.Count == 0 && alerts.Count == 0;
         ActionsEmptyState.Visibility = allEmpty ? Visibility.Visible : Visibility.Collapsed;
         ActionsUnifiedFeed.Visibility = allEmpty ? Visibility.Collapsed : Visibility.Visible;
         if (allEmpty) return;
 
-        // Merge all into one list sorted newest first
         var allRows = ordered
             .Where(e => IsSuggestionEvent(e.Action) || IsSystemChangeEvent(e) || IsUserFacingAlert(e))
-            .OrderByDescending(e => e.TimestampUtc)
             .ToList();
 
         DateTimeOffset now = DateTimeOffset.Now;
-        bool first = true;
-        foreach (var ev in allRows)
-        {
-            if (!first)
-            {
-                ActionsUnifiedFeed.Children.Add(new Border
-                {
-                    Height = 1,
-                    Background = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)),
-                    Margin = new Thickness(0)
-                });
-            }
-            first = false;
-            ActionsUnifiedFeed.Children.Add(BuildActionsUnifiedRow(ev, now));
-        }
+
+        // Section 1: Category breakdown chart
+        ActionsUnifiedFeed.Children.Add(BuildActionsCategoryBreakdown(allRows));
+        ActionsUnifiedFeed.Children.Add(new Border { Height = 12 });
+
+        // Section 2: 24-hour activity chart
+        ActionsUnifiedFeed.Children.Add(BuildActionsHourlyActivity(allRows));
+        ActionsUnifiedFeed.Children.Add(new Border { Height = 12 });
+
+        // Section 3: Grouped action log (replaces 47 identical rows)
+        ActionsUnifiedFeed.Children.Add(BuildActionsGroupedLog(allRows, now));
     }
 
     private static void ApplyActionBarFill(Border track, Border fill, double fraction)
@@ -4265,6 +4259,402 @@ public partial class MainWindow : Window
         if (minutesAgo < 60 * 24) return $"{(int)(minutesAgo / 60)}h ago";
         if (local.Date == now.Date.AddDays(-1)) return $"Yesterday {local:HH:mm}";
         return local.ToString("ddd d MMM", CultureInfo.InvariantCulture);
+    }
+
+    // ── Category color / label helpers ──────────────────────────────────────
+
+    private static Color GetActionCategoryColor(ActionCategory cat)
+    {
+        return cat switch
+        {
+            ActionCategory.Breaks        => Color.FromRgb(0x3B, 0x82, 0xF6), // blue
+            ActionCategory.Focus         => Color.FromRgb(0x10, 0xB9, 0x81), // emerald
+            ActionCategory.Notifications => Color.FromRgb(0xF5, 0x9E, 0x0B), // amber
+            ActionCategory.Protection    => Color.FromRgb(0x8B, 0x5C, 0xF6), // violet
+            _                            => Color.FromRgb(0x64, 0x74, 0x8B), // slate
+        };
+    }
+
+    private static string GetActionCategoryLabel(ActionCategory cat)
+    {
+        return cat switch
+        {
+            ActionCategory.Breaks        => "Breaks",
+            ActionCategory.Focus         => "Focus mode",
+            ActionCategory.Notifications => "Notifications",
+            ActionCategory.Protection    => "App restrictions",
+            _                            => "Other",
+        };
+    }
+
+    // ── Visual section builders ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Section 1 — stacked horizontal bar + legend showing breakdown by category.
+    /// </summary>
+    private static FrameworkElement BuildActionsCategoryBreakdown(List<LocalApiEventResponse> events)
+    {
+        var container = new Border
+        {
+            Background      = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)),
+            BorderBrush     = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+            BorderThickness = new Thickness(1),
+            CornerRadius    = new CornerRadius(10),
+            Padding         = new Thickness(16)
+        };
+
+        var content = new StackPanel();
+
+        content.Children.Add(new TextBlock
+        {
+            Text       = "WHAT ARI DID",
+            FontSize   = 10,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+            Margin     = new Thickness(0, 0, 0, 12)
+        });
+
+        int total = Math.Max(events.Count, 1);
+
+        // Build groups ordered by count descending, skip zero-count categories
+        var groups = new[] {
+            ActionCategory.Protection, ActionCategory.Focus,
+            ActionCategory.Breaks, ActionCategory.Notifications, ActionCategory.Other
+        }
+        .Select(cat => new
+        {
+            Category = cat,
+            Count    = events.Count(e => ResolveActionCategory(e) == cat),
+            Color    = GetActionCategoryColor(cat),
+            Label    = GetActionCategoryLabel(cat)
+        })
+        .Where(g => g.Count > 0)
+        .OrderByDescending(g => g.Count)
+        .ToList();
+
+        if (groups.Count > 0)
+        {
+            // ── Stacked bar ──────────────────────────────────────────
+            var barGrid = new Grid { Height = 14, Margin = new Thickness(0, 0, 0, 14) };
+            for (int i = 0; i < groups.Count; i++)
+                barGrid.ColumnDefinitions.Add(new ColumnDefinition
+                    { Width = new GridLength(groups[i].Count, GridUnitType.Star) });
+
+            for (int i = 0; i < groups.Count; i++)
+            {
+                bool isFirst = i == 0;
+                bool isLast  = i == groups.Count - 1;
+                CornerRadius cr = (isFirst, isLast) switch
+                {
+                    (true, true)   => new CornerRadius(4),
+                    (true, false)  => new CornerRadius(4, 0, 0, 4),
+                    (false, true)  => new CornerRadius(0, 4, 4, 0),
+                    _              => new CornerRadius(0)
+                };
+
+                var seg = new Border
+                {
+                    Background    = new SolidColorBrush(groups[i].Color),
+                    CornerRadius  = cr,
+                    Margin        = isLast ? new Thickness(0) : new Thickness(0, 0, 1, 0)
+                };
+                Grid.SetColumn(seg, i);
+                barGrid.Children.Add(seg);
+            }
+            content.Children.Add(barGrid);
+
+            // ── Legend ───────────────────────────────────────────────
+            foreach (var g in groups)
+            {
+                double pct = g.Count * 100d / total;
+
+                var row = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
+
+                var dot = new Border
+                {
+                    Width               = 10,
+                    Height              = 10,
+                    CornerRadius        = new CornerRadius(5),
+                    Background          = new SolidColorBrush(g.Color),
+                    VerticalAlignment   = VerticalAlignment.Center,
+                    Margin              = new Thickness(0, 0, 10, 0)
+                };
+                Grid.SetColumn(dot, 0);
+
+                var labelTb = new TextBlock
+                {
+                    Text              = g.Label,
+                    FontSize          = 12,
+                    Foreground        = new SolidColorBrush(Color.FromRgb(0xCB, 0xD5, 0xE1)),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(labelTb, 1);
+
+                var countBadge = new Border
+                {
+                    Background        = new SolidColorBrush(
+                                            Color.FromArgb(0x33, g.Color.R, g.Color.G, g.Color.B)),
+                    CornerRadius      = new CornerRadius(10),
+                    Padding           = new Thickness(8, 2, 8, 2),
+                    Margin            = new Thickness(8, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Child = new TextBlock
+                    {
+                        Text       = $"× {g.Count}",
+                        FontSize   = 11,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = new SolidColorBrush(g.Color)
+                    }
+                };
+                Grid.SetColumn(countBadge, 2);
+
+                var pctTb = new TextBlock
+                {
+                    Text                = $"{pct:0}%",
+                    FontSize            = 11,
+                    Foreground          = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment   = VerticalAlignment.Center
+                };
+                Grid.SetColumn(pctTb, 3);
+
+                row.Children.Add(dot);
+                row.Children.Add(labelTb);
+                row.Children.Add(countBadge);
+                row.Children.Add(pctTb);
+                content.Children.Add(row);
+            }
+        }
+
+        container.Child = content;
+        return container;
+    }
+
+    /// <summary>
+    /// Section 2 — 24-bar hourly activity chart showing when Ari was most active.
+    /// </summary>
+    private static FrameworkElement BuildActionsHourlyActivity(List<LocalApiEventResponse> events)
+    {
+        var container = new Border
+        {
+            Background      = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)),
+            BorderBrush     = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+            BorderThickness = new Thickness(1),
+            CornerRadius    = new CornerRadius(10),
+            Padding         = new Thickness(16)
+        };
+
+        var content = new StackPanel();
+
+        content.Children.Add(new TextBlock
+        {
+            Text       = "WHEN ARI WAS ACTIVE",
+            FontSize   = 10,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+            Margin     = new Thickness(0, 0, 0, 10)
+        });
+
+        // Count events per hour
+        int[] hourCounts = new int[24];
+        foreach (var ev in events)
+            hourCounts[ev.TimestampUtc.ToLocalTime().Hour]++;
+
+        int maxCount = Math.Max(1, hourCounts.Max());
+        const double barAreaH = 48d;
+        const double labelH   = 14d;
+
+        // 24-column grid; each cell has a fixed bar-area row + label row
+        var outerGrid = new Grid { Height = barAreaH + labelH };
+        for (int h = 0; h < 24; h++)
+            outerGrid.ColumnDefinitions.Add(new ColumnDefinition());
+
+        for (int h = 0; h < 24; h++)
+        {
+            int    count = hourCounts[h];
+            double barH  = count == 0 ? 0d : Math.Max(3d, (double)count / maxCount * barAreaH);
+
+            // Each column: a grid with two rows — bar area (bottom-aligned) + label
+            var cellGrid = new Grid();
+            cellGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(barAreaH) });
+            cellGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(labelH) });
+
+            if (barH > 0)
+            {
+                // Colour: violet for work hours (6–22), slate for night (0–5, 23)
+                Color barColor = h is >= 6 and <= 22
+                    ? Color.FromArgb(0xCC, 0x63, 0x66, 0xF1)   // indigo
+                    : Color.FromArgb(0x88, 0x47, 0x55, 0x69);  // slate
+
+                var bar = new Border
+                {
+                    Height            = barH,
+                    Background        = new SolidColorBrush(barColor),
+                    CornerRadius      = new CornerRadius(2, 2, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    Margin            = new Thickness(1, 0, 1, 0),
+                    ToolTip           = $"{h:00}:00 — {count} action{(count == 1 ? "" : "s")}"
+                };
+                Grid.SetRow(bar, 0);
+                cellGrid.Children.Add(bar);
+            }
+
+            bool showLabel = h % 6 == 0 || h == 23;
+            var hourLabel = new TextBlock
+            {
+                Text                = showLabel ? $"{h}" : "",
+                FontSize            = 8.5,
+                Foreground          = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment   = VerticalAlignment.Top,
+                Margin              = new Thickness(0, 2, 0, 0)
+            };
+            Grid.SetRow(hourLabel, 1);
+            cellGrid.Children.Add(hourLabel);
+
+            Grid.SetColumn(cellGrid, h);
+            outerGrid.Children.Add(cellGrid);
+        }
+
+        content.Children.Add(outerGrid);
+        container.Child = content;
+        return container;
+    }
+
+    /// <summary>
+    /// Section 3 — grouped feed: one row per unique action title with count + last-seen,
+    /// replacing the previous 47-identical-row list.
+    /// </summary>
+    private static FrameworkElement BuildActionsGroupedLog(
+        List<LocalApiEventResponse> events, DateTimeOffset now)
+    {
+        var container = new Border
+        {
+            Background      = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)),
+            BorderBrush     = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+            BorderThickness = new Thickness(1),
+            CornerRadius    = new CornerRadius(10),
+            Padding         = new Thickness(16)
+        };
+
+        var content = new StackPanel();
+
+        content.Children.Add(new TextBlock
+        {
+            Text       = "ACTION LOG",
+            FontSize   = 10,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+            Margin     = new Thickness(0, 0, 0, 12)
+        });
+
+        // Group by human-readable title — this collapses 47 identical rows into one
+        var groups = events
+            .GroupBy(e => BuildActionTimelineTitle(e))
+            .Select(g => new
+            {
+                Title    = g.Key,
+                Count    = g.Count(),
+                Category = ResolveActionCategory(g.First()),
+                Latest   = g.Max(e => e.TimestampUtc)
+            })
+            .OrderByDescending(g => g.Count)
+            .ToList();
+
+        bool firstGroup = true;
+        foreach (var g in groups)
+        {
+            if (!firstGroup)
+            {
+                content.Children.Add(new Border
+                {
+                    Height     = 1,
+                    Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+                    Margin     = new Thickness(0)
+                });
+            }
+            firstGroup = false;
+
+            Color   catColor = GetActionCategoryColor(g.Category);
+            string  timeAgo  = FormatRelativeTime(g.Latest.ToLocalTime(), now);
+
+            var row = new Grid { Margin = new Thickness(0, 10, 0, 10) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // dot
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // title
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // count badge
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // time
+
+            // Category dot
+            var dot = new Border
+            {
+                Width               = 10,
+                Height              = 10,
+                CornerRadius        = new CornerRadius(5),
+                Background          = new SolidColorBrush(catColor),
+                VerticalAlignment   = VerticalAlignment.Center,
+                Margin              = new Thickness(0, 0, 10, 0)
+            };
+            Grid.SetColumn(dot, 0);
+
+            // Title
+            string displayTitle = g.Title.Length > 55 ? g.Title[..52] + "…" : g.Title;
+            var titleTb = new TextBlock
+            {
+                Text              = displayTitle,
+                FontSize          = 13,
+                FontWeight        = FontWeights.Medium,
+                Foreground        = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9)),
+                TextTrimming      = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(titleTb, 1);
+
+            // Count badge (only show if more than 1)
+            if (g.Count > 1)
+            {
+                var badge = new Border
+                {
+                    Background        = new SolidColorBrush(
+                                            Color.FromArgb(0x33, catColor.R, catColor.G, catColor.B)),
+                    CornerRadius      = new CornerRadius(10),
+                    Padding           = new Thickness(8, 2, 8, 2),
+                    Margin            = new Thickness(8, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Child = new TextBlock
+                    {
+                        Text       = $"× {g.Count}",
+                        FontSize   = 11,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = new SolidColorBrush(catColor)
+                    }
+                };
+                Grid.SetColumn(badge, 2);
+                row.Children.Add(badge);
+            }
+
+            // Time
+            var timeTb = new TextBlock
+            {
+                Text              = timeAgo,
+                FontSize          = 11,
+                Foreground        = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin            = new Thickness(12, 0, 0, 0)
+            };
+            Grid.SetColumn(timeTb, 3);
+
+            row.Children.Add(dot);
+            row.Children.Add(titleTb);
+            row.Children.Add(timeTb);
+            content.Children.Add(row);
+        }
+
+        container.Child = content;
+        return container;
     }
 
     private void PopulateActionsOverview(IReadOnlyList<LocalApiEventResponse> ordered)
