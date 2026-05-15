@@ -14,6 +14,7 @@ using System.Windows.Shell;
 using System.Windows.Threading;
 using Line = System.Windows.Shapes.Line;
 using Polyline = System.Windows.Shapes.Polyline;
+using ShapePath = System.Windows.Shapes.Path;
 using Porta.Agent.Common;
 using Porta.Agent.LocalApi;
 using Porta.ControlCenter.Identity;
@@ -4112,8 +4113,9 @@ public partial class MainWindow : Window
         ActionsUnifiedFeed.Visibility = allEmpty ? Visibility.Collapsed : Visibility.Visible;
         if (allEmpty) return;
 
+        // Show every event Ari recorded — suggestions, system changes, AND all alerts
         var allRows = ordered
-            .Where(e => IsSuggestionEvent(e.Action) || IsSystemChangeEvent(e) || IsUserFacingAlert(e))
+            .Where(e => !string.IsNullOrWhiteSpace(e.Action))
             .ToList();
 
         DateTimeOffset now = DateTimeOffset.Now;
@@ -4290,7 +4292,7 @@ public partial class MainWindow : Window
     // ── Visual section builders ──────────────────────────────────────────────
 
     /// <summary>
-    /// Section 1 — stacked horizontal bar + legend showing breakdown by category.
+    /// Section 1 — donut ring chart (left) + legend (right) showing category breakdown.
     /// </summary>
     private static FrameworkElement BuildActionsCategoryBreakdown(List<LocalApiEventResponse> events)
     {
@@ -4304,21 +4306,19 @@ public partial class MainWindow : Window
         };
 
         var content = new StackPanel();
-
         content.Children.Add(new TextBlock
         {
-            Text       = "WHAT ARI DID",
+            Text       = "ACTIVITY BREAKDOWN",
             FontSize   = 10,
             FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
-            Margin     = new Thickness(0, 0, 0, 12)
+            Margin     = new Thickness(0, 0, 0, 14)
         });
 
         int total = Math.Max(events.Count, 1);
-
-        // Build groups ordered by count descending, skip zero-count categories
-        var groups = new[] {
-            ActionCategory.Protection, ActionCategory.Focus,
+        var groups = new[]
+        {
+            ActionCategory.Focus, ActionCategory.Protection,
             ActionCategory.Breaks, ActionCategory.Notifications, ActionCategory.Other
         }
         .Select(cat => new
@@ -4332,106 +4332,190 @@ public partial class MainWindow : Window
         .OrderByDescending(g => g.Count)
         .ToList();
 
+        // ── Two-column layout: donut (left) + legend (right) ────────
+        var bodyGrid = new Grid();
+        bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+        bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        // ── Donut canvas ─────────────────────────────────────────────
+        const double cx = 60d, cy = 60d, outerR = 52d, innerR = 33d;
+        var donutHost = new Grid { Width = 130, Height = 120, VerticalAlignment = VerticalAlignment.Center };
+
+        var canvas = new Canvas { Width = 130, Height = 120 };
+
         if (groups.Count > 0)
         {
-            // ── Stacked bar ──────────────────────────────────────────
-            var barGrid = new Grid { Height = 14, Margin = new Thickness(0, 0, 0, 14) };
-            for (int i = 0; i < groups.Count; i++)
-                barGrid.ColumnDefinitions.Add(new ColumnDefinition
-                    { Width = new GridLength(groups[i].Count, GridUnitType.Star) });
+            double gapDeg      = groups.Count > 1 ? 2.5 : 0.0;
+            double totalSweep  = 360.0 - groups.Count * gapDeg;
+            double startAngle  = -90.0; // top of circle
 
-            for (int i = 0; i < groups.Count; i++)
-            {
-                bool isFirst = i == 0;
-                bool isLast  = i == groups.Count - 1;
-                CornerRadius cr = (isFirst, isLast) switch
-                {
-                    (true, true)   => new CornerRadius(4),
-                    (true, false)  => new CornerRadius(4, 0, 0, 4),
-                    (false, true)  => new CornerRadius(0, 4, 4, 0),
-                    _              => new CornerRadius(0)
-                };
-
-                var seg = new Border
-                {
-                    Background    = new SolidColorBrush(groups[i].Color),
-                    CornerRadius  = cr,
-                    Margin        = isLast ? new Thickness(0) : new Thickness(0, 0, 1, 0)
-                };
-                Grid.SetColumn(seg, i);
-                barGrid.Children.Add(seg);
-            }
-            content.Children.Add(barGrid);
-
-            // ── Legend ───────────────────────────────────────────────
             foreach (var g in groups)
             {
-                double pct = g.Count * 100d / total;
+                double sweep = (double)g.Count / total * totalSweep;
+                if (sweep < 0.5) { startAngle += gapDeg; continue; }
 
-                var row = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
-
-                var dot = new Border
-                {
-                    Width               = 10,
-                    Height              = 10,
-                    CornerRadius        = new CornerRadius(5),
-                    Background          = new SolidColorBrush(g.Color),
-                    VerticalAlignment   = VerticalAlignment.Center,
-                    Margin              = new Thickness(0, 0, 10, 0)
-                };
-                Grid.SetColumn(dot, 0);
-
-                var labelTb = new TextBlock
-                {
-                    Text              = g.Label,
-                    FontSize          = 12,
-                    Foreground        = new SolidColorBrush(Color.FromRgb(0xCB, 0xD5, 0xE1)),
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                Grid.SetColumn(labelTb, 1);
-
-                var countBadge = new Border
-                {
-                    Background        = new SolidColorBrush(
-                                            Color.FromArgb(0x33, g.Color.R, g.Color.G, g.Color.B)),
-                    CornerRadius      = new CornerRadius(10),
-                    Padding           = new Thickness(8, 2, 8, 2),
-                    Margin            = new Thickness(8, 0, 0, 0),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Child = new TextBlock
-                    {
-                        Text       = $"× {g.Count}",
-                        FontSize   = 11,
-                        FontWeight = FontWeights.SemiBold,
-                        Foreground = new SolidColorBrush(g.Color)
-                    }
-                };
-                Grid.SetColumn(countBadge, 2);
-
-                var pctTb = new TextBlock
-                {
-                    Text                = $"{pct:0}%",
-                    FontSize            = 11,
-                    Foreground          = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    VerticalAlignment   = VerticalAlignment.Center
-                };
-                Grid.SetColumn(pctTb, 3);
-
-                row.Children.Add(dot);
-                row.Children.Add(labelTb);
-                row.Children.Add(countBadge);
-                row.Children.Add(pctTb);
-                content.Children.Add(row);
+                var seg = CreateDonutSegmentPath(cx, cy, outerR, innerR, startAngle, sweep);
+                seg.Fill = new SolidColorBrush(g.Color);
+                canvas.Children.Add(seg);
+                startAngle += sweep + gapDeg;
             }
         }
+        else
+        {
+            // Empty state: grey ring
+            var emptyRing = CreateDonutSegmentPath(cx, cy, outerR, innerR, -90, 359.99);
+            emptyRing.Fill = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35));
+            canvas.Children.Add(emptyRing);
+        }
 
+        donutHost.Children.Add(canvas);
+
+        // Center text: total count + "actions"
+        var centerStack = new StackPanel
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment   = VerticalAlignment.Center
+        };
+        centerStack.Children.Add(new TextBlock
+        {
+            Text                = total.ToString(CultureInfo.InvariantCulture),
+            FontSize            = 22,
+            FontWeight          = FontWeights.Bold,
+            Foreground          = Brushes.White,
+            HorizontalAlignment = HorizontalAlignment.Center
+        });
+        centerStack.Children.Add(new TextBlock
+        {
+            Text                = "actions",
+            FontSize            = 10,
+            Foreground          = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B)),
+            HorizontalAlignment = HorizontalAlignment.Center
+        });
+        donutHost.Children.Add(centerStack);
+
+        Grid.SetColumn(donutHost, 0);
+        bodyGrid.Children.Add(donutHost);
+
+        // ── Legend ────────────────────────────────────────────────────
+        var legend = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(14, 0, 0, 0)
+        };
+
+        foreach (var g in groups)
+        {
+            double pct = g.Count * 100d / total;
+
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
+
+            var dot = new Border
+            {
+                Width             = 10,
+                Height            = 10,
+                CornerRadius      = new CornerRadius(5),
+                Background        = new SolidColorBrush(g.Color),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin            = new Thickness(0, 0, 10, 0)
+            };
+            Grid.SetColumn(dot, 0);
+
+            var lbl = new TextBlock
+            {
+                Text              = g.Label,
+                FontSize          = 12,
+                Foreground        = new SolidColorBrush(Color.FromRgb(0xCB, 0xD5, 0xE1)),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(lbl, 1);
+
+            var badge = new Border
+            {
+                Background        = new SolidColorBrush(
+                                        Color.FromArgb(0x33, g.Color.R, g.Color.G, g.Color.B)),
+                CornerRadius      = new CornerRadius(10),
+                Padding           = new Thickness(8, 2, 8, 2),
+                Margin            = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child             = new TextBlock
+                {
+                    Text       = $"× {g.Count}",
+                    FontSize   = 11,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(g.Color)
+                }
+            };
+            Grid.SetColumn(badge, 2);
+
+            var pctTb = new TextBlock
+            {
+                Text                = $"{pct:0}%",
+                FontSize            = 11,
+                Foreground          = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment   = VerticalAlignment.Center
+            };
+            Grid.SetColumn(pctTb, 3);
+
+            row.Children.Add(dot);
+            row.Children.Add(lbl);
+            row.Children.Add(badge);
+            row.Children.Add(pctTb);
+            legend.Children.Add(row);
+        }
+
+        Grid.SetColumn(legend, 1);
+        bodyGrid.Children.Add(legend);
+
+        content.Children.Add(bodyGrid);
         container.Child = content;
         return container;
+    }
+
+    /// <summary>
+    /// Builds a WPF Path that draws one donut arc segment.
+    /// startDeg = -90 puts the first segment at the top (12 o'clock).
+    /// </summary>
+    private static ShapePath CreateDonutSegmentPath(
+        double cx, double cy, double outerR, double innerR,
+        double startDeg, double sweepDeg)
+    {
+        if (sweepDeg >= 360) sweepDeg = 359.99;
+
+        double startRad = startDeg * Math.PI / 180.0;
+        double endRad   = (startDeg + sweepDeg) * Math.PI / 180.0;
+
+        var outerStart = new Point(cx + outerR * Math.Cos(startRad), cy + outerR * Math.Sin(startRad));
+        var outerEnd   = new Point(cx + outerR * Math.Cos(endRad),   cy + outerR * Math.Sin(endRad));
+        var innerEnd   = new Point(cx + innerR * Math.Cos(endRad),   cy + innerR * Math.Sin(endRad));
+        var innerStart = new Point(cx + innerR * Math.Cos(startRad), cy + innerR * Math.Sin(startRad));
+
+        bool largeArc = sweepDeg > 180;
+
+        var figure = new PathFigure { StartPoint = outerStart, IsClosed = true };
+        figure.Segments.Add(new ArcSegment
+        {
+            Point          = outerEnd,
+            Size           = new Size(outerR, outerR),
+            IsLargeArc     = largeArc,
+            SweepDirection = SweepDirection.Clockwise
+        });
+        figure.Segments.Add(new LineSegment { Point = innerEnd });
+        figure.Segments.Add(new ArcSegment
+        {
+            Point          = innerStart,
+            Size           = new Size(innerR, innerR),
+            IsLargeArc     = largeArc,
+            SweepDirection = SweepDirection.Counterclockwise
+        });
+
+        var geom = new PathGeometry();
+        geom.Figures.Add(figure);
+        return new ShapePath { Data = geom };
     }
 
     /// <summary>
@@ -4452,7 +4536,7 @@ public partial class MainWindow : Window
 
         content.Children.Add(new TextBlock
         {
-            Text       = "WHEN ARI WAS ACTIVE",
+            Text       = "ACTIVITY BY HOUR",
             FontSize   = 10,
             FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
@@ -4526,8 +4610,73 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Section 3 — grouped feed: one row per unique action title with count + last-seen,
-    /// replacing the previous 47-identical-row list.
+    /// Maps any event to a short, user-friendly title — no internal jargon.
+    /// </summary>
+    private static string GetUserFriendlyActionTitle(LocalApiEventResponse ev)
+    {
+        string action = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+
+        // ── Inform / alert events ────────────────────────────────────
+        return action switch
+        {
+            "inform_break_due"        => "Break reminder",
+            "inform_overload_watch"   => "Overload detected",
+            "inform_overload_rising"  => "Overload rising",
+            "inform_pressure_rising"  => "Pressure rising",
+            "inform_pressure_watch"   => "Pressure watch",
+            "inform_focus_lock_in"    => "Focus coaching nudge",
+            "inform_recovery_needed"  => "Recovery needed",
+            _ when action.StartsWith("inform_", StringComparison.Ordinal)
+                                      => "Ari alert",
+
+            // ── Break events ─────────────────────────────────────────
+            _ when PortaBreakSemantics.IsBreakSuggestionAction(action)
+                                      => BuildSuggestionTitle(ev.Action),
+            _ when action.Contains("break", StringComparison.Ordinal)
+                                      => "Break suggested",
+
+            // ── WhatChanged field — strip verbose boilerplate ────────
+            _ => SimplifyWhatChanged(
+                    string.IsNullOrWhiteSpace(ev.WhatChanged)
+                        ? HumanizeActionName(ev.Action)
+                        : ev.WhatChanged)
+        };
+    }
+
+    /// <summary>
+    /// Strips internal boilerplate from WhatChanged strings and returns a clean label.
+    /// </summary>
+    private static string SimplifyWhatChanged(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "Action recorded";
+
+        // Known verbose patterns → short user-friendly equivalents
+        if (raw.Contains("Focus mode policy intent was recorded",   StringComparison.OrdinalIgnoreCase)) return "Focus mode activated";
+        if (raw.Contains("Focus mode policy intent ended",          StringComparison.OrdinalIgnoreCase)) return "Focus mode ended";
+        if (raw.Contains("Temporary app restriction policy intent was recorded",
+                                                                    StringComparison.OrdinalIgnoreCase)) return "App restricted";
+        if (raw.Contains("Temporary app restriction policy intent ended",
+                                                                    StringComparison.OrdinalIgnoreCase)) return "App restriction ended";
+        if (raw.Contains("Prompt snoozed",                         StringComparison.OrdinalIgnoreCase)) return "Prompt snoozed";
+        if (raw.Contains("Short break overlay shown",              StringComparison.OrdinalIgnoreCase)) return "Short break shown";
+        if (raw.Contains("Short break suggestion displayed",       StringComparison.OrdinalIgnoreCase)) return "Short break suggested";
+        if (raw.Contains("Notification reduction",                 StringComparison.OrdinalIgnoreCase)) return "Notifications reduced";
+        if (raw.Contains("Animation reduction",                    StringComparison.OrdinalIgnoreCase)) return "Animations reduced";
+        if (raw.Contains("Brightness",                             StringComparison.OrdinalIgnoreCase)) return "Brightness adjusted";
+
+        // Strip the "No concrete desktop changes" suffix that makes strings look technical
+        int noChangesIdx = raw.IndexOf(". No concrete", StringComparison.OrdinalIgnoreCase);
+        if (noChangesIdx > 10)
+            raw = raw[..noChangesIdx];
+
+        // Final trim
+        raw = raw.Trim().TrimEnd('.');
+        return raw.Length > 60 ? raw[..57] + "…" : raw;
+    }
+
+    /// <summary>
+    /// Section 3 — grouped feed: one row per unique friendly title, count badge, last seen.
+    /// Replaces the old 47-identical-row list.
     /// </summary>
     private static FrameworkElement BuildActionsGroupedLog(
         List<LocalApiEventResponse> events, DateTimeOffset now)
@@ -4542,19 +4691,18 @@ public partial class MainWindow : Window
         };
 
         var content = new StackPanel();
-
         content.Children.Add(new TextBlock
         {
-            Text       = "ACTION LOG",
+            Text       = "WHAT HAPPENED",
             FontSize   = 10,
             FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
             Margin     = new Thickness(0, 0, 0, 12)
         });
 
-        // Group by human-readable title — this collapses 47 identical rows into one
+        // Group by user-friendly title — collapses duplicates into one row with a count
         var groups = events
-            .GroupBy(e => BuildActionTimelineTitle(e))
+            .GroupBy(e => GetUserFriendlyActionTitle(e))
             .Select(g => new
             {
                 Title    = g.Key,
@@ -4579,32 +4727,29 @@ public partial class MainWindow : Window
             }
             firstGroup = false;
 
-            Color   catColor = GetActionCategoryColor(g.Category);
-            string  timeAgo  = FormatRelativeTime(g.Latest.ToLocalTime(), now);
+            Color  catColor = GetActionCategoryColor(g.Category);
+            string timeAgo  = FormatRelativeTime(g.Latest.ToLocalTime(), now);
 
             var row = new Grid { Margin = new Thickness(0, 10, 0, 10) };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // dot
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                       // dot
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // title
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // count badge
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // time
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                       // badge
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                       // time
 
-            // Category dot
             var dot = new Border
             {
-                Width               = 10,
-                Height              = 10,
-                CornerRadius        = new CornerRadius(5),
-                Background          = new SolidColorBrush(catColor),
-                VerticalAlignment   = VerticalAlignment.Center,
-                Margin              = new Thickness(0, 0, 10, 0)
+                Width             = 10,
+                Height            = 10,
+                CornerRadius      = new CornerRadius(5),
+                Background        = new SolidColorBrush(catColor),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin            = new Thickness(0, 0, 10, 0)
             };
             Grid.SetColumn(dot, 0);
 
-            // Title
-            string displayTitle = g.Title.Length > 55 ? g.Title[..52] + "…" : g.Title;
             var titleTb = new TextBlock
             {
-                Text              = displayTitle,
+                Text              = g.Title,
                 FontSize          = 13,
                 FontWeight        = FontWeights.Medium,
                 Foreground        = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9)),
@@ -4613,7 +4758,6 @@ public partial class MainWindow : Window
             };
             Grid.SetColumn(titleTb, 1);
 
-            // Count badge (only show if more than 1)
             if (g.Count > 1)
             {
                 var badge = new Border
@@ -4624,7 +4768,7 @@ public partial class MainWindow : Window
                     Padding           = new Thickness(8, 2, 8, 2),
                     Margin            = new Thickness(8, 0, 0, 0),
                     VerticalAlignment = VerticalAlignment.Center,
-                    Child = new TextBlock
+                    Child             = new TextBlock
                     {
                         Text       = $"× {g.Count}",
                         FontSize   = 11,
@@ -4636,7 +4780,6 @@ public partial class MainWindow : Window
                 row.Children.Add(badge);
             }
 
-            // Time
             var timeTb = new TextBlock
             {
                 Text              = timeAgo,
@@ -4806,6 +4949,11 @@ public partial class MainWindow : Window
     private static ActionCategory ResolveActionCategory(LocalApiEventResponse ev)
     {
         string action = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+
+        // All inform_* events are Ari alerts / notifications
+        if (action.StartsWith("inform_", StringComparison.Ordinal))
+            return ActionCategory.Notifications;
+
         if (PortaBreakSemantics.IsBreakSuggestionAction(action)
             || action.Contains("break", StringComparison.Ordinal))
         {
