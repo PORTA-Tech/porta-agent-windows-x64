@@ -5996,6 +5996,16 @@ public partial class MainWindow : Window
 
     private void PopulateHistorySummaryNew(HistoryFocusHeatmap heatmap)
     {
+        // Show which period the cards represent
+        string periodLabel = _historyPeriod switch
+        {
+            HistoryPeriod.Day      => "Today",
+            HistoryPeriod.Week     => "This week",
+            HistoryPeriod.TwoWeeks => "Last 2 weeks",
+            _                      => string.Empty
+        };
+        HistoryCardPeriodLabel.Text = periodLabel;
+
         double totalWork = heatmap.TotalTrackedSeconds > 0d ? heatmap.TotalTrackedSeconds : 1d;
 
         double focusSec = heatmap.Episodes
@@ -6057,6 +6067,7 @@ public partial class MainWindow : Window
     // ═══════════════════════════════════════════════════════════════════
 
     private HistoryFocusHeatmap? _calendarHeatmap;
+    private double _calendarScrollTargetPx;
 
     private sealed record CalendarColumn(DateTime Date, string Label, bool IsToday);
 
@@ -6065,18 +6076,24 @@ public partial class MainWindow : Window
         _calendarHeatmap = heatmap;
         // Always measure from the CONTAINER width, not the canvas itself.
         // The canvas width is stale from the previous tab and causes wrong column widths.
-        // HistoryCalendarContent column 1 (Width="*") is the true available space; subtract
-        // the 48px hour-label column to get the usable canvas width.
         double availableWidth = HistoryCalendarContent.ActualWidth > 48
             ? HistoryCalendarContent.ActualWidth - 48d
             : 600d;
         ApplyCalendarGrid(heatmap, availableWidth);
+
+        // Scroll to first tracked activity once the layout has settled.
+        // This runs only here — never in SizeChanged — so the user can scroll freely after.
+        Dispatcher.InvokeAsync(() =>
+        {
+            TimelinePanel.ScrollToVerticalOffset(_calendarScrollTargetPx);
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     private void HistoryCalendarCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         if (_calendarHeatmap != null && e.NewSize.Width > 0)
             ApplyCalendarGrid(_calendarHeatmap, e.NewSize.Width);
+        // Do NOT scroll here — SizeChanged fires on every resize and would jump the view
     }
 
     private void ApplyCalendarGrid(HistoryFocusHeatmap heatmap, double canvasWidth)
@@ -6092,9 +6109,20 @@ public partial class MainWindow : Window
         int numCols = columns.Count;
         if (numCols == 0) return;
 
-        // Day view: fixed 260px column so it doesn't stretch full page width
-        double colW = numCols == 1 ? 260d : Math.Max(60d, canvasWidth / numCols);
-        double totalCanvasWidth = colW * numCols;
+        double colW;
+        double colOffsetX = 0d; // how far from the left edge the column starts (Day centering)
+        if (numCols == 1)
+        {
+            // Day view: use 45% of available width, capped between 320px and 560px, then center it
+            colW = Math.Clamp(canvasWidth * 0.45, 320d, 560d);
+            colOffsetX = (canvasWidth - colW) / 2d; // center within the canvas
+        }
+        else
+        {
+            colW = Math.Max(60d, canvasWidth / numCols);
+            colOffsetX = 0d;
+        }
+        double totalCanvasWidth = numCols == 1 ? canvasWidth : colW * numCols;
         HistoryCalendarCanvas.Width = totalCanvasWidth;
 
         // ── Determine hour range (Step 2 / Step 3) ────────────────────
@@ -6151,6 +6179,11 @@ public partial class MainWindow : Window
             HistoryCalendarHeaderRow.Children.Add(hdr);
         }
 
+        // In Day view, shift the header grid to align with the centered column
+        HistoryCalendarHeaderRow.Margin = numCols == 1
+            ? new Thickness(48d + colOffsetX, 0, 0, 0)
+            : new Thickness(48d, 0, 0, 0);
+
         // ── Hour labels (Step 3) ──────────────────────────────────────
         for (int h = startHour; h < endHour; h++)
         {
@@ -6171,7 +6204,7 @@ public partial class MainWindow : Window
         for (int ci = 0; ci < numCols; ci++)
         {
             var col = columns[ci];
-            double colX = ci * colW;
+            double colX = ci * colW + colOffsetX;
             int gridStartMin = startHour * 60;
 
             // Background clickable area (Step 8 – column click to Day view)
@@ -6288,41 +6321,77 @@ public partial class MainWindow : Window
 
                 // Build label content based on block height
                 UIElement blockContent = null;
-                if (blockH >= 36d)
+                string stateLabel  = GetCalendarEpisodeLabel(ep.Kind);
+                string timeRange   = $"{localStart:HH:mm} → {localEnd:HH:mm}";
+                string duration    = FormatReadableDuration(ep.DurationSeconds);
+
+                if (blockH >= 56d)
                 {
-                    // Two lines: state name + time range
-                    var labelPanel = new StackPanel { Margin = new Thickness(4, 3, 4, 3) };
+                    // THREE lines: state name + time range + duration
+                    var labelPanel = new StackPanel { Margin = new Thickness(6, 4, 6, 4) };
                     labelPanel.Children.Add(new TextBlock
                     {
-                        Text = GetCalendarEpisodeLabel(ep.Kind),
-                        FontSize = 11,
+                        Text = stateLabel,
+                        FontSize = 13,
                         FontWeight = FontWeights.SemiBold,
                         Foreground = Brushes.White,
                         TextTrimming = TextTrimming.CharacterEllipsis
                     });
                     labelPanel.Children.Add(new TextBlock
                     {
-                        Text = $"{localStart:HH:mm} → {localEnd:HH:mm}",
+                        Text = timeRange,
+                        FontSize = 11,
+                        Foreground = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)),
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        Margin = new Thickness(0, 1, 0, 0)
+                    });
+                    labelPanel.Children.Add(new TextBlock
+                    {
+                        Text = duration,
                         FontSize = 10,
-                        Foreground = new SolidColorBrush(Color.FromArgb(0xBB, 0xFF, 0xFF, 0xFF)),
-                        TextTrimming = TextTrimming.CharacterEllipsis
+                        Foreground = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)),
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        Margin = new Thickness(0, 1, 0, 0)
                     });
                     blockContent = labelPanel;
                 }
-                else if (blockH >= 18d)
+                else if (blockH >= 36d)
                 {
-                    // One line: state name only
+                    // TWO lines: state name + time range
+                    var labelPanel = new StackPanel { Margin = new Thickness(6, 3, 6, 3) };
+                    labelPanel.Children.Add(new TextBlock
+                    {
+                        Text = stateLabel,
+                        FontSize = 12,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = Brushes.White,
+                        TextTrimming = TextTrimming.CharacterEllipsis
+                    });
+                    labelPanel.Children.Add(new TextBlock
+                    {
+                        Text = timeRange,
+                        FontSize = 11,
+                        Foreground = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)),
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        Margin = new Thickness(0, 1, 0, 0)
+                    });
+                    blockContent = labelPanel;
+                }
+                else if (blockH >= 20d)
+                {
+                    // ONE line: state name only
                     blockContent = new TextBlock
                     {
-                        Text = GetCalendarEpisodeLabel(ep.Kind),
-                        FontSize = 10,
+                        Text = stateLabel,
+                        FontSize = 11,
                         FontWeight = FontWeights.SemiBold,
                         Foreground = Brushes.White,
                         TextTrimming = TextTrimming.CharacterEllipsis,
-                        Margin = new Thickness(4, 2, 4, 2),
+                        Margin = new Thickness(6, 2, 6, 2),
                         IsHitTestVisible = false
                     };
                 }
+                // below 20px: no text — block is too small
 
                 var block = new Border
                 {
@@ -6342,7 +6411,18 @@ public partial class MainWindow : Window
             }
         }
 
-        // Auto-scroll removed — page starts at top and user scrolls freely.
+        // Store scroll target so RenderHistoryCalendarGrid can scroll once after layout.
+        // SizeChanged does NOT read or use this — it must not scroll on resize.
+        if (allEps.Count > 0)
+        {
+            double firstEpStart = allEps.Min(e => e.StartUtc.ToLocalTime().Hour * 60d + e.StartUtc.ToLocalTime().Minute);
+            int gridStartMin = startHour * 60;
+            _calendarScrollTargetPx = Math.Max(0d, (firstEpStart - gridStartMin) / 60d * rowH - 20d);
+        }
+        else
+        {
+            _calendarScrollTargetPx = 0d;
+        }
     }
 
     private static string GetCalendarEpisodeLabel(HistoryTimelineEpisodeKind kind) => kind switch

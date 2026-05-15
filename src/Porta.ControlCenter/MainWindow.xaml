@@ -1384,6 +1384,13 @@
                             </StackPanel>
                         </DockPanel>
 
+                        <!-- Period label above summary cards -->
+                        <TextBlock x:Name="HistoryCardPeriodLabel"
+                                   Text="Today"
+                                   FontSize="11"
+                                   Foreground="#475569"
+                                   Margin="0,0,0,8"
+                                   HorizontalAlignment="Left" />
                         <!-- Four summary cards -->
                         <UniformGrid Columns="4" Margin="0,0,0,12">
                             <Border x:Name="HistoryCardFocus"
@@ -2545,6 +2552,8 @@
         </Border>
     </Grid>
 </Window>
+
+
 
 
 
