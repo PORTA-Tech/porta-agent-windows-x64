@@ -85,6 +85,8 @@ public partial class MainWindow : Window
     private DateTimeOffset _lastManualRefreshUtc = DateTimeOffset.MinValue;
     private HistoryRange _historyRange = HistoryRange.AllTime;
     private HistoryPeriod _historyPeriod = HistoryPeriod.Day;
+    private HistoryPeriod _actionsPeriod = HistoryPeriod.Day;
+    private IReadOnlyList<LocalApiEventResponse> _lastInterventionEvents = Array.Empty<LocalApiEventResponse>();
     private bool _historyExplainMode;
     private ActionsView _actionsView = ActionsView.Suggestions;
     private readonly DispatcherTimer _settingsAutoSaveTimer;
@@ -809,6 +811,68 @@ public partial class MainWindow : Window
         ApplyHistoryPeriodTab(HistoryTabDayText, HistoryTabDayLine, _historyPeriod == HistoryPeriod.Day);
         ApplyHistoryPeriodTab(HistoryTabWeekText, HistoryTabWeekLine, _historyPeriod == HistoryPeriod.Week);
         ApplyHistoryPeriodTab(HistoryTabTwoWeeksText, HistoryTabTwoWeeksLine, _historyPeriod == HistoryPeriod.TwoWeeks);
+    }
+
+    // ── Actions page period tabs ─────────────────────────────────────────────
+
+    private void ActionsTabDay_Click(object sender, MouseButtonEventArgs e)
+    {
+        _actionsPeriod = HistoryPeriod.Day;
+        UpdateActionsPeriodTabs();
+        RepopulateActionsNewUI();
+    }
+
+    private void ActionsTabWeek_Click(object sender, MouseButtonEventArgs e)
+    {
+        _actionsPeriod = HistoryPeriod.Week;
+        UpdateActionsPeriodTabs();
+        RepopulateActionsNewUI();
+    }
+
+    private void ActionsTabTwoWeeks_Click(object sender, MouseButtonEventArgs e)
+    {
+        _actionsPeriod = HistoryPeriod.TwoWeeks;
+        UpdateActionsPeriodTabs();
+        RepopulateActionsNewUI();
+    }
+
+    private void UpdateActionsPeriodTabs()
+    {
+        ApplyHistoryPeriodTab(ActionsTabDayText,      ActionsTabDayLine,      _actionsPeriod == HistoryPeriod.Day);
+        ApplyHistoryPeriodTab(ActionsTabWeekText,     ActionsTabWeekLine,     _actionsPeriod == HistoryPeriod.Week);
+        ApplyHistoryPeriodTab(ActionsTabTwoWeeksText, ActionsTabTwoWeeksLine, _actionsPeriod == HistoryPeriod.TwoWeeks);
+    }
+
+    /// <summary>
+    /// Re-renders the Actions page from the cached event list with the current period filter.
+    /// Called when the user switches Day / Week / 2 Weeks — no API call needed.
+    /// </summary>
+    private void RepopulateActionsNewUI()
+    {
+        if (_lastInterventionEvents.Count == 0) return;
+        var ordered = _lastInterventionEvents
+            .OrderByDescending(e => e.TimestampUtc)
+            .ToList();
+        PopulateActionsNewUI(ordered);
+    }
+
+    /// <summary>
+    /// Returns the UTC cutoff timestamp for the currently selected actions period.
+    /// Events older than this are excluded from the actions page visuals.
+    /// </summary>
+    private DateTimeOffset GetActionsPeriodCutoff()
+    {
+        return _actionsPeriod switch
+        {
+            // Day: start of today in local time
+            HistoryPeriod.Day =>
+                new DateTimeOffset(DateTime.Today, TimeZoneInfo.Local.GetUtcOffset(DateTime.Today)).ToUniversalTime(),
+            // Week: rolling 7 days
+            HistoryPeriod.Week     => DateTimeOffset.UtcNow.AddDays(-7),
+            // 2 Weeks: rolling 14 days
+            HistoryPeriod.TwoWeeks => DateTimeOffset.UtcNow.AddDays(-14),
+            _                      => DateTimeOffset.MinValue
+        };
     }
 
     private static void ApplyHistoryPeriodTab(TextBlock text, Border underline, bool active)
@@ -4065,7 +4129,9 @@ public partial class MainWindow : Window
         UpdateActionsTabControls();
 
         // ── New Actions page UI ────────────────────────────────────────
-        PopulateActionsNewUI(suggestions, changes, alerts, ordered);
+        _lastInterventionEvents = events; // cache for period-tab re-renders
+        UpdateActionsPeriodTabs();
+        PopulateActionsNewUI(ordered);    // period filter applied inside
 
         bool selectedStillExists = _selectedIntervention != null
             && ordered.Any(e => e.Id == _selectedIntervention.Id);
@@ -4084,36 +4150,81 @@ public partial class MainWindow : Window
         }
     }
 
-    private void PopulateActionsNewUI(
-        IReadOnlyList<SuggestionRow> suggestions,
-        IReadOnlyList<ChangeRow> changes,
-        IReadOnlyList<AlertRow> alerts,
-        IReadOnlyList<LocalApiEventResponse> ordered)
+    private void PopulateActionsNewUI(IReadOnlyList<LocalApiEventResponse> allOrdered)
     {
+        // ── Apply period filter ────────────────────────────────────────
+        DateTimeOffset cutoff = GetActionsPeriodCutoff();
+        var ordered = allOrdered
+            .Where(e => e.TimestampUtc >= cutoff)
+            .ToList();
+
+        // ── Re-derive typed counts from the filtered slice ─────────────
+        var suggestions = ordered
+            .Where(static e => IsSuggestionEvent(e.Action))
+            .Select(e => new SuggestionRow(
+                BuildSuggestionTitle(e.Action),
+                e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                BuildSuggestionShortWhy(e),
+                e))
+            .ToList();
+
+        var changes = ordered
+            .Where(static e => IsSystemChangeEvent(e))
+            .Select(e => new ChangeRow(
+                WhatChanged: string.IsNullOrWhiteSpace(e.WhatChanged) ? HumanizeActionName(e.Action) : e.WhatChanged,
+                When: e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                Why: BuildChangeShortWhy(e),
+                Source: e))
+            .ToList();
+
+        var alerts = ordered
+            .Where(static e => IsUserFacingAlert(e))
+            .Select(e => new AlertRow(
+                Title: BuildAlertTitle(e),
+                When: e.TimestampUtc.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture),
+                Reason: !string.IsNullOrWhiteSpace(e.Reason) ? TrimSentence(e.Reason, 100) : "",
+                Source: e))
+            .ToList();
+
+        // ── Period label for the card subtitle ─────────────────────────
+        string periodSuffix = _actionsPeriod switch
+        {
+            HistoryPeriod.Day      => "today",
+            HistoryPeriod.Week     => "this week",
+            HistoryPeriod.TwoWeeks => "last 2 weeks",
+            _                      => ""
+        };
+
         // ── Summary cards ──────────────────────────────────────────────
         ActionsCardSuggestionsCount.Text = suggestions.Count.ToString(CultureInfo.InvariantCulture);
-        ActionsCardSuggestionsRecent.Text = suggestions.Count > 0 ? suggestions[0].Title : "None yet";
+        ActionsCardSuggestionsRecent.Text = suggestions.Count > 0
+            ? $"{suggestions.Count} suggestion{(suggestions.Count > 1 ? "s" : "")} {periodSuffix}"
+            : $"None {periodSuffix}";
         ApplyActionBarFill(ActionsCardSuggestionsTrack, ActionsCardSuggestionsBarFill,
             Math.Clamp(suggestions.Count / 10d, 0d, 1d));
 
         ActionsCardActionsCount.Text = changes.Count.ToString(CultureInfo.InvariantCulture);
-        ActionsCardActionsRecent.Text = changes.Count > 0 ? changes[0].WhatChanged : "None yet";
+        ActionsCardActionsRecent.Text = changes.Count > 0
+            ? $"{changes.Count} action{(changes.Count > 1 ? "s" : "")} taken {periodSuffix}"
+            : $"None {periodSuffix}";
         ApplyActionBarFill(ActionsCardActionsTrack, ActionsCardActionsBarFill,
             Math.Clamp(changes.Count / 10d, 0d, 1d));
 
         ActionsCardAlertsCount.Text = alerts.Count.ToString(CultureInfo.InvariantCulture);
-        ActionsCardAlertsRecent.Text = alerts.Count > 0 ? alerts[0].Title : "None yet";
+        ActionsCardAlertsRecent.Text = alerts.Count > 0
+            ? $"{alerts.Count} alert{(alerts.Count > 1 ? "s" : "")} sent {periodSuffix}"
+            : $"None {periodSuffix}";
         ApplyActionBarFill(ActionsCardAlertsTrack, ActionsCardAlertsBarFill,
             Math.Clamp(alerts.Count / 10d, 0d, 1d));
 
         // ── Unified feed (visual redesign) ────────────────────────────
         ActionsUnifiedFeed.Children.Clear();
-        bool allEmpty = suggestions.Count == 0 && changes.Count == 0 && alerts.Count == 0;
+        bool allEmpty = ordered.Count == 0;
         ActionsEmptyState.Visibility = allEmpty ? Visibility.Visible : Visibility.Collapsed;
         ActionsUnifiedFeed.Visibility = allEmpty ? Visibility.Collapsed : Visibility.Visible;
         if (allEmpty) return;
 
-        // Show every event Ari recorded — suggestions, system changes, AND all alerts
+        // All events for the selected period (not just the three typed subsets)
         var allRows = ordered
             .Where(e => !string.IsNullOrWhiteSpace(e.Action))
             .ToList();
@@ -4407,39 +4518,40 @@ public partial class MainWindow : Window
         {
             double pct = g.Count * 100d / total;
 
-            var row = new Grid { Margin = new Thickness(0, 0, 0, 10) };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
+            // Compact horizontal row — no star column, everything clusters on the left
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin      = new Thickness(0, 0, 0, 10),
+                VerticalAlignment = VerticalAlignment.Center
+            };
 
-            var dot = new Border
+            row.Children.Add(new Border
             {
                 Width             = 10,
                 Height            = 10,
                 CornerRadius      = new CornerRadius(5),
                 Background        = new SolidColorBrush(g.Color),
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin            = new Thickness(0, 0, 10, 0)
-            };
-            Grid.SetColumn(dot, 0);
+                Margin            = new Thickness(0, 0, 8, 0)
+            });
 
-            var lbl = new TextBlock
+            row.Children.Add(new TextBlock
             {
                 Text              = g.Label,
                 FontSize          = 12,
                 Foreground        = new SolidColorBrush(Color.FromRgb(0xCB, 0xD5, 0xE1)),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Grid.SetColumn(lbl, 1);
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin            = new Thickness(0, 0, 8, 0)
+            });
 
-            var badge = new Border
+            row.Children.Add(new Border
             {
                 Background        = new SolidColorBrush(
                                         Color.FromArgb(0x33, g.Color.R, g.Color.G, g.Color.B)),
                 CornerRadius      = new CornerRadius(10),
                 Padding           = new Thickness(8, 2, 8, 2),
-                Margin            = new Thickness(8, 0, 0, 0),
+                Margin            = new Thickness(0, 0, 8, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 Child             = new TextBlock
                 {
@@ -4448,23 +4560,16 @@ public partial class MainWindow : Window
                     FontWeight = FontWeights.SemiBold,
                     Foreground = new SolidColorBrush(g.Color)
                 }
-            };
-            Grid.SetColumn(badge, 2);
+            });
 
-            var pctTb = new TextBlock
+            row.Children.Add(new TextBlock
             {
-                Text                = $"{pct:0}%",
-                FontSize            = 11,
-                Foreground          = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment   = VerticalAlignment.Center
-            };
-            Grid.SetColumn(pctTb, 3);
+                Text              = $"{pct:0}%",
+                FontSize          = 11,
+                Foreground        = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+                VerticalAlignment = VerticalAlignment.Center
+            });
 
-            row.Children.Add(dot);
-            row.Children.Add(lbl);
-            row.Children.Add(badge);
-            row.Children.Add(pctTb);
             legend.Children.Add(row);
         }
 
@@ -4650,27 +4755,48 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(raw)) return "Action recorded";
 
-        // Known verbose patterns → short user-friendly equivalents
-        if (raw.Contains("Focus mode policy intent was recorded",   StringComparison.OrdinalIgnoreCase)) return "Focus mode activated";
-        if (raw.Contains("Focus mode policy intent ended",          StringComparison.OrdinalIgnoreCase)) return "Focus mode ended";
-        if (raw.Contains("Temporary app restriction policy intent was recorded",
-                                                                    StringComparison.OrdinalIgnoreCase)) return "App restricted";
-        if (raw.Contains("Temporary app restriction policy intent ended",
-                                                                    StringComparison.OrdinalIgnoreCase)) return "App restriction ended";
-        if (raw.Contains("Prompt snoozed",                         StringComparison.OrdinalIgnoreCase)) return "Prompt snoozed";
-        if (raw.Contains("Short break overlay shown",              StringComparison.OrdinalIgnoreCase)) return "Short break shown";
-        if (raw.Contains("Short break suggestion displayed",       StringComparison.OrdinalIgnoreCase)) return "Short break suggested";
-        if (raw.Contains("Notification reduction",                 StringComparison.OrdinalIgnoreCase)) return "Notifications reduced";
-        if (raw.Contains("Animation reduction",                    StringComparison.OrdinalIgnoreCase)) return "Animations reduced";
-        if (raw.Contains("Brightness",                             StringComparison.OrdinalIgnoreCase)) return "Brightness adjusted";
+        // ── Focus mode (matches both WhatChanged text and HumanizeActionName output) ──
+        bool hasFocus = raw.Contains("focus mode", StringComparison.OrdinalIgnoreCase)
+                     || raw.Contains("focus_mode", StringComparison.OrdinalIgnoreCase);
+        if (hasFocus)
+        {
+            return raw.Contains("ended", StringComparison.OrdinalIgnoreCase)
+                || raw.Contains("end",   StringComparison.OrdinalIgnoreCase)
+                ? "Focus mode ended"
+                : "Focus mode activated";
+        }
 
-        // Strip the "No concrete desktop changes" suffix that makes strings look technical
-        int noChangesIdx = raw.IndexOf(". No concrete", StringComparison.OrdinalIgnoreCase);
-        if (noChangesIdx > 10)
-            raw = raw[..noChangesIdx];
+        // ── App restrictions ──────────────────────────────────────────────────────────
+        bool hasRestriction = raw.Contains("app restriction", StringComparison.OrdinalIgnoreCase)
+                           || raw.Contains("app_restriction", StringComparison.OrdinalIgnoreCase)
+                           || raw.Contains("temporary app",   StringComparison.OrdinalIgnoreCase)
+                           || raw.Contains("temporary_app",   StringComparison.OrdinalIgnoreCase);
+        if (hasRestriction)
+        {
+            return raw.Contains("ended", StringComparison.OrdinalIgnoreCase)
+                || raw.Contains("end",   StringComparison.OrdinalIgnoreCase)
+                ? "App restriction ended"
+                : "App restricted";
+        }
 
-        // Final trim
-        raw = raw.Trim().TrimEnd('.');
+        // ── Other known patterns ──────────────────────────────────────────────────────
+        if (raw.Contains("Prompt snoozed",              StringComparison.OrdinalIgnoreCase)) return "Prompt snoozed";
+        if (raw.Contains("Short break overlay",         StringComparison.OrdinalIgnoreCase)) return "Short break shown";
+        if (raw.Contains("Short break suggestion",      StringComparison.OrdinalIgnoreCase)) return "Short break suggested";
+        if (raw.Contains("short_break",                 StringComparison.OrdinalIgnoreCase)) return "Short break";
+        if (raw.Contains("Notification reduction",      StringComparison.OrdinalIgnoreCase)) return "Notifications reduced";
+        if (raw.Contains("notification_reduction",      StringComparison.OrdinalIgnoreCase)) return "Notifications reduced";
+        if (raw.Contains("Animation reduction",         StringComparison.OrdinalIgnoreCase)) return "Animations reduced";
+        if (raw.Contains("animation_reduction",         StringComparison.OrdinalIgnoreCase)) return "Animations reduced";
+        if (raw.Contains("Brightness",                  StringComparison.OrdinalIgnoreCase)) return "Brightness adjusted";
+
+        // ── Strip the verbose "No concrete desktop changes" suffix ────────────────────
+        int idx = raw.IndexOf(". No concrete", StringComparison.OrdinalIgnoreCase);
+        if (idx > 10) raw = raw[..idx];
+
+        // ── Replace underscores, trim, and capitalise first letter ────────────────────
+        raw = raw.Replace('_', ' ').Trim().TrimEnd('.');
+        if (raw.Length > 0) raw = char.ToUpperInvariant(raw[0]) + raw[1..];
         return raw.Length > 60 ? raw[..57] + "…" : raw;
     }
 
