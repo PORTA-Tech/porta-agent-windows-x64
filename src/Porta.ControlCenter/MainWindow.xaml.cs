@@ -6063,9 +6063,14 @@ public partial class MainWindow : Window
     private void RenderHistoryCalendarGrid(HistoryFocusHeatmap heatmap)
     {
         _calendarHeatmap = heatmap;
-        ApplyCalendarGrid(heatmap, HistoryCalendarCanvas.ActualWidth > 0
-            ? HistoryCalendarCanvas.ActualWidth
-            : 600d);
+        // Always measure from the CONTAINER width, not the canvas itself.
+        // The canvas width is stale from the previous tab and causes wrong column widths.
+        // HistoryCalendarContent column 1 (Width="*") is the true available space; subtract
+        // the 48px hour-label column to get the usable canvas width.
+        double availableWidth = HistoryCalendarContent.ActualWidth > 48
+            ? HistoryCalendarContent.ActualWidth - 48d
+            : 600d;
+        ApplyCalendarGrid(heatmap, availableWidth);
     }
 
     private void HistoryCalendarCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -6101,8 +6106,14 @@ public partial class MainWindow : Window
         if (allEps.Count > 0)
         {
             startHour = Math.Max(0, allEps.Min(e => e.StartUtc.ToLocalTime().Hour));
-            endHour   = Math.Min(23, allEps.Max(e => (int)Math.Ceiling(e.EndUtc.ToLocalTime().TimeOfDay.TotalHours)));
-            endHour   = Math.Max(endHour, startHour + 1);
+            // Allow up to midnight (24) so late-evening sessions are not cut off
+            int rawEnd = allEps.Max(e =>
+            {
+                double h = e.EndUtc.ToLocalTime().TimeOfDay.TotalHours;
+                // If episode ends at or after midnight (wraps to 0–1h), treat as 24
+                return h < 1d ? 24 : (int)Math.Ceiling(h);
+            });
+            endHour = Math.Clamp(rawEnd, startHour + 1, 24);
         }
         else
         {
@@ -6271,7 +6282,9 @@ public partial class MainWindow : Window
                 if (clampedEnd <= clampedStart) continue;
 
                 double topOffset = (clampedStart - gridStartMin) / 60d * rowH;
-                double blockH    = Math.Max(4d, (clampedEnd - clampedStart) / 60d * rowH);
+                // Minimum 20px so all blocks show at least the state name (≥18px threshold).
+                // Very short real events (< 2 min) still get drawn but enlarged so they're readable.
+                double blockH    = Math.Max(20d, (clampedEnd - clampedStart) / 60d * rowH);
 
                 // Build label content based on block height
                 UIElement blockContent = null;

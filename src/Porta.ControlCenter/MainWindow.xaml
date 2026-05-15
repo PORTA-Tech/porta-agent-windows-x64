@@ -1458,6 +1458,7 @@
                                 <!-- Day canvas — code-behind populates all blocks here -->
                                 <Canvas x:Name="HistoryCalendarCanvas"
                                         Grid.Column="1"
+                                        HorizontalAlignment="Left"
                                         ClipToBounds="True"
                                         SizeChanged="HistoryCalendarCanvas_SizeChanged" />
                             </Grid>
