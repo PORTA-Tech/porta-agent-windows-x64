@@ -6067,7 +6067,6 @@ public partial class MainWindow : Window
     // ═══════════════════════════════════════════════════════════════════
 
     private HistoryFocusHeatmap? _calendarHeatmap;
-    private double _calendarScrollTargetPx;
 
     private sealed record CalendarColumn(DateTime Date, string Label, bool IsToday);
 
@@ -6080,13 +6079,7 @@ public partial class MainWindow : Window
             ? HistoryCalendarContent.ActualWidth - 48d
             : 600d;
         ApplyCalendarGrid(heatmap, availableWidth);
-
-        // Scroll to first tracked activity once the layout has settled.
-        // This runs only here — never in SizeChanged — so the user can scroll freely after.
-        Dispatcher.InvokeAsync(() =>
-        {
-            TimelinePanel.ScrollToVerticalOffset(_calendarScrollTargetPx);
-        }, System.Windows.Threading.DispatcherPriority.Loaded);
+        // No auto-scroll — user scrolls freely.
     }
 
     private void HistoryCalendarCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -6151,7 +6144,7 @@ public partial class MainWindow : Window
         endHour = Math.Max(endHour, startHour + 2); // at least 2 hours
 
         int totalHours = endHour - startHour;
-        const double rowH = 60d;
+        const double rowH = 120d; // 120px per hour — blocks are naturally bigger and still time-accurate
         double totalH = totalHours * rowH;
         HistoryCalendarCanvas.Height = totalH;
 
@@ -6302,6 +6295,11 @@ public partial class MainWindow : Window
                 continue;
             }
 
+            // Track where the last drawn block ended (in minutes) so we can TRIM
+            // the start of overlapping blocks — never push them down visually.
+            // Trimming keeps every block at its real time position on the axis.
+            double prevDrawnEndMin = double.MinValue;
+
             foreach (var ep in dayEps)
             {
                 var localStart = ep.StartUtc.ToLocalTime();
@@ -6314,95 +6312,62 @@ public partial class MainWindow : Window
                 double clampedEnd   = Math.Min(epEndMin, endHour * 60d);
                 if (clampedEnd <= clampedStart) continue;
 
+                // If this episode overlaps the previous drawn block, trim its START
+                // so it begins exactly where the previous one ended.
+                // This prevents visual overlap without moving anything below its real time.
+                if (clampedStart < prevDrawnEndMin)
+                    clampedStart = prevDrawnEndMin;
+
+                // Skip if too short after trimming (< 5 min = noise / micro-transition)
+                double realDurationMin = clampedEnd - clampedStart;
+                if (realDurationMin < 5d) continue;
+
+                prevDrawnEndMin = clampedEnd;
+
+                // Position is purely time-based — always in sync with the hour labels.
                 double topOffset = (clampedStart - gridStartMin) / 60d * rowH;
-                // Minimum 20px so all blocks show at least the state name (≥18px threshold).
-                // Very short real events (< 2 min) still get drawn but enlarged so they're readable.
-                double blockH    = Math.Max(20d, (clampedEnd - clampedStart) / 60d * rowH);
+                double blockH    = realDurationMin / 60d * rowH;
 
-                // Build label content based on block height
-                UIElement blockContent = null;
-                string stateLabel  = GetCalendarEpisodeLabel(ep.Kind);
-                string timeRange   = $"{localStart:HH:mm} → {localEnd:HH:mm}";
-                string duration    = FormatReadableDuration(ep.DurationSeconds);
+                // Label content based on block height (120px/hr scale):
+                // ≥60px (~30 min) → 3 lines: state + time range + duration
+                // ≥36px (~18 min) → 2 lines: state + time range
+                // ≥20px (~10 min) → 1 line:  state only
+                // <20px           → no text (thin bar — too small)
+                string stateLabel = GetCalendarEpisodeLabel(ep.Kind);
+                string timeRange  = $"{localStart:HH:mm} → {localEnd:HH:mm}";
+                string duration   = FormatReadableDuration(ep.DurationSeconds);
 
-                if (blockH >= 56d)
+                UIElement? blockContent = null;
+                if (blockH >= 60d)
                 {
-                    // THREE lines: state name + time range + duration
-                    var labelPanel = new StackPanel { Margin = new Thickness(6, 4, 6, 4) };
-                    labelPanel.Children.Add(new TextBlock
-                    {
-                        Text = stateLabel,
-                        FontSize = 13,
-                        FontWeight = FontWeights.SemiBold,
-                        Foreground = Brushes.White,
-                        TextTrimming = TextTrimming.CharacterEllipsis
-                    });
-                    labelPanel.Children.Add(new TextBlock
-                    {
-                        Text = timeRange,
-                        FontSize = 11,
-                        Foreground = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)),
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                        Margin = new Thickness(0, 1, 0, 0)
-                    });
-                    labelPanel.Children.Add(new TextBlock
-                    {
-                        Text = duration,
-                        FontSize = 10,
-                        Foreground = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)),
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                        Margin = new Thickness(0, 1, 0, 0)
-                    });
-                    blockContent = labelPanel;
+                    var panel = new StackPanel { Margin = new Thickness(8, 6, 8, 6) };
+                    panel.Children.Add(new TextBlock { Text = stateLabel, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White, TextTrimming = TextTrimming.CharacterEllipsis });
+                    panel.Children.Add(new TextBlock { Text = timeRange,  FontSize = 11, Foreground = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) });
+                    panel.Children.Add(new TextBlock { Text = duration,   FontSize = 10, Foreground = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) });
+                    blockContent = panel;
                 }
                 else if (blockH >= 36d)
                 {
-                    // TWO lines: state name + time range
-                    var labelPanel = new StackPanel { Margin = new Thickness(6, 3, 6, 3) };
-                    labelPanel.Children.Add(new TextBlock
-                    {
-                        Text = stateLabel,
-                        FontSize = 12,
-                        FontWeight = FontWeights.SemiBold,
-                        Foreground = Brushes.White,
-                        TextTrimming = TextTrimming.CharacterEllipsis
-                    });
-                    labelPanel.Children.Add(new TextBlock
-                    {
-                        Text = timeRange,
-                        FontSize = 11,
-                        Foreground = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)),
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                        Margin = new Thickness(0, 1, 0, 0)
-                    });
-                    blockContent = labelPanel;
+                    var panel = new StackPanel { Margin = new Thickness(8, 5, 8, 5) };
+                    panel.Children.Add(new TextBlock { Text = stateLabel, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White, TextTrimming = TextTrimming.CharacterEllipsis });
+                    panel.Children.Add(new TextBlock { Text = timeRange,  FontSize = 11, Foreground = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) });
+                    blockContent = panel;
                 }
                 else if (blockH >= 20d)
                 {
-                    // ONE line: state name only
-                    blockContent = new TextBlock
-                    {
-                        Text = stateLabel,
-                        FontSize = 11,
-                        FontWeight = FontWeights.SemiBold,
-                        Foreground = Brushes.White,
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                        Margin = new Thickness(6, 2, 6, 2),
-                        IsHitTestVisible = false
-                    };
+                    blockContent = new TextBlock { Text = stateLabel, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(8, 3, 8, 3) };
                 }
-                // below 20px: no text — block is too small
 
                 var block = new Border
                 {
-                    Width        = colW - 4d,
-                    Height       = blockH,
-                    Background   = new SolidColorBrush(GetCalendarEpisodeColor(ep.Kind)),
-                    CornerRadius  = new CornerRadius(3),
-                    Opacity       = 0.85,
-                    ToolTip       = BuildCalendarTooltip(ep),
-                    ClipToBounds  = true,
-                    Child         = blockContent
+                    Width       = colW - 4d,
+                    Height      = blockH,
+                    Background  = new SolidColorBrush(GetCalendarEpisodeColor(ep.Kind)),
+                    CornerRadius = new CornerRadius(3),
+                    Opacity      = 0.85,
+                    ToolTip      = BuildCalendarTooltip(ep),
+                    ClipToBounds = true,
+                    Child        = blockContent
                 };
 
                 Canvas.SetLeft(block, colX + 2d);
@@ -6411,18 +6376,6 @@ public partial class MainWindow : Window
             }
         }
 
-        // Store scroll target so RenderHistoryCalendarGrid can scroll once after layout.
-        // SizeChanged does NOT read or use this — it must not scroll on resize.
-        if (allEps.Count > 0)
-        {
-            double firstEpStart = allEps.Min(e => e.StartUtc.ToLocalTime().Hour * 60d + e.StartUtc.ToLocalTime().Minute);
-            int gridStartMin = startHour * 60;
-            _calendarScrollTargetPx = Math.Max(0d, (firstEpStart - gridStartMin) / 60d * rowH - 20d);
-        }
-        else
-        {
-            _calendarScrollTargetPx = 0d;
-        }
     }
 
     private static string GetCalendarEpisodeLabel(HistoryTimelineEpisodeKind kind) => kind switch
