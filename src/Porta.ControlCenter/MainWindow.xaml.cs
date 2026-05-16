@@ -87,6 +87,8 @@ public partial class MainWindow : Window
     private HistoryPeriod _historyPeriod = HistoryPeriod.Day;
     private HistoryPeriod _actionsPeriod = HistoryPeriod.Day;
     private IReadOnlyList<LocalApiEventResponse> _lastInterventionEvents = Array.Empty<LocalApiEventResponse>();
+    // Separate caches for Week/2Weeks — never mixed with the live polling cache
+    private Dictionary<HistoryPeriod, IReadOnlyList<LocalApiEventResponse>> _actionsHistoricalCache = new();
     private bool _historyExplainMode;
     private ActionsView _actionsView = ActionsView.Suggestions;
     private readonly DispatcherTimer _settingsAutoSaveTimer;
@@ -843,32 +845,27 @@ public partial class MainWindow : Window
     /// The normal polling cache contains only ~50 recent events (today only).
     /// If we have no events older than 24h, fetch up to 500 to fill in past days.
     /// </summary>
-    private async Task EnsureActionsHistoricalEventsAsync()
+        private async Task EnsureActionsHistoricalEventsAsync()
     {
-        // Use the period cutoff as sinceUtc so the API returns events
-        // from that date onward — not just the most-recent N events which
-        // are all from today when heartbeats dominate.
-        DateTimeOffset periodCutoff = GetActionsPeriodCutoff();
-        bool alreadyHaveRange = _allRecentEvents.Any(e => e.TimestampUtc <= periodCutoff.AddHours(1));
-        if (alreadyHaveRange) return;
+        // Each period gets its own isolated cache — never pollutes _lastInterventionEvents or _allRecentEvents.
+        // That keeps Day view showing exactly what the live poller sees.
+        if (_actionsHistoricalCache.ContainsKey(_actionsPeriod)) return;
 
-        // Request up to 2000 events since the period start.
-        // Heartbeat filtering happens in PopulateActionsNewUI, so even with
-        // many heartbeat events in the response the charts will be accurate.
-        IReadOnlyList<LocalApiEventResponse> extended =
+        DateTimeOffset periodCutoff = GetActionsPeriodCutoff();
+
+        // Fetch up to 2000 events since the period start (sinceUtc = "after this date")
+        IReadOnlyList<LocalApiEventResponse> fetched =
             await _apiClient.GetRecentEventsAsync(2000, sinceUtc: periodCutoff).ConfigureAwait(true);
 
-        if (extended.Count == 0) return;
-
-        // Merge with existing cache, dedup by ID
-        var existingIds = _allRecentEvents.Select(e => e.Id).ToHashSet();
-        var merged = _allRecentEvents
-            .Concat(extended.Where(e => !existingIds.Contains(e.Id)))
+        // Merge with live events so we do not miss very recent ones,
+        // but do NOT write back to _allRecentEvents / _lastInterventionEvents.
+        var existingIds = fetched.Select(e => e.Id).ToHashSet();
+        var combined = fetched
+            .Concat(_lastInterventionEvents.Where(e => !existingIds.Contains(e.Id)))
             .OrderByDescending(e => e.Id)
             .ToList();
 
-        _allRecentEvents = merged;
-        _lastInterventionEvents = merged;
+        _actionsHistoricalCache[_actionsPeriod] = combined;
     }
 
     private void UpdateActionsPeriodTabs()
@@ -884,11 +881,26 @@ public partial class MainWindow : Window
     /// </summary>
     private void RepopulateActionsNewUI()
     {
-        if (_lastInterventionEvents.Count == 0) return;
-        var ordered = _lastInterventionEvents
-            .OrderByDescending(e => e.TimestampUtc)
-            .ToList();
-        PopulateActionsNewUI(ordered);
+        if (_actionsPeriod == HistoryPeriod.Day)
+        {
+            // Day always uses the live polling cache — never the backfill
+            if (_lastInterventionEvents.Count == 0) return;
+            PopulateActionsNewUI(_lastInterventionEvents
+                .OrderByDescending(e => e.TimestampUtc).ToList());
+        }
+        else
+        {
+            // Week / 2 Weeks use the separate historical cache
+            if (!_actionsHistoricalCache.TryGetValue(_actionsPeriod, out var hist) || hist.Count == 0)
+            {
+                // Cache not yet populated — show whatever we have from live polling
+                if (_lastInterventionEvents.Count == 0) return;
+                PopulateActionsNewUI(_lastInterventionEvents
+                    .OrderByDescending(e => e.TimestampUtc).ToList());
+                return;
+            }
+            PopulateActionsNewUI(hist.OrderByDescending(e => e.TimestampUtc).ToList());
+        }
     }
 
     /// <summary>
@@ -9732,6 +9744,7 @@ public partial class MainWindow : Window
 
     private record AlertRow(string Title, string When, string Reason, LocalApiEventResponse Source);
 }
+
 
 
 
