@@ -1737,13 +1737,7 @@
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#64748B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M20 4H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM2 18h20M8 22h8" /></Canvas></Viewbox>
                                     <TextBlock x:Name="AccountNavDevicesText" Text="Devices" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
                                 </StackPanel>
-                            </Border>
-                            <Border x:Name="AccountNavPrivacyBorder" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="privacy" MouseLeftButtonUp="AccountNavItem_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#64748B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 2l7 4v6c0 5-3.5 9-7 10C8.5 21 5 17 5 12V6l7-4z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="AccountNavPrivacyText" Text="Privacy &amp; consent" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
+                            </Border>
                             <Border BorderBrush="#1E293B" BorderThickness="0,1,0,0" Margin="4,8,4,8" />
                             <Border x:Name="AccountNavSignOutBorder" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="signout" MouseLeftButtonUp="AccountNavItem_Click">
                                 <StackPanel Orientation="Horizontal">
@@ -1784,7 +1778,7 @@
                                     </Border>
                                 </StackPanel>
                             </Border>
-                            <Border Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,12">
+                            <Border x:Name="AccountAccessCard" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,12">
                                 <StackPanel>
                                     <Grid Margin="0,0,0,10">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -1848,7 +1842,7 @@
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
-                            <Border x:Name="AccountSummarySectionPanel" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,12">
+                            <Border x:Name="AccountSummarySectionPanel" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,12" Visibility="Collapsed">
                                 <StackPanel>
                                     <TextBlock Text="SIGNED IN AS" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,12" />
                                     <Grid>
@@ -1866,17 +1860,28 @@
                                     </Border>
                                 </StackPanel>
                             </Border>
-                            <Grid x:Name="AccountPrimarySectionsGrid" Margin="0,0,0,12">
+                            <Grid x:Name="AccountPrimarySectionsGrid" Margin="0,0,0,12" Visibility="Collapsed">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                 <Border x:Name="AccountManageSectionPanel" Grid.Column="0" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,8,0">
                                     <StackPanel>
+                                        <Border x:Name="AccountManageProfileRow" Visibility="Collapsed" Margin="0,0,0,12" Background="#0D1117" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Padding="10,10">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Width="40" Height="40" CornerRadius="20" Background="#1F1A33" VerticalAlignment="Center" Margin="0,0,12,0">
+                                                    <TextBlock x:Name="AccountManageAvatarInitial" Text="A" FontSize="15" FontWeight="SemiBold" Foreground="#A5B4FC" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                </Border>
+                                                <StackPanel VerticalAlignment="Center">
+                                                    <TextBlock x:Name="AccountManageNameLabel" Text="" FontSize="13" FontWeight="Medium" Foreground="#F1F5F9" />
+                                                    <TextBlock x:Name="AccountManageEmailLabel" Text="" FontSize="12" Foreground="#475569" Margin="0,2,0,0" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
                                         <TextBlock Text="MANAGE ACCOUNT" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,12" />
                                         <TextBlock Text="Display name" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,4" />
-                                        <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,8"><TextBox x:Name="AccountDisplayNameTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
+                                        <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,4"><TextBox x:Name="AccountDisplayNameTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
+                                        <TextBlock x:Name="AccountProfileStatusText" Text="Sign in to change your display name." Margin="0,0,0,10" Foreground="#475569" TextWrapping="Wrap" FontSize="12" />
                                         <TextBlock Text="Email" FontSize="12" Foreground="#475569" />
-                                        <TextBlock x:Name="AccountReadOnlyEmailValue" Text="Not available" Margin="0,4,0,10" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
+                                        <TextBlock x:Name="AccountReadOnlyEmailValue" Text="Not available" Margin="0,4,0,12" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
                                         <Button x:Name="AccountSaveProfileButton" Content="Save display name" Padding="12,6" HorizontalAlignment="Left" Click="AccountSaveProfileButton_Click" />
-                                        <TextBlock x:Name="AccountProfileStatusText" Text="Sign in to change your display name." Margin="0,8,0,0" Foreground="#475569" TextWrapping="Wrap" FontSize="12" />
                                     </StackPanel>
                                 </Border>
                                 <Border x:Name="AccountWorkspaceSectionPanel" Grid.Column="1" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="8,0,0,0">
@@ -1891,59 +1896,88 @@
                                         <TextBlock Text="This device" FontSize="12" Foreground="#475569" />
                                         <TextBlock x:Name="AccountWorkspaceLinkValue" Text="Device identity unavailable" Margin="0,4,0,10" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
                                         <Button x:Name="AccountLinkWorkspaceButton" Content="Link current device to workspace" Padding="12,6" HorizontalAlignment="Left" Click="AccountLinkWorkspaceButton_Click" />
+                                        <Border x:Name="AccountWorkspaceInfoBox" Visibility="Collapsed" Background="#0F1820" BorderBrush="#1E3A5F" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,10,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="No workspace linked yet" FontSize="13" FontWeight="Medium" Foreground="#93C5FD" Margin="0,0,0,6" />
+                                                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#CBD5E1" Text="A workspace lets your team share access, roles, and device policies. Ask your admin for your workspace details, then link this device using the button above." />
+                                            </StackPanel>
+                                        </Border>
                                     </StackPanel>
                                 </Border>
                             </Grid>
-                            <Grid x:Name="AccountSecondarySectionsGrid" Margin="0,0,0,12">
+                            <Grid x:Name="AccountSecondarySectionsGrid" Margin="0,0,0,12" Visibility="Collapsed">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                 <Border x:Name="AccountSubscriptionSectionPanel" Grid.Column="0" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,8,0">
                                     <StackPanel>
                                         <TextBlock Text="SUBSCRIPTION" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,12" />
-                                        <TextBlock Text="Plan tier" FontSize="12" Foreground="#475569" />
-                                        <TextBlock x:Name="AccountPlanTierValue" Text="Not available" Margin="0,4,0,8" FontSize="12" Foreground="#94A3B8" />
-                                        <TextBlock x:Name="AccountSubscriptionStatusValue" Text="Sign in to see plan details." Foreground="#475569" TextWrapping="Wrap" FontSize="12" />
+                                        <TextBlock x:Name="AccountPlanTierValue" Visibility="Collapsed" />
+                                        <TextBlock x:Name="AccountSubscriptionStatusValue" Visibility="Collapsed" />
+                                        <StackPanel HorizontalAlignment="Center" Margin="0,20,0,20">
+                                            <Viewbox Width="36" Height="36" Margin="0,0,0,14" HorizontalAlignment="Center">
+                                                <Canvas Width="24" Height="24">
+                                                    <Path Fill="Transparent" Stroke="#1E293B" StrokeThickness="1.2" Data="M20 12V22H4V12M22 7H2v5h20V7zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" />
+                                                </Canvas>
+                                            </Viewbox>
+                                            <TextBlock Text="Subscription management coming soon" FontSize="13" FontWeight="Medium" Foreground="#475569" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,0,0,8" />
+                                            <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#334155" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="260" Text="Plan details, billing, and usage limits will appear here. For now, your access is managed directly by your workspace admin." />
+                                        </StackPanel>
                                     </StackPanel>
                                 </Border>
                                 <Border x:Name="AccountDevicesSectionPanel" Grid.Column="1" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="8,0,0,0">
                                     <StackPanel>
-                                        <TextBlock Text="DEVICES" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,12" />
-                                        <TextBlock Text="Current device" FontSize="12" Foreground="#475569" />
-                                        <TextBlock x:Name="AccountCurrentDeviceNameValue" Text="Not available" Margin="0,4,0,8" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
-                                        <TextBlock Text="Device ID" FontSize="12" Foreground="#475569" />
-                                        <TextBlock x:Name="AccountCurrentDeviceIdValue" Text="Not available" Margin="0,4,0,8" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
-                                        <TextBlock Text="Status" FontSize="12" Foreground="#475569" />
-                                        <TextBlock x:Name="AccountCurrentDeviceStatusValue" Text="Not available" Margin="0,4,0,8" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
-                                        <TextBlock Text="Last seen" FontSize="12" Foreground="#475569" />
-                                        <TextBlock x:Name="AccountCurrentDeviceLastSeenValue" Text="Not available" Margin="0,4,0,10" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
-                                        <Border BorderBrush="#1E293B" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,0,0,8">
-                                            <TextBlock Text="Other devices on this account" FontSize="12" Foreground="#475569" />
+                                        <Grid Margin="0,0,0,12">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <TextBlock Text="THIS DEVICE" FontSize="11" FontWeight="SemiBold" Foreground="#475569" VerticalAlignment="Center" />
+                                            <Border Grid.Column="1" Background="#0F3025" BorderBrush="#1A6040" BorderThickness="1" CornerRadius="10" Padding="8,2">
+                                                <TextBlock Text="● Running" FontSize="11" FontWeight="SemiBold" Foreground="#16C784" />
+                                            </Border>
+                                        </Grid>
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Device name" FontSize="12" Foreground="#475569" Margin="0,0,0,6" />
+                                            <TextBlock x:Name="AccountCurrentDeviceNameValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Operating system" FontSize="12" Foreground="#475569" Margin="0,0,0,6" />
+                                            <TextBlock x:Name="AccountCurrentDeviceOsValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="PORTA version" FontSize="12" Foreground="#475569" Margin="0,0,0,6" />
+                                            <TextBlock x:Name="AccountCurrentDeviceVersionValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Device ID" FontSize="12" Foreground="#475569" Margin="0,0,0,6" />
+                                            <TextBlock x:Name="AccountCurrentDeviceIdValue" Grid.Row="3" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Last active" FontSize="12" Foreground="#475569" />
+                                            <TextBlock x:Name="AccountCurrentDeviceLastSeenValue" Grid.Row="4" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" />
+                                        </Grid>
+                                        <TextBlock x:Name="AccountCurrentDeviceStatusValue" Visibility="Collapsed" />
+                                        <Border BorderBrush="#1E293B" BorderThickness="0,1,0,0" Padding="0,12,0,0" Margin="0,10,0,0">
+                                            <StackPanel>
+                                                <TextBlock Text="OTHER DEVICES ON THIS ACCOUNT" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
+                                                <TextBlock x:Name="AccountDevicesEmptyText" Text="Sign in to view this account's devices." Foreground="#475569" Margin="0,0,0,8" TextWrapping="Wrap" FontSize="12" />
+                                                <ItemsControl x:Name="AccountDevicesItemsControl">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Background="#0D1117" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,8">
+                                                                <StackPanel>
+                                                                    <DockPanel Margin="0,0,0,6">
+                                                                        <TextBlock Text="{Binding DisplayLabel}" FontWeight="SemiBold" Foreground="#E2E8F0" DockPanel.Dock="Left" FontSize="13" />
+                                                                        <Border Background="#1E293B" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right"><TextBlock Text="{Binding BadgeLabel}" Foreground="#BFDBFE" FontSize="11" /></Border>
+                                                                    </DockPanel>
+                                                                    <TextBlock Text="{Binding DetailLabel}" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,4" FontSize="12" />
+                                                                    <TextBlock Text="{Binding StatusLabel, StringFormat=Status: {0}}" Foreground="#E2E8F0" Margin="0,0,0,2" FontSize="12" />
+                                                                    <TextBlock Text="{Binding LastSeenLabel, StringFormat=Last seen: {0}}" Foreground="#64748B" Margin="0,0,0,8" FontSize="12" />
+                                                                    <WrapPanel>
+                                                                        <Button Content="Unlink" Padding="12,6" Margin="0,0,8,0" Tag="{Binding DeviceId}" IsEnabled="{Binding CanUnlink}" Click="AccountDeviceUnlinkButton_Click" />
+                                                                        <Button Content="Revoke" Padding="12,6" Tag="{Binding DeviceId}" IsEnabled="{Binding CanRevoke}" Click="AccountDeviceRevokeButton_Click" />
+                                                                    </WrapPanel>
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
                                         </Border>
-                                        <TextBlock x:Name="AccountDevicesEmptyText" Text="Sign in to view this account's devices." Foreground="#475569" Margin="0,0,0,8" TextWrapping="Wrap" FontSize="12" />
-                                        <ItemsControl x:Name="AccountDevicesItemsControl">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Border Background="#0D1117" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,8">
-                                                        <StackPanel>
-                                                            <DockPanel Margin="0,0,0,6">
-                                                                <TextBlock Text="{Binding DisplayLabel}" FontWeight="SemiBold" Foreground="#E2E8F0" DockPanel.Dock="Left" FontSize="13" />
-                                                                <Border Background="#1E293B" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right"><TextBlock Text="{Binding BadgeLabel}" Foreground="#BFDBFE" FontSize="11" /></Border>
-                                                            </DockPanel>
-                                                            <TextBlock Text="{Binding DetailLabel}" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,4" FontSize="12" />
-                                                            <TextBlock Text="{Binding StatusLabel, StringFormat=Status: {0}}" Foreground="#E2E8F0" Margin="0,0,0,2" FontSize="12" />
-                                                            <TextBlock Text="{Binding LastSeenLabel, StringFormat=Last seen: {0}}" Foreground="#64748B" Margin="0,0,0,8" FontSize="12" />
-                                                            <WrapPanel>
-                                                                <Button Content="Unlink" Padding="12,6" Margin="0,0,8,0" Tag="{Binding DeviceId}" IsEnabled="{Binding CanUnlink}" Click="AccountDeviceUnlinkButton_Click" />
-                                                                <Button Content="Revoke" Padding="12,6" Tag="{Binding DeviceId}" IsEnabled="{Binding CanRevoke}" Click="AccountDeviceRevokeButton_Click" />
-                                                            </WrapPanel>
-                                                        </StackPanel>
-                                                    </Border>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
                                     </StackPanel>
                                 </Border>
                             </Grid>
-                            <Border x:Name="AccountPrivacySectionPanel" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,12">
+                            <Border x:Name="AccountPrivacySectionPanel" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,12" Visibility="Collapsed">
                                 <StackPanel>
                                     <TextBlock Text="PRIVACY &amp; CONSENT" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,12" />
                                     <Grid>
@@ -1974,10 +2008,24 @@
                             </Border>
                             <Border x:Name="AccountSignOutSectionPanel" Background="#131920" BorderBrush="#7F1D1D" BorderThickness="1" CornerRadius="10" Padding="14,12" Visibility="Collapsed">
                                 <StackPanel>
-                                    <TextBlock Text="SIGN OUT" FontSize="11" FontWeight="SemiBold" Foreground="#F87171" Margin="0,0,0,12" />
-                                    <TextBlock Text="Signing out removes the saved sign-in from this PC. It does not uninstall PORTA or remove this device from your account unless you choose that in Devices." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" FontSize="12" />
-                                    <Button x:Name="AccountSignOutButton" Content="Sign out on this PC" Padding="12,6" Width="170" HorizontalAlignment="Left" Foreground="#F87171" BorderBrush="#7F1D1D" Click="AccountSignOutButton_Click" />
-                                </StackPanel>
+                                        <TextBlock Text="SIGN OUT" FontSize="11" FontWeight="SemiBold" Foreground="#F87171" Margin="0,0,0,12" />
+                                        <TextBlock x:Name="AccountSignOutNotSignedInText" Text="You are not currently signed in on this PC. There is nothing to sign out of." Foreground="#475569" TextWrapping="Wrap" FontSize="12" Visibility="Visible" />
+                                        <StackPanel x:Name="AccountSignOutSignedInContent" Visibility="Collapsed">
+                                            <Border Background="#0D1117" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Padding="10,10" Margin="0,0,0,12">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Border Width="34" Height="34" CornerRadius="17" Background="#1F1A33" VerticalAlignment="Center" Margin="0,0,10,0">
+                                                        <TextBlock x:Name="AccountSignOutAvatarInitial" Text="A" FontSize="12" FontWeight="SemiBold" Foreground="#A5B4FC" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                    </Border>
+                                                    <StackPanel VerticalAlignment="Center">
+                                                        <TextBlock x:Name="AccountSignOutNameLabel" Text="" FontSize="13" FontWeight="Medium" Foreground="#F1F5F9" />
+                                                        <TextBlock x:Name="AccountSignOutEmailLabel" Text="" FontSize="12" Foreground="#475569" Margin="0,2,0,0" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+                                            <TextBlock Text="Signing out removes the saved sign-in from this PC. It does not uninstall PORTA or remove this device from your account — manage devices separately in the Devices section." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" FontSize="12" />
+                                            <Button x:Name="AccountSignOutButton" Content="Sign out on this PC" Padding="12,6" Width="170" HorizontalAlignment="Left" Foreground="#F87171" BorderBrush="#7F1D1D" Click="AccountSignOutButton_Click" />
+                                        </StackPanel>
+                                    </StackPanel>
                             </Border>
                         </StackPanel>
                     </ScrollViewer>
@@ -2637,6 +2685,9 @@
         </Border>
     </Grid>
 </Window>
+
+
+
 
 
 

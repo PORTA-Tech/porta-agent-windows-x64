@@ -438,6 +438,10 @@ public partial class MainWindow
             && _latestIdentityLink != null
             && selectedWorkspace != null
             && NeedsWorkspaceLink(selectedWorkspace);
+        // Show info box when signed in but no workspace is linked yet
+        AccountWorkspaceInfoBox.Visibility = (signedIn && _accountWorkspaceOptions.Count == 0)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
         AccountWorkspaceNameValue.Text = ResolveWorkspaceDisplayName(selectedWorkspace);
         AccountWorkspaceRoleValue.Text = selectedWorkspace != null ? ToTitleCase(selectedWorkspace.Role) : NotAvailableText;
@@ -456,6 +460,8 @@ public partial class MainWindow
         ControlPlaneConsentRecord? accountLegalConsent = ResolveAccountLegalConsent();
         ControlPlaneConsentRecord? deviceCaptureConsent = ResolveCurrentDeviceCaptureConsent();
         AccountCurrentDeviceNameValue.Text = currentDevice?.DeviceDisplayName ?? Environment.MachineName;
+        AccountCurrentDeviceOsValue.Text = Environment.OSVersion.VersionString;
+        AccountCurrentDeviceVersionValue.Text = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "Unknown";
         AccountCurrentDeviceIdValue.Text = _latestIdentityLink?.DeviceId ?? NotAvailableText;
         AccountCurrentDeviceStatusValue.Text = currentDevice != null
             ? ToTitleCase(currentDevice.Status)
@@ -499,6 +505,33 @@ public partial class MainWindow
             : "Consent controls become available when the local service is reachable on this PC.";
 
         AccountSignOutButton.IsEnabled = signedIn;
+        // --- Manage account profile row ---
+        AccountManageProfileRow.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
+        if (signedIn && account != null)
+        {
+            string manageDisplayName = !string.IsNullOrWhiteSpace(account.DisplayName)
+                ? account.DisplayName
+                : account.PrimaryEmail ?? "Account";
+            AccountManageAvatarInitial.Text = manageDisplayName.Length > 0
+                ? manageDisplayName[0].ToString().ToUpperInvariant()
+                : "A";
+            AccountManageNameLabel.Text = manageDisplayName;
+            AccountManageEmailLabel.Text = account.PrimaryEmail ?? string.Empty;
+        }
+        // --- Sign out section ---
+        AccountSignOutNotSignedInText.Visibility = signedIn ? Visibility.Collapsed : Visibility.Visible;
+        AccountSignOutSignedInContent.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
+        if (signedIn && account != null)
+        {
+            string soDisplayName = !string.IsNullOrWhiteSpace(account.DisplayName)
+                ? account.DisplayName
+                : account.PrimaryEmail ?? "Account";
+            AccountSignOutAvatarInitial.Text = soDisplayName.Length > 0
+                ? soDisplayName[0].ToString().ToUpperInvariant()
+                : "A";
+            AccountSignOutNameLabel.Text = soDisplayName;
+            AccountSignOutEmailLabel.Text = account.PrimaryEmail ?? string.Empty;
+        }
         ShowAccountSection(_activeAccountSection);
     }
 
@@ -672,6 +705,10 @@ public partial class MainWindow
         bool showPrivacy = section == AccountSurfaceSection.Privacy;
         bool showSignOut = section == AccountSurfaceSection.SignOut;
 
+        // Hide the Access card (sign-in form) when on any section other than Summary,
+        // so section content is immediately visible without scrolling past the sign-in form.
+        AccountAccessCard.Visibility = showSummary ? Visibility.Visible : Visibility.Collapsed;
+
         AccountSummarySectionPanel.Visibility = showSummary ? Visibility.Visible : Visibility.Collapsed;
         ConfigureAccountPairLayout(AccountPrimarySectionsGrid, AccountManageSectionPanel, AccountWorkspaceSectionPanel, showManage, showWorkspace);
         ConfigureAccountPairLayout(AccountSecondarySectionsGrid, AccountSubscriptionSectionPanel, AccountDevicesSectionPanel, showSubscription, showDevices);
@@ -686,7 +723,7 @@ public partial class MainWindow
             (AccountNavWorkspaceBorder,    AccountNavWorkspaceText,    AccountSurfaceSection.Workspace),
             (AccountNavSubscriptionBorder, AccountNavSubscriptionText, AccountSurfaceSection.Subscription),
             (AccountNavDevicesBorder,      AccountNavDevicesText,      AccountSurfaceSection.Devices),
-            (AccountNavPrivacyBorder,      AccountNavPrivacyText,      AccountSurfaceSection.Privacy),
+            // Privacy nav item removed — handled in the Privacy page
         };
         var inactiveBg    = new SolidColorBrush(Colors.Transparent);
         var activeBg      = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#131920"));
@@ -1193,7 +1230,6 @@ public partial class MainWindow
                 "workspace"    => AccountSurfaceSection.Workspace,
                 "subscription" => AccountSurfaceSection.Subscription,
                 "devices"      => AccountSurfaceSection.Devices,
-                "privacy"      => AccountSurfaceSection.Privacy,
                 "signout"      => AccountSurfaceSection.SignOut,
                 _              => AccountSurfaceSection.Summary
             };
@@ -1478,6 +1514,7 @@ private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
         PopulateAccountSurface();
     }
 }
+
 
 
 
