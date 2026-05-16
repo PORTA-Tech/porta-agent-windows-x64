@@ -895,11 +895,10 @@ public partial class MainWindow : Window
             SetTrackingSection(tag);
     }
 
-    private string _openTrackingSection = "Observes";
+    private string? _openTrackingSection = null;
 
     private void SetTrackingSection(string tag)
     {
-        // (tag, navBorder, contentBorder, chevronTextBlock)
         var sections = new (string Tag, Border Nav, Border Content, TextBlock Chevron)[]
         {
             ("Observes",      TrackingNavObserves,      TrackingContentObserves,      TrackingChevronObserves),
@@ -909,30 +908,37 @@ public partial class MainWindow : Window
             ("Data",          TrackingNavData,          TrackingContentData,          TrackingChevronData),
         };
 
-        // Toggle: clicking the already-open section closes it (optional UX — keep one open instead)
-        // Here we keep one open at all times: if same tag clicked, do nothing
-        if (_openTrackingSection == tag) return;
-
-        _openTrackingSection = tag;
+        // Clicking the open section closes it; clicking a closed one opens it
+        _openTrackingSection = (_openTrackingSection == tag) ? null : tag;
 
         foreach (var (sTag, nav, content, chevron) in sections)
         {
-            bool isOpen = sTag == tag;
-
-            // Content visibility
+            bool isOpen = sTag == _openTrackingSection;
             content.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
-
-            // Nav border radius: open = top-rounded-only (connects to content panel below)
-            //                    closed = fully rounded pill
-            nav.CornerRadius = isOpen
-                ? new CornerRadius(10, 10, 0, 0)
-                : new CornerRadius(10);
-
-            // Chevron glyph and colour
+            nav.CornerRadius = isOpen ? new CornerRadius(10, 10, 0, 0) : new CornerRadius(10);
             chevron.Text = isOpen ? "−" : "+";
             chevron.Foreground = new SolidColorBrush(isOpen
                 ? Color.FromRgb(0x63, 0x66, 0xF1)
                 : Color.FromRgb(0x47, 0x55, 0x69));
+        }
+    }
+
+    private void ResetTrackingSections()
+    {
+        _openTrackingSection = null;
+        foreach (var (nav, content, chevron) in new (Border Nav, Border Content, TextBlock Chevron)[]
+        {
+            (TrackingNavObserves,      TrackingContentObserves,      TrackingChevronObserves),
+            (TrackingNavNeverCollects, TrackingContentNeverCollects, TrackingChevronNeverCollects),
+            (TrackingNavQuality,       TrackingContentQuality,       TrackingChevronQuality),
+            (TrackingNavPrivacy,       TrackingContentPrivacy,       TrackingChevronPrivacy),
+            (TrackingNavData,          TrackingContentData,          TrackingChevronData),
+        })
+        {
+            content.Visibility = Visibility.Collapsed;
+            nav.CornerRadius = new CornerRadius(10);
+            chevron.Text = "+";
+            chevron.Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69));
         }
     }
 
@@ -1008,6 +1014,9 @@ public partial class MainWindow : Window
 
     private void InputsNavButton_Click(object sender, RoutedEventArgs e)
     {
+        // Reset accordion to all-closed every time the user navigates to Tracking
+        _openTrackingSection = null;
+        SetTrackingSection(string.Empty); // collapses all, opens none
         ShowSection(UiSection.Inputs);
     }
 
@@ -1318,6 +1327,7 @@ public partial class MainWindow : Window
         TimelinePanel.Visibility = section == UiSection.Timeline ? Visibility.Visible : Visibility.Collapsed;
         InterventionsPanel.Visibility = section == UiSection.Interventions ? Visibility.Visible : Visibility.Collapsed;
         InputsPanel.Visibility = section == UiSection.Inputs ? Visibility.Visible : Visibility.Collapsed;
+        if (section == UiSection.Inputs) ResetTrackingSections();
         StatesPanel.Visibility = Visibility.Collapsed;
         AccountPanel.Visibility = section == UiSection.Account ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = section == UiSection.Settings ? Visibility.Visible : Visibility.Collapsed;
