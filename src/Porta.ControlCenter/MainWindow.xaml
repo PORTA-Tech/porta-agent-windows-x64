@@ -1163,43 +1163,8 @@
                               PanningMode="VerticalOnly">
                     <StackPanel Margin="20,20,20,32">
 
-                        <!-- Period tab selector — same style as History page -->
-                        <DockPanel Margin="0,0,0,16">
-                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Bottom">
-                                <Border x:Name="ActionsTabDay"
-                                        Background="Transparent" BorderThickness="0"
-                                        Cursor="Hand" Margin="0,0,24,0"
-                                        MouseLeftButtonUp="ActionsTabDay_Click">
-                                    <StackPanel>
-                                        <TextBlock x:Name="ActionsTabDayText" Text="Day"
-                                                   FontSize="13" FontWeight="SemiBold" Foreground="#A5B4FC" />
-                                        <Border x:Name="ActionsTabDayLine" Height="2" Background="#6366F1" Margin="0,3,0,0" />
-                                    </StackPanel>
-                                </Border>
-                                <Border x:Name="ActionsTabWeek"
-                                        Background="Transparent" BorderThickness="0"
-                                        Cursor="Hand" Margin="0,0,24,0"
-                                        MouseLeftButtonUp="ActionsTabWeek_Click">
-                                    <StackPanel>
-                                        <TextBlock x:Name="ActionsTabWeekText" Text="Week"
-                                                   FontSize="13" FontWeight="Medium" Foreground="#475569" />
-                                        <Border x:Name="ActionsTabWeekLine" Height="2" Background="Transparent" Margin="0,3,0,0" />
-                                    </StackPanel>
-                                </Border>
-                                <Border x:Name="ActionsTabTwoWeeks"
-                                        Background="Transparent" BorderThickness="0"
-                                        Cursor="Hand"
-                                        MouseLeftButtonUp="ActionsTabTwoWeeks_Click">
-                                    <StackPanel>
-                                        <TextBlock x:Name="ActionsTabTwoWeeksText" Text="2 Weeks"
-                                                   FontSize="13" FontWeight="Medium" Foreground="#475569" />
-                                        <Border x:Name="ActionsTabTwoWeeksLine" Height="2" Background="Transparent" Margin="0,3,0,0" />
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
-                            <TextBlock Text="Ari's actions" FontSize="16" FontWeight="SemiBold"
-                                       Foreground="#F1F5F9" VerticalAlignment="Bottom" />
-                        </DockPanel>
+                        <TextBlock Text="Ari's actions" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="#F1F5F9" Margin="0,0,0,16" />
 
                         <!-- Three summary cards -->
                         <UniformGrid Columns="3" Margin="0,0,0,16">

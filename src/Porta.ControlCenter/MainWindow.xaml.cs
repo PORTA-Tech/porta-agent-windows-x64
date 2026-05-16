@@ -85,10 +85,7 @@ public partial class MainWindow : Window
     private DateTimeOffset _lastManualRefreshUtc = DateTimeOffset.MinValue;
     private HistoryRange _historyRange = HistoryRange.AllTime;
     private HistoryPeriod _historyPeriod = HistoryPeriod.Day;
-    private HistoryPeriod _actionsPeriod = HistoryPeriod.Day;
     private IReadOnlyList<LocalApiEventResponse> _lastInterventionEvents = Array.Empty<LocalApiEventResponse>();
-    // Separate caches for Week/2Weeks — never mixed with the live polling cache
-    private Dictionary<HistoryPeriod, IReadOnlyList<LocalApiEventResponse>> _actionsHistoricalCache = new();
     private bool _historyExplainMode;
     private ActionsView _actionsView = ActionsView.Suggestions;
     private readonly DispatcherTimer _settingsAutoSaveTimer;
@@ -817,110 +814,18 @@ public partial class MainWindow : Window
 
     // ── Actions page period tabs ─────────────────────────────────────────────
 
-    private void ActionsTabDay_Click(object sender, MouseButtonEventArgs e)
-    {
-        _actionsPeriod = HistoryPeriod.Day;
-        UpdateActionsPeriodTabs();
-        RepopulateActionsNewUI();
-    }
-
-    private async void ActionsTabWeek_Click(object sender, MouseButtonEventArgs e)
-    {
-        _actionsPeriod = HistoryPeriod.Week;
-        UpdateActionsPeriodTabs();
-        await EnsureActionsHistoricalEventsAsync().ConfigureAwait(true);
-        RepopulateActionsNewUI();
-    }
-
-    private async void ActionsTabTwoWeeks_Click(object sender, MouseButtonEventArgs e)
-    {
-        _actionsPeriod = HistoryPeriod.TwoWeeks;
-        UpdateActionsPeriodTabs();
-        await EnsureActionsHistoricalEventsAsync().ConfigureAwait(true);
-        RepopulateActionsNewUI();
-    }
-
     /// <summary>
-    /// Backfills historical events when the user switches to Week or 2 Weeks.
-    /// The normal polling cache contains only ~50 recent events (today only).
-    /// If we have no events older than 24h, fetch up to 500 to fill in past days.
-    /// </summary>
-        private async Task EnsureActionsHistoricalEventsAsync()
-    {
-        // Each period gets its own isolated cache — never pollutes _lastInterventionEvents or _allRecentEvents.
-        // That keeps Day view showing exactly what the live poller sees.
-        if (_actionsHistoricalCache.ContainsKey(_actionsPeriod)) return;
-
-        DateTimeOffset periodCutoff = GetActionsPeriodCutoff();
-
-        // Fetch up to 2000 events since the period start (sinceUtc = "after this date")
-        IReadOnlyList<LocalApiEventResponse> fetched =
-            await _apiClient.GetRecentEventsAsync(2000, sinceUtc: periodCutoff).ConfigureAwait(true);
-
-        // Merge with live events so we do not miss very recent ones,
-        // but do NOT write back to _allRecentEvents / _lastInterventionEvents.
-        var existingIds = fetched.Select(e => e.Id).ToHashSet();
-        var combined = fetched
-            .Concat(_lastInterventionEvents.Where(e => !existingIds.Contains(e.Id)))
-            .OrderByDescending(e => e.Id)
-            .ToList();
-
-        _actionsHistoricalCache[_actionsPeriod] = combined;
-    }
-
-    private void UpdateActionsPeriodTabs()
-    {
-        ApplyHistoryPeriodTab(ActionsTabDayText,      ActionsTabDayLine,      _actionsPeriod == HistoryPeriod.Day);
-        ApplyHistoryPeriodTab(ActionsTabWeekText,     ActionsTabWeekLine,     _actionsPeriod == HistoryPeriod.Week);
-        ApplyHistoryPeriodTab(ActionsTabTwoWeeksText, ActionsTabTwoWeeksLine, _actionsPeriod == HistoryPeriod.TwoWeeks);
-    }
-
-    /// <summary>
-    /// Re-renders the Actions page from the cached event list with the current period filter.
-    /// Called when the user switches Day / Week / 2 Weeks — no API call needed.
+    /// Re-renders the Actions page from today's live polling cache.
+    /// Period tabs have been removed — the page always shows today's data.
     /// </summary>
     private void RepopulateActionsNewUI()
     {
-        if (_actionsPeriod == HistoryPeriod.Day)
-        {
-            // Day always uses the live polling cache — never the backfill
-            if (_lastInterventionEvents.Count == 0) return;
-            PopulateActionsNewUI(_lastInterventionEvents
-                .OrderByDescending(e => e.TimestampUtc).ToList());
-        }
-        else
-        {
-            // Week / 2 Weeks use the separate historical cache
-            if (!_actionsHistoricalCache.TryGetValue(_actionsPeriod, out var hist) || hist.Count == 0)
-            {
-                // Cache not yet populated — show whatever we have from live polling
-                if (_lastInterventionEvents.Count == 0) return;
-                PopulateActionsNewUI(_lastInterventionEvents
-                    .OrderByDescending(e => e.TimestampUtc).ToList());
-                return;
-            }
-            PopulateActionsNewUI(hist.OrderByDescending(e => e.TimestampUtc).ToList());
-        }
+        if (_lastInterventionEvents.Count == 0) return;
+        PopulateActionsNewUI(_lastInterventionEvents
+            .OrderByDescending(e => e.TimestampUtc).ToList());
     }
 
-    /// <summary>
-    /// Returns the UTC cutoff timestamp for the currently selected actions period.
-    /// Events older than this are excluded from the actions page visuals.
-    /// </summary>
-    private DateTimeOffset GetActionsPeriodCutoff()
-    {
-        return _actionsPeriod switch
-        {
-            // Day: start of today in local time
-            HistoryPeriod.Day =>
-                new DateTimeOffset(DateTime.Today, TimeZoneInfo.Local.GetUtcOffset(DateTime.Today)).ToUniversalTime(),
-            // Week: rolling 7 days
-            HistoryPeriod.Week     => DateTimeOffset.UtcNow.AddDays(-7),
-            // 2 Weeks: rolling 14 days
-            HistoryPeriod.TwoWeeks => DateTimeOffset.UtcNow.AddDays(-14),
-            _                      => DateTimeOffset.MinValue
-        };
-    }
+
 
     private static void ApplyHistoryPeriodTab(TextBlock text, Border underline, bool active)
     {
@@ -4269,9 +4174,8 @@ public partial class MainWindow : Window
         UpdateActionsTabControls();
 
         // ── New Actions page UI ────────────────────────────────────────
-        _lastInterventionEvents = events; // cache for period-tab re-renders
-        UpdateActionsPeriodTabs();
-        PopulateActionsNewUI(ordered);    // period filter applied inside
+        _lastInterventionEvents = events; // cache for re-renders
+        PopulateActionsNewUI(ordered);
 
         bool selectedStillExists = _selectedIntervention != null
             && ordered.Any(e => e.Id == _selectedIntervention.Id);
@@ -4292,8 +4196,9 @@ public partial class MainWindow : Window
 
     private void PopulateActionsNewUI(IReadOnlyList<LocalApiEventResponse> allOrdered)
     {
-        // ── Apply period filter ────────────────────────────────────────
-        DateTimeOffset cutoff = GetActionsPeriodCutoff();
+        // ── Apply today's cutoff filter ────────────────────────────────
+        DateTimeOffset cutoff = new DateTimeOffset(DateTime.Today,
+            TimeZoneInfo.Local.GetUtcOffset(DateTime.Today)).ToUniversalTime();
         var ordered = allOrdered
             .Where(e => e.TimestampUtc >= cutoff)
             .ToList();
@@ -4327,13 +4232,7 @@ public partial class MainWindow : Window
             .ToList();
 
         // ── Period label for the card subtitle ─────────────────────────
-        string periodSuffix = _actionsPeriod switch
-        {
-            HistoryPeriod.Day      => "today",
-            HistoryPeriod.Week     => "this week",
-            HistoryPeriod.TwoWeeks => "last 2 weeks",
-            _                      => ""
-        };
+        const string periodSuffix = "today";
 
         // ── Summary cards ──────────────────────────────────────────────
         ActionsCardSuggestionsCount.Text = suggestions.Count.ToString(CultureInfo.InvariantCulture);
