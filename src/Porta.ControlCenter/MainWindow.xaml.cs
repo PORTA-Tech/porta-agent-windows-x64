@@ -985,6 +985,55 @@ public partial class MainWindow : Window
     private void SettingsNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Settings);
+        ShowSettingsSection("Intensity");
+    }
+
+    private void SettingsSubNav_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Border b && b.Tag is string section)
+            ShowSettingsSection(section);
+    }
+
+    private void ShowSettingsSection(string section)
+    {
+        SettingsSectionIntensity.Visibility   = Visibility.Collapsed;
+        SettingsSectionPrivacy.Visibility     = Visibility.Collapsed;
+        SettingsSectionCollection.Visibility  = Visibility.Collapsed;
+        SettingsSectionCalibration.Visibility = Visibility.Collapsed;
+        SettingsSectionFeatures.Visibility    = Visibility.Collapsed;
+
+        var navItems = new[]
+        {
+            (SettingsNavIntensity,   SettingsNavIntensityText),
+            (SettingsNavPrivacy,     SettingsNavPrivacyText),
+            (SettingsNavCollection,  SettingsNavCollectionText),
+            (SettingsNavCalibration, SettingsNavCalibrationText),
+            (SettingsNavFeatures,    SettingsNavFeaturesText),
+        };
+        var inactiveColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#64748B"));
+        var inactiveBg    = new SolidColorBrush(Colors.Transparent);
+        foreach (var (border, label) in navItems)
+        {
+            border.Background = inactiveBg;
+            label.Foreground  = inactiveColor;
+            label.FontWeight  = FontWeights.Normal;
+        }
+
+        var activeColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E2E8F0"));
+        var activeBg    = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#131920"));
+        Border activeNav; TextBlock activeLabel; UIElement activeSection;
+        switch (section)
+        {
+            case "Privacy":     activeNav = SettingsNavPrivacy;     activeLabel = SettingsNavPrivacyText;     activeSection = SettingsSectionPrivacy;     break;
+            case "Collection":  activeNav = SettingsNavCollection;  activeLabel = SettingsNavCollectionText;  activeSection = SettingsSectionCollection;  break;
+            case "Calibration": activeNav = SettingsNavCalibration; activeLabel = SettingsNavCalibrationText; activeSection = SettingsSectionCalibration; break;
+            case "Features":    activeNav = SettingsNavFeatures;    activeLabel = SettingsNavFeaturesText;    activeSection = SettingsSectionFeatures;    break;
+            default:            activeNav = SettingsNavIntensity;   activeLabel = SettingsNavIntensityText;   activeSection = SettingsSectionIntensity;   break;
+        }
+        activeNav.Background   = activeBg;
+        activeLabel.Foreground = activeColor;
+        activeLabel.FontWeight = FontWeights.Medium;
+        activeSection.Visibility = Visibility.Visible;
     }
 
     private void DiagnosticsNavButton_Click(object sender, RoutedEventArgs e)
@@ -5376,7 +5425,7 @@ public partial class MainWindow : Window
         RegisterUnifiedScroll(InputsPanel);
         RegisterUnifiedScroll(InterventionsPanel);
         RegisterUnifiedScroll(ActionDetailsScrollViewer);
-        RegisterUnifiedScroll(SettingsPanel);
+        // SettingsPanel is now a Grid (two-column layout) — scroll is handled by its inner ScrollViewer
         RegisterUnifiedScroll(StatesPanel);
         RegisterUnifiedScroll(TimelinePanel);
         RegisterUnifiedScroll(AccountPanel);
@@ -9666,6 +9715,7 @@ public partial class MainWindow : Window
 
     private record AlertRow(string Title, string When, string Reason, LocalApiEventResponse Source);
 }
+
 
 
 
