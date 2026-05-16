@@ -4291,7 +4291,7 @@ public partial class MainWindow : Window
             .ToList();
 
         var changes = ordered
-            .Where(static e => IsSystemChangeEvent(e) && !IsInternalStateTransition(e))
+            .Where(static e => IsSystemChangeEvent(e) && !IsInternalStateTransition(e) && !IsEngineHeartbeatEvent(e))
             .Select(e => new ChangeRow(
                 WhatChanged: string.IsNullOrWhiteSpace(e.WhatChanged) ? HumanizeActionName(e.Action) : e.WhatChanged,
                 When: e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
@@ -4931,14 +4931,13 @@ public partial class MainWindow : Window
     /// Related events fired close together (e.g. break_started, break_reminder, break_ended)
     /// collapse into a single summary row showing the category label and a count badge.
     /// </summary>
-    /// <summary>
+        /// <summary>
     /// Returns true for events that are purely internal state transitions,
-    /// not user-facing actions. These should be excluded from counts and the log.
+    /// not user-facing actions. These are excluded from counts and the log.
     /// </summary>
     private static bool IsInternalStateTransition(LocalApiEventResponse ev)
     {
         string a = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
-        // Pure state tracking — the user never sees these as distinct actions
         return a is "break_started" or "break_ended"
                or "overlay_started" or "overlay_ended" or "overlay_recovered"
                or "accepted" or "dismissed"
@@ -4946,60 +4945,65 @@ public partial class MainWindow : Window
                or "suggest_break" or "break_active" or "break_inactive";
     }
 
+    /// <summary>
+    /// Returns true for high-frequency engine heartbeat events that fire on every
+    /// analysis bucket (every few seconds) and are not meaningful as individual actions.
+    /// </summary>
+    private static bool IsEngineHeartbeatEvent(LocalApiEventResponse ev)
+    {
+        string a = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+        // These fire constantly while conditions are met — not user-visible actions
+        return a is "focus_assist_enabled" or "focus_assist_disabled"
+               or "deep_work_notifications_suppressed" or "deep_work_notifications_restored"
+               or "focus_mode_nudge" or "focus_mode_enabled" or "focus_mode_disabled"
+               or "suppress_notifications" or "restore_notifications";
+    }
+
+    /// <summary>
+    /// Groups events by ActionCategory.
+    /// Before grouping:
+    ///   1. Strips internal state transitions (break_started/ended, accepted, etc.)
+    ///   2. Strips high-frequency engine heartbeat events (focus_assist_enabled, deep_work_*)
+    ///   3. Deduplicates: same action within 5 minutes = 1 occurrence (engine fires many times)
+    /// Result: one row per category, sorted by most recent.
+    /// </summary>
     private static List<(string Title, int Count, ActionCategory Category, DateTimeOffset Latest)>
         CollapseByTimeAndCategory(List<LocalApiEventResponse> events)
     {
-        // 90-minute window: a break session (show → started → ended) spans up to ~30 min;
-        // 90 min ensures the whole episode collapses to one row.
-        const double WindowMinutes = 90d;
-        var result = new List<(string, int, ActionCategory, DateTimeOffset)>();
-        if (events.Count == 0) return result;
-
-        // Strip pure state-transition events before grouping — they inflate counts
-        // without representing anything the user experienced.
-        var sorted = events
-            .Where(e => !IsInternalStateTransition(e))
-            .OrderBy(e => e.TimestampUtc)
+        // Step 1: strip internal state + engine heartbeat events
+        var filtered = events
+            .Where(e => !IsInternalStateTransition(e) && !IsEngineHeartbeatEvent(e))
             .ToList();
 
-        ActionCategory? groupCat = null;
-        DateTimeOffset groupStart = DateTimeOffset.MinValue;
-        DateTimeOffset groupLatest = DateTimeOffset.MinValue;
-        int groupCount = 0;
-        LocalApiEventResponse? groupAnchor = null;
-
-        void Flush()
+        // Step 2: deduplicate rapid-fire events — same action within 5 minutes = 1 occurrence
+        var deduped = new List<LocalApiEventResponse>();
+        var lastByAction = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ev in filtered.OrderBy(e => e.TimestampUtc))
         {
-            if (groupAnchor == null || groupCat == null) return;
-            string title = groupCount == 1
-                ? GetUserFriendlyActionTitle(groupAnchor)
-                : GetActionCategoryLabel(groupCat.Value);
-            result.Add((title, groupCount, groupCat.Value, groupLatest));
-            groupAnchor = null; groupCat = null; groupCount = 0;
-            groupStart = groupLatest = DateTimeOffset.MinValue;
-        }
-
-        foreach (var ev in sorted)
-        {
-            var cat = ResolveActionCategory(ev);
-            double minutesSinceStart = groupCount > 0
-                ? (ev.TimestampUtc - groupStart).TotalMinutes
-                : 0d;
-
-            bool sameGroup = groupCat == cat && minutesSinceStart <= WindowMinutes;
-            if (!sameGroup) Flush();
-
-            if (groupCount == 0)
+            string key = ev.Action?.ToLowerInvariant() ?? "";
+            if (lastByAction.TryGetValue(key, out var prev)
+                && (ev.TimestampUtc - prev).TotalMinutes < 5d)
             {
-                groupCat = cat;
-                groupStart = ev.TimestampUtc;
-                groupAnchor = ev;
+                continue; // drop this rapid-fire duplicate
             }
-            groupLatest = ev.TimestampUtc;
-            groupCount++;
+            lastByAction[key] = ev.TimestampUtc;
+            deduped.Add(ev);
         }
-        Flush();
-        return result;
+
+        // Step 3: group by category — one row per category, no interleaving issues
+        return deduped
+            .GroupBy(e => ResolveActionCategory(e))
+            .Select(g =>
+            {
+                var anchor = g.OrderBy(e => e.TimestampUtc).First();
+                int cnt = g.Count();
+                string title = cnt == 1
+                    ? GetUserFriendlyActionTitle(anchor)
+                    : GetActionCategoryLabel(g.Key);
+                return (title, cnt, g.Key, g.Max(e => e.TimestampUtc));
+            })
+            .OrderByDescending(g => g.Item4)
+            .ToList();
     }
     private static FrameworkElement BuildActionsGroupedLog(
         List<LocalApiEventResponse> events, DateTimeOffset now)
@@ -5635,7 +5639,7 @@ public partial class MainWindow : Window
         bool isKnownUseful = action is
             "inform_overload_watch" or
             "inform_pressure_rising" or
-            "inform_break_due" or
+            // inform_break_due excluded: the user sees show_break_overlay, not this internal signal
             "inform_focus_lock_in" or
             "inform_overload_rising" or
             "inform_pressure_watch" or
@@ -9719,6 +9723,9 @@ public partial class MainWindow : Window
 
     private record AlertRow(string Title, string When, string Reason, LocalApiEventResponse Source);
 }
+
+
+
 
 
 
