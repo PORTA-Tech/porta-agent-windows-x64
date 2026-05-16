@@ -4963,21 +4963,42 @@ public partial class MainWindow : Window
                or "overlay_started" or "overlay_ended" or "overlay_recovered"
                or "accepted" or "dismissed"
                or "break_accepted" or "break_dismissed"
-               or "suggest_break" or "break_active" or "break_inactive";
+               or "suggest_break" or "break_active" or "break_inactive"
+               or "break_recommended" or "break_triggered";
     }
 
     /// <summary>
-    /// Returns true for high-frequency engine heartbeat events that fire on every
-    /// analysis bucket (every few seconds) and are not meaningful as individual actions.
+    /// Returns true for high-frequency engine heartbeat or internal recording events
+    /// that are not meaningful as individual user-visible actions.
+    /// Uses prefix/substring matching so any future engine event with these patterns
+    /// is automatically excluded without needing a list update.
     /// </summary>
     private static bool IsEngineHeartbeatEvent(LocalApiEventResponse ev)
     {
         string a = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
-        // These fire constantly while conditions are met — not user-visible actions
-        return a is "focus_assist_enabled" or "focus_assist_disabled"
+        if (string.IsNullOrEmpty(a)) return false;
+
+        // Exact known heartbeat names
+        if (a is "focus_assist_enabled" or "focus_assist_disabled"
                or "deep_work_notifications_suppressed" or "deep_work_notifications_restored"
                or "focus_mode_nudge" or "focus_mode_enabled" or "focus_mode_disabled"
-               or "suppress_notifications" or "restore_notifications";
+               or "suppress_notifications" or "restore_notifications")
+            return true;
+
+        // Pattern-based: any engine internal recording/intent/signal
+        // These fire constantly on analysis buckets — never a single user action
+        if (a.Contains("policy_intent", StringComparison.Ordinal)) return true;
+        if (a.Contains("_intent_recorded", StringComparison.Ordinal)) return true;
+        if (a.Contains("_heartbeat", StringComparison.Ordinal)) return true;
+        if (a.Contains("_bucket", StringComparison.Ordinal)) return true;
+        if (a.Contains("_signal", StringComparison.Ordinal)) return true;
+        if (a.Contains("_tick", StringComparison.Ordinal)) return true;
+
+        // Prefix-based: entire families of continuous engine events
+        if (a.StartsWith("focus_assist_", StringComparison.Ordinal)) return true;
+        if (a.StartsWith("deep_work_", StringComparison.Ordinal)) return true;
+
+        return false;
     }
 
     /// <summary>
@@ -4996,16 +5017,18 @@ public partial class MainWindow : Window
             .Where(e => !IsInternalStateTransition(e) && !IsEngineHeartbeatEvent(e))
             .ToList();
 
-        // Step 2: deduplicate rapid-fire events — same action within 5 minutes = 1 occurrence
+        // Step 2: deduplicate — same action within 30 minutes = 1 occurrence.
+        // 30 minutes covers a full break or focus session so related firings collapse
+        // into one entry rather than splitting across multiple groups.
         var deduped = new List<LocalApiEventResponse>();
         var lastByAction = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
         foreach (var ev in filtered.OrderBy(e => e.TimestampUtc))
         {
             string key = ev.Action?.ToLowerInvariant() ?? "";
             if (lastByAction.TryGetValue(key, out var prev)
-                && (ev.TimestampUtc - prev).TotalMinutes < 5d)
+                && (ev.TimestampUtc - prev).TotalMinutes < 30d)
             {
-                continue; // drop this rapid-fire duplicate
+                continue; // collapse rapid-fire or session-scoped duplicate
             }
             lastByAction[key] = ev.TimestampUtc;
             deduped.Add(ev);
