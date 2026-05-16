@@ -845,16 +845,22 @@ public partial class MainWindow : Window
     /// </summary>
     private async Task EnsureActionsHistoricalEventsAsync()
     {
-        var cutoff24h = DateTimeOffset.UtcNow.AddHours(-24);
-        bool hasHistorical = _allRecentEvents.Any(e => e.TimestampUtc < cutoff24h);
-        if (hasHistorical) return; // already have multi-day data
+        // Use the period cutoff as sinceUtc so the API returns events
+        // from that date onward — not just the most-recent N events which
+        // are all from today when heartbeats dominate.
+        DateTimeOffset periodCutoff = GetActionsPeriodCutoff();
+        bool alreadyHaveRange = _allRecentEvents.Any(e => e.TimestampUtc <= periodCutoff.AddHours(1));
+        if (alreadyHaveRange) return;
 
+        // Request up to 2000 events since the period start.
+        // Heartbeat filtering happens in PopulateActionsNewUI, so even with
+        // many heartbeat events in the response the charts will be accurate.
         IReadOnlyList<LocalApiEventResponse> extended =
-            await _apiClient.GetRecentEventsAsync(500).ConfigureAwait(true);
+            await _apiClient.GetRecentEventsAsync(2000, sinceUtc: periodCutoff).ConfigureAwait(true);
 
-        if (extended.Count <= _allRecentEvents.Count) return; // no new data
+        if (extended.Count == 0) return;
 
-        // Merge: keep existing + add any IDs we do not already have
+        // Merge with existing cache, dedup by ID
         var existingIds = _allRecentEvents.Select(e => e.Id).ToHashSet();
         var merged = _allRecentEvents
             .Concat(extended.Where(e => !existingIds.Contains(e.Id)))
@@ -4346,9 +4352,12 @@ public partial class MainWindow : Window
         ActionsUnifiedFeed.Visibility = allEmpty ? Visibility.Collapsed : Visibility.Visible;
         if (allEmpty) return;
 
-        // All events for the selected period (not just the three typed subsets)
+        // All events for the selected period — same filters as the cards
+        // so Breakdown, Hourly, and "What Happened" are all in sync.
         var allRows = ordered
-            .Where(e => !string.IsNullOrWhiteSpace(e.Action))
+            .Where(e => !string.IsNullOrWhiteSpace(e.Action)
+                     && !IsInternalStateTransition(e)
+                     && !IsEngineHeartbeatEvent(e))
             .ToList();
 
         DateTimeOffset now = DateTimeOffset.Now;
@@ -9723,6 +9732,7 @@ public partial class MainWindow : Window
 
     private record AlertRow(string Title, string When, string Reason, LocalApiEventResponse Source);
 }
+
 
 
 
