@@ -5428,7 +5428,7 @@ public partial class MainWindow : Window
         // SettingsPanel is now a Grid (two-column layout) — scroll is handled by its inner ScrollViewer
         RegisterUnifiedScroll(StatesPanel);
         RegisterUnifiedScroll(TimelinePanel);
-        RegisterUnifiedScroll(AccountPanel);
+        // AccountPanel is now a Grid (two-column layout) — scroll is handled by its inner ScrollViewer
         RegisterUnifiedScroll(DiagnosticsPanel);
     }
 
@@ -9715,6 +9715,7 @@ public partial class MainWindow : Window
 
     private record AlertRow(string Title, string When, string Reason, LocalApiEventResponse Source);
 }
+
 
 
 

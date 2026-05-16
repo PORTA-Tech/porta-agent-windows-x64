@@ -1,9 +1,11 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Porta.Agent.LocalApi;
 using Porta.ControlCenter.Identity;
 
@@ -381,14 +383,14 @@ public partial class MainWindow
                 : "A";
             // Device: use first device from profile, or the linked device name
             ControlPlaneDeviceProfile? thisDevice = _accountProfile?.Devices.FirstOrDefault();
-            AccountProfileDeviceText.Text = thisDevice?.DeviceDisplayName ?? thisDevice?.MachineName ?? "—";
+            AccountProfileDeviceText.Text = thisDevice?.DeviceDisplayName ?? thisDevice?.MachineName ?? "â€”";
             // Workspace: first org name
             ControlPlaneAccountMembershipView? firstOrg = _accountProfile?.Organizations.FirstOrDefault();
-            AccountProfileWorkspaceText.Text = firstOrg?.Organization?.OrgName ?? "—";
+            AccountProfileWorkspaceText.Text = firstOrg?.Organization?.OrgName ?? "â€”";
             // Session ID: abbreviate
             AccountProfileSessionText.Text = _accountSession?.AccountId is { Length: > 0 } aid
-                ? (aid.Length > 14 ? aid[..14] + "…" : aid)
-                : "—";
+                ? (aid.Length > 14 ? aid[..14] + "â€¦" : aid)
+                : "â€”";
         }
 
         AccountSignInButton.IsEnabled = !signedIn && backendConfigured;
@@ -496,13 +498,6 @@ public partial class MainWindow
                 : "If the consent overlay did not appear, use this button to allow capture on this PC.")
             : "Consent controls become available when the local service is reachable on this PC.";
 
-        AccountSummaryMenuButton.IsEnabled = true;
-        AccountManageMenuButton.IsEnabled = true;
-        AccountWorkspaceMenuButton.IsEnabled = true;
-        AccountSubscriptionMenuButton.IsEnabled = true;
-        AccountDevicesMenuButton.IsEnabled = true;
-        AccountPrivacyMenuButton.IsEnabled = true;
-        AccountSignOutMenuButton.IsEnabled = signedIn;
         AccountSignOutButton.IsEnabled = signedIn;
         ShowAccountSection(_activeAccountSection);
     }
@@ -683,13 +678,29 @@ public partial class MainWindow
         AccountPrivacySectionPanel.Visibility = showPrivacy ? Visibility.Visible : Visibility.Collapsed;
         AccountSignOutSectionPanel.Visibility = showSignOut ? Visibility.Visible : Visibility.Collapsed;
 
-        ApplyHistoryButtonState(AccountSummaryMenuButton, section == AccountSurfaceSection.Summary);
-        ApplyHistoryButtonState(AccountManageMenuButton, section == AccountSurfaceSection.ManageAccount);
-        ApplyHistoryButtonState(AccountWorkspaceMenuButton, section == AccountSurfaceSection.Workspace);
-        ApplyHistoryButtonState(AccountSubscriptionMenuButton, section == AccountSurfaceSection.Subscription);
-        ApplyHistoryButtonState(AccountDevicesMenuButton, section == AccountSurfaceSection.Devices);
-        ApplyHistoryButtonState(AccountPrivacyMenuButton, section == AccountSurfaceSection.Privacy);
-        ApplyHistoryButtonState(AccountSignOutMenuButton, section == AccountSurfaceSection.SignOut);
+        // Update vertical nav item appearances
+        var navItems = new (Border border, TextBlock label, AccountSurfaceSection targetSection)[]
+        {
+            (AccountNavSummaryBorder,      AccountNavSummaryText,      AccountSurfaceSection.Summary),
+            (AccountNavManageBorder,       AccountNavManageText,       AccountSurfaceSection.ManageAccount),
+            (AccountNavWorkspaceBorder,    AccountNavWorkspaceText,    AccountSurfaceSection.Workspace),
+            (AccountNavSubscriptionBorder, AccountNavSubscriptionText, AccountSurfaceSection.Subscription),
+            (AccountNavDevicesBorder,      AccountNavDevicesText,      AccountSurfaceSection.Devices),
+            (AccountNavPrivacyBorder,      AccountNavPrivacyText,      AccountSurfaceSection.Privacy),
+        };
+        var inactiveBg    = new SolidColorBrush(Colors.Transparent);
+        var activeBg      = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#131920"));
+        var activeColor   = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E2E8F0"));
+        var inactiveColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#64748B"));
+        foreach (var (border, label, targetSection) in navItems)
+        {
+            bool isActive = section == targetSection;
+            border.Background = isActive ? activeBg : inactiveBg;
+            label.Foreground  = isActive ? activeColor : inactiveColor;
+            label.FontWeight  = isActive ? FontWeights.Medium : FontWeights.Normal;
+        }
+        bool signOutActive = section == AccountSurfaceSection.SignOut;
+        AccountNavSignOutBorder.Background = signOutActive ? activeBg : inactiveBg;
     }
 
     private static void ConfigureAccountPairLayout(
@@ -1139,6 +1150,7 @@ public partial class MainWindow
     private async void AccountNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Account);
+        ShowAccountSection(AccountSurfaceSection.Summary); // default to "Signed in as" on every open
         await RefreshAccountSurfaceAsync(force: true).ConfigureAwait(true);
     }
 
@@ -1170,7 +1182,25 @@ public partial class MainWindow
         return true;
     }
 
-    private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
+    
+    private void AccountNavItem_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Border b && b.Tag is string tag)
+        {
+            AccountSurfaceSection section = tag switch
+            {
+                "manage"       => AccountSurfaceSection.ManageAccount,
+                "workspace"    => AccountSurfaceSection.Workspace,
+                "subscription" => AccountSurfaceSection.Subscription,
+                "devices"      => AccountSurfaceSection.Devices,
+                "privacy"      => AccountSurfaceSection.Privacy,
+                "signout"      => AccountSurfaceSection.SignOut,
+                _              => AccountSurfaceSection.Summary
+            };
+            ShowAccountSection(section);
+        }
+    }
+private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button button || button.Tag is not string tag)
         {
@@ -1448,3 +1478,7 @@ public partial class MainWindow
         PopulateAccountSurface();
     }
 }
+
+
+
+
