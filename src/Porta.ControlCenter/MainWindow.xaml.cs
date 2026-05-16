@@ -822,18 +822,47 @@ public partial class MainWindow : Window
         RepopulateActionsNewUI();
     }
 
-    private void ActionsTabWeek_Click(object sender, MouseButtonEventArgs e)
+    private async void ActionsTabWeek_Click(object sender, MouseButtonEventArgs e)
     {
         _actionsPeriod = HistoryPeriod.Week;
         UpdateActionsPeriodTabs();
+        await EnsureActionsHistoricalEventsAsync().ConfigureAwait(true);
         RepopulateActionsNewUI();
     }
 
-    private void ActionsTabTwoWeeks_Click(object sender, MouseButtonEventArgs e)
+    private async void ActionsTabTwoWeeks_Click(object sender, MouseButtonEventArgs e)
     {
         _actionsPeriod = HistoryPeriod.TwoWeeks;
         UpdateActionsPeriodTabs();
+        await EnsureActionsHistoricalEventsAsync().ConfigureAwait(true);
         RepopulateActionsNewUI();
+    }
+
+    /// <summary>
+    /// Backfills historical events when the user switches to Week or 2 Weeks.
+    /// The normal polling cache contains only ~50 recent events (today only).
+    /// If we have no events older than 24h, fetch up to 500 to fill in past days.
+    /// </summary>
+    private async Task EnsureActionsHistoricalEventsAsync()
+    {
+        var cutoff24h = DateTimeOffset.UtcNow.AddHours(-24);
+        bool hasHistorical = _allRecentEvents.Any(e => e.TimestampUtc < cutoff24h);
+        if (hasHistorical) return; // already have multi-day data
+
+        IReadOnlyList<LocalApiEventResponse> extended =
+            await _apiClient.GetRecentEventsAsync(500).ConfigureAwait(true);
+
+        if (extended.Count <= _allRecentEvents.Count) return; // no new data
+
+        // Merge: keep existing + add any IDs we do not already have
+        var existingIds = _allRecentEvents.Select(e => e.Id).ToHashSet();
+        var merged = _allRecentEvents
+            .Concat(extended.Where(e => !existingIds.Contains(e.Id)))
+            .OrderByDescending(e => e.Id)
+            .ToList();
+
+        _allRecentEvents = merged;
+        _lastInterventionEvents = merged;
     }
 
     private void UpdateActionsPeriodTabs()
@@ -4897,6 +4926,60 @@ public partial class MainWindow : Window
     /// Section 3 — grouped feed: one row per unique friendly title, count badge, last seen.
     /// Replaces the old 47-identical-row list.
     /// </summary>
+    /// <summary>
+    /// Groups events by ActionCategory + 5-minute time proximity windows.
+    /// Related events fired close together (e.g. break_started, break_reminder, break_ended)
+    /// collapse into a single summary row showing the category label and a count badge.
+    /// </summary>
+    private static List<(string Title, int Count, ActionCategory Category, DateTimeOffset Latest)>
+        CollapseByTimeAndCategory(List<LocalApiEventResponse> events)
+    {
+        const double WindowMinutes = 5d;
+        var result = new List<(string, int, ActionCategory, DateTimeOffset)>();
+        if (events.Count == 0) return result;
+
+        // Work oldest-first so the 5-min window extends forward in time
+        var sorted = events.OrderBy(e => e.TimestampUtc).ToList();
+
+        ActionCategory? groupCat = null;
+        DateTimeOffset groupStart = DateTimeOffset.MinValue;
+        DateTimeOffset groupLatest = DateTimeOffset.MinValue;
+        int groupCount = 0;
+        LocalApiEventResponse? groupAnchor = null;
+
+        void Flush()
+        {
+            if (groupAnchor == null || groupCat == null) return;
+            string title = groupCount == 1
+                ? GetUserFriendlyActionTitle(groupAnchor)
+                : GetActionCategoryLabel(groupCat.Value);
+            result.Add((title, groupCount, groupCat.Value, groupLatest));
+            groupAnchor = null; groupCat = null; groupCount = 0;
+            groupStart = groupLatest = DateTimeOffset.MinValue;
+        }
+
+        foreach (var ev in sorted)
+        {
+            var cat = ResolveActionCategory(ev);
+            double minutesSinceStart = groupCount > 0
+                ? (ev.TimestampUtc - groupStart).TotalMinutes
+                : 0d;
+
+            bool sameGroup = groupCat == cat && minutesSinceStart <= WindowMinutes;
+            if (!sameGroup) Flush();
+
+            if (groupCount == 0)
+            {
+                groupCat = cat;
+                groupStart = ev.TimestampUtc;
+                groupAnchor = ev;
+            }
+            groupLatest = ev.TimestampUtc;
+            groupCount++;
+        }
+        Flush();
+        return result;
+    }
     private static FrameworkElement BuildActionsGroupedLog(
         List<LocalApiEventResponse> events, DateTimeOffset now)
     {
@@ -4919,17 +5002,10 @@ public partial class MainWindow : Window
             Margin     = new Thickness(0, 0, 0, 12)
         });
 
-        // Group by user-friendly title — collapses duplicates into one row with a count
-        var groups = events
-            .GroupBy(e => GetUserFriendlyActionTitle(e))
-            .Select(g => new
-            {
-                Title    = g.Key,
-                Count    = g.Count(),
-                Category = ResolveActionCategory(g.First()),
-                Latest   = g.Max(e => e.TimestampUtc)
-            })
-            .OrderByDescending(g => g.Count)
+        // Group by category + 5-minute time windows so related events (break_started,
+        // break_reminder, break_ended) collapse into a single row with a count.
+        var groups = CollapseByTimeAndCategory(events)
+            .OrderByDescending(g => g.Latest)
             .ToList();
 
         bool firstGroup = true;
@@ -9622,5 +9698,8 @@ public partial class MainWindow : Window
 
     private record AlertRow(string Title, string When, string Reason, LocalApiEventResponse Source);
 }
+
+
+
 
 
