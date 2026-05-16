@@ -4291,7 +4291,7 @@ public partial class MainWindow : Window
             .ToList();
 
         var changes = ordered
-            .Where(static e => IsSystemChangeEvent(e))
+            .Where(static e => IsSystemChangeEvent(e) && !IsInternalStateTransition(e))
             .Select(e => new ChangeRow(
                 WhatChanged: string.IsNullOrWhiteSpace(e.WhatChanged) ? HumanizeActionName(e.Action) : e.WhatChanged,
                 When: e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
@@ -4931,15 +4931,36 @@ public partial class MainWindow : Window
     /// Related events fired close together (e.g. break_started, break_reminder, break_ended)
     /// collapse into a single summary row showing the category label and a count badge.
     /// </summary>
+    /// <summary>
+    /// Returns true for events that are purely internal state transitions,
+    /// not user-facing actions. These should be excluded from counts and the log.
+    /// </summary>
+    private static bool IsInternalStateTransition(LocalApiEventResponse ev)
+    {
+        string a = ev.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+        // Pure state tracking — the user never sees these as distinct actions
+        return a is "break_started" or "break_ended"
+               or "overlay_started" or "overlay_ended" or "overlay_recovered"
+               or "accepted" or "dismissed"
+               or "break_accepted" or "break_dismissed"
+               or "suggest_break" or "break_active" or "break_inactive";
+    }
+
     private static List<(string Title, int Count, ActionCategory Category, DateTimeOffset Latest)>
         CollapseByTimeAndCategory(List<LocalApiEventResponse> events)
     {
-        const double WindowMinutes = 5d;
+        // 90-minute window: a break session (show → started → ended) spans up to ~30 min;
+        // 90 min ensures the whole episode collapses to one row.
+        const double WindowMinutes = 90d;
         var result = new List<(string, int, ActionCategory, DateTimeOffset)>();
         if (events.Count == 0) return result;
 
-        // Work oldest-first so the 5-min window extends forward in time
-        var sorted = events.OrderBy(e => e.TimestampUtc).ToList();
+        // Strip pure state-transition events before grouping — they inflate counts
+        // without representing anything the user experienced.
+        var sorted = events
+            .Where(e => !IsInternalStateTransition(e))
+            .OrderBy(e => e.TimestampUtc)
+            .ToList();
 
         ActionCategory? groupCat = null;
         DateTimeOffset groupStart = DateTimeOffset.MinValue;
@@ -9698,6 +9719,7 @@ public partial class MainWindow : Window
 
     private record AlertRow(string Title, string When, string Reason, LocalApiEventResponse Source);
 }
+
 
 
 
