@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -3585,6 +3585,7 @@ public partial class MainWindow : Window
         HealthSessionRecoveryValue.Text = view.RecoveryStateLabel;
         HealthSessionWarningValue.Text = view.WarningText;
         HealthSessionWarningValue.Foreground = detailBrush;
+        ApplyStatusBadge(HealthSessionBadge, HealthSessionBadgeText, HealthSessionDot, view.StatusLabel);
     }
 
     private void UpdateInputTruthCards(LocalApiStatusResponse? status, LocalApiLiveSessionStateResponse? liveSession, bool statusFresh)
@@ -3603,6 +3604,7 @@ public partial class MainWindow : Window
         HealthInputOwnershipReasonValue.Text = view.OwnershipReasonLabel;
         HealthInputWarningValue.Text = view.WarningText;
         HealthInputWarningValue.Foreground = detailBrush;
+        ApplyStatusBadge(HealthInputBadge, HealthInputBadgeText, HealthInputDot, view.StatusLabel);
     }
 
     private void UpdateStateTruthCards(
@@ -3621,6 +3623,12 @@ public partial class MainWindow : Window
         HealthStateModesValue.Text = view.ModesLabel;
         HealthStateWarningValue.Text = view.WarningText;
         HealthStateWarningValue.Foreground = detailBrush;
+        var stateBadgeLabel = HealthStateConfidenceValue.Text.StartsWith("High", StringComparison.OrdinalIgnoreCase) ? "Confident"
+            : HealthStateConfidenceValue.Text == "Not available" ? "Unknown"
+            : "Watching";
+        ApplyStatusBadge(HealthStateBadge, HealthStateBadgeText, HealthStateDot,
+            stateBadgeLabel == "Confident" ? "Healthy" : "Watching");
+        HealthStateBadgeText.Text = stateBadgeLabel;
     }
 
     private void UpdateActionTruthCards(
@@ -3639,6 +3647,29 @@ public partial class MainWindow : Window
         HealthActionWhenValue.Text = view.WhenLabel;
         HealthActionWarningValue.Text = view.WarningText;
         HealthActionWarningValue.Foreground = detailBrush;
+        var actionBadge = string.IsNullOrEmpty(view.TitleLabel) || view.TitleLabel == "Not available" ? "No action"
+            : view.TypeLabel.Contains("Policy", StringComparison.OrdinalIgnoreCase) ? "Policy"
+            : "Applied";
+        ApplyStatusBadge(HealthActionBadge, HealthActionBadgeText, HealthActionDot, "Watching");
+        HealthActionBadgeText.Text = actionBadge;
+    }
+
+    private void ApplyStatusBadge(Border badgeBorder, TextBlock badgeText, Border dot, string statusLabel)
+    {
+        var (bgHex, borderHex, fgHex, dotHex, label) = statusLabel switch
+        {
+            "Healthy"     => ("#1422C55E", "#2222C55E", "#16A34A", "#22C55E", "Healthy"),
+            "Active"      => ("#1422C55E", "#2222C55E", "#16A34A", "#22C55E", "Active"),
+            "Offline" or "Unavailable" => ("#14EF4444", "#22EF4444", "#991B1B", "#EF4444", statusLabel),
+            "Stale" or "Warning" or "Watching" or "Blocked" => ("#14F59E0B", "#22F59E0B", "#92400E", "#F59E0B", statusLabel),
+            _ => ("#14F59E0B", "#22F59E0B", "#92400E", "#F59E0B", statusLabel)
+        };
+        var conv = new System.Windows.Media.BrushConverter();
+        badgeBorder.Background  = (System.Windows.Media.Brush)conv.ConvertFromString(bgHex)!;
+        badgeBorder.BorderBrush = (System.Windows.Media.Brush)conv.ConvertFromString(borderHex)!;
+        badgeText.Foreground    = (System.Windows.Media.Brush)conv.ConvertFromString(fgHex)!;
+        badgeText.Text          = label;
+        dot.Background          = (System.Windows.Media.Brush)conv.ConvertFromString(dotHex)!;
     }
 
     private static OverloadExplainView ParseOverloadExplain(string? contributorsJson)
@@ -8861,6 +8892,7 @@ public partial class MainWindow : Window
         HealthLastUpdateValue.Text = view.LastUpdateLabel;
         HealthLastErrorValue.Text = view.LastErrorLabel;
         HealthLastErrorValue.Foreground = detailBrush;
+        ApplyStatusBadge(HealthEngineBadge, HealthEngineBadgeText, HealthEngineDot, view.StatusLabel);
     }
 
     private static string FormatBytes(long bytes)

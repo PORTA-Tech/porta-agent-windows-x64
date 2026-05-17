@@ -2032,250 +2032,267 @@
 
 <ScrollViewer x:Name="DiagnosticsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
-                        <!-- System page controls -->
+
+                        <!-- Top bar: Refresh right-aligned, chip and advanced button hidden but preserved -->
                         <DockPanel Margin="0,0,0,14">
-                            <Button x:Name="SystemRefreshButton" DockPanel.Dock="Right" Content="↺ Refresh"
+                            <Button x:Name="SystemRefreshButton" DockPanel.Dock="Right" Content="Refresh"
                                     Padding="10,5" FontSize="12" Click="RefreshButton_Click" VerticalAlignment="Center" />
-                            <Border x:Name="SystemHealthChipBorder" DockPanel.Dock="Right"
+                            <Border x:Name="SystemHealthChipBorder" Visibility="Collapsed" DockPanel.Dock="Right"
                                     CornerRadius="100" Background="#14F59E0B" BorderBrush="#22F59E0B"
                                     BorderThickness="1" Padding="10,5" Margin="0,0,8,0" VerticalAlignment="Center">
-                                <TextBlock x:Name="SystemHealthChipText" Text="● Stale"
+                                <TextBlock x:Name="SystemHealthChipText" Text="Stale"
                                            FontSize="12" FontWeight="SemiBold" Foreground="#F59E0B" />
                             </Border>
                         </DockPanel>
+                        <Button x:Name="SystemAdvancedButton" Visibility="Collapsed"
+                                Content="Jump to Advanced" Padding="12,6"
+                                Click="SystemAdvancedButton_Click" />
 
-                        <WrapPanel Margin="0,0,0,12">
-                            <Button x:Name="SystemAdvancedButton"
-                                    Content="Jump to Advanced"
-                                    Padding="12,6"
-                                    Click="SystemAdvancedButton_Click" />
-                        </WrapPanel>
+                        <!-- Row 1: Engine Health (left) | Session Truth (right) -->
+                        <Grid Margin="0,8,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
 
+                            <!-- ENGINE HEALTH card -->
+                            <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}">
+                                <StackPanel>
+                                    <DockPanel Margin="0,0,0,10">
+                                        <Border DockPanel.Dock="Right" x:Name="HealthEngineBadge"
+                                                CornerRadius="100" Background="#1422C55E" BorderBrush="#2222C55E"
+                                                BorderThickness="1" Padding="8,3" VerticalAlignment="Center">
+                                            <TextBlock x:Name="HealthEngineBadgeText" Text="Healthy"
+                                                       FontSize="11" FontWeight="SemiBold" Foreground="#16A34A" />
+                                        </Border>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border x:Name="HealthEngineDot" Width="7" Height="7"
+                                                    CornerRadius="3.5" Background="#22C55E" Margin="0,0,6,0" />
+                                            <TextBlock Text="ENGINE HEALTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Service" Foreground="#475569" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthServiceValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Database" Foreground="#475569" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthDatabaseValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Local API" Foreground="#475569" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthApiValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Last error" Foreground="#475569" FontSize="12" />
+                                        <TextBlock x:Name="HealthLastErrorValue" Grid.Row="3" Grid.Column="1" Text="None" FontSize="12" TextWrapping="Wrap" />
+                                    </Grid>
+                                    <!-- Hidden: named elements written by C# but not shown -->
+                                    <StackPanel Visibility="Collapsed">
+                                        <TextBlock x:Name="HealthEngineStatusValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthSnapshotValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthPolicyStateValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthLastUpdateValue" Text="Not available" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- SESSION TRUTH card -->
+                            <Border Grid.Column="2" Style="{StaticResource QuietHoverCardStyle}">
+                                <StackPanel>
+                                    <DockPanel Margin="0,0,0,10">
+                                        <Border DockPanel.Dock="Right" x:Name="HealthSessionBadge"
+                                                CornerRadius="100" Background="#1422C55E" BorderBrush="#2222C55E"
+                                                BorderThickness="1" Padding="8,3" VerticalAlignment="Center">
+                                            <TextBlock x:Name="HealthSessionBadgeText" Text="Active"
+                                                       FontSize="11" FontWeight="SemiBold" Foreground="#16A34A" />
+                                        </Border>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border x:Name="HealthSessionDot" Width="7" Height="7"
+                                                    CornerRadius="3.5" Background="#22C55E" Margin="0,0,6,0" />
+                                            <TextBlock Text="SESSION TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Monitoring" Foreground="#475569" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthSessionContextValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Heartbeat" Foreground="#475569" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthSessionHeartbeatValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Recovery" Foreground="#475569" FontSize="12" />
+                                        <TextBlock x:Name="HealthSessionRecoveryValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" TextWrapping="Wrap" />
+                                    </Grid>
+                                    <StackPanel Visibility="Collapsed">
+                                        <TextBlock x:Name="HealthSessionStatusValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthSessionObservedHeartbeatValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthSessionAgentValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthSessionIdValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthSessionStartupSourceValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthSessionLaunchReasonValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthSessionWarningValue" Text="Not available" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <!-- Row 2: Input Truth (left) | State Truth (right) -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- INPUT TRUTH card -->
+                            <Border Grid.Column="0" Style="{StaticResource QuietHoverCardStyle}">
+                                <StackPanel>
+                                    <DockPanel Margin="0,0,0,10">
+                                        <Border DockPanel.Dock="Right" x:Name="HealthInputBadge"
+                                                CornerRadius="100" Background="#1422C55E" BorderBrush="#2222C55E"
+                                                BorderThickness="1" Padding="8,3" VerticalAlignment="Center">
+                                            <TextBlock x:Name="HealthInputBadgeText" Text="Active"
+                                                       FontSize="11" FontWeight="SemiBold" Foreground="#16A34A" />
+                                        </Border>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border x:Name="HealthInputDot" Width="7" Height="7"
+                                                    CornerRadius="3.5" Background="#22C55E" Margin="0,0,6,0" />
+                                            <TextBlock Text="INPUT TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Keyboard" Foreground="#475569" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthKeyboardSignalValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Mouse" Foreground="#475569" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthMouseSignalValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Last activity" Foreground="#475569" FontSize="12" />
+                                        <TextBlock x:Name="HealthLastInputValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" TextWrapping="Wrap" />
+                                    </Grid>
+                                    <StackPanel Visibility="Collapsed">
+                                        <TextBlock x:Name="HealthInputStatusValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthLastInputAgeValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthInputOwnerValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthInputOwnershipReasonValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthInputWarningValue" Text="Not available" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- STATE TRUTH card -->
+                            <Border Grid.Column="2" Style="{StaticResource QuietHoverCardStyle}">
+                                <StackPanel>
+                                    <DockPanel Margin="0,0,0,10">
+                                        <Border DockPanel.Dock="Right" x:Name="HealthStateBadge"
+                                                CornerRadius="100" Background="#141E40AF" BorderBrush="#221E40AF"
+                                                BorderThickness="1" Padding="8,3" VerticalAlignment="Center">
+                                            <TextBlock x:Name="HealthStateBadgeText" Text="Confident"
+                                                       FontSize="11" FontWeight="SemiBold" Foreground="#1E40AF" />
+                                        </Border>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border x:Name="HealthStateDot" Width="7" Height="7"
+                                                    CornerRadius="3.5" Background="#3B82F6" Margin="0,0,6,0" />
+                                            <TextBlock Text="STATE TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Confidence" Foreground="#475569" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthStateConfidenceValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Calibration" Foreground="#475569" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthStateCalibrationValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Focus mode" Foreground="#475569" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthStateModesValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Break needed" Foreground="#475569" FontSize="12" />
+                                        <TextBlock x:Name="HealthStateBreakReadinessValue" Grid.Row="3" Grid.Column="1" Text="Not available" FontSize="12" TextWrapping="Wrap" />
+                                    </Grid>
+                                    <StackPanel Visibility="Collapsed">
+                                        <TextBlock x:Name="HealthStateContinuityValue" Text="Not available" />
+                                        <TextBlock x:Name="HealthStateWarningValue" Text="Not available" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <!-- Row 3: Action Truth full-width, 3-column internal layout -->
                         <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="ENGINE HEALTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
-                                <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="260" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Status" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthEngineStatusValue" Grid.Row="0" Grid.Column="1" Text="Not available" />
-
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Service running" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthServiceValue" Grid.Row="1" Grid.Column="1" Text="Not available" />
-
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Database" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthDatabaseValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Snapshot state" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthSnapshotValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Policy state" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthPolicyStateValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                <TextBlock Grid.Row="5" Grid.Column="0" Text="Local API reachable" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthApiValue" Grid.Row="5" Grid.Column="1" Text="Not available" />
-
-                                <TextBlock Grid.Row="6" Grid.Column="0" Text="Last update time" Foreground="#CBD5E1" Visibility="Collapsed" />
-                                <TextBlock x:Name="HealthLastUpdateValue" Grid.Row="6" Grid.Column="1" Text="Not available" Visibility="Collapsed" />
-
-                                <TextBlock Grid.Row="7" Grid.Column="0" Text="Last error" Foreground="#CBD5E1" />
-                                <TextBlock x:Name="HealthLastErrorValue" Grid.Row="7" Grid.Column="1" Text="None" TextWrapping="Wrap" />
-                                </Grid>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
-                            <StackPanel>
-                                <TextBlock Text="SESSION TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
+                                <DockPanel Margin="0,0,0,10">
+                                    <Border DockPanel.Dock="Right" x:Name="HealthActionBadge"
+                                            CornerRadius="100" Background="#14F59E0B" BorderBrush="#22F59E0B"
+                                            BorderThickness="1" Padding="8,3" VerticalAlignment="Center">
+                                        <TextBlock x:Name="HealthActionBadgeText" Text="No action"
+                                                   FontSize="11" FontWeight="SemiBold" Foreground="#92400E" />
+                                    </Border>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Border x:Name="HealthActionDot" Width="7" Height="7"
+                                                CornerRadius="3.5" Background="#F59E0B" Margin="0,0,6,0" />
+                                        <TextBlock Text="ACTION TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" />
+                                    </StackPanel>
+                                </DockPanel>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="260" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="1" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="1" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Status" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionStatusValue" Grid.Row="0" Grid.Column="1" Text="Not available" />
-
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Capture context" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionContextValue" Grid.Row="1" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Session heartbeat" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionHeartbeatValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Observed heartbeat" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionObservedHeartbeatValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Visibility="Collapsed" Text="UserAgent instance" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionAgentValue" Grid.Row="4" Grid.Column="1" Visibility="Collapsed" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="UserAgent session" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionIdValue" Grid.Row="5" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="6" Grid.Column="0" Visibility="Collapsed" Text="Startup source" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionStartupSourceValue" Grid.Row="6" Grid.Column="1" Visibility="Collapsed" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="7" Grid.Column="0" Visibility="Collapsed" Text="Last launch reason" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionLaunchReasonValue" Grid.Row="7" Grid.Column="1" Visibility="Collapsed" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="8" Grid.Column="0" Text="Recovery state" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionRecoveryValue" Grid.Row="8" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="9" Grid.Column="0" Text="Explicit warning" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthSessionWarningValue" Grid.Row="9" Grid.Column="1" Text="Session truth unavailable." TextWrapping="Wrap" />
+                                    <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                        <TextBlock Text="Last action" Foreground="#475569" FontSize="11" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthActionTitleValue" Text="Not available" FontSize="12" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <Border Grid.Column="1" Background="#1E293B" Margin="0,2,0,2" />
+                                    <StackPanel Grid.Column="2" Margin="12,0">
+                                        <TextBlock Text="Category" Foreground="#475569" FontSize="11" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthActionTypeValue" Text="Not available" FontSize="12" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <Border Grid.Column="3" Background="#1E293B" Margin="0,2,0,2" />
+                                    <StackPanel Grid.Column="4" Margin="12,0,0,0">
+                                        <TextBlock Text="When" Foreground="#475569" FontSize="11" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="HealthActionWhenValue" Text="Not available" FontSize="12" TextWrapping="Wrap" />
+                                    </StackPanel>
                                 </Grid>
+                                <StackPanel Visibility="Collapsed">
+                                    <TextBlock x:Name="HealthActionDecisionValue" Text="Not available" />
+                                    <TextBlock x:Name="HealthActionExecutionValue" Text="Not available" />
+                                    <TextBlock x:Name="HealthActionWarningValue" Text="Not available" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
 
-                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
+                        <!-- Advanced section: collapsed, all named children preserved for C# -->
+                        <Border x:Name="SystemAdvancedSection" Visibility="Collapsed" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="INPUT TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="260" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Status" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthInputStatusValue" Grid.Row="0" Grid.Column="1" Text="Not available" />
-
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Keyboard signal" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthKeyboardSignalValue" Grid.Row="1" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Mouse signal" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthMouseSignalValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Last input event" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthLastInputValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Last accepted input age" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthLastInputAgeValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Last input owner" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthInputOwnerValue" Grid.Row="5" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Ownership reason" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthInputOwnershipReasonValue" Grid.Row="6" Grid.Column="1" Text="None" TextWrapping="Wrap" />
-                                </Grid>
-                                <TextBlock x:Name="HealthInputWarningValue" Text="Input truth unavailable." TextWrapping="Wrap" Margin="0,10,0,0" />
-                            </StackPanel>
-                        </Border>
-
-                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
-                            <StackPanel>
-                                <TextBlock Text="STATE TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="260" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Task continuity" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthStateContinuityValue" Grid.Row="0" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Confidence / quality" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthStateConfidenceValue" Grid.Row="1" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Calibration stage" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthStateCalibrationValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Break readiness" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthStateBreakReadinessValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Pressure / deep work" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthStateModesValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Explicit warning" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthStateWarningValue" Grid.Row="5" Grid.Column="1" Text="State truth unavailable." TextWrapping="Wrap" />
-                                </Grid>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
-                            <StackPanel>
-                                <TextBlock Text="ACTION TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="260" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Latest action" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthActionTitleValue" Grid.Row="0" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Type" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthActionTypeValue" Grid.Row="1" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Decision" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthActionDecisionValue" Grid.Row="2" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Execution" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthActionExecutionValue" Grid.Row="3" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Timestamp" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthActionWhenValue" Grid.Row="4" Grid.Column="1" Text="Not available" TextWrapping="Wrap" />
-
-                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Explicit warning" Foreground="#CBD5E1" />
-                                    <TextBlock x:Name="HealthActionWarningValue" Grid.Row="5" Grid.Column="1" Text="Action truth unavailable." TextWrapping="Wrap" />
-                                </Grid>
-                            </StackPanel>
-                        </Border>
-
-                        <Border x:Name="SystemAdvancedSection" Style="{StaticResource QuietHoverCardStyle}" Margin="0,0,0,12">
-                            <StackPanel>
-                                <TextBlock Text="Advanced" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <TextBlock Text="How Ari decides, in plain language. This keeps the decision pipeline in System without spilling it into the main user pages." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" />
-
                                 <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,10">
                                     <StackPanel>
                                         <DockPanel Margin="0,0,0,8">
@@ -2284,14 +2301,10 @@
                                                 <TextBlock x:Name="SignalsStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
                                             </Border>
                                         </DockPanel>
-                                        <TextBlock Text="What it means: Ari reads activity patterns from keyboard, mouse, app switches, and idle time." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
-                                        <TextBlock x:Name="SignalsBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
-                                        <TextBlock x:Name="SignalsCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
+                                        <TextBlock x:Name="SignalsBlockersText" Text="Not available" TextWrapping="Wrap" Foreground="#FCD34D" />
+                                        <TextBlock x:Name="SignalsCurrentText" Text="Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
                                     </StackPanel>
                                 </Border>
-
-                                <TextBlock Text="v" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
-
                                 <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,10">
                                     <StackPanel>
                                         <DockPanel Margin="0,0,0,8">
@@ -2300,14 +2313,10 @@
                                                 <TextBlock x:Name="CalibrationStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
                                             </Border>
                                         </DockPanel>
-                                        <TextBlock Text="What it means: Ari learns your normal pattern and sets a stable baseline." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
-                                        <TextBlock x:Name="CalibrationBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
-                                        <TextBlock x:Name="CalibrationCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
+                                        <TextBlock x:Name="CalibrationBlockersText" Text="Not available" TextWrapping="Wrap" Foreground="#FCD34D" />
+                                        <TextBlock x:Name="CalibrationCurrentText" Text="Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
                                     </StackPanel>
                                 </Border>
-
-                                <TextBlock Text="v" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
-
                                 <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,10">
                                     <StackPanel>
                                         <DockPanel Margin="0,0,0,8">
@@ -2316,14 +2325,10 @@
                                                 <TextBlock x:Name="SmoothingStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
                                             </Border>
                                         </DockPanel>
-                                        <TextBlock Text="What it means: Ari smooths raw input signals so one-off spikes do not dominate the model." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
-                                        <TextBlock x:Name="SmoothingBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
-                                        <TextBlock x:Name="SmoothingCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
+                                        <TextBlock x:Name="SmoothingBlockersText" Text="Not available" TextWrapping="Wrap" Foreground="#FCD34D" />
+                                        <TextBlock x:Name="SmoothingCurrentText" Text="Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
                                     </StackPanel>
                                 </Border>
-
-                                <TextBlock Text="v" HorizontalAlignment="Center" Foreground="#64748B" Margin="0,0,0,8" />
-
                                 <Border Style="{StaticResource QuietHoverSubCardStyle}">
                                     <StackPanel>
                                         <DockPanel Margin="0,0,0,8">
@@ -2332,14 +2337,14 @@
                                                 <TextBlock x:Name="DecisionsStatusText" Text="Blocked" Foreground="#E2E8F0" FontSize="11" />
                                             </Border>
                                         </DockPanel>
-                                        <TextBlock Text="What it means: Ari combines overload, focus-timer state, and policy rules to decide whether to suggest or apply an action." TextWrapping="Wrap" Foreground="#E2E8F0" Margin="0,0,0,6" />
-                                        <TextBlock x:Name="DecisionsBlockersText" Text="What can block it: Not available" TextWrapping="Wrap" Foreground="#FCD34D" Margin="0,0,0,4" />
-                                        <TextBlock x:Name="DecisionsCurrentText" Text="Current status: Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
+                                        <TextBlock x:Name="DecisionsBlockersText" Text="Not available" TextWrapping="Wrap" Foreground="#FCD34D" />
+                                        <TextBlock x:Name="DecisionsCurrentText" Text="Not available" TextWrapping="Wrap" Foreground="#93C5FD" />
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
                         </Border>
 
+                        <!-- Bottom action buttons -->
                         <WrapPanel Margin="0,0,0,0">
                             <Button Content="Restart service" Padding="12,6" Margin="0,0,10,0" Click="RestartServiceButton_Click" />
                             <Button Content="Export bundle" Padding="12,6" Margin="0,0,10,0" Click="ExportBundleButton_Click" />
@@ -2371,6 +2376,7 @@
                             <TextBlock x:Name="SustainedAttentionValue" Text="Not available" />
                             <TextBlock x:Name="IdleFragmentationValue" Text="Not available" />
                         </StackPanel>
+
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
