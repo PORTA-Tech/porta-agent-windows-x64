@@ -290,17 +290,19 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         ControlPlaneApiErrorResponse? error = await TryReadErrorAsync(response, token).ConfigureAwait(false);
         string? message = error?.ErrorCode switch
         {
-            "ACCOUNT_NOT_FOUND" => "Account not found on this server. Create one below or ask your admin.",
-            "INVALID_CREDENTIALS" => "Your email, account ID, or password was not accepted.",
+            "ACCOUNT_NOT_FOUND" => "Account not found. Create one below or ask your admin.",
+            "INVALID_CREDENTIALS" => "Incorrect email or password. Check your details and try again.",
             _ => error?.Message
         };
         if (string.IsNullOrWhiteSpace(message))
         {
-            message = response.StatusCode switch
+            int statusCode = (int)response.StatusCode;
+            message = statusCode switch
             {
-                System.Net.HttpStatusCode.Unauthorized => "Your email, account ID, or password was not accepted.",
-                System.Net.HttpStatusCode.NotFound => "Account not found on this server.",
-                _ => "Sign-in failed."
+                401 => "Incorrect email or password. Check your details and try again.",
+                404 => "Account not found. Create one below or ask your admin.",
+                _ when statusCode >= 500 => "The sign-in server is not available right now. Please try again in a moment.",
+                _ => "Sign-in failed. Please try again."
             };
         }
 
@@ -312,20 +314,23 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         ControlPlaneApiErrorResponse? error = await TryReadErrorAsync(response, token).ConfigureAwait(false);
         string? message = error?.ErrorCode switch
         {
-            "USER_EXISTS" => "An account with that email already exists.",
+            "USER_EXISTS" => "An account with that email already exists. Try signing in instead.",
             "SIGNUP_DISABLED" => "Self-service sign-up is not enabled on this server.",
             "INVALID_SIGNUP_CODE" => "That sign-up code was not accepted.",
-            "INVALID_USER_ID" => "Use a valid email address.",
+            "INVALID_USER_ID" => "Use a valid email address as your account ID.",
             "WEAK_PASSWORD" => error?.Message,
             _ => error?.Message
         };
         if (string.IsNullOrWhiteSpace(message))
         {
-            message = response.StatusCode switch
+            int statusCode = (int)response.StatusCode;
+            message = statusCode switch
             {
-                System.Net.HttpStatusCode.Conflict => "An account with that email already exists.",
-                System.Net.HttpStatusCode.Forbidden => "Self-service sign-up is not enabled on this server.",
-                _ => "Could not create the account."
+                409 => "An account with that email already exists. Try signing in instead.",
+                403 => "Self-service sign-up is not enabled on this server.",
+                400 => "Check your display name, email, and password and try again.",
+                _ when statusCode >= 500 => "The server could not create your account right now. Please try again in a moment.",
+                _ => "Could not create the account. Please try again."
             };
         }
 

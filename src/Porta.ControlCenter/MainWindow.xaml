@@ -1880,7 +1880,8 @@
                                         <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,4"><TextBox x:Name="AccountDisplayNameTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
                                         <TextBlock x:Name="AccountProfileStatusText" Text="Sign in to change your display name." Margin="0,0,0,10" Foreground="#475569" TextWrapping="Wrap" FontSize="12" />
                                         <TextBlock Text="Email" FontSize="12" Foreground="#475569" />
-                                        <TextBlock x:Name="AccountReadOnlyEmailValue" Text="Not available" Margin="0,4,0,12" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
+                                        <TextBlock x:Name="AccountReadOnlyEmailValue" Text="Not available" Margin="0,4,0,4" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
+                                        <TextBlock Text="Your email is set when your account is created and cannot be changed here. Contact your workspace admin if you need to update it." Margin="0,0,0,12" TextWrapping="Wrap" FontSize="11" Foreground="#475569" />
                                         <Button x:Name="AccountSaveProfileButton" Content="Save display name" Padding="12,6" HorizontalAlignment="Left" Click="AccountSaveProfileButton_Click" />
                                     </StackPanel>
                                 </Border>
