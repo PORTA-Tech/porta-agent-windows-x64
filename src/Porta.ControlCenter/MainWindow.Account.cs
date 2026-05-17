@@ -1257,6 +1257,11 @@ private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
         ShowAccountSection(section);
     }
 
+    private void ScrollAccountToTop()
+    {
+        AccountContentScrollViewer?.ScrollToTop();
+    }
+
     private async void AccountSignInButton_Click(object sender, RoutedEventArgs e)
     {
         string userId = AccountUserIdTextBox.Text?.Trim() ?? string.Empty;
@@ -1265,12 +1270,14 @@ private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
         {
             _accountStatusMessage = "Enter your email or user ID and password.";
             PopulateAccountSurface();
+            ScrollAccountToTop();
             return;
         }
 
         AccountSignInButton.IsEnabled = false;
         _accountStatusMessage = "Signing in...";
         PopulateAccountSurface();
+        ScrollAccountToTop();
 
         try
         {
@@ -1280,6 +1287,7 @@ private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
         {
             AccountSignInButton.IsEnabled = true;
             PopulateAccountSurface();
+            ScrollAccountToTop();
         }
     }
 
@@ -1294,6 +1302,7 @@ private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
         {
             _accountStatusMessage = "Enter your display name, email, and password to create an account.";
             PopulateAccountSurface();
+            ScrollAccountToTop();
             return;
         }
 
@@ -1301,12 +1310,14 @@ private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
         {
             _accountStatusMessage = "Enter the sign-up code your admin gave you.";
             PopulateAccountSurface();
+            ScrollAccountToTop();
             return;
         }
 
         AccountCreateAccountButton.IsEnabled = false;
         _accountStatusMessage = "Creating account...";
         PopulateAccountSurface();
+        ScrollAccountToTop();
 
         try
         {
@@ -1330,6 +1341,7 @@ private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
         {
             AccountCreateAccountButton.IsEnabled = true;
             PopulateAccountSurface();
+            ScrollAccountToTop();
         }
     }
 

@@ -5425,10 +5425,10 @@ public partial class MainWindow : Window
         RegisterUnifiedScroll(InputsPanel);
         RegisterUnifiedScroll(InterventionsPanel);
         RegisterUnifiedScroll(ActionDetailsScrollViewer);
-        // SettingsPanel is now a Grid (two-column layout) — scroll is handled by its inner ScrollViewer
+        RegisterUnifiedScroll(SettingsContentScrollViewer);
         RegisterUnifiedScroll(StatesPanel);
         RegisterUnifiedScroll(TimelinePanel);
-        // AccountPanel is now a Grid (two-column layout) — scroll is handled by its inner ScrollViewer
+        RegisterUnifiedScroll(AccountContentScrollViewer);
         RegisterUnifiedScroll(DiagnosticsPanel);
     }
 
