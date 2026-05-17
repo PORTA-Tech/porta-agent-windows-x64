@@ -1020,7 +1020,7 @@ public partial class MainWindow : Window
         }
 
         var activeColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E2E8F0"));
-        var activeBg    = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#131920"));
+        var activeBg    = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#17171F"));
         Border activeNav; TextBlock activeLabel; UIElement activeSection;
         switch (section)
         {

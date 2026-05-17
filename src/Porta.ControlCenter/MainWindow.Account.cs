@@ -726,7 +726,7 @@ public partial class MainWindow
             // Privacy nav item removed — handled in the Privacy page
         };
         var inactiveBg    = new SolidColorBrush(Colors.Transparent);
-        var activeBg      = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#131920"));
+        var activeBg      = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#17171F"));
         var activeColor   = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E2E8F0"));
         var inactiveColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#64748B"));
         foreach (var (border, label, targetSection) in navItems)

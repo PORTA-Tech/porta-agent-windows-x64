@@ -12,7 +12,7 @@
         WindowStartupLocation="Manual"
         WindowStyle="None"
         ResizeMode="CanResize"
-        Background="#0C0C14"
+        Background="#0D0D12"
         Foreground="#E6E9ED"
         FontFamily="Segoe UI Variable, Segoe UI, Inter">
     <Window.TaskbarItemInfo>
@@ -140,31 +140,19 @@
         </Style>
 
         <Style x:Key="QuietHoverCardStyle" TargetType="Border">
-            <Setter Property="Background" Value="{StaticResource PortaSurfaceBaseBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource PortaBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="10" />
-            <Setter Property="Padding" Value="16" />
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource PortaSurfaceHoverBrush}" />
-                    <Setter Property="BorderBrush" Value="{StaticResource PortaBorderHoverBrush}" />
-                </Trigger>
-            </Style.Triggers>
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="#1C1C28" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Padding" Value="0,0,0,16" />
         </Style>
 
         <Style x:Key="QuietHoverSubCardStyle" TargetType="Border">
-            <Setter Property="Background" Value="#0B1220" />
-            <Setter Property="BorderBrush" Value="#1F2937" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Padding" Value="10" />
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource PortaSurfaceHoverBrush}" />
-                    <Setter Property="BorderBrush" Value="{StaticResource PortaBorderHoverBrush}" />
-                </Trigger>
-            </Style.Triggers>
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="#1C1C28" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Padding" Value="8,0,8,12" />
         </Style>
 
         <Style x:Key="QuietHoverSubCardCompactStyle" TargetType="Border" BasedOn="{StaticResource QuietHoverSubCardStyle}">
@@ -268,7 +256,19 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
-    </Style>    </Window.Resources>
+    </Style>        <Style x:Key="ClickableAccordionStyle" TargetType="Border">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="#1C1C28" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#17171F" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="46" />
@@ -279,7 +279,7 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Row="0" Grid.ColumnSpan="2" Background="#0B0E12" BorderBrush="#20252D" BorderThickness="0,0,0,1">
+        <Border Grid.Row="0" Grid.ColumnSpan="2" Background="#080809" BorderBrush="#1C1C28" BorderThickness="0,0,0,1">
             <Grid x:Name="TitleBarRoot" MouseLeftButtonDown="TitleBarRoot_MouseLeftButtonDown">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -314,7 +314,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" Grid.Column="0" Background="#080810" BorderBrush="#141425" BorderThickness="0,0,1,0">
+        <Border Grid.Row="1" Grid.Column="0" Background="#080809" BorderBrush="#1C1C28" BorderThickness="0,0,1,0">
             <DockPanel>
                 <!-- Brand area -->
                 <StackPanel DockPanel.Dock="Top" Margin="16,16,16,10">
@@ -326,7 +326,7 @@
                                Foreground="{StaticResource PortaTextMutedBrush}"
                                Margin="0,2,0,0" />
                 </StackPanel>
-                <Border DockPanel.Dock="Top" Height="1" Background="#141425" Margin="0,0,0,6" />
+                <Border DockPanel.Dock="Top" Height="1" Background="#1C1C28" Margin="0,0,0,6" />
 
                 <!-- Primary nav -->
                 <StackPanel DockPanel.Dock="Top">
@@ -388,7 +388,7 @@
                 </StackPanel>
 
                 <!-- Divider -->
-                <Border DockPanel.Dock="Top" Height="1" Background="#141425" Margin="16,6,16,6" />
+                <Border DockPanel.Dock="Top" Height="1" Background="#1C1C28" Margin="16,6,16,6" />
 
                 <!-- Secondary nav -->
                 <StackPanel DockPanel.Dock="Top">
@@ -466,8 +466,8 @@
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0"
-                    Background="#080810"
-                    BorderBrush="#1A1A2A"
+                    Background="#0D0D12"
+                    BorderBrush="#1C1C28"
                     BorderThickness="0,0,0,1"
                     MinHeight="48"
                     ClipToBounds="True">
@@ -683,7 +683,7 @@
                                                FontSize="12" Foreground="#475569" />
                                     <TextBlock x:Name="NowOverloadTrustText" Text="" Margin="0,3,0,0" Visibility="Collapsed"
                                                FontSize="12" Foreground="#475569" />
-                                    <Border x:Name="WorkTodayTrack" Height="4" CornerRadius="2" Background="#252535" Margin="0,8,0,6">
+                                    <Border x:Name="WorkTodayTrack" Height="4" CornerRadius="2" Background="#1C1C28" Margin="0,8,0,6">
                                         <Border x:Name="WorkTodayProgressFill" Background="#3B82F6" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
                                     </Border>
                                     <!-- View History link — bottom-right, only interactive element -->
@@ -714,7 +714,7 @@
                                                FontSize="12" FontWeight="SemiBold" Foreground="#16C784" Visibility="Collapsed" />
                                     <TextBlock x:Name="NowFocusChoppinessText" Text="" Margin="0,4,0,0"
                                                FontSize="12" Foreground="#475569" Visibility="Collapsed" />
-                                    <Border x:Name="FocusScoreTrack" Height="4" CornerRadius="2" Background="#252535" Margin="0,8,0,0">
+                                    <Border x:Name="FocusScoreTrack" Height="4" CornerRadius="2" Background="#1C1C28" Margin="0,8,0,0">
                                         <Border x:Name="FocusScoreProgressFill" Background="#16C784" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
                                     </Border>
                                     <TextBlock x:Name="NowFocusSummaryText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#475569" TextWrapping="Wrap" />
@@ -737,7 +737,7 @@
                                                FontSize="12" Foreground="#475569" />
                                     <TextBlock x:Name="NowCalibrationQualityText" Text="" Margin="0,4,0,0"
                                                FontSize="12" Foreground="#475569" />
-                                    <Border x:Name="PressureTrack" Height="4" CornerRadius="2" Background="#252535" Margin="0,8,0,0">
+                                    <Border x:Name="PressureTrack" Height="4" CornerRadius="2" Background="#1C1C28" Margin="0,8,0,0">
                                         <Border x:Name="PressureProgressFill" Background="#64748B" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
                                     </Border>
                                     <TextBlock x:Name="NowCalibrationColdStartText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#475569" />
@@ -766,8 +766,8 @@
                                    FontSize="11" FontWeight="SemiBold"
                                    Foreground="#475569"
                                    Margin="0,6,0,10" />
-                        <Border Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
-                                CornerRadius="10" Padding="12" Margin="0,0,0,14">
+                        <Border Background="Transparent" BorderBrush="Transparent" BorderThickness="0"
+                                CornerRadius="0" Padding="0,0,0,14">
                             <StackPanel>
                                 <Grid x:Name="SessionTimelineBar" Height="22">
                                     <Border Background="#252535" CornerRadius="4" />
@@ -848,8 +848,8 @@
 
                         <!-- ══ SECTION 1: What Ari observes (open by default) ══ -->
                         <Border x:Name="TrackingNavObserves"
-                                Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
-                                CornerRadius="10" Padding="16" Margin="0" Cursor="Hand"
+                                Style="{StaticResource ClickableAccordionStyle}"
+                                Padding="12,12,0,12" Margin="0"
                                 MouseLeftButtonUp="TrackingNav_Click" Tag="Observes">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -877,8 +877,8 @@
                             </Grid>
                         </Border>
                         <Border x:Name="TrackingContentObserves"
-                                Background="#13131F" BorderBrush="#252535" BorderThickness="1,0,1,1"
-                                CornerRadius="0,0,10,10" Padding="16" Margin="0,0,0,8"
+                                Background="Transparent" BorderBrush="Transparent" BorderThickness="0"
+                                CornerRadius="0" Padding="16,0,0,12" Margin="0,0,0,8"
                                 Visibility="Collapsed">
                             <UniformGrid Columns="2">
                                 <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,8">
@@ -946,8 +946,8 @@
 
                         <!-- ══ SECTION 2: What Ari never collects ══ -->
                         <Border x:Name="TrackingNavNeverCollects"
-                                Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
-                                CornerRadius="10" Padding="16" Margin="0,0,0,8" Cursor="Hand"
+                                Style="{StaticResource ClickableAccordionStyle}"
+                                Padding="12,12,0,12" Margin="0"
                                 MouseLeftButtonUp="TrackingNav_Click" Tag="NeverCollects">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -975,8 +975,8 @@
                             </Grid>
                         </Border>
                         <Border x:Name="TrackingContentNeverCollects"
-                                Background="#13131F" BorderBrush="#252535" BorderThickness="1,0,1,1"
-                                CornerRadius="0,0,10,10" Padding="8,0,8,4" Margin="0,-8,0,8"
+                                Background="Transparent" BorderBrush="Transparent" BorderThickness="0"
+                                CornerRadius="0" Padding="8,0,8,4" Margin="0,0,0,8"
                                 Visibility="Collapsed">
                             <StackPanel>
                                 <Border BorderBrush="#252535" BorderThickness="0,0,0,1" Padding="8,12">
@@ -1008,8 +1008,8 @@
 
                         <!-- ══ SECTION 3: Tracking quality ══ -->
                         <Border x:Name="TrackingNavQuality"
-                                Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
-                                CornerRadius="10" Padding="16" Margin="0,0,0,8" Cursor="Hand"
+                                Style="{StaticResource ClickableAccordionStyle}"
+                                Padding="12,12,0,12" Margin="0"
                                 MouseLeftButtonUp="TrackingNav_Click" Tag="Quality">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -1037,8 +1037,8 @@
                             </Grid>
                         </Border>
                         <Border x:Name="TrackingContentQuality"
-                                Background="#13131F" BorderBrush="#252535" BorderThickness="1,0,1,1"
-                                CornerRadius="0,0,10,10" Padding="16" Margin="0,-8,0,8"
+                                Background="Transparent" BorderBrush="Transparent" BorderThickness="0"
+                                CornerRadius="0" Padding="16,0,0,12" Margin="0,0,0,8"
                                 Visibility="Collapsed">
                             <StackPanel>
                                 <!-- Quality bar — no orange pill -->
@@ -1089,8 +1089,8 @@
 
                         <!-- ══ SECTION 4: Privacy control ══ -->
                         <Border x:Name="TrackingNavPrivacy"
-                                Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
-                                CornerRadius="10" Padding="16" Margin="0,0,0,8" Cursor="Hand"
+                                Style="{StaticResource ClickableAccordionStyle}"
+                                Padding="12,12,0,12" Margin="0"
                                 MouseLeftButtonUp="TrackingNav_Click" Tag="Privacy">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -1118,8 +1118,8 @@
                             </Grid>
                         </Border>
                         <Border x:Name="TrackingContentPrivacy"
-                                Background="#13131F" BorderBrush="#252535" BorderThickness="1,0,1,1"
-                                CornerRadius="0,0,10,10" Padding="16" Margin="0,-8,0,8"
+                                Background="Transparent" BorderBrush="Transparent" BorderThickness="0"
+                                CornerRadius="0" Padding="16,0,0,12" Margin="0,0,0,8"
                                 Visibility="Collapsed">
                             <StackPanel>
                                 <Grid Margin="0,0,0,16">
@@ -1149,8 +1149,8 @@
 
                         <!-- ══ SECTION 5: Your data ══ -->
                         <Border x:Name="TrackingNavData"
-                                Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1"
-                                CornerRadius="10" Padding="16" Margin="0,0,0,8" Cursor="Hand"
+                                Style="{StaticResource ClickableAccordionStyle}"
+                                Padding="12,12,0,12" Margin="0"
                                 MouseLeftButtonUp="TrackingNav_Click" Tag="Data">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -1178,8 +1178,8 @@
                             </Grid>
                         </Border>
                         <Border x:Name="TrackingContentData"
-                                Background="#13131F" BorderBrush="#252535" BorderThickness="1,0,1,1"
-                                CornerRadius="0,0,10,10" Padding="16" Margin="0,-8,0,8"
+                                Background="Transparent" BorderBrush="Transparent" BorderThickness="0"
+                                CornerRadius="0" Padding="16,0,0,12" Margin="0,0,0,8"
                                 Visibility="Collapsed">
                             <StackPanel>
                                 <TextBlock x:Name="RetentionWindowValue" Text="Stored on this device: Not available" FontSize="13" Foreground="#CBD5E1" Margin="0,0,0,6"/>
@@ -1208,7 +1208,7 @@
 
                         <!-- Three summary cards -->
                         <UniformGrid Columns="3" Margin="0,0,0,16">
-                            <Border Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" CornerRadius="10" Padding="16" Margin="0,0,8,0">
+                            <Border Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,8,16">
                                 <StackPanel>
                                     <TextBlock Text="SUGGESTIONS" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
                                     <TextBlock x:Name="ActionsCardSuggestionsCount" Text="0" FontSize="28" FontWeight="Bold" Foreground="#A5B4FC" Margin="0,4,0,0" />
@@ -1218,7 +1218,7 @@
                                     </Border>
                                 </StackPanel>
                             </Border>
-                            <Border Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" CornerRadius="10" Padding="16" Margin="0,0,8,0">
+                            <Border Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,8,16">
                                 <StackPanel>
                                     <TextBlock Text="ACTIONS TAKEN" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
                                     <TextBlock x:Name="ActionsCardActionsCount" Text="0" FontSize="28" FontWeight="Bold" Foreground="#16C784" Margin="0,4,0,0" />
@@ -1228,7 +1228,7 @@
                                     </Border>
                                 </StackPanel>
                             </Border>
-                            <Border Background="#1C1C2E" BorderBrush="#252535" BorderThickness="1" CornerRadius="10" Padding="16">
+                            <Border Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16">
                                 <StackPanel>
                                     <TextBlock Text="ALERTS" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
                                     <TextBlock x:Name="ActionsCardAlertsCount" Text="0" FontSize="28" FontWeight="Bold" Foreground="#F59E0B" Margin="0,4,0,0" />
@@ -1320,10 +1320,10 @@
                         <ColumnDefinition Width="168" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <Border Grid.Column="0" Background="#0A0E14" BorderBrush="#1E293B" BorderThickness="0,0,1,0">
+                    <Border Grid.Column="0" Background="#080809" BorderBrush="#1C1C28" BorderThickness="0,0,1,0">
                         <StackPanel Margin="12,20,12,12">
                             <TextBlock Text="Settings" FontSize="15" FontWeight="Medium" Foreground="#F1F5F9" Margin="4,0,0,20" />
-                            <Border x:Name="SettingsNavIntensity" Background="#131920" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Intensity" MouseLeftButtonUp="SettingsSubNav_Click">
+                            <Border x:Name="SettingsNavIntensity" Background="#17171F" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Intensity" MouseLeftButtonUp="SettingsSubNav_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#E2E8F0" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 19.5c1-3.5 5-4.5 5-9a6 6 0 0 0-12 0c0 4.5 4 5.5 5 9zm0 0v2.5m-1-2h2" /></Canvas></Viewbox>
                                     <TextBlock x:Name="SettingsNavIntensityText" Text="Intensity" FontSize="13" FontWeight="Medium" Foreground="#E2E8F0" VerticalAlignment="Center" />
@@ -1355,7 +1355,7 @@
                             </Border>
                         </StackPanel>
                     </Border>
-                    <ScrollViewer x:Name="SettingsContentScrollViewer" Grid.Column="1" VerticalScrollBarVisibility="Auto" Background="#0D1117">
+                    <ScrollViewer x:Name="SettingsContentScrollViewer" Grid.Column="1" VerticalScrollBarVisibility="Auto" Background="#0D0D12">
                         <StackPanel Margin="20,20,20,28">
                             <Slider x:Name="IntensitySlider" Minimum="0" Maximum="2" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="IntensitySlider_ValueChanged" Visibility="Collapsed" />
                             <TextBlock x:Name="IntensityValueText" Visibility="Collapsed" Text="Balanced" />
@@ -1389,7 +1389,7 @@
                             <StackPanel x:Name="SettingsSectionPrivacy" Visibility="Collapsed">
                                 <TextBlock Text="Privacy" FontSize="15" FontWeight="Medium" Foreground="#F1F5F9" Margin="0,0,0,4" />
                                 <TextBlock Text="Control what Ari observes and how much context it stores." FontSize="12" Foreground="#64748B" Margin="0,0,0,16" TextWrapping="Wrap" />
-                                <Border Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,10">
+                                <Border Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
                                         <TextBlock Text="OBSERVATION LEVEL" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -1404,7 +1404,7 @@
                                         </Grid>
                                     </StackPanel>
                                 </Border>
-                                <Border Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12">
+                                <Border Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16">
                                     <StackPanel>
                                         <TextBlock Text="DATA CONTROLS" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                                         <WrapPanel Margin="0,0,0,10"><Button Content="Revoke consent" Padding="12,7" Margin="0,0,8,0" Click="RevokeConsentFromSettingsButton_Click" Foreground="#F87171" BorderBrush="#7F1D1D" /></WrapPanel>
@@ -1415,7 +1415,7 @@
                             <StackPanel x:Name="SettingsSectionCollection" Visibility="Collapsed">
                                 <TextBlock Text="Collection" FontSize="15" FontWeight="Medium" Foreground="#F1F5F9" Margin="0,0,0,4" />
                                 <TextBlock Text="Pause or schedule downtime for Ari's background monitoring." FontSize="12" Foreground="#64748B" Margin="0,0,0,16" TextWrapping="Wrap" />
-                                <Border Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,10">
+                                <Border Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
                                         <TextBlock Text="PAUSE CONTROLS" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                                         <WrapPanel>
@@ -1425,7 +1425,7 @@
                                         </WrapPanel>
                                     </StackPanel>
                                 </Border>
-                                <Border x:Name="SchedulePausePanel" Visibility="Collapsed" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,10">
+                                <Border x:Name="SchedulePausePanel" Visibility="Collapsed" Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
                                         <TextBlock Text="SCHEDULE A PAUSE" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                                         <TextBlock Text="Pause until" FontSize="13" Foreground="#94A3B8" Margin="0,0,0,8" />
@@ -1441,7 +1441,7 @@
                             <StackPanel x:Name="SettingsSectionCalibration" Visibility="Collapsed">
                                 <TextBlock Text="Calibration" FontSize="15" FontWeight="Medium" Foreground="#F1F5F9" Margin="0,0,0,4" />
                                 <TextBlock Text="Reset Ari's baseline model to reflect your current work patterns." FontSize="12" Foreground="#64748B" Margin="0,0,0,16" TextWrapping="Wrap" />
-                                <Border Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,10">
+                                <Border Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Baseline snapshot" FontSize="13" FontWeight="Medium" Foreground="#E2E8F0" /><TextBlock Text="Recalibrating takes a few minutes. Ari observes your normal patterns and adjusts its thresholds. You can keep working while it runs." FontSize="12" Foreground="#64748B" Margin="0,4,0,0" TextWrapping="Wrap" /></StackPanel>
@@ -1454,7 +1454,7 @@
                             <StackPanel x:Name="SettingsSectionFeatures" Visibility="Collapsed">
                                 <TextBlock Text="Features" FontSize="15" FontWeight="Medium" Foreground="#F1F5F9" Margin="0,0,0,4" />
                                 <TextBlock Text="Toggle individual Ari capabilities on or off." FontSize="12" Foreground="#64748B" Margin="0,0,0,16" TextWrapping="Wrap" />
-                                <Border Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,10">
+                                <Border Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
                                         <TextBlock Text="MODE" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -1463,7 +1463,7 @@
                                         </Grid>
                                     </StackPanel>
                                 </Border>
-                                <Border Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12">
+                                <Border Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16">
                                     <StackPanel>
                                         <TextBlock Text="INTERVENTION CATEGORIES" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
                                         <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -1553,7 +1553,7 @@
                         <!-- Four summary cards -->
                         <UniformGrid Columns="4" Margin="0,0,0,12">
                             <Border x:Name="HistoryCardFocus"
-                                    Background="#1C1C2E" BorderBrush="#2016C784" BorderThickness="1" CornerRadius="10" Padding="16" Margin="0,0,8,0">
+                                    Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="FOCUS" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
                                     <TextBlock x:Name="HistoryFocusDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#16C784" Margin="0,4,0,0" />
@@ -1564,7 +1564,7 @@
                                 </StackPanel>
                             </Border>
                             <Border x:Name="HistoryCardDistraction"
-                                    Background="#1C1C2E" BorderBrush="#208B5CF6" BorderThickness="1" CornerRadius="10" Padding="16" Margin="0,0,8,0">
+                                    Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="DISTRACTION" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
                                     <TextBlock x:Name="HistoryDistractionDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#8B5CF6" Margin="0,4,0,0" />
@@ -1575,7 +1575,7 @@
                                 </StackPanel>
                             </Border>
                             <Border x:Name="HistoryCardOverload"
-                                    Background="#1C1C2E" BorderBrush="#20EF4444" BorderThickness="1" CornerRadius="10" Padding="16" Margin="0,0,8,0">
+                                    Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="OVERLOAD" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
                                     <TextBlock x:Name="HistoryOverloadDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#EF4444" Margin="0,4,0,0" />
@@ -1586,7 +1586,7 @@
                                 </StackPanel>
                             </Border>
                             <Border x:Name="HistoryCardAway"
-                                    Background="#1C1C2E" BorderBrush="#203B82F6" BorderThickness="1" CornerRadius="10" Padding="16">
+                                    Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16">
                                 <StackPanel>
                                     <TextBlock Text="AWAY" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
                                     <TextBlock x:Name="HistoryAwayDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#3B82F6" Margin="0,4,0,0" />
@@ -1609,7 +1609,7 @@
 
                             <!-- Column headers row — sits above the canvas, scrolls with page -->
                             <Grid Grid.Row="0" x:Name="HistoryCalendarHeaderRow"
-                                  Background="#0C0C14" Margin="48,0,0,0" MinHeight="28" />
+                                  Background="#0D0D12" Margin="48,0,0,0" MinHeight="28" />
 
                             <!-- Hour labels + day canvas -->
                             <Grid Grid.Row="1" x:Name="HistoryCalendarContent">
@@ -1620,7 +1620,7 @@
                                 <!-- Hour label column (scrolls with content) -->
                                 <StackPanel x:Name="HistoryCalendarHourLabels"
                                             Grid.Column="0"
-                                            Background="#0C0C14" />
+                                            Background="#0D0D12" />
                                 <!-- Day canvas — code-behind populates all blocks here -->
                                 <Canvas x:Name="HistoryCalendarCanvas"
                                         Grid.Column="1"
@@ -1705,10 +1705,10 @@
                         <ColumnDefinition Width="168" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <Border Grid.Column="0" Background="#0A0E14" BorderBrush="#1E293B" BorderThickness="0,0,1,0">
+                    <Border Grid.Column="0" Background="#080809" BorderBrush="#1C1C28" BorderThickness="0,0,1,0">
                         <StackPanel Margin="12,20,12,12">
                             <TextBlock Text="Account" FontSize="15" FontWeight="Medium" Foreground="#F1F5F9" Margin="4,0,0,20" />
-                            <Border x:Name="AccountNavSummaryBorder" Background="#131920" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="summary" MouseLeftButtonUp="AccountNavItem_Click">
+                            <Border x:Name="AccountNavSummaryBorder" Background="#17171F" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="summary" MouseLeftButtonUp="AccountNavItem_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#E2E8F0" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm-7 8a7 7 0 0 1 14 0" /></Canvas></Viewbox>
                                     <TextBlock x:Name="AccountNavSummaryText" Text="Signed in as" FontSize="13" FontWeight="Medium" Foreground="#E2E8F0" VerticalAlignment="Center" />
@@ -1747,9 +1747,9 @@
                             </Border>
                         </StackPanel>
                     </Border>
-                    <ScrollViewer x:Name="AccountContentScrollViewer" Grid.Column="1" VerticalScrollBarVisibility="Auto" Background="#0D1117">
+                    <ScrollViewer x:Name="AccountContentScrollViewer" Grid.Column="1" VerticalScrollBarVisibility="Auto" Background="#0D0D12">
                         <StackPanel Margin="20,20,20,28">
-                            <Border x:Name="AccountProfileCard" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,12" Visibility="Collapsed">
+                            <Border x:Name="AccountProfileCard" Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,12" Visibility="Collapsed">
                                 <StackPanel>
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -1776,7 +1776,7 @@
                                     </Border>
                                 </StackPanel>
                             </Border>
-                            <Border x:Name="AccountAccessCard" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,12">
+                            <Border x:Name="AccountAccessCard" Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,12">
                                 <StackPanel>
                                     <Grid Margin="0,0,0,10">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -1840,7 +1840,7 @@
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
-                            <Border x:Name="AccountSummarySectionPanel" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,12" Visibility="Collapsed">
+                            <Border x:Name="AccountSummarySectionPanel" Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,12" Visibility="Collapsed">
                                 <StackPanel>
                                     <TextBlock Text="SIGNED IN AS" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,12" />
                                     <Grid>
@@ -1860,9 +1860,9 @@
                             </Border>
                             <Grid x:Name="AccountPrimarySectionsGrid" Margin="0,0,0,12" Visibility="Collapsed">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <Border x:Name="AccountManageSectionPanel" Grid.Column="0" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,8,0">
+                                <Border x:Name="AccountManageSectionPanel" Grid.Column="0" Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,8,0">
                                     <StackPanel>
-                                        <Border x:Name="AccountManageProfileRow" Visibility="Collapsed" Margin="0,0,0,12" Background="#0D1117" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Padding="10,10">
+                                        <Border x:Name="AccountManageProfileRow" Visibility="Collapsed" Margin="0,0,0,12" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" CornerRadius="0" Padding="0,0,0,10">
                                             <StackPanel Orientation="Horizontal">
                                                 <Border Width="40" Height="40" CornerRadius="20" Background="#1F1A33" VerticalAlignment="Center" Margin="0,0,12,0">
                                                     <TextBlock x:Name="AccountManageAvatarInitial" Text="A" FontSize="15" FontWeight="SemiBold" Foreground="#A5B4FC" HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -1883,7 +1883,7 @@
                                         <Button x:Name="AccountSaveProfileButton" Content="Save display name" Padding="12,6" HorizontalAlignment="Left" Click="AccountSaveProfileButton_Click" />
                                     </StackPanel>
                                 </Border>
-                                <Border x:Name="AccountWorkspaceSectionPanel" Grid.Column="1" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="8,0,0,0">
+                                <Border x:Name="AccountWorkspaceSectionPanel" Grid.Column="1" Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="8,0,0,0">
                                     <StackPanel>
                                         <TextBlock Text="WORKSPACE" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,12" />
                                         <TextBlock Text="Workspace" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,4" />
@@ -1906,7 +1906,7 @@
                             </Grid>
                             <Grid x:Name="AccountSecondarySectionsGrid" Margin="0,0,0,12" Visibility="Collapsed">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <Border x:Name="AccountSubscriptionSectionPanel" Grid.Column="0" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,8,0">
+                                <Border x:Name="AccountSubscriptionSectionPanel" Grid.Column="0" Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,8,0">
                                     <StackPanel>
                                         <TextBlock Text="SUBSCRIPTION" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,12" />
                                         <TextBlock x:Name="AccountPlanTierValue" Visibility="Collapsed" />
@@ -1922,7 +1922,7 @@
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
-                                <Border x:Name="AccountDevicesSectionPanel" Grid.Column="1" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="8,0,0,0">
+                                <Border x:Name="AccountDevicesSectionPanel" Grid.Column="1" Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="8,0,0,0">
                                     <StackPanel>
                                         <Grid Margin="0,0,0,12">
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -1976,7 +1976,7 @@
                                     </StackPanel>
                                 </Border>
                             </Grid>
-                            <Border x:Name="AccountPrivacySectionPanel" Background="#131920" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,12" Visibility="Collapsed">
+                            <Border x:Name="AccountPrivacySectionPanel" Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,12" Visibility="Collapsed">
                                 <StackPanel>
                                     <TextBlock Text="PRIVACY &amp; CONSENT" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,12" />
                                     <Grid>
@@ -2005,7 +2005,7 @@
                                     </Border>
                                 </StackPanel>
                             </Border>
-                            <Border x:Name="AccountSignOutSectionPanel" Background="#131920" BorderBrush="#7F1D1D" BorderThickness="1" CornerRadius="10" Padding="14,12" Visibility="Collapsed">
+                            <Border x:Name="AccountSignOutSectionPanel" Background="Transparent" BorderBrush="#7F1D1D" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Visibility="Collapsed">
                                 <StackPanel>
                                         <TextBlock Text="SIGN OUT" FontSize="11" FontWeight="SemiBold" Foreground="#F87171" Margin="0,0,0,12" />
                                         <TextBlock x:Name="AccountSignOutNotSignedInText" Text="You are not currently signed in on this PC. There is nothing to sign out of." Foreground="#475569" TextWrapping="Wrap" FontSize="12" Visibility="Visible" />
