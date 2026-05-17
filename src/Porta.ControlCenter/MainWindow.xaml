@@ -2061,14 +2061,13 @@
                                 <StackPanel>
                                     <DockPanel Margin="0,0,0,10">
                                         <Border DockPanel.Dock="Right" x:Name="HealthEngineBadge"
-                                                CornerRadius="100" Background="#1422C55E" BorderBrush="#2222C55E"
-                                                BorderThickness="1" Padding="8,3" VerticalAlignment="Center">
+                                                Background="Transparent" BorderThickness="0" Padding="0" VerticalAlignment="Center">
                                             <TextBlock x:Name="HealthEngineBadgeText" Text="Healthy"
                                                        FontSize="11" FontWeight="SemiBold" Foreground="#16A34A" />
                                         </Border>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <Border x:Name="HealthEngineDot" Width="7" Height="7"
-                                                    CornerRadius="3.5" Background="#22C55E" Margin="0,0,6,0" />
+                                                    CornerRadius="3.5" Background="Transparent" Margin="0,0,6,0" Visibility="Collapsed" />
                                             <TextBlock Text="ENGINE HEALTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" />
                                         </StackPanel>
                                     </DockPanel>
@@ -2107,14 +2106,13 @@
                                 <StackPanel>
                                     <DockPanel Margin="0,0,0,10">
                                         <Border DockPanel.Dock="Right" x:Name="HealthSessionBadge"
-                                                CornerRadius="100" Background="#1422C55E" BorderBrush="#2222C55E"
-                                                BorderThickness="1" Padding="8,3" VerticalAlignment="Center">
+                                                Background="Transparent" BorderThickness="0" Padding="0" VerticalAlignment="Center">
                                             <TextBlock x:Name="HealthSessionBadgeText" Text="Active"
                                                        FontSize="11" FontWeight="SemiBold" Foreground="#16A34A" />
                                         </Border>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <Border x:Name="HealthSessionDot" Width="7" Height="7"
-                                                    CornerRadius="3.5" Background="#22C55E" Margin="0,0,6,0" />
+                                                    CornerRadius="3.5" Background="Transparent" Margin="0,0,6,0" Visibility="Collapsed" />
                                             <TextBlock Text="SESSION TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" />
                                         </StackPanel>
                                     </DockPanel>
@@ -2161,14 +2159,13 @@
                                 <StackPanel>
                                     <DockPanel Margin="0,0,0,10">
                                         <Border DockPanel.Dock="Right" x:Name="HealthInputBadge"
-                                                CornerRadius="100" Background="#1422C55E" BorderBrush="#2222C55E"
-                                                BorderThickness="1" Padding="8,3" VerticalAlignment="Center">
+                                                Background="Transparent" BorderThickness="0" Padding="0" VerticalAlignment="Center">
                                             <TextBlock x:Name="HealthInputBadgeText" Text="Active"
                                                        FontSize="11" FontWeight="SemiBold" Foreground="#16A34A" />
                                         </Border>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <Border x:Name="HealthInputDot" Width="7" Height="7"
-                                                    CornerRadius="3.5" Background="#22C55E" Margin="0,0,6,0" />
+                                                    CornerRadius="3.5" Background="Transparent" Margin="0,0,6,0" Visibility="Collapsed" />
                                             <TextBlock Text="INPUT TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" />
                                         </StackPanel>
                                     </DockPanel>
@@ -2204,14 +2201,13 @@
                                 <StackPanel>
                                     <DockPanel Margin="0,0,0,10">
                                         <Border DockPanel.Dock="Right" x:Name="HealthStateBadge"
-                                                CornerRadius="100" Background="#141E40AF" BorderBrush="#221E40AF"
-                                                BorderThickness="1" Padding="8,3" VerticalAlignment="Center">
+                                                Background="Transparent" BorderThickness="0" Padding="0" VerticalAlignment="Center">
                                             <TextBlock x:Name="HealthStateBadgeText" Text="Confident"
                                                        FontSize="11" FontWeight="SemiBold" Foreground="#1E40AF" />
                                         </Border>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <Border x:Name="HealthStateDot" Width="7" Height="7"
-                                                    CornerRadius="3.5" Background="#3B82F6" Margin="0,0,6,0" />
+                                                    CornerRadius="3.5" Background="Transparent" Margin="0,0,6,0" Visibility="Collapsed" />
                                             <TextBlock Text="STATE TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" />
                                         </StackPanel>
                                     </DockPanel>
@@ -2248,14 +2244,13 @@
                             <StackPanel>
                                 <DockPanel Margin="0,0,0,10">
                                     <Border DockPanel.Dock="Right" x:Name="HealthActionBadge"
-                                            CornerRadius="100" Background="#14F59E0B" BorderBrush="#22F59E0B"
-                                            BorderThickness="1" Padding="8,3" VerticalAlignment="Center">
+                                            Background="Transparent" BorderThickness="0" Padding="0" VerticalAlignment="Center">
                                         <TextBlock x:Name="HealthActionBadgeText" Text="No action"
                                                    FontSize="11" FontWeight="SemiBold" Foreground="#92400E" />
                                     </Border>
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                         <Border x:Name="HealthActionDot" Width="7" Height="7"
-                                                CornerRadius="3.5" Background="#F59E0B" Margin="0,0,6,0" />
+                                                CornerRadius="3.5" Background="Transparent" Margin="0,0,6,0" Visibility="Collapsed" />
                                         <TextBlock Text="ACTION TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#475569" />
                                     </StackPanel>
                                 </DockPanel>
