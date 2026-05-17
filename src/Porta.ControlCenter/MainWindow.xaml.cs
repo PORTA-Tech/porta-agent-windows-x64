@@ -3583,6 +3583,8 @@ public partial class MainWindow : Window
         HealthSessionStartupSourceValue.Text = view.StartupSourceLabel;
         HealthSessionLaunchReasonValue.Text = view.LaunchReasonLabel;
         HealthSessionRecoveryValue.Text = view.RecoveryStateLabel;
+        HealthSessionHeartbeatValue.Text = SimplifyHeartbeat(HealthSessionHeartbeatValue.Text);
+        HealthSessionRecoveryValue.Text  = SimplifyRecovery(HealthSessionRecoveryValue.Text);
         HealthSessionWarningValue.Text = view.WarningText;
         HealthSessionWarningValue.Foreground = detailBrush;
         ApplyStatusBadge(HealthSessionBadge, HealthSessionBadgeText, HealthSessionDot, view.StatusLabel);
@@ -3621,6 +3623,10 @@ public partial class MainWindow : Window
         HealthStateCalibrationValue.Text = view.CalibrationLabel;
         HealthStateBreakReadinessValue.Text = view.BreakReadinessLabel;
         HealthStateModesValue.Text = view.ModesLabel;
+        HealthStateConfidenceValue.Text     = SimplifyConfidence(HealthStateConfidenceValue.Text);
+        HealthStateCalibrationValue.Text    = SimplifyCalibration(HealthStateCalibrationValue.Text);
+        HealthStateModesValue.Text          = SimplifyModes(HealthStateModesValue.Text);
+        HealthStateBreakReadinessValue.Text = SimplifyBreakReadiness(HealthStateBreakReadinessValue.Text);
         HealthStateWarningValue.Text = view.WarningText;
         HealthStateWarningValue.Foreground = detailBrush;
         var stateBadgeLabel = HealthStateConfidenceValue.Text.StartsWith("High", StringComparison.OrdinalIgnoreCase) ? "Confident"
@@ -3670,6 +3676,67 @@ public partial class MainWindow : Window
         badgeText.Foreground    = (System.Windows.Media.Brush)conv.ConvertFromString(fgHex)!;
         badgeText.Text          = label;
         dot.Background          = (System.Windows.Media.Brush)conv.ConvertFromString(dotHex)!;
+    }
+
+    private static string SimplifyHeartbeat(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw == "Not available") return raw;
+        var s = raw.IndexOf('('); var e = raw.IndexOf(')');
+        if (s >= 0 && e > s) return "Live " + raw.Substring(s + 1, e - s - 1).Trim();
+        return raw;
+    }
+
+    private static string SimplifyRecovery(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw == "Not available") return raw;
+        foreach (var part in raw.Split('|'))
+        {
+            var t = part.Trim().ToLowerInvariant();
+            if (t.StartsWith("live ")) continue;
+            if (t.Contains("=0") || t.Contains("=none") || t.Contains("=not reported")) continue;
+            return "Issues detected";
+        }
+        return "No issues";
+    }
+
+    private static string SimplifyConfidence(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw == "Not available") return raw;
+        var first = raw.Split('|')[0].Trim();
+        foreach (var word in first.Split(' '))
+            if (word is "High" or "Medium" or "Low" or "Unknown" or "None" or "Partial")
+                return word;
+        return first;
+    }
+
+    private static string SimplifyCalibration(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw == "Not available") return raw;
+        return raw.Split('|')[0].Trim();
+    }
+
+    private static string SimplifyModes(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw == "Not available") return raw;
+        var active = raw.Split('|')
+            .Select(p => p.Trim())
+            .Where(p => p.EndsWith(" ON", StringComparison.OrdinalIgnoreCase))
+            .Select(p => p[..^3].Trim())
+            .ToList();
+        return active.Count > 0 ? string.Join(" + ", active) : "Normal";
+    }
+
+    private static string SimplifyBreakReadiness(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw == "Not available") return raw;
+        var lower = raw.ToLowerInvariant();
+        if (lower.Contains("short-break window:"))
+        {
+            var idx = raw.IndexOf(":", raw.IndexOf("short-break", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase);
+            var mins = raw[(idx + 1)..].Split('|')[0].Trim();
+            return "Break in " + mins;
+        }
+        return raw.Split('|')[0].Trim();
     }
 
     private static OverloadExplainView ParseOverloadExplain(string? contributorsJson)
