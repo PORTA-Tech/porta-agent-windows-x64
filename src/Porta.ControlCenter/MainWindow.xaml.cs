@@ -6984,7 +6984,7 @@ public partial class MainWindow : Window
             .Where(static e => e.Kind == HistoryTimelineEpisodeKind.FocusEpisode)
             .Sum(static e => e.DurationSeconds);
         double distrSec = heatmap.Episodes
-            .Where(static e => e.Kind is HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction)
+            .Where(static e => e.Kind is HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction or HistoryTimelineEpisodeKind.ContextExcursion)
             .Sum(static e => e.DurationSeconds);
         double overSec = heatmap.Episodes
             .Where(static e => e.Kind == HistoryTimelineEpisodeKind.OverloadEpisode)
@@ -7396,7 +7396,8 @@ public partial class MainWindow : Window
     private static string GetCalendarEpisodeLabel(HistoryTimelineEpisodeKind kind) => kind switch
     {
         HistoryTimelineEpisodeKind.FocusEpisode                                                            => "Focus",
-        HistoryTimelineEpisodeKind.Away or HistoryTimelineEpisodeKind.ContextExcursion                     => "Away",
+        HistoryTimelineEpisodeKind.Away                                                                    => "Away",
+        HistoryTimelineEpisodeKind.ContextExcursion                                                     => "Distraction",
         HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction => "Distraction",
         HistoryTimelineEpisodeKind.OverloadEpisode                                                         => "Overload",
         _                                                                                                   => kind.ToString()
@@ -7405,7 +7406,8 @@ public partial class MainWindow : Window
     private static Color GetCalendarEpisodeColor(HistoryTimelineEpisodeKind kind) => kind switch
     {
         HistoryTimelineEpisodeKind.FocusEpisode                                                   => Color.FromRgb(0x16, 0xC7, 0x84),
-        HistoryTimelineEpisodeKind.Away or HistoryTimelineEpisodeKind.ContextExcursion            => Color.FromRgb(0x3B, 0x82, 0xF6),
+        HistoryTimelineEpisodeKind.Away                                                            => Color.FromRgb(0x3B, 0x82, 0xF6),
+        HistoryTimelineEpisodeKind.ContextExcursion                                                => Color.FromRgb(0x8B, 0x5C, 0xF6),
         HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction => Color.FromRgb(0x8B, 0x5C, 0xF6),
         HistoryTimelineEpisodeKind.OverloadEpisode                                                => Color.FromRgb(0xEF, 0x44, 0x44),
         _                                                                                          => Color.FromRgb(0x47, 0x55, 0x69)
@@ -7628,7 +7630,7 @@ public partial class MainWindow : Window
         HistoryTimelineEpisodeKind.FocusEpisode               => Color.FromRgb(0x16, 0xC7, 0x84),
         HistoryTimelineEpisodeKind.OffTaskDistraction          => Color.FromRgb(0x8B, 0x5C, 0xF6),
         HistoryTimelineEpisodeKind.FragmentationDistraction    => Color.FromRgb(0x8B, 0x5C, 0xF6),
-        HistoryTimelineEpisodeKind.ContextExcursion            => Color.FromRgb(0x3B, 0x82, 0xF6),
+        HistoryTimelineEpisodeKind.ContextExcursion            => Color.FromRgb(0x8B, 0x5C, 0xF6),
         HistoryTimelineEpisodeKind.Away                        => Color.FromRgb(0x3B, 0x82, 0xF6),
         HistoryTimelineEpisodeKind.OverloadEpisode             => Color.FromRgb(0xEF, 0x44, 0x44),
         _                                                      => Color.FromRgb(0x47, 0x55, 0x69)
