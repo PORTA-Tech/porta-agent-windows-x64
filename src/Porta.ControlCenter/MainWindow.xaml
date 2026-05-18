@@ -275,7 +275,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="172" />
+            <ColumnDefinition Width="220" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
@@ -638,7 +638,7 @@
                               IsManipulationEnabled="True"
                               PanningMode="VerticalOnly"
                               PreviewMouseWheel="OverviewPanel_PreviewMouseWheel">
-                    <StackPanel Margin="20">
+                    <StackPanel Margin="20,16,20,0">
                         <!-- Greeting row hidden — Ari bubble replaces it; state chip removed as redundant with widget -->
                         <StackPanel Visibility="Collapsed">
                             <TextBlock x:Name="TodayGreetingText" Text="Good morning" />
@@ -793,10 +793,7 @@
                                     <Border CornerRadius="4" Background="#143B82F6" BorderBrush="#223B82F6" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
                                         <TextBlock Text="Away" Foreground="#3B82F6" FontSize="11" />
                                     </Border>
-                                    <Border CornerRadius="4" Background="#14F59E0B" BorderBrush="#22F59E0B" BorderThickness="1" Padding="8,3">
-                                        <TextBlock Text="Pressure edge" Foreground="#F59E0B" FontSize="11" />
-                                    </Border>
-                                </WrapPanel>
+                                                                    </WrapPanel>
                             </StackPanel>
                         </Border>
                         <!-- Quick action buttons -->
@@ -2404,63 +2401,68 @@
                 Visibility="Collapsed"
                 Panel.ZIndex="200">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <StackPanel>
-                    <DockPanel Margin="0,0,0,10">
-                        <TextBlock x:Name="WhyDrawerTitleText"
-                                   Text="Why"
+                <StackPanel Margin="4">
+                    <DockPanel Margin="0,0,0,16">
+                        <TextBlock Text="What's pushing your pressure?"
                                    DockPanel.Dock="Left"
-                                   FontSize="18"
+                                   FontSize="15"
                                    FontWeight="SemiBold"
-                                   Foreground="#E6E9ED" />
+                                   Foreground="#E6E9ED"
+                                   VerticalAlignment="Center" />
                         <Button DockPanel.Dock="Right"
-                                Content="Close"
-                                MinWidth="72"
+                                Content="&#x2715;"
+                                MinWidth="32"
+                                Width="32"
                                 Height="32"
-                                Padding="12,4"
-                                FontSize="12"
+                                Padding="0"
+                                FontSize="14"
                                 FontWeight="SemiBold"
-                                Background="#1F2937"
-                                Foreground="#E6E9ED"
-                                BorderBrush="#475569"
+                                Background="Transparent"
+                                Foreground="#94A3B8"
+                                BorderBrush="#252535"
                                 BorderThickness="1"
                                 ToolTip="Close"
                                 Click="WhyDrawerCloseButton_Click" />
                     </DockPanel>
 
-                    <Border Background="#1B1F25" BorderBrush="#262B33" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
-                        <StackPanel>
-                            <TextBlock Text="Current state" Foreground="#93C5FD" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock x:Name="WhyDrawerStateText" Text="State: Not available" Foreground="#E6E9ED" TextWrapping="Wrap" />
-                            <TextBlock x:Name="WhyDrawerConfidenceText" Text="Confidence: Not available" Foreground="#CBD5E1" Margin="0,4,0,0" TextWrapping="Wrap" />
-                            <TextBlock x:Name="WhyDrawerFivText" Text="Clarity/Pressure/Jitter: Not available" Foreground="#CBD5E1" Margin="0,6,0,0" TextWrapping="Wrap" />
-                            <TextBlock x:Name="WhyDrawerContributorsText" Text="Top contributors: Not available" Foreground="#CBD5E1" Margin="0,6,0,0" TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Border>
+                    <TextBlock x:Name="WhyDrawerStateText"
+                               Text="State: Not available"
+                               Foreground="#94A3B8"
+                               FontSize="13"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,6" />
+                    <TextBlock x:Name="WhyDrawerConfidenceText"
+                               Text=""
+                               Foreground="#64748B"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,16" />
 
-                    <Border Background="#1B1F25" BorderBrush="#262B33" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
-                        <StackPanel>
-                            <TextBlock Text="Policy status" Foreground="#93C5FD" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock x:Name="WhyDrawerPolicyText" Text="Not available" Foreground="#E6E9ED" TextWrapping="Wrap" />
-                            <TextBlock x:Name="WhyDrawerCooldownText" Text="Cooldowns: Not available" Foreground="#CBD5E1" Margin="0,6,0,0" TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Border>
+                    <Border BorderBrush="#1C1C28" BorderThickness="0,1,0,0" Margin="0,0,0,16" />
 
-                    <Border Background="#1B1F25" BorderBrush="#262B33" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
-                        <StackPanel>
-                            <TextBlock Text="Latest action states" Foreground="#93C5FD" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock x:Name="WhyDrawerActionStateText" Text="Not available" Foreground="#E6E9ED" TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Border>
+                    <TextBlock x:Name="WhyDrawerFivText"
+                               Text=""
+                               Foreground="#94A3B8"
+                               FontSize="13"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8" />
+                    <TextBlock x:Name="WhyDrawerContributorsText"
+                               Text=""
+                               Foreground="#94A3B8"
+                               FontSize="13"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,16" />
 
-                    <Border Background="#1B1F25" BorderBrush="#262B33" BorderThickness="1" CornerRadius="8" Padding="10">
-                        <StackPanel>
-                            <TextBlock Text="Structured explanation" Foreground="#93C5FD" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock x:Name="WhyDrawerContributorsSummaryText" Text="Contributors JSON: Not available" Foreground="#CBD5E1" TextWrapping="Wrap" />
-                            <TextBlock x:Name="WhyDrawerWhySummaryText" Text="Why JSON: Not available" Foreground="#CBD5E1" Margin="0,6,0,0" TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Border>
+                    <!-- Keep these hidden - needed for code compatibility -->
+                    <TextBlock x:Name="WhyDrawerTitleText" Visibility="Collapsed" Text="" />
+                    <TextBlock x:Name="WhyDrawerPolicyText" Visibility="Collapsed" Text="" />
+                    <TextBlock x:Name="WhyDrawerCooldownText" Visibility="Collapsed" Text="" />
+                    <TextBlock x:Name="WhyDrawerActionStateText" Visibility="Collapsed" Text="" />
+                    <TextBlock x:Name="WhyDrawerContributorsSummaryText" Visibility="Collapsed" Text="" />
+                    <TextBlock x:Name="WhyDrawerWhySummaryText" Visibility="Collapsed" Text="" />
                 </StackPanel>
-                </ScrollViewer>
+            </ScrollViewer>
+
         </Border>
 
         <Grid x:Name="OnboardingOverlay"
