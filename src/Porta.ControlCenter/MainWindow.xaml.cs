@@ -6836,12 +6836,10 @@ public partial class MainWindow : Window
         TimelineOverloadActiveOverlayPanel.Children.Clear();
 
         (DateTimeOffset displayFromUtc, DateTimeOffset displayToUtc) = ResolveHistoryDisplayRangeUtc(DateTimeOffset.UtcNow);
-        HistoryFocusHeatmap heatmap = timeline == null && _latestHistoryHeatmap != null
-            ? _latestHistoryHeatmap
-            : HistoryFocusHeatmapBuilder.Build(
-                timeline,
-                fallbackFromUtc: displayFromUtc,
-                fallbackToUtc: displayToUtc);
+        HistoryFocusHeatmap heatmap = HistoryFocusHeatmapBuilder.Build(
+            timeline,
+            fallbackFromUtc: displayFromUtc,
+            fallbackToUtc: displayToUtc);
         _latestHistoryHeatmap = heatmap;
         PopulateHistorySummary(heatmap);
         PopulateHistorySummaryNew(heatmap);
@@ -7144,22 +7142,7 @@ public partial class MainWindow : Window
             };
             Grid.SetColumn(hdr, ci);
             HistoryCalendarHeaderRow.Children.Add(hdr);
-            // Red underline on header if this column has overload
-            bool colHasOverload = heatmap.Episodes.Any(e =>
-                e.Kind == HistoryTimelineEpisodeKind.OverloadEpisode &&
-                e.StartUtc.ToLocalTime().Date == col.Date.Date);
-            if (colHasOverload)
-            {
-                var overloadLine = new Border
-                {
-                    Height            = 3,
-                    Background        = new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44)),
-                    VerticalAlignment = VerticalAlignment.Bottom,
-                    Margin            = new Thickness(4, 0, 4, 0)
-                };
-                Grid.SetColumn(overloadLine, ci);
-                HistoryCalendarHeaderRow.Children.Add(overloadLine);
-            }
+
         }
 
         // In Day view, shift the header grid to align with the centered column
