@@ -1553,9 +1553,9 @@
                                    Margin="0,0,0,8"
                                    HorizontalAlignment="Left" />
                         <!-- Four summary cards -->
-                        <UniformGrid Columns="4" Margin="0,0,0,12">
+                        <UniformGrid Columns="4" Margin="0,0,0,20">
                             <Border x:Name="HistoryCardFocus"
-                                    Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,8,0">
+                                    Background="#0F0F18" BorderBrush="#6616C784" BorderThickness="1" CornerRadius="10" Padding="16,14,16,14" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="FOCUS" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
                                     <TextBlock x:Name="HistoryFocusDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#16C784" Margin="0,4,0,0" />
@@ -1566,7 +1566,7 @@
                                 </StackPanel>
                             </Border>
                             <Border x:Name="HistoryCardDistraction"
-                                    Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,8,0">
+                                    Background="#0F0F18" BorderBrush="#668B5CF6" BorderThickness="1" CornerRadius="10" Padding="16,14,16,14" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="DISTRACTION" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
                                     <TextBlock x:Name="HistoryDistractionDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#8B5CF6" Margin="0,4,0,0" />
@@ -1577,7 +1577,7 @@
                                 </StackPanel>
                             </Border>
                             <Border x:Name="HistoryCardOverload"
-                                    Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,8,0">
+                                    Background="#0F0F18" BorderBrush="#66EF4444" BorderThickness="1" CornerRadius="10" Padding="16,14,16,14" Margin="0,0,8,0">
                                 <StackPanel>
                                     <TextBlock Text="OVERLOAD" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
                                     <TextBlock x:Name="HistoryOverloadDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#EF4444" Margin="0,4,0,0" />
@@ -1588,7 +1588,7 @@
                                 </StackPanel>
                             </Border>
                             <Border x:Name="HistoryCardAway"
-                                    Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16">
+                                    Background="#0F0F18" BorderBrush="#663B82F6" BorderThickness="1" CornerRadius="10" Padding="16,14,16,14">
                                 <StackPanel>
                                     <TextBlock Text="AWAY" FontSize="10" FontWeight="SemiBold" Foreground="#475569" />
                                     <TextBlock x:Name="HistoryAwayDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#3B82F6" Margin="0,4,0,0" />

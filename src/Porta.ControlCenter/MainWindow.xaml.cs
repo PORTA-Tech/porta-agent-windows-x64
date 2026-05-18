@@ -7248,8 +7248,11 @@ public partial class MainWindow : Window
             var dayEps = heatmap.Episodes
                 .Where(e =>
                 {
-                    var localDay = e.StartUtc.ToLocalTime().Date;
-                    return localDay == col.Date.Date;
+                    // Include episodes that start on this day OR cross midnight into it
+                    var epStartDate = e.StartUtc.ToLocalTime().Date;
+                    var epEndDate   = e.EndUtc.ToLocalTime().Date;
+                    return epStartDate == col.Date.Date
+                        || (epEndDate == col.Date.Date && e.EndUtc.ToLocalTime().TimeOfDay.TotalMinutes > 5d);
                 })
                 .OrderBy(e => e.StartUtc)
                 .ToList();
@@ -7294,9 +7297,10 @@ public partial class MainWindow : Window
                 if (clampedStart < prevDrawnEndMin)
                     clampedStart = prevDrawnEndMin;
 
-                // Skip if too short after trimming (< 5 min = noise / micro-transition)
+                // Skip if too short after trimming (< 5 min normal, 1 min overload)
                 double realDurationMin = clampedEnd - clampedStart;
-                if (realDurationMin < 5d) continue;
+                double minDuration = ep.Kind == HistoryTimelineEpisodeKind.OverloadEpisode ? 1d : 5d;
+                if (realDurationMin < minDuration) continue;
 
                 prevDrawnEndMin = clampedEnd;
 
