@@ -648,8 +648,8 @@
                             </Border>
                         </StackPanel>
                         <!-- Ari bubble -->
-                        <Border Background="#1216C784"
-                                BorderBrush="#3316C784"
+                        <Border Background="#111119"
+                                BorderBrush="#1C1C28"
                                 BorderThickness="1"
                                 CornerRadius="10"
                                 Padding="14,12"
@@ -662,7 +662,7 @@
                                            Margin="0,0,0,5" />
                                 <TextBlock x:Name="TodaySummaryText"
                                            Text="Today keeps work, last focus session, and pressure synced with the widget."
-                                           Foreground="#A7F3D0"
+                                           Foreground="#94A3B8"
                                            FontSize="13"
                                            TextWrapping="Wrap" />
                             </StackPanel>
@@ -688,13 +688,13 @@
                                     <TextBlock x:Name="NowOverloadTrustText" Text="" Margin="0,3,0,0" Visibility="Collapsed"
                                                FontSize="12" Foreground="#475569" />
                                     <Border x:Name="WorkTodayTrack" Height="4" CornerRadius="2" Background="#1C1C28" Margin="0,8,0,6">
-                                        <Border x:Name="WorkTodayProgressFill" Background="#3B82F6" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
+                                        <Border x:Name="WorkTodayProgressFill" Background="#475569" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
                                     </Border>
                                     <!-- View History link — bottom-right, only interactive element -->
                                     <DockPanel LastChildFill="False">
                                         <TextBlock DockPanel.Dock="Right"
                                                    Text="View History →"
-                                                   FontSize="11" Foreground="#6366F1"
+                                                   FontSize="11" Foreground="#64748B"
                                                    Cursor="Hand"
                                                    MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
                                                    Tag="today-work" />
@@ -714,7 +714,7 @@
                                 <StackPanel>
                                     <TextBlock Text="FOCUS SCORE"
                                                FontSize="11" FontWeight="SemiBold"
-                                               Foreground="#475569" Margin="0,0,0,6" />
+                                               Foreground="#16C784" Margin="0,0,0,6" />
                                     <TextBlock x:Name="NowFocusStreakValueText" Text="—" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"
                                                Foreground="#16C784" />
                                     <TextBlock x:Name="NowDeepWorkStreakText" Text="" Margin="0,5,0,0"
@@ -740,7 +740,7 @@
                                 <StackPanel>
                                     <TextBlock Text="PRESSURE"
                                                FontSize="11" FontWeight="SemiBold"
-                                               Foreground="#475569" Margin="0,0,0,6" />
+                                               Foreground="#F59E0B" Margin="0,0,0,6" />
                                     <TextBlock x:Name="NowCalibrationStatusText" Text="—" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"
                                                Foreground="#16C784" />
                                     <!-- NowCalibrationProgressText hidden — "Regulation · normal" is developer text -->
