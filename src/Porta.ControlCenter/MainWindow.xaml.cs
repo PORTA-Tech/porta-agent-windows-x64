@@ -7554,7 +7554,7 @@ public partial class MainWindow : Window
             if (gapSecs > 30d)
             {
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(gapSecs, GridUnitType.Star) });
-                var gapBorder = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)) };
+                var gapBorder = new Border { Background = Brushes.Transparent };
                 Grid.SetColumn(gapBorder, colIdx++);
                 grid.Children.Add(gapBorder);
             }
@@ -7578,7 +7578,7 @@ public partial class MainWindow : Window
         if (trailSecs > 30d)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(trailSecs, GridUnitType.Star) });
-            var trail = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)) };
+            var trail = new Border { Background = Brushes.Transparent };
             Grid.SetColumn(trail, colIdx);
             grid.Children.Add(trail);
         }
