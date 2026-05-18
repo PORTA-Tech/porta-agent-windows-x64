@@ -7284,9 +7284,15 @@ public partial class MainWindow : Window
                 var localStart = ep.StartUtc.ToLocalTime();
                 var localEnd   = ep.EndUtc.ToLocalTime();
 
-                // Clamp to visible hour range
+                // Clamp to visible hour range (handle cross-midnight episodes)
                 double epStartMin = localStart.Hour * 60d + localStart.Minute;
                 double epEndMin   = localEnd.Hour * 60d + localEnd.Minute;
+                if (epEndMin < epStartMin && ep.DurationSeconds > 60d)
+                {
+                    // Cross-midnight: clip to midnight in the start-day column, start from 0 in end-day
+                    if (localStart.Date == col.Date.Date) epEndMin = 1440d;
+                    else epStartMin = 0d;
+                }
                 double clampedStart = Math.Max(epStartMin, gridStartMin);
                 double clampedEnd   = Math.Min(epEndMin, endHour * 60d);
                 if (clampedEnd <= clampedStart) continue;
@@ -7358,6 +7364,34 @@ public partial class MainWindow : Window
                 Canvas.SetLeft(block, blockLeft);
                 Canvas.SetTop(block, topOffset);
                 HistoryCalendarCanvas.Children.Add(block);
+            }
+
+            // ── Second pass: overload as full-width red overlay (always on top) ──
+            foreach (var ep in dayEps.Where(e => e.Kind == HistoryTimelineEpisodeKind.OverloadEpisode))
+            {
+                var olStart = ep.StartUtc.ToLocalTime();
+                var olEnd   = ep.EndUtc.ToLocalTime();
+                double olStartMin = olStart.Hour * 60d + olStart.Minute;
+                double olEndMin   = olEnd.Hour * 60d + olEnd.Minute;
+                if (olEndMin < olStartMin) { if (olStart.Date == col.Date.Date) olEndMin = 1440d; else olStartMin = 0d; }
+                double olClamped0 = Math.Max(olStartMin, gridStartMin);
+                double olClamped1 = Math.Min(olEndMin, endHour * 60d);
+                if (olClamped1 - olClamped0 < 1d) continue;
+                double olTop = (olClamped0 - gridStartMin) / 60d * rowH;
+                double olH   = Math.Max((olClamped1 - olClamped0) / 60d * rowH, 6d);
+                var olBlock = new Border
+                {
+                    Width       = colW - 4d,
+                    Height      = olH,
+                    Background  = new SolidColorBrush(Color.FromArgb(0xCC, 0xEF, 0x44, 0x44)),
+                    CornerRadius = new CornerRadius(2),
+                    ToolTip     = $"Overload active · {FormatReadableDuration(ep.DurationSeconds)}",
+                    Child       = olH >= 20d ? new TextBlock { Text = $"Overload · {FormatReadableDuration(ep.DurationSeconds)}", FontSize = 10, Foreground = Brushes.White, Padding = new Thickness(4,2,4,2) } : null
+                };
+                Canvas.SetLeft(olBlock, colX + 2d);
+                Canvas.SetTop(olBlock, olTop);
+                Canvas.SetZIndex(olBlock, 20);
+                HistoryCalendarCanvas.Children.Add(olBlock);
             }
         }
 
