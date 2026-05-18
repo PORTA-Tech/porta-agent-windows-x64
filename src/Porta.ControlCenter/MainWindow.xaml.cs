@@ -7045,12 +7045,14 @@ public partial class MainWindow : Window
     private void RenderHistoryCalendarGrid(HistoryFocusHeatmap heatmap)
     {
         _calendarHeatmap = heatmap;
-        // Always measure from the CONTAINER width, not the canvas itself.
-        // The canvas width is stale from the previous tab and causes wrong column widths.
-        double availableWidth = HistoryCalendarContent.ActualWidth > 48
-            ? HistoryCalendarContent.ActualWidth - 48d
-            : 600d;
-        ApplyCalendarGrid(heatmap, availableWidth);
+        // Defer to after layout so ActualWidth is accurate (avoids left-shift bug)
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+        {
+            double w = HistoryCalendarContent.ActualWidth > 48
+                ? HistoryCalendarContent.ActualWidth - 48d
+                : 900d;
+            ApplyCalendarGrid(heatmap, w);
+        });
         // No auto-scroll — user scrolls freely.
     }
 
@@ -7142,6 +7144,22 @@ public partial class MainWindow : Window
             };
             Grid.SetColumn(hdr, ci);
             HistoryCalendarHeaderRow.Children.Add(hdr);
+            // Red underline on header if this column has overload
+            bool colHasOverload = heatmap.Episodes.Any(e =>
+                e.Kind == HistoryTimelineEpisodeKind.OverloadEpisode &&
+                e.StartUtc.ToLocalTime().Date == col.Date.Date);
+            if (colHasOverload)
+            {
+                var overloadLine = new Border
+                {
+                    Height            = 3,
+                    Background        = new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44)),
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    Margin            = new Thickness(4, 0, 4, 0)
+                };
+                Grid.SetColumn(overloadLine, ci);
+                HistoryCalendarHeaderRow.Children.Add(overloadLine);
+            }
         }
 
         // In Day view, shift the header grid to align with the centered column
