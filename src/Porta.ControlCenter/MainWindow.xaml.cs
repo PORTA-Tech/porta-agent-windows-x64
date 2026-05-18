@@ -4626,7 +4626,7 @@ public partial class MainWindow : Window
     {
         var container = new Border
         {
-            Background      = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)),
+            Background      = new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x18)),
             BorderBrush     = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
             BorderThickness = new Thickness(1),
             CornerRadius    = new CornerRadius(10),
@@ -4847,7 +4847,7 @@ public partial class MainWindow : Window
     {
         var container = new Border
         {
-            Background      = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)),
+            Background      = new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x18)),
             BorderBrush     = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
             BorderThickness = new Thickness(1),
             CornerRadius    = new CornerRadius(10),
@@ -5100,7 +5100,7 @@ public partial class MainWindow : Window
         {
             string key = ev.Action?.ToLowerInvariant() ?? "";
             if (lastByAction.TryGetValue(key, out var prev)
-                && (ev.TimestampUtc - prev).TotalMinutes < 30d)
+                && (ev.TimestampUtc - prev).TotalMinutes < 5d)
             {
                 continue; // collapse rapid-fire or session-scoped duplicate
             }
@@ -5108,19 +5108,15 @@ public partial class MainWindow : Window
             deduped.Add(ev);
         }
 
-        // Step 3: group by category — one row per category, no interleaving issues
+        // Step 3: keep each deduplicated event as its own row for full-day visibility
         return deduped
-            .GroupBy(e => ResolveActionCategory(e))
-            .Select(g =>
+            .OrderByDescending(e => e.TimestampUtc)
+            .Select(e =>
             {
-                var anchor = g.OrderBy(e => e.TimestampUtc).First();
-                int cnt = g.Count();
-                string title = cnt == 1
-                    ? GetUserFriendlyActionTitle(anchor)
-                    : GetActionCategoryLabel(g.Key);
-                return (title, cnt, g.Key, g.Max(e => e.TimestampUtc));
+                string title = GetUserFriendlyActionTitle(e);
+                var cat = ResolveActionCategory(e);
+                return (title, 1, cat, e.TimestampUtc);
             })
-            .OrderByDescending(g => g.Item4)
             .ToList();
     }
     private static FrameworkElement BuildActionsGroupedLog(
@@ -5128,7 +5124,7 @@ public partial class MainWindow : Window
     {
         var container = new Border
         {
-            Background      = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x2E)),
+            Background      = new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x18)),
             BorderBrush     = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
             BorderThickness = new Thickness(1),
             CornerRadius    = new CornerRadius(10),
