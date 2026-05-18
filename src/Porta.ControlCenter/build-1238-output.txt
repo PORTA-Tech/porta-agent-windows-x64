@@ -1,0 +1,74 @@
+Resolved MSI version from Control Center project: 1.2.38
+Publishing ari.exe (Release, win-x64)...
+Restoring Porta.Agent.Service.csproj for runtime win-x64...
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Privacy guard passed.
+  Porta.Agent.Common -> C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\bin\Release\net8.0\Porta.Agent.Common.dll
+  Porta.Agent.Core -> C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Core\bin\Release\net8.0\Porta.Agent.Core.dll
+  Porta.Agent.LocalApi -> C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.LocalApi\bin\Release\net8.0\Porta.Agent.LocalApi.dll
+  Porta.Agent.Service -> C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Service\bin\Release\net8.0-windows\win-x64\ari.dll
+  Porta.Agent.Service -> C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Service\bin\Release\net8.0-windows\win-x64\publish\
+Publishing Porta.UserAgent.exe (Release, win-x64)...
+Restoring Porta.UserAgent.csproj for runtime win-x64...
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Porta.Agent.Common -> C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\bin\Release\net8.0\Porta.Agent.Common.dll
+  Privacy guard passed.
+  Porta.Agent.Runtime -> C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Runtime\bin\Release\net8.0-windows\win-x64\Porta.Agent.Runtime.dll
+  Porta.Agent.Core -> C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Core\bin\Release\net8.0\Porta.Agent.Core.dll
+  Porta.Agent.LocalApi -> C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.LocalApi\bin\Release\net8.0\Porta.Agent.LocalApi.dll
+C:\Users\hp\porta-agent-windows-x64\src\Porta.UserAgent\Interventions\UserDesktopWidgetWindow.cs(1745,9): warning CS0162: Unreachable code detected [C:\Users\hp\porta-agent-windows-x64\src\Porta.UserAgent\Porta.UserAgent.csproj]
+  Porta.UserAgent -> C:\Users\hp\porta-agent-windows-x64\src\Porta.UserAgent\bin\Release\net8.0-windows\win-x64\Porta.UserAgent.dll
+  Porta.UserAgent -> C:\Users\hp\porta-agent-windows-x64\src\Porta.UserAgent\bin\Release\net8.0-windows\win-x64\publish\
+Publishing Porta.ControlCenter.exe (Release, win-x64)...
+Restoring Porta.ControlCenter.csproj for runtime win-x64...
+  Determining projects to restore...
+  Restored C:\Users\hp\porta-agent-windows-x64\src\Porta.ControlCenter\Porta.ControlCenter.csproj (in 1.37 sec).
+  3 of 4 projects are up-to-date for restore.
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Porta.Agent.Common -> C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Common\bin\Release\net8.0\Porta.Agent.Common.dll
+  Porta.Agent.Core -> C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.Core\bin\Release\net8.0\Porta.Agent.Core.dll
+  Porta.Agent.LocalApi -> C:\Users\hp\porta-agent-windows-x64\src\Porta.Agent.LocalApi\bin\Release\net8.0\Porta.Agent.LocalApi.dll
+  Porta.ControlCenter -> C:\Users\hp\porta-agent-windows-x64\src\Porta.ControlCenter\bin\Release\net8.0-windows\win-x64\Porta.ControlCenter.dll
+  Porta.ControlCenter -> C:\Users\hp\porta-agent-windows-x64\src\Porta.ControlCenter\bin\Release\net8.0-windows\win-x64\publish\
+Payload prepared: C:\Users\hp\porta-agent-windows-x64\installer\payload\ari.exe
+Payload prepared: C:\Users\hp\porta-agent-windows-x64\installer\payload\Porta.UserAgent.exe
+Payload prepared: C:\Users\hp\porta-agent-windows-x64\installer\payload\Porta.ControlCenter.exe
+Payload prepared: C:\Users\hp\porta-agent-windows-x64\installer\payload\SharedFiles
+Building MSI...
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  AriAgent.Installer -> C:\Users\hp\porta-agent-windows-x64\installer\bin\x64\Release\AriAgentInstaller.msi
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:04:29.07
+MSI build complete. Output:
+WARNING: MSI signing skipped because no signing thumbprint was provided.
+MSI SHA256: 79f2d2f552aeb811a116e7457ecc4b298f96288b3b8938e08b251c2ce0aecbef
+MSI signature status: NotSigned
+
+FullName                                                                              Length LastWriteTime        
+--------                                                                              ------ -------------        
+C:\Users\hp\porta-agent-windows-x64\installer\bin\x64\Release\AriAgentInstaller.msi 71239104 5/18/2026 10:37:16 PM
+
+
+=== Installing === 
+& : The script 'install.ps1' cannot be run because it contains a "#requires" statement for running as Administrator. 
+The current Windows PowerShell session is not running as Administrator. Start Windows PowerShell by  using the Run as 
+Administrator option, and then try running the script again.
+At line:1 char:3
++ & 'scripts\install'
++   ~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : PermissionDenied: (install.ps1:String) [], ScriptRequiresException
+    + FullyQualifiedErrorId : ScriptRequiresElevation
+ 
+=== Git commit and push === 

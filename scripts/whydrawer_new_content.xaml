@@ -1,0 +1,63 @@
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="4">
+                    <DockPanel Margin="0,0,0,16">
+                        <TextBlock Text="What's pushing your pressure?"
+                                   DockPanel.Dock="Left"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   Foreground="#E6E9ED"
+                                   VerticalAlignment="Center" />
+                        <Button DockPanel.Dock="Right"
+                                Content="&#x2715;"
+                                MinWidth="32"
+                                Width="32"
+                                Height="32"
+                                Padding="0"
+                                FontSize="14"
+                                FontWeight="SemiBold"
+                                Background="Transparent"
+                                Foreground="#94A3B8"
+                                BorderBrush="#252535"
+                                BorderThickness="1"
+                                ToolTip="Close"
+                                Click="WhyDrawerCloseButton_Click" />
+                    </DockPanel>
+
+                    <TextBlock x:Name="WhyDrawerStateText"
+                               Text="State: Not available"
+                               Foreground="#94A3B8"
+                               FontSize="13"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,6" />
+                    <TextBlock x:Name="WhyDrawerConfidenceText"
+                               Text=""
+                               Foreground="#64748B"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,16" />
+
+                    <Border BorderBrush="#1C1C28" BorderThickness="0,1,0,0" Margin="0,0,0,16" />
+
+                    <TextBlock x:Name="WhyDrawerFivText"
+                               Text=""
+                               Foreground="#94A3B8"
+                               FontSize="13"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8" />
+                    <TextBlock x:Name="WhyDrawerContributorsText"
+                               Text=""
+                               Foreground="#94A3B8"
+                               FontSize="13"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,16" />
+
+                    <!-- Keep these hidden - needed for code compatibility -->
+                    <TextBlock x:Name="WhyDrawerTitleText" Visibility="Collapsed" Text="" />
+                    <TextBlock x:Name="WhyDrawerPolicyText" Visibility="Collapsed" Text="" />
+                    <TextBlock x:Name="WhyDrawerCooldownText" Visibility="Collapsed" Text="" />
+                    <TextBlock x:Name="WhyDrawerActionStateText" Visibility="Collapsed" Text="" />
+                    <TextBlock x:Name="WhyDrawerContributorsSummaryText" Visibility="Collapsed" Text="" />
+                    <TextBlock x:Name="WhyDrawerWhySummaryText" Visibility="Collapsed" Text="" />
+                </StackPanel>
+            </ScrollViewer>

@@ -83,7 +83,7 @@ public partial class MainWindow : Window
     private long _dismissedRecoveryEventId;
     private long _activeRecoveryEventId;
     private DateTimeOffset _lastManualRefreshUtc = DateTimeOffset.MinValue;
-    private HistoryRange _historyRange = HistoryRange.AllTime;
+    private HistoryRange _historyRange = HistoryRange.Today;
     private HistoryPeriod _historyPeriod = HistoryPeriod.Day;
     private IReadOnlyList<LocalApiEventResponse> _lastInterventionEvents = Array.Empty<LocalApiEventResponse>();
     private bool _historyExplainMode;
@@ -7056,9 +7056,19 @@ public partial class MainWindow : Window
 
     private void HistoryCalendarCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (_calendarHeatmap != null && e.NewSize.Width > 0)
-            ApplyCalendarGrid(_calendarHeatmap, e.NewSize.Width);
-        // Do NOT scroll here — SizeChanged fires on every resize and would jump the view
+        // This fires when we call HistoryCalendarCanvas.Width = totalCanvasWidth (line 7091).
+        // e.NewSize.Width is the CANVAS's own width we just set — NOT the container width.
+        // Do NOT pass it to ApplyCalendarGrid; HistoryCalendarContent_SizeChanged owns that.
+    }
+
+    private void HistoryCalendarContent_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // Fires when the container Grid gets (or changes) its actual layout width —
+        // including the very first visible layout pass and window resizes.
+        // e.NewSize.Width is the full container width; subtract 48px for the hour-label column.
+        if (_calendarHeatmap == null || !e.WidthChanged) return;
+        double w = e.NewSize.Width > 48 ? e.NewSize.Width - 48d : 900d;
+        ApplyCalendarGrid(_calendarHeatmap, w);
     }
 
     private void ApplyCalendarGrid(HistoryFocusHeatmap heatmap, double canvasWidth)

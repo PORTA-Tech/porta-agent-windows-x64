@@ -247,7 +247,13 @@ internal static class HistoryTimelineEpisodeBuilder
 
         foreach (LocalApiCurrentSnapshotResponse snapshot in snapshots)
         {
-            bool active = snapshot.OverloadActive || snapshot.ActivationWindowOpen;
+            // OverloadActive / ActivationWindowOpen are live booleans that the agent sets in
+            // real-time. In historical bucket timelines (300s / 600s) the API does NOT persist
+            // these flags — they are always false. Fall back to PressureLevel threshold so
+            // overload episodes are detected correctly in Week / 2-Week calendar views.
+            bool active = snapshot.OverloadActive
+                       || snapshot.ActivationWindowOpen
+                       || ResolvePressureLevel(snapshot) >= 0.72d;
             if (active)
             {
                 bool contiguous = run.Count == 0 || IsContiguous(run[^1], snapshot, bucketSeconds);

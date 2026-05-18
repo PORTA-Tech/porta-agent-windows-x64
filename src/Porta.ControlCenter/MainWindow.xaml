@@ -1714,7 +1714,7 @@
                                   Background="#0D0D12" Margin="48,0,0,0" MinHeight="28" />
 
                             <!-- Hour labels + day canvas -->
-                            <Grid Grid.Row="1" x:Name="HistoryCalendarContent">
+                            <Grid Grid.Row="1" x:Name="HistoryCalendarContent" SizeChanged="HistoryCalendarContent_SizeChanged">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="48" />
                                     <ColumnDefinition Width="*" />
