@@ -7291,18 +7291,18 @@ public partial class MainWindow : Window
                 double clampedEnd   = Math.Min(epEndMin, endHour * 60d);
                 if (clampedEnd <= clampedStart) continue;
 
-                // If this episode overlaps the previous drawn block, trim its START
-                // so it begins exactly where the previous one ended.
-                // This prevents visual overlap without moving anything below its real time.
-                if (clampedStart < prevDrawnEndMin)
+                // Overload episodes happen INSIDE focus — skip overlap trim so they render at real time
+                bool isOverloadEp = ep.Kind == HistoryTimelineEpisodeKind.OverloadEpisode;
+                if (!isOverloadEp && clampedStart < prevDrawnEndMin)
                     clampedStart = prevDrawnEndMin;
 
-                // Skip if too short after trimming (< 5 min normal, 1 min overload)
+                // Skip if too short (overload: 1 min; others: 5 min)
                 double realDurationMin = clampedEnd - clampedStart;
-                double minDuration = ep.Kind == HistoryTimelineEpisodeKind.OverloadEpisode ? 1d : 5d;
-                if (realDurationMin < minDuration) continue;
+                if (realDurationMin < (isOverloadEp ? 1d : 5d)) continue;
 
-                prevDrawnEndMin = clampedEnd;
+                // Only advance draw cursor for non-overload (overload sits on top)
+                if (!isOverloadEp)
+                    prevDrawnEndMin = clampedEnd;
 
                 // Position is purely time-based — always in sync with the hour labels.
                 double topOffset = (clampedStart - gridStartMin) / 60d * rowH;
@@ -7338,19 +7338,24 @@ public partial class MainWindow : Window
                     blockContent = new TextBlock { Text = stateLabel, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(8, 3, 8, 3) };
                 }
 
+                                // Overload = narrow red stripe on right edge of column, rendered on top
+                double blockWidth = isOverloadEp ? 6d : colW - 4d;
+                double blockLeft  = isOverloadEp ? colX + colW - 8d : colX + 2d;
+
                 var block = new Border
                 {
-                    Width       = colW - 4d,
+                    Width       = blockWidth,
                     Height      = blockH,
                     Background  = new SolidColorBrush(GetCalendarEpisodeColor(ep.Kind)),
-                    CornerRadius = new CornerRadius(3),
-                    Opacity      = 0.85,
+                    CornerRadius = isOverloadEp ? new CornerRadius(2) : new CornerRadius(3),
+                    Opacity      = isOverloadEp ? 1.0 : 0.85,
                     ToolTip      = BuildCalendarTooltip(ep),
                     ClipToBounds = true,
-                    Child        = blockContent
+                    Child        = isOverloadEp ? null : blockContent
                 };
+                if (isOverloadEp) Panel.SetZIndex(block, 10);
 
-                Canvas.SetLeft(block, colX + 2d);
+                Canvas.SetLeft(block, blockLeft);
                 Canvas.SetTop(block, topOffset);
                 HistoryCalendarCanvas.Children.Add(block);
             }
