@@ -1563,6 +1563,7 @@ public partial class MainWindow : Window
         PopulateTodayRecoveryBanner(todayState, readableExplanation, visualState);
         PopulateCurrentSessionCard(todayState, liveSession);
         UpdateCardProgressBars(todayMetrics, snapshot);
+        RefreshSessionTimelineBar();
     }
 
     private void PopulateTodayWorkCard(
@@ -1820,6 +1821,33 @@ public partial class MainWindow : Window
                 : Color.FromRgb(0x64, 0x74, 0x8B);
         ApplyBarFill(PressureProgressFill, PressureTrack, Math.Clamp(pressure, 0d, 1d),
             pressureBarColor);
+    }
+
+    private void RefreshSessionTimelineBar()
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        DateTimeOffset dayStart = LocalTimelineRangeResolver.ResolveLocalDayStartUtc(nowUtc);
+        HistoryFocusHeatmap heatmap = HistoryFocusHeatmapBuilder.Build(
+            _todayTimeline,
+            fallbackFromUtc: dayStart,
+            fallbackToUtc: nowUtc);
+
+        SessionTimelineBar.ColumnDefinitions.Clear();
+        SessionTimelineBar.Children.Clear();
+
+        if (!heatmap.HasAnyTracking || !heatmap.Episodes.Any())
+        {
+            SessionTimelineBar.Children.Add(new System.Windows.Controls.Border
+            {
+                Background = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(0x25, 0x25, 0x35)),
+                CornerRadius = new System.Windows.CornerRadius(4)
+            });
+            return;
+        }
+
+        var dummy = new System.Windows.Controls.TextBlock();
+        RenderDayTimelineBar(heatmap.Episodes, SessionTimelineBar, dummy, height: 22d);
     }
 
     private static void ApplyBarFill(Border fill, Border track, double fraction, Color colour)

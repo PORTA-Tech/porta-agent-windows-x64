@@ -801,11 +801,10 @@
                         </Border>
                         <!-- Quick action buttons -->
                         <WrapPanel Margin="0,0,0,20">
-                            <Border CornerRadius="8" Background="#1416C784" BorderBrush="#3516C784" BorderThickness="1"
+                            <Border CornerRadius="6" Background="Transparent" BorderBrush="#334155" BorderThickness="1"
                                     Padding="10,7" Margin="0,0,10,0" Cursor="Hand"
                                     MouseLeftButtonUp="WhyDrawerToggleButton_Click">
-                                <TextBlock Text="What's pushing my pressure? ↗" FontSize="13" FontWeight="Medium" Foreground="#16C784" />
-                            </Border>
+                                <TextBlock Text="What's pushing my pressure? ↗" FontSize="13" FontWeight="Medium" Foreground="#94A3B8" /></Border>
                         </WrapPanel>
                         <TextBlock x:Name="NowWaitingDataText"
                                    Text="Waiting for service data"
