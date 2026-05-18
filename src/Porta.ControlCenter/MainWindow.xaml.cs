@@ -9163,7 +9163,7 @@ public partial class MainWindow : Window
         NowRecoveryBannerBorder.BorderBrush = badgeBrush;
         NowRecoveryBannerText.Foreground = accentBrush;
         NowDeepWorkStreakText.Foreground = accentBrush;
-        OverviewPanel.Background = tintBrush;
+        OverviewPanel.Background = new SolidColorBrush(Colors.Transparent);
         WhyDrawerPanel.BorderBrush = badgeBrush;
         WhyDrawerToggleButton.BorderBrush = badgeBrush;
     }
@@ -9842,16 +9842,3 @@ public partial class MainWindow : Window
 
     private record AlertRow(string Title, string When, string Reason, LocalApiEventResponse Source);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
