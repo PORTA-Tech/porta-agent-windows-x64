@@ -7362,35 +7362,48 @@ public partial class MainWindow : Window
                 HistoryCalendarCanvas.Children.Add(block);
             }
 
-            // ── Second pass: overload as full-width red overlay (always on top) ──
-            foreach (var ep in dayEps.Where(e => e.Kind == HistoryTimelineEpisodeKind.OverloadEpisode))
-            {
-                var olStart = ep.StartUtc.ToLocalTime();
-                var olEnd   = ep.EndUtc.ToLocalTime();
-                double olStartMin = olStart.Hour * 60d + olStart.Minute;
-                double olEndMin   = olEnd.Hour * 60d + olEnd.Minute;
-                if (olEndMin < olStartMin) { if (olStart.Date == col.Date.Date) olEndMin = 1440d; else olStartMin = 0d; }
-                double olClamped0 = Math.Max(olStartMin, gridStartMin);
-                double olClamped1 = Math.Min(olEndMin, endHour * 60d);
-                if (olClamped1 - olClamped0 < 1d) continue;
-                double olTop = (olClamped0 - gridStartMin) / 60d * rowH;
-                double olH   = Math.Max((olClamped1 - olClamped0) / 60d * rowH, 6d);
-                var olBlock = new Border
-                {
-                    Width       = colW - 4d,
-                    Height      = olH,
-                    Background  = new SolidColorBrush(Color.FromArgb(0xCC, 0xEF, 0x44, 0x44)),
-                    CornerRadius = new CornerRadius(2),
-                    ToolTip     = $"Overload active · {FormatReadableDuration(ep.DurationSeconds)}",
-                    Child       = olH >= 20d ? new TextBlock { Text = $"Overload · {FormatReadableDuration(ep.DurationSeconds)}", FontSize = 10, Foreground = Brushes.White, Padding = new Thickness(4,2,4,2) } : null
-                };
-                Canvas.SetLeft(olBlock, colX + 2d);
-                Canvas.SetTop(olBlock, olTop);
-                Canvas.SetZIndex(olBlock, 20);
-                HistoryCalendarCanvas.Children.Add(olBlock);
-            }
+
         }
 
+
+        // ── Overload pass: added LAST so always renders on top (painter's algorithm) ──
+        for (int ci2 = 0; ci2 < numCols; ci2++)
+        {
+            var ocol = columns[ci2];
+            double ocolX = ci2 * colW + colOffsetX;
+            var colOverload = heatmap.Episodes
+                .Where(e => e.Kind == HistoryTimelineEpisodeKind.OverloadEpisode)
+                .Where(e =>
+                {
+                    var s = e.StartUtc.ToLocalTime().Date;
+                    var en = e.EndUtc.ToLocalTime().Date;
+                    return s == ocol.Date.Date || (en == ocol.Date.Date && e.EndUtc.ToLocalTime().TimeOfDay.TotalMinutes > 5d);
+                });
+            foreach (var ep in colOverload)
+            {
+                var oStart = ep.StartUtc.ToLocalTime();
+                var oEnd   = ep.EndUtc.ToLocalTime();
+                double oSMin = oStart.Hour * 60d + oStart.Minute;
+                double oEMin = oEnd.Hour * 60d + oEnd.Minute;
+                if (oEMin < oSMin) { if (oStart.Date == ocol.Date.Date) oEMin = 1440d; else oSMin = 0d; }
+                double oC0 = Math.Max(oSMin, startHour * 60d);
+                double oC1 = Math.Min(oEMin, endHour * 60d);
+                if (oC1 - oC0 < 1d) continue;
+                double oTop = (oC0 - startHour * 60d) / 60d * rowH;
+                double oH   = Math.Max((oC1 - oC0) / 60d * rowH, 8d);
+                var ob = new Border
+                {
+                    Width  = colW - 4d, Height = oH,
+                    Background  = new SolidColorBrush(Color.FromArgb(0xDD, 0xEF, 0x44, 0x44)),
+                    CornerRadius = new CornerRadius(2),
+                    ToolTip = $"Overload · {FormatReadableDuration(ep.DurationSeconds)}",
+                    Child = oH >= 20d ? new TextBlock { Text = $"Overload · {FormatReadableDuration(ep.DurationSeconds)}", FontSize = 10, Foreground = Brushes.White, Padding = new Thickness(4,2,4,2) } : null
+                };
+                Canvas.SetLeft(ob, ocolX + 2d);
+                Canvas.SetTop(ob, oTop);
+                HistoryCalendarCanvas.Children.Add(ob);
+            }
+        }
     }
 
     private static string GetCalendarEpisodeLabel(HistoryTimelineEpisodeKind kind) => kind switch
