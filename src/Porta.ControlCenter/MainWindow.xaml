@@ -268,6 +268,106 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <!-- Dark ComboBox style -->
+        <Style x:Key="DarkComboBoxItemStyle" TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#131920" />
+            <Setter Property="Foreground" Value="#F1F5F9" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}" BorderThickness="0">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#1E293B" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#1C1C28" />
+                                <Setter Property="Foreground" Value="#16C784" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DarkComboBoxStyle" TargetType="ComboBox">
+            <Setter Property="Background" Value="#131920" />
+            <Setter Property="Foreground" Value="#F1F5F9" />
+            <Setter Property="BorderBrush" Value="#252535" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboBoxItemStyle}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <Border x:Name="MainBorder"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="6">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="28" />
+                                    </Grid.ColumnDefinitions>
+                                    <ContentPresenter x:Name="ContentSite"
+                                        Grid.Column="0"
+                                        IsHitTestVisible="False"
+                                        Content="{TemplateBinding SelectionBoxItem}"
+                                        ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                        VerticalAlignment="Center"
+                                        Margin="{TemplateBinding Padding}" />
+                                    <Path Grid.Column="1"
+                                        Data="M0,0 L5,5 L10,0"
+                                        Stroke="#64748B" StrokeThickness="1.5"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        IsHitTestVisible="False" />
+                                </Grid>
+                            </Border>
+                            <ToggleButton x:Name="ToggleButton"
+                                Opacity="0"
+                                IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                ClickMode="Press" />
+                            <Popup x:Name="Popup"
+                                Placement="Bottom"
+                                IsOpen="{TemplateBinding IsDropDownOpen}"
+                                AllowsTransparency="True"
+                                Focusable="False"
+                                PopupAnimation="Slide">
+                                <Grid MinWidth="{TemplateBinding ActualWidth}" MaxHeight="200">
+                                    <Border Background="#131920"
+                                            BorderBrush="#252535"
+                                            BorderThickness="1"
+                                            CornerRadius="6">
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <StackPanel IsItemsHost="True" />
+                                        </ScrollViewer>
+                                    </Border>
+                                </Grid>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="MainBorder" Property="BorderBrush" Value="#3A3A50" />
+                            </Trigger>
+                            <Trigger Property="IsDropDownOpen" Value="True">
+                                <Setter TargetName="MainBorder" Property="BorderBrush" Value="#16C784" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -883,7 +983,7 @@
                                 CornerRadius="0" Padding="16,0,0,12" Margin="0,0,0,8"
                                 Visibility="Collapsed">
                             <UniformGrid Columns="2">
-                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,8">
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0" Margin="0,0,8,8">
                                     <StackPanel Orientation="Horizontal">
                                         <Viewbox Width="20" Height="20" Margin="0,0,10,0" VerticalAlignment="Top">
                                             <Canvas Width="24" Height="24">
@@ -898,7 +998,7 @@
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
-                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,0,8">
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0" Margin="0,0,0,8">
                                     <StackPanel Orientation="Horizontal">
                                         <Viewbox Width="20" Height="20" Margin="0,0,10,0" VerticalAlignment="Top">
                                             <Canvas Width="24" Height="24">
@@ -913,7 +1013,7 @@
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
-                                <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,0">
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0" Margin="0,0,8,0">
                                     <StackPanel Orientation="Horizontal">
                                         <Viewbox Width="20" Height="20" Margin="0,0,10,0" VerticalAlignment="Top">
                                             <Canvas Width="24" Height="24">
@@ -928,7 +1028,7 @@
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
-                                <Border Style="{StaticResource QuietHoverSubCardStyle}">
+                                <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0">
                                     <StackPanel Orientation="Horizontal">
                                         <Viewbox Width="20" Height="20" Margin="0,0,10,0" VerticalAlignment="Top">
                                             <Canvas Width="24" Height="24">
@@ -981,19 +1081,19 @@
                                 CornerRadius="0" Padding="8,0,8,4" Margin="0,0,0,8"
                                 Visibility="Collapsed">
                             <StackPanel>
-                                <Border BorderBrush="#252535" BorderThickness="0,0,0,1" Padding="8,12">
+                                <Border BorderBrush="Transparent" BorderThickness="0" Padding="8,12">
                                     <StackPanel Orientation="Horizontal">
                                         <Viewbox Width="14" Height="14" Margin="0,0,12,0"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#EF4444" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M18 6L6 18M6 6l12 12"/></Canvas></Viewbox>
                                         <TextBlock Text="Typed words or message content" FontSize="13" Foreground="#94A3B8"/>
                                     </StackPanel>
                                 </Border>
-                                <Border BorderBrush="#252535" BorderThickness="0,0,0,1" Padding="8,12">
+                                <Border BorderBrush="Transparent" BorderThickness="0" Padding="8,12">
                                     <StackPanel Orientation="Horizontal">
                                         <Viewbox Width="14" Height="14" Margin="0,0,12,0"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#EF4444" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M18 6L6 18M6 6l12 12"/></Canvas></Viewbox>
                                         <TextBlock Text="Screenshots or screen recordings" FontSize="13" Foreground="#94A3B8"/>
                                     </StackPanel>
                                 </Border>
-                                <Border BorderBrush="#252535" BorderThickness="0,0,0,1" Padding="8,12">
+                                <Border BorderBrush="Transparent" BorderThickness="0" Padding="8,12">
                                     <StackPanel Orientation="Horizontal">
                                         <Viewbox Width="14" Height="14" Margin="0,0,12,0"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#EF4444" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M18 6L6 18M6 6l12 12"/></Canvas></Viewbox>
                                         <TextBlock Text="Clipboard contents" FontSize="13" Foreground="#94A3B8"/>
@@ -1067,19 +1167,19 @@
                                            Text="Best results come from a normal signed-in desktop session with a few seconds of keyboard or mouse activity."
                                            Foreground="#64748B" FontSize="12" Margin="0,0,0,16" TextWrapping="Wrap"/>
                                 <UniformGrid Columns="3">
-                                    <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="0,0,8,0">
+                                    <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0" Margin="0,0,8,0">
                                         <StackPanel>
                                             <TextBlock Text="Stay in your session" FontWeight="SemiBold" FontSize="12" Foreground="#F1F5F9"/>
                                             <TextBlock Text="Tracking works best when Ari is attached to your signed-in desktop session." Foreground="#64748B" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </Border>
-                                    <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0">
+                                    <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0" Margin="8,0">
                                         <StackPanel>
                                             <TextBlock Text="Give it a few seconds" FontWeight="SemiBold" FontSize="12" Foreground="#F1F5F9"/>
                                             <TextBlock Text="A short stretch of keyboard or mouse activity helps Ari confirm the current session." Foreground="#64748B" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </Border>
-                                    <Border Style="{StaticResource QuietHoverSubCardStyle}" Margin="8,0,0,0">
+                                    <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0" Margin="8,0,0,0">
                                         <StackPanel>
                                             <TextBlock Text="Keep consent on" FontWeight="SemiBold" FontSize="12" Foreground="#F1F5F9"/>
                                             <TextBlock Text="If consent is revoked or tracking is paused, Ari stops collecting until you turn it back on." Foreground="#64748B" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
@@ -1397,10 +1497,10 @@
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0" VerticalAlignment="Center"><TextBlock Text="Privacy mode" FontSize="13" FontWeight="Medium" Foreground="#E2E8F0" /><TextBlock Text="How much context Ari captures per session" FontSize="12" Foreground="#64748B" Margin="0,3,0,0" /></StackPanel>
                                             <Border Grid.Column="1" Background="#0D1117" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Width="160" VerticalAlignment="Center">
-                                                <ComboBox x:Name="PrivacyLevelComboBox" SelectionChanged="PrivacyLevelComboBox_SelectionChanged" Background="#0D1117" Foreground="#F1F5F9" BorderThickness="0" Padding="8,6">
-                                                    <ComboBoxItem Content="Minimal" Foreground="#F1F5F9" Background="#0D1117" />
-                                                    <ComboBoxItem Content="Standard" Foreground="#F1F5F9" Background="#0D1117" />
-                                                    <ComboBoxItem Content="Detailed" Foreground="#F1F5F9" Background="#0D1117" />
+                                                <ComboBox x:Name="PrivacyLevelComboBox" Style="{StaticResource DarkComboBoxStyle}" SelectionChanged="PrivacyLevelComboBox_SelectionChanged">
+                                                    <ComboBoxItem Content="Minimal" />
+                                                    <ComboBoxItem Content="Standard" Background="#0D1117" />
+                                                    <ComboBoxItem Content="Detailed" Background="#0D1117" />
                                                 </ComboBox>
                                             </Border>
                                         </Grid>
