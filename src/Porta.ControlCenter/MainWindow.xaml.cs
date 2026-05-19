@@ -6841,6 +6841,17 @@ public partial class MainWindow : Window
             fallbackFromUtc: displayFromUtc,
             fallbackToUtc: displayToUtc);
         _latestHistoryHeatmap = heatmap;
+
+        // For Week / 2-Week views, replace today's episodes with the accurate ones
+        // from the 60s _todayTimeline (which has real OverloadActive flags).
+        // This makes today's column in Week/2-Week match Day view exactly.
+        if ((_historyPeriod == HistoryPeriod.Week || _historyPeriod == HistoryPeriod.TwoWeeks)
+            && _todayTimeline != null)
+        {
+            heatmap = OverlayTodayTimeline(heatmap, _todayTimeline);
+            _latestHistoryHeatmap = heatmap;
+        }
+
         PopulateHistorySummary(heatmap);
         PopulateHistorySummaryNew(heatmap);
         RenderHistoryCoordinateHeatmap(heatmap);
@@ -7422,6 +7433,24 @@ public partial class MainWindow : Window
                 HistoryCalendarCanvas.Children.Add(ob);
             }
         }
+    }
+
+    private static HistoryFocusHeatmap OverlayTodayTimeline(
+        HistoryFocusHeatmap heatmap,
+        LocalApiTimelineResponse todayTimeline)
+    {
+        DateTime today = DateTime.Today;
+        // Build accurate today episodes from the 60s timeline (real OverloadActive flags)
+        IReadOnlyList<HistoryTimelineEpisode> todayEps =
+            HistoryTimelineEpisodeBuilder.Build(todayTimeline);
+        // Drop today's coarse-bucket episodes, substitute the accurate 60s-based ones
+        List<HistoryTimelineEpisode> merged =
+        [
+            ..heatmap.Episodes.Where(e => e.StartUtc.ToLocalTime().Date != today),
+            ..todayEps.Where(e => e.StartUtc.ToLocalTime().Date == today),
+        ];
+        merged.Sort(static (a, b) => a.StartUtc.CompareTo(b.StartUtc));
+        return heatmap with { Episodes = merged };
     }
 
     private static string GetCalendarEpisodeLabel(HistoryTimelineEpisodeKind kind) => kind switch
