@@ -6844,7 +6844,14 @@ public partial class MainWindow : Window
         PopulateHistorySummary(heatmap);
         PopulateHistorySummaryNew(heatmap);
         RenderHistoryCoordinateHeatmap(heatmap);
-        RenderHistoryCalendarGrid(heatmap);
+        // Don't wipe the calendar blank while the week/2-week timeline is still loading.
+        // The 2s timer calls PopulateTimeline on every tick; if the fetch hasn't completed
+        // yet, timeline == null and we'd flash blank. Preserve the last render instead.
+        bool preserveCalendar = timeline == null
+            && (_historyPeriod == HistoryPeriod.Week || _historyPeriod == HistoryPeriod.TwoWeeks)
+            && _calendarHeatmap != null;
+        if (!preserveCalendar)
+            RenderHistoryCalendarGrid(heatmap);
 
         int maxPoints = _historyRange switch
         {
@@ -7271,7 +7278,7 @@ public partial class MainWindow : Window
                 {
                     Text = "No data",
                     FontSize = 10,
-                    Foreground = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+                    Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     Width = colW
                 };

@@ -251,9 +251,12 @@ internal static class HistoryTimelineEpisodeBuilder
             // real-time. In historical bucket timelines (300s / 600s) the API does NOT persist
             // these flags — they are always false. Fall back to PressureLevel threshold so
             // overload episodes are detected correctly in Week / 2-Week calendar views.
+            // Coarser time buckets average-down peak pressure, so use lower thresholds:
+            // 300s (5-min) -> 0.60  |  600s (10-min) -> 0.50
+            double pressureThreshold = bucketSeconds >= 600d ? 0.50d : 0.60d;
             bool active = snapshot.OverloadActive
                        || snapshot.ActivationWindowOpen
-                       || (bucketSeconds >= 300d && ResolvePressureLevel(snapshot) >= 0.72d);
+                       || (bucketSeconds >= 300d && ResolvePressureLevel(snapshot) >= pressureThreshold);
             if (active)
             {
                 bool contiguous = run.Count == 0 || IsContiguous(run[^1], snapshot, bucketSeconds);
