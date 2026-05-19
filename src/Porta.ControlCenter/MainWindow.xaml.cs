@@ -7838,14 +7838,21 @@ public partial class MainWindow : Window
 
     private (DateTimeOffset FromUtc, DateTimeOffset ToUtc) ResolveHistoryDisplayRangeUtc(DateTimeOffset nowUtc)
     {
+        // When viewing week/2-week period, the fallback range must cover the full period
+        // even if _historyRange is Today -- otherwise null timelines render almost empty.
+        if (_historyPeriod == HistoryPeriod.Week)
+            return (nowUtc.AddDays(-7), nowUtc);
+        if (_historyPeriod == HistoryPeriod.TwoWeeks)
+            return (nowUtc.AddDays(-14), nowUtc);
+
         DateTimeOffset todayFromUtc = LocalTimelineRangeResolver.ResolveLocalDayStartUtc(nowUtc);
         return _historyRange switch
         {
-            HistoryRange.Last1Hour => (nowUtc.AddHours(-1), nowUtc),
+            HistoryRange.Last1Hour  => (nowUtc.AddHours(-1), nowUtc),
             HistoryRange.Last4Hours => (nowUtc.AddHours(-4), nowUtc),
-            HistoryRange.Today => (todayFromUtc, nowUtc),
-            HistoryRange.AllTime => (nowUtc.AddDays(-Math.Max(1, Math.Min(_retention?.RetentionDays ?? 7, 7))), nowUtc),
-            _ => (todayFromUtc, nowUtc)
+            HistoryRange.Today      => (todayFromUtc, nowUtc),
+            HistoryRange.AllTime    => (nowUtc.AddDays(-Math.Max(1, Math.Min(_retention?.RetentionDays ?? 7, 7))), nowUtc),
+            _                       => (todayFromUtc, nowUtc)
         };
     }
 

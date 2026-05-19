@@ -253,7 +253,7 @@ internal static class HistoryTimelineEpisodeBuilder
             // overload episodes are detected correctly in Week / 2-Week calendar views.
             bool active = snapshot.OverloadActive
                        || snapshot.ActivationWindowOpen
-                       || ResolvePressureLevel(snapshot) >= 0.72d;
+                       || (bucketSeconds >= 300d && ResolvePressureLevel(snapshot) >= 0.72d);
             if (active)
             {
                 bool contiguous = run.Count == 0 || IsContiguous(run[^1], snapshot, bucketSeconds);
