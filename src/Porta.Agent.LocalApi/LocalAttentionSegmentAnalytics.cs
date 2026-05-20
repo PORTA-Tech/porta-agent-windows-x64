@@ -11,6 +11,12 @@ public static class LocalAttentionSegmentAnalytics
     public const string OffTaskDistractionSegmentKind = "off_task_distraction";
     public const string FragmentationDistractionSegmentKind = "fragmentation_distraction";
     public const string AwaySegmentKind = "away";
+    // Block F — new distraction kinds
+    public const string RollingMicroBurstSegmentKind         = "rolling_micro_burst";
+    public const string ReturnLoopDistractionSegmentKind     = "return_loop_distraction";
+    public const string UnfocusedSessionSegmentKind          = "unfocused_session";
+    public const string ShallowDwellDistractionSegmentKind   = "shallow_dwell_distraction";
+    public const string FocusDepartureDistractionSegmentKind = "focus_departure_distraction";
 
     public static string ResolveAttentionSegmentKind(LocalApiCurrentSnapshotResponse snapshot)
     {
@@ -49,7 +55,12 @@ public static class LocalAttentionSegmentAnalytics
 
         string kind = ResolveAttentionSegmentKind(snapshot);
         return string.Equals(kind, OffTaskDistractionSegmentKind, StringComparison.Ordinal)
-            || string.Equals(kind, FragmentationDistractionSegmentKind, StringComparison.Ordinal);
+            || string.Equals(kind, FragmentationDistractionSegmentKind, StringComparison.Ordinal)
+            || string.Equals(kind, RollingMicroBurstSegmentKind, StringComparison.Ordinal)
+            || string.Equals(kind, ReturnLoopDistractionSegmentKind, StringComparison.Ordinal)
+            || string.Equals(kind, UnfocusedSessionSegmentKind, StringComparison.Ordinal)
+            || string.Equals(kind, ShallowDwellDistractionSegmentKind, StringComparison.Ordinal)
+            || string.Equals(kind, FocusDepartureDistractionSegmentKind, StringComparison.Ordinal);
     }
 
     public static double ResolveDistractionEpisodeSeconds(LocalApiCurrentSnapshotResponse snapshot)
@@ -122,12 +133,19 @@ public static class LocalAttentionSegmentAnalytics
 
         string kind = ResolveAttentionSegmentKind(snapshot);
         double seconds = ResolveAttentionSegmentSeconds(snapshot);
+        double distrSec = ResolveDistractionEpisodeSeconds(snapshot);
         return kind switch
         {
-            AwaySegmentKind => $"Away for {FormatEpisodeDuration(seconds)}.",
-            ContextExcursionSegmentKind => $"Outside focus context for {FormatEpisodeDuration(seconds)}.",
-            OffTaskDistractionSegmentKind => $"Stayed outside focus context for {FormatEpisodeDuration(ResolveDistractionEpisodeSeconds(snapshot))}.",
-            FragmentationDistractionSegmentKind => $"Rapid switching / fragmentation for {FormatEpisodeDuration(ResolveDistractionEpisodeSeconds(snapshot))}.",
+            AwaySegmentKind                      => $"Away for {FormatEpisodeDuration(seconds)}.",
+            ContextExcursionSegmentKind          => $"Outside focus context for {FormatEpisodeDuration(seconds)}.",
+            OffTaskDistractionSegmentKind        => $"Stayed outside focus context for {FormatEpisodeDuration(distrSec)}.",
+            FragmentationDistractionSegmentKind  => $"Rapid switching / fragmentation for {FormatEpisodeDuration(distrSec)}.",
+            // Block F — new distraction kinds
+            RollingMicroBurstSegmentKind         => $"Rapid repeated app switching for {FormatEpisodeDuration(distrSec)}.",
+            ReturnLoopDistractionSegmentKind     => $"Repetitive ping-pong between two apps for {FormatEpisodeDuration(distrSec)}.",
+            UnfocusedSessionSegmentKind          => $"Active for {FormatEpisodeDuration(distrSec)} without settling on a focus app.",
+            ShallowDwellDistractionSegmentKind   => $"Sustained surface-level browsing for {FormatEpisodeDuration(distrSec)}.",
+            FocusDepartureDistractionSegmentKind => $"Away from focus app for {FormatEpisodeDuration(distrSec)}.",
             _ => "Steady focus episode."
         };
     }
@@ -185,10 +203,16 @@ public static class LocalAttentionSegmentAnalytics
     public static string NormalizeAttentionSegmentKind(string? value) =>
         value?.Trim().ToLowerInvariant() switch
         {
-            ContextExcursionSegmentKind => ContextExcursionSegmentKind,
-            OffTaskDistractionSegmentKind => OffTaskDistractionSegmentKind,
-            FragmentationDistractionSegmentKind => FragmentationDistractionSegmentKind,
-            AwaySegmentKind => AwaySegmentKind,
+            ContextExcursionSegmentKind              => ContextExcursionSegmentKind,
+            OffTaskDistractionSegmentKind            => OffTaskDistractionSegmentKind,
+            FragmentationDistractionSegmentKind      => FragmentationDistractionSegmentKind,
+            AwaySegmentKind                          => AwaySegmentKind,
+            // Block F — new kinds must be recognised; without this they silently become "focus"
+            RollingMicroBurstSegmentKind             => RollingMicroBurstSegmentKind,
+            ReturnLoopDistractionSegmentKind         => ReturnLoopDistractionSegmentKind,
+            UnfocusedSessionSegmentKind              => UnfocusedSessionSegmentKind,
+            ShallowDwellDistractionSegmentKind       => ShallowDwellDistractionSegmentKind,
+            FocusDepartureDistractionSegmentKind     => FocusDepartureDistractionSegmentKind,
             _ => FocusSegmentKind
         };
 
