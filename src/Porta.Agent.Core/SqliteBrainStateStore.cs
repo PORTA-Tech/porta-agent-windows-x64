@@ -2493,7 +2493,21 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             sustained_attention_duration_sec = derivedSession.SustainedAttentionDurationSec,
             idle_fragmentation_index = derivedSession.IdleFragmentationIndex,
             partial = derivedSession.Partial,
-            dominant_app_hash = derivedSession.DominantAppHash
+            dominant_app_hash = derivedSession.DominantAppHash,
+            // ── Block C — distraction detection runtime state persistence ──────────
+            micro_burst_ewma_switch_rate = derivedSession.DistrEwmaSwitchRate,
+            micro_burst_accumulated_seconds = derivedSession.DistrMicroBurstAccumulatedSeconds,
+            ping_pong_recent_hashes_json = derivedSession.DistrRecentDominantHashesJson,
+            ping_pong_cycle_count = derivedSession.DistrPingPongCycleCount,
+            ping_pong_window_start_seconds = derivedSession.DistrPingPongWindowStartSeconds,
+            candidate_anchor_app_hash = derivedSession.DistrCandidateAnchorAppHash,
+            candidate_anchor_accumulated_seconds = derivedSession.DistrCandidateAnchorAccumulatedSeconds,
+            session_active_interaction_seconds = derivedSession.DistrSessionActiveInteractionSeconds,
+            anchor_locked_seconds = derivedSession.DistrAnchorLockedSeconds,
+            ewma_average_dwell_seconds = derivedSession.DistrEwmaAverageDwellSeconds,
+            shallow_dwell_accumulated_seconds = derivedSession.DistrShallowDwellAccumulatedSeconds,
+            windows_off_anchor_seconds = derivedSession.DistrWindowsOffAnchorSeconds,
+            windows_off_anchor_buckets_back = derivedSession.DistrWindowsOffAnchorBucketsBack
         });
         UpsertRuntimeStateValue(
             connection,

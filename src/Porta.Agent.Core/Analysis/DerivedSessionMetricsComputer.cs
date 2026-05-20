@@ -27,7 +27,22 @@ internal readonly record struct DerivedSessionMetricsResult(
     string AttentionSegmentReasonCode = "steady_focus",
     string AttentionSegmentReasonText = "Steady focus episode.",
     string FocusEpisodeReasonCode = "focus_episode_active",
-    string FocusEpisodeReasonText = "Focus episode active.");
+    string FocusEpisodeReasonText = "Focus episode active.",
+    // ── Block C — distraction detection runtime state pass-through ─────────
+    // Values are 0/empty until Block D wires up the computation.
+    double DistrEwmaSwitchRate = 0d,
+    double DistrMicroBurstAccumulatedSeconds = 0d,
+    string DistrRecentDominantHashesJson = "",
+    int    DistrPingPongCycleCount = 0,
+    double DistrPingPongWindowStartSeconds = 0d,
+    string DistrCandidateAnchorAppHash = "",
+    double DistrCandidateAnchorAccumulatedSeconds = 0d,
+    double DistrSessionActiveInteractionSeconds = 0d,
+    double DistrAnchorLockedSeconds = 0d,
+    double DistrEwmaAverageDwellSeconds = 0d,
+    double DistrShallowDwellAccumulatedSeconds = 0d,
+    double DistrWindowsOffAnchorSeconds = 0d,
+    int    DistrWindowsOffAnchorBucketsBack = 0);
 
 internal static class DerivedSessionMetricsComputer
 {
@@ -787,9 +802,9 @@ internal static class DerivedSessionMetricsComputer
             double continuityScore = Clamp01(ReadNonNegativeDouble(root, "task_continuity_score"));
             double instabilitySeconds = ReadNonNegativeDouble(root, "continuity_instability_seconds");
             double focusEpisodeCandidateSeconds = ReadNonNegativeDouble(root, "focus_episode_candidate_seconds");
-            double ewmaSwitchRate = ReadNonNegativeDouble(root, "ewma_switch_rate");
+            double ewmaSwitchRate = ReadNonNegativeDouble(root, "micro_burst_ewma_switch_rate");
             double microBurstAccumulatedSeconds = ReadNonNegativeDouble(root, "micro_burst_accumulated_seconds");
-            string recentDominantHashes = ReadString(root, "recent_dominant_hashes");
+            string recentDominantHashes = ReadString(root, "ping_pong_recent_hashes_json");
             int pingPongCycleCount = (int)ReadNonNegativeInt64(root, "ping_pong_cycle_count");
             double pingPongWindowStartSeconds = ReadNonNegativeDouble(root, "ping_pong_window_start_seconds");
             string candidateAnchorAppHash = ReadString(root, "candidate_anchor_app_hash");
