@@ -7758,7 +7758,7 @@ public partial class MainWindow : Window
             var segBorder = new Border
             {
                 Background = new SolidColorBrush(GetEpisodeTimelineColor(episode.Kind)),
-                ToolTip = $"{episode.Kind.ToString().Replace("Episode", "").Replace("Distraction", "Distr")} · {FormatReadableDuration(epSecs)}"
+                ToolTip = $"{GetEpisodeTimelineLabel(episode.Kind)} · {FormatReadableDuration(epSecs)}"
             };
             Grid.SetColumn(segBorder, colIdx++);
             grid.Children.Add(segBorder);
@@ -7776,6 +7776,22 @@ public partial class MainWindow : Window
             grid.Children.Add(trail);
         }
     }
+
+    private static string GetEpisodeTimelineLabel(HistoryTimelineEpisodeKind kind) => kind switch
+    {
+        HistoryTimelineEpisodeKind.FocusEpisode    => "Focus",
+        HistoryTimelineEpisodeKind.Away            => "Away",
+        HistoryTimelineEpisodeKind.OverloadEpisode => "Overload",
+        HistoryTimelineEpisodeKind.OffTaskDistraction or
+        HistoryTimelineEpisodeKind.FragmentationDistraction or
+        HistoryTimelineEpisodeKind.ContextExcursion or
+        HistoryTimelineEpisodeKind.RollingMicroBurst or
+        HistoryTimelineEpisodeKind.ReturnLoopDistraction or
+        HistoryTimelineEpisodeKind.UnfocusedSession or
+        HistoryTimelineEpisodeKind.ShallowDwellDistraction or
+        HistoryTimelineEpisodeKind.FocusDepartureDistraction => "Distraction",
+        _ => "Episode"
+    };
 
     private static Color GetEpisodeTimelineColor(HistoryTimelineEpisodeKind kind) => kind switch
     {
