@@ -48,7 +48,15 @@ internal sealed record HistoryFocusHeatmap(
     public bool HasAnyTracking => Cells.Any(static cell => cell.HasTracking);
     public int FocusEpisodeCount => Episodes.Count(static episode => episode.Kind == HistoryTimelineEpisodeKind.FocusEpisode);
     public int DistractionEpisodeCount => Episodes.Count(static episode =>
-        episode.Kind is HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction);
+        episode.Kind is
+            HistoryTimelineEpisodeKind.OffTaskDistraction or
+            HistoryTimelineEpisodeKind.FragmentationDistraction or
+            HistoryTimelineEpisodeKind.ContextExcursion or
+            HistoryTimelineEpisodeKind.RollingMicroBurst or
+            HistoryTimelineEpisodeKind.ReturnLoopDistraction or
+            HistoryTimelineEpisodeKind.UnfocusedSession or
+            HistoryTimelineEpisodeKind.ShallowDwellDistraction or
+            HistoryTimelineEpisodeKind.FocusDepartureDistraction);
     public int AwayEpisodeCount => Episodes.Count(static episode => episode.Kind == HistoryTimelineEpisodeKind.Away);
     public int OverloadEpisodeCount => Episodes.Count(static episode => episode.Kind == HistoryTimelineEpisodeKind.OverloadEpisode);
 

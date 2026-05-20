@@ -6967,7 +6967,14 @@ public partial class MainWindow : Window
         HistoryFocusSummaryText.Text = BuildHistoryEpisodeMetricSummary(
             heatmap.DistractionEpisodeCount,
             heatmap.Episodes
-                .Where(static episode => episode.Kind is HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction)
+                .Where(static episode => episode.Kind is
+                    HistoryTimelineEpisodeKind.OffTaskDistraction or
+                    HistoryTimelineEpisodeKind.FragmentationDistraction or
+                    HistoryTimelineEpisodeKind.RollingMicroBurst or
+                    HistoryTimelineEpisodeKind.ReturnLoopDistraction or
+                    HistoryTimelineEpisodeKind.UnfocusedSession or
+                    HistoryTimelineEpisodeKind.ShallowDwellDistraction or
+                    HistoryTimelineEpisodeKind.FocusDepartureDistraction)
                 .Sum(static episode => episode.DurationSeconds),
             singularLabel: "episode",
             pluralLabel: "episodes");
@@ -7010,7 +7017,15 @@ public partial class MainWindow : Window
             .Where(static e => e.Kind == HistoryTimelineEpisodeKind.FocusEpisode)
             .Sum(static e => e.DurationSeconds);
         double distrSec = heatmap.Episodes
-            .Where(static e => e.Kind is HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction or HistoryTimelineEpisodeKind.ContextExcursion)
+            .Where(static e => e.Kind is
+                HistoryTimelineEpisodeKind.OffTaskDistraction or
+                HistoryTimelineEpisodeKind.FragmentationDistraction or
+                HistoryTimelineEpisodeKind.ContextExcursion or
+                HistoryTimelineEpisodeKind.RollingMicroBurst or
+                HistoryTimelineEpisodeKind.ReturnLoopDistraction or
+                HistoryTimelineEpisodeKind.UnfocusedSession or
+                HistoryTimelineEpisodeKind.ShallowDwellDistraction or
+                HistoryTimelineEpisodeKind.FocusDepartureDistraction)
             .Sum(static e => e.DurationSeconds);
         double overSec = heatmap.Episodes
             .Where(static e => e.Kind == HistoryTimelineEpisodeKind.OverloadEpisode)

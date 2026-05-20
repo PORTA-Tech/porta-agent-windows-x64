@@ -9,7 +9,13 @@ internal enum HistoryTimelineEpisodeKind
     OffTaskDistraction,
     FragmentationDistraction,
     Away,
-    OverloadEpisode
+    OverloadEpisode,
+    // Block G — new distraction kinds
+    RollingMicroBurst,
+    ReturnLoopDistraction,
+    UnfocusedSession,
+    ShallowDwellDistraction,
+    FocusDepartureDistraction
 }
 
 internal sealed record HistoryTimelineEpisode(
@@ -29,12 +35,17 @@ internal sealed record HistoryTimelineEpisode(
 {
     public string DisplayLabel => Kind switch
     {
-        HistoryTimelineEpisodeKind.FocusEpisode => "Focus episode",
-        HistoryTimelineEpisodeKind.ContextExcursion => "Context excursion",
-        HistoryTimelineEpisodeKind.OffTaskDistraction => "Off-task distraction",
-        HistoryTimelineEpisodeKind.FragmentationDistraction => "Fragmentation distraction",
-        HistoryTimelineEpisodeKind.Away => "Away segment",
-        HistoryTimelineEpisodeKind.OverloadEpisode => "Overload episode",
+        HistoryTimelineEpisodeKind.FocusEpisode                => "Focus episode",
+        HistoryTimelineEpisodeKind.ContextExcursion            => "Context excursion",
+        HistoryTimelineEpisodeKind.OffTaskDistraction          => "Off-task distraction",
+        HistoryTimelineEpisodeKind.FragmentationDistraction    => "Fragmentation distraction",
+        HistoryTimelineEpisodeKind.Away                        => "Away segment",
+        HistoryTimelineEpisodeKind.OverloadEpisode             => "Overload episode",
+        HistoryTimelineEpisodeKind.RollingMicroBurst           => "Micro-burst distraction",
+        HistoryTimelineEpisodeKind.ReturnLoopDistraction       => "Ping-pong distraction",
+        HistoryTimelineEpisodeKind.UnfocusedSession            => "Unfocused session",
+        HistoryTimelineEpisodeKind.ShallowDwellDistraction     => "Shallow-dwell distraction",
+        HistoryTimelineEpisodeKind.FocusDepartureDistraction   => "Focus departure",
         _ => "Episode"
     };
 
@@ -161,10 +172,16 @@ internal static class HistoryTimelineEpisodeBuilder
 
         HistoryTimelineEpisodeKind kind = currentKind switch
         {
-            LocalAttentionSegmentAnalytics.ContextExcursionSegmentKind => HistoryTimelineEpisodeKind.ContextExcursion,
-            LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind => HistoryTimelineEpisodeKind.OffTaskDistraction,
-            LocalAttentionSegmentAnalytics.FragmentationDistractionSegmentKind => HistoryTimelineEpisodeKind.FragmentationDistraction,
-            LocalAttentionSegmentAnalytics.AwaySegmentKind => HistoryTimelineEpisodeKind.Away,
+            LocalAttentionSegmentAnalytics.ContextExcursionSegmentKind              => HistoryTimelineEpisodeKind.ContextExcursion,
+            LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind            => HistoryTimelineEpisodeKind.OffTaskDistraction,
+            LocalAttentionSegmentAnalytics.FragmentationDistractionSegmentKind      => HistoryTimelineEpisodeKind.FragmentationDistraction,
+            LocalAttentionSegmentAnalytics.AwaySegmentKind                          => HistoryTimelineEpisodeKind.Away,
+            // Block G — new distraction kinds
+            LocalAttentionSegmentAnalytics.RollingMicroBurstSegmentKind             => HistoryTimelineEpisodeKind.RollingMicroBurst,
+            LocalAttentionSegmentAnalytics.ReturnLoopDistractionSegmentKind         => HistoryTimelineEpisodeKind.ReturnLoopDistraction,
+            LocalAttentionSegmentAnalytics.UnfocusedSessionSegmentKind              => HistoryTimelineEpisodeKind.UnfocusedSession,
+            LocalAttentionSegmentAnalytics.ShallowDwellDistractionSegmentKind       => HistoryTimelineEpisodeKind.ShallowDwellDistraction,
+            LocalAttentionSegmentAnalytics.FocusDepartureDistractionSegmentKind     => HistoryTimelineEpisodeKind.FocusDepartureDistraction,
             _ => HistoryTimelineEpisodeKind.ContextExcursion
         };
         LocalApiCurrentSnapshotResponse latest = run[^1];
