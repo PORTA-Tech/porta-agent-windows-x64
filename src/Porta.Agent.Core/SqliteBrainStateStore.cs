@@ -2495,6 +2495,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             partial = derivedSession.Partial,
             dominant_app_hash = derivedSession.DominantAppHash,
             // ── Block C — distraction detection runtime state persistence ──────────
+            // Distraction pattern detection state (Block C/E)
             micro_burst_ewma_switch_rate = derivedSession.DistrEwmaSwitchRate,
             micro_burst_accumulated_seconds = derivedSession.DistrMicroBurstAccumulatedSeconds,
             ping_pong_recent_hashes_json = derivedSession.DistrRecentDominantHashesJson,
@@ -2507,7 +2508,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             ewma_average_dwell_seconds = derivedSession.DistrEwmaAverageDwellSeconds,
             shallow_dwell_accumulated_seconds = derivedSession.DistrShallowDwellAccumulatedSeconds,
             windows_off_anchor_seconds = derivedSession.DistrWindowsOffAnchorSeconds,
-            windows_off_anchor_buckets_back = derivedSession.DistrWindowsOffAnchorBucketsBack
+            windows_off_anchor_buckets_back = derivedSession.DistrWindowsOffAnchorBucketsBack,
+            unfocused_session_fired = derivedSession.DistrUnfocusedSessionFired ? 1 : 0
         });
         UpsertRuntimeStateValue(
             connection,

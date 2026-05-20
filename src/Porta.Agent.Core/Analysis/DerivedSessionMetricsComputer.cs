@@ -42,7 +42,8 @@ internal readonly record struct DerivedSessionMetricsResult(
     double DistrEwmaAverageDwellSeconds = 0d,
     double DistrShallowDwellAccumulatedSeconds = 0d,
     double DistrWindowsOffAnchorSeconds = 0d,
-    int    DistrWindowsOffAnchorBucketsBack = 0);
+    int    DistrWindowsOffAnchorBucketsBack = 0,
+    bool   DistrUnfocusedSessionFired = false);
 
 internal static class DerivedSessionMetricsComputer
 {
@@ -76,7 +77,7 @@ internal static class DerivedSessionMetricsComputer
             idleChannelMissing,
             continuity.State,
             continuity.IdlePauseSeconds);
-        AttentionSegmentDecision attentionSegment = EvaluateAttentionSegment(bucket, evidence, continuity);
+        AttentionSegmentDecision attentionSegment = EvaluateAttentionSegment(bucket, evidence, continuity, previous);
         EpisodeReason focusEpisodeReason = ResolveFocusEpisodeReason(continuity, attentionSegment);
         return new DerivedSessionMetricsResult(
             SustainedAttentionDurationSec: ClampNonNegativeFinite(continuity.TaskContinuitySeconds),
@@ -101,10 +102,22 @@ internal static class DerivedSessionMetricsComputer
             AttentionSegmentReasonText: attentionSegment.ReasonText,
             FocusEpisodeReasonCode: focusEpisodeReason.Code,
             FocusEpisodeReasonText: focusEpisodeReason.Text,
-            // Block D — pass updated anchor state through to persistence
+            // Block D — anchor state
             DistrCandidateAnchorAppHash: continuity.CandidateAnchorAppHash,
             DistrCandidateAnchorAccumulatedSeconds: continuity.CandidateAnchorAccumulatedSeconds,
-            DistrAnchorLockedSeconds: continuity.AnchorLockedSeconds);
+            DistrAnchorLockedSeconds: continuity.AnchorLockedSeconds,
+            // Block E — pattern detection state
+            DistrEwmaSwitchRate: attentionSegment.NewEwmaSwitchRate,
+            DistrMicroBurstAccumulatedSeconds: attentionSegment.NewMicroBurstAccumulatedSeconds,
+            DistrRecentDominantHashesJson: attentionSegment.NewRecentDominantHashesJson,
+            DistrPingPongCycleCount: attentionSegment.NewPingPongCycleCount,
+            DistrPingPongWindowStartSeconds: attentionSegment.NewPingPongWindowStartSeconds,
+            DistrSessionActiveInteractionSeconds: attentionSegment.NewSessionActiveInteractionSeconds,
+            DistrEwmaAverageDwellSeconds: attentionSegment.NewEwmaAverageDwellSeconds,
+            DistrShallowDwellAccumulatedSeconds: attentionSegment.NewShallowDwellAccumulatedSeconds,
+            DistrWindowsOffAnchorSeconds: attentionSegment.NewWindowsOffAnchorSeconds,
+            DistrWindowsOffAnchorBucketsBack: attentionSegment.NewWindowsOffAnchorBucketsBack,
+            DistrUnfocusedSessionFired: attentionSegment.NewUnfocusedSessionFired);
     }
 
     private static ChannelEvidence ResolveChannelEvidence(InputBucketRow bucket, PrimitiveComputationResult primitive)
@@ -634,11 +647,31 @@ internal static class DerivedSessionMetricsComputer
             AnchorLockedSeconds: ClampNonNegativeFinite(anchorLockedSeconds));
     }
 
+    private static double GetTimeOfDayMultiplier()
+    {
+        int h = DateTime.Now.Hour;
+        if (h >= PortaExecutionConstants.TimeOfDayMultipliers.EarlyMorningStart && h < PortaExecutionConstants.TimeOfDayMultipliers.EarlyMorningEnd)
+            return PortaExecutionConstants.TimeOfDayMultipliers.EarlyMorningMultiplier;
+        if (h >= PortaExecutionConstants.TimeOfDayMultipliers.MorningStart   && h < PortaExecutionConstants.TimeOfDayMultipliers.MorningEnd)
+            return PortaExecutionConstants.TimeOfDayMultipliers.MorningMultiplier;
+        if (h >= PortaExecutionConstants.TimeOfDayMultipliers.LunchStart     && h < PortaExecutionConstants.TimeOfDayMultipliers.LunchEnd)
+            return PortaExecutionConstants.TimeOfDayMultipliers.LunchMultiplier;
+        if (h >= PortaExecutionConstants.TimeOfDayMultipliers.AfternoonStart && h < PortaExecutionConstants.TimeOfDayMultipliers.AfternoonEnd)
+            return PortaExecutionConstants.TimeOfDayMultipliers.AfternoonMultiplier;
+        if (h >= PortaExecutionConstants.TimeOfDayMultipliers.EveningStart   && h < PortaExecutionConstants.TimeOfDayMultipliers.EveningEnd)
+            return PortaExecutionConstants.TimeOfDayMultipliers.EveningMultiplier;
+        return PortaExecutionConstants.TimeOfDayMultipliers.LateEveningMultiplier;
+    }
+
     private static AttentionSegmentDecision EvaluateAttentionSegment(
         InputBucketRow bucket,
         ChannelEvidence evidence,
-        TaskContinuityDecision continuity)
+        TaskContinuityDecision continuity,
+        DerivedSessionRuntimeState previous)
     {
+        // ── Pattern 9: time-of-day multiplier (applied to all time thresholds) ──
+        double mult = GetTimeOfDayMultiplier();
+
         string reasonCode = continuity.ReasonCode;
         if (string.Equals(reasonCode, "long_break", StringComparison.Ordinal)
             || continuity.IdlePauseSeconds >= PortaExecutionConstants.DistractionEpisodes.AwaySegmentStartSeconds
@@ -647,13 +680,25 @@ internal static class DerivedSessionMetricsComputer
             double awaySeconds = Math.Max(
                 continuity.IdlePauseSeconds,
                 bucket.TrueBreakSeconds > 0d ? bucket.TrueBreakSeconds : Time.bucketSeconds);
+            // Away: carry session interaction seconds but preserve unfocused flag
             return new AttentionSegmentDecision(
                 Kind: "away",
                 SegmentSeconds: ClampNonNegativeFinite(awaySeconds),
                 DistractionEpisodeActive: false,
                 DistractionEpisodeSeconds: 0d,
                 ReasonCode: "away",
-                ReasonText: $"Away for {FormatEpisodeDuration(awaySeconds)}.");
+                ReasonText: $"Away for {FormatEpisodeDuration(awaySeconds)}.",
+                NewEwmaSwitchRate: previous.EwmaSwitchRate,
+                NewMicroBurstAccumulatedSeconds: 0d,
+                NewRecentDominantHashesJson: previous.RecentDominantHashes,
+                NewPingPongCycleCount: previous.PingPongCycleCount,
+                NewPingPongWindowStartSeconds: previous.PingPongWindowStartSeconds,
+                NewSessionActiveInteractionSeconds: previous.SessionActiveInteractionSeconds,
+                NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
+                NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
+                NewShallowDwellAccumulatedSeconds: 0d,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
         }
 
         bool contextExcursion = string.Equals(reasonCode, "context_excursion", StringComparison.Ordinal)
@@ -672,7 +717,18 @@ internal static class DerivedSessionMetricsComputer
                 ReasonCode: offTaskDistraction ? "outside_focus_context" : "context_excursion",
                 ReasonText: offTaskDistraction
                     ? $"Stayed outside focus context for {FormatEpisodeDuration(segmentSeconds)}."
-                    : $"Outside focus context for {FormatEpisodeDuration(segmentSeconds)}.");
+                    : $"Outside focus context for {FormatEpisodeDuration(segmentSeconds)}.",
+                NewEwmaSwitchRate: previous.EwmaSwitchRate,
+                NewMicroBurstAccumulatedSeconds: previous.MicroBurstAccumulatedSeconds,
+                NewRecentDominantHashesJson: previous.RecentDominantHashes,
+                NewPingPongCycleCount: previous.PingPongCycleCount,
+                NewPingPongWindowStartSeconds: previous.PingPongWindowStartSeconds,
+                NewSessionActiveInteractionSeconds: previous.SessionActiveInteractionSeconds,
+                NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
+                NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
+                NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
         }
 
         bool instabilityPhase = string.Equals(reasonCode, "focus_unstable", StringComparison.Ordinal)
@@ -695,16 +751,253 @@ internal static class DerivedSessionMetricsComputer
                 ReasonCode: fragmentationDistraction ? "fragmentation_distraction" : "brief_instability",
                 ReasonText: fragmentationDistraction
                     ? $"Rapid switching / fragmentation for {FormatEpisodeDuration(segmentSeconds)}."
-                    : $"Brief switching instability for {FormatEpisodeDuration(segmentSeconds)}.");
+                    : $"Brief switching instability for {FormatEpisodeDuration(segmentSeconds)}.",
+                NewEwmaSwitchRate: previous.EwmaSwitchRate,
+                NewMicroBurstAccumulatedSeconds: previous.MicroBurstAccumulatedSeconds,
+                NewRecentDominantHashesJson: previous.RecentDominantHashes,
+                NewPingPongCycleCount: previous.PingPongCycleCount,
+                NewPingPongWindowStartSeconds: previous.PingPongWindowStartSeconds,
+                NewSessionActiveInteractionSeconds: previous.SessionActiveInteractionSeconds,
+                NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
+                NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
+                NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
         }
 
+        // ── Steady-focus branch: run all new detection patterns ──────────────
+        // Guard: skip new patterns if not interacting
+        if (!evidence.AnyInteractionActive)
+        {
+            return new AttentionSegmentDecision(
+                Kind: "focus", SegmentSeconds: 0d, DistractionEpisodeActive: false, DistractionEpisodeSeconds: 0d,
+                ReasonCode: ResolveSteadyFocusReasonCode(continuity.ReasonCode),
+                ReasonText: ResolveSteadyFocusReasonText(continuity.ReasonCode),
+                NewEwmaSwitchRate: previous.EwmaSwitchRate,
+                NewMicroBurstAccumulatedSeconds: previous.MicroBurstAccumulatedSeconds,
+                NewRecentDominantHashesJson: previous.RecentDominantHashes,
+                NewPingPongCycleCount: previous.PingPongCycleCount,
+                NewPingPongWindowStartSeconds: previous.PingPongWindowStartSeconds,
+                NewSessionActiveInteractionSeconds: previous.SessionActiveInteractionSeconds,
+                NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
+                NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
+                NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+        }
+
+        // ── Pattern 2: Rolling micro-burst ────────────────────────────────────
+        double ewmaSwitchRate = previous.EwmaSwitchRate;
+        if (bucket.FocusSwitchCount >= PortaExecutionConstants.DistractionEpisodes.MicroBurstMinSwitchesPerBucket)
+        {
+            ewmaSwitchRate = PortaExecutionConstants.DistractionEpisodes.MicroBurstEwmaAlpha * bucket.FocusSwitchCount
+                + (1d - PortaExecutionConstants.DistractionEpisodes.MicroBurstEwmaAlpha) * previous.EwmaSwitchRate;
+        }
+        double microBurstAccSec = ewmaSwitchRate > PortaExecutionConstants.DistractionEpisodes.MicroBurstSwitchRateThreshold
+            ? ClampNonNegativeFinite(previous.MicroBurstAccumulatedSeconds + Time.bucketSeconds)
+            : ClampNonNegativeFinite(previous.MicroBurstAccumulatedSeconds - Time.bucketSeconds);
+
+        if (microBurstAccSec >= PortaExecutionConstants.DistractionEpisodes.MicroBurstMinTriggerSeconds * mult)
+        {
+            return new AttentionSegmentDecision(
+                Kind: "rolling_micro_burst", SegmentSeconds: microBurstAccSec,
+                DistractionEpisodeActive: true, DistractionEpisodeSeconds: microBurstAccSec,
+                ReasonCode: "rolling_micro_burst", ReasonText: "Rapid repeated app switching detected.",
+                NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
+                NewRecentDominantHashesJson: previous.RecentDominantHashes,
+                NewPingPongCycleCount: previous.PingPongCycleCount, NewPingPongWindowStartSeconds: previous.PingPongWindowStartSeconds,
+                NewSessionActiveInteractionSeconds: previous.SessionActiveInteractionSeconds + Time.bucketSeconds,
+                NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
+                NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds, NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+        }
+
+        // ── Pattern 3: Ping-pong revisit ──────────────────────────────────────
+        string currentDom = evidence.FocusAvailable ? bucket.DominantAppHash : string.Empty;
+        double sessionActiveSec = ClampNonNegativeFinite(previous.SessionActiveInteractionSeconds + Time.bucketSeconds);
+
+        // Update ring buffer (keep last 4 unique-consecutive entries)
+        List<(string Hash, double T)> ring = ParseRingBuffer(previous.RecentDominantHashes);
+        if (ring.Count > 0 && string.Equals(ring[^1].Hash, currentDom, StringComparison.Ordinal))
+            ring[^1] = (currentDom, sessionActiveSec);
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(currentDom)) ring.Add((currentDom, sessionActiveSec));
+            if (ring.Count > 4) ring.RemoveAt(0);
+        }
+        string updatedHashesJson = SerializeRingBuffer(ring);
+
+        int pingPongCycles = previous.PingPongCycleCount;
+        double pingPongWindowStart = previous.PingPongWindowStartSeconds;
+        // Reset window if expired
+        if (sessionActiveSec - pingPongWindowStart > PortaExecutionConstants.DistractionEpisodes.PingPongWindowSeconds * mult)
+        {
+            pingPongCycles = 0;
+            pingPongWindowStart = sessionActiveSec;
+        }
+        // Detect ping-pong: last 3+ entries alternate between exactly 2 hashes
+        if (ring.Count >= 3)
+        {
+            var distinct = ring.Select(r => r.Hash).Distinct().ToList();
+            if (distinct.Count == 2)
+            {
+                bool alternates = true;
+                for (int i = 1; i < ring.Count; i++)
+                    if (string.Equals(ring[i].Hash, ring[i - 1].Hash, StringComparison.Ordinal)) { alternates = false; break; }
+                if (alternates)
+                {
+                    double totalTime = ring[^1].T - ring[0].T;
+                    double avgDwell = totalTime / Math.Max(ring.Count - 1, 1);
+                    if (avgDwell <= PortaExecutionConstants.DistractionEpisodes.PingPongMaxDwellPerHopSeconds)
+                        pingPongCycles++;
+                }
+            }
+        }
+        if (pingPongCycles >= PortaExecutionConstants.DistractionEpisodes.PingPongMinCycles)
+        {
+            return new AttentionSegmentDecision(
+                Kind: "return_loop_distraction", SegmentSeconds: sessionActiveSec - pingPongWindowStart,
+                DistractionEpisodeActive: true, DistractionEpisodeSeconds: sessionActiveSec - pingPongWindowStart,
+                ReasonCode: "return_loop_distraction", ReasonText: "Repetitive app ping-pong detected.",
+                NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
+                NewRecentDominantHashesJson: updatedHashesJson, NewPingPongCycleCount: pingPongCycles, NewPingPongWindowStartSeconds: pingPongWindowStart,
+                NewSessionActiveInteractionSeconds: sessionActiveSec, NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
+                NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds, NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+        }
+
+        // ── Pattern 4: Never settled ──────────────────────────────────────────
+        bool anchorEverLocked = !string.IsNullOrWhiteSpace(continuity.AnchorAppHash) || continuity.AnchorLockedSeconds > 0d;
+        bool unfocusedFired = previous.UnfocusedSessionFired;
+        if (!unfocusedFired
+            && !anchorEverLocked
+            && sessionActiveSec >= PortaExecutionConstants.DistractionEpisodes.NeverSettledActiveInteractionMinutes * 60d * mult)
+        {
+            unfocusedFired = true;
+            return new AttentionSegmentDecision(
+                Kind: "unfocused_session", SegmentSeconds: sessionActiveSec,
+                DistractionEpisodeActive: true, DistractionEpisodeSeconds: sessionActiveSec,
+                ReasonCode: "unfocused_session", ReasonText: "Active session without a stable focus anchor.",
+                NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
+                NewRecentDominantHashesJson: updatedHashesJson, NewPingPongCycleCount: pingPongCycles, NewPingPongWindowStartSeconds: pingPongWindowStart,
+                NewSessionActiveInteractionSeconds: sessionActiveSec, NewUnfocusedSessionFired: true,
+                NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds, NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+        }
+
+        // ── Pattern 5: Shallow dwell ──────────────────────────────────────────
+        double ewmaDwell = previous.EwmaAverageDwellSeconds;
+        double shallowDwellAcc = previous.ShallowDwellAccumulatedSeconds;
+        if (bucket.FocusSwitchCount >= PortaExecutionConstants.DistractionEpisodes.ShallowDwellMinSwitchesPerBucket)
+        {
+            double currentDwell = Time.bucketSeconds / Math.Max(bucket.FocusSwitchCount, 1d);
+            ewmaDwell = PortaExecutionConstants.DistractionEpisodes.ShallowDwellEwmaAlpha * currentDwell
+                + (1d - PortaExecutionConstants.DistractionEpisodes.ShallowDwellEwmaAlpha) * previous.EwmaAverageDwellSeconds;
+            shallowDwellAcc = ewmaDwell < PortaExecutionConstants.DistractionEpisodes.ShallowDwellCeilingSeconds
+                ? ClampNonNegativeFinite(shallowDwellAcc + Time.bucketSeconds)
+                : ClampNonNegativeFinite(shallowDwellAcc - Time.bucketSeconds);
+        }
+        else
+        {
+            shallowDwellAcc = ClampNonNegativeFinite(shallowDwellAcc - Time.bucketSeconds);
+        }
+        if (shallowDwellAcc >= PortaExecutionConstants.DistractionEpisodes.ShallowDwellMinTriggerSeconds * mult)
+        {
+            return new AttentionSegmentDecision(
+                Kind: "shallow_dwell_distraction", SegmentSeconds: shallowDwellAcc,
+                DistractionEpisodeActive: true, DistractionEpisodeSeconds: shallowDwellAcc,
+                ReasonCode: "shallow_dwell_distraction", ReasonText: "Sustained grazing behaviour detected.",
+                NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
+                NewRecentDominantHashesJson: updatedHashesJson, NewPingPongCycleCount: pingPongCycles, NewPingPongWindowStartSeconds: pingPongWindowStart,
+                NewSessionActiveInteractionSeconds: sessionActiveSec, NewUnfocusedSessionFired: unfocusedFired,
+                NewEwmaAverageDwellSeconds: ewmaDwell, NewShallowDwellAccumulatedSeconds: shallowDwellAcc,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+        }
+
+        // ── Pattern 8: Focus app absence (only when anchor is locked) ─────────
+        double offAnchorSec = previous.WindowsOffAnchorSeconds;
+        int bucketsBack = previous.WindowsOffAnchorBucketsBack;
+        if (!string.IsNullOrWhiteSpace(continuity.AnchorAppHash))
+        {
+            bool onAnchor = string.Equals(currentDom, continuity.AnchorAppHash, StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(currentDom);
+            if (!onAnchor)
+            {
+                offAnchorSec = ClampNonNegativeFinite(offAnchorSec + Time.bucketSeconds);
+                bucketsBack = 0;
+            }
+            else
+            {
+                bucketsBack++;
+                if (bucketsBack >= PortaExecutionConstants.DistractionEpisodes.FocusDepartureReturnBuckets)
+                    offAnchorSec = 0d;
+            }
+            // Don't fire if off_task_distraction is already the active kind (it fires faster at 90s)
+            bool alreadyOffTask = string.Equals(continuity.ReasonCode, "context_excursion", StringComparison.Ordinal)
+                || string.Equals(continuity.ReasonCode, "context_excursion_decay", StringComparison.Ordinal);
+            if (!alreadyOffTask
+                && offAnchorSec >= PortaExecutionConstants.DistractionEpisodes.FocusDepartureThresholdSeconds * mult)
+            {
+                return new AttentionSegmentDecision(
+                    Kind: "focus_departure_distraction", SegmentSeconds: offAnchorSec,
+                    DistractionEpisodeActive: true, DistractionEpisodeSeconds: offAnchorSec,
+                    ReasonCode: "focus_departure_distraction", ReasonText: $"Away from focus app for {FormatEpisodeDuration(offAnchorSec)}.",
+                    NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
+                    NewRecentDominantHashesJson: updatedHashesJson, NewPingPongCycleCount: pingPongCycles, NewPingPongWindowStartSeconds: pingPongWindowStart,
+                    NewSessionActiveInteractionSeconds: sessionActiveSec, NewUnfocusedSessionFired: unfocusedFired,
+                    NewEwmaAverageDwellSeconds: ewmaDwell, NewShallowDwellAccumulatedSeconds: shallowDwellAcc,
+                    NewWindowsOffAnchorSeconds: offAnchorSec, NewWindowsOffAnchorBucketsBack: bucketsBack);
+            }
+        }
+
+        // ── No new pattern fired — steady focus ───────────────────────────────
         return new AttentionSegmentDecision(
-            Kind: "focus",
-            SegmentSeconds: 0d,
-            DistractionEpisodeActive: false,
-            DistractionEpisodeSeconds: 0d,
+            Kind: "focus", SegmentSeconds: 0d, DistractionEpisodeActive: false, DistractionEpisodeSeconds: 0d,
             ReasonCode: ResolveSteadyFocusReasonCode(continuity.ReasonCode),
-            ReasonText: ResolveSteadyFocusReasonText(continuity.ReasonCode));
+            ReasonText: ResolveSteadyFocusReasonText(continuity.ReasonCode),
+            NewEwmaSwitchRate: ewmaSwitchRate,
+            NewMicroBurstAccumulatedSeconds: microBurstAccSec,
+            NewRecentDominantHashesJson: updatedHashesJson,
+            NewPingPongCycleCount: pingPongCycles,
+            NewPingPongWindowStartSeconds: pingPongWindowStart,
+            NewSessionActiveInteractionSeconds: sessionActiveSec,
+            NewUnfocusedSessionFired: unfocusedFired,
+            NewEwmaAverageDwellSeconds: ewmaDwell,
+            NewShallowDwellAccumulatedSeconds: shallowDwellAcc,
+            NewWindowsOffAnchorSeconds: offAnchorSec,
+            NewWindowsOffAnchorBucketsBack: bucketsBack);
+    }
+
+    private static List<(string Hash, double T)> ParseRingBuffer(string json)
+    {
+        var result = new List<(string, double)>();
+        if (string.IsNullOrWhiteSpace(json)) return result;
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            foreach (JsonElement entry in doc.RootElement.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.Array || entry.GetArrayLength() < 2) continue;
+                string? hash = entry[0].GetString();
+                if (!string.IsNullOrWhiteSpace(hash) && entry[1].TryGetDouble(out double t))
+                    result.Add((hash, t));
+            }
+        }
+        catch { /* return what we have */ }
+        return result;
+    }
+
+    private static string SerializeRingBuffer(List<(string Hash, double T)> ring)
+    {
+        if (ring.Count == 0) return string.Empty;
+        var sb = new System.Text.StringBuilder("[");
+        for (int i = 0; i < ring.Count; i++)
+        {
+            if (i > 0) sb.Append(',');
+            sb.Append($"[\"{ring[i].Hash}\",{ring[i].T.ToString(CultureInfo.InvariantCulture)}]");
+        }
+        sb.Append(']');
+        return sb.ToString();
     }
 
     private static EpisodeReason ResolveFocusEpisodeReason(
@@ -879,14 +1172,14 @@ internal static class DerivedSessionMetricsComputer
         if (scalar == null || scalar == DBNull.Value)
         {
             return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
-                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0);
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false);
         }
 
         string json = Convert.ToString(scalar, CultureInfo.InvariantCulture) ?? string.Empty;
         if (string.IsNullOrWhiteSpace(json))
         {
             return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
-                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0);
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false);
         }
 
         try
@@ -896,7 +1189,7 @@ internal static class DerivedSessionMetricsComputer
             if (root.ValueKind != JsonValueKind.Object)
             {
                 return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
-                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0);
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false);
             }
 
             double sustained = ReadNonNegativeDouble(root, "task_continuity_seconds", "sa_seconds", "sustained_attention_duration_sec");
@@ -923,6 +1216,7 @@ internal static class DerivedSessionMetricsComputer
             double shallowDwellAccumulatedSeconds = ReadNonNegativeDouble(root, "shallow_dwell_accumulated_seconds");
             double windowsOffAnchorSeconds = ReadNonNegativeDouble(root, "windows_off_anchor_seconds");
             int windowsOffAnchorBucketsBack = (int)ReadNonNegativeInt64(root, "windows_off_anchor_buckets_back");
+            bool unfocusedSessionFired = ReadBool(root, "unfocused_session_fired");
             return new DerivedSessionRuntimeState(
                 TaskContinuitySeconds: sustained,
                 IdleFragmentationIndex: idleFragment,
@@ -947,12 +1241,13 @@ internal static class DerivedSessionMetricsComputer
                 EwmaAverageDwellSeconds: ewmaAverageDwellSeconds,
                 ShallowDwellAccumulatedSeconds: shallowDwellAccumulatedSeconds,
                 WindowsOffAnchorSeconds: windowsOffAnchorSeconds,
-                WindowsOffAnchorBucketsBack: windowsOffAnchorBucketsBack);
+                WindowsOffAnchorBucketsBack: windowsOffAnchorBucketsBack,
+                UnfocusedSessionFired: unfocusedSessionFired);
         }
         catch
         {
             return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
-                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0);
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false);
         }
     }
 
@@ -1020,6 +1315,19 @@ internal static class DerivedSessionMetricsComputer
         return string.Empty;
     }
 
+    private static bool ReadBool(JsonElement root, params string[] propertyNames)
+    {
+        foreach (string propertyName in propertyNames)
+        {
+            if (!root.TryGetProperty(propertyName, out JsonElement value))
+                continue;
+            if (value.ValueKind == JsonValueKind.True)  return true;
+            if (value.ValueKind == JsonValueKind.False) return false;
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int n)) return n != 0;
+        }
+        return false;
+    }
+
     private static double Clamp01(double value)
     {
         if (!double.IsFinite(value))
@@ -1073,7 +1381,9 @@ internal static class DerivedSessionMetricsComputer
         double ShallowDwellAccumulatedSeconds,
         // Pattern 8 – Focus-departure (time away from anchor)
         double WindowsOffAnchorSeconds,
-        int    WindowsOffAnchorBucketsBack);
+        int    WindowsOffAnchorBucketsBack,
+        // Pattern 4 suppression flag — prevents re-firing every bucket after unfocused fires once
+        bool   UnfocusedSessionFired);
 
     private readonly record struct ChannelEvidence(
         bool KeyboardAvailable,
@@ -1104,10 +1414,22 @@ internal static class DerivedSessionMetricsComputer
     private readonly record struct AttentionSegmentDecision(
         string Kind,
         double SegmentSeconds,
-        bool DistractionEpisodeActive,
+        bool   DistractionEpisodeActive,
         double DistractionEpisodeSeconds,
         string ReasonCode,
-        string ReasonText);
+        string ReasonText,
+        // Block E — updated pattern state carried out of EvaluateAttentionSegment
+        double NewEwmaSwitchRate = 0d,
+        double NewMicroBurstAccumulatedSeconds = 0d,
+        string NewRecentDominantHashesJson = "",
+        int    NewPingPongCycleCount = 0,
+        double NewPingPongWindowStartSeconds = 0d,
+        double NewSessionActiveInteractionSeconds = 0d,
+        bool   NewUnfocusedSessionFired = false,
+        double NewEwmaAverageDwellSeconds = 0d,
+        double NewShallowDwellAccumulatedSeconds = 0d,
+        double NewWindowsOffAnchorSeconds = 0d,
+        int    NewWindowsOffAnchorBucketsBack = 0);
 
     private readonly record struct EpisodeReason(
         string Code,
