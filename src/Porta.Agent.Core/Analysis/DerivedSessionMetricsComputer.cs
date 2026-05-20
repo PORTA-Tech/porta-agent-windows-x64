@@ -100,7 +100,11 @@ internal static class DerivedSessionMetricsComputer
             AttentionSegmentReasonCode: attentionSegment.ReasonCode,
             AttentionSegmentReasonText: attentionSegment.ReasonText,
             FocusEpisodeReasonCode: focusEpisodeReason.Code,
-            FocusEpisodeReasonText: focusEpisodeReason.Text);
+            FocusEpisodeReasonText: focusEpisodeReason.Text,
+            // Block D — pass updated anchor state through to persistence
+            DistrCandidateAnchorAppHash: continuity.CandidateAnchorAppHash,
+            DistrCandidateAnchorAccumulatedSeconds: continuity.CandidateAnchorAccumulatedSeconds,
+            DistrAnchorLockedSeconds: continuity.AnchorLockedSeconds);
     }
 
     private static ChannelEvidence ResolveChannelEvidence(InputBucketRow bucket, PrimitiveComputationResult primitive)
@@ -135,22 +139,131 @@ internal static class DerivedSessionMetricsComputer
         double previousCandidateSeconds = ClampNonNegativeFinite(previous.FocusEpisodeCandidateSeconds);
         double continuityGapSeconds = ResolveContinuityGapSeconds(previous, bucket);
         bool resetForGap = continuityGapSeconds >= PortaExecutionConstants.DerivedSessionMetrics.GapResetSeconds;
-        string anchorAppHash = string.IsNullOrWhiteSpace(previous.AnchorAppHash)
-            ? bucket.DominantAppHash
-            : previous.AnchorAppHash;
-        string currentContextAppHash = evidence.FocusAvailable && !string.IsNullOrWhiteSpace(bucket.DominantAppHash)
-            ? bucket.DominantAppHash
-            : anchorAppHash;
         double idlePauseSeconds = ResolveIdlePauseSeconds(previous, bucket);
         double instabilitySeconds = ClampNonNegativeFinite(previous.InstabilitySeconds);
+
+        // ── Two-stage anchor logic (Block D) ────────────────────────────────────
+        string currentDominant = evidence.FocusAvailable && !string.IsNullOrWhiteSpace(bucket.DominantAppHash)
+            ? bucket.DominantAppHash
+            : string.Empty;
+        string anchorAppHash;
+        string candidateAnchorAppHash;
+        double candidateAnchorAccumulatedSeconds;
+        double anchorLockedSeconds;
+
+        if (resetForGap)
+        {
+            // Gap: clear everything and restart candidate accumulation from current app.
+            anchorAppHash = currentDominant;
+            candidateAnchorAppHash = string.Empty;
+            candidateAnchorAccumulatedSeconds = 0d;
+            anchorLockedSeconds = 0d;
+        }
+        else if (string.IsNullOrWhiteSpace(previous.AnchorAppHash))
+        {
+            // Stage 1 — candidate accumulation: anchor not yet locked.
+            if (string.IsNullOrWhiteSpace(previous.CandidateAnchorAppHash))
+            {
+                // First time: seed candidate with whatever is dominant now.
+                candidateAnchorAppHash = currentDominant;
+                candidateAnchorAccumulatedSeconds = evidence.AnyInteractionActive && !string.IsNullOrWhiteSpace(currentDominant)
+                    ? Time.bucketSeconds : 0d;
+                anchorAppHash = string.Empty;
+                anchorLockedSeconds = 0d;
+            }
+            else if (!string.IsNullOrWhiteSpace(currentDominant)
+                && string.Equals(currentDominant, previous.CandidateAnchorAppHash, StringComparison.Ordinal))
+            {
+                // Still on the same candidate — accumulate if interaction active.
+                double accumulated = evidence.AnyInteractionActive
+                    ? ClampNonNegativeFinite(previous.CandidateAnchorAccumulatedSeconds + Time.bucketSeconds)
+                    : previous.CandidateAnchorAccumulatedSeconds;
+
+                if (accumulated >= PortaExecutionConstants.DistractionEpisodes.AnchorCandidateRequiredSeconds)
+                {
+                    // Candidate has held long enough — lock the anchor.
+                    anchorAppHash = previous.CandidateAnchorAppHash;
+                    anchorLockedSeconds = previous.SessionActiveInteractionSeconds;
+                    candidateAnchorAppHash = string.Empty;
+                    candidateAnchorAccumulatedSeconds = 0d;
+                }
+                else
+                {
+                    anchorAppHash = string.Empty;
+                    candidateAnchorAppHash = previous.CandidateAnchorAppHash;
+                    candidateAnchorAccumulatedSeconds = accumulated;
+                    anchorLockedSeconds = 0d;
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(currentDominant))
+            {
+                // Different app appeared — reset candidate.
+                anchorAppHash = string.Empty;
+                candidateAnchorAppHash = currentDominant;
+                candidateAnchorAccumulatedSeconds = 0d;
+                anchorLockedSeconds = 0d;
+            }
+            else
+            {
+                // No dominant app available yet — preserve existing candidate.
+                anchorAppHash = string.Empty;
+                candidateAnchorAppHash = previous.CandidateAnchorAppHash;
+                candidateAnchorAccumulatedSeconds = previous.CandidateAnchorAccumulatedSeconds;
+                anchorLockedSeconds = 0d;
+            }
+        }
+        else
+        {
+            // Stage 2 — anchor is locked: watch for migration.
+            anchorLockedSeconds = previous.AnchorLockedSeconds;
+            bool onAnchor = string.IsNullOrWhiteSpace(currentDominant)
+                || string.Equals(currentDominant, previous.AnchorAppHash, StringComparison.Ordinal);
+
+            if (onAnchor || !evidence.AnyInteractionActive)
+            {
+                // Back on anchor (or no active interaction) — reset migration counter.
+                anchorAppHash = previous.AnchorAppHash;
+                candidateAnchorAppHash = string.Empty;
+                candidateAnchorAccumulatedSeconds = 0d;
+            }
+            else if (string.Equals(currentDominant, previous.CandidateAnchorAppHash, StringComparison.Ordinal))
+            {
+                // Still on the same migration candidate — accumulate.
+                double accumulated = ClampNonNegativeFinite(
+                    previous.CandidateAnchorAccumulatedSeconds + Time.bucketSeconds);
+
+                if (accumulated >= PortaExecutionConstants.DistractionEpisodes.AnchorMigrationThresholdSeconds)
+                {
+                    // New app has dominated long enough — migrate anchor.
+                    anchorAppHash = currentDominant;
+                    anchorLockedSeconds = previous.SessionActiveInteractionSeconds;
+                    candidateAnchorAppHash = string.Empty;
+                    candidateAnchorAccumulatedSeconds = 0d;
+                }
+                else
+                {
+                    anchorAppHash = previous.AnchorAppHash;
+                    candidateAnchorAppHash = currentDominant;
+                    candidateAnchorAccumulatedSeconds = accumulated;
+                }
+            }
+            else
+            {
+                // New off-anchor app — start fresh migration counter.
+                anchorAppHash = previous.AnchorAppHash;
+                candidateAnchorAppHash = currentDominant;
+                candidateAnchorAccumulatedSeconds = Time.bucketSeconds;
+            }
+        }
+
+        string currentContextAppHash = !string.IsNullOrWhiteSpace(currentDominant)
+            ? currentDominant
+            : anchorAppHash;
 
         if (resetForGap)
         {
             previousContinuitySeconds = 0d;
             previousCandidateSeconds = 0d;
-            anchorAppHash = evidence.FocusAvailable && !string.IsNullOrWhiteSpace(bucket.DominantAppHash)
-                ? bucket.DominantAppHash
-                : string.Empty;
             currentContextAppHash = anchorAppHash;
             idlePauseSeconds = bucket.IdleSeconds <= 0.25d
                 ? 0d
@@ -161,6 +274,7 @@ internal static class DerivedSessionMetricsComputer
         if (bucket.TrueBreakSeconds >= PortaExecutionConstants.DerivedSessionMetrics.IdleResetSeconds
             || idlePauseSeconds >= PortaExecutionConstants.DerivedSessionMetrics.IdleResetSeconds)
         {
+            // Long break: clear candidate fields per spec.
             return BuildDecision(
                 continuitySeconds: 0d,
                 focusEpisodeCandidateSeconds: 0d,
@@ -169,12 +283,16 @@ internal static class DerivedSessionMetricsComputer
                 contextSwitchSeconds: 0d,
                 instabilitySeconds: 0d,
                 state: "reset",
-                reasonCode: "long_break");
+                reasonCode: "long_break",
+                candidateAnchorAppHash: string.Empty,
+                candidateAnchorAccumulatedSeconds: 0d,
+                anchorLockedSeconds: anchorLockedSeconds);
         }
 
         if (!evidence.FocusAvailable)
         {
-            return EvaluateNoFocusContinuity(previousContinuitySeconds, previousCandidateSeconds, anchorAppHash, idlePauseSeconds, evidence);
+            return EvaluateNoFocusContinuity(previousContinuitySeconds, previousCandidateSeconds, anchorAppHash, idlePauseSeconds, evidence,
+                candidateAnchorAppHash, candidateAnchorAccumulatedSeconds, anchorLockedSeconds);
         }
 
         bool spikeInstability = bucket.FocusSwitchCount >= SessionConstants.SustainedAttention.FocusSwitchesSpikeMin
@@ -188,14 +306,9 @@ internal static class DerivedSessionMetricsComputer
             if (instabilitySeconds >= PortaExecutionConstants.DerivedSessionMetrics.InstabilityResetSeconds)
             {
                 return BuildDecision(
-                    0d,
-                    0d,
-                    currentContextAppHash,
-                    idlePauseSeconds,
-                    0d,
-                    instabilitySeconds,
-                    "reset",
-                    "instability_reset");
+                    0d, 0d, currentContextAppHash, idlePauseSeconds, 0d, instabilitySeconds,
+                    "reset", "instability_reset",
+                    candidateAnchorAppHash, candidateAnchorAccumulatedSeconds, anchorLockedSeconds);
             }
 
             if (spikeInstability)
@@ -203,47 +316,31 @@ internal static class DerivedSessionMetricsComputer
                 return BuildDecision(
                     ClampNonNegativeFinite(previousContinuitySeconds - PortaExecutionConstants.DerivedSessionMetrics.InstabilityDecayPerBucketSeconds),
                     ClampNonNegativeFinite(previousCandidateSeconds - Time.bucketSeconds),
-                    currentContextAppHash,
-                    idlePauseSeconds,
-                    0d,
-                    instabilitySeconds,
-                    "decay",
-                    "focus_instability");
+                    currentContextAppHash, idlePauseSeconds, 0d, instabilitySeconds,
+                    "decay", "focus_instability",
+                    candidateAnchorAppHash, candidateAnchorAccumulatedSeconds, anchorLockedSeconds);
             }
 
             return BuildDecision(
-                previousContinuitySeconds,
-                previousCandidateSeconds,
-                currentContextAppHash,
-                idlePauseSeconds,
-                0d,
-                instabilitySeconds,
-                "pause",
-                "focus_unstable");
+                previousContinuitySeconds, previousCandidateSeconds, currentContextAppHash, idlePauseSeconds, 0d, instabilitySeconds,
+                "pause", "focus_unstable",
+                candidateAnchorAppHash, candidateAnchorAccumulatedSeconds, anchorLockedSeconds);
         }
 
         if (evidence.AnyInteractionActive)
         {
             return AdvanceFocusEpisode(
-                previousContinuitySeconds,
-                previousCandidateSeconds,
-                currentContextAppHash,
-                idlePauseSeconds: 0d,
-                contextSwitchSeconds: 0d,
-                instabilitySeconds: 0d,
-                reasonCode: string.Empty);
+                previousContinuitySeconds, previousCandidateSeconds, currentContextAppHash,
+                idlePauseSeconds: 0d, contextSwitchSeconds: 0d, instabilitySeconds: 0d, reasonCode: string.Empty,
+                candidateAnchorAppHash, candidateAnchorAccumulatedSeconds, anchorLockedSeconds);
         }
 
         if (CanAccumulatePassiveFocus(previousContinuitySeconds, previousCandidateSeconds, idlePauseSeconds))
         {
             return AdvanceFocusEpisode(
-                previousContinuitySeconds,
-                previousCandidateSeconds,
-                currentContextAppHash,
-                idlePauseSeconds,
-                contextSwitchSeconds: 0d,
-                instabilitySeconds: 0d,
-                reasonCode: "passive_focus");
+                previousContinuitySeconds, previousCandidateSeconds, currentContextAppHash,
+                idlePauseSeconds, contextSwitchSeconds: 0d, instabilitySeconds: 0d, reasonCode: "passive_focus",
+                candidateAnchorAppHash, candidateAnchorAccumulatedSeconds, anchorLockedSeconds);
         }
 
         if (idlePauseSeconds > PortaExecutionConstants.DerivedSessionMetrics.IdlePauseMaxSeconds)
@@ -251,49 +348,30 @@ internal static class DerivedSessionMetricsComputer
             return BuildDecision(
                 ClampNonNegativeFinite(previousContinuitySeconds - PortaExecutionConstants.DerivedSessionMetrics.IdleDecayPerBucketSeconds),
                 ClampNonNegativeFinite(previousCandidateSeconds - Time.bucketSeconds),
-                currentContextAppHash,
-                idlePauseSeconds,
-                0d,
-                0d,
-                "decay",
-                "pause_decay");
+                currentContextAppHash, idlePauseSeconds, 0d, 0d, "decay", "pause_decay",
+                candidateAnchorAppHash, candidateAnchorAccumulatedSeconds, anchorLockedSeconds);
         }
 
         if (idlePauseSeconds > PortaExecutionConstants.DerivedSessionMetrics.IdleAccumulateMaxSeconds)
         {
             return BuildDecision(
-                previousContinuitySeconds,
-                previousCandidateSeconds,
-                currentContextAppHash,
-                idlePauseSeconds,
-                0d,
-                0d,
-                "pause",
-                "short_pause");
+                previousContinuitySeconds, previousCandidateSeconds,
+                currentContextAppHash, idlePauseSeconds, 0d, 0d, "pause", "short_pause",
+                candidateAnchorAppHash, candidateAnchorAccumulatedSeconds, anchorLockedSeconds);
         }
 
         if (bucket.IdleSeconds > PortaExecutionConstants.DerivedSessionMetrics.IdleSecondsStableMax)
         {
             return BuildDecision(
-                previousContinuitySeconds,
-                previousCandidateSeconds,
-                currentContextAppHash,
-                idlePauseSeconds,
-                0d,
-                0d,
-                "pause",
-                "idle_unstable");
+                previousContinuitySeconds, previousCandidateSeconds,
+                currentContextAppHash, idlePauseSeconds, 0d, 0d, "pause", "idle_unstable",
+                candidateAnchorAppHash, candidateAnchorAccumulatedSeconds, anchorLockedSeconds);
         }
 
         return BuildDecision(
-            previousContinuitySeconds,
-            previousCandidateSeconds,
-            currentContextAppHash,
-            idlePauseSeconds,
-            0d,
-            0d,
-            "pause",
-            "passive_focus");
+            previousContinuitySeconds, previousCandidateSeconds,
+            currentContextAppHash, idlePauseSeconds, 0d, 0d, "pause", "passive_focus",
+            candidateAnchorAppHash, candidateAnchorAccumulatedSeconds, anchorLockedSeconds);
     }
 
     private static TaskContinuityDecision EvaluateNoFocusContinuity(
@@ -301,7 +379,10 @@ internal static class DerivedSessionMetricsComputer
         double previousCandidateSeconds,
         string anchorAppHash,
         double idlePauseSeconds,
-        ChannelEvidence evidence)
+        ChannelEvidence evidence,
+        string candidateAnchorAppHash = "",
+        double candidateAnchorAccumulatedSeconds = 0d,
+        double anchorLockedSeconds = 0d)
     {
         if (idlePauseSeconds > PortaExecutionConstants.DerivedSessionMetrics.IdlePauseMaxSeconds)
         {
@@ -313,7 +394,10 @@ internal static class DerivedSessionMetricsComputer
                 0d,
                 0d,
                 "decay",
-                "focus_unavailable_decay");
+                "focus_unavailable_decay",
+                candidateAnchorAppHash,
+                candidateAnchorAccumulatedSeconds,
+                anchorLockedSeconds);
         }
 
         if (idlePauseSeconds > PortaExecutionConstants.DerivedSessionMetrics.IdleAccumulateMaxSeconds || !evidence.AnyInteractionActive)
@@ -326,7 +410,10 @@ internal static class DerivedSessionMetricsComputer
                 0d,
                 0d,
                 "pause",
-                "focus_unavailable");
+                "focus_unavailable",
+                candidateAnchorAppHash,
+                candidateAnchorAccumulatedSeconds,
+                anchorLockedSeconds);
         }
 
         return BuildDecision(
@@ -337,7 +424,10 @@ internal static class DerivedSessionMetricsComputer
             0d,
             0d,
             "pause",
-            "focus_unavailable");
+            "focus_unavailable",
+            candidateAnchorAppHash,
+            candidateAnchorAccumulatedSeconds,
+            anchorLockedSeconds);
     }
 
     private static TaskContinuityDecision AdvanceFocusEpisode(
@@ -347,7 +437,10 @@ internal static class DerivedSessionMetricsComputer
         double idlePauseSeconds,
         double contextSwitchSeconds,
         double instabilitySeconds,
-        string reasonCode)
+        string reasonCode,
+        string candidateAnchorAppHash = "",
+        double candidateAnchorAccumulatedSeconds = 0d,
+        double anchorLockedSeconds = 0d)
     {
         if (previousContinuitySeconds > 0d)
         {
@@ -359,7 +452,10 @@ internal static class DerivedSessionMetricsComputer
                 contextSwitchSeconds,
                 instabilitySeconds,
                 "keep",
-                reasonCode);
+                reasonCode,
+                candidateAnchorAppHash,
+                candidateAnchorAccumulatedSeconds,
+                anchorLockedSeconds);
         }
 
         double candidateSeconds = ClampNonNegativeFinite(previousCandidateSeconds + Time.bucketSeconds);
@@ -373,7 +469,10 @@ internal static class DerivedSessionMetricsComputer
                 contextSwitchSeconds,
                 instabilitySeconds,
                 "keep",
-                reasonCode);
+                reasonCode,
+                candidateAnchorAppHash,
+                candidateAnchorAccumulatedSeconds,
+                anchorLockedSeconds);
         }
 
         return BuildDecision(
@@ -384,7 +483,10 @@ internal static class DerivedSessionMetricsComputer
             contextSwitchSeconds,
             instabilitySeconds,
             "pause",
-            "focus_settling");
+            "focus_settling",
+            candidateAnchorAppHash,
+            candidateAnchorAccumulatedSeconds,
+            anchorLockedSeconds);
     }
 
     private static bool CanAccumulatePassiveFocus(
@@ -512,7 +614,10 @@ internal static class DerivedSessionMetricsComputer
         double contextSwitchSeconds,
         double instabilitySeconds,
         string state,
-        string reasonCode)
+        string reasonCode,
+        string candidateAnchorAppHash = "",
+        double candidateAnchorAccumulatedSeconds = 0d,
+        double anchorLockedSeconds = 0d)
     {
         return new TaskContinuityDecision(
             TaskContinuitySeconds: ClampNonNegativeFinite(continuitySeconds),
@@ -523,7 +628,10 @@ internal static class DerivedSessionMetricsComputer
             InstabilitySeconds: ClampNonNegativeFinite(instabilitySeconds),
             State: state,
             Score: ResolveContinuityScore(state),
-            ReasonCode: reasonCode);
+            ReasonCode: reasonCode,
+            CandidateAnchorAppHash: candidateAnchorAppHash,
+            CandidateAnchorAccumulatedSeconds: ClampNonNegativeFinite(candidateAnchorAccumulatedSeconds),
+            AnchorLockedSeconds: ClampNonNegativeFinite(anchorLockedSeconds));
     }
 
     private static AttentionSegmentDecision EvaluateAttentionSegment(
@@ -987,7 +1095,11 @@ internal static class DerivedSessionMetricsComputer
         double InstabilitySeconds,
         string State,
         double Score,
-        string ReasonCode);
+        string ReasonCode,
+        // Block D — anchor state carried through all decision paths (default = cleared)
+        string CandidateAnchorAppHash = "",
+        double CandidateAnchorAccumulatedSeconds = 0d,
+        double AnchorLockedSeconds = 0d);
 
     private readonly record struct AttentionSegmentDecision(
         string Kind,
