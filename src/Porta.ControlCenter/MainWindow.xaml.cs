@@ -6842,6 +6842,16 @@ public partial class MainWindow : Window
             fallbackToUtc: displayToUtc);
         _latestHistoryHeatmap = heatmap;
 
+        // For 2-Week view: replace overload episodes for the last 7 days with more-accurate
+        // data from the 300s _weekTimeline.  The 600s _twoWeekTimeline aggregates away
+        // OverloadActive flags that the 300s timeline preserves, causing 2-Week to show
+        // less overload than Week for the same dates.
+        if (_historyPeriod == HistoryPeriod.TwoWeeks && _weekTimeline != null)
+        {
+            heatmap = OverlayWeekOverloadOnTwoWeekHeatmap(heatmap, _weekTimeline);
+            _latestHistoryHeatmap = heatmap;
+        }
+
         // For Week / 2-Week views, replace today's episodes with the accurate ones
         // from the 60s _todayTimeline (which has real OverloadActive flags).
         // This makes today's column in Week/2-Week match Day view exactly.
@@ -7448,6 +7458,47 @@ public partial class MainWindow : Window
         [
             ..heatmap.Episodes.Where(e => e.StartUtc.ToLocalTime().Date != today),
             ..todayEps.Where(e => e.StartUtc.ToLocalTime().Date == today),
+        ];
+        merged.Sort(static (a, b) => a.StartUtc.CompareTo(b.StartUtc));
+        return heatmap with { Episodes = merged };
+    }
+
+    /// <summary>
+    /// In the 2-week view (600 s buckets) <c>OverloadActive</c> is frequently false even
+    /// when the user was actually overloaded, because the API does not preserve the flag
+    /// reliably at that coarse granularity.  The 7-day (300 s) week timeline captures
+    /// overload far more accurately.  This method replaces any overload episodes that fall
+    /// within the last 7 days with the ones rebuilt from the 300 s
+    /// <paramref name="weekTimeline"/>, giving the 2-week view the same overload accuracy
+    /// as the week view for the overlapping date range.
+    /// </summary>
+    private static HistoryFocusHeatmap OverlayWeekOverloadOnTwoWeekHeatmap(
+        HistoryFocusHeatmap heatmap,
+        LocalApiTimelineResponse weekTimeline)
+    {
+        DateTime today = DateTime.Today;
+        // The 7-day week timeline spans the 6 days before today through today (inclusive).
+        DateTime weekStart = today.AddDays(-6);
+
+        // Build episodes from the more-accurate 300 s week timeline
+        IReadOnlyList<HistoryTimelineEpisode> weekEps =
+            HistoryTimelineEpisodeBuilder.Build(weekTimeline);
+
+        // Overload episodes from the week timeline within the overlapping window
+        IEnumerable<HistoryTimelineEpisode> weekOverload = weekEps.Where(e =>
+            e.Kind == HistoryTimelineEpisodeKind.OverloadEpisode &&
+            e.StartUtc.ToLocalTime().Date >= weekStart);
+
+        List<HistoryTimelineEpisode> merged =
+        [
+            // All non-overload episodes from 2-week heatmap are unchanged
+            ..heatmap.Episodes.Where(e => e.Kind != HistoryTimelineEpisodeKind.OverloadEpisode),
+            // Overload episodes OLDER than the 7-day window stay from the 2-week heatmap
+            ..heatmap.Episodes.Where(e =>
+                e.Kind == HistoryTimelineEpisodeKind.OverloadEpisode &&
+                e.StartUtc.ToLocalTime().Date < weekStart),
+            // Replace overload for the last 7 days with the more-accurate 300 s data
+            ..weekOverload,
         ];
         merged.Sort(static (a, b) => a.StartUtc.CompareTo(b.StartUtc));
         return heatmap with { Episodes = merged };
