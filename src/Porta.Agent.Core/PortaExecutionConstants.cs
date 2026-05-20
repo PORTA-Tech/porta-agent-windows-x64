@@ -91,6 +91,60 @@ public static class PortaExecutionConstants
         public const double OffTaskDistractionStartSeconds = 90.0;
         public const double FragmentationDistractionStartSeconds = 120.0;
         public const double FragmentationHighAppCountMin = 4.0;
+
+        // Micro-burst (rapid repeated switching) detection
+        public const double MicroBurstEwmaAlpha = 0.25;
+        public const double MicroBurstSwitchRateThreshold = 2.0;
+        public const double MicroBurstMinTriggerSeconds = 60.0;
+        public const int    MicroBurstMinSwitchesPerBucket = 2;
+
+        // Ping-pong (A→B→A→B→A→B cycle) detection
+        public const int    PingPongMinCycles = 3;
+        public const double PingPongWindowSeconds = 180.0;
+        public const double PingPongMaxDwellPerHopSeconds = 45.0;
+
+        // Never-settled (active but never locks onto an app) detection
+        public const double NeverSettledActiveInteractionMinutes = 20.0;
+        public const double NeverSettledCandidateMaxSeconds = 15.0;
+
+        // Shallow-dwell (grazing — rolling avg dwell below ceiling) detection
+        public const double ShallowDwellEwmaAlpha = 0.30;
+        public const double ShallowDwellCeilingSeconds = 40.0;
+        public const int    ShallowDwellMinSwitchesPerBucket = 2;
+        public const double ShallowDwellMinTriggerSeconds = 90.0;
+
+        // Focus-departure (time away from anchor app) detection
+        public const double FocusDepartureThresholdSeconds = 600.0;
+        public const int    FocusDepartureReturnBuckets = 2;
+
+        // Anchor-app locking and migration
+        public const double AnchorCandidateRequiredSeconds = 120.0;
+        public const double AnchorMigrationThresholdSeconds = 240.0;
+    }
+
+    public static class TimeOfDayMultipliers
+    {
+        public const int    EarlyMorningStart = 6;
+        public const int    EarlyMorningEnd = 9;
+        public const double EarlyMorningMultiplier = 1.0;
+
+        public const int    MorningStart = 9;
+        public const int    MorningEnd = 12;
+        public const double MorningMultiplier = 0.85;
+
+        public const int    LunchStart = 12;
+        public const int    LunchEnd = 14;
+        public const double LunchMultiplier = 1.10;
+
+        public const int    AfternoonStart = 14;
+        public const int    AfternoonEnd = 17;
+        public const double AfternoonMultiplier = 0.90;
+
+        public const int    EveningStart = 17;
+        public const int    EveningEnd = 20;
+        public const double EveningMultiplier = 1.15;
+
+        public const double LateEveningMultiplier = 1.25; // 20:00 onward
     }
 
     public static class OverloadStabilization
