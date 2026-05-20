@@ -180,7 +180,7 @@ internal static class SnapshotMapper
             AnalyzedStateAvailable: latestState is not null,
             ModelSource: latestState is not null ? "analyzed_state" : "brain_fallback",
             FocusEpisodeQuality: continuityConfidence,
-            FocusEpisodeSeconds: taskContinuitySeconds,
+            FocusEpisodeSeconds: ResolveStoredFocusEpisodeSeconds(attentionSegmentKind, taskContinuitySeconds),
             FocusEpisodeState: continuityState,
             AttentionSegmentKind: attentionSegmentKind,
             AttentionSegmentSeconds: attentionSegmentSeconds,
@@ -522,5 +522,14 @@ internal static class SnapshotMapper
         {
             Document?.Dispose();
         }
+    }
+
+    private static double ResolveStoredFocusEpisodeSeconds(string? attentionSegmentKind, double taskContinuitySeconds)
+    {
+        string kind = LocalAttentionSegmentAnalytics.NormalizeAttentionSegmentKind(attentionSegmentKind);
+        return LocalAttentionSegmentAnalytics.IsDistractionKind(kind)
+               || kind == LocalAttentionSegmentAnalytics.AwaySegmentKind
+            ? 0d
+            : taskContinuitySeconds;
     }
 }

@@ -7020,7 +7020,6 @@ public partial class MainWindow : Window
             .Where(static e => e.Kind is
                 HistoryTimelineEpisodeKind.OffTaskDistraction or
                 HistoryTimelineEpisodeKind.FragmentationDistraction or
-                HistoryTimelineEpisodeKind.ContextExcursion or
                 HistoryTimelineEpisodeKind.RollingMicroBurst or
                 HistoryTimelineEpisodeKind.ReturnLoopDistraction or
                 HistoryTimelineEpisodeKind.UnfocusedSession or
@@ -7357,7 +7356,6 @@ public partial class MainWindow : Window
                 bool isDistractionEp = ep.Kind is
                     HistoryTimelineEpisodeKind.OffTaskDistraction or
                     HistoryTimelineEpisodeKind.FragmentationDistraction or
-                    HistoryTimelineEpisodeKind.ContextExcursion or
                     HistoryTimelineEpisodeKind.RollingMicroBurst or
                     HistoryTimelineEpisodeKind.ReturnLoopDistraction or
                     HistoryTimelineEpisodeKind.UnfocusedSession or
@@ -7532,7 +7530,7 @@ public partial class MainWindow : Window
     {
         HistoryTimelineEpisodeKind.FocusEpisode                                                            => "Focus",
         HistoryTimelineEpisodeKind.Away                                                                    => "Away",
-        HistoryTimelineEpisodeKind.ContextExcursion                                                     => "Distraction",
+        HistoryTimelineEpisodeKind.ContextExcursion                                                     => "Excursion",
         HistoryTimelineEpisodeKind.OffTaskDistraction or
         HistoryTimelineEpisodeKind.FragmentationDistraction or
         HistoryTimelineEpisodeKind.RollingMicroBurst or
@@ -7548,7 +7546,7 @@ public partial class MainWindow : Window
     {
         HistoryTimelineEpisodeKind.FocusEpisode                                                   => Color.FromRgb(0x16, 0xC7, 0x84),
         HistoryTimelineEpisodeKind.Away                                                            => Color.FromRgb(0x3B, 0x82, 0xF6),
-        HistoryTimelineEpisodeKind.ContextExcursion                                                => Color.FromRgb(0x8B, 0x5C, 0xF6),
+        HistoryTimelineEpisodeKind.ContextExcursion                                                => Color.FromRgb(0xF5, 0x9E, 0x0B),
         HistoryTimelineEpisodeKind.OffTaskDistraction or
         HistoryTimelineEpisodeKind.FragmentationDistraction or
         HistoryTimelineEpisodeKind.RollingMicroBurst or
@@ -7566,7 +7564,7 @@ public partial class MainWindow : Window
         {
             HistoryTimelineEpisodeKind.FocusEpisode            => "Focus",
             HistoryTimelineEpisodeKind.Away                    => "Away",
-            HistoryTimelineEpisodeKind.ContextExcursion        => "Away",
+            HistoryTimelineEpisodeKind.ContextExcursion        => "Excursion",
             HistoryTimelineEpisodeKind.OffTaskDistraction or
             HistoryTimelineEpisodeKind.FragmentationDistraction or
             HistoryTimelineEpisodeKind.RollingMicroBurst or
@@ -7779,12 +7777,12 @@ public partial class MainWindow : Window
 
     private static string GetEpisodeTimelineLabel(HistoryTimelineEpisodeKind kind) => kind switch
     {
-        HistoryTimelineEpisodeKind.FocusEpisode    => "Focus",
-        HistoryTimelineEpisodeKind.Away            => "Away",
-        HistoryTimelineEpisodeKind.OverloadEpisode => "Overload",
+        HistoryTimelineEpisodeKind.FocusEpisode     => "Focus",
+        HistoryTimelineEpisodeKind.Away             => "Away",
+        HistoryTimelineEpisodeKind.OverloadEpisode  => "Overload",
+        HistoryTimelineEpisodeKind.ContextExcursion => "Excursion",
         HistoryTimelineEpisodeKind.OffTaskDistraction or
         HistoryTimelineEpisodeKind.FragmentationDistraction or
-        HistoryTimelineEpisodeKind.ContextExcursion or
         HistoryTimelineEpisodeKind.RollingMicroBurst or
         HistoryTimelineEpisodeKind.ReturnLoopDistraction or
         HistoryTimelineEpisodeKind.UnfocusedSession or
@@ -7798,7 +7796,7 @@ public partial class MainWindow : Window
         HistoryTimelineEpisodeKind.FocusEpisode               => Color.FromRgb(0x16, 0xC7, 0x84),
         HistoryTimelineEpisodeKind.OffTaskDistraction          => Color.FromRgb(0x8B, 0x5C, 0xF6),
         HistoryTimelineEpisodeKind.FragmentationDistraction    => Color.FromRgb(0x8B, 0x5C, 0xF6),
-        HistoryTimelineEpisodeKind.ContextExcursion            => Color.FromRgb(0x8B, 0x5C, 0xF6),
+        HistoryTimelineEpisodeKind.ContextExcursion            => Color.FromRgb(0xF5, 0x9E, 0x0B),
         HistoryTimelineEpisodeKind.RollingMicroBurst           => Color.FromRgb(0x8B, 0x5C, 0xF6),
         HistoryTimelineEpisodeKind.ReturnLoopDistraction       => Color.FromRgb(0x8B, 0x5C, 0xF6),
         HistoryTimelineEpisodeKind.UnfocusedSession            => Color.FromRgb(0x8B, 0x5C, 0xF6),
@@ -8031,7 +8029,14 @@ public partial class MainWindow : Window
             pluralLabel: "episodes");
         string distractionSummary = BuildHistoryEpisodeMetricSummary(
             heatmap.DistractionEpisodeCount,
-            heatmap.Episodes.Where(static episode => episode.Kind is HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction).Sum(static episode => episode.DurationSeconds),
+            heatmap.Episodes.Where(static episode => episode.Kind is
+                    HistoryTimelineEpisodeKind.OffTaskDistraction or
+                    HistoryTimelineEpisodeKind.FragmentationDistraction or
+                    HistoryTimelineEpisodeKind.RollingMicroBurst or
+                    HistoryTimelineEpisodeKind.ReturnLoopDistraction or
+                    HistoryTimelineEpisodeKind.UnfocusedSession or
+                    HistoryTimelineEpisodeKind.ShallowDwellDistraction or
+                    HistoryTimelineEpisodeKind.FocusDepartureDistraction).Sum(static episode => episode.DurationSeconds),
             singularLabel: "episode",
             pluralLabel: "episodes");
         string overloadSummary = BuildHistoryEpisodeMetricSummary(
@@ -8230,12 +8235,17 @@ public partial class MainWindow : Window
 
     private static Brush CreateHistoryEpisodeSegmentBrush(HistoryTimelineEpisodeKind kind) => kind switch
     {
-        HistoryTimelineEpisodeKind.FocusEpisode           => new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)), // #16C784 green
-        HistoryTimelineEpisodeKind.ContextExcursion       => new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6)), // #3B82F6 blue
-        HistoryTimelineEpisodeKind.OffTaskDistraction     => new SolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6)), // #8B5CF6 purple
-        HistoryTimelineEpisodeKind.FragmentationDistraction => new SolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6)),
-        HistoryTimelineEpisodeKind.Away                   => new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6)), // #3B82F6 blue
-        HistoryTimelineEpisodeKind.OverloadEpisode        => new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44)), // #EF4444 red
+        HistoryTimelineEpisodeKind.FocusEpisode           => new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
+        HistoryTimelineEpisodeKind.ContextExcursion       => new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)), // amber
+        HistoryTimelineEpisodeKind.OffTaskDistraction or
+        HistoryTimelineEpisodeKind.FragmentationDistraction or
+        HistoryTimelineEpisodeKind.RollingMicroBurst or
+        HistoryTimelineEpisodeKind.ReturnLoopDistraction or
+        HistoryTimelineEpisodeKind.UnfocusedSession or
+        HistoryTimelineEpisodeKind.ShallowDwellDistraction or
+        HistoryTimelineEpisodeKind.FocusDepartureDistraction => new SolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6)),
+        HistoryTimelineEpisodeKind.Away                   => new SolidColorBrush(Color.FromRgb(0x3B, 0x82, 0xF6)),
+        HistoryTimelineEpisodeKind.OverloadEpisode        => new SolidColorBrush(Color.FromRgb(0xEF, 0x44, 0x44)),
         _                                                 => new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69))
     };
 
@@ -8445,8 +8455,14 @@ public partial class MainWindow : Window
             HistoryTimelineEpisodeKind.FocusEpisode
                 => (Color.FromRgb(0x16, 0xC7, 0x84), Color.FromArgb(0x20, 0x16, 0xC7, 0x84), "Focus"),
             HistoryTimelineEpisodeKind.ContextExcursion
-                => (Color.FromRgb(0x3B, 0x82, 0xF6), Color.FromArgb(0x20, 0x3B, 0x82, 0xF6), "Away"),
-            HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction
+                => (Color.FromRgb(0xF5, 0x9E, 0x0B), Color.FromArgb(0x20, 0xF5, 0x9E, 0x0B), "Excursion"),
+            HistoryTimelineEpisodeKind.OffTaskDistraction or
+            HistoryTimelineEpisodeKind.FragmentationDistraction or
+            HistoryTimelineEpisodeKind.RollingMicroBurst or
+            HistoryTimelineEpisodeKind.ReturnLoopDistraction or
+            HistoryTimelineEpisodeKind.UnfocusedSession or
+            HistoryTimelineEpisodeKind.ShallowDwellDistraction or
+            HistoryTimelineEpisodeKind.FocusDepartureDistraction
                 => (Color.FromRgb(0x8B, 0x5C, 0xF6), Color.FromArgb(0x20, 0x8B, 0x5C, 0xF6), "Distraction"),
             HistoryTimelineEpisodeKind.Away
                 => (Color.FromRgb(0x3B, 0x82, 0xF6), Color.FromArgb(0x20, 0x3B, 0x82, 0xF6), "Away"),

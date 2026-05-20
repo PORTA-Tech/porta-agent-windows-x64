@@ -357,7 +357,7 @@ internal static class HistoryTimelineEpisodeBuilder
         double bucketSeconds)
     {
         double gapSeconds = (current.TimestampUtc - previous.TimestampUtc).TotalSeconds;
-        return gapSeconds <= Math.Max(bucketSeconds * 2d, bucketSeconds + 5d);
+        return gapSeconds <= bucketSeconds + 60d;
     }
 
     private static string BuildOverloadReasonText(LocalApiCurrentSnapshotResponse snapshot)

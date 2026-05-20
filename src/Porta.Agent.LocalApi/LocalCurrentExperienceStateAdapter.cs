@@ -273,6 +273,16 @@ public static class LocalCurrentExperienceStateAdapter
         LocalApiLiveSessionStateResponse? liveSession,
         DateTimeOffset nowUtc)
     {
+        // Suppress the focus-episode timer in the live UI when the user is actively
+        // distracted or away. Context excursion is intentionally left out — brief
+        // context switches do not reset the visible timer.
+        string kind = LocalAttentionSegmentAnalytics.NormalizeAttentionSegmentKind(snapshot.AttentionSegmentKind);
+        if (LocalAttentionSegmentAnalytics.IsDistractionKind(kind)
+            || kind == LocalAttentionSegmentAnalytics.AwaySegmentKind)
+        {
+            return null;
+        }
+
         double focusEpisodeSeconds = snapshot.FocusEpisodeSeconds > 0d
             ? snapshot.FocusEpisodeSeconds
             : snapshot.TaskContinuitySeconds;

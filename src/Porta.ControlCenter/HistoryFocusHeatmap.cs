@@ -51,7 +51,6 @@ internal sealed record HistoryFocusHeatmap(
         episode.Kind is
             HistoryTimelineEpisodeKind.OffTaskDistraction or
             HistoryTimelineEpisodeKind.FragmentationDistraction or
-            HistoryTimelineEpisodeKind.ContextExcursion or
             HistoryTimelineEpisodeKind.RollingMicroBurst or
             HistoryTimelineEpisodeKind.ReturnLoopDistraction or
             HistoryTimelineEpisodeKind.UnfocusedSession or

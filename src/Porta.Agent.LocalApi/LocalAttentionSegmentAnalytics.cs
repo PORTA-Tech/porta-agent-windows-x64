@@ -63,6 +63,24 @@ public static class LocalAttentionSegmentAnalytics
             || string.Equals(kind, FocusDepartureDistractionSegmentKind, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Returns true when the attention-segment kind string corresponds to a genuine
+    /// distraction episode. Context excursion and away are intentionally excluded —
+    /// context excursion does not reset the focus timer; away has its own gating path.
+    /// </summary>
+    public static bool IsDistractionKind(string? kind)
+    {
+        string normalized = NormalizeAttentionSegmentKind(kind);
+        return normalized is
+            OffTaskDistractionSegmentKind or
+            FragmentationDistractionSegmentKind or
+            RollingMicroBurstSegmentKind or
+            ReturnLoopDistractionSegmentKind or
+            UnfocusedSessionSegmentKind or
+            ShallowDwellDistractionSegmentKind or
+            FocusDepartureDistractionSegmentKind;
+    }
+
     public static double ResolveDistractionEpisodeSeconds(LocalApiCurrentSnapshotResponse snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
