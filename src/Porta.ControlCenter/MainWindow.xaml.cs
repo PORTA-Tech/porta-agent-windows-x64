@@ -7354,7 +7354,16 @@ public partial class MainWindow : Window
 
                 // Skip if too short (overload: 1 min; others: 5 min)
                 double realDurationMin = clampedEnd - clampedStart;
-                if (realDurationMin < (isOverloadEp ? 1d : 5d)) continue;
+                bool isDistractionEp = ep.Kind is
+                    HistoryTimelineEpisodeKind.OffTaskDistraction or
+                    HistoryTimelineEpisodeKind.FragmentationDistraction or
+                    HistoryTimelineEpisodeKind.ContextExcursion or
+                    HistoryTimelineEpisodeKind.RollingMicroBurst or
+                    HistoryTimelineEpisodeKind.ReturnLoopDistraction or
+                    HistoryTimelineEpisodeKind.UnfocusedSession or
+                    HistoryTimelineEpisodeKind.ShallowDwellDistraction or
+                    HistoryTimelineEpisodeKind.FocusDepartureDistraction;
+                if (realDurationMin < (isOverloadEp ? 1d : isDistractionEp ? 1d : 5d)) continue;
 
                 // Only advance draw cursor for non-overload (overload sits on top)
                 if (!isOverloadEp)
@@ -7524,7 +7533,13 @@ public partial class MainWindow : Window
         HistoryTimelineEpisodeKind.FocusEpisode                                                            => "Focus",
         HistoryTimelineEpisodeKind.Away                                                                    => "Away",
         HistoryTimelineEpisodeKind.ContextExcursion                                                     => "Distraction",
-        HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction => "Distraction",
+        HistoryTimelineEpisodeKind.OffTaskDistraction or
+        HistoryTimelineEpisodeKind.FragmentationDistraction or
+        HistoryTimelineEpisodeKind.RollingMicroBurst or
+        HistoryTimelineEpisodeKind.ReturnLoopDistraction or
+        HistoryTimelineEpisodeKind.UnfocusedSession or
+        HistoryTimelineEpisodeKind.ShallowDwellDistraction or
+        HistoryTimelineEpisodeKind.FocusDepartureDistraction   => "Distraction",
         HistoryTimelineEpisodeKind.OverloadEpisode                                                         => "Overload",
         _                                                                                                   => kind.ToString()
     };
@@ -7534,7 +7549,13 @@ public partial class MainWindow : Window
         HistoryTimelineEpisodeKind.FocusEpisode                                                   => Color.FromRgb(0x16, 0xC7, 0x84),
         HistoryTimelineEpisodeKind.Away                                                            => Color.FromRgb(0x3B, 0x82, 0xF6),
         HistoryTimelineEpisodeKind.ContextExcursion                                                => Color.FromRgb(0x8B, 0x5C, 0xF6),
-        HistoryTimelineEpisodeKind.OffTaskDistraction or HistoryTimelineEpisodeKind.FragmentationDistraction => Color.FromRgb(0x8B, 0x5C, 0xF6),
+        HistoryTimelineEpisodeKind.OffTaskDistraction or
+        HistoryTimelineEpisodeKind.FragmentationDistraction or
+        HistoryTimelineEpisodeKind.RollingMicroBurst or
+        HistoryTimelineEpisodeKind.ReturnLoopDistraction or
+        HistoryTimelineEpisodeKind.UnfocusedSession or
+        HistoryTimelineEpisodeKind.ShallowDwellDistraction or
+        HistoryTimelineEpisodeKind.FocusDepartureDistraction   => Color.FromRgb(0x8B, 0x5C, 0xF6),
         HistoryTimelineEpisodeKind.OverloadEpisode                                                => Color.FromRgb(0xEF, 0x44, 0x44),
         _                                                                                          => Color.FromRgb(0x47, 0x55, 0x69)
     };
@@ -7546,8 +7567,13 @@ public partial class MainWindow : Window
             HistoryTimelineEpisodeKind.FocusEpisode            => "Focus",
             HistoryTimelineEpisodeKind.Away                    => "Away",
             HistoryTimelineEpisodeKind.ContextExcursion        => "Away",
-            HistoryTimelineEpisodeKind.OffTaskDistraction      => "Distraction",
-            HistoryTimelineEpisodeKind.FragmentationDistraction => "Distraction",
+            HistoryTimelineEpisodeKind.OffTaskDistraction or
+            HistoryTimelineEpisodeKind.FragmentationDistraction or
+            HistoryTimelineEpisodeKind.RollingMicroBurst or
+            HistoryTimelineEpisodeKind.ReturnLoopDistraction or
+            HistoryTimelineEpisodeKind.UnfocusedSession or
+            HistoryTimelineEpisodeKind.ShallowDwellDistraction or
+            HistoryTimelineEpisodeKind.FocusDepartureDistraction => "Distraction",
             HistoryTimelineEpisodeKind.OverloadEpisode         => "Overload",
             _                                                  => "Unknown"
         };
@@ -7757,6 +7783,11 @@ public partial class MainWindow : Window
         HistoryTimelineEpisodeKind.OffTaskDistraction          => Color.FromRgb(0x8B, 0x5C, 0xF6),
         HistoryTimelineEpisodeKind.FragmentationDistraction    => Color.FromRgb(0x8B, 0x5C, 0xF6),
         HistoryTimelineEpisodeKind.ContextExcursion            => Color.FromRgb(0x8B, 0x5C, 0xF6),
+        HistoryTimelineEpisodeKind.RollingMicroBurst           => Color.FromRgb(0x8B, 0x5C, 0xF6),
+        HistoryTimelineEpisodeKind.ReturnLoopDistraction       => Color.FromRgb(0x8B, 0x5C, 0xF6),
+        HistoryTimelineEpisodeKind.UnfocusedSession            => Color.FromRgb(0x8B, 0x5C, 0xF6),
+        HistoryTimelineEpisodeKind.ShallowDwellDistraction     => Color.FromRgb(0x8B, 0x5C, 0xF6),
+        HistoryTimelineEpisodeKind.FocusDepartureDistraction   => Color.FromRgb(0x8B, 0x5C, 0xF6),
         HistoryTimelineEpisodeKind.Away                        => Color.FromRgb(0x3B, 0x82, 0xF6),
         HistoryTimelineEpisodeKind.OverloadEpisode             => Color.FromRgb(0xEF, 0x44, 0x44),
         _                                                      => Color.FromRgb(0x47, 0x55, 0x69)

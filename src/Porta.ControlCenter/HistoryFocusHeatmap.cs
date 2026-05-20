@@ -159,6 +159,11 @@ internal static class HistoryFocusHeatmapBuilder
                             break;
                         case HistoryTimelineEpisodeKind.OffTaskDistraction:
                         case HistoryTimelineEpisodeKind.FragmentationDistraction:
+                        case HistoryTimelineEpisodeKind.RollingMicroBurst:
+                        case HistoryTimelineEpisodeKind.ReturnLoopDistraction:
+                        case HistoryTimelineEpisodeKind.UnfocusedSession:
+                        case HistoryTimelineEpisodeKind.ShallowDwellDistraction:
+                        case HistoryTimelineEpisodeKind.FocusDepartureDistraction:
                             distractionEpisodeSeconds += overlapSeconds;
                             break;
                         case HistoryTimelineEpisodeKind.Away:
