@@ -755,13 +755,15 @@ internal static class DerivedSessionMetricsComputer
         object? scalar = cmd.ExecuteScalar();
         if (scalar == null || scalar == DBNull.Value)
         {
-            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d);
+            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0);
         }
 
         string json = Convert.ToString(scalar, CultureInfo.InvariantCulture) ?? string.Empty;
         if (string.IsNullOrWhiteSpace(json))
         {
-            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d);
+            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0);
         }
 
         try
@@ -770,7 +772,8 @@ internal static class DerivedSessionMetricsComputer
             JsonElement root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d);
+                return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0);
             }
 
             double sustained = ReadNonNegativeDouble(root, "task_continuity_seconds", "sa_seconds", "sustained_attention_duration_sec");
@@ -784,6 +787,19 @@ internal static class DerivedSessionMetricsComputer
             double continuityScore = Clamp01(ReadNonNegativeDouble(root, "task_continuity_score"));
             double instabilitySeconds = ReadNonNegativeDouble(root, "continuity_instability_seconds");
             double focusEpisodeCandidateSeconds = ReadNonNegativeDouble(root, "focus_episode_candidate_seconds");
+            double ewmaSwitchRate = ReadNonNegativeDouble(root, "ewma_switch_rate");
+            double microBurstAccumulatedSeconds = ReadNonNegativeDouble(root, "micro_burst_accumulated_seconds");
+            string recentDominantHashes = ReadString(root, "recent_dominant_hashes");
+            int pingPongCycleCount = (int)ReadNonNegativeInt64(root, "ping_pong_cycle_count");
+            double pingPongWindowStartSeconds = ReadNonNegativeDouble(root, "ping_pong_window_start_seconds");
+            string candidateAnchorAppHash = ReadString(root, "candidate_anchor_app_hash");
+            double candidateAnchorAccumulatedSeconds = ReadNonNegativeDouble(root, "candidate_anchor_accumulated_seconds");
+            double sessionActiveInteractionSeconds = ReadNonNegativeDouble(root, "session_active_interaction_seconds");
+            double anchorLockedSeconds = ReadNonNegativeDouble(root, "anchor_locked_seconds");
+            double ewmaAverageDwellSeconds = ReadNonNegativeDouble(root, "ewma_average_dwell_seconds");
+            double shallowDwellAccumulatedSeconds = ReadNonNegativeDouble(root, "shallow_dwell_accumulated_seconds");
+            double windowsOffAnchorSeconds = ReadNonNegativeDouble(root, "windows_off_anchor_seconds");
+            int windowsOffAnchorBucketsBack = (int)ReadNonNegativeInt64(root, "windows_off_anchor_buckets_back");
             return new DerivedSessionRuntimeState(
                 TaskContinuitySeconds: sustained,
                 IdleFragmentationIndex: idleFragment,
@@ -795,11 +811,25 @@ internal static class DerivedSessionMetricsComputer
                 ContinuityState: string.IsNullOrWhiteSpace(continuityState) ? "reset" : continuityState,
                 ContinuityScore: continuityScore,
                 InstabilitySeconds: instabilitySeconds,
-                FocusEpisodeCandidateSeconds: focusEpisodeCandidateSeconds);
+                FocusEpisodeCandidateSeconds: focusEpisodeCandidateSeconds,
+                EwmaSwitchRate: ewmaSwitchRate,
+                MicroBurstAccumulatedSeconds: microBurstAccumulatedSeconds,
+                RecentDominantHashes: recentDominantHashes,
+                PingPongCycleCount: pingPongCycleCount,
+                PingPongWindowStartSeconds: pingPongWindowStartSeconds,
+                CandidateAnchorAppHash: candidateAnchorAppHash,
+                CandidateAnchorAccumulatedSeconds: candidateAnchorAccumulatedSeconds,
+                SessionActiveInteractionSeconds: sessionActiveInteractionSeconds,
+                AnchorLockedSeconds: anchorLockedSeconds,
+                EwmaAverageDwellSeconds: ewmaAverageDwellSeconds,
+                ShallowDwellAccumulatedSeconds: shallowDwellAccumulatedSeconds,
+                WindowsOffAnchorSeconds: windowsOffAnchorSeconds,
+                WindowsOffAnchorBucketsBack: windowsOffAnchorBucketsBack);
         }
         catch
         {
-            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d);
+            return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0);
         }
     }
 
@@ -888,17 +918,39 @@ internal static class DerivedSessionMetricsComputer
     }
 
     private readonly record struct DerivedSessionRuntimeState(
+        // ── Original 11 fields ──────────────────────────────────────────────────
         double TaskContinuitySeconds,
         double IdleFragmentationIndex,
         string AnchorAppHash,
-        long LastUpdateBucketSeq,
+        long   LastUpdateBucketSeq,
         string ReasonCode,
         double IdlePauseSeconds,
         double ContextSwitchSeconds,
         string ContinuityState,
         double ContinuityScore,
         double InstabilitySeconds,
-        double FocusEpisodeCandidateSeconds);
+        double FocusEpisodeCandidateSeconds,
+        // ── Block B — distraction detection state ───────────────────────────────
+        // Pattern 2 – Micro-burst (rapid repeated switching)
+        double EwmaSwitchRate,
+        double MicroBurstAccumulatedSeconds,
+        // Pattern 3 – Ping-pong (A→B→A→B cycle detection)
+        // Stored as compact JSON string so it survives the existing read/write path
+        string RecentDominantHashes,
+        int    PingPongCycleCount,
+        double PingPongWindowStartSeconds,
+        // Anchor tracking (shared across patterns)
+        string CandidateAnchorAppHash,
+        double CandidateAnchorAccumulatedSeconds,
+        // Pattern 4 – Never-settled (active but no anchor lock)
+        double SessionActiveInteractionSeconds,
+        double AnchorLockedSeconds,
+        // Pattern 5 – Shallow-dwell (grazing)
+        double EwmaAverageDwellSeconds,
+        double ShallowDwellAccumulatedSeconds,
+        // Pattern 8 – Focus-departure (time away from anchor)
+        double WindowsOffAnchorSeconds,
+        int    WindowsOffAnchorBucketsBack);
 
     private readonly record struct ChannelEvidence(
         bool KeyboardAvailable,
