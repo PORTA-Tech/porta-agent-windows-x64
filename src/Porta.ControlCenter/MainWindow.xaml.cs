@@ -7363,11 +7363,10 @@ public partial class MainWindow : Window
                     HistoryTimelineEpisodeKind.FocusDepartureDistraction;
                 if (realDurationMin < (isOverloadEp ? 1d : isDistractionEp ? 1d : 5d)) continue;
 
-                // Calculate block height; distraction blocks get a minimum of 36 px so
-                // the label + time range are always readable even for short episodes.
-                // Overload has its own separate rendering pass with its own minimum.
+                // Calculate block height; distraction blocks get a 20 px floor so short
+                // episodes are a visible stripe. Text tiers below handle readability.
                 double blockH = realDurationMin / 60d * rowH;
-                if (isDistractionEp && blockH < 36d) blockH = 36d;
+                if (isDistractionEp && blockH < 20d) blockH = 20d;
 
                 // Only advance draw cursor for non-overload (overload sits on top)
                 if (!isOverloadEp)
@@ -7406,6 +7405,12 @@ public partial class MainWindow : Window
                     panel.Children.Add(new TextBlock { Text = stateLabel, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White, TextTrimming = TextTrimming.CharacterEllipsis });
                     panel.Children.Add(new TextBlock { Text = timeRange,  FontSize = 11, Foreground = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) });
                     blockContent = panel;
+                }
+                else if (isDistractionEp && blockH >= 20d)
+                {
+                    // Distraction at 20–35 px: show compact time range — block is too small for
+                    // a two-line panel but the user still gets timing info at a glance.
+                    blockContent = new TextBlock { Text = timeRange, FontSize = 9, Foreground = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(5, 3, 5, 3) };
                 }
                 else if (blockH >= 20d)
                 {
