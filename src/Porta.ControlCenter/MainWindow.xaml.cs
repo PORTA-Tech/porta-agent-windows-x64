@@ -70,7 +70,7 @@ public partial class MainWindow : Window
     private LocalApiTimelineResponse? _fourHourTimeline;
     private LocalApiTimelineResponse? _allTimeTimeline;
     private LocalApiTimelineResponse? _weekTimeline;      // 7 days, 300s buckets — good episode resolution
-    private LocalApiTimelineResponse? _twoWeekTimeline;   // 14 days, 600s buckets
+    private LocalApiTimelineResponse? _twoWeekTimeline;   // 14 days, 300s buckets — same as week for consistent episode counts
     private LocalApiSettingsResponse? _effectiveSettings;
     private LocalApiRetentionResponse? _retention;
     private bool _suppressSettingsEvents;
@@ -549,13 +549,13 @@ public partial class MainWindow : Window
                 _lastAllTimeHistoryRefreshUtc = DateTimeOffset.UtcNow;
 
                 // Week/2-week timelines with finer bucket resolution so Away/Distraction episodes are detected.
-                // 300s (5-min) for 7 days, 600s (10-min) for 14 days — both better than the 1800s all-time bucket.
+                // 300s (5-min) for both week and 2-week — same resolution so episode counts are directly comparable across views.
                 _weekTimeline = PreferFreshTimeline(
                     _weekTimeline,
                     await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddDays(-7), DateTimeOffset.UtcNow, 300).ConfigureAwait(true));
                 _twoWeekTimeline = PreferFreshTimeline(
                     _twoWeekTimeline,
-                    await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddDays(-14), DateTimeOffset.UtcNow, 600).ConfigureAwait(true));
+                    await _apiClient.GetTimelineAsync(DateTimeOffset.UtcNow.AddDays(-14), DateTimeOffset.UtcNow, 300).ConfigureAwait(true));
             }
 
             _effectiveSettings = await _apiClient.GetEffectiveSettingsAsync().ConfigureAwait(true);
