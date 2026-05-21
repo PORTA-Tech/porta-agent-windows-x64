@@ -7363,13 +7363,24 @@ public partial class MainWindow : Window
                     HistoryTimelineEpisodeKind.FocusDepartureDistraction;
                 if (realDurationMin < (isOverloadEp ? 1d : isDistractionEp ? 1d : 5d)) continue;
 
+                // Calculate block height; distraction blocks get a minimum of 36 px so
+                // the label + time range are always readable even for short episodes.
+                // Overload has its own separate rendering pass with its own minimum.
+                double blockH = realDurationMin / 60d * rowH;
+                if (isDistractionEp && blockH < 36d) blockH = 36d;
+
                 // Only advance draw cursor for non-overload (overload sits on top)
                 if (!isOverloadEp)
-                    prevDrawnEndMin = clampedEnd;
+                {
+                    // Account for forced height: if the block was extended beyond its real
+                    // duration, push the cursor to the rendered end so the next episode
+                    // doesn't start visually inside the distraction block.
+                    double renderedEndMin = clampedStart + blockH / rowH * 60d;
+                    prevDrawnEndMin = Math.Max(clampedEnd, renderedEndMin);
+                }
 
                 // Position is purely time-based — always in sync with the hour labels.
                 double topOffset = (clampedStart - gridStartMin) / 60d * rowH;
-                double blockH    = realDurationMin / 60d * rowH;
 
                 // Label content based on block height (120px/hr scale):
                 // ≥60px (~30 min) → 3 lines: state + time range + duration
