@@ -7364,23 +7364,13 @@ public partial class MainWindow : Window
                     HistoryTimelineEpisodeKind.FocusDepartureDistraction;
                 if (realDurationMin < 1d) continue;
 
-                // Minimum height floors so short episodes are always a visible stripe:
-                // - Distraction: 20 px (already highlighted, needs to be noticeable)
-                // - Focus / Away: 8 px (thin stripe, proportionally honest vs longer blocks)
-                // - Overload: own rendering path, not affected here
+                // All episode types get a 20 px minimum so every block is a visible stripe.
                 double blockH = realDurationMin / 60d * rowH;
-                if (isDistractionEp && blockH < 20d) blockH = 20d;
-                else if (!isOverloadEp && !isDistractionEp && blockH < 8d) blockH = 8d;
+                if (blockH < 20d) blockH = 20d;
 
                 // Only advance draw cursor for non-overload (overload sits on top)
                 if (!isOverloadEp)
-                {
-                    // Account for forced height: if the block was extended beyond its real
-                    // duration, push the cursor to the rendered end so the next episode
-                    // doesn't start visually inside the distraction block.
-                    double renderedEndMin = clampedStart + blockH / rowH * 60d;
-                    prevDrawnEndMin = Math.Max(clampedEnd, renderedEndMin);
-                }
+                    prevDrawnEndMin = clampedEnd;
 
                 // Position is purely time-based — always in sync with the hour labels.
                 double topOffset = (clampedStart - gridStartMin) / 60d * rowH;
@@ -7409,12 +7399,6 @@ public partial class MainWindow : Window
                     panel.Children.Add(new TextBlock { Text = stateLabel, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White, TextTrimming = TextTrimming.CharacterEllipsis });
                     panel.Children.Add(new TextBlock { Text = timeRange,  FontSize = 11, Foreground = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) });
                     blockContent = panel;
-                }
-                else if (isDistractionEp && blockH >= 20d)
-                {
-                    // Distraction at 20–35 px: show compact time range — block is too small for
-                    // a two-line panel but the user still gets timing info at a glance.
-                    blockContent = new TextBlock { Text = timeRange, FontSize = 9, Foreground = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(5, 3, 5, 3) };
                 }
                 else if (blockH >= 20d)
                 {
