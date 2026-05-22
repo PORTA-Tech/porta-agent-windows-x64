@@ -7364,9 +7364,7 @@ public partial class MainWindow : Window
                     HistoryTimelineEpisodeKind.FocusDepartureDistraction;
                 if (realDurationMin < 1d) continue;
 
-                // All episode types get a 20 px minimum so every block is a visible stripe.
                 double blockH = realDurationMin / 60d * rowH;
-                if (blockH < 20d) blockH = 20d;
 
                 // Only advance draw cursor for non-overload (overload sits on top)
                 if (!isOverloadEp)
