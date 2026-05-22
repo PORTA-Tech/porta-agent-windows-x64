@@ -287,7 +287,6 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
         private static readonly Color ToastMessageColor = Color.FromArgb(30, 41, 59);
         private const int ToastCornerRadius = 18;
         private const int ToastWidth = 420;
-        private const int ToastHeight = 200;
         private const int ToastScreenMargin = 18;
         private const int ToastDisplayDurationMs = 6500;
 
@@ -302,7 +301,9 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
             TopMost = true;
             BackColor = ToastBackgroundColor;
             ForeColor = ToastMessageColor;
-            ClientSize = new Size(ToastWidth, ToastHeight);
+            Width = ToastWidth;
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
             Padding = new Padding(18, 16, 18, 16);
             DoubleBuffered = true;
             SetStyle(
@@ -321,7 +322,9 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
 
             var contentPanel = new TableLayoutPanel
             {
-                Dock = DockStyle.Fill,
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 BackColor = ToastBackgroundColor,
                 ColumnCount = 1,
                 RowCount = 3,
@@ -329,7 +332,7 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
             };
             contentPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             contentPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            contentPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            contentPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             var subtitleLabel = new Label
             {
