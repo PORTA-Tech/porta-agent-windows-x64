@@ -220,8 +220,8 @@ internal sealed class UserInterventionAntiSpamGate
     {
         return NormalizeAction(action) switch
         {
-            "inform_overload_risk"
-                or "inform_focus_protection"
+            "inform_overload_risk" => TimeSpan.FromMinutes(15),
+            "inform_focus_protection"
                 or "inform_fatigue_prevention"
                 => TimeSpan.FromSeconds(60),
             "focus_mode_enabled"

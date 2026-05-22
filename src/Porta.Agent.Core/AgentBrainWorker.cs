@@ -50,6 +50,15 @@ public sealed class AgentBrainWorker(
                     continue;
                 }
 
+                AgentLiveSessionState liveState = controller.GetLiveSessionState();
+                if (liveState.IdleSeconds >= 300d)
+                {
+                    previousSmoothedPrimitive = null;
+                    controller.MarkHealthyHeartbeat();
+                    await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 RawSignalSample raw = acquisition.Capture(nowUtc);
                 PrimitiveSignalSnapshot primitive = normalization.Normalize(raw);
                 PrimitiveSignalSnapshot smoothedPrimitive = SmoothPrimitive(primitive, previousSmoothedPrimitive, alpha: 0.35);
