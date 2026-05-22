@@ -7351,7 +7351,8 @@ public partial class MainWindow : Window
                 if (!isOverloadEp && clampedStart < prevDrawnEndMin)
                     clampedStart = prevDrawnEndMin;
 
-                // Skip if too short (overload: 1 min; others: 5 min)
+                // Skip if too short — 1 min minimum for all episode types so the calendar
+                // matches the episode counts shown in the stat cards.
                 double realDurationMin = clampedEnd - clampedStart;
                 bool isDistractionEp = ep.Kind is
                     HistoryTimelineEpisodeKind.OffTaskDistraction or
@@ -7361,12 +7362,15 @@ public partial class MainWindow : Window
                     HistoryTimelineEpisodeKind.UnfocusedSession or
                     HistoryTimelineEpisodeKind.ShallowDwellDistraction or
                     HistoryTimelineEpisodeKind.FocusDepartureDistraction;
-                if (realDurationMin < (isOverloadEp ? 1d : isDistractionEp ? 1d : 5d)) continue;
+                if (realDurationMin < 1d) continue;
 
-                // Calculate block height; distraction blocks get a 20 px floor so short
-                // episodes are a visible stripe. Text tiers below handle readability.
+                // Minimum height floors so short episodes are always a visible stripe:
+                // - Distraction: 20 px (already highlighted, needs to be noticeable)
+                // - Focus / Away: 8 px (thin stripe, proportionally honest vs longer blocks)
+                // - Overload: own rendering path, not affected here
                 double blockH = realDurationMin / 60d * rowH;
                 if (isDistractionEp && blockH < 20d) blockH = 20d;
+                else if (!isOverloadEp && !isDistractionEp && blockH < 8d) blockH = 8d;
 
                 // Only advance draw cursor for non-overload (overload sits on top)
                 if (!isOverloadEp)
