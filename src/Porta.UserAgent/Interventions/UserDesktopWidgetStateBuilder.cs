@@ -32,7 +32,8 @@ internal static class UserDesktopWidgetStateBuilder
             snapshot,
             liveSession,
             events,
-            now);
+            now,
+            todaySummary.DisplayedTrackedTodaySeconds);
         UserDesktopWidgetCriticalState? criticalState = UserCommunicationRouter.ResolveCriticalWidgetState(
             status,
             snapshot,
@@ -67,6 +68,7 @@ internal static class UserDesktopWidgetStateBuilder
                 {
                     LocalCurrentExperienceMode.DeepWork => UserDesktopWidgetMode.DeepWork,
                     LocalCurrentExperienceMode.Overload => UserDesktopWidgetMode.Overload,
+                    LocalCurrentExperienceMode.Distraction => UserDesktopWidgetMode.Distraction,
                     _ => UserDesktopWidgetMode.Monitoring
                 };
 

@@ -287,7 +287,7 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
         private static readonly Color ToastMessageColor = Color.FromArgb(30, 41, 59);
         private const int ToastCornerRadius = 18;
         private const int ToastWidth = 420;
-        private const int ToastHeight = 154;
+        private const int ToastHeight = 200;
         private const int ToastScreenMargin = 18;
         private const int ToastDisplayDurationMs = 6500;
 

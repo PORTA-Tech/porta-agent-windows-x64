@@ -5,6 +5,7 @@ internal enum UserDesktopWidgetMode
     Monitoring,
     DeepWork,
     Overload,
+    Distraction,
     Limited,
     Paused
 }

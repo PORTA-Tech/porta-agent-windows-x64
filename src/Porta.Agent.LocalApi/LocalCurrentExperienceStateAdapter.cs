@@ -10,7 +10,8 @@ public enum LocalCurrentExperienceMode
     Unavailable,
     Normal,
     DeepWork,
-    Overload
+    Overload,
+    Distraction
 }
 
 public sealed record LocalCurrentExperienceState(
@@ -51,7 +52,8 @@ public static class LocalCurrentExperienceStateAdapter
         LocalApiCurrentSnapshotResponse? snapshot,
         LocalApiLiveSessionStateResponse? liveSession,
         IReadOnlyList<LocalApiEventResponse>? recentEvents,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        double displayedTrackedTodaySeconds = 0d)
     {
         if (snapshot == null)
         {
@@ -84,11 +86,21 @@ public static class LocalCurrentExperienceStateAdapter
             || TryReadDeepWorkActive(snapshot.StateFlagsJson);
         bool overloadIndicator = status?.OverloadActive == true || snapshot.OverloadActive;
         LocalCurrentExperienceMode mode = ResolveMode(status?.VisualMode, overloadIndicator, deepWorkIndicator);
+        // Promote to Distraction only when not already in Overload or DeepWork.
+        // Overload and DeepWork always take priority over distraction.
+        if (mode == LocalCurrentExperienceMode.Normal && snapshot != null)
+        {
+            string segmentKind = LocalAttentionSegmentAnalytics.NormalizeAttentionSegmentKind(snapshot.AttentionSegmentKind);
+            if (LocalAttentionSegmentAnalytics.IsDistractionKind(segmentKind))
+            {
+                mode = LocalCurrentExperienceMode.Distraction;
+            }
+        }
         bool deepWorkActive = mode == LocalCurrentExperienceMode.DeepWork;
         bool overloadActive = mode == LocalCurrentExperienceMode.Overload;
         bool liveSessionFresh = IsFreshLiveSession(liveSession);
         bool liveSessionIdle = liveSession?.idle == true;
-        double? focusEpisodeSeconds = ResolveFocusEpisodeSeconds(snapshot, liveSession, nowUtc);
+        double? focusEpisodeSeconds = ResolveFocusEpisodeSeconds(snapshot, liveSession, nowUtc, displayedTrackedTodaySeconds);
         bool partialData = snapshot.PartialData == true || snapshot.MissingMajorChannels is { Count: > 0 };
         (bool showDeepWorkStreak, string deepWorkStreakText) = BuildDeepWorkStreak(
             deepWorkActive,
@@ -271,7 +283,8 @@ public static class LocalCurrentExperienceStateAdapter
     private static double? ResolveFocusEpisodeSeconds(
         LocalApiCurrentSnapshotResponse snapshot,
         LocalApiLiveSessionStateResponse? liveSession,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        double displayedTrackedTodaySeconds = 0d)
     {
         // Suppress the focus-episode timer in the live UI when the user is actively
         // distracted or away. Context excursion is intentionally left out — brief
@@ -292,6 +305,12 @@ public static class LocalCurrentExperienceStateAdapter
         }
 
         double projectedSeconds = focusEpisodeSeconds + ResolveLiveProjectionSeconds(snapshot, liveSession, nowUtc);
+        // Never display more focus time than today's total tracked work.
+        // Prevents yesterday's focus episode from persisting into today's display.
+        if (displayedTrackedTodaySeconds > 0d && projectedSeconds > displayedTrackedTodaySeconds)
+        {
+            return displayedTrackedTodaySeconds;
+        }
         return Math.Max(0d, projectedSeconds);
     }
 

@@ -6627,7 +6627,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             "focus_assist_enabled" => "show_status_toast",
             "fatigue_relief_enabled" => "show_status_toast",
             "temporary_app_restriction_enabled" => "show_status_toast",
-            "overload_brightness_reduced" => "show_status_toast",
+            "overload_brightness_reduced" => string.Empty,
             "overload_brightness_restored" => "show_status_toast",
             "brightness_unsupported" => "show_status_toast",
             "brightness_control_failed" => "show_status_toast",
@@ -6688,14 +6688,15 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             "inform_overload_risk" => "Overload watch",
             "inform_focus_protection" => "Focus watch",
             "inform_fatigue_prevention" => "Fatigue watch",
-            "focus_mode_enabled" or "focus_assist_enabled" => "Focus guidance",
+            "focus_mode_enabled" => "Focus mode on",
+            "focus_assist_enabled" => "Focus guidance",
             "fatigue_relief_enabled" => "Fatigue guidance",
-            "temporary_app_restriction_enabled" => "Temporary app limit",
-            "deep_work_notifications_suppressed" => "Deep work notifications",
+            "temporary_app_restriction_enabled" => "App limits on",
+            "deep_work_notifications_suppressed" => "Deep focus on",
             "deep_work_notifications_restored" => "Notifications restored",
             "overload_brightness_reduced" => "Brightness reduced",
             "overload_brightness_restored" => "Brightness restored",
-            "overload_recovered" => "Overload recovered",
+            "overload_recovered" => "Pressure normal",
             "brightness_unsupported" or "brightness_control_failed" or "notification_snapshot_failed"
                 or "notification_suppress_failed" or "notification_restore_failed"
                 => "Ari limited",
@@ -6714,25 +6715,25 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             "stretch_break_suggestion"
                 => "Ari sees a long steady run and thinks a short recovery break could reduce strain. Take a short break now? Choose Skip or Snooze if not now, or turn off this tip.",
             "inform_overload_risk"
-                => "Ari sees overload rising, but the signal has not stayed high long enough to change anything yet. Slow down or open Now for details. You can mute this guidance in Settings.",
+                => "Pressure is building. Not high enough to act yet — keep an eye on it.",
             "inform_focus_protection"
-                => "Ari sees focus building, but it is only watching for interruptions right now. Stay on one task or open Now for details. You can mute this guidance in Settings.",
+                => "Focus is building. Ari is watching for interruptions.",
             "inform_fatigue_prevention"
-                => "Ari sees fatigue building, but it has not stepped in yet. Take a quick reset or open Now for details. You can mute this guidance in Settings.",
+                => "Fatigue is rising. Consider a short break.",
             "focus_mode_enabled"
-                => "Ari saw overload stay elevated long enough to turn on focus guidance for this block. Keep one task in front of you or open Settings to change this feature. You can turn it off in Settings.",
+                => "Pressure stayed high. Focus mode is on for this block.",
             "focus_assist_enabled"
-                => "Ari saw steady focus long enough to turn on focus guidance for this block. Keep distractions low or open Settings to change this feature. You can turn it off in Settings.",
+                => "Focus block detected. Focus guidance is on.",
             "fatigue_relief_enabled"
-                => "Ari saw fatigue stay elevated long enough to turn on fatigue relief guidance. Slow down or take a quick reset, or open Settings to change this feature. You can turn it off in Settings.",
+                => "Fatigue stayed high. Relief guidance is on.",
             "temporary_app_restriction_enabled"
-                => "Ari saw the risk stay high long enough to limit distracting apps for a short block. Stay on task or open Settings to change this feature. You can turn it off in Settings.",
+                => "Pressure stayed high. Distracting apps are limited for a short block.",
             "deep_work_notifications_suppressed"
-                => "Ari detected a sustained focus block and muted Windows notification banners to reduce interruptions. Keep this block going or restore notifications when you are ready. You can turn this feature off in Settings.",
+                => "Strong focus detected. Windows notifications are muted.",
             "deep_work_notifications_restored"
-                => "Ari saw the focus block end and restored your Windows notification settings. No action is needed, or open Settings to change this feature. You can turn this feature off in Settings.",
+                => "Focus block ended. Notifications are back on.",
             "overload_brightness_reduced"
-                => "Ari saw overload stay high and lowered screen brightness to reduce strain. Keep it if helpful or restore brightness if not. You can turn this feature off in Settings.",
+                => "Pressure is high. Screen brightness was lowered.",
             "overload_brightness_restored"
                 => "Ari saw overload ease and restored your previous brightness. No action is needed, or open Settings to change this feature. You can turn this feature off in Settings.",
             "brightness_unsupported"
@@ -6746,7 +6747,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             "notification_restore_failed"
                 => "Ari ended a focus block but could not restore Windows notification settings cleanly. Check banners or open Health for details. You can turn this feature off in Settings.",
             "overload_recovered"
-                => "Ari saw overload drop back to normal and returned to monitoring. No action is needed, or open Now for details. You can mute recovery updates in Settings.",
+                => "Pressure is back to normal. All good.",
             _ when !string.IsNullOrWhiteSpace(controlEvent.WhatChanged)
                 => controlEvent.WhatChanged!,
             _ => "Ari recorded a new state change."

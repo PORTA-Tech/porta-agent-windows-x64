@@ -841,9 +841,10 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void ApplyStateMetrics(UserDesktopWidgetState state)
     {
-        bool overloadMode = state.Mode is UserDesktopWidgetMode.Overload;
-        bool paused       = state.Mode is UserDesktopWidgetMode.Paused;
-        bool deepWork     = state.Mode is UserDesktopWidgetMode.DeepWork;
+        bool overloadMode   = state.Mode is UserDesktopWidgetMode.Overload;
+        bool paused         = state.Mode is UserDesktopWidgetMode.Paused;
+        bool deepWork       = state.Mode is UserDesktopWidgetMode.DeepWork;
+        bool distractedMode = state.Mode is UserDesktopWidgetMode.Distraction;
 
         string stateName;
         string episodeDuration;   // shown after state name: "FOCUSED · 5m 35s"
@@ -867,10 +868,23 @@ internal sealed class UserDesktopWidgetWindow : Window
             episodeDuration = !string.Equals(pressureVal, "—", StringComparison.Ordinal) ? pressureVal : string.Empty;
             episodeSeconds  = 0d;
         }
+        else if (distractedMode)
+        {
+            // Purple — same colour used for distraction in the history calendar
+            stateColour     = Color.FromRgb(0xA8, 0x55, 0xF7);
+            stateName       = "DISTRACTED";
+            episodeDuration = string.Empty;
+            episodeSeconds  = 0d;
+        }
         else
         {
             string focusVal = state.SecondaryMetric.Value;
-            bool hasSession = !string.Equals(focusVal, "—", StringComparison.Ordinal)
+            // BuildLastFocusMetric returns Label="Away" when the user is idle.
+            // We must NOT treat an away-duration value as a focus session —
+            // both are non-"—" strings, so we check the label to distinguish them.
+            bool isAwayMetric = string.Equals(state.SecondaryMetric.Label, "Away", StringComparison.OrdinalIgnoreCase);
+            bool hasSession = !isAwayMetric
+                              && !string.Equals(focusVal, "—", StringComparison.Ordinal)
                               && !string.IsNullOrWhiteSpace(focusVal);
 
             if (hasSession || deepWork)
@@ -884,8 +898,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             {
                 stateColour = Color.FromRgb(0x3B, 0x82, 0xF6);
                 stateName   = "AWAY";
-                // Secondary metric now returns idle duration when away (e.g. "2m 15s")
-                // — completely separate from work-today time.
+                // Secondary metric returns idle duration when away (e.g. "2m 15s")
                 string awayVal = state.SecondaryMetric.Value;
                 episodeDuration = !string.Equals(awayVal, "—", StringComparison.Ordinal)
                     && !string.IsNullOrWhiteSpace(awayVal)
