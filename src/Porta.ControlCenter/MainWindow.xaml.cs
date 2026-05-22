@@ -7168,7 +7168,7 @@ public partial class MainWindow : Window
         endHour = Math.Max(endHour, startHour + 2); // at least 2 hours
 
         int totalHours = endHour - startHour;
-        const double rowH = 120d; // 120px per hour — blocks are naturally bigger and still time-accurate
+        const double rowH = 240d; // 240px per hour — more vertical space so short episodes don't overlap
         double totalH = totalHours * rowH;
         HistoryCalendarCanvas.Height = totalH;
 
