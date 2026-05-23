@@ -2513,7 +2513,16 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             passive_consumption_accumulated_seconds = derivedSession.DistrPassiveConsumptionAccumulatedSeconds,
             comm_monitoring_return_count = derivedSession.DistrCommMonitoringReturnCount,
             comm_monitoring_window_start_seconds = derivedSession.DistrCommMonitoringWindowStartSeconds,
-            comm_monitoring_last_dominant_category = derivedSession.DistrCommMonitoringLastDominantCategory
+            comm_monitoring_last_dominant_category = derivedSession.DistrCommMonitoringLastDominantCategory,
+            social_media_accumulated_seconds = derivedSession.DistrSocialMediaAccumulatedSeconds,
+            gaming_launcher_accumulated_seconds = derivedSession.DistrGamingLauncherAccumulatedSeconds,
+            gaming_active_accumulated_seconds = derivedSession.DistrGamingActiveAccumulatedSeconds,
+            social_media_return_count = derivedSession.DistrSocialMediaReturnCount,
+            social_media_window_start_seconds = derivedSession.DistrSocialMediaWindowStartSeconds,
+            social_media_last_dominant_category = derivedSession.DistrSocialMediaLastDominantCategory,
+            focus_category_absent_seconds = derivedSession.DistrFocusCategoryAbsentSeconds,
+            session_start_distraction_seconds = derivedSession.DistrSessionStartDistractionSeconds,
+            session_start_checked = derivedSession.DistrSessionStartChecked ? 1 : 0
         });
         UpsertRuntimeStateValue(
             connection,

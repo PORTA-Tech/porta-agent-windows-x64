@@ -125,6 +125,18 @@ public static class PortaExecutionConstants
         public const double PassiveConsumptionMinTriggerSeconds = 180.0;
         public const int    CommMonitoringMinReturns = 3;
         public const double CommMonitoringWindowSeconds = 600.0;
+
+        // Phase 3 — Unconditional Gaming / SocialMedia patterns
+        public const double SocialMediaDistractionMinSeconds      = 120.0;  // 2 min continuous
+        public const int    SocialMediaLoopMinReturns             = 3;
+        public const double SocialMediaLoopWindowSeconds          = 900.0;  // 15 min
+        public const double GamingLauncherMinSeconds              = 180.0;  // 3 min
+        public const double GamingActiveMinSeconds                = 60.0;   // 60 sec — no grace
+
+        // Phase 3 — Session-level absence / start-quality patterns
+        public const double FocusCategoryAbsentMinSeconds         = 1200.0; // 20 min
+        public const double SessionStartQualityWindowSeconds      = 600.0;  // 10 min
+        public const double SessionStartQualityMinDistractionRatio = 0.6;   // 60 % distraction
     }
 
     public static class TimeOfDayMultipliers

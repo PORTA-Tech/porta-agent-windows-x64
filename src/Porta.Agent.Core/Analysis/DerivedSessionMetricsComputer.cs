@@ -49,7 +49,17 @@ internal readonly record struct DerivedSessionMetricsResult(
     double DistrPassiveConsumptionAccumulatedSeconds = 0d,
     int    DistrCommMonitoringReturnCount = 0,
     double DistrCommMonitoringWindowStartSeconds = 0d,
-    int    DistrCommMonitoringLastDominantCategory = 0);
+    int    DistrCommMonitoringLastDominantCategory = 0,
+    // ── Block C extension — Phase 3 unconditional + session-level state ────
+    double DistrSocialMediaAccumulatedSeconds = 0d,
+    double DistrGamingLauncherAccumulatedSeconds = 0d,
+    double DistrGamingActiveAccumulatedSeconds = 0d,
+    int    DistrSocialMediaReturnCount = 0,
+    double DistrSocialMediaWindowStartSeconds = 0d,
+    int    DistrSocialMediaLastDominantCategory = 0,
+    double DistrFocusCategoryAbsentSeconds = 0d,
+    double DistrSessionStartDistractionSeconds = 0d,
+    bool   DistrSessionStartChecked = false);
 
 internal static class DerivedSessionMetricsComputer
 {
@@ -127,7 +137,16 @@ internal static class DerivedSessionMetricsComputer
             DistrPassiveConsumptionAccumulatedSeconds: attentionSegment.NewPassiveConsumptionAccumulatedSeconds,
             DistrCommMonitoringReturnCount: attentionSegment.NewCommMonitoringReturnCount,
             DistrCommMonitoringWindowStartSeconds: attentionSegment.NewCommMonitoringWindowStartSeconds,
-            DistrCommMonitoringLastDominantCategory: attentionSegment.NewCommMonitoringLastDominantCategory);
+            DistrCommMonitoringLastDominantCategory: attentionSegment.NewCommMonitoringLastDominantCategory,
+            DistrSocialMediaAccumulatedSeconds: attentionSegment.NewSocialMediaAccumulatedSeconds,
+            DistrGamingLauncherAccumulatedSeconds: attentionSegment.NewGamingLauncherAccumulatedSeconds,
+            DistrGamingActiveAccumulatedSeconds: attentionSegment.NewGamingActiveAccumulatedSeconds,
+            DistrSocialMediaReturnCount: attentionSegment.NewSocialMediaReturnCount,
+            DistrSocialMediaWindowStartSeconds: attentionSegment.NewSocialMediaWindowStartSeconds,
+            DistrSocialMediaLastDominantCategory: attentionSegment.NewSocialMediaLastDominantCategory,
+            DistrFocusCategoryAbsentSeconds: attentionSegment.NewFocusCategoryAbsentSeconds,
+            DistrSessionStartDistractionSeconds: attentionSegment.NewSessionStartDistractionSeconds,
+            DistrSessionStartChecked: attentionSegment.NewSessionStartChecked);
     }
 
     private static ChannelEvidence ResolveChannelEvidence(InputBucketRow bucket, PrimitiveComputationResult primitive)
@@ -679,9 +698,180 @@ internal static class DerivedSessionMetricsComputer
         TaskContinuityDecision continuity,
         DerivedSessionRuntimeState previous)
     {
-        // ── Pattern 9: time-of-day multiplier (applied to all time thresholds) ──
         double mult = GetTimeOfDayMultiplier();
 
+        // ── Phase 3: Unconditional Gaming / SocialMedia patterns ─────────────
+        // Computed before ALL session-state gates. Accumulators grow/decay based
+        // purely on what is currently foregrounded + whether the user is interacting.
+        // These patterns fire even when session state is away/unstable/excursion.
+        string p3Dom = evidence.FocusAvailable ? bucket.DominantAppHash : string.Empty;
+        AppCategory p3Category = AppCategoryClassifier.GetCategoryForHash(p3Dom);
+        double p3SessionActive = ClampNonNegativeFinite(
+            previous.SessionActiveInteractionSeconds + Time.bucketSeconds);
+
+        double socialMediaAcc = evidence.AnyInteractionActive && p3Category == AppCategory.SocialMedia
+            ? ClampNonNegativeFinite(previous.SocialMediaAccumulatedSeconds + Time.bucketSeconds)
+            : ClampNonNegativeFinite(previous.SocialMediaAccumulatedSeconds - Time.bucketSeconds);
+
+        double gamingLauncherAcc = evidence.AnyInteractionActive && p3Category == AppCategory.GamingLauncher
+            ? ClampNonNegativeFinite(previous.GamingLauncherAccumulatedSeconds + Time.bucketSeconds)
+            : ClampNonNegativeFinite(previous.GamingLauncherAccumulatedSeconds - Time.bucketSeconds);
+
+        double gamingActiveAcc = evidence.AnyInteractionActive && p3Category == AppCategory.Gaming
+            ? ClampNonNegativeFinite(previous.GamingActiveAccumulatedSeconds + Time.bucketSeconds)
+            : ClampNonNegativeFinite(previous.GamingActiveAccumulatedSeconds - Time.bucketSeconds);
+
+        // Pattern 12 — SocialMedia return-loop state
+        int socialMediaReturnCount = previous.SocialMediaReturnCount;
+        double socialMediaWindowStart = previous.SocialMediaWindowStartSeconds;
+        int socialMediaLastCategory = previous.SocialMediaLastDominantCategory;
+        if (p3SessionActive - socialMediaWindowStart >
+            PortaExecutionConstants.DistractionEpisodes.SocialMediaLoopWindowSeconds)
+        {
+            socialMediaReturnCount = 0;
+            socialMediaWindowStart = p3SessionActive;
+        }
+        if (evidence.AnyInteractionActive)
+        {
+            bool returnedToSocial = p3Category == AppCategory.SocialMedia
+                && socialMediaLastCategory != (int)AppCategory.SocialMedia;
+            if (returnedToSocial) socialMediaReturnCount++;
+            socialMediaLastCategory = (int)p3Category;
+        }
+
+        // Pattern 9: SocialMedia continuous duration (unconditional)
+        if (socialMediaAcc >= PortaExecutionConstants.DistractionEpisodes.SocialMediaDistractionMinSeconds * mult)
+        {
+            return new AttentionSegmentDecision(
+                Kind: "social_media_distraction", SegmentSeconds: socialMediaAcc,
+                DistractionEpisodeActive: true, DistractionEpisodeSeconds: socialMediaAcc,
+                ReasonCode: "social_media_distraction", ReasonText: "Social media use during work time.",
+                NewEwmaSwitchRate: previous.EwmaSwitchRate,
+                NewMicroBurstAccumulatedSeconds: previous.MicroBurstAccumulatedSeconds,
+                NewRecentDominantHashesJson: previous.RecentDominantHashes,
+                NewPingPongCycleCount: previous.PingPongCycleCount,
+                NewPingPongWindowStartSeconds: previous.PingPongWindowStartSeconds,
+                NewSessionActiveInteractionSeconds: p3SessionActive,
+                NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
+                NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
+                NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewPassiveConsumptionAccumulatedSeconds: previous.PassiveConsumptionAccumulatedSeconds,
+                NewCommMonitoringReturnCount: previous.CommMonitoringReturnCount,
+                NewCommMonitoringWindowStartSeconds: previous.CommMonitoringWindowStartSeconds,
+                NewCommMonitoringLastDominantCategory: previous.CommMonitoringLastDominantCategory,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc,
+                NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc,
+                NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart,
+                NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                NewSessionStartChecked: previous.SessionStartChecked);
+        }
+
+        // Pattern 10: Gaming launcher open (unconditional)
+        if (gamingLauncherAcc >= PortaExecutionConstants.DistractionEpisodes.GamingLauncherMinSeconds * mult)
+        {
+            return new AttentionSegmentDecision(
+                Kind: "gaming_launcher_distraction", SegmentSeconds: gamingLauncherAcc,
+                DistractionEpisodeActive: true, DistractionEpisodeSeconds: gamingLauncherAcc,
+                ReasonCode: "gaming_launcher_distraction", ReasonText: "Gaming launcher browsed during work time.",
+                NewEwmaSwitchRate: previous.EwmaSwitchRate,
+                NewMicroBurstAccumulatedSeconds: previous.MicroBurstAccumulatedSeconds,
+                NewRecentDominantHashesJson: previous.RecentDominantHashes,
+                NewPingPongCycleCount: previous.PingPongCycleCount,
+                NewPingPongWindowStartSeconds: previous.PingPongWindowStartSeconds,
+                NewSessionActiveInteractionSeconds: p3SessionActive,
+                NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
+                NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
+                NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewPassiveConsumptionAccumulatedSeconds: previous.PassiveConsumptionAccumulatedSeconds,
+                NewCommMonitoringReturnCount: previous.CommMonitoringReturnCount,
+                NewCommMonitoringWindowStartSeconds: previous.CommMonitoringWindowStartSeconds,
+                NewCommMonitoringLastDominantCategory: previous.CommMonitoringLastDominantCategory,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc,
+                NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc,
+                NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart,
+                NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                NewSessionStartChecked: previous.SessionStartChecked);
+        }
+
+        // Pattern 11: Active game running (unconditional — no mult, 60 s is the hard floor)
+        if (gamingActiveAcc >= PortaExecutionConstants.DistractionEpisodes.GamingActiveMinSeconds)
+        {
+            return new AttentionSegmentDecision(
+                Kind: "active_gaming_distraction", SegmentSeconds: gamingActiveAcc,
+                DistractionEpisodeActive: true, DistractionEpisodeSeconds: gamingActiveAcc,
+                ReasonCode: "active_gaming_distraction", ReasonText: "Active gaming during work time.",
+                NewEwmaSwitchRate: previous.EwmaSwitchRate,
+                NewMicroBurstAccumulatedSeconds: previous.MicroBurstAccumulatedSeconds,
+                NewRecentDominantHashesJson: previous.RecentDominantHashes,
+                NewPingPongCycleCount: previous.PingPongCycleCount,
+                NewPingPongWindowStartSeconds: previous.PingPongWindowStartSeconds,
+                NewSessionActiveInteractionSeconds: p3SessionActive,
+                NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
+                NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
+                NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewPassiveConsumptionAccumulatedSeconds: previous.PassiveConsumptionAccumulatedSeconds,
+                NewCommMonitoringReturnCount: previous.CommMonitoringReturnCount,
+                NewCommMonitoringWindowStartSeconds: previous.CommMonitoringWindowStartSeconds,
+                NewCommMonitoringLastDominantCategory: previous.CommMonitoringLastDominantCategory,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc,
+                NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc,
+                NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart,
+                NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                NewSessionStartChecked: previous.SessionStartChecked);
+        }
+
+        // Pattern 12: SocialMedia return loop (unconditional)
+        if (socialMediaReturnCount >= PortaExecutionConstants.DistractionEpisodes.SocialMediaLoopMinReturns)
+        {
+            return new AttentionSegmentDecision(
+                Kind: "social_media_loop", SegmentSeconds: p3SessionActive - socialMediaWindowStart,
+                DistractionEpisodeActive: true, DistractionEpisodeSeconds: p3SessionActive - socialMediaWindowStart,
+                ReasonCode: "social_media_loop", ReasonText: "Repeated check-in loop to social media.",
+                NewEwmaSwitchRate: previous.EwmaSwitchRate,
+                NewMicroBurstAccumulatedSeconds: previous.MicroBurstAccumulatedSeconds,
+                NewRecentDominantHashesJson: previous.RecentDominantHashes,
+                NewPingPongCycleCount: previous.PingPongCycleCount,
+                NewPingPongWindowStartSeconds: previous.PingPongWindowStartSeconds,
+                NewSessionActiveInteractionSeconds: p3SessionActive,
+                NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
+                NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
+                NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewPassiveConsumptionAccumulatedSeconds: previous.PassiveConsumptionAccumulatedSeconds,
+                NewCommMonitoringReturnCount: previous.CommMonitoringReturnCount,
+                NewCommMonitoringWindowStartSeconds: previous.CommMonitoringWindowStartSeconds,
+                NewCommMonitoringLastDominantCategory: previous.CommMonitoringLastDominantCategory,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc,
+                NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc,
+                NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart,
+                NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                NewSessionStartChecked: previous.SessionStartChecked);
+        }
+
+        // ── Session-state gates (away / excursion / instability / no-interaction) ─
         string reasonCode = continuity.ReasonCode;
         if (string.Equals(reasonCode, "long_break", StringComparison.Ordinal)
             || continuity.IdlePauseSeconds >= PortaExecutionConstants.DistractionEpisodes.AwaySegmentStartSeconds
@@ -708,7 +898,16 @@ internal static class DerivedSessionMetricsComputer
                 NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
                 NewShallowDwellAccumulatedSeconds: 0d,
                 NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
-                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc,
+                NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc,
+                NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart,
+                NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                NewSessionStartChecked: previous.SessionStartChecked);
         }
 
         bool contextExcursion = string.Equals(reasonCode, "context_excursion", StringComparison.Ordinal)
@@ -738,7 +937,16 @@ internal static class DerivedSessionMetricsComputer
                 NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
                 NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
                 NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
-                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc,
+                NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc,
+                NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart,
+                NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                NewSessionStartChecked: previous.SessionStartChecked);
         }
 
         bool instabilityPhase = string.Equals(reasonCode, "focus_unstable", StringComparison.Ordinal)
@@ -772,7 +980,16 @@ internal static class DerivedSessionMetricsComputer
                 NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
                 NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
                 NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
-                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc,
+                NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc,
+                NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart,
+                NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                NewSessionStartChecked: previous.SessionStartChecked);
         }
 
         // ── Steady-focus branch: run all new detection patterns ──────────────
@@ -793,7 +1010,16 @@ internal static class DerivedSessionMetricsComputer
                 NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
                 NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
                 NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
-                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc,
+                NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc,
+                NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart,
+                NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                NewSessionStartChecked: previous.SessionStartChecked);
         }
 
         // ── Pattern 2: Rolling micro-burst ────────────────────────────────────
@@ -819,7 +1045,13 @@ internal static class DerivedSessionMetricsComputer
                 NewSessionActiveInteractionSeconds: previous.SessionActiveInteractionSeconds + Time.bucketSeconds,
                 NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
                 NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds, NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
-                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc, NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc, NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart, NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                NewSessionStartChecked: previous.SessionStartChecked);
         }
 
         // ── Pattern 3: Ping-pong revisit ──────────────────────────────────────
@@ -873,7 +1105,13 @@ internal static class DerivedSessionMetricsComputer
                 NewRecentDominantHashesJson: updatedHashesJson, NewPingPongCycleCount: pingPongCycles, NewPingPongWindowStartSeconds: pingPongWindowStart,
                 NewSessionActiveInteractionSeconds: sessionActiveSec, NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
                 NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds, NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
-                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc, NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc, NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart, NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                NewSessionStartChecked: previous.SessionStartChecked);
         }
 
         // ── Pattern 4: Never settled ──────────────────────────────────────────
@@ -892,7 +1130,13 @@ internal static class DerivedSessionMetricsComputer
                 NewRecentDominantHashesJson: updatedHashesJson, NewPingPongCycleCount: pingPongCycles, NewPingPongWindowStartSeconds: pingPongWindowStart,
                 NewSessionActiveInteractionSeconds: sessionActiveSec, NewUnfocusedSessionFired: true,
                 NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds, NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
-                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc, NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc, NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart, NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                NewSessionStartChecked: previous.SessionStartChecked);
         }
 
         // ── Pattern 5: Shallow dwell ──────────────────────────────────────────
@@ -921,11 +1165,36 @@ internal static class DerivedSessionMetricsComputer
                 NewRecentDominantHashesJson: updatedHashesJson, NewPingPongCycleCount: pingPongCycles, NewPingPongWindowStartSeconds: pingPongWindowStart,
                 NewSessionActiveInteractionSeconds: sessionActiveSec, NewUnfocusedSessionFired: unfocusedFired,
                 NewEwmaAverageDwellSeconds: ewmaDwell, NewShallowDwellAccumulatedSeconds: shallowDwellAcc,
-                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc, NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc, NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart, NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                NewSessionStartChecked: previous.SessionStartChecked);
         }
 
         // ── Pattern 1 & 7: Category-based state update ────────────────────────
         AppCategory currentCategory = AppCategoryClassifier.GetCategoryForHash(currentDom);
+
+        // ── Phase 3: Session-level state (focus-category absence + session-start quality) ──
+        // Pattern 13 — Focus category absent: resets when Dev/Productivity is foregrounded.
+        double focusCategoryAbsSec = AppCategoryClassifier.IsFocusPositive(currentCategory)
+            ? 0d
+            : ClampNonNegativeFinite(previous.FocusCategoryAbsentSeconds + Time.bucketSeconds);
+
+        // Pattern 14 — Bad session start: one-shot check after first 10 min of session.
+        bool sessionStartChecked = previous.SessionStartChecked;
+        double sessionStartDistrSec = previous.SessionStartDistractionSeconds;
+        if (!sessionStartChecked)
+        {
+            bool isDistractionStart = currentCategory == AppCategory.SocialMedia
+                || currentCategory == AppCategory.Entertainment
+                || currentCategory == AppCategory.Gaming
+                || currentCategory == AppCategory.GamingLauncher;
+            if (sessionActiveSec <= PortaExecutionConstants.DistractionEpisodes.SessionStartQualityWindowSeconds && isDistractionStart)
+                sessionStartDistrSec = ClampNonNegativeFinite(sessionStartDistrSec + Time.bucketSeconds);
+        }
 
         // Pattern 1 — Passive consumption accumulator
         double passiveConsumptionAcc = previous.PassiveConsumptionAccumulatedSeconds;
@@ -969,7 +1238,13 @@ internal static class DerivedSessionMetricsComputer
                 NewPassiveConsumptionAccumulatedSeconds: passiveConsumptionAcc,
                 NewCommMonitoringReturnCount: commReturnCount,
                 NewCommMonitoringWindowStartSeconds: commWindowStart,
-                NewCommMonitoringLastDominantCategory: commLastCategory);
+                NewCommMonitoringLastDominantCategory: commLastCategory,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc, NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc, NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart, NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: focusCategoryAbsSec,
+                NewSessionStartDistractionSeconds: sessionStartDistrSec,
+                NewSessionStartChecked: sessionStartChecked);
         }
 
         // ── Pattern 7: Communication monitoring loop ───────────────────────────
@@ -989,7 +1264,74 @@ internal static class DerivedSessionMetricsComputer
                 NewPassiveConsumptionAccumulatedSeconds: passiveConsumptionAcc,
                 NewCommMonitoringReturnCount: commReturnCount,
                 NewCommMonitoringWindowStartSeconds: commWindowStart,
-                NewCommMonitoringLastDominantCategory: commLastCategory);
+                NewCommMonitoringLastDominantCategory: commLastCategory,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc, NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc, NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart, NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: focusCategoryAbsSec,
+                NewSessionStartDistractionSeconds: sessionStartDistrSec,
+                NewSessionStartChecked: sessionStartChecked);
+        }
+
+        // ── Pattern 13: Focus category absent ────────────────────────────────
+        if (focusCategoryAbsSec >= PortaExecutionConstants.DistractionEpisodes.FocusCategoryAbsentMinSeconds * mult)
+        {
+            return new AttentionSegmentDecision(
+                Kind: "focus_category_absent", SegmentSeconds: focusCategoryAbsSec,
+                DistractionEpisodeActive: true, DistractionEpisodeSeconds: focusCategoryAbsSec,
+                ReasonCode: "focus_category_absent",
+                ReasonText: $"No productive app in focus for {FormatEpisodeDuration(focusCategoryAbsSec)}.",
+                NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
+                NewRecentDominantHashesJson: updatedHashesJson,
+                NewPingPongCycleCount: pingPongCycles, NewPingPongWindowStartSeconds: pingPongWindowStart,
+                NewSessionActiveInteractionSeconds: sessionActiveSec, NewUnfocusedSessionFired: unfocusedFired,
+                NewEwmaAverageDwellSeconds: ewmaDwell, NewShallowDwellAccumulatedSeconds: shallowDwellAcc,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewPassiveConsumptionAccumulatedSeconds: passiveConsumptionAcc,
+                NewCommMonitoringReturnCount: commReturnCount,
+                NewCommMonitoringWindowStartSeconds: commWindowStart,
+                NewCommMonitoringLastDominantCategory: commLastCategory,
+                NewSocialMediaAccumulatedSeconds: socialMediaAcc, NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                NewGamingActiveAccumulatedSeconds: gamingActiveAcc, NewSocialMediaReturnCount: socialMediaReturnCount,
+                NewSocialMediaWindowStartSeconds: socialMediaWindowStart, NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                NewFocusCategoryAbsentSeconds: focusCategoryAbsSec,
+                NewSessionStartDistractionSeconds: sessionStartDistrSec,
+                NewSessionStartChecked: sessionStartChecked);
+        }
+
+        // ── Pattern 14: Bad session start (one-shot) ──────────────────────────
+        if (!sessionStartChecked
+            && sessionActiveSec >= PortaExecutionConstants.DistractionEpisodes.SessionStartQualityWindowSeconds)
+        {
+            sessionStartChecked = true;
+            double startRatio = sessionStartDistrSec /
+                PortaExecutionConstants.DistractionEpisodes.SessionStartQualityWindowSeconds;
+            if (startRatio >= PortaExecutionConstants.DistractionEpisodes.SessionStartQualityMinDistractionRatio)
+            {
+                return new AttentionSegmentDecision(
+                    Kind: "bad_session_start", SegmentSeconds: sessionStartDistrSec,
+                    DistractionEpisodeActive: true, DistractionEpisodeSeconds: sessionStartDistrSec,
+                    ReasonCode: "bad_session_start",
+                    ReasonText: "Session opened with high distraction activity.",
+                    NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
+                    NewRecentDominantHashesJson: updatedHashesJson,
+                    NewPingPongCycleCount: pingPongCycles, NewPingPongWindowStartSeconds: pingPongWindowStart,
+                    NewSessionActiveInteractionSeconds: sessionActiveSec, NewUnfocusedSessionFired: unfocusedFired,
+                    NewEwmaAverageDwellSeconds: ewmaDwell, NewShallowDwellAccumulatedSeconds: shallowDwellAcc,
+                    NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                    NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                    NewPassiveConsumptionAccumulatedSeconds: passiveConsumptionAcc,
+                    NewCommMonitoringReturnCount: commReturnCount,
+                    NewCommMonitoringWindowStartSeconds: commWindowStart,
+                    NewCommMonitoringLastDominantCategory: commLastCategory,
+                    NewSocialMediaAccumulatedSeconds: socialMediaAcc, NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                    NewGamingActiveAccumulatedSeconds: gamingActiveAcc, NewSocialMediaReturnCount: socialMediaReturnCount,
+                    NewSocialMediaWindowStartSeconds: socialMediaWindowStart, NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                    NewFocusCategoryAbsentSeconds: focusCategoryAbsSec,
+                    NewSessionStartDistractionSeconds: sessionStartDistrSec,
+                    NewSessionStartChecked: true);
+            }
         }
 
         // ── Pattern 8: Focus app absence (only when anchor is locked) ─────────
@@ -1028,7 +1370,13 @@ internal static class DerivedSessionMetricsComputer
                     NewPassiveConsumptionAccumulatedSeconds: passiveConsumptionAcc,
                     NewCommMonitoringReturnCount: commReturnCount,
                     NewCommMonitoringWindowStartSeconds: commWindowStart,
-                    NewCommMonitoringLastDominantCategory: commLastCategory);
+                    NewCommMonitoringLastDominantCategory: commLastCategory,
+                    NewSocialMediaAccumulatedSeconds: socialMediaAcc, NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                    NewGamingActiveAccumulatedSeconds: gamingActiveAcc, NewSocialMediaReturnCount: socialMediaReturnCount,
+                    NewSocialMediaWindowStartSeconds: socialMediaWindowStart, NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                    NewFocusCategoryAbsentSeconds: focusCategoryAbsSec,
+                    NewSessionStartDistractionSeconds: sessionStartDistrSec,
+                    NewSessionStartChecked: sessionStartChecked);
             }
         }
 
@@ -1051,7 +1399,13 @@ internal static class DerivedSessionMetricsComputer
             NewPassiveConsumptionAccumulatedSeconds: passiveConsumptionAcc,
             NewCommMonitoringReturnCount: commReturnCount,
             NewCommMonitoringWindowStartSeconds: commWindowStart,
-            NewCommMonitoringLastDominantCategory: commLastCategory);
+            NewCommMonitoringLastDominantCategory: commLastCategory,
+            NewSocialMediaAccumulatedSeconds: socialMediaAcc, NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+            NewGamingActiveAccumulatedSeconds: gamingActiveAcc, NewSocialMediaReturnCount: socialMediaReturnCount,
+            NewSocialMediaWindowStartSeconds: socialMediaWindowStart, NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+            NewFocusCategoryAbsentSeconds: focusCategoryAbsSec,
+            NewSessionStartDistractionSeconds: sessionStartDistrSec,
+            NewSessionStartChecked: sessionStartChecked);
     }
 
     private static List<(string Hash, double T)> ParseRingBuffer(string json)
@@ -1258,14 +1612,16 @@ internal static class DerivedSessionMetricsComputer
         if (scalar == null || scalar == DBNull.Value)
         {
             return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
-                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false, 0d, 0, 0d, 0);
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false, 0d, 0, 0d, 0,
+                0d, 0d, 0d, 0, 0d, 0, 0d, 0d, false);
         }
 
         string json = Convert.ToString(scalar, CultureInfo.InvariantCulture) ?? string.Empty;
         if (string.IsNullOrWhiteSpace(json))
         {
             return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
-                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false, 0d, 0, 0d, 0);
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false, 0d, 0, 0d, 0,
+                0d, 0d, 0d, 0, 0d, 0, 0d, 0d, false);
         }
 
         try
@@ -1275,7 +1631,8 @@ internal static class DerivedSessionMetricsComputer
             if (root.ValueKind != JsonValueKind.Object)
             {
                 return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
-                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false, 0d, 0, 0d, 0);
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false, 0d, 0, 0d, 0,
+                0d, 0d, 0d, 0, 0d, 0, 0d, 0d, false);
             }
 
             double sustained = ReadNonNegativeDouble(root, "task_continuity_seconds", "sa_seconds", "sustained_attention_duration_sec");
@@ -1307,6 +1664,15 @@ internal static class DerivedSessionMetricsComputer
             int commMonitoringReturnCount = (int)ReadNonNegativeInt64(root, "comm_monitoring_return_count");
             double commMonitoringWindowStartSeconds = ReadNonNegativeDouble(root, "comm_monitoring_window_start_seconds");
             int commMonitoringLastDominantCategory = (int)ReadNonNegativeInt64(root, "comm_monitoring_last_dominant_category");
+            double socialMediaAccumulatedSeconds = ReadNonNegativeDouble(root, "social_media_accumulated_seconds");
+            double gamingLauncherAccumulatedSeconds = ReadNonNegativeDouble(root, "gaming_launcher_accumulated_seconds");
+            double gamingActiveAccumulatedSeconds = ReadNonNegativeDouble(root, "gaming_active_accumulated_seconds");
+            int socialMediaReturnCount = (int)ReadNonNegativeInt64(root, "social_media_return_count");
+            double socialMediaWindowStartSeconds = ReadNonNegativeDouble(root, "social_media_window_start_seconds");
+            int socialMediaLastDominantCategory = (int)ReadNonNegativeInt64(root, "social_media_last_dominant_category");
+            double focusCategoryAbsentSeconds = ReadNonNegativeDouble(root, "focus_category_absent_seconds");
+            double sessionStartDistractionSeconds = ReadNonNegativeDouble(root, "session_start_distraction_seconds");
+            bool sessionStartChecked = ReadBool(root, "session_start_checked");
             return new DerivedSessionRuntimeState(
                 TaskContinuitySeconds: sustained,
                 IdleFragmentationIndex: idleFragment,
@@ -1336,12 +1702,22 @@ internal static class DerivedSessionMetricsComputer
                 PassiveConsumptionAccumulatedSeconds: passiveConsumptionAccumulatedSeconds,
                 CommMonitoringReturnCount: commMonitoringReturnCount,
                 CommMonitoringWindowStartSeconds: commMonitoringWindowStartSeconds,
-                CommMonitoringLastDominantCategory: commMonitoringLastDominantCategory);
+                CommMonitoringLastDominantCategory: commMonitoringLastDominantCategory,
+                SocialMediaAccumulatedSeconds: socialMediaAccumulatedSeconds,
+                GamingLauncherAccumulatedSeconds: gamingLauncherAccumulatedSeconds,
+                GamingActiveAccumulatedSeconds: gamingActiveAccumulatedSeconds,
+                SocialMediaReturnCount: socialMediaReturnCount,
+                SocialMediaWindowStartSeconds: socialMediaWindowStartSeconds,
+                SocialMediaLastDominantCategory: socialMediaLastDominantCategory,
+                FocusCategoryAbsentSeconds: focusCategoryAbsentSeconds,
+                SessionStartDistractionSeconds: sessionStartDistractionSeconds,
+                SessionStartChecked: sessionStartChecked);
         }
         catch
         {
             return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
-                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false, 0d, 0, 0d, 0);
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false, 0d, 0, 0d, 0,
+                0d, 0d, 0d, 0, 0d, 0, 0d, 0d, false);
         }
     }
 
@@ -1482,7 +1858,17 @@ internal static class DerivedSessionMetricsComputer
         double PassiveConsumptionAccumulatedSeconds,
         int    CommMonitoringReturnCount,
         double CommMonitoringWindowStartSeconds,
-        int    CommMonitoringLastDominantCategory);
+        int    CommMonitoringLastDominantCategory,
+        // Phase 3 — unconditional + session-level pattern state
+        double SocialMediaAccumulatedSeconds,
+        double GamingLauncherAccumulatedSeconds,
+        double GamingActiveAccumulatedSeconds,
+        int    SocialMediaReturnCount,
+        double SocialMediaWindowStartSeconds,
+        int    SocialMediaLastDominantCategory,
+        double FocusCategoryAbsentSeconds,
+        double SessionStartDistractionSeconds,
+        bool   SessionStartChecked);
 
     private readonly record struct ChannelEvidence(
         bool KeyboardAvailable,
@@ -1532,7 +1918,17 @@ internal static class DerivedSessionMetricsComputer
         double NewPassiveConsumptionAccumulatedSeconds = 0d,
         int    NewCommMonitoringReturnCount = 0,
         double NewCommMonitoringWindowStartSeconds = 0d,
-        int    NewCommMonitoringLastDominantCategory = 0);
+        int    NewCommMonitoringLastDominantCategory = 0,
+        // Phase 3 — unconditional + session-level state
+        double NewSocialMediaAccumulatedSeconds = 0d,
+        double NewGamingLauncherAccumulatedSeconds = 0d,
+        double NewGamingActiveAccumulatedSeconds = 0d,
+        int    NewSocialMediaReturnCount = 0,
+        double NewSocialMediaWindowStartSeconds = 0d,
+        int    NewSocialMediaLastDominantCategory = 0,
+        double NewFocusCategoryAbsentSeconds = 0d,
+        double NewSessionStartDistractionSeconds = 0d,
+        bool   NewSessionStartChecked = false);
 
     private readonly record struct EpisodeReason(
         string Code,
