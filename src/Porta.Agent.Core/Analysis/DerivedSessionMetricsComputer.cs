@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Porta.Agent.Common.Analysis;
 using Porta.Agent.Core.Buckets;
 
 namespace Porta.Agent.Core.Analysis;
@@ -43,7 +44,12 @@ internal readonly record struct DerivedSessionMetricsResult(
     double DistrShallowDwellAccumulatedSeconds = 0d,
     double DistrWindowsOffAnchorSeconds = 0d,
     int    DistrWindowsOffAnchorBucketsBack = 0,
-    bool   DistrUnfocusedSessionFired = false);
+    bool   DistrUnfocusedSessionFired = false,
+    // ── Block C extension — Phase 2 category-based pattern state ───────────
+    double DistrPassiveConsumptionAccumulatedSeconds = 0d,
+    int    DistrCommMonitoringReturnCount = 0,
+    double DistrCommMonitoringWindowStartSeconds = 0d,
+    int    DistrCommMonitoringLastDominantCategory = 0);
 
 internal static class DerivedSessionMetricsComputer
 {
@@ -117,7 +123,11 @@ internal static class DerivedSessionMetricsComputer
             DistrShallowDwellAccumulatedSeconds: attentionSegment.NewShallowDwellAccumulatedSeconds,
             DistrWindowsOffAnchorSeconds: attentionSegment.NewWindowsOffAnchorSeconds,
             DistrWindowsOffAnchorBucketsBack: attentionSegment.NewWindowsOffAnchorBucketsBack,
-            DistrUnfocusedSessionFired: attentionSegment.NewUnfocusedSessionFired);
+            DistrUnfocusedSessionFired: attentionSegment.NewUnfocusedSessionFired,
+            DistrPassiveConsumptionAccumulatedSeconds: attentionSegment.NewPassiveConsumptionAccumulatedSeconds,
+            DistrCommMonitoringReturnCount: attentionSegment.NewCommMonitoringReturnCount,
+            DistrCommMonitoringWindowStartSeconds: attentionSegment.NewCommMonitoringWindowStartSeconds,
+            DistrCommMonitoringLastDominantCategory: attentionSegment.NewCommMonitoringLastDominantCategory);
     }
 
     private static ChannelEvidence ResolveChannelEvidence(InputBucketRow bucket, PrimitiveComputationResult primitive)
@@ -914,6 +924,74 @@ internal static class DerivedSessionMetricsComputer
                 NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds, NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack);
         }
 
+        // ── Pattern 1 & 7: Category-based state update ────────────────────────
+        AppCategory currentCategory = AppCategoryClassifier.GetCategoryForHash(currentDom);
+
+        // Pattern 1 — Passive consumption accumulator
+        double passiveConsumptionAcc = previous.PassiveConsumptionAccumulatedSeconds;
+        if (currentCategory == AppCategory.Entertainment && evidence.AnyInteractionActive)
+            passiveConsumptionAcc = ClampNonNegativeFinite(passiveConsumptionAcc + Time.bucketSeconds);
+        else
+            passiveConsumptionAcc = ClampNonNegativeFinite(passiveConsumptionAcc - Time.bucketSeconds);
+
+        // Pattern 7 — Communication monitoring loop
+        int commReturnCount = previous.CommMonitoringReturnCount;
+        double commWindowStart = previous.CommMonitoringWindowStartSeconds;
+        int commLastCategory = previous.CommMonitoringLastDominantCategory;
+
+        // Reset comm window if expired
+        if (sessionActiveSec - commWindowStart > PortaExecutionConstants.DistractionEpisodes.CommMonitoringWindowSeconds * mult)
+        {
+            commReturnCount = 0;
+            commWindowStart = sessionActiveSec;
+        }
+        // Detect transition INTO Communication from a different category
+        bool returnedToComm = currentCategory == AppCategory.Communication
+            && commLastCategory != (int)AppCategory.Communication;
+        if (returnedToComm)
+            commReturnCount++;
+        commLastCategory = (int)currentCategory;
+
+        // ── Pattern 1: Passive consumption ────────────────────────────────────
+        if (passiveConsumptionAcc >= PortaExecutionConstants.DistractionEpisodes.PassiveConsumptionMinTriggerSeconds * mult)
+        {
+            return new AttentionSegmentDecision(
+                Kind: "passive_consumption", SegmentSeconds: passiveConsumptionAcc,
+                DistractionEpisodeActive: true, DistractionEpisodeSeconds: passiveConsumptionAcc,
+                ReasonCode: "passive_consumption", ReasonText: "Passive media consumption during work time.",
+                NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
+                NewRecentDominantHashesJson: updatedHashesJson,
+                NewPingPongCycleCount: pingPongCycles, NewPingPongWindowStartSeconds: pingPongWindowStart,
+                NewSessionActiveInteractionSeconds: sessionActiveSec, NewUnfocusedSessionFired: unfocusedFired,
+                NewEwmaAverageDwellSeconds: ewmaDwell, NewShallowDwellAccumulatedSeconds: shallowDwellAcc,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewPassiveConsumptionAccumulatedSeconds: passiveConsumptionAcc,
+                NewCommMonitoringReturnCount: commReturnCount,
+                NewCommMonitoringWindowStartSeconds: commWindowStart,
+                NewCommMonitoringLastDominantCategory: commLastCategory);
+        }
+
+        // ── Pattern 7: Communication monitoring loop ───────────────────────────
+        if (commReturnCount >= PortaExecutionConstants.DistractionEpisodes.CommMonitoringMinReturns)
+        {
+            return new AttentionSegmentDecision(
+                Kind: "comm_monitoring_loop", SegmentSeconds: sessionActiveSec - commWindowStart,
+                DistractionEpisodeActive: true, DistractionEpisodeSeconds: sessionActiveSec - commWindowStart,
+                ReasonCode: "comm_monitoring_loop", ReasonText: "Repeated check-in loop to communication apps.",
+                NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
+                NewRecentDominantHashesJson: updatedHashesJson,
+                NewPingPongCycleCount: pingPongCycles, NewPingPongWindowStartSeconds: pingPongWindowStart,
+                NewSessionActiveInteractionSeconds: sessionActiveSec, NewUnfocusedSessionFired: unfocusedFired,
+                NewEwmaAverageDwellSeconds: ewmaDwell, NewShallowDwellAccumulatedSeconds: shallowDwellAcc,
+                NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                NewPassiveConsumptionAccumulatedSeconds: passiveConsumptionAcc,
+                NewCommMonitoringReturnCount: commReturnCount,
+                NewCommMonitoringWindowStartSeconds: commWindowStart,
+                NewCommMonitoringLastDominantCategory: commLastCategory);
+        }
+
         // ── Pattern 8: Focus app absence (only when anchor is locked) ─────────
         double offAnchorSec = previous.WindowsOffAnchorSeconds;
         int bucketsBack = previous.WindowsOffAnchorBucketsBack;
@@ -946,7 +1024,11 @@ internal static class DerivedSessionMetricsComputer
                     NewRecentDominantHashesJson: updatedHashesJson, NewPingPongCycleCount: pingPongCycles, NewPingPongWindowStartSeconds: pingPongWindowStart,
                     NewSessionActiveInteractionSeconds: sessionActiveSec, NewUnfocusedSessionFired: unfocusedFired,
                     NewEwmaAverageDwellSeconds: ewmaDwell, NewShallowDwellAccumulatedSeconds: shallowDwellAcc,
-                    NewWindowsOffAnchorSeconds: offAnchorSec, NewWindowsOffAnchorBucketsBack: bucketsBack);
+                    NewWindowsOffAnchorSeconds: offAnchorSec, NewWindowsOffAnchorBucketsBack: bucketsBack,
+                    NewPassiveConsumptionAccumulatedSeconds: passiveConsumptionAcc,
+                    NewCommMonitoringReturnCount: commReturnCount,
+                    NewCommMonitoringWindowStartSeconds: commWindowStart,
+                    NewCommMonitoringLastDominantCategory: commLastCategory);
             }
         }
 
@@ -965,7 +1047,11 @@ internal static class DerivedSessionMetricsComputer
             NewEwmaAverageDwellSeconds: ewmaDwell,
             NewShallowDwellAccumulatedSeconds: shallowDwellAcc,
             NewWindowsOffAnchorSeconds: offAnchorSec,
-            NewWindowsOffAnchorBucketsBack: bucketsBack);
+            NewWindowsOffAnchorBucketsBack: bucketsBack,
+            NewPassiveConsumptionAccumulatedSeconds: passiveConsumptionAcc,
+            NewCommMonitoringReturnCount: commReturnCount,
+            NewCommMonitoringWindowStartSeconds: commWindowStart,
+            NewCommMonitoringLastDominantCategory: commLastCategory);
     }
 
     private static List<(string Hash, double T)> ParseRingBuffer(string json)
@@ -1172,14 +1258,14 @@ internal static class DerivedSessionMetricsComputer
         if (scalar == null || scalar == DBNull.Value)
         {
             return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
-                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false);
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false, 0d, 0, 0d, 0);
         }
 
         string json = Convert.ToString(scalar, CultureInfo.InvariantCulture) ?? string.Empty;
         if (string.IsNullOrWhiteSpace(json))
         {
             return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
-                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false);
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false, 0d, 0, 0d, 0);
         }
 
         try
@@ -1189,7 +1275,7 @@ internal static class DerivedSessionMetricsComputer
             if (root.ValueKind != JsonValueKind.Object)
             {
                 return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
-                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false);
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false, 0d, 0, 0d, 0);
             }
 
             double sustained = ReadNonNegativeDouble(root, "task_continuity_seconds", "sa_seconds", "sustained_attention_duration_sec");
@@ -1217,6 +1303,10 @@ internal static class DerivedSessionMetricsComputer
             double windowsOffAnchorSeconds = ReadNonNegativeDouble(root, "windows_off_anchor_seconds");
             int windowsOffAnchorBucketsBack = (int)ReadNonNegativeInt64(root, "windows_off_anchor_buckets_back");
             bool unfocusedSessionFired = ReadBool(root, "unfocused_session_fired");
+            double passiveConsumptionAccumulatedSeconds = ReadNonNegativeDouble(root, "passive_consumption_accumulated_seconds");
+            int commMonitoringReturnCount = (int)ReadNonNegativeInt64(root, "comm_monitoring_return_count");
+            double commMonitoringWindowStartSeconds = ReadNonNegativeDouble(root, "comm_monitoring_window_start_seconds");
+            int commMonitoringLastDominantCategory = (int)ReadNonNegativeInt64(root, "comm_monitoring_last_dominant_category");
             return new DerivedSessionRuntimeState(
                 TaskContinuitySeconds: sustained,
                 IdleFragmentationIndex: idleFragment,
@@ -1242,12 +1332,16 @@ internal static class DerivedSessionMetricsComputer
                 ShallowDwellAccumulatedSeconds: shallowDwellAccumulatedSeconds,
                 WindowsOffAnchorSeconds: windowsOffAnchorSeconds,
                 WindowsOffAnchorBucketsBack: windowsOffAnchorBucketsBack,
-                UnfocusedSessionFired: unfocusedSessionFired);
+                UnfocusedSessionFired: unfocusedSessionFired,
+                PassiveConsumptionAccumulatedSeconds: passiveConsumptionAccumulatedSeconds,
+                CommMonitoringReturnCount: commMonitoringReturnCount,
+                CommMonitoringWindowStartSeconds: commMonitoringWindowStartSeconds,
+                CommMonitoringLastDominantCategory: commMonitoringLastDominantCategory);
         }
         catch
         {
             return new DerivedSessionRuntimeState(0d, 0d, string.Empty, 0, string.Empty, 0d, 0d, "reset", 0d, 0d, 0d,
-                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false);
+                0d, 0d, string.Empty, 0, 0d, string.Empty, 0d, 0d, 0d, 0d, 0d, 0d, 0, false, 0d, 0, 0d, 0);
         }
     }
 
@@ -1383,7 +1477,12 @@ internal static class DerivedSessionMetricsComputer
         double WindowsOffAnchorSeconds,
         int    WindowsOffAnchorBucketsBack,
         // Pattern 4 suppression flag — prevents re-firing every bucket after unfocused fires once
-        bool   UnfocusedSessionFired);
+        bool   UnfocusedSessionFired,
+        // Phase 2 — category-based pattern state
+        double PassiveConsumptionAccumulatedSeconds,
+        int    CommMonitoringReturnCount,
+        double CommMonitoringWindowStartSeconds,
+        int    CommMonitoringLastDominantCategory);
 
     private readonly record struct ChannelEvidence(
         bool KeyboardAvailable,
@@ -1429,7 +1528,11 @@ internal static class DerivedSessionMetricsComputer
         double NewEwmaAverageDwellSeconds = 0d,
         double NewShallowDwellAccumulatedSeconds = 0d,
         double NewWindowsOffAnchorSeconds = 0d,
-        int    NewWindowsOffAnchorBucketsBack = 0);
+        int    NewWindowsOffAnchorBucketsBack = 0,
+        double NewPassiveConsumptionAccumulatedSeconds = 0d,
+        int    NewCommMonitoringReturnCount = 0,
+        double NewCommMonitoringWindowStartSeconds = 0d,
+        int    NewCommMonitoringLastDominantCategory = 0);
 
     private readonly record struct EpisodeReason(
         string Code,

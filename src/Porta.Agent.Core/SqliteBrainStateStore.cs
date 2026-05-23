@@ -2509,7 +2509,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             shallow_dwell_accumulated_seconds = derivedSession.DistrShallowDwellAccumulatedSeconds,
             windows_off_anchor_seconds = derivedSession.DistrWindowsOffAnchorSeconds,
             windows_off_anchor_buckets_back = derivedSession.DistrWindowsOffAnchorBucketsBack,
-            unfocused_session_fired = derivedSession.DistrUnfocusedSessionFired ? 1 : 0
+            unfocused_session_fired = derivedSession.DistrUnfocusedSessionFired ? 1 : 0,
+            passive_consumption_accumulated_seconds = derivedSession.DistrPassiveConsumptionAccumulatedSeconds,
+            comm_monitoring_return_count = derivedSession.DistrCommMonitoringReturnCount,
+            comm_monitoring_window_start_seconds = derivedSession.DistrCommMonitoringWindowStartSeconds,
+            comm_monitoring_last_dominant_category = derivedSession.DistrCommMonitoringLastDominantCategory
         });
         UpsertRuntimeStateValue(
             connection,

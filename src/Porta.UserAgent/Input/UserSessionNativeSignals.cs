@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using Porta.Agent.Common.Analysis;
 using Porta.Agent.Core.Security;
 
 namespace Porta.UserAgent.Input;
@@ -35,7 +36,9 @@ internal static class UserSessionNativeSignals
         }
 
         string identifier = ResolveStableAppIdentifier(processId);
+        AppCategory category = AppCategoryClassifier.ClassifyStableIdentifier(identifier);
         string hash = HashIdentifier(identifier);
+        AppCategoryClassifier.RegisterHashCategory(hash, category);
         ForegroundHashCache[processId] = new CacheEntry(hash, DateTimeOffset.UtcNow.Add(CacheTtl).UtcTicks);
         return hash;
     }

@@ -120,6 +120,11 @@ public static class PortaExecutionConstants
         // Anchor-app locking and migration
         public const double AnchorCandidateRequiredSeconds = 120.0;
         public const double AnchorMigrationThresholdSeconds = 240.0;
+
+        // Phase 2 — Category-based patterns
+        public const double PassiveConsumptionMinTriggerSeconds = 180.0;
+        public const int    CommMonitoringMinReturns = 3;
+        public const double CommMonitoringWindowSeconds = 600.0;
     }
 
     public static class TimeOfDayMultipliers
