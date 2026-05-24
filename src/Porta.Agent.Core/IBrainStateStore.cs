@@ -27,6 +27,7 @@ public interface IBrainStateStore
     bool AcknowledgeIntervention(AgentInterventionAck ack);
     AgentStorageInfo ReadStorageInfo();
     AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);
+    AgentDistractionSummary ReadCurrentDistractionSummary();
     string ExportBundle(
         IReadOnlyList<string> logFilePaths,
         string consentPath,

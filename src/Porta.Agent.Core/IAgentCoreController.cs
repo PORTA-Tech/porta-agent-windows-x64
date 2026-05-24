@@ -7,6 +7,7 @@ public interface IAgentCoreController
     AgentControlState GetControlState();
     AgentBrainSnapshot GetCurrentSnapshot();
     AgentLatestStateDetails? GetLatestStateDetails();
+    AgentDistractionSummary GetCurrentDistractionSummary();
     void RefreshRuntimeStateCache();
     AgentInputSummary GetInputsSummary(int windowSeconds = 60);
     IReadOnlyList<AgentControlEvent> GetRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null);

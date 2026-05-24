@@ -91,6 +91,30 @@ internal sealed class ControlPlaneClient : IDisposable
         }
     }
 
+    public async Task<bool> PostDailyDigestAsync(DailyDigestReportPayload payload, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+
+        if (_httpClient is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(
+                "api/agent/daily-digest",
+                payload,
+                JsonOptions,
+                token).ConfigureAwait(false);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<bool> PostMachineActionEventsAsync(
         IReadOnlyList<MachineActionEventPayload> events,
         CancellationToken token)

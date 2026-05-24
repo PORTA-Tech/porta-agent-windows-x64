@@ -298,6 +298,11 @@ public sealed class AgentCoreController : IAgentCoreController
         return _lastLatestStateDetails;
     }
 
+    public AgentDistractionSummary GetCurrentDistractionSummary()
+    {
+        return _stateStore.ReadCurrentDistractionSummary();
+    }
+
     public AgentCurrentSnapshotProjection GetCurrentSnapshotProjection()
     {
         if (System.Threading.Monitor.TryEnter(_gate, StatusReadLockTimeout))

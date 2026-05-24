@@ -78,6 +78,14 @@ public sealed record AgentDiagnosticsSnapshot(
     DateTimeOffset? LastEventTimestampUtc,
     DateTimeOffset? LastBackendOkUtc);
 
+public sealed record AgentDistractionSummary(
+    double SocialMediaAccumulatedSeconds,
+    double GamingLauncherAccumulatedSeconds,
+    double GamingActiveAccumulatedSeconds,
+    double PassiveConsumptionAccumulatedSeconds,
+    int CommMonitoringReturnCount,
+    int SocialMediaReturnCount);
+
 public sealed record AgentTodaySummary(
     DateOnly DateUtc,
     int TotalInterventions,

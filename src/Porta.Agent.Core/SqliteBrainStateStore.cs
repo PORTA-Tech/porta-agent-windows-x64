@@ -2141,6 +2141,69 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             MostVolatileHourUtc: mostVolatileHour);
     }
 
+    public AgentDistractionSummary ReadCurrentDistractionSummary()
+    {
+        using ReadGateLease _ = AcquireReadGate();
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT value_json
+            FROM runtime_state
+            WHERE key = $key
+            LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$key", PortaExecutionConstants.DerivedSessionMetrics.RuntimeStateKey);
+
+        object? scalar = cmd.ExecuteScalar();
+        if (scalar == null || scalar == DBNull.Value)
+        {
+            return new AgentDistractionSummary(0d, 0d, 0d, 0d, 0, 0);
+        }
+
+        string json = Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new AgentDistractionSummary(0d, 0d, 0d, 0d, 0, 0);
+        }
+
+        try
+        {
+            using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(json);
+            System.Text.Json.JsonElement root = doc.RootElement;
+            if (root.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                return new AgentDistractionSummary(0d, 0d, 0d, 0d, 0, 0);
+            }
+
+            double ReadDouble(string key)
+            {
+                return root.TryGetProperty(key, out System.Text.Json.JsonElement el)
+                    && el.ValueKind == System.Text.Json.JsonValueKind.Number
+                    && el.TryGetDouble(out double v) ? Math.Max(0d, v) : 0d;
+            }
+
+            int ReadInt(string key)
+            {
+                return root.TryGetProperty(key, out System.Text.Json.JsonElement el)
+                    && el.ValueKind == System.Text.Json.JsonValueKind.Number
+                    && el.TryGetInt32(out int v) ? Math.Max(0, v) : 0;
+            }
+
+            return new AgentDistractionSummary(
+                SocialMediaAccumulatedSeconds: ReadDouble("social_media_accumulated_seconds"),
+                GamingLauncherAccumulatedSeconds: ReadDouble("gaming_launcher_accumulated_seconds"),
+                GamingActiveAccumulatedSeconds: ReadDouble("gaming_active_accumulated_seconds"),
+                PassiveConsumptionAccumulatedSeconds: ReadDouble("passive_consumption_accumulated_seconds"),
+                CommMonitoringReturnCount: ReadInt("comm_monitoring_return_count"),
+                SocialMediaReturnCount: ReadInt("social_media_return_count"));
+        }
+        catch
+        {
+            return new AgentDistractionSummary(0d, 0d, 0d, 0d, 0, 0);
+        }
+    }
+
     public string ExportBundle(
         IReadOnlyList<string> logFilePaths,
         string consentPath,

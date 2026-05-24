@@ -113,6 +113,38 @@ internal sealed record DeviceLinkResultPayload(
     [property: JsonPropertyName("linkState")] string LinkState,
     [property: JsonPropertyName("device")] DeviceProfilePayload Device);
 
+internal sealed record DailyDigestReportPayload(
+    [property: JsonPropertyName("accountId")] string? AccountId,
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("machineId")] string MachineId,
+    [property: JsonPropertyName("dateLocal")] string DateLocal,
+    [property: JsonPropertyName("timezoneOffsetMinutes")] int TimezoneOffsetMinutes,
+    [property: JsonPropertyName("reportedAtUtc")] string ReportedAtUtc,
+    [property: JsonPropertyName("trackedSeconds")] double TrackedSeconds,
+    [property: JsonPropertyName("focusSeconds")] double FocusSeconds,
+    [property: JsonPropertyName("focusQualityScore")] double FocusQualityScore,
+    [property: JsonPropertyName("distractionSeconds")] double DistractionSeconds,
+    [property: JsonPropertyName("awaySeconds")] double AwaySeconds,
+    [property: JsonPropertyName("contextExcursionSeconds")] double ContextExcursionSeconds,
+    [property: JsonPropertyName("longestFocusStreakSeconds")] double LongestFocusStreakSeconds,
+    [property: JsonPropertyName("fragmentationEpisodeCount")] int FragmentationEpisodeCount,
+    [property: JsonPropertyName("socialMediaLoopCount")] int SocialMediaLoopCount,
+    [property: JsonPropertyName("gamingEpisodeCount")] int GamingEpisodeCount,
+    [property: JsonPropertyName("socialMediaSeconds")] double SocialMediaSeconds,
+    [property: JsonPropertyName("gamingLauncherSeconds")] double GamingLauncherSeconds,
+    [property: JsonPropertyName("gamingActiveSeconds")] double GamingActiveSeconds,
+    [property: JsonPropertyName("passiveConsumptionSeconds")] double PassiveConsumptionSeconds,
+    [property: JsonPropertyName("commMonitoringReturnCount")] int CommMonitoringReturnCount,
+    [property: JsonPropertyName("socialMediaReturnCount")] int SocialMediaReturnCount,
+    [property: JsonPropertyName("overloadEpisodeCount")] int OverloadEpisodeCount,
+    [property: JsonPropertyName("breaksTakenCount")] int BreaksTakenCount,
+    [property: JsonPropertyName("breaksSuggestedCount")] int BreaksSuggestedCount,
+    [property: JsonPropertyName("mostDistractedHourLabel")] string MostDistractedHourLabel,
+    [property: JsonPropertyName("developmentSeconds")] double DevelopmentSeconds,
+    [property: JsonPropertyName("productivitySeconds")] double ProductivitySeconds,
+    [property: JsonPropertyName("communicationSeconds")] double CommunicationSeconds,
+    [property: JsonPropertyName("entertainmentSeconds")] double EntertainmentSeconds);
+
 internal sealed record MachineActionEventPayload(
     [property: JsonPropertyName("deviceId")] string DeviceId,
     [property: JsonPropertyName("accountId")] string? AccountId,
