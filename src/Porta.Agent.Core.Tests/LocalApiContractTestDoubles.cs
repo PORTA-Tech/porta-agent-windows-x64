@@ -166,6 +166,8 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
         PeakOverloadLikelihood: 0,
         IdleFragmentationIndex: 0,
         MostVolatileHourUtc: null);
+    public AgentDistractionSummary ReadCurrentDistractionSummary()
+        => new(0d, 0d, 0d, 0d, 0, 0);
     public string ExportBundle(
         IReadOnlyList<string> logFilePaths,
         string consentPath,

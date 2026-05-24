@@ -192,6 +192,8 @@ public sealed class BucketRecomputeRulesTests
         public AgentStorageInfo ReadStorageInfo() => new(RetentionDays: 0, DatabaseBytes: 0);
         public AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null)
             => new(DateOnly.FromDateTime(DateTime.UtcNow), 0, 0, 0, 0, null);
+        public AgentDistractionSummary ReadCurrentDistractionSummary()
+            => new(0d, 0d, 0d, 0d, 0, 0);
         public string ExportBundle(
             IReadOnlyList<string> logFilePaths,
             string consentPath,

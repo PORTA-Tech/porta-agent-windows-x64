@@ -106,10 +106,13 @@ internal sealed class DailyDigestReporter : BackgroundService
             AgentDistractionSummary distraction = _controller.GetCurrentDistractionSummary();
 
             // Break compliance from interventions
-            int breaksSuggested = timeline.Interventions.Count(static i =>
-                IsBreakSuggestionEvent(i.Action));
-            int breaksTaken = timeline.Interventions.Count(static i =>
-                IsBreakTakenEvent(i.Action));
+            int breaksSuggested = 0;
+            int breaksTaken = 0;
+            foreach (LocalApiEventResponse intervention in timeline.Interventions)
+            {
+                if (IsBreakSuggestionEvent(intervention.Action)) breaksSuggested++;
+                if (IsBreakTakenEvent(intervention.Action)) breaksTaken++;
+            }
 
             // Timezone offset: Dubai is UTC+4 (+240 minutes)
             const int dubaiOffsetMinutes = 240;
