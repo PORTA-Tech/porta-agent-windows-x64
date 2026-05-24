@@ -64,6 +64,7 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
 
     public AgentStorageInfo ReadStorageInfo() => _inner.ReadStorageInfo();
     public AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null) => _inner.ReadTodaySummary(dateUtc);
+    public AgentDistractionSummary ReadCurrentDistractionSummary() => _inner.ReadCurrentDistractionSummary();
 
     public string ExportBundle(
         IReadOnlyList<string> logFilePaths,
