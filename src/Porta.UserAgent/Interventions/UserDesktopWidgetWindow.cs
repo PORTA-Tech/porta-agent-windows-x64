@@ -92,6 +92,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private HwndSource? _hwndSource;
     private bool _collapsed;
     private bool _menuOpen;
+    private DateTimeOffset _menuClosedAt = DateTimeOffset.MinValue;
     private bool _dragInProgress;
     private bool _hiddenByUser;
     private bool _suspendAutoCollapseUntilPointerLeaves;
@@ -194,6 +195,9 @@ internal sealed class UserDesktopWidgetWindow : Window
                 Color = Color.FromRgb(0, 0, 0)
             }
         };
+        FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI Variable, Segoe UI");
+        TextOptions.SetTextFormattingMode(_rootBorder, TextFormattingMode.Display);
+        TextOptions.SetTextRenderingMode(_rootBorder, TextRenderingMode.ClearType);
         _rootBorder.PreviewMouseLeftButtonDown += BeginDragFromSurface;
         _rootBorder.MouseEnter += (_, _) =>
         {
@@ -212,7 +216,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         Grid bodyGrid = new()
         {
-            Margin = new Thickness(12, 2, 12, 2),   // padding: 2px 12px
+            Margin = new Thickness(12, 2, 12, 8),   // 8px bottom gives text room; prevents last line being clipped by height animation
             MinWidth = 165
         };
         bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -419,7 +423,10 @@ internal sealed class UserDesktopWidgetWindow : Window
                 VerticalAlignment = VerticalAlignment.Center
             }
         };
-        _menuButton.Click += (_, _) => ToggleMenu();
+        _menuButton.AddHandler(
+            UIElement.MouseLeftButtonDownEvent,
+            new MouseButtonEventHandler((_, _) => ToggleMenu()),
+            handledEventsToo: true);
         Grid.SetColumn(_menuButton, 2);
         _headerRow.Children.Add(_menuButton);
 
@@ -539,6 +546,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _menuPopup.Closed += (_, _) =>
         {
             _menuOpen = false;
+            _menuClosedAt = DateTimeOffset.UtcNow;
             if (IsPointerInsideWidget())
             {
                 ScheduleCollapse();
@@ -570,7 +578,6 @@ internal sealed class UserDesktopWidgetWindow : Window
         popupStack.Children.Add(CreateMenuButton("Actions", UserDesktopWidgetAction.OpenActions));
         popupStack.Children.Add(CreateMenuButton("Tracking", UserDesktopWidgetAction.OpenTracking));
         popupStack.Children.Add(CreateMenuButton("Settings", UserDesktopWidgetAction.OpenSettings));
-        popupStack.Children.Add(CreateMenuButton("System", UserDesktopWidgetAction.OpenHealth));
         popupStack.Children.Add(CreateMenuSeparator());
         popupStack.Children.Add(CreateMenuSectionLabel("Quick actions"));
         _pauseFifteenButton = CreateMenuButton("Pause 15m", UserDesktopWidgetAction.PauseFifteenMinutes);
@@ -579,7 +586,6 @@ internal sealed class UserDesktopWidgetWindow : Window
         popupStack.Children.Add(_pauseFifteenButton);
         popupStack.Children.Add(_pauseHourButton);
         popupStack.Children.Add(_resumeButton);
-        popupStack.Children.Add(CreateMenuButton("Recalibrate baseline", UserDesktopWidgetAction.Recalibrate));
         popupStack.Children.Add(CreateMenuSeparator());
         popupStack.Children.Add(CreateMenuButton("Reset position", UserDesktopWidgetAction.ResetPosition));
         _hideWidgetButton = CreateMenuButton("Hide widget", UserDesktopWidgetAction.HideWidget);
@@ -639,6 +645,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         Expand();
         RefreshInlineMessage();
         UpdateWindowHeight();
+        // Deferred re-measure: runs after WPF's normal layout pass so the height
+        // animation always targets the fully settled text height.
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, UpdateWindowHeight);
         _attentionTimer.Stop();
         _attentionTimer.Start();
     }
@@ -658,6 +667,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _promptTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(prompt.DurationSeconds, 30, 300));
         _promptTimer.Start();
         UpdateWindowHeight();
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, UpdateWindowHeight);
     }
 
     public void ResetToDefaultPosition()
@@ -1255,8 +1265,22 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        if (_menuPopup.IsOpen)
+        {
+            _menuPopup.IsOpen = false;
+            return;
+        }
+
+        // Guard against the re-open race: WPF fires Closed (sets _menuClosedAt) before
+        // the button Click fires, so clicking the menu button while the popup is open
+        // would immediately reopen it without this check.
+        if ((DateTimeOffset.UtcNow - _menuClosedAt).TotalMilliseconds < 300)
+        {
+            return;
+        }
+
         Expand();
-        _menuPopup.IsOpen = !_menuPopup.IsOpen;
+        _menuPopup.IsOpen = true;
     }
 
     private void Collapse()

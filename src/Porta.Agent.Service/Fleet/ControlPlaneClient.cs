@@ -59,7 +59,7 @@ internal sealed class ControlPlaneClient : IDisposable
         _httpClient = new HttpClient(handler)
         {
             BaseAddress = baseUri,
-            Timeout = TimeSpan.FromSeconds(5)
+            Timeout = TimeSpan.FromSeconds(60)
         };
     }
 
