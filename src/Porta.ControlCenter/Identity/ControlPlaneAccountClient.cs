@@ -150,19 +150,23 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         }
     }
 
-    public async Task<ControlPlaneProfileUpdateResponse?> UpdateProfileAsync(string accessToken, string displayName, CancellationToken token = default)
+    public async Task<ControlPlaneProfileUpdateResponse?> UpdateProfileAsync(string accessToken, string displayName, string? primaryEmail = null, CancellationToken token = default)
     {
         if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(displayName))
         {
             return null;
         }
 
+        string? normalizedEmail = !string.IsNullOrWhiteSpace(primaryEmail) && primaryEmail.Contains('@')
+            ? primaryEmail.Trim().ToLowerInvariant()
+            : null;
+
         try
         {
             using HttpRequestMessage request = CreateJsonRequest(
                 HttpMethod.Patch,
                 "v1/me/profile",
-                new ControlPlaneProfileUpdateRequest(displayName.Trim()),
+                new ControlPlaneProfileUpdateRequest(displayName.Trim(), normalizedEmail),
                 accessToken);
             using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)

@@ -71,7 +71,8 @@ internal sealed record ControlPlaneRegisterResult(
     string? Message);
 
 internal sealed record ControlPlaneProfileUpdateRequest(
-    [property: JsonPropertyName("display_name")] string DisplayName);
+    [property: JsonPropertyName("display_name")] string DisplayName,
+    [property: JsonPropertyName("primary_email")] string? PrimaryEmail = null);
 
 internal sealed record ControlPlaneProfileUpdateResponse(
     [property: JsonPropertyName("ok")] bool Ok,

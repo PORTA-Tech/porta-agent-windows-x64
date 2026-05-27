@@ -14,7 +14,9 @@
         ResizeMode="CanResize"
         Background="#0D0D12"
         Foreground="#E6E9ED"
-        FontFamily="Segoe UI Variable, Segoe UI, Inter">
+        FontFamily="Segoe UI Variable, Segoe UI, Inter"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType">
     <Window.TaskbarItemInfo>
         <TaskbarItemInfo x:Name="WindowTaskbarItemInfo" Description="Ari" />
     </Window.TaskbarItemInfo>
@@ -1979,10 +1981,11 @@
                                         <TextBlock Text="Display name" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,4" />
                                         <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,4"><TextBox x:Name="AccountDisplayNameTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
                                         <TextBlock x:Name="AccountProfileStatusText" Text="Sign in to change your display name." Margin="0,0,0,10" Foreground="#475569" TextWrapping="Wrap" FontSize="12" />
-                                        <TextBlock Text="Email" FontSize="12" Foreground="#475569" />
-                                        <TextBlock x:Name="AccountReadOnlyEmailValue" Text="Not available" Margin="0,4,0,4" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
-                                        <TextBlock Text="Your email is set when your account is created and cannot be changed here. Contact your workspace admin if you need to update it." Margin="0,0,0,12" TextWrapping="Wrap" FontSize="11" Foreground="#475569" />
-                                        <Button x:Name="AccountSaveProfileButton" Content="Save display name" Padding="12,6" HorizontalAlignment="Left" Click="AccountSaveProfileButton_Click" />
+                                        <TextBlock Text="Notification email" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,4" />
+                                        <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,4"><TextBox x:Name="AccountNotificationEmailTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
+                                        <TextBlock x:Name="AccountReadOnlyEmailValue" Text="Not available" Visibility="Collapsed" />
+                                        <TextBlock Text="This is the email where Ari sends your daily digest. Change it here and save." Margin="0,0,0,12" TextWrapping="Wrap" FontSize="11" Foreground="#475569" />
+                                        <Button x:Name="AccountSaveProfileButton" Content="Save profile" Padding="12,6" HorizontalAlignment="Left" Click="AccountSaveProfileButton_Click" />
                                     </StackPanel>
                                 </Border>
                                 <Border x:Name="AccountWorkspaceSectionPanel" Grid.Column="1" Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="8,0,0,0">

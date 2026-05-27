@@ -425,6 +425,11 @@ public partial class MainWindow
         {
             AccountDisplayNameTextBox.Text = account?.DisplayName ?? string.Empty;
         }
+        if (!AccountNotificationEmailTextBox.IsKeyboardFocusWithin)
+        {
+            AccountNotificationEmailTextBox.Text = account?.PrimaryEmail ?? string.Empty;
+        }
+        AccountNotificationEmailTextBox.IsEnabled = signedIn;
         AccountReadOnlyEmailValue.Text = account?.PrimaryEmail ?? NotAvailableText;
         AccountProfileStatusText.Text = signedIn
             ? "Change the name PORTA shows for your account."
@@ -1365,11 +1370,19 @@ private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
             return;
         }
 
+        string? notificationEmail = AccountNotificationEmailTextBox.Text?.Trim();
+        if (!string.IsNullOrWhiteSpace(notificationEmail) && !notificationEmail.Contains('@'))
+        {
+            _accountStatusMessage = "Enter a valid notification email address.";
+            PopulateAccountSurface();
+            return;
+        }
+
         AccountSaveProfileButton.IsEnabled = false;
         try
         {
             ControlPlaneProfileUpdateResponse? response = await _controlPlaneAccountClient
-                .UpdateProfileAsync(_accountSession.AccessToken, displayName)
+                .UpdateProfileAsync(_accountSession.AccessToken, displayName, string.IsNullOrWhiteSpace(notificationEmail) ? null : notificationEmail)
                 .ConfigureAwait(true);
             if (response == null || !response.Ok)
             {
