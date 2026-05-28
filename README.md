@@ -1,6 +1,6 @@
 # Ari — Windows Agent (porta-agent-windows-x64)
 
-**Ari** is a Windows productivity-tracking agent. It runs quietly in the background, captures keyboard/mouse signals (no content, only metadata), classifies focus/pressure/overload states, and surfaces them through a floating desktop widget and a WPF Control Center app.
+**Ari** is a Windows productivity-tracking agent. It runs quietly in the background, captures keyboard/mouse signals (no content, only metadata), classifies focus/pressure/overload/distraction states, and surfaces them through a floating desktop widget, a WPF Control Center app, and a nightly email digest.
 
 ---
 
@@ -9,8 +9,10 @@
 1. **Captures input signals** every second — keystrokes count, mouse movement, scroll velocity, app focus switches, idle time. Never raw text, screen content, clipboard, or file names.
 2. **Analyzes in 5-second buckets** — normalizes signals against a personal baseline (Welford online stats), scores focus strength, overload likelihood, distraction pressure.
 3. **Tracks work sessions** — detects focus episodes (≥15 s sustained focus), passive focus (reading/thinking without input), context switches, breaks. Resets only on genuine 3+ min idle or 5+ min app context shift.
-4. **Shows real-time state** — floating widget shows Work today / Last focus session / Pressure. CC shows full history, pressure detail, volatile hours, daily timeline.
-5. **Suggests breaks** after configurable thresholds (default: 30-min short break, 90-min long break) once the baseline has enough data (calibration phase = "Provisional"; ready = "Ready").
+4. **Detects distractions** — 14 distraction patterns (app-switch spirals, context excursions, social interrupts, junk browsing, gaming launchers) with time-of-day multipliers so morning deep-work is scored more strictly.
+5. **Shows real-time state** — floating widget shows Work today / Last focus session / Pressure. CC shows full history calendar, distraction breakdown, daily timeline.
+6. **Sends a nightly digest** — fires at 23:30 Dubai time if ≥1 hour was tracked. The control plane builds the HTML email and sends it to the address configured in Settings.
+7. **Suggests breaks** after configurable thresholds (default: 30-min short break, 90-min long break) once the baseline has enough data (calibration phase = "Provisional"; ready = "Ready").
 
 ---
 
@@ -25,21 +27,25 @@
 ### ari.exe (service)
 
 - Hosts the local HTTP API on `127.0.0.1:17887–17950` (port chosen at install, stored in `C:\ProgramData\PortaAgent\local-api.endpoint.json`).
-- Runs the full signal pipeline: input ingestion → bucket finalization → state inference → snapshot update.
+- Runs the full signal pipeline: input ingestion → bucket finalization → state inference → distraction detection → snapshot update.
 - Persists everything to SQLite at `C:\ProgramData\PortaAgent\core-state.db` (WAL mode, NORMAL synchronous, autocheckpoint=100).
 - Auth token stored (DPAPI, LocalMachine scope) at `C:\ProgramData\PortaAgent\security\api_token.bin`. Runtime settings at `C:\ProgramData\PortaAgent\security\local-api.runtime.json`.
+- Runs `DailyDigestReporter` — fires at 23:30 Dubai time, POSTs today's summary to the control plane which triggers the digest email.
+- Runs `DefenderExclusionWorker` — renews the Windows Defender DB exclusion every 60 min.
 
 ### Porta.UserAgent.exe
 
 - Captures keyboard/mouse hooks in the user desktop session (can't run as service).
 - Posts input signals to `ari.exe` via the local API every 5 seconds.
 - Drives the floating desktop widget — polls the local API every 4 seconds.
-- Shows break toasts and overload notifications.
+- Shows break toasts and overload notifications. Suppresses the notification pipeline after 5+ min idle.
 
 ### Porta.ControlCenter.exe
 
 - WPF dashboard, reads all data from the local API.
-- Shows today's focus timeline, pressure history, diagnostics, settings.
+- **Today** — focus, pressure, and away cards with live progress bars.
+- **History** — Day/Week/2-Week calendar grid with coloured episode blocks (focus, away, distraction kinds), tooltips, heatmap.
+- **Settings** — break thresholds, editable notification email address.
 - Single-instance; double-click tray icon to open.
 
 ---
@@ -49,7 +55,8 @@
 ```
 src/
   Porta.Agent.Service/     # Service host + local API + pipeline orchestration
-  Porta.Agent.Core/        # State machine, SQLite store, DB migrations
+    Fleet/                 # Control plane client, telemetry reporter, nightly digest sender
+  Porta.Agent.Core/        # State machine, SQLite store, DB migrations, distraction detection
   Porta.Agent.LocalApi/    # HTTP endpoint mapping, response contracts, client
   Porta.UserAgent/         # Widget window, input capture, session host
   Porta.ControlCenter/     # WPF dashboard
@@ -128,8 +135,10 @@ Key tables:
 | "Tracking limited" banner | `freshness_state != fresh` | Clears once state refreshes |
 | "Learning your pattern: Provisional" | Baseline < threshold | First ~30-60 min |
 | "Learning your pattern: Ready" | Baseline established | Permanent once reached |
+| AWAY dot | User idle / passive state | While away |
+| DISTRACTED label | Active distraction episode | Duration of episode |
 
-**The widget is not a real-time display.** Work today updates on bucket cadence (~60s). Focus and Pressure update on state refresh cycle (~5-10s when healthy). If the API is hung (e.g. VACUUM blocking thread pool), the widget shows last-cached timeline for Work but `—` for Focus/Pressure.
+**The widget is not a real-time display.** Work today updates on bucket cadence (~60s). Focus and Pressure update on state refresh cycle (~5-10s when healthy). Focus is capped at Work today — it can never exceed total tracked time for the day.
 
 ---
 
@@ -162,6 +171,9 @@ $tc.Connect("127.0.0.1", (Get-Content C:\ProgramData\PortaAgent\local-api.endpoi
 ### History page empty in CC
 **Cause:** `_retention` was null when timeline was fetched; 90-day fallback wasn't applied. Fixed in current version.
 
+### Digest email not arriving
+**Cause:** (a) Notification email not set in Settings, (b) fewer than 1 hour tracked that day, or (c) control plane cold-started too slowly. The `ControlPlaneClient` has a 60s timeout to survive Render free-tier cold starts (~50s). Check Windows Event Log for `DailyDigestReporter` errors.
+
 ---
 
 ## SQLite Pragmas (DbOpen.cs — do not change without understanding the chain)
@@ -181,36 +193,11 @@ $tc.Connect("127.0.0.1", (Get-Content C:\ProgramData\PortaAgent\local-api.endpoi
 
 | Version | Key change |
 |---|---|
-| 1.2.10 | `wal_autocheckpoint=100` keeps WAL at ~400KB, ending Defender-induced stalls |
-| 1.2.9 | Revert 50MB page cache (caused GC pressure); keep NORMAL sync + id/stride |
-| 1.2.8 | `synchronous=NORMAL` for WAL (was FULL — 2 fsyncs per commit); fix PRAGMA/constant mismatch that killed service |
-| 1.2.7 | Fix `ReadTimeline` GROUP BY: use `id/stride` (state_buckets has no bucket_seq column) |
-| 1.2.6 | Fix `ReadTimeline` GROUP BY: bucket_seq → id/stride (wrong column name in 1.2.6) |
-| 1.2.5 | Push timeline bucketing into SQL (`GROUP BY id/stride`); was loading 352K rows into .NET heap → thread pool exhaustion at ~3min |
-| 1.2.4 | Replace blocking VACUUM/TRUNCATE with PASSIVE checkpoint; fix installer CloseApplication race with SCM recovery |
-| 1.2.3 | Remove VACUUM from V19 migration (SQLite forbids VACUUM inside BEGIN IMMEDIATE) |
-| 1.2.2 | V19 migration: stop writing brain_snapshots (3.5 GB table, never read since Step 9) |
-| 1.2.1 | PublishSingleFile=false (was causing Defender to scan 200MB .NET runtime on first run) |
-| 1.2.0 | Version bump to skip 1.1.x MSIs that WiX rejected as downgrade |
-
----
-
-## Connected Repos
-
-| Repo | Role |
-|---|---|
-| `porta-control-plane` | Backend: policy governance, fleet management, signed intervention commands |
-| `porta-api-contracts` | Shared DTO/OpenAPI contracts between service and control plane |
-| `porta-operations-console` | Operator web dashboard for fleet oversight |
-
-The Windows agent connects to the control plane via `PORTA_BACKEND_URL` for policy sync and fleet telemetry. All local analysis runs offline-first — the agent is fully functional without a backend connection.
-
----
-
-## Security & Privacy
-
-- No raw text, screen pixels, clipboard, file contents, or URLs ever captured or stored
-- No signals emitted before consent is active (`consent` table)
-- Auth token encrypted with DPAPI (LocalMachine scope) — readable by any local process, not remotely
-- Local API bound to `127.0.0.1` loopback only
-- `ProtectionScope.LocalMachine` means the token is accessible to both the service (SYSTEM) and user processes (Porta.UserAgent, Porta.ControlCenter)
+| 1.2.63 | Editable notification email in Control Center Settings |
+| 1.2.62 | Control plane HTTP timeout 5s → 60s (Render cold starts); widget menu click-to-close fix |
+| 1.2.60 | Nightly digest email (23:30 Dubai time, min 1h tracked) |
+| 1.2.59 | Distraction detection Phase 3 — patterns 9–14, GamingLauncher category |
+| 1.2.56 | Widget: AWAY dot, DISTRACTED state, focus>work cap, colour-coded pressure |
+| 1.2.55 | Idle gate suppresses notification pipeline after 5min idle |
+| 1.2.44 | Distraction detection Phase 1 — 8 patterns, calendar colours/labels/tooltips |
+| 1.2.30s | History page full redesign — Day/Week/2-Week calendar grid, episode blocks,
