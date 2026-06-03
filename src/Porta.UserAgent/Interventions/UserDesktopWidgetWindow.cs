@@ -1,6 +1,7 @@
 namespace Porta.UserAgent.Interventions;
 
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -90,6 +91,8 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly Button _resumeButton;
 
     private HwndSource? _hwndSource;
+    private bool _isLightTheme;
+    private FileSystemWatcher? _appearanceWatcher;
     private bool _collapsed;
     private bool _menuOpen;
     private DateTimeOffset _menuClosedAt = DateTimeOffset.MinValue;
@@ -357,10 +360,10 @@ internal sealed class UserDesktopWidgetWindow : Window
         progressBarTrackLocal.SizeChanged += (_, _) => ApplyProgressBarWidth();
 
         // Row 3: 2-stat bottom row — WORK + PRESSURE only, no SESSION
-        _stat1Label = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)) };
-        _stat1Value = new TextBlock { FontSize = 11, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)) };
-        _stat2Label = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)) };
-        _stat2Value = new TextBlock { FontSize = 11, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)) };
+        _stat1Label = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)) };
+        _stat1Value = new TextBlock { FontSize = 11, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0xE2, 0xE8, 0xF0)) };
+        _stat2Label = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)) };
+        _stat2Value = new TextBlock { FontSize = 11, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0xE2, 0xE8, 0xF0)) };
         // stat3 fields exist for compat but are not shown
         _stat3Label = new TextBlock { Visibility = Visibility.Collapsed };
         _stat3Value = new TextBlock { Visibility = Visibility.Collapsed };
@@ -598,7 +601,17 @@ internal sealed class UserDesktopWidgetWindow : Window
             InitializePlacement();
             RefreshSurfaceVisibilityHealth();
         };
-        Loaded += (_, _) => RefreshSurfaceVisibilityHealth();
+        Loaded += (_, _) =>
+        {
+            RefreshSurfaceVisibilityHealth();
+            _isLightTheme = AppearancePreferenceStore.LoadIsLightTheme();
+            if (_isLightTheme)
+            {
+                ApplyTheme(true);
+            }
+
+            TryStartAppearanceWatcher();
+        };
         IsVisibleChanged += (_, _) => RefreshSurfaceVisibilityHealth();
         SizeChanged += (_, _) =>
         {
@@ -936,17 +949,18 @@ internal sealed class UserDesktopWidgetWindow : Window
         string pressureDisp = state.TertiaryMetric.Value;
         _stat1Label.Text = "WORK";
         _stat1Value.Text = string.IsNullOrWhiteSpace(workVal) ? "—" : workVal;
-        // WORK stays neutral grey always — it's informational, no threshold signal
-        _stat1Value.Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8));
+        // WORK stays neutral always — informational, no threshold signal
+        Color neutralValueColor = _isLightTheme ? Color.FromRgb(0x1E, 0x29, 0x3B) : Color.FromRgb(0xE2, 0xE8, 0xF0);
+        _stat1Value.Foreground = new SolidColorBrush(neutralValueColor);
 
         _stat2Label.Text = "PRESSURE";
         _stat2Value.Text = string.IsNullOrWhiteSpace(pressureDisp) ? "—" : pressureDisp;
-        // PRESSURE coloured by level: grey < 65% | amber 65–80% | red > 80%
+        // PRESSURE coloured by level: neutral < 65% | amber 65–80% | red > 80%
         double pressurePct = TryParsePercent(pressureDisp);
         _stat2Value.Foreground = new SolidColorBrush(
             pressurePct >= 0.80d ? Color.FromRgb(0xEF, 0x44, 0x44) :
             pressurePct >= 0.65d ? Color.FromRgb(0xF5, 0x9E, 0x0B) :
-            Color.FromRgb(0x94, 0xA3, 0xB8));
+            neutralValueColor);
     }
 
     /// <summary>Updates progress bar fill width from stored percentage whenever the track is sized.</summary>
@@ -1556,8 +1570,8 @@ internal sealed class UserDesktopWidgetWindow : Window
         Rect bounds = new(left, top, width, height);
         bounds.Inflate(28d, 22d);
 
-        System.Drawing.Point cursor = FormsCursor.Position;
-        return bounds.Contains(new Point(cursor.X, cursor.Y));
+        Point cursor = CursorInLogicalPixels();
+        return bounds.Contains(cursor);
     }
 
     private bool IsPointerInsideWidget()
@@ -1570,8 +1584,8 @@ internal sealed class UserDesktopWidgetWindow : Window
         double width = ActualWidth > 0d ? ActualWidth : Width;
         double height = ActualHeight > 0d ? ActualHeight : Height;
         Rect bounds = new(Left, Top, width, height);
-        System.Drawing.Point cursor = FormsCursor.Position;
-        return bounds.Contains(new Point(cursor.X, cursor.Y));
+        Point cursor = CursorInLogicalPixels();
+        return bounds.Contains(cursor);
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -2116,6 +2130,92 @@ internal sealed class UserDesktopWidgetWindow : Window
             (int)Math.Round(ActualWidth > 0d ? ActualWidth : Width),
             (int)Math.Round(ActualHeight > 0d ? ActualHeight : Height),
             NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow);
+    }
+
+    /// <summary>
+    /// Converts the cursor's physical screen-pixel position into WPF logical pixels,
+    /// correcting for DPI scaling on high-DPI or mixed-DPI displays.
+    /// Falls back to the raw physical coordinates when the PresentationSource is unavailable.
+    /// </summary>
+    private Point CursorInLogicalPixels()
+    {
+        System.Drawing.Point physical = FormsCursor.Position;
+        PresentationSource? source = PresentationSource.FromVisual(this);
+        if (source?.CompositionTarget == null)
+        {
+            return new Point(physical.X, physical.Y);
+        }
+
+        Matrix fromDevice = source.CompositionTarget.TransformFromDevice;
+        return new Point(physical.X * fromDevice.M11, physical.Y * fromDevice.M22);
+    }
+
+    public void ApplyTheme(bool isLight)
+    {
+        if (!CanAcceptUiActions)
+        {
+            return;
+        }
+
+        _isLightTheme = isLight;
+
+        _rootBorder.Background = new SolidColorBrush(isLight
+            ? Color.FromRgb(0xF8, 0xFA, 0xFC)
+            : Color.FromRgb(0x11, 0x11, 0x18));
+        _rootBorder.BorderBrush = new SolidColorBrush(isLight
+            ? Color.FromRgb(0xCB, 0xD5, 0xE1)
+            : Color.FromRgb(0x25, 0x25, 0x35));
+        _progressBarTrack.Background = new SolidColorBrush(isLight
+            ? Color.FromRgb(0xE2, 0xE8, 0xF0)
+            : Color.FromRgb(0x25, 0x25, 0x35));
+
+        var labelBrush = new SolidColorBrush(isLight
+            ? Color.FromRgb(0x47, 0x55, 0x69)
+            : Color.FromRgb(0x94, 0xA3, 0xB8));
+        var valueBrush = new SolidColorBrush(isLight
+            ? Color.FromRgb(0x1E, 0x29, 0x3B)
+            : Color.FromRgb(0xE2, 0xE8, 0xF0));
+
+        _stat1Label.Foreground = labelBrush;
+        _stat2Label.Foreground = labelBrush;
+        _stat1Value.Foreground = valueBrush;
+        _stat2Value.Foreground = valueBrush;
+        _summaryStatusText.Foreground = new SolidColorBrush(isLight
+            ? Color.FromRgb(0x47, 0x55, 0x69)
+            : Color.FromRgb(0xB4, 0xC1, 0xD0));
+        _summaryFooterText.Foreground = new SolidColorBrush(isLight
+            ? Color.FromRgb(0x94, 0xA3, 0xB8)
+            : Color.FromRgb(0x82, 0x92, 0xA3));
+    }
+
+    private void TryStartAppearanceWatcher()
+    {
+        try
+        {
+            string dir = AppearancePreferenceStore.DirectoryPath;
+            string fileName = Path.GetFileName(AppearancePreferenceStore.FilePath);
+            if (!Directory.Exists(dir))
+            {
+                return;
+            }
+
+            _appearanceWatcher = new FileSystemWatcher(dir, fileName)
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName,
+                EnableRaisingEvents = true
+            };
+            _appearanceWatcher.Changed += OnAppearanceFileChanged;
+            _appearanceWatcher.Created += OnAppearanceFileChanged;
+        }
+        catch
+        {
+        }
+    }
+
+    private void OnAppearanceFileChanged(object sender, FileSystemEventArgs e)
+    {
+        bool isLight = AppearancePreferenceStore.LoadIsLightTheme();
+        Dispatcher.BeginInvoke(() => ApplyTheme(isLight));
     }
 
     private sealed record WidgetAttentionMessage(string Title, string Message);

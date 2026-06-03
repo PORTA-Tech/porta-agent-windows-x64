@@ -782,7 +782,7 @@
                                 <StackPanel>
                                     <TextBlock Text="WORK TODAY"
                                                FontSize="11" FontWeight="SemiBold"
-                                               Foreground="#475569" Margin="0,0,0,6" />
+                                               Foreground="#94A3B8" Margin="0,0,0,6" />
                                     <TextBlock x:Name="NowOverloadValueText" Text="—" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"
                                                Foreground="#F1F5F9" />
                                     <TextBlock x:Name="NowOverloadActiveText" Text="" Margin="0,4,0,0"
@@ -1457,6 +1457,12 @@
                                     <TextBlock x:Name="SettingsNavFeaturesText" Text="Features" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
+                            <Border x:Name="SettingsNavAppearance" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Appearance" MouseLeftButtonUp="SettingsSubNav_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#64748B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 3a9 9 0 1 0 0 18A9 9 0 0 0 12 3zm0 2a7 7 0 0 1 0 14V5z" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavAppearanceText" Text="Appearance" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </Border>
                     <ScrollViewer x:Name="SettingsContentScrollViewer" Grid.Column="1" VerticalScrollBarVisibility="Auto" Background="#0D0D12">
@@ -1554,6 +1560,26 @@
                                     </StackPanel>
                                 </Border>
                                 <WrapPanel Margin="0,4,0,0"><Button Content="Apply controls" Padding="12,7" Margin="0,0,10,0" Click="SaveSettingsButton_Click" /></WrapPanel>
+                            </StackPanel>
+                            <StackPanel x:Name="SettingsSectionAppearance" Visibility="Collapsed">
+                                <TextBlock Text="Appearance" FontSize="15" FontWeight="Medium" Foreground="#F1F5F9" Margin="0,0,0,4" />
+                                <TextBlock Text="Customize how the Control Center and widget look." FontSize="12" Foreground="#64748B" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <Border Background="Transparent" BorderBrush="#1C1C28" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="THEME" FontSize="11" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,10" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                                <TextBlock Text="Light mode" FontSize="13" FontWeight="Medium" Foreground="#E2E8F0" />
+                                                <TextBlock Text="Switch between dark (default) and light interface" FontSize="12" Foreground="#64748B" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <CheckBox x:Name="AppearanceLightModeToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="AppearanceLightModeToggle_Click" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                             <StackPanel x:Name="SettingsSectionFeatures" Visibility="Collapsed">
                                 <TextBlock Text="Features" FontSize="15" FontWeight="Medium" Foreground="#F1F5F9" Margin="0,0,0,4" />

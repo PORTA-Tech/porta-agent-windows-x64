@@ -107,6 +107,7 @@ public partial class MainWindow : Window
         fallbackExplanation: string.Empty,
         nowUtc: DateTimeOffset.UtcNow);
     private HistoryFocusHeatmap? _latestHistoryHeatmap;
+    private bool _isLightTheme;
 
     private enum UiSection
     {
@@ -180,6 +181,13 @@ public partial class MainWindow : Window
         };
 
         SidebarDateText.Text = DateTime.Now.ToString("ddd d MMM", System.Globalization.CultureInfo.InvariantCulture);
+        _isLightTheme = AppearancePreferenceStore.LoadIsLightTheme();
+        AppearanceLightModeToggle.IsChecked = _isLightTheme;
+        if (_isLightTheme)
+        {
+            ApplyTheme(true);
+        }
+
         ShowSection(UiSection.Overview);
         UpdateHistoryControls();
         StateChanged += (_, _) => UpdateWindowChromeButtons();
@@ -1001,6 +1009,7 @@ public partial class MainWindow : Window
         SettingsSectionCollection.Visibility  = Visibility.Collapsed;
         SettingsSectionCalibration.Visibility = Visibility.Collapsed;
         SettingsSectionFeatures.Visibility    = Visibility.Collapsed;
+        SettingsSectionAppearance.Visibility  = Visibility.Collapsed;
 
         var navItems = new[]
         {
@@ -1009,6 +1018,7 @@ public partial class MainWindow : Window
             (SettingsNavCollection,  SettingsNavCollectionText),
             (SettingsNavCalibration, SettingsNavCalibrationText),
             (SettingsNavFeatures,    SettingsNavFeaturesText),
+            (SettingsNavAppearance,  SettingsNavAppearanceText),
         };
         var inactiveColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#64748B"));
         var inactiveBg    = new SolidColorBrush(Colors.Transparent);
@@ -1028,12 +1038,50 @@ public partial class MainWindow : Window
             case "Collection":  activeNav = SettingsNavCollection;  activeLabel = SettingsNavCollectionText;  activeSection = SettingsSectionCollection;  break;
             case "Calibration": activeNav = SettingsNavCalibration; activeLabel = SettingsNavCalibrationText; activeSection = SettingsSectionCalibration; break;
             case "Features":    activeNav = SettingsNavFeatures;    activeLabel = SettingsNavFeaturesText;    activeSection = SettingsSectionFeatures;    break;
+            case "Appearance":  activeNav = SettingsNavAppearance;  activeLabel = SettingsNavAppearanceText;  activeSection = SettingsSectionAppearance;  break;
             default:            activeNav = SettingsNavIntensity;   activeLabel = SettingsNavIntensityText;   activeSection = SettingsSectionIntensity;   break;
         }
         activeNav.Background   = activeBg;
         activeLabel.Foreground = activeColor;
         activeLabel.FontWeight = FontWeights.Medium;
         activeSection.Visibility = Visibility.Visible;
+    }
+
+    private void AppearanceLightModeToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _isLightTheme = AppearanceLightModeToggle.IsChecked == true;
+        AppearancePreferenceStore.Save(_isLightTheme);
+        ApplyTheme(_isLightTheme);
+    }
+
+    private void ApplyTheme(bool isLight)
+    {
+        SetBrushColor("PortaTextPrimaryBrush",    isLight ? "#0F172A" : "#F1F5F9");
+        SetBrushColor("PortaTextSecondaryBrush",  isLight ? "#475569" : "#94A3B8");
+        SetBrushColor("PortaTextMutedBrush",      isLight ? "#94A3B8" : "#475569");
+        SetBrushColor("PortaSurfaceBaseBrush",    isLight ? "#F1F5F9" : "#1C1C2E");
+        SetBrushColor("PortaSurfaceElevatedBrush",isLight ? "#FFFFFF"  : "#1B1F25");
+        SetBrushColor("PortaSurfaceHoverBrush",   isLight ? "#E8ECF0" : "#1D232A");
+        SetBrushColor("PortaBorderBrush",         isLight ? "#CBD5E1" : "#252535");
+        SetBrushColor("PortaBorderHoverBrush",    isLight ? "#94A3B8" : "#3A3A50");
+
+        Background = new SolidColorBrush(isLight
+            ? Color.FromRgb(0xF0, 0xF4, 0xF8)
+            : Color.FromRgb(0x0D, 0x0D, 0x12));
+        Foreground = new SolidColorBrush(isLight
+            ? Color.FromRgb(0x0F, 0x17, 0x2A)
+            : Color.FromRgb(0xE6, 0xE9, 0xED));
+        SettingsContentScrollViewer.Background = new SolidColorBrush(isLight
+            ? Color.FromRgb(0xF0, 0xF4, 0xF8)
+            : Color.FromRgb(0x0D, 0x0D, 0x12));
+    }
+
+    private void SetBrushColor(string key, string hexColor)
+    {
+        if (Resources[key] is SolidColorBrush brush && !brush.IsFrozen)
+        {
+            brush.Color = (Color)ColorConverter.ConvertFromString(hexColor);
+        }
     }
 
     private void DiagnosticsNavButton_Click(object sender, RoutedEventArgs e)
@@ -1877,33 +1925,100 @@ public partial class MainWindow : Window
         double? focusEpisodeSeconds,
         string readableExplanation)
     {
-        // Conversational Ari sentence — one line, colleague tone, no system language.
+        // Conversational Ari sentence — varies by real state. Colleague tone, not system language.
         if (todayState == TodayTrackingState.Paused)
-        {
             return "Tracking is paused — pick up where you left off when you're ready.";
-        }
 
         if (todayState == TodayTrackingState.Unavailable)
-        {
             return "Can't reach the local service right now — check the System page if this persists.";
-        }
 
         LocalApiCurrentSnapshotResponse? snap = _lastSnapshot;
+        bool analysisReady = snap?.analysis_ready == true;
         double pressureLevel = snap != null ? ResolvePressureLevel(snap) : 0d;
-        string pressureText = snap?.analysis_ready == true
-            ? $"pressure is at {(int)(pressureLevel * 100)}%"
-            : "pressure is still updating";
+        int hour = DateTime.Now.Hour;
 
-        if (todayMetrics.HasProcessedTimeline)
+        // 1. Overload active right now — most urgent
+        if (analysisReady && snap!.OverloadActive)
+            return "You're in overload right now — step away for a few minutes if you can.";
+
+        // 2. Break pending — Ari already knows one is needed
+        if (analysisReady && snap!.BreakPendingAction != null)
+            return "Ari thinks you've earned a break. Even 5 minutes off will help you come back sharper.";
+
+        // 3. No timeline yet — session just started or data warming up
+        if (!todayMetrics.HasProcessedTimeline)
         {
-            string workText = FormatReadableDuration(todayMetrics.DisplayedTrackedTodaySeconds);
-            string pressureContext = pressureLevel >= 0.80 ? "— you might want a break soon"
-                : pressureLevel >= 0.65 ? "— watch the pressure"
-                : "— staying in a good zone";
-            return $"You've been working {workText} and {pressureText} {pressureContext}.";
+            return hour < 10
+                ? "Morning is just getting started — Ari is learning your patterns for today."
+                : "Ari is warming up — your work stats will appear shortly.";
         }
 
-        return "Ari is warming up — your work stats will appear shortly.";
+        string workText = FormatReadableDuration(todayMetrics.DisplayedTrackedTodaySeconds);
+        double trackedSec = todayMetrics.TrackedTodaySeconds;
+        double distractionRatio = trackedSec > 0 ? todayMetrics.DistractionTodaySeconds / trackedSec : 0d;
+        double focusRatio = trackedSec > 0 ? todayMetrics.FocusedTodaySeconds / trackedSec : 0d;
+
+        // 4. Very short session — still warming up
+        if (todayMetrics.DisplayedTrackedTodaySeconds < 900)
+        {
+            return hour < 10
+                ? $"Good morning — you're {workText} in. Ari is tracking."
+                : $"You're {workText} in — Ari is building your picture for today.";
+        }
+
+        // 5. Deep work active — celebrate and protect it
+        if (analysisReady && snap!.DeepWorkActive)
+        {
+            double streakSec = snap.SustainedAttentionDurationSec;
+            if (streakSec >= 2700) // 45+ min streak
+            {
+                string streakStr = FormatReadableDuration(streakSec);
+                return $"You're in deep work — {streakStr} streak and counting. Don't stop now.";
+            }
+            return $"You're in deep work right now after {workText} today. Keep that window protected.";
+        }
+
+        // 6. High pressure — suggest recovery
+        if (analysisReady && pressureLevel >= 0.80)
+            return $"You've been at it for {workText} and pressure is climbing — a short break now will reset your focus clock.";
+
+        // 7. High fatigue signal
+        if (analysisReady && snap!.FatigueProbability >= 0.70)
+            return $"You've been working {workText} — fatigue is creeping in. Consider stepping away for a few minutes.";
+
+        // 8. High distraction ratio — give concrete feedback
+        if (distractionRatio >= 0.35)
+        {
+            int distrPct = (int)(distractionRatio * 100);
+            return $"You've been working {workText} but about {distrPct}% has been distraction time — narrowing your focus window could help.";
+        }
+
+        // 9. Solid focus day — positive reinforcement
+        if (focusRatio >= 0.60 && (!analysisReady || pressureLevel < 0.65))
+        {
+            int focusPctVal = (int)(focusRatio * 100);
+            return $"You've been working {workText} with {focusPctVal}% in focus — solid day so far.";
+        }
+
+        // 10. Evening wind-down
+        if (hour >= 18)
+            return $"You've put in {workText} today. Good time to wrap up and let things settle overnight.";
+
+        // 11. Afternoon slump window — proactive fatigue nudge
+        if (hour >= 14 && hour < 17 && analysisReady && snap!.FatigueProbability >= 0.45)
+            return $"You've been working {workText} — this is usually when fatigue peaks. A 10-minute break now pays off later.";
+
+        // 12. Default with pressure context
+        if (analysisReady)
+        {
+            if (pressureLevel >= 0.65)
+                return $"You've been working {workText} — watch the pressure, it's edging up.";
+            if (pressureLevel < 0.40)
+                return $"You've been working {workText} and you're in a good zone — keep the rhythm.";
+            return $"You've been working {workText}. Pressure is steady — keep it going.";
+        }
+
+        return $"You've been working {workText} — Ari is still calibrating your pressure signal.";
     }
 
     private string BuildTodayWorkStartText(TodayPageMetrics todayMetrics)
