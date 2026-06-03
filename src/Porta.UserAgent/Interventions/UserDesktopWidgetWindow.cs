@@ -597,13 +597,24 @@ internal sealed class UserDesktopWidgetWindow : Window
             _menuOpen = true;
             _collapseTimer.Stop();
             _reexpandTimer.Stop();
-            Expand();
+            // Only expand when the widget is already expanded — when opened from the
+            // collapsed pill the widget stays collapsed so the menu appears over the pill.
+            if (!_collapsed)
+            {
+                Expand();
+            }
         };
         _menuPopup.Closed += (_, _) =>
         {
             _menuOpen = false;
             _menuClosedAt = DateTimeOffset.UtcNow;
-            if (IsPointerInsideWidget())
+            if (_collapsed)
+            {
+                // Menu was shown over the collapsed pill — resume the reexpand poll
+                // so the widget automatically pops back out after a moment.
+                _reexpandTimer.Start();
+            }
+            else if (IsPointerInsideWidget())
             {
                 ScheduleCollapse();
             }
@@ -1346,7 +1357,20 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
-        Expand();
+        if (_collapsed)
+        {
+            // Anchor the popup to the collapsed pill so it appears next to the small
+            // circle — do NOT expand the widget, which would cause an ugly jump.
+            _menuPopup.PlacementTarget = _collapsedPill;
+            _menuPopup.Placement = PlacementMode.Left;
+        }
+        else
+        {
+            _menuPopup.PlacementTarget = _menuButton;
+            _menuPopup.Placement = PlacementMode.Bottom;
+            Expand();
+        }
+
         _menuPopup.IsOpen = true;
     }
 
