@@ -1065,15 +1065,11 @@ public partial class MainWindow : Window
         SetBrushColor("PortaBorderBrush",          isLight ? "#CBD5E1" : "#252535");
         SetBrushColor("PortaBorderHoverBrush",     isLight ? "#94A3B8" : "#3A3A50");
         SetBrushColor("PortaTitleBarBrush",        isLight ? "#FFFFFF"  : "#080809");
-        SetBrushColor("PortaContentHeaderBrush",   isLight ? "#F8FAFC" : "#0D0D12");
+        SetBrushColor("PortaContentHeaderBrush",   isLight ? "#F5F7FA" : "#0D0D12");
         SetBrushColor("PortaCardBrush",            isLight ? "#FFFFFF"  : "#0F0F18");
         SetBrushColor("PortaCardBorderBrush",      isLight ? "#E2E8F0" : "#252535");
         SetBrushColor("PortaBubbleBrush",          isLight ? "#F1F5F9" : "#111119");
-        SetBrushColor("PortaDividerBrush",         isLight ? "#E2E8F0" : "#1C1C28");
-
-        Foreground = new SolidColorBrush(isLight
-            ? Color.FromRgb(0x0F, 0x17, 0x2A)
-            : Color.FromRgb(0xE6, 0xE9, 0xED));
+        SetBrushColor("PortaDividerBrush",         isLight ? "#E8ECF2" : "#1C1C28");
     }
 
     private void SetBrushColor(string key, string hexColor)

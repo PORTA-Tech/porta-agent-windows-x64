@@ -13,7 +13,7 @@
         WindowStyle="None"
         ResizeMode="CanResize"
         Background="{DynamicResource PortaContentHeaderBrush}"
-        Foreground="#E6E9ED"
+        Foreground="{DynamicResource PortaTextPrimaryBrush}"
         FontFamily="Segoe UI Variable, Segoe UI, Inter"
         TextOptions.TextFormattingMode="Display"
         TextOptions.TextRenderingMode="ClearType">
@@ -139,10 +139,10 @@
         </Style>
 
         <Style TargetType="ToolTip">
-            <Setter Property="Background" Value="#1D2127" />
-            <Setter Property="BorderBrush" Value="#2A3038" />
+            <Setter Property="Background" Value="{DynamicResource PortaSurfaceElevatedBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource PortaCardBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Foreground" Value="#E6E9ED" />
+            <Setter Property="Foreground" Value="{DynamicResource PortaTextPrimaryBrush}" />
             <Setter Property="Padding" Value="10,8" />
             <Setter Property="MaxWidth" Value="260" />
             <Setter Property="FontSize" Value="12" />
@@ -150,7 +150,7 @@
 
         <Style x:Key="QuietHoverCardStyle" TargetType="Border">
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="#1C1C28" />
+            <Setter Property="BorderBrush" Value="{DynamicResource PortaDividerBrush}" />
             <Setter Property="BorderThickness" Value="0,0,0,1" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="Padding" Value="0,0,0,16" />
@@ -158,7 +158,7 @@
 
         <Style x:Key="QuietHoverSubCardStyle" TargetType="Border">
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="#1C1C28" />
+            <Setter Property="BorderBrush" Value="{DynamicResource PortaDividerBrush}" />
             <Setter Property="BorderThickness" Value="0,0,0,1" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="Padding" Value="8,0,8,12" />
@@ -267,7 +267,7 @@
         </Setter>
     </Style>        <Style x:Key="ClickableAccordionStyle" TargetType="Border">
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="#1C1C28" />
+            <Setter Property="BorderBrush" Value="{DynamicResource PortaDividerBrush}" />
             <Setter Property="BorderThickness" Value="0,0,0,1" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="Cursor" Value="Hand" />
@@ -336,7 +336,7 @@
                                         Margin="{TemplateBinding Padding}" />
                                     <Path Grid.Column="1"
                                         Data="M0,0 L5,5 L10,0"
-                                        Stroke="#64748B" StrokeThickness="1.5"
+                                        Stroke="#94A3B8" StrokeThickness="1.5"
                                         HorizontalAlignment="Center"
                                         VerticalAlignment="Center"
                                         IsHitTestVisible="False" />
@@ -803,7 +803,7 @@
                                     <DockPanel LastChildFill="False">
                                         <TextBlock DockPanel.Dock="Right"
                                                    Text="View History →"
-                                                   FontSize="11" Foreground="#64748B"
+                                                   FontSize="11" Foreground="#94A3B8"
                                                    Cursor="Hand"
                                                    MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
                                                    Tag="today-work" />
@@ -858,7 +858,7 @@
                                     <TextBlock x:Name="NowCalibrationQualityText" Text="" Margin="0,4,0,0"
                                                FontSize="12" Foreground="#94A3B8" />
                                     <Border x:Name="PressureTrack" Height="4" CornerRadius="2" Background="{DynamicResource PortaDividerBrush}" Margin="0,8,0,0">
-                                        <Border x:Name="PressureProgressFill" Background="#64748B" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
+                                        <Border x:Name="PressureProgressFill" Background="#94A3B8" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
                                     </Border>
                                     <TextBlock x:Name="NowCalibrationColdStartText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#94A3B8" />
                                     <TextBlock x:Name="NowCalibrationSummaryText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" />
@@ -920,7 +920,7 @@
                                    Visibility="Collapsed" />
                         <Border x:Name="NowRecoveryBannerBorder"
                                 Background="#102019"
-                                BorderBrush="#2A3038"
+                                BorderBrush="{DynamicResource PortaCardBorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="8"
                                 Padding="10,8"
@@ -955,7 +955,7 @@
                         <!-- Page header -->
                         <TextBlock Text="Tracking" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
                         <TextBlock Text="See exactly what Ari monitors and how your data is protected."
-                                   FontSize="13" Foreground="#64748B" Margin="0,0,0,24" />
+                                   FontSize="13" Foreground="#94A3B8" Margin="0,0,0,24" />
 
                         <!-- ══ SECTION 1: What Ari observes (open by default) ══ -->
                         <Border x:Name="TrackingNavObserves"
@@ -980,7 +980,7 @@
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="What Ari observes" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                    <TextBlock Text="Keyboard, mouse and app activity signals" FontSize="12" Foreground="#64748B" Margin="0,2,0,0"/>
+                                    <TextBlock Text="Keyboard, mouse and app activity signals" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <TextBlock x:Name="TrackingChevronObserves" Grid.Column="2"
                                            Text="+" FontSize="20" FontWeight="Light" Foreground="#94A3B8"
@@ -1078,7 +1078,7 @@
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="What Ari never collects" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                    <TextBlock Text="Your messages, screenshots and personal content" FontSize="12" Foreground="#64748B" Margin="0,2,0,0"/>
+                                    <TextBlock Text="Your messages, screenshots and personal content" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <TextBlock x:Name="TrackingChevronNeverCollects" Grid.Column="2"
                                            Text="+" FontSize="20" FontWeight="Light" Foreground="#94A3B8"
@@ -1140,7 +1140,7 @@
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="Tracking quality" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                    <TextBlock Text="How accurately Ari understands your patterns" FontSize="12" Foreground="#64748B" Margin="0,2,0,0"/>
+                                    <TextBlock Text="How accurately Ari understands your patterns" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <TextBlock x:Name="TrackingChevronQuality" Grid.Column="2"
                                            Text="+" FontSize="20" FontWeight="Light" Foreground="#94A3B8"
@@ -1160,7 +1160,7 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Text="Signal quality" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="TrackingQualityChipText" Grid.Column="1"
-                                               Text="" FontSize="11" Foreground="#64748B" VerticalAlignment="Center"/>
+                                               Text="" FontSize="11" Foreground="#94A3B8" VerticalAlignment="Center"/>
                                 </Grid>
                                 <Border Height="6" CornerRadius="3" Background="#252535" Margin="0,0,0,14">
                                     <Border x:Name="TrackingQualityProgressFill" Background="#6366F1" CornerRadius="3"
@@ -1174,24 +1174,24 @@
                                            Foreground="#CBD5E1" FontSize="13" Margin="0,0,0,8" TextWrapping="Wrap"/>
                                 <TextBlock x:Name="TrackingQualityHelpText"
                                            Text="Best results come from a normal signed-in desktop session with a few seconds of keyboard or mouse activity."
-                                           Foreground="#64748B" FontSize="12" Margin="0,0,0,16" TextWrapping="Wrap"/>
+                                           Foreground="#94A3B8" FontSize="12" Margin="0,0,0,16" TextWrapping="Wrap"/>
                                 <UniformGrid Columns="3">
                                     <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0" Margin="0,0,8,0">
                                         <StackPanel>
                                             <TextBlock Text="Stay in your session" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                            <TextBlock Text="Tracking works best when Ari is attached to your signed-in desktop session." Foreground="#64748B" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock Text="Tracking works best when Ari is attached to your signed-in desktop session." Foreground="#94A3B8" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </Border>
                                     <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0" Margin="8,0">
                                         <StackPanel>
                                             <TextBlock Text="Give it a few seconds" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                            <TextBlock Text="A short stretch of keyboard or mouse activity helps Ari confirm the current session." Foreground="#64748B" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock Text="A short stretch of keyboard or mouse activity helps Ari confirm the current session." Foreground="#94A3B8" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </Border>
                                     <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0" Margin="8,0,0,0">
                                         <StackPanel>
                                             <TextBlock Text="Keep consent on" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                            <TextBlock Text="If consent is revoked or tracking is paused, Ari stops collecting until you turn it back on." Foreground="#64748B" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock Text="If consent is revoked or tracking is paused, Ari stops collecting until you turn it back on." Foreground="#94A3B8" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </Border>
                                 </UniformGrid>
@@ -1221,7 +1221,7 @@
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="Privacy control" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                    <TextBlock Text="Consent, privacy mode and active controls" FontSize="12" Foreground="#64748B" Margin="0,2,0,0"/>
+                                    <TextBlock Text="Consent, privacy mode and active controls" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <TextBlock x:Name="TrackingChevronPrivacy" Grid.Column="2"
                                            Text="+" FontSize="20" FontWeight="Light" Foreground="#94A3B8"
@@ -1243,11 +1243,11 @@
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Consent" FontSize="13" Foreground="#64748B" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Consent" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="TrackingConsentValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="13" Foreground="#CBD5E1" TextWrapping="Wrap"/>
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Privacy mode" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" Margin="0,12,0,0"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Privacy mode" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" Margin="0,12,0,0"/>
                                     <TextBlock x:Name="TrackingPrivacyValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="13" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,12,0,0"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Active controls" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" Margin="0,12,0,0"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Active controls" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" Margin="0,12,0,0"/>
                                     <TextBlock x:Name="TrackingControlsValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="13" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,12,0,0"/>
                                 </Grid>
                                 <WrapPanel>
@@ -1281,7 +1281,7 @@
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="Your data" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                    <TextBlock Text="Storage, retention and export options" FontSize="12" Foreground="#64748B" Margin="0,2,0,0"/>
+                                    <TextBlock Text="Storage, retention and export options" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <TextBlock x:Name="TrackingChevronData" Grid.Column="2"
                                            Text="+" FontSize="20" FontWeight="Light" Foreground="#94A3B8"
@@ -1323,7 +1323,7 @@
                                 <StackPanel>
                                     <TextBlock Text="SUGGESTIONS" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
                                     <TextBlock x:Name="ActionsCardSuggestionsCount" Text="0" FontSize="28" FontWeight="Bold" Foreground="#A5B4FC" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="ActionsCardSuggestionsRecent" Text="None yet" FontSize="11" Foreground="#64748B" Margin="0,2,0,8" />
+                                    <TextBlock x:Name="ActionsCardSuggestionsRecent" Text="None yet" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
                                     <Border x:Name="ActionsCardSuggestionsTrack" Height="3" CornerRadius="2" Background="#252535">
                                         <Border x:Name="ActionsCardSuggestionsBarFill" Background="#6366F1" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
@@ -1333,7 +1333,7 @@
                                 <StackPanel>
                                     <TextBlock Text="ACTIONS TAKEN" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
                                     <TextBlock x:Name="ActionsCardActionsCount" Text="0" FontSize="28" FontWeight="Bold" Foreground="#16C784" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="ActionsCardActionsRecent" Text="None yet" FontSize="11" Foreground="#64748B" Margin="0,2,0,8" />
+                                    <TextBlock x:Name="ActionsCardActionsRecent" Text="None yet" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
                                     <Border x:Name="ActionsCardActionsTrack" Height="3" CornerRadius="2" Background="#252535">
                                         <Border x:Name="ActionsCardActionsBarFill" Background="#16C784" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
@@ -1343,7 +1343,7 @@
                                 <StackPanel>
                                     <TextBlock Text="ALERTS" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
                                     <TextBlock x:Name="ActionsCardAlertsCount" Text="0" FontSize="28" FontWeight="Bold" Foreground="#F59E0B" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="ActionsCardAlertsRecent" Text="None yet" FontSize="11" Foreground="#64748B" Margin="0,2,0,8" />
+                                    <TextBlock x:Name="ActionsCardAlertsRecent" Text="None yet" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
                                     <Border x:Name="ActionsCardAlertsTrack" Height="3" CornerRadius="2" Background="#252535">
                                         <Border x:Name="ActionsCardAlertsBarFill" Background="#F59E0B" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
@@ -1442,32 +1442,32 @@
                             </Border>
                             <Border x:Name="SettingsNavPrivacy" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Privacy" MouseLeftButtonUp="SettingsSubNav_Click">
                                 <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#64748B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 2l7 4v6c0 5-3.5 9-7 10C8.5 21 5 17 5 12V6l7-4z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavPrivacyText" Text="Privacy" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 2l7 4v6c0 5-3.5 9-7 10C8.5 21 5 17 5 12V6l7-4z" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavPrivacyText" Text="Privacy" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="SettingsNavCollection" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Collection" MouseLeftButtonUp="SettingsSubNav_Click">
                                 <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#64748B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M6 4h4v16H6zm8 0h4v16h-4z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavCollectionText" Text="Collection" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M6 4h4v16H6zm8 0h4v16h-4z" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavCollectionText" Text="Collection" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="SettingsNavCalibration" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Calibration" MouseLeftButtonUp="SettingsSubNav_Click">
                                 <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#64748B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3 12h4l3 8 4-16 3 8h4" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavCalibrationText" Text="Calibration" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3 12h4l3 8 4-16 3 8h4" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavCalibrationText" Text="Calibration" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="SettingsNavFeatures" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Features" MouseLeftButtonUp="SettingsSubNav_Click">
                                 <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#64748B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M5 12h2m10 0h2M12 5v2m0 10v2M7.05 7.05l1.41 1.41m7.08 7.08l1.41 1.41M7.05 16.95l1.41-1.41M15.54 8.46l1.41-1.41" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavFeaturesText" Text="Features" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M5 12h2m10 0h2M12 5v2m0 10v2M7.05 7.05l1.41 1.41m7.08 7.08l1.41 1.41M7.05 16.95l1.41-1.41M15.54 8.46l1.41-1.41" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavFeaturesText" Text="Features" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="SettingsNavAppearance" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Appearance" MouseLeftButtonUp="SettingsSubNav_Click">
                                 <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#64748B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 3a9 9 0 1 0 0 18A9 9 0 0 0 12 3zm0 2a7 7 0 0 1 0 14V5z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavAppearanceText" Text="Appearance" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 3a9 9 0 1 0 0 18A9 9 0 0 0 12 3zm0 2a7 7 0 0 1 0 14V5z" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavAppearanceText" Text="Appearance" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -1478,39 +1478,39 @@
                             <TextBlock x:Name="IntensityValueText" Visibility="Collapsed" Text="Balanced" />
                             <StackPanel x:Name="SettingsSectionIntensity" Visibility="Visible">
                                 <TextBlock Text="Intensity" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Controls how actively Ari intervenes when it detects focus or overload patterns." FontSize="12" Foreground="#64748B" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <TextBlock Text="Controls how actively Ari intervenes when it detects focus or overload patterns." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
                                 <UniformGrid x:Name="IntensityCardGrid" Columns="3" Margin="0,0,0,12">
-                                    <Border x:Name="IntensityLightCard" CornerRadius="10" Background="#1C1C2E" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Margin="0,0,6,0" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="0">
+                                    <Border x:Name="IntensityLightCard" CornerRadius="10" Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Margin="0,0,6,0" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="0">
                                         <StackPanel HorizontalAlignment="Center">
-                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityLightIcon" Fill="Transparent" Stroke="#64748B" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 19.5c1-3.5 5-4.5 5-9a6 6 0 0 0-12 0c0 4.5 4 5.5 5 9zm0 0v2.5m-1-2h2" /></Canvas></Viewbox>
+                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityLightIcon" Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 19.5c1-3.5 5-4.5 5-9a6 6 0 0 0-12 0c0 4.5 4 5.5 5 9zm0 0v2.5m-1-2h2" /></Canvas></Viewbox>
                                             <TextBlock Text="Light" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" HorizontalAlignment="Center" />
-                                            <TextBlock Text="Gentle signals only" FontSize="11" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                            <TextBlock Text="Gentle signals only" FontSize="11" Foreground="#94A3B8" HorizontalAlignment="Center" Margin="0,2,0,0" />
                                         </StackPanel>
                                     </Border>
-                                    <Border x:Name="IntensityBalancedCard" CornerRadius="10" Background="#1C1C2E" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Margin="0,0,6,0" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="1">
+                                    <Border x:Name="IntensityBalancedCard" CornerRadius="10" Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Margin="0,0,6,0" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="1">
                                         <StackPanel HorizontalAlignment="Center">
-                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityBalancedIcon" Fill="Transparent" Stroke="#64748B" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M4 10h16M4 14h16M7 7l-3 3 3 3M17 7l3 3-3 3" /></Canvas></Viewbox>
+                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityBalancedIcon" Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M4 10h16M4 14h16M7 7l-3 3 3 3M17 7l3 3-3 3" /></Canvas></Viewbox>
                                             <TextBlock Text="Balanced" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" HorizontalAlignment="Center" />
-                                            <TextBlock Text="Recommended default" FontSize="11" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                            <TextBlock Text="Recommended default" FontSize="11" Foreground="#94A3B8" HorizontalAlignment="Center" Margin="0,2,0,0" />
                                         </StackPanel>
                                     </Border>
-                                    <Border x:Name="IntensityDeepCard" CornerRadius="10" Background="#1C1C2E" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="2">
+                                    <Border x:Name="IntensityDeepCard" CornerRadius="10" Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="2">
                                         <StackPanel HorizontalAlignment="Center">
-                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityDeepIcon" Fill="Transparent" Stroke="#64748B" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M15.5 5C16.5 5 18 6.5 18 10s-2 5-3.5 5H12m-3.5-10C7.5 5 6 6.5 6 10s2 5 3.5 5H12m0 0v4m0-14v.5" /></Canvas></Viewbox>
+                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityDeepIcon" Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M15.5 5C16.5 5 18 6.5 18 10s-2 5-3.5 5H12m-3.5-10C7.5 5 6 6.5 6 10s2 5 3.5 5H12m0 0v4m0-14v.5" /></Canvas></Viewbox>
                                             <TextBlock Text="Deep" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" HorizontalAlignment="Center" />
-                                            <TextBlock Text="Full intervention mode" FontSize="11" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                            <TextBlock Text="Full intervention mode" FontSize="11" Foreground="#94A3B8" HorizontalAlignment="Center" Margin="0,2,0,0" />
                                         </StackPanel>
                                     </Border>
                                 </UniformGrid>
                             </StackPanel>
                             <StackPanel x:Name="SettingsSectionPrivacy" Visibility="Collapsed">
                                 <TextBlock Text="Privacy" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Control what Ari observes and how much context it stores." FontSize="12" Foreground="#64748B" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <TextBlock Text="Control what Ari observes and how much context it stores." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
                                         <TextBlock Text="OBSERVATION LEVEL" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center"><TextBlock Text="Privacy mode" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="How much context Ari captures per session" FontSize="12" Foreground="#64748B" Margin="0,3,0,0" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center"><TextBlock Text="Privacy mode" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="How much context Ari captures per session" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" /></StackPanel>
                                             <Border Grid.Column="1" Background="#0D1117" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Width="160" VerticalAlignment="Center">
                                                 <ComboBox x:Name="PrivacyLevelComboBox" Style="{StaticResource DarkComboBoxStyle}" SelectionChanged="PrivacyLevelComboBox_SelectionChanged">
                                                     <ComboBoxItem Content="Minimal" />
@@ -1531,7 +1531,7 @@
                             </StackPanel>
                             <StackPanel x:Name="SettingsSectionCollection" Visibility="Collapsed">
                                 <TextBlock Text="Collection" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Pause or schedule downtime for Ari's background monitoring." FontSize="12" Foreground="#64748B" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <TextBlock Text="Pause or schedule downtime for Ari's background monitoring." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
                                         <TextBlock Text="PAUSE CONTROLS" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
@@ -1557,11 +1557,11 @@
                             </StackPanel>
                             <StackPanel x:Name="SettingsSectionCalibration" Visibility="Collapsed">
                                 <TextBlock Text="Calibration" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Reset Ari's baseline model to reflect your current work patterns." FontSize="12" Foreground="#64748B" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <TextBlock Text="Reset Ari's baseline model to reflect your current work patterns." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Baseline snapshot" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Recalibrating takes a few minutes. Ari observes your normal patterns and adjusts its thresholds. You can keep working while it runs." FontSize="12" Foreground="#64748B" Margin="0,4,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Baseline snapshot" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Recalibrating takes a few minutes. Ari observes your normal patterns and adjusts its thresholds. You can keep working while it runs." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0" TextWrapping="Wrap" /></StackPanel>
                                             <Button Grid.Column="1" Content="Recalibrate" Padding="14,8" VerticalAlignment="Center" Click="RecalibrateBaselineButton_Click" />
                                         </Grid>
                                     </StackPanel>
@@ -1570,7 +1570,7 @@
                             </StackPanel>
                             <StackPanel x:Name="SettingsSectionAppearance" Visibility="Collapsed">
                                 <TextBlock Text="Appearance" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Customize how the Control Center and widget look." FontSize="12" Foreground="#64748B" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <TextBlock Text="Customize how the Control Center and widget look." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
                                         <TextBlock Text="THEME" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
@@ -1581,7 +1581,7 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
                                                 <TextBlock Text="Light mode" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
-                                                <TextBlock Text="Switch between dark (default) and light interface" FontSize="12" Foreground="#64748B" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                                <TextBlock Text="Switch between dark (default) and light interface" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" TextWrapping="Wrap" />
                                             </StackPanel>
                                             <CheckBox x:Name="AppearanceLightModeToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="AppearanceLightModeToggle_Click" />
                                         </Grid>
@@ -1590,12 +1590,12 @@
                             </StackPanel>
                             <StackPanel x:Name="SettingsSectionFeatures" Visibility="Collapsed">
                                 <TextBlock Text="Features" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Toggle individual Ari capabilities on or off." FontSize="12" Foreground="#64748B" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <TextBlock Text="Toggle individual Ari capabilities on or off." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
                                         <TextBlock Text="MODE" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Suggestions only" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Ari recommends actions but makes no system changes" FontSize="12" Foreground="#64748B" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Suggestions only" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Ari recommends actions but makes no system changes" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
                                             <CheckBox x:Name="SettingsSuggestionsOnlyToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsSuggestionsOnlyToggle_Click" />
                                         </Grid>
                                     </StackPanel>
@@ -1604,19 +1604,19 @@
                                     <StackPanel>
                                         <TextBlock Text="INTERVENTION CATEGORIES" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
                                         <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Notification reduction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Suppress non-critical alerts during focus periods" FontSize="12" Foreground="#64748B" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Notification reduction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Suppress non-critical alerts during focus periods" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
                                             <CheckBox x:Name="SettingsNotificationToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
                                         </Grid>
                                         <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Focus mode nudge" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Prompt to enter focus mode after context switching" FontSize="12" Foreground="#64748B" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Focus mode nudge" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Prompt to enter focus mode after context switching" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
                                             <CheckBox x:Name="SettingsFocusModeToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
                                         </Grid>
                                         <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Animation reduction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Reduce motion when sustained high load is detected" FontSize="12" Foreground="#64748B" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Animation reduction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Reduce motion when sustained high load is detected" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
                                             <CheckBox x:Name="SettingsAnimationToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
                                         </Grid>
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Temporary app restriction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Block distracting apps during deep work sessions" FontSize="12" Foreground="#64748B" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Temporary app restriction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Block distracting apps during deep work sessions" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
                                             <CheckBox x:Name="SettingsAppRestrictionToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
                                         </Grid>
                                     </StackPanel>
@@ -1694,7 +1694,7 @@
                                 <StackPanel>
                                     <TextBlock Text="FOCUS" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
                                     <TextBlock x:Name="HistoryFocusDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#16C784" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="HistoryFocusSubLabel" Text="" FontSize="11" Foreground="#64748B" Margin="0,2,0,8" />
+                                    <TextBlock x:Name="HistoryFocusSubLabel" Text="" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
                                     <Border x:Name="HistoryFocusTrack" Height="3" CornerRadius="2" Background="#252535">
                                         <Border x:Name="HistoryFocusBarFill" Background="#16C784" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
@@ -1705,7 +1705,7 @@
                                 <StackPanel>
                                     <TextBlock Text="DISTRACTION" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
                                     <TextBlock x:Name="HistoryDistractionDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#8B5CF6" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="HistoryDistractionSubLabel" Text="" FontSize="11" Foreground="#64748B" Margin="0,2,0,8" />
+                                    <TextBlock x:Name="HistoryDistractionSubLabel" Text="" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
                                     <Border x:Name="HistoryDistractionTrack" Height="3" CornerRadius="2" Background="#252535">
                                         <Border x:Name="HistoryDistractionBarFill" Background="#8B5CF6" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
@@ -1716,7 +1716,7 @@
                                 <StackPanel>
                                     <TextBlock Text="OVERLOAD" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
                                     <TextBlock x:Name="HistoryOverloadDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#EF4444" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="HistoryOverloadSubLabel" Text="" FontSize="11" Foreground="#64748B" Margin="0,2,0,8" />
+                                    <TextBlock x:Name="HistoryOverloadSubLabel" Text="" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
                                     <Border x:Name="HistoryOverloadTrack" Height="3" CornerRadius="2" Background="#252535">
                                         <Border x:Name="HistoryOverloadBarFill" Background="#EF4444" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
@@ -1727,7 +1727,7 @@
                                 <StackPanel>
                                     <TextBlock Text="AWAY" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
                                     <TextBlock x:Name="HistoryAwayDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#3B82F6" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="HistoryAwaySubLabel" Text="" FontSize="11" Foreground="#64748B" Margin="0,2,0,8" />
+                                    <TextBlock x:Name="HistoryAwaySubLabel" Text="" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
                                     <Border x:Name="HistoryAwayTrack" Height="3" CornerRadius="2" Background="#252535">
                                         <Border x:Name="HistoryAwayBarFill" Background="#3B82F6" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
@@ -1853,26 +1853,26 @@
                             </Border>
                             <Border x:Name="AccountNavManageBorder" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="manage" MouseLeftButtonUp="AccountNavItem_Click">
                                 <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#64748B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="AccountNavManageText" Text="Manage account" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="AccountNavManageText" Text="Manage account" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="AccountNavWorkspaceBorder" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="workspace" MouseLeftButtonUp="AccountNavItem_Click">
                                 <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#64748B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="AccountNavWorkspaceText" Text="Workspace" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="AccountNavWorkspaceText" Text="Workspace" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="AccountNavSubscriptionBorder" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="subscription" MouseLeftButtonUp="AccountNavItem_Click">
                                 <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#64748B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M20 12V22H4V12M22 7H2v5h20V7zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="AccountNavSubscriptionText" Text="Subscription" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M20 12V22H4V12M22 7H2v5h20V7zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="AccountNavSubscriptionText" Text="Subscription" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="AccountNavDevicesBorder" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="devices" MouseLeftButtonUp="AccountNavItem_Click">
                                 <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#64748B" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M20 4H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM2 18h20M8 22h8" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="AccountNavDevicesText" Text="Devices" FontSize="13" Foreground="#64748B" VerticalAlignment="Center" />
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M20 4H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM2 18h20M8 22h8" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="AccountNavDevicesText" Text="Devices" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border BorderBrush="#1E293B" BorderThickness="0,1,0,0" Margin="4,8,4,8" />
@@ -1941,7 +1941,7 @@
                                         <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,4"><PasswordBox x:Name="AccountPasswordBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
                                         <TextBlock x:Name="AccountPasswordHelpText" Text="Use the password set for your workspace account." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" FontSize="12" />
                                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                            <CheckBox x:Name="AccountRememberSignInCheckBox" Content="Remember on this PC" IsChecked="True" Foreground="#E6E9ED" VerticalAlignment="Center" />
+                                            <CheckBox x:Name="AccountRememberSignInCheckBox" Content="Remember on this PC" IsChecked="True" Foreground="{DynamicResource PortaTextPrimaryBrush}" VerticalAlignment="Center" />
                                             <Button x:Name="AccountForgetRememberedSignInButton" Content="Forget saved sign-in" Margin="12,0,0,0" Padding="10,4" MinHeight="30" Click="AccountForgetRememberedSignInButton_Click" Visibility="Collapsed" />
                                         </StackPanel>
                                         <TextBlock x:Name="AccountRememberedSignInHelpText" Text="Keep this checked if you want PORTA to remember this email and password on this Windows account only." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" FontSize="12" />
@@ -2099,7 +2099,7 @@
                                                                     </DockPanel>
                                                                     <TextBlock Text="{Binding DetailLabel}" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,4" FontSize="12" />
                                                                     <TextBlock Text="{Binding StatusLabel, StringFormat=Status: {0}}" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,2" FontSize="12" />
-                                                                    <TextBlock Text="{Binding LastSeenLabel, StringFormat=Last seen: {0}}" Foreground="#64748B" Margin="0,0,0,8" FontSize="12" />
+                                                                    <TextBlock Text="{Binding LastSeenLabel, StringFormat=Last seen: {0}}" Foreground="#94A3B8" Margin="0,0,0,8" FontSize="12" />
                                                                     <WrapPanel>
                                                                         <Button Content="Unlink" Padding="12,6" Margin="0,0,8,0" Tag="{Binding DeviceId}" IsEnabled="{Binding CanUnlink}" Click="AccountDeviceUnlinkButton_Click" />
                                                                         <Button Content="Revoke" Padding="12,6" Tag="{Binding DeviceId}" IsEnabled="{Binding CanRevoke}" Click="AccountDeviceRevokeButton_Click" />
@@ -2557,7 +2557,7 @@
                         <TextBlock Text="What's pushing your pressure?"
                                    FontSize="14"
                                    FontWeight="SemiBold"
-                                   Foreground="#E6E9ED"
+                                   Foreground="{DynamicResource PortaTextPrimaryBrush}"
                                    VerticalAlignment="Center"
                                    TextWrapping="Wrap" />
                     </DockPanel>
@@ -2570,7 +2570,7 @@
                                Margin="0,0,0,6" />
                     <TextBlock x:Name="WhyDrawerConfidenceText"
                                Text=""
-                               Foreground="#64748B"
+                               Foreground="#94A3B8"
                                FontSize="12"
                                TextWrapping="Wrap"
                                Margin="0,0,0,16" />
@@ -2681,7 +2681,7 @@
                                                    Margin="0,0,0,10" />
                                         <TextBlock x:Name="OnboardingCurrentStatusText"
                                                    Text="Checking background tracking..."
-                                                   Foreground="#E6E9ED"
+                                                   Foreground="{DynamicResource PortaTextPrimaryBrush}"
                                                    FontWeight="SemiBold"
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,8" />
@@ -2698,8 +2698,8 @@
                                 </Border>
                             </Grid>
 
-                            <Border Background="#1B1F25"
-                                    BorderBrush="#262B33"
+                            <Border Background="{DynamicResource PortaSurfaceElevatedBrush}"
+                                    BorderBrush="{DynamicResource PortaCardBorderBrush}"
                                     BorderThickness="1"
                                     CornerRadius="10"
                                     Padding="14"
