@@ -1070,6 +1070,10 @@ public partial class MainWindow : Window
         SetBrushColor("PortaCardBorderBrush",      isLight ? "#E2E8F0" : "#252535");
         SetBrushColor("PortaBubbleBrush",          isLight ? "#F1F5F9" : "#111119");
         SetBrushColor("PortaDividerBrush",         isLight ? "#E8ECF2" : "#1C1C28");
+        SetBrushColor("PortaNavHoverBrush",        isLight ? "#E8EDF3" : "#0F0F1A");
+        SetBrushColor("PortaNavActiveBrush",       isLight ? "#DDE3EC" : "#17171F");
+        SetBrushColor("PortaButtonBrush",          isLight ? "#E8EDF3" : "#1A1F26");
+        SetBrushColor("PortaButtonPressedBrush",   isLight ? "#D4DAE3" : "#161B22");
     }
 
     private void SetBrushColor(string key, string hexColor)
@@ -4745,12 +4749,14 @@ public partial class MainWindow : Window
     /// <summary>
     /// Section 1 — donut ring chart (left) + legend (right) showing category breakdown.
     /// </summary>
-    private static FrameworkElement BuildActionsCategoryBreakdown(List<LocalApiEventResponse> events)
+    private FrameworkElement BuildActionsCategoryBreakdown(List<LocalApiEventResponse> events)
     {
+        var cardBrush   = (TryFindResource("PortaCardBrush")       as SolidColorBrush) ?? new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x18));
+        var borderBrush = (TryFindResource("PortaCardBorderBrush") as SolidColorBrush) ?? new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35));
         var container = new Border
         {
-            Background      = new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x18)),
-            BorderBrush     = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+            Background      = new SolidColorBrush(cardBrush.Color),
+            BorderBrush     = new SolidColorBrush(borderBrush.Color),
             BorderThickness = new Thickness(1),
             CornerRadius    = new CornerRadius(10),
             Padding         = new Thickness(16)
@@ -4762,7 +4768,7 @@ public partial class MainWindow : Window
             Text       = "ACTIVITY BREAKDOWN",
             FontSize   = 10,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+            Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
             Margin     = new Thickness(0, 0, 0, 14)
         });
 
@@ -4966,12 +4972,14 @@ public partial class MainWindow : Window
     /// <summary>
     /// Section 2 — 24-bar hourly activity chart showing when Ari was most active.
     /// </summary>
-    private static FrameworkElement BuildActionsHourlyActivity(List<LocalApiEventResponse> events)
+    private FrameworkElement BuildActionsHourlyActivity(List<LocalApiEventResponse> events)
     {
+        var cardBrush   = (TryFindResource("PortaCardBrush")       as SolidColorBrush) ?? new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x18));
+        var borderBrush = (TryFindResource("PortaCardBorderBrush") as SolidColorBrush) ?? new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35));
         var container = new Border
         {
-            Background      = new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x18)),
-            BorderBrush     = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+            Background      = new SolidColorBrush(cardBrush.Color),
+            BorderBrush     = new SolidColorBrush(borderBrush.Color),
             BorderThickness = new Thickness(1),
             CornerRadius    = new CornerRadius(10),
             Padding         = new Thickness(16)
@@ -4984,7 +4992,7 @@ public partial class MainWindow : Window
             Text       = "ACTIVITY BY HOUR",
             FontSize   = 10,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+            Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
             Margin     = new Thickness(0, 0, 0, 10)
         });
 
@@ -5242,13 +5250,15 @@ public partial class MainWindow : Window
             })
             .ToList();
     }
-    private static FrameworkElement BuildActionsGroupedLog(
+    private FrameworkElement BuildActionsGroupedLog(
         List<LocalApiEventResponse> events, DateTimeOffset now)
     {
+        var cardBrush   = (TryFindResource("PortaCardBrush")       as SolidColorBrush) ?? new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x18));
+        var borderBrush = (TryFindResource("PortaCardBorderBrush") as SolidColorBrush) ?? new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35));
         var container = new Border
         {
-            Background      = new SolidColorBrush(Color.FromRgb(0x0F, 0x0F, 0x18)),
-            BorderBrush     = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+            Background      = new SolidColorBrush(cardBrush.Color),
+            BorderBrush     = new SolidColorBrush(borderBrush.Color),
             BorderThickness = new Thickness(1),
             CornerRadius    = new CornerRadius(10),
             Padding         = new Thickness(16)
@@ -5260,7 +5270,7 @@ public partial class MainWindow : Window
             Text       = "WHAT HAPPENED",
             FontSize   = 10,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x55, 0x69)),
+            Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
             Margin     = new Thickness(0, 0, 0, 12)
         });
 

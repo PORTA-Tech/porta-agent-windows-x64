@@ -1420,12 +1420,19 @@ internal sealed class UserDesktopWidgetWindow : Window
         _bodyGrid.Visibility = Visibility.Visible;
         _expandedStack.Visibility = Visibility.Visible;
         _expandedStack.IsHitTestVisible = true;
-        _expandedStack.BeginAnimation(OpacityProperty, null);
-        _expandedStack.Opacity = 1d;
+        // Start content at opacity 0 and fade it in over the same duration as the
+        // width animation.  This hides the menu-button "circle" that would otherwise
+        // be visible while the window is still narrower than the layout width.
+        _expandedStack.BeginAnimation(OpacityProperty, new DoubleAnimation(0d, 1d, TransitionDuration)
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
         RefreshInlineMessage();
+        // Apply the correct horizontal position before the first animation frame so
+        // the window does not stutter/jump as it grows.
+        ApplyAnchorPosition();
         AnimateWindowWidth(ExpandedWidth);
         UpdateWindowHeight();
-        ApplyAnchorPosition();
         _reexpandTimer.Stop();
     }
 

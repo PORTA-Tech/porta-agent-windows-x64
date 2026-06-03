@@ -44,6 +44,10 @@
         <SolidColorBrush x:Key="PortaCardBorderBrush" Color="#252535" />
         <SolidColorBrush x:Key="PortaBubbleBrush" Color="#111119" />
         <SolidColorBrush x:Key="PortaDividerBrush" Color="#1C1C28" />
+        <SolidColorBrush x:Key="PortaNavHoverBrush" Color="#0F0F1A" />
+        <SolidColorBrush x:Key="PortaNavActiveBrush" Color="#17171F" />
+        <SolidColorBrush x:Key="PortaButtonBrush" Color="#1A1F26" />
+        <SolidColorBrush x:Key="PortaButtonPressedBrush" Color="#161B22" />
         <!-- Semantic colours -->
         <SolidColorBrush x:Key="PortaFocusBrush" Color="#16C784" />
         <SolidColorBrush x:Key="PortaWarningBrush" Color="#F59E0B" />
@@ -79,11 +83,11 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="NavBg" Property="Background" Value="#0F0F1A" />
+                                <Setter TargetName="NavBg" Property="Background" Value="{DynamicResource PortaNavHoverBrush}" />
                                 <Setter Property="Foreground" Value="#94A3B8" />
                             </Trigger>
                             <Trigger Property="Tag" Value="active">
-                                <Setter TargetName="NavBg" Property="Background" Value="#17171F" />
+                                <Setter TargetName="NavBg" Property="Background" Value="{DynamicResource PortaNavActiveBrush}" />
                                 <Setter TargetName="LeftAccent" Property="Fill" Value="#16C784" />
                                 <Setter Property="Foreground" Value="#16C784" />
                             </Trigger>
@@ -92,7 +96,7 @@
                                     <Condition Property="IsMouseOver" Value="True" />
                                     <Condition Property="Tag" Value="active" />
                                 </MultiTrigger.Conditions>
-                                <Setter TargetName="NavBg" Property="Background" Value="#1C1C28" />
+                                <Setter TargetName="NavBg" Property="Background" Value="{DynamicResource PortaNavActiveBrush}" />
                             </MultiTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -102,7 +106,7 @@
 
         <Style TargetType="Button">
             <Setter Property="Foreground" Value="{DynamicResource PortaTextPrimaryBrush}" />
-            <Setter Property="Background" Value="#1A1F26" />
+            <Setter Property="Background" Value="{DynamicResource PortaButtonBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource PortaBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="12,6" />
@@ -127,7 +131,7 @@
                                 <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{DynamicResource PortaBorderHoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonChrome" Property="Background" Value="#161B22" />
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource PortaButtonPressedBrush}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.55" />
