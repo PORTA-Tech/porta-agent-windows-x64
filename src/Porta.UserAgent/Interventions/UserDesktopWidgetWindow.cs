@@ -83,8 +83,11 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly Button _messageSecondaryButton;
     private readonly Button _messageTertiaryButton;
     private readonly Button _messageSuppressButton;
+    private readonly Grid _bodyGrid;
     private readonly Border _collapsedPill;
     private readonly TextBlock _collapsedMenuIcon;
+    private Point _collapsedDragStartPoint;
+    private bool _collapsedDragStarted;
     private readonly Button _menuButton;
     private readonly Popup _menuPopup;
     private readonly Button _hideWidgetButton;
@@ -216,16 +219,32 @@ internal sealed class UserDesktopWidgetWindow : Window
             ScheduleCollapse();
         };
         _rootBorder.MouseLeave += (_, _) => HandlePointerLeave();
+        // When collapsed: track mouse movement so we can distinguish a click (< 5px) from a drag (>= 5px).
+        _rootBorder.PreviewMouseMove += (_, e) =>
+        {
+            if (!_collapsed || e.LeftButton != MouseButtonState.Pressed || _collapsedDragStarted)
+            {
+                return;
+            }
+            Point pos = e.GetPosition(this);
+            double dx = pos.X - _collapsedDragStartPoint.X;
+            double dy = pos.Y - _collapsedDragStartPoint.Y;
+            if (dx * dx + dy * dy >= 25d)   // 5-pixel threshold
+            {
+                _collapsedDragStarted = true;
+                BeginDragCore();
+            }
+        };
 
         Grid shellGrid = new();
 
-        Grid bodyGrid = new()
+        _bodyGrid = new Grid()
         {
             Margin = new Thickness(8, 2, 8, 5),   // 8px bottom gives text room; prevents last line being clipped by height animation
             MinWidth = 165
         };
-        bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        shellGrid.Children.Add(bodyGrid);
+        _bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        shellGrid.Children.Add(_bodyGrid);
 
         // ── Collapsed pill — shown when widget is collapsed ──────────────
         _collapsedMenuIcon = new TextBlock
@@ -250,13 +269,21 @@ internal sealed class UserDesktopWidgetWindow : Window
             Child = _collapsedMenuIcon
         };
         shellGrid.Children.Add(_collapsedPill);
+        // Pill click: open menu when mouse is released without having crossed the drag threshold.
+        _collapsedPill.MouseLeftButtonUp += (_, _) =>
+        {
+            if (!_collapsedDragStarted)
+            {
+                ToggleMenu();
+            }
+        };
 
         _expandedStack = new StackPanel
         {
             Orientation = Orientation.Vertical
         };
         Grid.SetColumn(_expandedStack, 0);
-        bodyGrid.Children.Add(_expandedStack);
+        _bodyGrid.Children.Add(_expandedStack);
 
         // Header layout: [drag+badge | metrics | menu]
         // Menu is on the RIGHT so it doesn't push the metric chips.
@@ -1338,6 +1365,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _metricsPanel.Visibility = Visibility.Collapsed;
         _summaryMetaPanel.Visibility = Visibility.Collapsed;
         _expandedStack.Visibility = Visibility.Collapsed;
+        _bodyGrid.Visibility = Visibility.Collapsed;
         _collapsedPill.Visibility = Visibility.Visible;
         AnimateWindowWidth(CollapsedWidth);
         UpdateWindowHeight();
@@ -1355,6 +1383,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _collapsed = false;
         // _headerDragSurface stays Collapsed — drag handle was the stray dash; root border handles dragging
         _collapsedPill.Visibility = Visibility.Collapsed;
+        _bodyGrid.Visibility = Visibility.Visible;
         _expandedStack.Visibility = Visibility.Visible;
         _expandedStack.IsHitTestVisible = true;
         _expandedStack.BeginAnimation(OpacityProperty, null);
@@ -1428,6 +1457,16 @@ internal sealed class UserDesktopWidgetWindow : Window
     {
         if (_menuOpen)
         {
+            return;
+        }
+
+        if (_collapsed)
+        {
+            // Record the press point for click-vs-drag detection in PreviewMouseMove.
+            // Do NOT start a drag here and do NOT mark the event handled — the
+            // pill's MouseLeftButtonUp handler needs to receive it for click detection.
+            _collapsedDragStartPoint = e.GetPosition(this);
+            _collapsedDragStarted = false;
             return;
         }
 
