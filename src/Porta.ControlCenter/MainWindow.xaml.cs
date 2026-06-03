@@ -1056,31 +1056,43 @@ public partial class MainWindow : Window
 
     private void ApplyTheme(bool isLight)
     {
-        SetBrushColor("PortaTextPrimaryBrush",    isLight ? "#0F172A" : "#F1F5F9");
-        SetBrushColor("PortaTextSecondaryBrush",  isLight ? "#475569" : "#94A3B8");
-        SetBrushColor("PortaTextMutedBrush",      isLight ? "#94A3B8" : "#475569");
-        SetBrushColor("PortaSurfaceBaseBrush",    isLight ? "#F1F5F9" : "#1C1C2E");
-        SetBrushColor("PortaSurfaceElevatedBrush",isLight ? "#FFFFFF"  : "#1B1F25");
-        SetBrushColor("PortaSurfaceHoverBrush",   isLight ? "#E8ECF0" : "#1D232A");
-        SetBrushColor("PortaBorderBrush",         isLight ? "#CBD5E1" : "#252535");
-        SetBrushColor("PortaBorderHoverBrush",    isLight ? "#94A3B8" : "#3A3A50");
+        SetBrushColor("PortaTextPrimaryBrush",     isLight ? "#0F172A" : "#F1F5F9");
+        SetBrushColor("PortaTextSecondaryBrush",   isLight ? "#475569" : "#94A3B8");
+        SetBrushColor("PortaTextMutedBrush",       isLight ? "#94A3B8" : "#475569");
+        SetBrushColor("PortaSurfaceBaseBrush",     isLight ? "#F1F5F9" : "#1C1C2E");
+        SetBrushColor("PortaSurfaceElevatedBrush", isLight ? "#FFFFFF"  : "#1B1F25");
+        SetBrushColor("PortaSurfaceHoverBrush",    isLight ? "#E8ECF0" : "#1D232A");
+        SetBrushColor("PortaBorderBrush",          isLight ? "#CBD5E1" : "#252535");
+        SetBrushColor("PortaBorderHoverBrush",     isLight ? "#94A3B8" : "#3A3A50");
+        SetBrushColor("PortaTitleBarBrush",        isLight ? "#FFFFFF"  : "#080809");
+        SetBrushColor("PortaContentHeaderBrush",   isLight ? "#F8FAFC" : "#0D0D12");
+        SetBrushColor("PortaCardBrush",            isLight ? "#FFFFFF"  : "#0F0F18");
+        SetBrushColor("PortaCardBorderBrush",      isLight ? "#E2E8F0" : "#252535");
+        SetBrushColor("PortaBubbleBrush",          isLight ? "#F1F5F9" : "#111119");
+        SetBrushColor("PortaDividerBrush",         isLight ? "#E2E8F0" : "#1C1C28");
 
-        Background = new SolidColorBrush(isLight
-            ? Color.FromRgb(0xF0, 0xF4, 0xF8)
-            : Color.FromRgb(0x0D, 0x0D, 0x12));
         Foreground = new SolidColorBrush(isLight
             ? Color.FromRgb(0x0F, 0x17, 0x2A)
             : Color.FromRgb(0xE6, 0xE9, 0xED));
-        SettingsContentScrollViewer.Background = new SolidColorBrush(isLight
-            ? Color.FromRgb(0xF0, 0xF4, 0xF8)
-            : Color.FromRgb(0x0D, 0x0D, 0x12));
     }
 
     private void SetBrushColor(string key, string hexColor)
     {
-        if (Resources[key] is SolidColorBrush brush && !brush.IsFrozen)
+        var color = (Color)ColorConverter.ConvertFromString(hexColor);
+        if (Resources[key] is SolidColorBrush brush)
         {
-            brush.Color = (Color)ColorConverter.ConvertFromString(hexColor);
+            if (!brush.IsFrozen)
+            {
+                brush.Color = color;
+            }
+            else
+            {
+                Resources[key] = new SolidColorBrush(color);
+            }
+        }
+        else
+        {
+            Resources[key] = new SolidColorBrush(color);
         }
     }
 

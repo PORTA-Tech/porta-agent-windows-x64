@@ -20,9 +20,9 @@ internal sealed class UserDesktopWidgetWindow : Window
     private const int WindowLifecycleOpen = 0;
     private const int WindowLifecycleClosing = 1;
     private const int WindowLifecycleClosed = 2;
-    private const double ExpandedWidth = 300d;
+    private const double ExpandedWidth = 200d;
     private const double CollapsedWidth = 24d;
-    private const double BaseHeight = 34d;
+    private const double BaseHeight = 22d;
     private const double CollapsedHeight = 24d;
     private const double TopMargin = 16d;
     private const double RightMargin = 16d;
@@ -83,6 +83,8 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly Button _messageSecondaryButton;
     private readonly Button _messageTertiaryButton;
     private readonly Button _messageSuppressButton;
+    private readonly Border _collapsedPill;
+    private readonly TextBlock _collapsedMenuIcon;
     private readonly Button _menuButton;
     private readonly Popup _menuPopup;
     private readonly Button _hideWidgetButton;
@@ -219,11 +221,35 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         Grid bodyGrid = new()
         {
-            Margin = new Thickness(12, 2, 12, 8),   // 8px bottom gives text room; prevents last line being clipped by height animation
+            Margin = new Thickness(8, 2, 8, 5),   // 8px bottom gives text room; prevents last line being clipped by height animation
             MinWidth = 165
         };
         bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         shellGrid.Children.Add(bodyGrid);
+
+        // ── Collapsed pill — shown when widget is collapsed ──────────────
+        _collapsedMenuIcon = new TextBlock
+        {
+            Text = "☰",
+            FontSize = 9,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = new SolidColorBrush(Color.FromRgb(0xB4, 0xC1, 0xD0))
+        };
+        _collapsedPill = new Border
+        {
+            Width = 24, Height = 24,
+            CornerRadius = new CornerRadius(12),
+            Background = new SolidColorBrush(Color.FromRgb(0x11, 0x11, 0x18)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+            BorderThickness = new Thickness(1),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed,
+            Cursor = Cursors.Hand,
+            Child = _collapsedMenuIcon
+        };
+        shellGrid.Children.Add(_collapsedPill);
 
         _expandedStack = new StackPanel
         {
@@ -318,7 +344,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         };
         _stateLabel = new TextBlock
         {
-            FontSize = 12,
+            FontSize = 10,
             FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
             VerticalAlignment = VerticalAlignment.Center,
@@ -327,7 +353,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         var stateLabelRow = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 4)   // 4px gap between top row and bar
+            Margin = new Thickness(0, 0, 0, 2)
         };
         stateLabelRow.Children.Add(_stateDot);
         stateLabelRow.Children.Add(_stateLabel);
@@ -336,23 +362,23 @@ internal sealed class UserDesktopWidgetWindow : Window
         _primaryValueDisplay = new TextBlock { Visibility = Visibility.Collapsed };
         _primaryLabelDisplay = new TextBlock { Visibility = Visibility.Collapsed };
 
-        // Row 2: 3px progress bar (fills proportional to episode duration vs 2-hour max)
+        // Row 2: 2px progress bar (fills proportional to episode duration vs 2-hour max)
         _progressBarFill = new Border
         {
             Background = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
             HorizontalAlignment = HorizontalAlignment.Left,
             CornerRadius = new CornerRadius(2),
             Width = 0,
-            Height = 3
+            Height = 2
         };
         // _progressBarTrack is stored as field so SizeChanged can update fill width
         // Cast to avoid "variable used before assignment" — assigned via the field initialiser pattern
         var progressBarTrackLocal = new Border
         {
-            Height = 3,
+            Height = 2,
             Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
             CornerRadius = new CornerRadius(2),
-            Margin = new Thickness(0, 0, 0, 6),
+            Margin = new Thickness(0, 0, 0, 3),
             ClipToBounds = true,
             Child = _progressBarFill
         };
@@ -360,10 +386,10 @@ internal sealed class UserDesktopWidgetWindow : Window
         progressBarTrackLocal.SizeChanged += (_, _) => ApplyProgressBarWidth();
 
         // Row 3: 2-stat bottom row — WORK + PRESSURE only, no SESSION
-        _stat1Label = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)) };
-        _stat1Value = new TextBlock { FontSize = 11, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0xE2, 0xE8, 0xF0)) };
-        _stat2Label = new TextBlock { FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)) };
-        _stat2Value = new TextBlock { FontSize = 11, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0xE2, 0xE8, 0xF0)) };
+        _stat1Label = new TextBlock { FontSize = 8, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)) };
+        _stat1Value = new TextBlock { FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0xE2, 0xE8, 0xF0)) };
+        _stat2Label = new TextBlock { FontSize = 8, Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)) };
+        _stat2Value = new TextBlock { FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(Color.FromRgb(0xE2, 0xE8, 0xF0)) };
         // stat3 fields exist for compat but are not shown
         _stat3Label = new TextBlock { Visibility = Visibility.Collapsed };
         _stat3Value = new TextBlock { Visibility = Visibility.Collapsed };
@@ -1311,6 +1337,8 @@ internal sealed class UserDesktopWidgetWindow : Window
         _titleBadge.Visibility = Visibility.Collapsed;
         _metricsPanel.Visibility = Visibility.Collapsed;
         _summaryMetaPanel.Visibility = Visibility.Collapsed;
+        _expandedStack.Visibility = Visibility.Collapsed;
+        _collapsedPill.Visibility = Visibility.Visible;
         AnimateWindowWidth(CollapsedWidth);
         UpdateWindowHeight();
         ApplyAnchorPosition();
@@ -1326,6 +1354,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         _collapsed = false;
         // _headerDragSurface stays Collapsed — drag handle was the stray dash; root border handles dragging
+        _collapsedPill.Visibility = Visibility.Collapsed;
         _expandedStack.Visibility = Visibility.Visible;
         _expandedStack.IsHitTestVisible = true;
         _expandedStack.BeginAnimation(OpacityProperty, null);
@@ -1397,7 +1426,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void BeginDragFromSurface(object sender, MouseButtonEventArgs e)
     {
-        if (_collapsed || _menuOpen || HasBlockingSurfaceVisible())
+        if (_menuOpen)
         {
             return;
         }
@@ -1602,27 +1631,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private bool ShouldUseTransparentHitTest(Point screenPoint)
     {
-        if (!_collapsed || _menuOpen || !_placementInitialized || HasBlockingSurfaceVisible())
-        {
-            return false;
-        }
-
-        try
-        {
-            Point localPoint = PointFromScreen(screenPoint);
-            Rect menuButtonBounds = GetLocalBounds(_menuButton);
-            if (menuButtonBounds.IsEmpty)
-            {
-                return false;
-            }
-
-            menuButtonBounds.Inflate(8d, 8d);
-            return !menuButtonBounds.Contains(localPoint);
-        }
-        catch
-        {
-            return false;
-        }
+        return false;
     }
 
     private Rect GetLocalBounds(FrameworkElement element)
@@ -2186,6 +2195,15 @@ internal sealed class UserDesktopWidgetWindow : Window
         _summaryFooterText.Foreground = new SolidColorBrush(isLight
             ? Color.FromRgb(0x94, 0xA3, 0xB8)
             : Color.FromRgb(0x82, 0x92, 0xA3));
+        _collapsedPill.Background = new SolidColorBrush(isLight
+            ? Color.FromRgb(0xF8, 0xFA, 0xFC)
+            : Color.FromRgb(0x11, 0x11, 0x18));
+        _collapsedPill.BorderBrush = new SolidColorBrush(isLight
+            ? Color.FromRgb(0xCB, 0xD5, 0xE1)
+            : Color.FromRgb(0x25, 0x25, 0x35));
+        _collapsedMenuIcon.Foreground = new SolidColorBrush(isLight
+            ? Color.FromRgb(0x47, 0x55, 0x69)
+            : Color.FromRgb(0xB4, 0xC1, 0xD0));
     }
 
     private void TryStartAppearanceWatcher()
