@@ -1357,9 +1357,19 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        // ── Stop timers and mark menu as open BEFORE setting IsOpen = true ────────
+        // The popup's Opened event fires asynchronously (on the next render pass).
+        // Without this, the reexpand timer can tick in that gap, see _menuOpen=false
+        // and _collapsed=true, call Expand(), flip _collapsed=false, and corrupt the
+        // placement target.  Doing it here — synchronously, on the UI thread — means
+        // any already-queued timer callback will see _menuOpen=true and bail out.
+        _collapseTimer.Stop();
+        _reexpandTimer.Stop();
+        _menuOpen = true;
+
         if (_collapsed)
         {
-            // Anchor the popup to the collapsed pill so it appears next to the small
+            // Anchor the popup to the collapsed pill so it appears beside the small
             // circle — do NOT expand the widget, which would cause an ugly jump.
             _menuPopup.PlacementTarget = _collapsedPill;
             _menuPopup.Placement = PlacementMode.Left;
