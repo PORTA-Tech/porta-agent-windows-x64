@@ -28,6 +28,32 @@
                             UseAeroCaptionButtons="False" />
     </shell:WindowChrome.WindowChrome>
     <Window.Resources>
+        <!-- SelectableText — read-only TextBox that looks and lays out exactly like a
+             TextBlock while allowing click-drag selection and Ctrl+C copy.
+             Defined here (Window.Resources) so it is resolved the moment this window's
+             XAML is parsed, with no dependency on Application startup ordering. -->
+        <Style x:Key="SelectableText" TargetType="TextBox">
+            <Setter Property="IsReadOnly"                    Value="True"/>
+            <Setter Property="Background"                    Value="Transparent"/>
+            <Setter Property="BorderThickness"               Value="0"/>
+            <Setter Property="Padding"                       Value="0"/>
+            <Setter Property="IsTabStop"                     Value="False"/>
+            <Setter Property="FocusVisualStyle"              Value="{x:Null}"/>
+            <Setter Property="HorizontalScrollBarVisibility" Value="Hidden"/>
+            <Setter Property="VerticalScrollBarVisibility"   Value="Hidden"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Focusable="False"
+                                      Margin="0"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Hidden"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Surface / border / text -->
         <SolidColorBrush x:Key="PortaSurfaceBaseBrush" Color="#1C1C2E" />
         <SolidColorBrush x:Key="PortaSurfaceElevatedBrush" Color="#1B1F25" />
