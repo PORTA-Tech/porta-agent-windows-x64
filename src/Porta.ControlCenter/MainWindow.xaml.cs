@@ -1057,8 +1057,9 @@ public partial class MainWindow : Window
     private void ApplyTheme(bool isLight)
     {
         SetBrushColor("PortaTextPrimaryBrush",     isLight ? "#0F172A" : "#F1F5F9");
-        SetBrushColor("PortaTextSecondaryBrush",   isLight ? "#475569" : "#94A3B8");
-        SetBrushColor("PortaTextMutedBrush",       isLight ? "#94A3B8" : "#475569");
+        SetBrushColor("PortaTextSecondaryBrush",   isLight ? "#374151" : "#94A3B8");
+        SetBrushColor("PortaTextMutedBrush",       isLight ? "#64748B" : "#475569");
+        SetBrushColor("PortaTextBodyBrush",        isLight ? "#1E293B" : "#CBD5E1");
         SetBrushColor("PortaSurfaceBaseBrush",     isLight ? "#F1F5F9" : "#1C1C2E");
         SetBrushColor("PortaSurfaceElevatedBrush", isLight ? "#FFFFFF"  : "#1B1F25");
         SetBrushColor("PortaSurfaceHoverBrush",    isLight ? "#E8ECF0" : "#1D232A");

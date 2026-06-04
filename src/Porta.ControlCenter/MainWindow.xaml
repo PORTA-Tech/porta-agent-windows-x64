@@ -37,6 +37,7 @@
         <SolidColorBrush x:Key="PortaTextPrimaryBrush" Color="#F1F5F9" />
         <SolidColorBrush x:Key="PortaTextSecondaryBrush" Color="#94A3B8" />
         <SolidColorBrush x:Key="PortaTextMutedBrush" Color="#475569" />
+        <SolidColorBrush x:Key="PortaTextBodyBrush" Color="#CBD5E1" />
         <!-- Surface brushes (theme-aware — updated by ApplyTheme) -->
         <SolidColorBrush x:Key="PortaTitleBarBrush" Color="#080809" />
         <SolidColorBrush x:Key="PortaContentHeaderBrush" Color="#0D0D12" />
@@ -284,8 +285,8 @@
 
         <!-- Dark ComboBox style -->
         <Style x:Key="DarkComboBoxItemStyle" TargetType="ComboBoxItem">
-            <Setter Property="Background" Value="#131920" />
-            <Setter Property="Foreground" Value="#F1F5F9" />
+            <Setter Property="Background" Value="{DynamicResource PortaCardBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource PortaTextPrimaryBrush}" />
             <Setter Property="Padding" Value="10,7" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="Template">
@@ -297,10 +298,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#1E293B" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource PortaSurfaceHoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#1C1C28" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource PortaNavActiveBrush}" />
                                 <Setter Property="Foreground" Value="#16C784" />
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -310,8 +311,8 @@
         </Style>
 
         <Style x:Key="DarkComboBoxStyle" TargetType="ComboBox">
-            <Setter Property="Background" Value="#131920" />
-            <Setter Property="Foreground" Value="#F1F5F9" />
+            <Setter Property="Background" Value="{DynamicResource PortaCardBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource PortaTextPrimaryBrush}" />
             <Setter Property="BorderBrush" Value="#252535" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="FontSize" Value="13" />
@@ -357,7 +358,7 @@
                                 Focusable="False"
                                 PopupAnimation="Slide">
                                 <Grid MinWidth="{TemplateBinding ActualWidth}" MaxHeight="200">
-                                    <Border Background="#131920"
+                                    <Border Background="{DynamicResource PortaCardBrush}"
                                             BorderBrush="{DynamicResource PortaCardBorderBrush}"
                                             BorderThickness="1"
                                             CornerRadius="6">
@@ -690,7 +691,7 @@
                                    StaysOpen="False">
                                 <Border Width="236"
                                         Padding="12"
-                                        Background="#0F1319"
+                                        Background="{DynamicResource PortaBubbleBrush}"
                                         BorderBrush="#2E3641"
                                         BorderThickness="1"
                                         CornerRadius="14">
@@ -775,7 +776,7 @@
                                            Margin="0,0,0,5" />
                                 <TextBlock x:Name="TodaySummaryText"
                                            Text="Today keeps work, last focus session, and pressure synced with the widget."
-                                           Foreground="#94A3B8"
+                                           Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                            FontSize="13"
                                            TextWrapping="Wrap" />
                             </StackPanel>
@@ -793,13 +794,13 @@
                                 <StackPanel>
                                     <TextBlock Text="WORK TODAY"
                                                FontSize="11" FontWeight="SemiBold"
-                                               Foreground="#94A3B8" Margin="0,0,0,6" />
+                                               Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" />
                                     <TextBlock x:Name="NowOverloadValueText" Text="—" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"
                                                Foreground="{DynamicResource PortaTextPrimaryBrush}" />
                                     <TextBlock x:Name="NowOverloadActiveText" Text="" Margin="0,4,0,0"
-                                               FontSize="12" Foreground="#94A3B8" />
+                                               FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                     <TextBlock x:Name="NowOverloadTrustText" Text="" Margin="0,3,0,0" Visibility="Collapsed"
-                                               FontSize="12" Foreground="#94A3B8" />
+                                               FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                     <Border x:Name="WorkTodayTrack" Height="4" CornerRadius="2" Background="{DynamicResource PortaDividerBrush}" Margin="0,8,0,6">
                                         <Border x:Name="WorkTodayProgressFill" Background="#475569" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
                                     </Border>
@@ -807,13 +808,13 @@
                                     <DockPanel LastChildFill="False">
                                         <TextBlock DockPanel.Dock="Right"
                                                    Text="View History →"
-                                                   FontSize="11" Foreground="#94A3B8"
+                                                   FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                                    Cursor="Hand"
                                                    MouseLeftButtonUp="NowDetailCard_MouseLeftButtonUp"
                                                    Tag="today-work" />
                                     </DockPanel>
                                     <TextBlock x:Name="NowOverloadSummaryText" Visibility="Collapsed"
-                                               Text="" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" />
+                                               Text="" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
                             <!-- Focus Score — no link, no click -->
@@ -833,12 +834,12 @@
                                     <TextBlock x:Name="NowDeepWorkStreakText" Text="" Margin="0,5,0,0"
                                                FontSize="12" FontWeight="SemiBold" Foreground="#16C784" Visibility="Collapsed" />
                                     <TextBlock x:Name="NowFocusChoppinessText" Text="" Margin="0,4,0,0"
-                                               FontSize="12" Foreground="#94A3B8" Visibility="Collapsed" />
+                                               FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Visibility="Collapsed" />
                                     <Border x:Name="FocusScoreTrack" Height="4" CornerRadius="2" Background="{DynamicResource PortaDividerBrush}" Margin="0,8,0,0">
                                         <Border x:Name="FocusScoreProgressFill" Background="#16C784" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
                                     </Border>
-                                    <TextBlock x:Name="NowFocusSummaryText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="NowFocusFootnoteText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowFocusSummaryText" Visibility="Collapsed" Text="" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowFocusFootnoteText" Visibility="Collapsed" Text="" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" />
                                     <TextBlock x:Name="NowFocusStatusText" Visibility="Collapsed" Text="" Foreground="{DynamicResource PortaWarningBrush}" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
@@ -858,14 +859,14 @@
                                                Foreground="#16C784" />
                                     <!-- NowCalibrationProgressText hidden — "Regulation · normal" is developer text -->
                                     <TextBlock x:Name="NowCalibrationProgressText" Text="" Visibility="Collapsed"
-                                               FontSize="12" Foreground="#94A3B8" />
+                                               FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                     <TextBlock x:Name="NowCalibrationQualityText" Text="" Margin="0,4,0,0"
-                                               FontSize="12" Foreground="#94A3B8" />
+                                               FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                     <Border x:Name="PressureTrack" Height="4" CornerRadius="2" Background="{DynamicResource PortaDividerBrush}" Margin="0,8,0,0">
                                         <Border x:Name="PressureProgressFill" Background="#94A3B8" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="4" />
                                     </Border>
-                                    <TextBlock x:Name="NowCalibrationColdStartText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#94A3B8" />
-                                    <TextBlock x:Name="NowCalibrationSummaryText" Visibility="Collapsed" Text="" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="NowCalibrationColdStartText" Visibility="Collapsed" Text="" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
+                                    <TextBlock x:Name="NowCalibrationSummaryText" Visibility="Collapsed" Text="" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" />
                                     <TextBlock x:Name="NowCalibrationTrustCapText" Visibility="Collapsed" Text="Analysis catching up." Foreground="{DynamicResource PortaWarningBrush}" FontSize="12" />
                                 </StackPanel>
                             </Border>
@@ -888,13 +889,13 @@
                         <!-- Session timeline -->
                         <TextBlock Text="SESSION TIMELINE — TODAY"
                                    FontSize="11" FontWeight="SemiBold"
-                                   Foreground="#94A3B8"
+                                   Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                    Margin="0,0,0,16" />
                         <Border Background="Transparent" BorderBrush="Transparent" BorderThickness="0"
                                 CornerRadius="0" Padding="0,0,0,20">
                             <StackPanel>
                                 <Grid x:Name="SessionTimelineBar" Height="22">
-                                    <Border Background="#252535" CornerRadius="4" />
+                                    <Border Background="{DynamicResource PortaCardBorderBrush}" CornerRadius="4" />
                                 </Grid>
                                 <WrapPanel Margin="0,14,0,0">
                                     <Border CornerRadius="4" Background="#1416C784" BorderBrush="#2216C784" BorderThickness="1" Padding="8,3" Margin="0,0,6,0">
@@ -914,7 +915,7 @@
                             <Border CornerRadius="6" Background="Transparent" BorderBrush="#334155" BorderThickness="1"
                                     Padding="10,7" Margin="0,0,10,0" Cursor="Hand"
                                     MouseLeftButtonUp="WhyDrawerToggleButton_Click">
-                                <TextBlock Text="What's pushing my pressure? ↗" FontSize="13" FontWeight="Medium" Foreground="#94A3B8" /></Border>
+                                <TextBlock Text="What's pushing my pressure? ↗" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextSecondaryBrush}" /></Border>
                         </WrapPanel>
                         <TextBlock x:Name="NowWaitingDataText"
                                    Text="Waiting for service data"
@@ -945,7 +946,7 @@
                                            VerticalAlignment="Center" />
                             </DockPanel>
                         </Border>
-                        <TextBlock x:Name="UpdatedValue" Margin="0,10,0,0" Foreground="#94A3B8" Text="" Visibility="Collapsed" />
+                        <TextBlock x:Name="UpdatedValue" Margin="0,10,0,0" Foreground="{DynamicResource PortaTextSecondaryBrush}" Text="" Visibility="Collapsed" />
                         <TextBlock x:Name="DebugFooterText" Margin="0,6,0,0" Foreground="#F59E0B" FontFamily="Consolas" FontSize="11" Text="" Visibility="Collapsed" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>
@@ -959,7 +960,7 @@
                         <!-- Page header -->
                         <TextBlock Text="Tracking" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
                         <TextBlock Text="See exactly what Ari monitors and how your data is protected."
-                                   FontSize="13" Foreground="#94A3B8" Margin="0,0,0,24" />
+                                   FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,24" />
 
                         <!-- ══ SECTION 1: What Ari observes (open by default) ══ -->
                         <Border x:Name="TrackingNavObserves"
@@ -984,10 +985,10 @@
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="What Ari observes" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                    <TextBlock Text="Keyboard, mouse and app activity signals" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0"/>
+                                    <TextBlock Text="Keyboard, mouse and app activity signals" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <TextBlock x:Name="TrackingChevronObserves" Grid.Column="2"
-                                           Text="+" FontSize="20" FontWeight="Light" Foreground="#94A3B8"
+                                           Text="+" FontSize="20" FontWeight="Light" Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                            VerticalAlignment="Center" Margin="12,0,0,0"/>
                             </Grid>
                         </Border>
@@ -1007,7 +1008,7 @@
                                         </Viewbox>
                                         <StackPanel>
                                             <TextBlock Text="Keyboard rhythm" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                            <TextBlock Text="How active typing is — never what you typed" Foreground="#94A3B8" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock Text="How active typing is — never what you typed" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
@@ -1022,7 +1023,7 @@
                                         </Viewbox>
                                         <StackPanel>
                                             <TextBlock Text="Mouse movement" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                            <TextBlock Text="Movement, scrolling and pace — never screen content" Foreground="#94A3B8" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock Text="Movement, scrolling and pace — never screen content" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
@@ -1037,7 +1038,7 @@
                                         </Viewbox>
                                         <StackPanel>
                                             <TextBlock Text="App switching" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                            <TextBlock Text="Which apps are active — identifiers hashed before storage" Foreground="#94A3B8" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock Text="Which apps are active — identifiers hashed before storage" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
@@ -1052,7 +1053,7 @@
                                         </Viewbox>
                                         <StackPanel>
                                             <TextBlock Text="Activity gaps" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                            <TextBlock Text="When you step away or pause — not why" Foreground="#94A3B8" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock Text="When you step away or pause — not why" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
@@ -1082,10 +1083,10 @@
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="What Ari never collects" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                    <TextBlock Text="Your messages, screenshots and personal content" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0"/>
+                                    <TextBlock Text="Your messages, screenshots and personal content" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <TextBlock x:Name="TrackingChevronNeverCollects" Grid.Column="2"
-                                           Text="+" FontSize="20" FontWeight="Light" Foreground="#94A3B8"
+                                           Text="+" FontSize="20" FontWeight="Light" Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                            VerticalAlignment="Center" Margin="12,0,0,0"/>
                             </Grid>
                         </Border>
@@ -1097,25 +1098,25 @@
                                 <Border BorderBrush="Transparent" BorderThickness="0" Padding="8,12">
                                     <StackPanel Orientation="Horizontal">
                                         <Viewbox Width="14" Height="14" Margin="0,0,12,0"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#EF4444" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M18 6L6 18M6 6l12 12"/></Canvas></Viewbox>
-                                        <TextBlock Text="Typed words or message content" FontSize="13" Foreground="#94A3B8"/>
+                                        <TextBlock Text="Typed words or message content" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}"/>
                                     </StackPanel>
                                 </Border>
                                 <Border BorderBrush="Transparent" BorderThickness="0" Padding="8,12">
                                     <StackPanel Orientation="Horizontal">
                                         <Viewbox Width="14" Height="14" Margin="0,0,12,0"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#EF4444" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M18 6L6 18M6 6l12 12"/></Canvas></Viewbox>
-                                        <TextBlock Text="Screenshots or screen recordings" FontSize="13" Foreground="#94A3B8"/>
+                                        <TextBlock Text="Screenshots or screen recordings" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}"/>
                                     </StackPanel>
                                 </Border>
                                 <Border BorderBrush="Transparent" BorderThickness="0" Padding="8,12">
                                     <StackPanel Orientation="Horizontal">
                                         <Viewbox Width="14" Height="14" Margin="0,0,12,0"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#EF4444" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M18 6L6 18M6 6l12 12"/></Canvas></Viewbox>
-                                        <TextBlock Text="Clipboard contents" FontSize="13" Foreground="#94A3B8"/>
+                                        <TextBlock Text="Clipboard contents" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}"/>
                                     </StackPanel>
                                 </Border>
                                 <Border Padding="8,12">
                                     <StackPanel Orientation="Horizontal">
                                         <Viewbox Width="14" Height="14" Margin="0,0,12,0"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#EF4444" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M18 6L6 18M6 6l12 12"/></Canvas></Viewbox>
-                                        <TextBlock Text="Microphone or camera data" FontSize="13" Foreground="#94A3B8"/>
+                                        <TextBlock Text="Microphone or camera data" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}"/>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
@@ -1144,10 +1145,10 @@
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="Tracking quality" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                    <TextBlock Text="How accurately Ari understands your patterns" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0"/>
+                                    <TextBlock Text="How accurately Ari understands your patterns" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <TextBlock x:Name="TrackingChevronQuality" Grid.Column="2"
-                                           Text="+" FontSize="20" FontWeight="Light" Foreground="#94A3B8"
+                                           Text="+" FontSize="20" FontWeight="Light" Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                            VerticalAlignment="Center" Margin="12,0,0,0"/>
                             </Grid>
                         </Border>
@@ -1164,9 +1165,9 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Text="Signal quality" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="TrackingQualityChipText" Grid.Column="1"
-                                               Text="" FontSize="11" Foreground="#94A3B8" VerticalAlignment="Center"/>
+                                               Text="" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center"/>
                                 </Grid>
-                                <Border Height="6" CornerRadius="3" Background="#252535" Margin="0,0,0,14">
+                                <Border Height="6" CornerRadius="3" Background="{DynamicResource PortaCardBorderBrush}" Margin="0,0,0,14">
                                     <Border x:Name="TrackingQualityProgressFill" Background="#6366F1" CornerRadius="3"
                                             HorizontalAlignment="Left" Width="60" Height="6"/>
                                 </Border>
@@ -1175,27 +1176,27 @@
                                            FontWeight="SemiBold" Foreground="{DynamicResource PortaTextPrimaryBrush}" FontSize="14" Margin="0,0,0,6"/>
                                 <TextBlock x:Name="TrackingQualitySummaryText"
                                            Text="Ari needs a little more recent activity before it can describe your patterns clearly."
-                                           Foreground="#CBD5E1" FontSize="13" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                                           Foreground="{DynamicResource PortaTextBodyBrush}" FontSize="13" Margin="0,0,0,8" TextWrapping="Wrap"/>
                                 <TextBlock x:Name="TrackingQualityHelpText"
                                            Text="Best results come from a normal signed-in desktop session with a few seconds of keyboard or mouse activity."
-                                           Foreground="#94A3B8" FontSize="12" Margin="0,0,0,16" TextWrapping="Wrap"/>
+                                           Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,0,0,16" TextWrapping="Wrap"/>
                                 <UniformGrid Columns="3">
                                     <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0" Margin="0,0,8,0">
                                         <StackPanel>
                                             <TextBlock Text="Stay in your session" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                            <TextBlock Text="Tracking works best when Ari is attached to your signed-in desktop session." Foreground="#94A3B8" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock Text="Tracking works best when Ari is attached to your signed-in desktop session." Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </Border>
                                     <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0" Margin="8,0">
                                         <StackPanel>
                                             <TextBlock Text="Give it a few seconds" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                            <TextBlock Text="A short stretch of keyboard or mouse activity helps Ari confirm the current session." Foreground="#94A3B8" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock Text="A short stretch of keyboard or mouse activity helps Ari confirm the current session." Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </Border>
                                     <Border Style="{StaticResource QuietHoverSubCardStyle}" BorderThickness="0" Margin="8,0,0,0">
                                         <StackPanel>
                                             <TextBlock Text="Keep consent on" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                            <TextBlock Text="If consent is revoked or tracking is paused, Ari stops collecting until you turn it back on." Foreground="#94A3B8" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock Text="If consent is revoked or tracking is paused, Ari stops collecting until you turn it back on." Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </Border>
                                 </UniformGrid>
@@ -1225,10 +1226,10 @@
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="Privacy control" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                    <TextBlock Text="Consent, privacy mode and active controls" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0"/>
+                                    <TextBlock Text="Consent, privacy mode and active controls" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <TextBlock x:Name="TrackingChevronPrivacy" Grid.Column="2"
-                                           Text="+" FontSize="20" FontWeight="Light" Foreground="#94A3B8"
+                                           Text="+" FontSize="20" FontWeight="Light" Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                            VerticalAlignment="Center" Margin="12,0,0,0"/>
                             </Grid>
                         </Border>
@@ -1247,12 +1248,12 @@
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Consent" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center"/>
-                                    <TextBlock x:Name="TrackingConsentValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="13" Foreground="#CBD5E1" TextWrapping="Wrap"/>
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Privacy mode" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" Margin="0,12,0,0"/>
-                                    <TextBlock x:Name="TrackingPrivacyValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="13" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,12,0,0"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Active controls" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" Margin="0,12,0,0"/>
-                                    <TextBlock x:Name="TrackingControlsValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="13" Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,12,0,0"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Consent" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="TrackingConsentValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="13" Foreground="{DynamicResource PortaTextBodyBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Privacy mode" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" Margin="0,12,0,0"/>
+                                    <TextBlock x:Name="TrackingPrivacyValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="13" Foreground="{DynamicResource PortaTextBodyBrush}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Active controls" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" Margin="0,12,0,0"/>
+                                    <TextBlock x:Name="TrackingControlsValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="13" Foreground="{DynamicResource PortaTextBodyBrush}" TextWrapping="Wrap" Margin="0,12,0,0"/>
                                 </Grid>
                                 <WrapPanel>
                                     <Button Content="Open Settings" Padding="12,7" Margin="0,0,10,0" Click="SettingsNavButton_Click"/>
@@ -1285,10 +1286,10 @@
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="Your data" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextPrimaryBrush}"/>
-                                    <TextBlock Text="Storage, retention and export options" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0"/>
+                                    <TextBlock Text="Storage, retention and export options" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,0"/>
                                 </StackPanel>
                                 <TextBlock x:Name="TrackingChevronData" Grid.Column="2"
-                                           Text="+" FontSize="20" FontWeight="Light" Foreground="#94A3B8"
+                                           Text="+" FontSize="20" FontWeight="Light" Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                            VerticalAlignment="Center" Margin="12,0,0,0"/>
                             </Grid>
                         </Border>
@@ -1297,8 +1298,8 @@
                                 CornerRadius="0" Padding="16,0,0,12" Margin="0,0,0,8"
                                 Visibility="Collapsed">
                             <StackPanel>
-                                <TextBlock x:Name="RetentionWindowValue" Text="Stored on this device: Not available" FontSize="13" Foreground="#CBD5E1" Margin="0,0,0,6"/>
-                                <TextBlock x:Name="RetentionSizeValue" Text="Local storage used: Not available" FontSize="13" Foreground="#CBD5E1" Margin="0,0,0,16"/>
+                                <TextBlock x:Name="RetentionWindowValue" Text="Stored on this device: Not available" FontSize="13" Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,6"/>
+                                <TextBlock x:Name="RetentionSizeValue" Text="Local storage used: Not available" FontSize="13" Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,16"/>
                                 <WrapPanel>
                                     <Button Content="Export Data" Padding="12,7" Margin="0,0,10,0" Click="ExportDataButton_Click"/>
                                     <Button Content="Delete Local Data" Padding="12,7" Click="DeleteLocalDataButton_Click"/>
@@ -1325,30 +1326,30 @@
                         <UniformGrid Columns="3" Margin="0,0,0,16">
                             <Border Background="{DynamicResource PortaCardBrush}" BorderBrush="#666366F1" BorderThickness="1" CornerRadius="10" Padding="16,14,16,14" Margin="0,0,8,0">
                                 <StackPanel>
-                                    <TextBlock Text="SUGGESTIONS" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
+                                    <TextBlock Text="SUGGESTIONS" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                     <TextBlock x:Name="ActionsCardSuggestionsCount" Text="0" FontSize="28" FontWeight="Bold" Foreground="#A5B4FC" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="ActionsCardSuggestionsRecent" Text="None yet" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
-                                    <Border x:Name="ActionsCardSuggestionsTrack" Height="3" CornerRadius="2" Background="#252535">
+                                    <TextBlock x:Name="ActionsCardSuggestionsRecent" Text="None yet" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,8" />
+                                    <Border x:Name="ActionsCardSuggestionsTrack" Height="3" CornerRadius="2" Background="{DynamicResource PortaCardBorderBrush}">
                                         <Border x:Name="ActionsCardSuggestionsBarFill" Background="#6366F1" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
                                 </StackPanel>
                             </Border>
                             <Border Background="{DynamicResource PortaCardBrush}" BorderBrush="#6616C784" BorderThickness="1" CornerRadius="10" Padding="16,14,16,14" Margin="0,0,8,0">
                                 <StackPanel>
-                                    <TextBlock Text="ACTIONS TAKEN" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
+                                    <TextBlock Text="ACTIONS TAKEN" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                     <TextBlock x:Name="ActionsCardActionsCount" Text="0" FontSize="28" FontWeight="Bold" Foreground="#16C784" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="ActionsCardActionsRecent" Text="None yet" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
-                                    <Border x:Name="ActionsCardActionsTrack" Height="3" CornerRadius="2" Background="#252535">
+                                    <TextBlock x:Name="ActionsCardActionsRecent" Text="None yet" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,8" />
+                                    <Border x:Name="ActionsCardActionsTrack" Height="3" CornerRadius="2" Background="{DynamicResource PortaCardBorderBrush}">
                                         <Border x:Name="ActionsCardActionsBarFill" Background="#16C784" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
                                 </StackPanel>
                             </Border>
                             <Border Background="{DynamicResource PortaCardBrush}" BorderBrush="#66F59E0B" BorderThickness="1" CornerRadius="10" Padding="16,14,16,14">
                                 <StackPanel>
-                                    <TextBlock Text="ALERTS" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
+                                    <TextBlock Text="ALERTS" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                     <TextBlock x:Name="ActionsCardAlertsCount" Text="0" FontSize="28" FontWeight="Bold" Foreground="#F59E0B" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="ActionsCardAlertsRecent" Text="None yet" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
-                                    <Border x:Name="ActionsCardAlertsTrack" Height="3" CornerRadius="2" Background="#252535">
+                                    <TextBlock x:Name="ActionsCardAlertsRecent" Text="None yet" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,8" />
+                                    <Border x:Name="ActionsCardAlertsTrack" Height="3" CornerRadius="2" Background="{DynamicResource PortaCardBorderBrush}">
                                         <Border x:Name="ActionsCardAlertsBarFill" Background="#F59E0B" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
                                 </StackPanel>
@@ -1358,7 +1359,7 @@
                         <!-- Unified event feed -->
                         <TextBlock x:Name="ActionsEmptyState"
                                    Text="Ari hasn't taken any actions yet."
-                                   FontSize="13" Foreground="#94A3B8"
+                                   FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                    HorizontalAlignment="Center" Margin="0,20,0,0"
                                    Visibility="Collapsed" />
                         <StackPanel x:Name="ActionsUnifiedFeed" />
@@ -1447,31 +1448,31 @@
                             <Border x:Name="SettingsNavPrivacy" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Privacy" MouseLeftButtonUp="SettingsSubNav_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 2l7 4v6c0 5-3.5 9-7 10C8.5 21 5 17 5 12V6l7-4z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavPrivacyText" Text="Privacy" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="SettingsNavPrivacyText" Text="Privacy" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="SettingsNavCollection" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Collection" MouseLeftButtonUp="SettingsSubNav_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M6 4h4v16H6zm8 0h4v16h-4z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavCollectionText" Text="Collection" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="SettingsNavCollectionText" Text="Collection" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="SettingsNavCalibration" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Calibration" MouseLeftButtonUp="SettingsSubNav_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3 12h4l3 8 4-16 3 8h4" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavCalibrationText" Text="Calibration" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="SettingsNavCalibrationText" Text="Calibration" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="SettingsNavFeatures" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Features" MouseLeftButtonUp="SettingsSubNav_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M5 12h2m10 0h2M12 5v2m0 10v2M7.05 7.05l1.41 1.41m7.08 7.08l1.41 1.41M7.05 16.95l1.41-1.41M15.54 8.46l1.41-1.41" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavFeaturesText" Text="Features" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="SettingsNavFeaturesText" Text="Features" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="SettingsNavAppearance" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Appearance" MouseLeftButtonUp="SettingsSubNav_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 3a9 9 0 1 0 0 18A9 9 0 0 0 12 3zm0 2a7 7 0 0 1 0 14V5z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavAppearanceText" Text="Appearance" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="SettingsNavAppearanceText" Text="Appearance" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -1482,39 +1483,39 @@
                             <TextBlock x:Name="IntensityValueText" Visibility="Collapsed" Text="Balanced" />
                             <StackPanel x:Name="SettingsSectionIntensity" Visibility="Visible">
                                 <TextBlock Text="Intensity" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Controls how actively Ari intervenes when it detects focus or overload patterns." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <TextBlock Text="Controls how actively Ari intervenes when it detects focus or overload patterns." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
                                 <UniformGrid x:Name="IntensityCardGrid" Columns="3" Margin="0,0,0,12">
                                     <Border x:Name="IntensityLightCard" CornerRadius="10" Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Margin="0,0,6,0" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="0">
                                         <StackPanel HorizontalAlignment="Center">
                                             <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityLightIcon" Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 19.5c1-3.5 5-4.5 5-9a6 6 0 0 0-12 0c0 4.5 4 5.5 5 9zm0 0v2.5m-1-2h2" /></Canvas></Viewbox>
                                             <TextBlock Text="Light" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" HorizontalAlignment="Center" />
-                                            <TextBlock Text="Gentle signals only" FontSize="11" Foreground="#94A3B8" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                            <TextBlock Text="Gentle signals only" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,2,0,0" />
                                         </StackPanel>
                                     </Border>
                                     <Border x:Name="IntensityBalancedCard" CornerRadius="10" Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Margin="0,0,6,0" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="1">
                                         <StackPanel HorizontalAlignment="Center">
                                             <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityBalancedIcon" Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M4 10h16M4 14h16M7 7l-3 3 3 3M17 7l3 3-3 3" /></Canvas></Viewbox>
                                             <TextBlock Text="Balanced" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" HorizontalAlignment="Center" />
-                                            <TextBlock Text="Recommended default" FontSize="11" Foreground="#94A3B8" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                            <TextBlock Text="Recommended default" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,2,0,0" />
                                         </StackPanel>
                                     </Border>
                                     <Border x:Name="IntensityDeepCard" CornerRadius="10" Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="2">
                                         <StackPanel HorizontalAlignment="Center">
                                             <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityDeepIcon" Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M15.5 5C16.5 5 18 6.5 18 10s-2 5-3.5 5H12m-3.5-10C7.5 5 6 6.5 6 10s2 5 3.5 5H12m0 0v4m0-14v.5" /></Canvas></Viewbox>
                                             <TextBlock Text="Deep" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" HorizontalAlignment="Center" />
-                                            <TextBlock Text="Full intervention mode" FontSize="11" Foreground="#94A3B8" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                            <TextBlock Text="Full intervention mode" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,2,0,0" />
                                         </StackPanel>
                                     </Border>
                                 </UniformGrid>
                             </StackPanel>
                             <StackPanel x:Name="SettingsSectionPrivacy" Visibility="Collapsed">
                                 <TextBlock Text="Privacy" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Control what Ari observes and how much context it stores." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <TextBlock Text="Control what Ari observes and how much context it stores." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
-                                        <TextBlock Text="OBSERVATION LEVEL" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
+                                        <TextBlock Text="OBSERVATION LEVEL" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center"><TextBlock Text="Privacy mode" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="How much context Ari captures per session" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center"><TextBlock Text="Privacy mode" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="How much context Ari captures per session" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" /></StackPanel>
                                             <Border Grid.Column="1" Background="#0D1117" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Width="160" VerticalAlignment="Center">
                                                 <ComboBox x:Name="PrivacyLevelComboBox" Style="{StaticResource DarkComboBoxStyle}" SelectionChanged="PrivacyLevelComboBox_SelectionChanged">
                                                     <ComboBoxItem Content="Minimal" />
@@ -1527,18 +1528,18 @@
                                 </Border>
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16">
                                     <StackPanel>
-                                        <TextBlock Text="DATA CONTROLS" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
+                                        <TextBlock Text="DATA CONTROLS" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
                                         <WrapPanel Margin="0,0,0,10"><Button Content="Revoke consent" Padding="12,7" Margin="0,0,8,0" Click="RevokeConsentFromSettingsButton_Click" Foreground="#F87171" BorderBrush="#7F1D1D" /></WrapPanel>
-                                        <Border BorderBrush="#1E293B" BorderThickness="0,1,0,0" Padding="0,10,0,0"><TextBlock Text="Revoking consent stops all data collection immediately. Existing data is deleted within 24 hours." FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" /></Border>
+                                        <Border BorderBrush="#1E293B" BorderThickness="0,1,0,0" Padding="0,10,0,0"><TextBlock Text="Revoking consent stops all data collection immediately. Existing data is deleted within 24 hours." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" /></Border>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
                             <StackPanel x:Name="SettingsSectionCollection" Visibility="Collapsed">
                                 <TextBlock Text="Collection" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Pause or schedule downtime for Ari's background monitoring." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <TextBlock Text="Pause or schedule downtime for Ari's background monitoring." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
-                                        <TextBlock Text="PAUSE CONTROLS" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
+                                        <TextBlock Text="PAUSE CONTROLS" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
                                         <WrapPanel>
                                             <Button Content="Pause now" Padding="12,7" Margin="0,0,8,6" Click="PauseButton_Click" />
                                             <Button x:Name="SchedulePauseToggleButton" Content="Schedule pause" Padding="12,7" Margin="0,0,8,6" Click="SchedulePauseToggleButton_Click" />
@@ -1548,8 +1549,8 @@
                                 </Border>
                                 <Border x:Name="SchedulePausePanel" Visibility="Collapsed" Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
-                                        <TextBlock Text="SCHEDULE A PAUSE" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
-                                        <TextBlock Text="Pause until" FontSize="13" Foreground="#94A3B8" Margin="0,0,0,8" />
+                                        <TextBlock Text="SCHEDULE A PAUSE" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <TextBlock Text="Pause until" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" />
                                         <WrapPanel>
                                             <Border Style="{StaticResource RoundedInputChromeStyle}" Width="160" Margin="0,0,8,0"><DatePicker x:Name="PauseUntilDatePicker" Background="Transparent" BorderThickness="0" /></Border>
                                             <Border Style="{StaticResource RoundedInputChromeStyle}" Width="110" Margin="0,0,8,0"><ComboBox x:Name="PauseUntilTimeComboBox" ItemContainerStyle="{StaticResource ReadableSettingsComboItemStyle}" Foreground="#111827" Background="Transparent" BorderThickness="0" /></Border>
@@ -1557,15 +1558,15 @@
                                         </WrapPanel>
                                     </StackPanel>
                                 </Border>
-                                <TextBlock x:Name="SettingsStatusText" Text="Settings status: Not available" FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0" />
+                                <TextBlock x:Name="SettingsStatusText" Text="Settings status: Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,4,0,0" />
                             </StackPanel>
                             <StackPanel x:Name="SettingsSectionCalibration" Visibility="Collapsed">
                                 <TextBlock Text="Calibration" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Reset Ari's baseline model to reflect your current work patterns." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <TextBlock Text="Reset Ari's baseline model to reflect your current work patterns." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Baseline snapshot" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Recalibrating takes a few minutes. Ari observes your normal patterns and adjusts its thresholds. You can keep working while it runs." FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Baseline snapshot" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Recalibrating takes a few minutes. Ari observes your normal patterns and adjusts its thresholds. You can keep working while it runs." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,4,0,0" TextWrapping="Wrap" /></StackPanel>
                                             <Button Grid.Column="1" Content="Recalibrate" Padding="14,8" VerticalAlignment="Center" Click="RecalibrateBaselineButton_Click" />
                                         </Grid>
                                     </StackPanel>
@@ -1574,10 +1575,10 @@
                             </StackPanel>
                             <StackPanel x:Name="SettingsSectionAppearance" Visibility="Collapsed">
                                 <TextBlock Text="Appearance" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Customize how the Control Center and widget look." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <TextBlock Text="Customize how the Control Center and widget look." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
-                                        <TextBlock Text="THEME" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
+                                        <TextBlock Text="THEME" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
@@ -1585,7 +1586,7 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
                                                 <TextBlock Text="Light mode" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
-                                                <TextBlock Text="Switch between dark (default) and light interface" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                                <TextBlock Text="Switch between dark (default) and light interface" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" />
                                             </StackPanel>
                                             <CheckBox x:Name="AppearanceLightModeToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="AppearanceLightModeToggle_Click" />
                                         </Grid>
@@ -1594,33 +1595,33 @@
                             </StackPanel>
                             <StackPanel x:Name="SettingsSectionFeatures" Visibility="Collapsed">
                                 <TextBlock Text="Features" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Toggle individual Ari capabilities on or off." FontSize="12" Foreground="#94A3B8" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <TextBlock Text="Toggle individual Ari capabilities on or off." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
                                     <StackPanel>
-                                        <TextBlock Text="MODE" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
+                                        <TextBlock Text="MODE" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Suggestions only" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Ari recommends actions but makes no system changes" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Suggestions only" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Ari recommends actions but makes no system changes" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
                                             <CheckBox x:Name="SettingsSuggestionsOnlyToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsSuggestionsOnlyToggle_Click" />
                                         </Grid>
                                     </StackPanel>
                                 </Border>
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16">
                                     <StackPanel>
-                                        <TextBlock Text="INTERVENTION CATEGORIES" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
+                                        <TextBlock Text="INTERVENTION CATEGORIES" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
                                         <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Notification reduction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Suppress non-critical alerts during focus periods" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Notification reduction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Suppress non-critical alerts during focus periods" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
                                             <CheckBox x:Name="SettingsNotificationToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
                                         </Grid>
                                         <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Focus mode nudge" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Prompt to enter focus mode after context switching" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Focus mode nudge" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Prompt to enter focus mode after context switching" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
                                             <CheckBox x:Name="SettingsFocusModeToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
                                         </Grid>
                                         <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Animation reduction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Reduce motion when sustained high load is detected" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Animation reduction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Reduce motion when sustained high load is detected" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
                                             <CheckBox x:Name="SettingsAnimationToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
                                         </Grid>
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Temporary app restriction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Block distracting apps during deep work sessions" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Temporary app restriction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Block distracting apps during deep work sessions" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
                                             <CheckBox x:Name="SettingsAppRestrictionToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
                                         </Grid>
                                     </StackPanel>
@@ -1633,7 +1634,7 @@
 <ScrollViewer x:Name="StatesPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20">
                         <TextBlock Text="Advanced moved into System" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,4" />
-                        <TextBlock Text="Open System and scroll to the Advanced section." Foreground="#CBD5E1" Margin="0,0,0,12" />
+                        <TextBlock Text="Open System and scroll to the Advanced section." Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,12" />
                     </StackPanel>
                 </ScrollViewer>
 
@@ -1666,7 +1667,7 @@
                                         MouseLeftButtonUp="HistoryTabWeek_Click">
                                     <StackPanel>
                                         <TextBlock x:Name="HistoryTabWeekText" Text="Week"
-                                                   FontSize="13" FontWeight="Medium" Foreground="#94A3B8" />
+                                                   FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                         <Border x:Name="HistoryTabWeekLine" Height="2" Background="Transparent" Margin="0,3,0,0" />
                                     </StackPanel>
                                 </Border>
@@ -1677,7 +1678,7 @@
                                         MouseLeftButtonUp="HistoryTabTwoWeeks_Click">
                                     <StackPanel>
                                         <TextBlock x:Name="HistoryTabTwoWeeksText" Text="2 Weeks"
-                                                   FontSize="13" FontWeight="Medium" Foreground="#94A3B8" />
+                                                   FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                         <Border x:Name="HistoryTabTwoWeeksLine" Height="2" Background="Transparent" Margin="0,3,0,0" />
                                     </StackPanel>
                                 </Border>
@@ -1688,7 +1689,7 @@
                         <TextBlock x:Name="HistoryCardPeriodLabel"
                                    Text="Today"
                                    FontSize="11"
-                                   Foreground="#94A3B8"
+                                   Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                    Margin="0,0,0,8"
                                    HorizontalAlignment="Left" />
                         <!-- Four summary cards -->
@@ -1696,10 +1697,10 @@
                             <Border x:Name="HistoryCardFocus"
                                     Background="{DynamicResource PortaCardBrush}" BorderBrush="#6616C784" BorderThickness="1" CornerRadius="10" Padding="16,14,16,14" Margin="0,0,8,0">
                                 <StackPanel>
-                                    <TextBlock Text="FOCUS" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
+                                    <TextBlock Text="FOCUS" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                     <TextBlock x:Name="HistoryFocusDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#16C784" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="HistoryFocusSubLabel" Text="" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
-                                    <Border x:Name="HistoryFocusTrack" Height="3" CornerRadius="2" Background="#252535">
+                                    <TextBlock x:Name="HistoryFocusSubLabel" Text="" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,8" />
+                                    <Border x:Name="HistoryFocusTrack" Height="3" CornerRadius="2" Background="{DynamicResource PortaCardBorderBrush}">
                                         <Border x:Name="HistoryFocusBarFill" Background="#16C784" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
                                 </StackPanel>
@@ -1707,10 +1708,10 @@
                             <Border x:Name="HistoryCardDistraction"
                                     Background="{DynamicResource PortaCardBrush}" BorderBrush="#668B5CF6" BorderThickness="1" CornerRadius="10" Padding="16,14,16,14" Margin="0,0,8,0">
                                 <StackPanel>
-                                    <TextBlock Text="DISTRACTION" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
+                                    <TextBlock Text="DISTRACTION" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                     <TextBlock x:Name="HistoryDistractionDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#8B5CF6" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="HistoryDistractionSubLabel" Text="" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
-                                    <Border x:Name="HistoryDistractionTrack" Height="3" CornerRadius="2" Background="#252535">
+                                    <TextBlock x:Name="HistoryDistractionSubLabel" Text="" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,8" />
+                                    <Border x:Name="HistoryDistractionTrack" Height="3" CornerRadius="2" Background="{DynamicResource PortaCardBorderBrush}">
                                         <Border x:Name="HistoryDistractionBarFill" Background="#8B5CF6" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
                                 </StackPanel>
@@ -1718,10 +1719,10 @@
                             <Border x:Name="HistoryCardOverload"
                                     Background="{DynamicResource PortaCardBrush}" BorderBrush="#66EF4444" BorderThickness="1" CornerRadius="10" Padding="16,14,16,14" Margin="0,0,8,0">
                                 <StackPanel>
-                                    <TextBlock Text="OVERLOAD" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
+                                    <TextBlock Text="OVERLOAD" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                     <TextBlock x:Name="HistoryOverloadDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#EF4444" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="HistoryOverloadSubLabel" Text="" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
-                                    <Border x:Name="HistoryOverloadTrack" Height="3" CornerRadius="2" Background="#252535">
+                                    <TextBlock x:Name="HistoryOverloadSubLabel" Text="" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,8" />
+                                    <Border x:Name="HistoryOverloadTrack" Height="3" CornerRadius="2" Background="{DynamicResource PortaCardBorderBrush}">
                                         <Border x:Name="HistoryOverloadBarFill" Background="#EF4444" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
                                 </StackPanel>
@@ -1729,10 +1730,10 @@
                             <Border x:Name="HistoryCardAway"
                                     Background="{DynamicResource PortaCardBrush}" BorderBrush="#663B82F6" BorderThickness="1" CornerRadius="10" Padding="16,14,16,14">
                                 <StackPanel>
-                                    <TextBlock Text="AWAY" FontSize="10" FontWeight="SemiBold" Foreground="#94A3B8" />
+                                    <TextBlock Text="AWAY" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                     <TextBlock x:Name="HistoryAwayDuration" Text="—" FontSize="28" FontWeight="Bold" Foreground="#3B82F6" Margin="0,4,0,0" />
-                                    <TextBlock x:Name="HistoryAwaySubLabel" Text="" FontSize="11" Foreground="#94A3B8" Margin="0,2,0,8" />
-                                    <Border x:Name="HistoryAwayTrack" Height="3" CornerRadius="2" Background="#252535">
+                                    <TextBlock x:Name="HistoryAwaySubLabel" Text="" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,8" />
+                                    <Border x:Name="HistoryAwayTrack" Height="3" CornerRadius="2" Background="{DynamicResource PortaCardBorderBrush}">
                                         <Border x:Name="HistoryAwayBarFill" Background="#3B82F6" CornerRadius="2" HorizontalAlignment="Left" Width="0" Height="3" />
                                     </Border>
                                 </StackPanel>
@@ -1858,25 +1859,25 @@
                             <Border x:Name="AccountNavManageBorder" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="manage" MouseLeftButtonUp="AccountNavItem_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="AccountNavManageText" Text="Manage account" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="AccountNavManageText" Text="Manage account" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="AccountNavWorkspaceBorder" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="workspace" MouseLeftButtonUp="AccountNavItem_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="AccountNavWorkspaceText" Text="Workspace" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="AccountNavWorkspaceText" Text="Workspace" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="AccountNavSubscriptionBorder" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="subscription" MouseLeftButtonUp="AccountNavItem_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M20 12V22H4V12M22 7H2v5h20V7zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="AccountNavSubscriptionText" Text="Subscription" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="AccountNavSubscriptionText" Text="Subscription" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border x:Name="AccountNavDevicesBorder" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="devices" MouseLeftButtonUp="AccountNavItem_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M20 4H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM2 18h20M8 22h8" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="AccountNavDevicesText" Text="Devices" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="AccountNavDevicesText" Text="Devices" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
                             <Border BorderBrush="#1E293B" BorderThickness="0,1,0,0" Margin="4,8,4,8" />
@@ -1899,7 +1900,7 @@
                                         </Border>
                                         <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
                                             <TextBlock x:Name="AccountProfileNameText" Text="" FontSize="14" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
-                                            <TextBlock x:Name="AccountProfileEmailText" Text="" FontSize="12" Foreground="#94A3B8" />
+                                            <TextBlock x:Name="AccountProfileEmailText" Text="" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                         </StackPanel>
                                         <TextBlock Grid.Column="2" Text="Signed in" FontSize="11" FontWeight="SemiBold" Foreground="#16C784" VerticalAlignment="Center" HorizontalAlignment="Right" />
                                     </Grid>
@@ -1907,12 +1908,12 @@
                                         <Grid>
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="120" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Device" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" />
-                                            <TextBlock x:Name="AccountProfileDeviceText" Grid.Row="0" Grid.Column="1" Text="—" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" TextWrapping="Wrap" />
-                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Workspace" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" />
-                                            <TextBlock x:Name="AccountProfileWorkspaceText" Grid.Row="1" Grid.Column="1" Text="—" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" TextWrapping="Wrap" />
-                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Session ID" FontSize="12" Foreground="#94A3B8" />
-                                            <TextBlock x:Name="AccountProfileSessionText" Grid.Row="2" Grid.Column="1" Text="—" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" />
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Device" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" />
+                                            <TextBlock x:Name="AccountProfileDeviceText" Grid.Row="0" Grid.Column="1" Text="—" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Workspace" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" />
+                                            <TextBlock x:Name="AccountProfileWorkspaceText" Grid.Row="1" Grid.Column="1" Text="—" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Session ID" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
+                                            <TextBlock x:Name="AccountProfileSessionText" Grid.Row="2" Grid.Column="1" Text="—" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" />
                                         </Grid>
                                     </Border>
                                 </StackPanel>
@@ -1928,8 +1929,8 @@
                                     <Border x:Name="AccountUpdateBanner" Background="#0F1A2E" BorderBrush="#1E3A5F" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,10" Visibility="Collapsed">
                                         <StackPanel>
                                             <TextBlock x:Name="AccountUpdateTitleText" Text="Ari update ready" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,6" />
-                                            <TextBlock x:Name="AccountUpdateBodyText" Text="A new Windows build is available for this PC." Foreground="#CBD5E1" TextWrapping="Wrap" Margin="0,0,0,8" />
-                                            <TextBlock x:Name="AccountUpdateStatusText" Text="App updates are checked automatically when a release is published." Foreground="#94A3B8" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="AccountUpdateBodyText" Text="A new Windows build is available for this PC." Foreground="{DynamicResource PortaTextBodyBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                            <TextBlock x:Name="AccountUpdateStatusText" Text="App updates are checked automatically when a release is published." Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" />
                                             <WrapPanel Margin="0,10,0,0">
                                                 <Button x:Name="AccountInstallUpdateButton" Content="Download and install" Margin="0,0,8,8" Padding="12,6" Click="AccountInstallUpdateButton_Click" />
                                                 <Button x:Name="AccountDismissUpdateButton" Content="Later" Margin="0,0,0,8" Padding="12,6" Click="AccountDismissUpdateButton_Click" />
@@ -1938,36 +1939,36 @@
                                     </Border>
                                     <StackPanel x:Name="AccountSignedOutPanel">
                                         <TextBlock Text="Sign in to view your workspace access and devices." FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,8" />
-                                        <TextBlock Text="Email or user ID" Foreground="#94A3B8" Margin="0,0,0,4" FontSize="12" />
+                                        <TextBlock Text="Email or user ID" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,4" FontSize="12" />
                                         <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,4"><TextBox x:Name="AccountUserIdTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
-                                        <TextBlock x:Name="AccountUserIdHelpText" Text="Use the email or user ID your workspace gave you." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" FontSize="12" />
-                                        <TextBlock Text="Password" Foreground="#94A3B8" Margin="0,0,0,4" FontSize="12" />
+                                        <TextBlock x:Name="AccountUserIdHelpText" Text="Use the email or user ID your workspace gave you." Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,10" TextWrapping="Wrap" FontSize="12" />
+                                        <TextBlock Text="Password" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,4" FontSize="12" />
                                         <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,4"><PasswordBox x:Name="AccountPasswordBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
-                                        <TextBlock x:Name="AccountPasswordHelpText" Text="Use the password set for your workspace account." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" FontSize="12" />
+                                        <TextBlock x:Name="AccountPasswordHelpText" Text="Use the password set for your workspace account." Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,10" TextWrapping="Wrap" FontSize="12" />
                                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                             <CheckBox x:Name="AccountRememberSignInCheckBox" Content="Remember on this PC" IsChecked="True" Foreground="{DynamicResource PortaTextPrimaryBrush}" VerticalAlignment="Center" />
                                             <Button x:Name="AccountForgetRememberedSignInButton" Content="Forget saved sign-in" Margin="12,0,0,0" Padding="10,4" MinHeight="30" Click="AccountForgetRememberedSignInButton_Click" Visibility="Collapsed" />
                                         </StackPanel>
-                                        <TextBlock x:Name="AccountRememberedSignInHelpText" Text="Keep this checked if you want PORTA to remember this email and password on this Windows account only." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" FontSize="12" />
+                                        <TextBlock x:Name="AccountRememberedSignInHelpText" Text="Keep this checked if you want PORTA to remember this email and password on this Windows account only." Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,10" TextWrapping="Wrap" FontSize="12" />
                                         <Button x:Name="AccountSignInButton" Content="Sign in" Padding="12,6" Width="140" HorizontalAlignment="Left" Click="AccountSignInButton_Click" />
                                         <Border Background="#0F1820" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,12,0,0">
                                             <StackPanel>
                                                 <TextBlock Text="Need an account?" FontWeight="SemiBold" Foreground="#93C5FD" Margin="0,0,0,6" />
-                                                <TextBlock x:Name="AccountCreateHelpText" Text="Use your existing account, or create one here if your workspace allows self-service sign-up." Foreground="#CBD5E1" Margin="0,0,0,10" TextWrapping="Wrap" FontSize="12" />
+                                                <TextBlock x:Name="AccountCreateHelpText" Text="Use your existing account, or create one here if your workspace allows self-service sign-up." Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,10" TextWrapping="Wrap" FontSize="12" />
                                                 <StackPanel x:Name="AccountRegistrationPanel">
-                                                    <TextBlock Text="Display name" Foreground="#94A3B8" Margin="0,0,0,4" FontSize="12" />
+                                                    <TextBlock Text="Display name" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,4" FontSize="12" />
                                                     <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,8"><TextBox x:Name="AccountRegisterDisplayNameTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
-                                                    <TextBlock x:Name="AccountCreateDisplayNameHelpText" Text="Use the name you want to see in your account and on linked devices." Foreground="#CBD5E1" Margin="0,0,0,8" TextWrapping="Wrap" FontSize="12" />
-                                                    <TextBlock Text="Email or user ID" Foreground="#94A3B8" Margin="0,0,0,4" FontSize="12" />
+                                                    <TextBlock x:Name="AccountCreateDisplayNameHelpText" Text="Use the name you want to see in your account and on linked devices." Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,8" TextWrapping="Wrap" FontSize="12" />
+                                                    <TextBlock Text="Email or user ID" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,4" FontSize="12" />
                                                     <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,8"><TextBox x:Name="AccountRegisterUserIdTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
-                                                    <TextBlock x:Name="AccountCreateUserIdHelpText" Text="This becomes how you sign in later. Most people use their work email." Foreground="#CBD5E1" Margin="0,0,0,8" TextWrapping="Wrap" FontSize="12" />
-                                                    <TextBlock Text="Password" Foreground="#94A3B8" Margin="0,0,0,4" FontSize="12" />
+                                                    <TextBlock x:Name="AccountCreateUserIdHelpText" Text="This becomes how you sign in later. Most people use their work email." Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,8" TextWrapping="Wrap" FontSize="12" />
+                                                    <TextBlock Text="Password" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,4" FontSize="12" />
                                                     <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,8"><PasswordBox x:Name="AccountRegisterPasswordBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
-                                                    <TextBlock x:Name="AccountCreatePasswordHelpText" Text="Create the password you want to use when you sign in on this PC." Foreground="#CBD5E1" Margin="0,0,0,8" TextWrapping="Wrap" FontSize="12" />
+                                                    <TextBlock x:Name="AccountCreatePasswordHelpText" Text="Create the password you want to use when you sign in on this PC." Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,8" TextWrapping="Wrap" FontSize="12" />
                                                     <StackPanel x:Name="AccountSignupCodePanel" Visibility="Collapsed">
-                                                        <TextBlock Text="Sign-up code" Foreground="#94A3B8" Margin="0,0,0,4" FontSize="12" />
+                                                        <TextBlock Text="Sign-up code" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,4" FontSize="12" />
                                                         <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,8"><TextBox x:Name="AccountRegisterSignupCodeTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
-                                                        <TextBlock x:Name="AccountSignupCodeHelpText" Text="Only fill this if your admin gave you a sign-up code." Foreground="#CBD5E1" Margin="0,0,0,8" TextWrapping="Wrap" FontSize="12" />
+                                                        <TextBlock x:Name="AccountSignupCodeHelpText" Text="Only fill this if your admin gave you a sign-up code." Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,8" TextWrapping="Wrap" FontSize="12" />
                                                     </StackPanel>
                                                     <Button x:Name="AccountCreateAccountButton" Content="Create account" Padding="12,6" Width="150" HorizontalAlignment="Left" Click="AccountCreateAccountButton_Click" />
                                                 </StackPanel>
@@ -1976,26 +1977,26 @@
                                     </StackPanel>
                                     <StackPanel x:Name="AccountSignedInPanel" Visibility="Collapsed">
                                         <Border Background="#0F1820" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Padding="12,10">
-                                            <TextBlock x:Name="AccountSignedInSummaryText" Text="Use the menu to open your profile, workspace, subscription, devices, or privacy." TextWrapping="Wrap" Foreground="#CBD5E1" FontSize="12" />
+                                            <TextBlock x:Name="AccountSignedInSummaryText" Text="Use the menu to open your profile, workspace, subscription, devices, or privacy." TextWrapping="Wrap" Foreground="{DynamicResource PortaTextBodyBrush}" FontSize="12" />
                                         </Border>
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
                             <Border x:Name="AccountSummarySectionPanel" Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,12" Visibility="Collapsed">
                                 <StackPanel>
-                                    <TextBlock Text="SIGNED IN AS" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,12" />
+                                    <TextBlock Text="SIGNED IN AS" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,12" />
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="160" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Name" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,8" />
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Name" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" />
                                         <TextBlock x:Name="AccountSignedInAsValue" Grid.Row="0" Grid.Column="1" Text="Not signed in" FontSize="12" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,8" TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Email" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,8" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Email" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" />
                                         <TextBlock x:Name="AccountEmailValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,8" TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Signed in until" FontSize="12" Foreground="#94A3B8" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Signed in until" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                         <TextBlock x:Name="AccountSessionExpiryValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextPrimaryBrush}" TextWrapping="Wrap" />
                                     </Grid>
                                     <Border BorderBrush="#1E293B" BorderThickness="0,1,0,0" Padding="0,12,0,0" Margin="0,12,0,0">
-                                        <TextBlock Text="This section shows who is signed in on this PC. Open Workspace or Devices to change how this machine uses your account." TextWrapping="Wrap" Foreground="#94A3B8" FontSize="12" />
+                                        <TextBlock Text="This section shows who is signed in on this PC. Open Workspace or Devices to change how this machine uses your account." TextWrapping="Wrap" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" />
                                     </Border>
                                 </StackPanel>
                             </Border>
@@ -2010,37 +2011,37 @@
                                                 </Border>
                                                 <StackPanel VerticalAlignment="Center">
                                                     <TextBlock x:Name="AccountManageNameLabel" Text="" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
-                                                    <TextBlock x:Name="AccountManageEmailLabel" Text="" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0" />
+                                                    <TextBlock x:Name="AccountManageEmailLabel" Text="" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,0" />
                                                 </StackPanel>
                                             </StackPanel>
                                         </Border>
-                                        <TextBlock Text="MANAGE ACCOUNT" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,12" />
-                                        <TextBlock Text="Display name" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,4" />
+                                        <TextBlock Text="MANAGE ACCOUNT" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,12" />
+                                        <TextBlock Text="Display name" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,4" />
                                         <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,4"><TextBox x:Name="AccountDisplayNameTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
-                                        <TextBlock x:Name="AccountProfileStatusText" Text="Sign in to change your display name." Margin="0,0,0,10" Foreground="#94A3B8" TextWrapping="Wrap" FontSize="12" />
-                                        <TextBlock Text="Notification email" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="AccountProfileStatusText" Text="Sign in to change your display name." Margin="0,0,0,10" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" FontSize="12" />
+                                        <TextBlock Text="Notification email" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,4" />
                                         <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,4"><TextBox x:Name="AccountNotificationEmailTextBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
                                         <TextBlock x:Name="AccountReadOnlyEmailValue" Text="Not available" Visibility="Collapsed" />
-                                        <TextBlock Text="This is the email where Ari sends your daily digest. Change it here and save." Margin="0,0,0,12" TextWrapping="Wrap" FontSize="11" Foreground="#94A3B8" />
+                                        <TextBlock Text="This is the email where Ari sends your daily digest. Change it here and save." Margin="0,0,0,12" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                         <Button x:Name="AccountSaveProfileButton" Content="Save profile" Padding="12,6" HorizontalAlignment="Left" Click="AccountSaveProfileButton_Click" />
                                     </StackPanel>
                                 </Border>
                                 <Border x:Name="AccountWorkspaceSectionPanel" Grid.Column="1" Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="8,0,0,0">
                                     <StackPanel>
-                                        <TextBlock Text="WORKSPACE" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,12" />
-                                        <TextBlock Text="Workspace" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,4" />
+                                        <TextBlock Text="WORKSPACE" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,12" />
+                                        <TextBlock Text="Workspace" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,4" />
                                         <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,8"><ComboBox x:Name="AccountWorkspaceComboBox" SelectionChanged="AccountWorkspaceComboBox_SelectionChanged" Foreground="#111827" Background="Transparent" BorderThickness="0" Padding="4" /></Border>
-                                        <TextBlock Text="Organization" FontSize="12" Foreground="#94A3B8" />
-                                        <TextBlock x:Name="AccountWorkspaceNameValue" Text="No workspace linked" Margin="0,4,0,8" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
-                                        <TextBlock Text="Role" FontSize="12" Foreground="#94A3B8" />
-                                        <TextBlock x:Name="AccountWorkspaceRoleValue" Text="Not available" Margin="0,4,0,8" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
-                                        <TextBlock Text="This device" FontSize="12" Foreground="#94A3B8" />
-                                        <TextBlock x:Name="AccountWorkspaceLinkValue" Text="Device identity unavailable" Margin="0,4,0,10" TextWrapping="Wrap" FontSize="12" Foreground="#94A3B8" />
+                                        <TextBlock Text="Organization" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
+                                        <TextBlock x:Name="AccountWorkspaceNameValue" Text="No workspace linked" Margin="0,4,0,8" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
+                                        <TextBlock Text="Role" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
+                                        <TextBlock x:Name="AccountWorkspaceRoleValue" Text="Not available" Margin="0,4,0,8" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
+                                        <TextBlock Text="This device" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
+                                        <TextBlock x:Name="AccountWorkspaceLinkValue" Text="Device identity unavailable" Margin="0,4,0,10" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                         <Button x:Name="AccountLinkWorkspaceButton" Content="Link current device to workspace" Padding="12,6" HorizontalAlignment="Left" Click="AccountLinkWorkspaceButton_Click" />
                                         <Border x:Name="AccountWorkspaceInfoBox" Visibility="Collapsed" Background="#0F1820" BorderBrush="#1E3A5F" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,10,0,0">
                                             <StackPanel>
                                                 <TextBlock Text="No workspace linked yet" FontSize="13" FontWeight="Medium" Foreground="#93C5FD" Margin="0,0,0,6" />
-                                                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#CBD5E1" Text="A workspace lets your team share access, roles, and device policies. Ask your admin for your workspace details, then link this device using the button above." />
+                                                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource PortaTextBodyBrush}" Text="A workspace lets your team share access, roles, and device policies. Ask your admin for your workspace details, then link this device using the button above." />
                                             </StackPanel>
                                         </Border>
                                     </StackPanel>
@@ -2050,7 +2051,7 @@
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                 <Border x:Name="AccountSubscriptionSectionPanel" Grid.Column="0" Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,8,0">
                                     <StackPanel>
-                                        <TextBlock Text="SUBSCRIPTION" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,12" />
+                                        <TextBlock Text="SUBSCRIPTION" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,12" />
                                         <TextBlock x:Name="AccountPlanTierValue" Visibility="Collapsed" />
                                         <TextBlock x:Name="AccountSubscriptionStatusValue" Visibility="Collapsed" />
                                         <StackPanel HorizontalAlignment="Center" Margin="0,20,0,20">
@@ -2059,7 +2060,7 @@
                                                     <Path Fill="Transparent" Stroke="#1E293B" StrokeThickness="1.2" Data="M20 12V22H4V12M22 7H2v5h20V7zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" />
                                                 </Canvas>
                                             </Viewbox>
-                                            <TextBlock Text="Subscription management coming soon" FontSize="13" FontWeight="Medium" Foreground="#94A3B8" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,0,0,8" />
+                                            <TextBlock Text="Subscription management coming soon" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextSecondaryBrush}" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,0,0,8" />
                                             <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#334155" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="260" Text="Plan details, billing, and usage limits will appear here. For now, your access is managed directly by your workspace admin." />
                                         </StackPanel>
                                     </StackPanel>
@@ -2068,7 +2069,7 @@
                                     <StackPanel>
                                         <Grid Margin="0,0,0,12">
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <TextBlock Text="THIS DEVICE" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" VerticalAlignment="Center" />
+                                            <TextBlock Text="THIS DEVICE" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
                                             <Border Grid.Column="1" Background="#0F3025" BorderBrush="#1A6040" BorderThickness="1" CornerRadius="10" Padding="8,2">
                                                 <TextBlock Text="● Running" FontSize="11" FontWeight="SemiBold" Foreground="#16C784" />
                                             </Border>
@@ -2076,22 +2077,22 @@
                                         <Grid Margin="0,0,0,6">
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Device name" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" />
-                                            <TextBlock x:Name="AccountCurrentDeviceNameValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" TextWrapping="Wrap" />
-                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Operating system" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" />
-                                            <TextBlock x:Name="AccountCurrentDeviceOsValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" TextWrapping="Wrap" />
-                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="PORTA version" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" />
-                                            <TextBlock x:Name="AccountCurrentDeviceVersionValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" TextWrapping="Wrap" />
-                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Device ID" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" />
-                                            <TextBlock x:Name="AccountCurrentDeviceIdValue" Grid.Row="3" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,6" TextWrapping="Wrap" />
-                                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Last active" FontSize="12" Foreground="#94A3B8" />
-                                            <TextBlock x:Name="AccountCurrentDeviceLastSeenValue" Grid.Row="4" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" />
+                                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Device name" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" />
+                                            <TextBlock x:Name="AccountCurrentDeviceNameValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Operating system" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" />
+                                            <TextBlock x:Name="AccountCurrentDeviceOsValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="PORTA version" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" />
+                                            <TextBlock x:Name="AccountCurrentDeviceVersionValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Device ID" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" />
+                                            <TextBlock x:Name="AccountCurrentDeviceIdValue" Grid.Row="3" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,6" TextWrapping="Wrap" />
+                                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Last active" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
+                                            <TextBlock x:Name="AccountCurrentDeviceLastSeenValue" Grid.Row="4" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" />
                                         </Grid>
                                         <TextBlock x:Name="AccountCurrentDeviceStatusValue" Visibility="Collapsed" />
                                         <Border BorderBrush="#1E293B" BorderThickness="0,1,0,0" Padding="0,12,0,0" Margin="0,10,0,0">
                                             <StackPanel>
-                                                <TextBlock Text="OTHER DEVICES ON THIS ACCOUNT" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,10" />
-                                                <TextBlock x:Name="AccountDevicesEmptyText" Text="Sign in to view this account's devices." Foreground="#94A3B8" Margin="0,0,0,8" TextWrapping="Wrap" FontSize="12" />
+                                                <TextBlock Text="OTHER DEVICES ON THIS ACCOUNT" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                                <TextBlock x:Name="AccountDevicesEmptyText" Text="Sign in to view this account's devices." Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" TextWrapping="Wrap" FontSize="12" />
                                                 <ItemsControl x:Name="AccountDevicesItemsControl">
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate>
@@ -2101,9 +2102,9 @@
                                                                         <TextBlock Text="{Binding DisplayLabel}" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextPrimaryBrush}" DockPanel.Dock="Left" FontSize="13" />
                                                                         <Border Background="#1E293B" CornerRadius="10" Padding="8,2" DockPanel.Dock="Right"><TextBlock Text="{Binding BadgeLabel}" Foreground="#BFDBFE" FontSize="11" /></Border>
                                                                     </DockPanel>
-                                                                    <TextBlock Text="{Binding DetailLabel}" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,4" FontSize="12" />
+                                                                    <TextBlock Text="{Binding DetailLabel}" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,4" FontSize="12" />
                                                                     <TextBlock Text="{Binding StatusLabel, StringFormat=Status: {0}}" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,2" FontSize="12" />
-                                                                    <TextBlock Text="{Binding LastSeenLabel, StringFormat=Last seen: {0}}" Foreground="#94A3B8" Margin="0,0,0,8" FontSize="12" />
+                                                                    <TextBlock Text="{Binding LastSeenLabel, StringFormat=Last seen: {0}}" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" FontSize="12" />
                                                                     <WrapPanel>
                                                                         <Button Content="Unlink" Padding="12,6" Margin="0,0,8,0" Tag="{Binding DeviceId}" IsEnabled="{Binding CanUnlink}" Click="AccountDeviceUnlinkButton_Click" />
                                                                         <Button Content="Revoke" Padding="12,6" Tag="{Binding DeviceId}" IsEnabled="{Binding CanRevoke}" Click="AccountDeviceRevokeButton_Click" />
@@ -2120,28 +2121,28 @@
                             </Grid>
                             <Border x:Name="AccountPrivacySectionPanel" Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,12" Visibility="Collapsed">
                                 <StackPanel>
-                                    <TextBlock Text="PRIVACY &amp; CONSENT" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,12" />
+                                    <TextBlock Text="PRIVACY &amp; CONSENT" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,12" />
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="200" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Account agreement" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,8" />
-                                        <TextBlock x:Name="AccountConsentStatusValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,8" />
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Agreement version" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,8" />
-                                        <TextBlock x:Name="AccountConsentVersionValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,8" />
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="This device" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,8" />
-                                        <TextBlock x:Name="AccountDeviceConsentStatusValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,8" />
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Device version" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,8" />
-                                        <TextBlock x:Name="AccountDeviceConsentVersionValue" Grid.Row="3" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,8" />
-                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Capture on this device" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,8" />
-                                        <TextBlock x:Name="AccountCaptureAuthorizationValue" Grid.Row="4" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,8" />
-                                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Workspace link" FontSize="12" Foreground="#94A3B8" Margin="0,0,0,8" />
-                                        <TextBlock x:Name="AccountLinkStatusValue" Grid.Row="5" Grid.Column="1" Text="Not available" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" Margin="0,0,0,8" />
-                                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Linked since" FontSize="12" Foreground="#94A3B8" />
-                                        <TextBlock x:Name="AccountLinkedAtValue" Grid.Row="6" Grid.Column="1" Text="Not linked" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Account agreement" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" />
+                                        <TextBlock x:Name="AccountConsentStatusValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Agreement version" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" />
+                                        <TextBlock x:Name="AccountConsentVersionValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="This device" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" />
+                                        <TextBlock x:Name="AccountDeviceConsentStatusValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Device version" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" />
+                                        <TextBlock x:Name="AccountDeviceConsentVersionValue" Grid.Row="3" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Capture on this device" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" />
+                                        <TextBlock x:Name="AccountCaptureAuthorizationValue" Grid.Row="4" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Workspace link" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" />
+                                        <TextBlock x:Name="AccountLinkStatusValue" Grid.Row="5" Grid.Column="1" Text="Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Linked since" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
+                                        <TextBlock x:Name="AccountLinkedAtValue" Grid.Row="6" Grid.Column="1" Text="Not linked" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" />
                                     </Grid>
                                     <Border BorderBrush="#1E293B" BorderThickness="0,1,0,0" Padding="0,12,0,0" Margin="0,12,0,0">
                                         <StackPanel>
-                                            <TextBlock x:Name="AccountConsentActionHelpText" Text="Use this button if this PC still needs capture approval." Foreground="#94A3B8" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,10" />
+                                            <TextBlock x:Name="AccountConsentActionHelpText" Text="Use this button if this PC still needs capture approval." Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,10" />
                                             <Button x:Name="AccountConsentActionButton" Content="Grant consent on this PC" Padding="12,6" Width="220" HorizontalAlignment="Left" Click="AccountConsentActionButton_Click" />
                                         </StackPanel>
                                     </Border>
@@ -2150,7 +2151,7 @@
                             <Border x:Name="AccountSignOutSectionPanel" Background="Transparent" BorderBrush="#7F1D1D" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Visibility="Collapsed">
                                 <StackPanel>
                                         <TextBlock Text="SIGN OUT" FontSize="11" FontWeight="SemiBold" Foreground="#F87171" Margin="0,0,0,12" />
-                                        <TextBlock x:Name="AccountSignOutNotSignedInText" Text="You are not currently signed in on this PC. There is nothing to sign out of." Foreground="#94A3B8" TextWrapping="Wrap" FontSize="12" Visibility="Visible" />
+                                        <TextBlock x:Name="AccountSignOutNotSignedInText" Text="You are not currently signed in on this PC. There is nothing to sign out of." Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" FontSize="12" Visibility="Visible" />
                                         <StackPanel x:Name="AccountSignOutSignedInContent" Visibility="Collapsed">
                                             <Border Background="#0D1117" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Padding="10,10" Margin="0,0,0,12">
                                                 <StackPanel Orientation="Horizontal">
@@ -2159,11 +2160,11 @@
                                                     </Border>
                                                     <StackPanel VerticalAlignment="Center">
                                                         <TextBlock x:Name="AccountSignOutNameLabel" Text="" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
-                                                        <TextBlock x:Name="AccountSignOutEmailLabel" Text="" FontSize="12" Foreground="#94A3B8" Margin="0,2,0,0" />
+                                                        <TextBlock x:Name="AccountSignOutEmailLabel" Text="" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,0" />
                                                     </StackPanel>
                                                 </StackPanel>
                                             </Border>
-                                            <TextBlock Text="Signing out removes the saved sign-in from this PC. It does not uninstall PORTA or remove this device from your account — manage devices separately in the Devices section." Foreground="#CBD5E1" Margin="0,0,0,12" TextWrapping="Wrap" FontSize="12" />
+                                            <TextBlock Text="Signing out removes the saved sign-in from this PC. It does not uninstall PORTA or remove this device from your account — manage devices separately in the Devices section." Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,12" TextWrapping="Wrap" FontSize="12" />
                                             <Button x:Name="AccountSignOutButton" Content="Sign out on this PC" Padding="12,6" Width="170" HorizontalAlignment="Left" Foreground="#F87171" BorderBrush="#7F1D1D" Click="AccountSignOutButton_Click" />
                                         </StackPanel>
                                     </StackPanel>
@@ -2210,7 +2211,7 @@
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <Border x:Name="HealthEngineDot" Width="7" Height="7"
                                                     CornerRadius="3.5" Background="Transparent" Margin="0,0,6,0" Visibility="Collapsed" />
-                                            <TextBlock Text="ENGINE HEALTH" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" />
+                                            <TextBlock Text="ENGINE HEALTH" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                         </StackPanel>
                                     </DockPanel>
                                     <Grid>
@@ -2224,13 +2225,13 @@
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Service" Foreground="#94A3B8" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Service" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthServiceValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Database" Foreground="#94A3B8" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Database" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthDatabaseValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Local API" Foreground="#94A3B8" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Local API" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthApiValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" />
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Last error" Foreground="#94A3B8" FontSize="12" />
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Last error" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" />
                                         <TextBlock x:Name="HealthLastErrorValue" Grid.Row="3" Grid.Column="1" Text="None" FontSize="12" TextWrapping="Wrap" />
                                     </Grid>
                                     <!-- Hidden: named elements written by C# but not shown -->
@@ -2255,7 +2256,7 @@
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <Border x:Name="HealthSessionDot" Width="7" Height="7"
                                                     CornerRadius="3.5" Background="Transparent" Margin="0,0,6,0" Visibility="Collapsed" />
-                                            <TextBlock Text="SESSION TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" />
+                                            <TextBlock Text="SESSION TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                         </StackPanel>
                                     </DockPanel>
                                     <Grid>
@@ -2268,11 +2269,11 @@
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Monitoring" Foreground="#94A3B8" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Monitoring" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthSessionContextValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Heartbeat" Foreground="#94A3B8" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Heartbeat" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthSessionHeartbeatValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Recovery" Foreground="#94A3B8" FontSize="12" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Recovery" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" />
                                         <TextBlock x:Name="HealthSessionRecoveryValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" TextWrapping="Wrap" />
                                     </Grid>
                                     <StackPanel Visibility="Collapsed">
@@ -2308,7 +2309,7 @@
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <Border x:Name="HealthInputDot" Width="7" Height="7"
                                                     CornerRadius="3.5" Background="Transparent" Margin="0,0,6,0" Visibility="Collapsed" />
-                                            <TextBlock Text="INPUT TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" />
+                                            <TextBlock Text="INPUT TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                         </StackPanel>
                                     </DockPanel>
                                     <Grid>
@@ -2321,11 +2322,11 @@
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Keyboard" Foreground="#94A3B8" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Keyboard" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthKeyboardSignalValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Mouse" Foreground="#94A3B8" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Mouse" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthMouseSignalValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Last activity" Foreground="#94A3B8" FontSize="12" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Last activity" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" />
                                         <TextBlock x:Name="HealthLastInputValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" TextWrapping="Wrap" />
                                     </Grid>
                                     <StackPanel Visibility="Collapsed">
@@ -2350,7 +2351,7 @@
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <Border x:Name="HealthStateDot" Width="7" Height="7"
                                                     CornerRadius="3.5" Background="Transparent" Margin="0,0,6,0" Visibility="Collapsed" />
-                                            <TextBlock Text="STATE TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" />
+                                            <TextBlock Text="STATE TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                         </StackPanel>
                                     </DockPanel>
                                     <Grid>
@@ -2364,13 +2365,13 @@
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Confidence" Foreground="#94A3B8" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Confidence" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthStateConfidenceValue" Grid.Row="0" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Calibration" Foreground="#94A3B8" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Calibration" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthStateCalibrationValue" Grid.Row="1" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Focus mode" Foreground="#94A3B8" FontSize="12" Margin="0,0,0,4" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Focus mode" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthStateModesValue" Grid.Row="2" Grid.Column="1" Text="Not available" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap" />
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Break needed" Foreground="#94A3B8" FontSize="12" />
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Break needed" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" />
                                         <TextBlock x:Name="HealthStateBreakReadinessValue" Grid.Row="3" Grid.Column="1" Text="Not available" FontSize="12" TextWrapping="Wrap" />
                                     </Grid>
                                     <StackPanel Visibility="Collapsed">
@@ -2393,7 +2394,7 @@
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                         <Border x:Name="HealthActionDot" Width="7" Height="7"
                                                 CornerRadius="3.5" Background="Transparent" Margin="0,0,6,0" Visibility="Collapsed" />
-                                        <TextBlock Text="ACTION TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" />
+                                        <TextBlock Text="ACTION TRUTH" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" />
                                     </StackPanel>
                                 </DockPanel>
                                 <Grid>
@@ -2405,17 +2406,17 @@
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                        <TextBlock Text="Last action" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,4" />
+                                        <TextBlock Text="Last action" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="11" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthActionTitleValue" Text="Not available" FontSize="12" TextWrapping="Wrap" />
                                     </StackPanel>
                                     <Border Grid.Column="1" Background="#1E293B" Margin="0,2,0,2" />
                                     <StackPanel Grid.Column="2" Margin="12,0">
-                                        <TextBlock Text="Category" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,4" />
+                                        <TextBlock Text="Category" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="11" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthActionTypeValue" Text="Not available" FontSize="12" TextWrapping="Wrap" />
                                     </StackPanel>
                                     <Border Grid.Column="3" Background="#1E293B" Margin="0,2,0,2" />
                                     <StackPanel Grid.Column="4" Margin="12,0,0,0">
-                                        <TextBlock Text="When" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,4" />
+                                        <TextBlock Text="When" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="11" Margin="0,0,0,4" />
                                         <TextBlock x:Name="HealthActionWhenValue" Text="Not available" FontSize="12" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Grid>
@@ -2553,7 +2554,7 @@
                                 FontSize="14"
                                 FontWeight="SemiBold"
                                 Background="Transparent"
-                                Foreground="#94A3B8"
+                                Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                 BorderBrush="{DynamicResource PortaCardBorderBrush}"
                                 BorderThickness="1"
                                 ToolTip="Close"
@@ -2568,13 +2569,13 @@
 
                     <TextBlock x:Name="WhyDrawerStateText"
                                Text="State: Not available"
-                               Foreground="#94A3B8"
+                               Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                FontSize="13"
                                TextWrapping="Wrap"
                                Margin="0,0,0,6" />
                     <TextBlock x:Name="WhyDrawerConfidenceText"
                                Text=""
-                               Foreground="#94A3B8"
+                               Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                FontSize="12"
                                TextWrapping="Wrap"
                                Margin="0,0,0,16" />
@@ -2583,13 +2584,13 @@
 
                     <TextBlock x:Name="WhyDrawerFivText"
                                Text=""
-                               Foreground="#94A3B8"
+                               Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                FontSize="13"
                                TextWrapping="Wrap"
                                Margin="0,0,0,8" />
                     <TextBlock x:Name="WhyDrawerContributorsText"
                                Text=""
-                               Foreground="#94A3B8"
+                               Foreground="{DynamicResource PortaTextSecondaryBrush}"
                                FontSize="13"
                                TextWrapping="Wrap"
                                Margin="0,0,0,16" />
@@ -2629,7 +2630,7 @@
                                        FontWeight="SemiBold"
                                        Margin="0,0,0,10" />
                             <TextBlock Text="Control Center is optional. Ari keeps tracking, evaluating, and regulating after you close this window, as long as the background service and desktop session stay connected."
-                                       Foreground="#CBD5E1"
+                                       Foreground="{DynamicResource PortaTextBodyBrush}"
                                        Margin="0,0,0,18"
                                        TextWrapping="Wrap" />
 
@@ -2691,7 +2692,7 @@
                                                    Margin="0,0,0,8" />
                                         <TextBlock x:Name="OnboardingCurrentSystemText"
                                                    Text="System check: waiting for the service, desktop session, and current tracking status."
-                                                   Foreground="#CBD5E1"
+                                                   Foreground="{DynamicResource PortaTextBodyBrush}"
                                                    TextWrapping="Wrap"
                                                    Margin="0,0,0,10" />
                                         <TextBlock x:Name="OnboardingCurrentGuidanceText"
@@ -2766,7 +2767,7 @@
                         <TextBlock x:Name="UpdateOverlayTitleText" Text="Ari update ready" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,8" TextWrapping="Wrap" />
                         <TextBlock x:Name="UpdateOverlayVersionText" Text="Current version Not available" Foreground="#93C5FD" Margin="0,0,0,10" TextWrapping="Wrap" />
                         <TextBlock x:Name="UpdateOverlaySummaryText" Text="A newer Windows build is available for this machine." Foreground="#E5E7EB" Margin="0,0,0,10" TextWrapping="Wrap" />
-                        <TextBlock x:Name="UpdateOverlayStatusText" Text="App updates are checked automatically when a release is published." Foreground="#94A3B8" Margin="0,0,0,14" TextWrapping="Wrap" />
+                        <TextBlock x:Name="UpdateOverlayStatusText" Text="App updates are checked automatically when a release is published." Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,14" TextWrapping="Wrap" />
                         <WrapPanel>
                             <Button x:Name="UpdateOverlayInstallButton"
                                     Content="Download and install"
