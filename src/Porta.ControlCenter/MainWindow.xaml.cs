@@ -835,7 +835,7 @@ public partial class MainWindow : Window
 
 
 
-    private static void ApplyHistoryPeriodTab(TextBlock text, Border underline, bool active)
+    private static void ApplyHistoryPeriodTab(TextBox text, Border underline, bool active)
     {
         // No box/background — just text colour + 2px underline
         text.Foreground = new SolidColorBrush(active
@@ -859,7 +859,7 @@ public partial class MainWindow : Window
 
     private void SetTrackingSection(string tag)
     {
-        var sections = new (string Tag, Border Nav, Border Content, TextBlock Chevron)[]
+        var sections = new (string Tag, Border Nav, Border Content, TextBox Chevron)[]
         {
             ("Observes",      TrackingNavObserves,      TrackingContentObserves,      TrackingChevronObserves),
             ("NeverCollects", TrackingNavNeverCollects, TrackingContentNeverCollects, TrackingChevronNeverCollects),
@@ -886,7 +886,7 @@ public partial class MainWindow : Window
     private void ResetTrackingSections()
     {
         _openTrackingSection = null;
-        foreach (var (nav, content, chevron) in new (Border Nav, Border Content, TextBlock Chevron)[]
+        foreach (var (nav, content, chevron) in new (Border Nav, Border Content, TextBox Chevron)[]
         {
             (TrackingNavObserves,      TrackingContentObserves,      TrackingChevronObserves),
             (TrackingNavNeverCollects, TrackingContentNeverCollects, TrackingChevronNeverCollects),
@@ -1031,7 +1031,7 @@ public partial class MainWindow : Window
 
         var activeColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E2E8F0"));
         var activeBg    = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#17171F"));
-        Border activeNav; TextBlock activeLabel; UIElement activeSection;
+        Border activeNav; TextBox activeLabel; UIElement activeSection;
         switch (section)
         {
             case "Privacy":     activeNav = SettingsNavPrivacy;     activeLabel = SettingsNavPrivacyText;     activeSection = SettingsSectionPrivacy;     break;
@@ -1906,7 +1906,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dummy = new System.Windows.Controls.TextBlock();
+        var dummy = new System.Windows.Controls.TextBox();
         RenderDayTimelineBar(heatmap.Episodes, SessionTimelineBar, dummy, height: 22d);
     }
 
@@ -3815,7 +3815,7 @@ public partial class MainWindow : Window
         HealthActionBadgeText.Text = actionBadge;
     }
 
-    private void ApplyStatusBadge(Border badgeBorder, TextBlock badgeText, Border dot, string statusLabel)
+    private void ApplyStatusBadge(Border badgeBorder, TextBox badgeText, Border dot, string statusLabel)
     {
         var (bgHex, borderHex, fgHex, dotHex, label) = statusLabel switch
         {
@@ -5461,7 +5461,7 @@ public partial class MainWindow : Window
         SetActionCategoryBar(ActionCategoryOtherFill, ActionCategoryOtherValue, otherCount, total);
     }
 
-    private static void SetActionCategoryBar(Border fill, TextBlock valueText, int count, int total)
+    private static void SetActionCategoryBar(Border fill, TextBox valueText, int count, int total)
     {
         double ratio = total <= 0 ? 0d : (double)count / total;
         fill.Width = ActionCategoryBarWidth * ratio;
@@ -6936,7 +6936,7 @@ public partial class MainWindow : Window
             : "ok";
     }
 
-    private void SetFlowStepState(Border pill, TextBlock label, FlowStepState state, string text)
+    private void SetFlowStepState(Border pill, TextBox label, FlowStepState state, string text)
     {
         label.Text = text;
         switch (state)
@@ -7177,7 +7177,7 @@ public partial class MainWindow : Window
     }
 
     private static void SetHistoryCard(
-        TextBlock valueTb, TextBlock subLabelTb, Border track, Border fill,
+        TextBox valueTb, TextBox subLabelTb, Border track, Border fill,
         double seconds, int count, string singular, string plural, double totalWork)
     {
         if (seconds <= 0d || count == 0)
@@ -7836,7 +7836,7 @@ public partial class MainWindow : Window
                 barTrack.Cursor = Cursors.Hand;
 
                 // Dummy axis label for multi-day rows
-                var axisLabel = new TextBlock { Text = string.Empty };
+                var axisLabel = new TextBox { Text = string.Empty };
                 RenderDayTimelineBar(dayEpisodes, barGrid, axisLabel, height: 12d);
 
                 HistoryMultiDayPanel.Children.Add(row);
@@ -7847,7 +7847,7 @@ public partial class MainWindow : Window
     private static void RenderDayTimelineBar(
         IEnumerable<HistoryTimelineEpisode> episodeSource,
         Grid grid,
-        TextBlock axisLabel,
+        TextBox axisLabel,
         double height)
     {
         grid.ColumnDefinitions.Clear();
