@@ -721,7 +721,7 @@ public partial class MainWindow
         AccountSignOutSectionPanel.Visibility = showSignOut ? Visibility.Visible : Visibility.Collapsed;
 
         // Update vertical nav item appearances
-        var navItems = new (Border border, TextBox label, AccountSurfaceSection targetSection)[]
+        var navItems = new (Border border, TextBlock label, AccountSurfaceSection targetSection)[]
         {
             (AccountNavSummaryBorder,      AccountNavSummaryText,      AccountSurfaceSection.Summary),
             (AccountNavManageBorder,       AccountNavManageText,       AccountSurfaceSection.ManageAccount),
