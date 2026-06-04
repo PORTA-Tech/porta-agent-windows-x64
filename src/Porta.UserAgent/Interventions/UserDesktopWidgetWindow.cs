@@ -675,6 +675,8 @@ internal sealed class UserDesktopWidgetWindow : Window
             }
 
             TryStartAppearanceWatcher();
+            UpdateWindowHeight();
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, UpdateWindowHeight);
         };
         IsVisibleChanged += (_, _) => RefreshSurfaceVisibilityHealth();
         SizeChanged += (_, _) =>
@@ -704,6 +706,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         RefreshInlineMessage();
         ApplyModeChrome(state.Mode, state.ShowLimitedBadge);
         UpdateWindowHeight();
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, UpdateWindowHeight);
     }
 
     public void PresentAttention(string title, string message)
