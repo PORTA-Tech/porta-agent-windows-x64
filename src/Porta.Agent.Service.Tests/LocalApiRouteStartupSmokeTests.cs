@@ -216,6 +216,7 @@ public sealed class LocalApiRouteStartupSmokeTests
         public AgentLatestStateDetails? GetLatestStateDetails() => null;
         public AgentDistractionSummary GetCurrentDistractionSummary() => new(0d, 0d, 0d, 0d, 0, 0);
         public void RefreshRuntimeStateCache() { }
+        public void SetWatchdogLaunchFailureCode(string? code) { }
         public AgentInputSummary GetInputsSummary(int windowSeconds = 60) => new(
             FromUtc: _nowUtc.AddSeconds(-windowSeconds),
             ToUtc: _nowUtc,

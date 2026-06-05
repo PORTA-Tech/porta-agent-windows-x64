@@ -16,7 +16,7 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
             RunningProcesses = [],
             ExpectedBinaryVersion = "1.0.21.0"
         };
-        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
+        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance, NullController);
 
         coordinator.EnsureHealthy(force: true);
 
@@ -48,7 +48,7 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
                 AgentInstanceId: "healthy-agent",
                 BinaryVersion: "1.0.21.0")
         };
-        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
+        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance, NullController);
 
         coordinator.EnsureHealthy(force: true);
 
@@ -78,7 +78,7 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
                 UpdatedAtUtc: nowUtc.AddMinutes(-2),
                 AgentInstanceId: "stale-agent")
         };
-        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
+        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance, NullController);
 
         coordinator.EnsureHealthy(force: true);
 
@@ -96,7 +96,7 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
             HasUserAgentBinary = true,
             ExpectedBinaryVersion = "1.0.21.0"
         };
-        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
+        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance, NullController);
 
         coordinator.EnsureHealthy(force: true);
 
@@ -126,7 +126,7 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
                 UpdatedAtUtc: nowUtc.AddSeconds(-4),
                 AgentInstanceId: "previous-session-agent")
         };
-        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
+        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance, NullController);
 
         coordinator.EnsureHealthy(force: true);
 
@@ -157,7 +157,7 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
                 AgentInstanceId: "stale-agent",
                 BinaryVersion: "1.0.20.0")
         };
-        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
+        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance, NullController);
 
         coordinator.EnsureHealthy(force: true);
 
@@ -190,12 +190,48 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
                 BinaryVersion: "1.0.21.0",
                 DesktopWidgetReady: false)
         };
-        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance);
+        var coordinator = new CurrentSessionUserAgentWatchdogCoordinator(runtime, NullLogger.Instance, NullController);
 
         coordinator.EnsureHealthy(force: true);
 
         Assert.Empty(runtime.LaunchAttempts);
         Assert.Empty(runtime.TerminatedSessions);
+    }
+
+    private static readonly Porta.Agent.Core.IAgentCoreController NullController = new NullAgentCoreController();
+
+    private sealed class NullAgentCoreController : Porta.Agent.Core.IAgentCoreController
+    {
+        public Porta.Agent.Core.AgentServiceStatusSnapshot GetStatus() => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentLiveSessionState GetLiveSessionState() => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentControlState GetControlState() => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentBrainSnapshot GetCurrentSnapshot() => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentLatestStateDetails? GetLatestStateDetails() => null;
+        public Porta.Agent.Core.AgentDistractionSummary GetCurrentDistractionSummary() => throw new NotSupportedException();
+        public void RefreshRuntimeStateCache() { }
+        public void SetWatchdogLaunchFailureCode(string? code) { }
+        public Porta.Agent.Core.AgentInputSummary GetInputsSummary(int windowSeconds = 60) => throw new NotSupportedException();
+        public System.Collections.Generic.IReadOnlyList<Porta.Agent.Core.AgentControlEvent> GetRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null) => [];
+        public System.Collections.Generic.IReadOnlyList<Porta.Agent.Core.AgentControlEvent> GetEventsSinceId(long sinceIdExclusive, int limit = 200) => [];
+        public System.Collections.Generic.IReadOnlyList<Porta.Agent.Core.AgentPendingIntervention> GetPendingInterventions(string sessionId, int limit = 20) => [];
+        public Porta.Agent.Core.AgentTimelineData GetTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, int bucketSeconds = Porta.Agent.Core.Time.bucketSeconds) => throw new NotSupportedException();
+        public void PublishLiveSessionState(Porta.Agent.Core.AgentLiveSessionSignalPacket packet) { }
+        public void IngestInputSignals(Porta.Agent.Core.InputSignalsPacket packet) { }
+        public Porta.Agent.Core.AgentSettingsState GetEffectiveSettings() => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentDataRetentionInfo GetDataRetention() => throw new NotSupportedException();
+        public void Pause(string? reason = null, DateTimeOffset? untilUtc = null) { }
+        public void Resume() { }
+        public void GrantConsent() { }
+        public void RevokeConsent() { }
+        public Porta.Agent.Core.AgentSettingsState UpdateSettings(Porta.Agent.Core.AgentSettingsUpdate update) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentRecalibrationResult RecalibrateBaseline() => throw new NotSupportedException();
+        public void DeleteLocalData() { }
+        public void MarkError(string message) { }
+        public void MarkHealthyHeartbeat() { }
+        public void ApplyBrainSnapshot(Porta.Agent.Core.AgentBrainSnapshot snapshot, bool backendConnected) { }
+        public void AcknowledgeIntervention(Porta.Agent.Core.AgentInterventionAck ack) { }
+        public void TriggerTestIntervention(string action) { }
+        public string ExportBundle() => string.Empty;
     }
 
     private sealed class FakeRuntime : ICurrentSessionUserAgentRuntime
@@ -248,10 +284,10 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
             return RunningProcesses.Any(process => process.SessionId == sessionId);
         }
 
-        public bool TryLaunchInSession(int sessionId, string launchReason, ILogger logger)
+        public string? TryLaunchInSession(int sessionId, string launchReason, ILogger logger)
         {
             LaunchAttempts.Add((sessionId, launchReason));
-            return true;
+            return null;
         }
     }
 }
