@@ -30,7 +30,7 @@ internal interface ICurrentSessionUserAgentRuntime
 
     bool HasRunningProcessInSession(int sessionId);
 
-    bool TryLaunchInSession(int sessionId, string launchReason, ILogger logger);
+    string? TryLaunchInSession(int sessionId, string launchReason, ILogger logger);
 }
 
 internal sealed class CurrentSessionUserAgentWatchdogCoordinator
@@ -39,15 +39,18 @@ internal sealed class CurrentSessionUserAgentWatchdogCoordinator
     private readonly object _gate = new();
     private readonly ICurrentSessionUserAgentRuntime _runtime;
     private readonly ILogger _logger;
+    private readonly Porta.Agent.Core.IAgentCoreController _controller;
     private DateTimeOffset _lastEnsureUtc = DateTimeOffset.MinValue;
     private string? _lastLoggedDecisionSignature;
 
     public CurrentSessionUserAgentWatchdogCoordinator(
         ICurrentSessionUserAgentRuntime runtime,
-        ILogger logger)
+        ILogger logger,
+        Porta.Agent.Core.IAgentCoreController controller)
     {
         _runtime = runtime;
         _logger = logger;
+        _controller = controller;
     }
 
     public void EnsureHealthy(bool force = false)
@@ -71,6 +74,7 @@ internal sealed class CurrentSessionUserAgentWatchdogCoordinator
             if (!_runtime.TryGetInteractiveSessionId(out int currentSessionId))
             {
                 LogPassiveStateIfChanged(force, "no_interactive_session");
+                _controller.SetWatchdogLaunchFailureCode("no_interactive_session");
                 return;
             }
 
@@ -116,12 +120,19 @@ internal sealed class CurrentSessionUserAgentWatchdogCoordinator
                 return;
             }
 
-            if (!_runtime.TryLaunchInSession(currentSessionId, decision.Reason, _logger))
+            string? launchFailureCode = _runtime.TryLaunchInSession(currentSessionId, decision.Reason, _logger);
+            if (launchFailureCode is not null)
             {
                 _logger.LogError(
-                    "Failed to launch Porta.UserAgent into session {SessionId}. Reason={Reason}",
+                    "Failed to launch Porta.UserAgent into session {SessionId}. Reason={Reason} FailureCode={FailureCode}",
                     currentSessionId,
-                    decision.Reason);
+                    decision.Reason,
+                    launchFailureCode);
+                _controller.SetWatchdogLaunchFailureCode(launchFailureCode);
+            }
+            else
+            {
+                _controller.SetWatchdogLaunchFailureCode(null);
             }
         }
     }
@@ -387,20 +398,21 @@ internal sealed class WindowsCurrentSessionUserAgentRuntime : ICurrentSessionUse
         return false;
     }
 
-    public bool TryLaunchInSession(int sessionId, string launchReason, ILogger logger)
+    public string? TryLaunchInSession(int sessionId, string launchReason, ILogger logger)
     {
         if (!HasUserAgentBinary)
         {
-            return false;
+            return "binary_not_found";
         }
 
         if (!WTSQueryUserToken(sessionId, out IntPtr userToken) || userToken == IntPtr.Zero)
         {
+            int errorCode = Marshal.GetLastWin32Error();
             logger.LogError(
                 "WTSQueryUserToken failed for session {SessionId}. Error={ErrorCode}",
                 sessionId,
-                Marshal.GetLastWin32Error());
-            return false;
+                errorCode);
+            return $"token_query_failed:{errorCode}";
         }
 
         IntPtr environmentBlock = IntPtr.Zero;
@@ -440,11 +452,12 @@ internal sealed class WindowsCurrentSessionUserAgentRuntime : ICurrentSessionUse
                 out ProcessInformation processInfo);
             if (!created)
             {
+                int errorCode = Marshal.GetLastWin32Error();
                 logger.LogError(
                     "CreateProcessAsUser failed for session {SessionId}. Error={ErrorCode}",
                     sessionId,
-                    Marshal.GetLastWin32Error());
-                return false;
+                    errorCode);
+                return $"process_create_failed:{errorCode}";
             }
 
             processHandle = processInfo.hProcess;
@@ -454,7 +467,7 @@ internal sealed class WindowsCurrentSessionUserAgentRuntime : ICurrentSessionUse
                 sessionId,
                 processInfo.dwProcessId,
                 normalizedReason);
-            return true;
+            return null;
         }
         finally
         {

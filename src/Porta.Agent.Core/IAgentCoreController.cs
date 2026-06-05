@@ -9,6 +9,7 @@ public interface IAgentCoreController
     AgentLatestStateDetails? GetLatestStateDetails();
     AgentDistractionSummary GetCurrentDistractionSummary();
     void RefreshRuntimeStateCache();
+    void SetWatchdogLaunchFailureCode(string? code);
     AgentInputSummary GetInputsSummary(int windowSeconds = 60);
     IReadOnlyList<AgentControlEvent> GetRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null);
     IReadOnlyList<AgentControlEvent> GetEventsSinceId(long sinceIdExclusive, int limit = 200);

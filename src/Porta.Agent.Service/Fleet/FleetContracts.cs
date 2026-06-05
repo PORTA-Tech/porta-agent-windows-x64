@@ -62,7 +62,11 @@ internal sealed record MachineSummaryReportPayload(
     [property: JsonPropertyName("modelConfidence")] double ModelConfidence,
     [property: JsonPropertyName("signalQualityScore")] double? SignalQualityScore,
     [property: JsonPropertyName("partialData")] bool PartialData,
-    [property: JsonPropertyName("missingMajorChannels")] IReadOnlyList<string> MissingMajorChannels);
+    [property: JsonPropertyName("missingMajorChannels")] IReadOnlyList<string> MissingMajorChannels,
+    [property: JsonPropertyName("userAgentCaptureFailureCode")] string? UserAgentCaptureFailureCode = null,
+    [property: JsonPropertyName("watchdogLaunchFailureCode")] string? WatchdogLaunchFailureCode = null,
+    [property: JsonPropertyName("userAgentSelfTestState")] string? UserAgentSelfTestState = null,
+    [property: JsonPropertyName("userAgentSelfTestErrorCode")] string? UserAgentSelfTestErrorCode = null);
 
 internal sealed record DeviceRegistrationRequestPayload(
     [property: JsonPropertyName("deviceId")] string DeviceId,

@@ -27,7 +27,8 @@ public sealed record UserAgentSessionContextSnapshot(
     bool? DesktopWidgetReady = null,
     string? CaptureSelfTestState = null,
     string? CaptureSelfTestErrorCode = null,
-    int? CaptureSelfTestRemediationCount = null);
+    int? CaptureSelfTestRemediationCount = null,
+    string? CaptureFailureCode = null);
 
 public interface IUserAgentSessionContextStore
 {
@@ -84,7 +85,8 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
                 DesktopWidgetReady = snapshot.DesktopWidgetReady,
                 CaptureSelfTestState = NormalizeSelfTestState(snapshot.CaptureSelfTestState),
                 CaptureSelfTestErrorCode = NormalizeIdentifier(snapshot.CaptureSelfTestErrorCode),
-                CaptureSelfTestRemediationCount = NormalizeFailureCount(snapshot.CaptureSelfTestRemediationCount)
+                CaptureSelfTestRemediationCount = NormalizeFailureCount(snapshot.CaptureSelfTestRemediationCount),
+                CaptureFailureCode = NormalizeIdentifier(snapshot.CaptureFailureCode)
             };
         }
         catch
@@ -116,7 +118,8 @@ public sealed class UserAgentSessionContextStore : IUserAgentSessionContextStore
             DesktopWidgetReady = snapshot.DesktopWidgetReady,
             CaptureSelfTestState = NormalizeSelfTestState(snapshot.CaptureSelfTestState),
             CaptureSelfTestErrorCode = NormalizeIdentifier(snapshot.CaptureSelfTestErrorCode),
-            CaptureSelfTestRemediationCount = NormalizeFailureCount(snapshot.CaptureSelfTestRemediationCount)
+            CaptureSelfTestRemediationCount = NormalizeFailureCount(snapshot.CaptureSelfTestRemediationCount),
+            CaptureFailureCode = NormalizeIdentifier(snapshot.CaptureFailureCode)
         };
 
         string json = JsonSerializer.Serialize(normalized, new JsonSerializerOptions

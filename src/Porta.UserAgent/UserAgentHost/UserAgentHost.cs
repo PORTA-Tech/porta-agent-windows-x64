@@ -59,6 +59,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private bool _mouseCaptureAvailable;
     private bool _localApiUnavailableLogged;
     private int _heartbeatWriteFailureCount;
+    private int _consecutiveSignalDeliveryFailures;
+    private string? _captureFailureCode;
     private bool _heartbeatReadyLogged;
     private bool _systemEventsSubscribed;
     private int _sessionId;
@@ -117,6 +119,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             _logger.LogWarning("Porta.UserAgent started outside an interactive desktop session; capture stays in heartbeat-only mode.");
             UserAgentFileLog.Info(
                 $"user_agent_non_interactive_session source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId}");
+            _captureFailureCode = "service_session";
         }
         else
         {
@@ -445,10 +448,22 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             _windowStartUtc = windowEndUtc;
             _localApiUnavailableLogged = false;
             _captureSelfTest.RecordPublishAccepted(windowEndUtc);
+            _consecutiveSignalDeliveryFailures = 0;
+            if (_captureFailureCode == "signals_not_delivering")
+            {
+                _captureFailureCode = null;
+            }
+
             return;
         }
 
         _signalAggregator.Requeue(snapshot);
+        _consecutiveSignalDeliveryFailures++;
+        if (_consecutiveSignalDeliveryFailures >= 5)
+        {
+            _captureFailureCode = "signals_not_delivering";
+        }
+
         _logger.LogWarning(
             "Porta.UserAgent failed to publish input signals for window {WindowStartUtc}..{WindowEndUtc}. Ack={AckMessage}.",
             windowStartUtc,
@@ -539,7 +554,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             DesktopWidgetReady: widgetHealthyForHeartbeat,
             CaptureSelfTestState: selfTest.State,
             CaptureSelfTestErrorCode: selfTest.ErrorCode,
-            CaptureSelfTestRemediationCount: selfTest.RemediationCount);
+            CaptureSelfTestRemediationCount: selfTest.RemediationCount,
+            CaptureFailureCode: _captureFailureCode);
 
         try
         {
@@ -635,9 +651,14 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 mouseInstalled);
             UserAgentFileLog.Info(
                 $"capture_hooks_ready source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId} keyboard={keyboardInstalled} mouse={mouseInstalled}");
+            if (_captureFailureCode == "hooks_unavailable")
+            {
+                _captureFailureCode = null;
+            }
         }
         else
         {
+            _captureFailureCode = "hooks_unavailable";
             UserAgentFileLog.Info(
                 $"capture_hooks_unavailable source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId} keyboard={keyboardInstalled} mouse={mouseInstalled}");
         }
@@ -854,6 +875,15 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         if (decision.NotifyUserFailure)
         {
             ShowCaptureSelfTestFailureToast(decision);
+        }
+
+        if (decision.State == CaptureSelfTestStates.Failed)
+        {
+            _captureFailureCode = "self_test_failed";
+        }
+        else if (_captureFailureCode == "self_test_failed" && decision.State == CaptureSelfTestStates.Healthy)
+        {
+            _captureFailureCode = null;
         }
     }
 

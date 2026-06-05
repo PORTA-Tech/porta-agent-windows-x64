@@ -99,6 +99,10 @@ internal sealed class MachineSummaryMapper
             attentionSegmentKind);
         double pressureLevel = ResolvePressureLevel(latestState?.StateFlagsJson, status.OverloadLikelihood);
         double pressureConfidence = ResolvePressureConfidence(latestState?.StateFlagsJson, latestState?.Confidence ?? 0d);
+        string? captureFailureCode = NullIfWhiteSpace(status.UserAgentCaptureFailureCode);
+        string? watchdogLaunchFailureCode = NullIfWhiteSpace(status.WatchdogLaunchFailureCode);
+        string? selfTestState = NullIfWhiteSpace(status.UserAgentSelfTestState);
+        string? selfTestErrorCode = NullIfWhiteSpace(status.UserAgentSelfTestErrorCode);
         string? breakPendingKind = PortaBreakSemantics.ResolveBreakKind(latestState?.BreakPendingKind ?? latestState?.BreakPendingAction);
         string? breakPendingAction = PortaBreakSemantics.ResolveLegacyActionId(latestState?.BreakPendingKind ?? latestState?.BreakPendingAction)
             ?? NullIfWhiteSpace(latestState?.BreakPendingAction);
@@ -170,7 +174,11 @@ internal sealed class MachineSummaryMapper
                 .Select(static value => value.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray()
-                ?? Array.Empty<string>());
+                ?? Array.Empty<string>(),
+            UserAgentCaptureFailureCode: captureFailureCode,
+            WatchdogLaunchFailureCode: watchdogLaunchFailureCode,
+            UserAgentSelfTestState: selfTestState,
+            UserAgentSelfTestErrorCode: selfTestErrorCode);
     }
 
     private static double ResolvePressureLevel(string? stateFlagsJson, double fallback)

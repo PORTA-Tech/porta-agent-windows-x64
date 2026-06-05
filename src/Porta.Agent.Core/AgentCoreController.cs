@@ -107,6 +107,7 @@ public sealed class AgentCoreController : IAgentCoreController
     private volatile bool _localApiAuthReady = true;
     private volatile string? _localApiAuthError;
     private bool _backendConnected;
+    private string? _watchdogLaunchFailureCode;
     private DateTimeOffset? _lastBackendOkUtc;
     private DateTimeOffset _lastDiagnosticsWriteUtc = DateTimeOffset.MinValue;
     private AgentBrainSnapshot _latestSnapshot = new(
@@ -234,6 +235,14 @@ public sealed class AgentCoreController : IAgentCoreController
         }
 
         return GetCachedStatusSnapshot();
+    }
+
+    public void SetWatchdogLaunchFailureCode(string? code)
+    {
+        lock (_gate)
+        {
+            _watchdogLaunchFailureCode = string.IsNullOrWhiteSpace(code) ? null : code.Trim();
+        }
     }
 
     public void SetLocalApiAuthState(bool ready, string? errorCode)
@@ -425,6 +434,7 @@ public sealed class AgentCoreController : IAgentCoreController
         string? captureSelfTestState = NormalizeCaptureSelfTestState(observedSessionContext?.CaptureSelfTestState);
         string? captureSelfTestErrorCode = NormalizeIdentifier(observedSessionContext?.CaptureSelfTestErrorCode);
         int? captureSelfTestRemediationCount = NormalizeHeartbeatWriteFailureCount(observedSessionContext?.CaptureSelfTestRemediationCount);
+        string? userAgentCaptureFailureCode = NormalizeIdentifier(observedSessionContext?.CaptureFailureCode);
         string? ownershipWarning = ResolveOwnershipWarning(sessionContext);
         string? captureFailureReason = ResolveCaptureFailureReasonLocked(
             captureContext,
@@ -522,7 +532,11 @@ public sealed class AgentCoreController : IAgentCoreController
             RuntimeStateLastAttemptUtc: runtimeStateLastAttemptUtc,
             RuntimeStateRefreshError: runtimeStateRefreshError,
             PressureLevel: pressureLevel,
-            PressureConfidence: pressureConfidence);
+            PressureConfidence: pressureConfidence,
+            UserAgentCaptureFailureCode: userAgentCaptureFailureCode,
+            WatchdogLaunchFailureCode: _watchdogLaunchFailureCode,
+            UserAgentSelfTestState: captureSelfTestState,
+            UserAgentSelfTestErrorCode: captureSelfTestErrorCode);
 
         _lastStatusSnapshot = snapshot;
         BuildCurrentSnapshotProjectionLocked(snapshot);

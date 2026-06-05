@@ -81,7 +81,8 @@ internal sealed class AgentService : IHostedService, IDisposable
         services.AddSingleton<CurrentSessionUserAgentWatchdogCoordinator>(sp =>
             new CurrentSessionUserAgentWatchdogCoordinator(
                 sp.GetRequiredService<ICurrentSessionUserAgentRuntime>(),
-                sp.GetRequiredService<ILogger<CurrentSessionUserAgentWatchdog>>()));
+                sp.GetRequiredService<ILogger<CurrentSessionUserAgentWatchdog>>(),
+                sp.GetRequiredService<IAgentCoreController>()));
         services.AddHostedService<CurrentSessionUserAgentWatchdog>();
         services.AddSingleton<ControlPlaneClient>();
         services.AddSingleton<ControlPlaneReporterStateStore>();

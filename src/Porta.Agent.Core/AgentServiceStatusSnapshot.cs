@@ -79,4 +79,8 @@ public sealed record AgentServiceStatusSnapshot(
     DateTimeOffset? RuntimeStateLastAttemptUtc = null,
     string? RuntimeStateRefreshError = null,
     double PressureLevel = 0d,
-    double PressureConfidence = 0d);
+    double PressureConfidence = 0d,
+    string? UserAgentCaptureFailureCode = null,
+    string? WatchdogLaunchFailureCode = null,
+    string? UserAgentSelfTestState = null,
+    string? UserAgentSelfTestErrorCode = null);
