@@ -2,7 +2,7 @@ using Porta.Agent.Core;
 
 namespace Porta.Agent.LocalApi.Mappers;
 
-internal static class EventMapper
+public static class EventMapper
 {
     public static IReadOnlyList<LocalApiEventResponse> MapRecentOrdered(IEnumerable<AgentControlEvent> events)
     {

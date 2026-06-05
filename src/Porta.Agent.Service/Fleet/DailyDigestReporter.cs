@@ -1,10 +1,12 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Porta.Agent.Common.Identity;
 using Porta.Agent.Core;
 using Porta.Agent.LocalApi;
+using Porta.Agent.LocalApi.Mappers;
 
 namespace Porta.Agent.Service.Fleet;
 
@@ -84,14 +86,18 @@ internal sealed class DailyDigestReporter : BackgroundService
         {
             // Pull today's full timeline (midnight to now UTC)
             DateTimeOffset startOfDayUtc = new(todayUtc.Year, todayUtc.Month, todayUtc.Day, 0, 0, 0, TimeSpan.Zero);
-            LocalApiClient localClient = new();
-            LocalApiTimelineResponse? timeline = await localClient.GetTimelineAsync(
-                startOfDayUtc, nowUtc, bucketSeconds: 60, token).ConfigureAwait(false);
+            AgentTimelineData timelineData = _controller.GetTimeline(startOfDayUtc, nowUtc, 60);
 
-            if (timeline == null)
-            {
-                return;
-            }
+            LocalApiTimelineResponse timeline = new(
+                timelineData.FromUtc,
+                timelineData.ToUtc,
+                timelineData.BucketSeconds,
+                timelineData.Snapshots
+                    .Select(static s => SnapshotMapper.Map(s, null))
+                    .ToList(),
+                timelineData.Interventions
+                    .Select(EventMapper.Map)
+                    .ToList());
 
             // Aggregate timeline stats
             DigestTimelineAggregation agg = AggregateTimeline(timeline);

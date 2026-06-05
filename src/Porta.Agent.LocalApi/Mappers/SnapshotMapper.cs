@@ -4,7 +4,7 @@ using Porta.Agent.Core;
 
 namespace Porta.Agent.LocalApi.Mappers;
 
-internal static class SnapshotMapper
+public static class SnapshotMapper
 {
     private const string SchemaV1EmptyJson = "{\"schema_ver\":1}";
 
