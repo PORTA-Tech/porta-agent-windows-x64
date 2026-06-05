@@ -2287,6 +2287,19 @@ internal sealed class UserDesktopWidgetWindow : Window
         _collapsedMenuIcon.Foreground = new SolidColorBrush(isLight
             ? Color.FromRgb(0x47, 0x55, 0x69)
             : Color.FromRgb(0xB4, 0xC1, 0xD0));
+        // Message text — must be dark in light mode, light in dark mode
+        _messageTitleText.Foreground = new SolidColorBrush(isLight
+            ? Color.FromRgb(0x1E, 0x29, 0x3B)
+            : Color.FromRgb(0xEA, 0xEE, 0xF3));
+        _messageBodyText.Foreground = new SolidColorBrush(isLight
+            ? Color.FromRgb(0x37, 0x41, 0x51)
+            : Color.FromRgb(0xC4, 0xCD, 0xD7));
+        _messageFooterText.Foreground = new SolidColorBrush(isLight
+            ? Color.FromRgb(0x64, 0x74, 0x8B)
+            : Color.FromRgb(0x99, 0xA7, 0xB7));
+        _menuButton.Foreground = new SolidColorBrush(isLight
+            ? Color.FromRgb(0x1E, 0x29, 0x3B)
+            : Color.FromRgb(0xEA, 0xEE, 0xF3));
     }
 
     private void TryStartAppearanceWatcher()

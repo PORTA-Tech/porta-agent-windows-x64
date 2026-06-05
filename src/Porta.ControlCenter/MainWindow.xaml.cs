@@ -6464,12 +6464,14 @@ public partial class MainWindow : Window
         })
         {
             bool active = idx == selected;
+            var inactiveBorder = (TryFindResource("PortaCardBorderBrush") as SolidColorBrush)?.Color ?? Color.FromRgb(0x25, 0x25, 0x35);
+            var inactiveBg     = (TryFindResource("PortaCardBrush")       as SolidColorBrush)?.Color ?? Color.FromRgb(0x1C, 0x1C, 0x2E);
             card.BorderBrush = new SolidColorBrush(active
                 ? Color.FromRgb(0x63, 0x66, 0xF1)
-                : Color.FromRgb(0x25, 0x25, 0x35));
+                : inactiveBorder);
             card.Background = new SolidColorBrush(active
                 ? Color.FromArgb(0x1A, 0x63, 0x66, 0xF1)
-                : Color.FromRgb(0x1C, 0x1C, 0x2E));
+                : inactiveBg);
             icon.Stroke = new SolidColorBrush(active
                 ? Color.FromRgb(0x63, 0x66, 0xF1)
                 : Color.FromRgb(0x64, 0x74, 0x8B));
