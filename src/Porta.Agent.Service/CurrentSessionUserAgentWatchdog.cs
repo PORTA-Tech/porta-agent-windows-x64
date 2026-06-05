@@ -36,12 +36,14 @@ internal interface ICurrentSessionUserAgentRuntime
 internal sealed class CurrentSessionUserAgentWatchdogCoordinator
 {
     private static readonly TimeSpan EnsureThrottle = TimeSpan.FromSeconds(5);
+    private const int MaxVersionMismatchRestarts = 3;
     private readonly object _gate = new();
     private readonly ICurrentSessionUserAgentRuntime _runtime;
     private readonly ILogger _logger;
     private readonly Porta.Agent.Core.IAgentCoreController _controller;
     private DateTimeOffset _lastEnsureUtc = DateTimeOffset.MinValue;
     private string? _lastLoggedDecisionSignature;
+    private int _versionMismatchRestartCount;
 
     public CurrentSessionUserAgentWatchdogCoordinator(
         ICurrentSessionUserAgentRuntime runtime,
@@ -89,10 +91,30 @@ internal sealed class CurrentSessionUserAgentWatchdogCoordinator
                 expectedBinaryVersion);
             LogDecisionIfChanged(force, currentSessionId, runningProcesses, sessionContext, decision, nowUtc);
 
-            if (decision.Action == CurrentSessionUserAgentAction.KeepExisting
-                || decision.Action == CurrentSessionUserAgentAction.WaitForHeartbeat)
+            if (decision.Action == CurrentSessionUserAgentAction.KeepExisting)
+            {
+                _versionMismatchRestartCount = 0;
+                return;
+            }
+
+            if (decision.Action == CurrentSessionUserAgentAction.WaitForHeartbeat)
             {
                 return;
+            }
+
+            // Cap version-mismatch restart loops — if binary version still mismatches after
+            // MaxVersionMismatchRestarts attempts, stop restarting and wait for manual intervention.
+            if (string.Equals(decision.Reason, "version_mismatch", StringComparison.Ordinal))
+            {
+                _versionMismatchRestartCount++;
+                if (_versionMismatchRestartCount > MaxVersionMismatchRestarts)
+                {
+                    _logger.LogWarning(
+                        "Version mismatch persists after {RestartCount} restart attempts on session {SessionId}. Pausing until next deployment.",
+                        _versionMismatchRestartCount - 1,
+                        currentSessionId);
+                    return;
+                }
             }
 
             if (decision.Action == CurrentSessionUserAgentAction.RestartExisting)

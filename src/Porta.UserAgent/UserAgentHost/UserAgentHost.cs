@@ -61,6 +61,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private int _heartbeatWriteFailureCount;
     private int _consecutiveSignalDeliveryFailures;
     private string? _captureFailureCode;
+    private volatile bool _shouldExit;
+    private DateTimeOffset? _selfTestFailedSinceUtc;
     private bool _heartbeatReadyLogged;
     private bool _systemEventsSubscribed;
     private int _sessionId;
@@ -120,13 +122,15 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             UserAgentFileLog.Info(
                 $"user_agent_non_interactive_session source={_startupMetadata.Source} launch_reason={_startupMetadata.EffectiveLaunchReason} pid={Environment.ProcessId} session={_sessionId}");
             _captureFailureCode = "service_session";
+            PublishSessionContext();
+            UserAgentFileLog.Info(
+                $"user_agent_exiting_service_session pid={Environment.ProcessId} session={_sessionId}");
+            return;
         }
-        else
-        {
-            StartCaptureHooks();
-            SubscribeToSessionSwitchNotifications();
-            ArmCaptureSelfTest(_startupMetadata.EffectiveLaunchReason);
-        }
+
+        StartCaptureHooks();
+        SubscribeToSessionSwitchNotifications();
+        ArmCaptureSelfTest(_startupMetadata.EffectiveLaunchReason);
 
         Task heartbeatTask = RunHeartbeatLoopAsync(stoppingToken);
         Task widgetMaintenanceTask = RunWidgetMaintenanceLoopAsync(stoppingToken);
@@ -142,7 +146,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
             using var timer = new PeriodicTimer(PassiveSamplingPeriod);
 
-            while (!stoppingToken.IsCancellationRequested)
+            while (!stoppingToken.IsCancellationRequested && !_shouldExit)
             {
                 if (_captureContext == UserAgentCaptureContexts.UserSession)
                 {
@@ -318,9 +322,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private async Task RunHeartbeatLoopAsync(CancellationToken token)
     {
         PublishSessionContext();
+        if (_shouldExit)
+        {
+            return;
+        }
 
         using var timer = new PeriodicTimer(SessionHeartbeatInterval);
-        while (!token.IsCancellationRequested)
+        while (!token.IsCancellationRequested && !_shouldExit)
         {
             try
             {
@@ -464,6 +472,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             _captureFailureCode = "signals_not_delivering";
         }
 
+        if (_consecutiveSignalDeliveryFailures >= 10)
+        {
+            UserAgentFileLog.Info(
+                $"signals_not_delivering_exit pid={Environment.ProcessId} session={_sessionId} consecutive_failures={_consecutiveSignalDeliveryFailures}");
+            _shouldExit = true;
+        }
+
         _logger.LogWarning(
             "Porta.UserAgent failed to publish input signals for window {WindowStartUtc}..{WindowEndUtc}. Ack={AckMessage}.",
             windowStartUtc,
@@ -601,6 +616,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                     ex);
             }
             _logger.LogError(ex, "Failed to publish user-session capture context heartbeat.");
+
+            if (_heartbeatWriteFailureCount >= 5)
+            {
+                UserAgentFileLog.Info(
+                    $"user_agent_exiting_heartbeat_write_failed pid={Environment.ProcessId} session={_sessionId} consecutive_failures={_heartbeatWriteFailureCount}");
+                _shouldExit = true;
+            }
         }
 
         return snapshot;
@@ -880,10 +902,22 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         if (decision.State == CaptureSelfTestStates.Failed)
         {
             _captureFailureCode = "self_test_failed";
+            _selfTestFailedSinceUtc ??= nowUtc;
+            double selfTestFailedForSeconds = (nowUtc - _selfTestFailedSinceUtc.Value).TotalSeconds;
+            if (selfTestFailedForSeconds > 60d)
+            {
+                UserAgentFileLog.Info(
+                    $"user_agent_exiting_self_test_failed pid={Environment.ProcessId} session={_sessionId} failed_for_seconds={selfTestFailedForSeconds:F0}");
+                _shouldExit = true;
+            }
         }
-        else if (_captureFailureCode == "self_test_failed" && decision.State == CaptureSelfTestStates.Healthy)
+        else if (decision.State == CaptureSelfTestStates.Healthy)
         {
-            _captureFailureCode = null;
+            _selfTestFailedSinceUtc = null;
+            if (_captureFailureCode == "self_test_failed")
+            {
+                _captureFailureCode = null;
+            }
         }
     }
 
