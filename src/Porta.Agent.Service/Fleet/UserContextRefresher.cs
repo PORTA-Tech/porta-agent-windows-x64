@@ -70,7 +70,8 @@ internal sealed class UserContextRefresher : BackgroundService
                         payload.WeakHour,
                         payload.AvgStreakMin,
                         payload.StrongWindowStart,
-                        payload.StrongWindowEnd));
+                        payload.StrongWindowEnd,
+                        payload.DaysOfData));
                     nextWait = RefreshInterval;
                 }
                 else

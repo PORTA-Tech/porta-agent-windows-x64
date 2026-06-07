@@ -148,6 +148,7 @@ internal static class TodayPageCopyBuilder
 
     /// <summary>
     /// Returns a contextual Ari status bubble message for the Today page.
+    /// State machine: Cold → Morning → Active → Pressure → Recovery → End of day.
     /// All parameters are nullable / zero-safe — always returns a non-null string.
     /// </summary>
     public static string BuildAriStatusMessage(
@@ -158,53 +159,83 @@ internal static class TodayPageCopyBuilder
         int distractionCount,
         double avgRecoveryMin,
         bool isPressureHigh,
-        int contextSwitchesRecent)
+        int contextSwitchesRecent,
+        string? sessionStartLabel = null,
+        string? dayName = null,
+        double? dayAvgFocusMin = null)
     {
         int currentHour = DateTime.Now.Hour;
+        string currentTimeLabel = DateTime.Now.ToString("h:mm tt");
+        string name = string.IsNullOrWhiteSpace(context?.FirstName) ? string.Empty : context!.FirstName!.Trim();
+        int daysOfData = context?.DaysOfData ?? 0;
 
-        // Morning — no focus yet
+        // --- Cold / calibrating (< 3 days of data) ---
+        if (daysOfData < 3 && todayFocusMin < 5)
+        {
+            return $"Ari has {Math.Max(daysOfData, 1)} day{(daysOfData == 1 ? "" : "s")} of data from you.\nKeep showing up — the picture gets sharper with every session.";
+        }
+
+        // --- Morning / session not started yet ---
         if (todayFocusMin < 5)
         {
             if (context?.StrongWindowStart is { } swStart && context.StrongWindowEnd is { } swEnd)
             {
-                int timeLeft = swStart - currentHour;
-                if (timeLeft is > 0 and <= 3)
-                    return $"Your best window — {context.StrongWindowLabel} — starts in {timeLeft}h. Get ready.";
-                if (timeLeft <= 0 && currentHour <= swEnd)
-                    return $"Your strongest window is open now — {context.StrongWindowLabel}. No focus yet today.";
+                int minsLeft = (swEnd * 60) - (currentHour * 60 + DateTime.Now.Minute);
+                if (minsLeft > 0 && currentHour >= swStart)
+                {
+                    // Inside the window, time remaining
+                    string winLabel = context.StrongWindowLabel ?? $"{swStart}–{swEnd}";
+                    return string.IsNullOrEmpty(name)
+                        ? $"Your strongest window is {winLabel}.\nIt's {currentTimeLabel}. You've got {minsLeft}min of it left."
+                        : $"Your strongest window is {winLabel}, {name}.\nIt's {currentTimeLabel}. You've got {minsLeft}min of it left.";
+                }
+                if (currentHour < swStart && swStart - currentHour <= 2)
+                {
+                    // Window opens soon
+                    string winLabel = context.StrongWindowLabel ?? $"{swStart}–{swEnd}";
+                    return $"Your strongest window — {winLabel} — opens in {(swStart - currentHour) * 60 - DateTime.Now.Minute}min.\nNo focus yet today.";
+                }
             }
+            if (!string.IsNullOrEmpty(dayName))
+                return $"No focus yet today. Your best {dayName}s usually start before 10am.\nStill time.";
             return "No focus yet today. Ari is ready when you are.";
         }
 
-        // Pressure state
+        // --- Pressure building ---
         if (isPressureHigh || contextSwitchesRecent >= 3)
         {
-            return $"Pressure building — {contextSwitchesRecent} context switches recently. Consider slowing down.";
+            if (!string.IsNullOrEmpty(name))
+                return $"{name}, the pressure reading is climbing.\n{contextSwitchesRecent} context switches recently. Consider a break before your next block.";
+            return $"Pressure building — {contextSwitchesRecent} context switches recently.\nAri suggests a short stop now.";
         }
 
-        // Active session going well
-        if (snapshot?.FocusStrength > 0.6)
-        {
-            string namePrefix = string.IsNullOrWhiteSpace(context?.FirstName)
-                ? "Strong start —"
-                : $"{context.FirstName}, strong start —";
-            return $"{namePrefix} {(int)todayFocusMin}min of focus so far today.";
-        }
-
-        // Has had distraction but recovering fast
+        // --- Active session going well with distraction recovery ---
         if (distractionCount > 0 && avgRecoveryMin > 0 && avgRecoveryMin < 5)
         {
-            return $"{distractionCount} distraction episodes — recovered from each in under {(int)avgRecoveryMin}min. Unusually fast.";
+            return $"You've had {distractionCount} distraction episodes but recovered from each in under {(int)Math.Ceiling(avgRecoveryMin)}min.\nThat's unusually fast for you.";
         }
 
-        // End of day (tracked > 3h and current time > 18:00)
+        // --- Active session going well ---
+        if (snapshot?.FocusStrength > 0.6 || todayFocusMin >= 20)
+        {
+            if (dayAvgFocusMin is > 0 && !string.IsNullOrEmpty(dayName) && !string.IsNullOrEmpty(sessionStartLabel))
+                return $"Strong start — {(int)todayFocusMin}min of focus since {sessionStartLabel}.\nAbove your {dayName} average of {(int)dayAvgFocusMin.Value}min.";
+            if (!string.IsNullOrEmpty(sessionStartLabel))
+                return $"Strong start — {(int)todayFocusMin}min of focus since {sessionStartLabel}.\nAri is watching.";
+            return $"Strong start — {(int)todayFocusMin}min of focus so far today.\nAri is watching.";
+        }
+
+        // --- End of day / review ---
         if (todayTrackedMin >= 180 && currentHour >= 18)
         {
-            int focusPct = (int)(todayFocusMin / todayTrackedMin * 100);
-            return $"{(int)todayFocusMin}min focused out of {(int)todayTrackedMin}min tracked — {focusPct}%. Digest fires at 23:30.";
+            int focusPct = todayTrackedMin > 0 ? (int)(todayFocusMin / todayTrackedMin * 100) : 0;
+            double focusScore = snapshot?.TaskContinuityScore is > 0 ? Math.Round(snapshot!.TaskContinuityScore * 100) : 0;
+            if (context?.StrongWindowLabel is { } swLabel && focusScore > 0)
+                return $"Strong day — {focusScore} focus score, {focusPct}% of tracked time in focus.\nYour {swLabel} window produced your best work. Digest fires at 23:30.";
+            return $"{(int)todayFocusMin}min focused out of {(int)todayTrackedMin}min tracked — {focusPct}%.\nDigest fires at 23:30.";
         }
 
-        // Default active state
+        // --- Default active state ---
         return $"{(int)todayFocusMin}min of focus today. Ari is watching.";
     }
 

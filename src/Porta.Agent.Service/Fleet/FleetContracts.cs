@@ -185,4 +185,5 @@ internal sealed record UserContextPayload(
     [property: JsonPropertyName("weakHour")] int? WeakHour,
     [property: JsonPropertyName("avgStreakMin")] int? AvgStreakMin,
     [property: JsonPropertyName("strongWindowStart")] int? StrongWindowStart,
-    [property: JsonPropertyName("strongWindowEnd")] int? StrongWindowEnd);
+    [property: JsonPropertyName("strongWindowEnd")] int? StrongWindowEnd,
+    [property: JsonPropertyName("daysOfData")] int DaysOfData);

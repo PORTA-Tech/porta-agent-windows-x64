@@ -875,7 +875,8 @@ public sealed record LocalApiAriContextResponse(
     int? WeakHour,
     int? AvgStreakMin,
     int? StrongWindowStart,
-    int? StrongWindowEnd)
+    int? StrongWindowEnd,
+    int DaysOfData = 0)
 {
     public string? StrongWindowLabel => StrongWindowStart.HasValue && StrongWindowEnd.HasValue
         ? $"{FormatHour(StrongWindowStart.Value)}–{FormatHour(StrongWindowEnd.Value)}"

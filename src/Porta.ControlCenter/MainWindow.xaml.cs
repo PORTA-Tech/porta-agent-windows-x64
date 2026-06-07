@@ -1623,6 +1623,17 @@ public partial class MainWindow : Window
         double todayTrackedMin = todayMetrics.TrackedTodaySeconds / 60d;
         bool isPressureHigh = snapshot?.OverloadActive == true ||
             (snapshot is { analysis_ready: true } && ResolvePressureLevel(snapshot) >= 0.75);
+        // Derive session start label from first snapshot of today
+        string? sessionStartLabel = null;
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> todaySnaps = _todayTimeline?.Snapshots ?? [];
+        if (todaySnaps.Count > 0)
+            sessionStartLabel = todaySnaps[0].TimestampUtc.ToLocalTime().ToString("h:mm tt");
+
+        // Derive day name and dow average focus minutes from context
+        string dayName = DateTime.Now.ToString("dddd"); // e.g. "Monday"
+        double? dayAvgFocusMin = null;
+        // (dow averages not yet in context — placeholder for future extension)
+
         string ariStatus = TodayPageCopyBuilder.BuildAriStatusMessage(
             snapshot,
             _ariContext,
@@ -1631,7 +1642,10 @@ public partial class MainWindow : Window
             distractionCount: 0,
             avgRecoveryMin: 0d,
             isPressureHigh,
-            contextSwitchesRecent: 0);
+            contextSwitchesRecent: 0,
+            sessionStartLabel: sessionStartLabel,
+            dayName: dayName,
+            dayAvgFocusMin: dayAvgFocusMin);
         string currentStatusText = ariStatus;
 
         TodaySummaryText.Text = BuildTodaySummarySentence(
