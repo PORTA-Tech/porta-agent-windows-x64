@@ -155,6 +155,24 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    public async Task<LocalApiAriContextResponse?> GetAriContextAsync(CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            return await _httpClient.GetFromJsonAsync<LocalApiAriContextResponse>("/v1/session/ari-context", token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<LocalApiInputsSummaryResponse?> GetInputsSummaryAsync(int windowSeconds = 60, CancellationToken token = default)
     {
         if (!HasRuntimeSettings())

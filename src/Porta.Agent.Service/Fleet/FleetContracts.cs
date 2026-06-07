@@ -147,7 +147,13 @@ internal sealed record DailyDigestReportPayload(
     [property: JsonPropertyName("developmentSeconds")] double DevelopmentSeconds,
     [property: JsonPropertyName("productivitySeconds")] double ProductivitySeconds,
     [property: JsonPropertyName("communicationSeconds")] double CommunicationSeconds,
-    [property: JsonPropertyName("entertainmentSeconds")] double EntertainmentSeconds);
+    [property: JsonPropertyName("entertainmentSeconds")] double EntertainmentSeconds,
+    // Phase 1A — new timeline fields for messaging system
+    [property: JsonPropertyName("firstFocusBlockUtc")] string? FirstFocusBlockUtc = null,
+    [property: JsonPropertyName("peakPressureUtc")] string? PeakPressureUtc = null,
+    [property: JsonPropertyName("avgDistractionEpisodeDurationSeconds")] double AvgDistractionEpisodeDurationSeconds = 0d,
+    [property: JsonPropertyName("contextSwitchCount")] int ContextSwitchCount = 0,
+    [property: JsonPropertyName("preLongestDistractionFocusSeconds")] double PreLongestDistractionFocusSeconds = 0d);
 
 internal sealed record MachineActionEventPayload(
     [property: JsonPropertyName("deviceId")] string DeviceId,
@@ -172,3 +178,9 @@ internal sealed record MachineActionEventPayload(
     [property: JsonPropertyName("policyId")] string PolicyId,
     [property: JsonPropertyName("whatChanged")] string? WhatChanged,
     [property: JsonPropertyName("howToUndo")] string? HowToUndo);
+
+// Response from GET /api/agent/user-context
+internal sealed record UserContextPayload(
+    [property: JsonPropertyName("firstName")] string? FirstName,
+    [property: JsonPropertyName("weakHour")] int? WeakHour,
+    [property: JsonPropertyName("avgStreakMin")] int? AvgStreakMin);

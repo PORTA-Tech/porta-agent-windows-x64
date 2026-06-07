@@ -23,6 +23,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private static readonly TimeSpan UiRefreshInterval = TimeSpan.FromSeconds(4);
     private static readonly TimeSpan RecentEventsRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan WidgetDetailRefreshInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan AriContextRefreshInterval = TimeSpan.FromMinutes(30);
     private readonly ILogger<UserAgentHost> _logger;
     private readonly IUserAgentSessionContextStore _sessionContextStore;
     private readonly UserAgentStartupMetadata _startupMetadata;
@@ -76,6 +77,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private double _lastLiveIdleSeconds;
     private DateTimeOffset? _liveFocusStartedUtc;
     private UserAgentSessionContextSnapshot? _lastPublishedSessionContext;
+    private readonly UserAgentSessionState _sessionState = new();
+    private LocalApiAriContextResponse? _ariContext;
+    private DateTimeOffset _lastAriContextRefreshUtc = DateTimeOffset.MinValue;
 
     public UserAgentHost(
         ILogger<UserAgentHost> logger,
@@ -296,6 +300,39 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             {
                 _lastCommunicationEventId = recentEventToast.EventId;
                 return;
+            }
+        }
+
+        // Refresh Ari context from local API every 30 min
+        if ((nowUtc - _lastAriContextRefreshUtc) >= AriContextRefreshInterval)
+        {
+            LocalApiAriContextResponse? freshContext = await _localApiClient.GetAriContextAsync(token).ConfigureAwait(false);
+            if (freshContext is not null)
+            {
+                _ariContext = freshContext;
+            }
+
+            _lastAriContextRefreshUtc = nowUtc;
+        }
+
+        // Daily session state reset + distraction tracking + Ari behavioral toasts
+        _sessionState.ResetIfNewDay(nowUtc);
+        if (snapshot is not null)
+        {
+            if (snapshot.DistractionEpisodeActive && !_sessionState.InDistractionEpisode)
+            {
+                _sessionState.MarkDistractionStarted(snapshot.FocusEpisodeSeconds, nowUtc);
+            }
+            else if (!snapshot.DistractionEpisodeActive && _sessionState.InDistractionEpisode)
+            {
+                _sessionState.MarkDistractionEnded();
+            }
+
+            UserCommunicationToast? ariToast = UserCommunicationRouter.TryBuildAriToast(
+                snapshot, _sessionState, _ariContext, nowUtc);
+            if (ariToast is not null && TryShowCommunicationToast(ariToast))
+            {
+                _sessionState.RecordToastShown(nowUtc);
             }
         }
 

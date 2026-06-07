@@ -200,4 +200,40 @@ $tc.Connect("127.0.0.1", (Get-Content C:\ProgramData\PortaAgent\local-api.endpoi
 | 1.2.56 | Widget: AWAY dot, DISTRACTED state, focus>work cap, colour-coded pressure |
 | 1.2.55 | Idle gate suppresses notification pipeline after 5min idle |
 | 1.2.44 | Distraction detection Phase 1 — 8 patterns, calendar colours/labels/tooltips |
-| 1.2.30s | History page full redesign — Day/Week/2-Week calendar grid, episode blocks,
+| 1.2.30s | History page full redesign — Day/Week/2-Week calendar grid, episode blocks, heatmap |
+| 1.2.14 | Full Control Center UX redesign — Today, History, Settings, Tracking, System pages; font rendering fixes |
+| 1.2.13 | DefenderExclusionWorker renews DB exclusion every 60 min |
+| 1.2.10 | `wal_autocheckpoint=100` keeps WAL at ~400KB, ending Defender-induced stalls |
+| 1.2.9 | Revert 50MB page cache (caused GC pressure); keep NORMAL sync + id/stride |
+| 1.2.8 | `synchronous=NORMAL` for WAL (was FULL — 2 fsyncs per commit); fix PRAGMA/constant mismatch that killed service |
+| 1.2.7 | Fix `ReadTimeline` GROUP BY: use `id/stride` (state_buckets has no bucket_seq column) |
+| 1.2.6 | Fix `ReadTimeline` GROUP BY: bucket_seq → id/stride (wrong column name in 1.2.6) |
+| 1.2.5 | Push timeline bucketing into SQL (`GROUP BY id/stride`); was loading 352K rows into .NET heap → thread pool exhaustion at ~3min |
+| 1.2.4 | Replace blocking VACUUM/TRUNCATE with PASSIVE checkpoint; fix installer CloseApplication race with SCM recovery |
+| 1.2.3 | Remove VACUUM from V19 migration (SQLite forbids VACUUM inside BEGIN IMMEDIATE) |
+| 1.2.2 | V19 migration: stop writing brain_snapshots (3.5 GB table, never read since Step 9) |
+| 1.2.1 | PublishSingleFile=false (was causing Defender to scan 200MB .NET runtime on first run) |
+| 1.2.0 | Version bump to skip 1.1.x MSIs that WiX rejected as downgrade |
+
+---
+
+## Connected Repos
+
+| Repo | Role |
+|---|---|
+| `porta-control-plane` | Backend: policy governance, fleet management, signed intervention commands, digest email builder |
+| `porta-api-contracts` | Shared DTO/OpenAPI contracts between service and control plane |
+| `porta-operations-console` | Operator web dashboard for fleet oversight |
+
+The Windows agent connects to the control plane via `PORTA_BACKEND_URL` for policy sync, fleet telemetry, and the nightly digest. All local analysis runs offline-first — the agent is fully functional without a backend connection. If `PORTA_BACKEND_URL` is not set, `ControlPlaneClient.IsEnabled` returns `false` and all fleet features are silently skipped.
+
+---
+
+## Security & Privacy
+
+- No raw text, screen pixels, clipboard, file contents, or URLs ever captured or stored
+- No signals emitted before consent is active (`consent` table)
+- Auth token encrypted with DPAPI (LocalMachine scope) — readable by any local process, not remotely
+- Local API bound to `127.0.0.1` loopback only
+- `ProtectionScope.LocalMachine` means the token is accessible to both the service (SYSTEM) and user processes (Porta.UserAgent, Porta.ControlCenter)
+- Control plane communication over HTTPS; optional TLS cert pinning via `PORTA_TLS_CERT_SHA256_PIN`

@@ -158,7 +158,12 @@ internal sealed class DailyDigestReporter : BackgroundService
                 DevelopmentSeconds: agg.DevelopmentSeconds,
                 ProductivitySeconds: agg.ProductivitySeconds,
                 CommunicationSeconds: agg.CommunicationSeconds,
-                EntertainmentSeconds: agg.EntertainmentSeconds);
+                EntertainmentSeconds: agg.EntertainmentSeconds,
+                FirstFocusBlockUtc: agg.FirstFocusBlockUtc,
+                PeakPressureUtc: agg.PeakPressureUtc,
+                AvgDistractionEpisodeDurationSeconds: agg.AvgDistractionEpisodeDurationSeconds,
+                ContextSwitchCount: agg.ContextSwitchCount,
+                PreLongestDistractionFocusSeconds: agg.PreLongestDistractionFocusSeconds);
 
             bool sent = await _client.PostDailyDigestAsync(payload, token).ConfigureAwait(false);
             if (sent)
@@ -211,6 +216,19 @@ internal sealed class DailyDigestReporter : BackgroundService
 
         // Most distracted hour
         var hourDistraction = new double[24];
+
+        // Phase 1A — new tracking variables
+        DateTimeOffset? firstFocusBlockTimestamp = null;
+        DateTimeOffset? peakPressureTimestamp = null;
+        double peakOverloadLikelihood = -1d;
+        int contextSwitchCount = 0;
+        // Distraction block tracking for PreLongestDistractionFocusSeconds
+        bool inDistractionBlock = false;
+        double currentDistractionBlockDuration = 0d;
+        double preFocusForCurrentBlock = 0d;
+        double focusSinceLastDistraction = 0d;
+        double longestDistractionBlockDuration = 0d;
+        double preLongestDistractionFocusSeconds = 0d;
 
         foreach (LocalApiCurrentSnapshotResponse s in snapshots)
         {
@@ -279,10 +297,71 @@ internal sealed class DailyDigestReporter : BackgroundService
             {
                 fragmentationEpisodeCount++;
             }
+
+            // Phase 1A — context switch count (any kind transition)
+            if (!string.IsNullOrEmpty(prevAttentionKind) &&
+                !string.Equals(kind, prevAttentionKind, StringComparison.OrdinalIgnoreCase))
+            {
+                contextSwitchCount++;
+            }
             prevAttentionKind = kind;
+
+            // Phase 1A — first focus block UTC
+            if (firstFocusBlockTimestamp == null && !isDistraction && !isAway && !isContextExcursion
+                && s.FocusStrength > 0.5d)
+            {
+                firstFocusBlockTimestamp = s.TimestampUtc;
+            }
+
+            // Phase 1A — peak pressure UTC
+            if (s.OverloadLikelihood > peakOverloadLikelihood)
+            {
+                peakOverloadLikelihood = s.OverloadLikelihood;
+                peakPressureTimestamp = s.TimestampUtc;
+            }
+
+            // Phase 1A — pre-longest-distraction focus tracking
+            if (isDistraction)
+            {
+                if (!inDistractionBlock)
+                {
+                    inDistractionBlock = true;
+                    preFocusForCurrentBlock = focusSinceLastDistraction;
+                    currentDistractionBlockDuration = 0d;
+                    focusSinceLastDistraction = 0d;
+                }
+                currentDistractionBlockDuration += bucketSec;
+            }
+            else
+            {
+                if (inDistractionBlock)
+                {
+                    if (currentDistractionBlockDuration > longestDistractionBlockDuration)
+                    {
+                        longestDistractionBlockDuration = currentDistractionBlockDuration;
+                        preLongestDistractionFocusSeconds = preFocusForCurrentBlock;
+                    }
+                    inDistractionBlock = false;
+                    currentDistractionBlockDuration = 0d;
+                }
+                // Only count pure focus (not away/context excursion) toward pre-distraction accumulator
+                if (!isAway && !isContextExcursion)
+                {
+                    focusSinceLastDistraction += bucketSec;
+                }
+            }
+        }
+
+        // Handle trailing distraction block that extends to end of session
+        if (inDistractionBlock && currentDistractionBlockDuration > longestDistractionBlockDuration)
+        {
+            preLongestDistractionFocusSeconds = preFocusForCurrentBlock;
         }
 
         double focusQualityScore = focusedBuckets > 0 ? focusStrengthSum / focusedBuckets : 0d;
+        double avgDistractionEpisodeDurationSeconds = fragmentationEpisodeCount > 0
+            ? distractionSeconds / fragmentationEpisodeCount
+            : 0d;
 
         // Most distracted hour label
         int worstHour = -1;
@@ -313,7 +392,12 @@ internal sealed class DailyDigestReporter : BackgroundService
             DevelopmentSeconds: developmentSeconds,
             ProductivitySeconds: productivitySeconds,
             CommunicationSeconds: communicationSeconds,
-            EntertainmentSeconds: entertainmentSeconds);
+            EntertainmentSeconds: entertainmentSeconds,
+            FirstFocusBlockUtc: firstFocusBlockTimestamp?.ToUniversalTime().ToString("O"),
+            PeakPressureUtc: peakPressureTimestamp?.ToUniversalTime().ToString("O"),
+            AvgDistractionEpisodeDurationSeconds: avgDistractionEpisodeDurationSeconds,
+            ContextSwitchCount: contextSwitchCount,
+            PreLongestDistractionFocusSeconds: preLongestDistractionFocusSeconds);
     }
 
     private static bool IsBreakSuggestionEvent(string? action)
@@ -381,9 +465,16 @@ internal sealed class DailyDigestReporter : BackgroundService
         double DevelopmentSeconds,
         double ProductivitySeconds,
         double CommunicationSeconds,
-        double EntertainmentSeconds)
+        double EntertainmentSeconds,
+        // Phase 1A — new fields
+        string? FirstFocusBlockUtc,
+        string? PeakPressureUtc,
+        double AvgDistractionEpisodeDurationSeconds,
+        int ContextSwitchCount,
+        double PreLongestDistractionFocusSeconds)
     {
         public static DigestTimelineAggregation Empty => new(
-            0d, 0d, 0d, 0d, 0d, 0d, 0d, 0, 0, "n/a", 0d, 0d, 0d, 0d);
+            0d, 0d, 0d, 0d, 0d, 0d, 0d, 0, 0, "n/a", 0d, 0d, 0d, 0d,
+            null, null, 0d, 0, 0d);
     }
 }

@@ -170,6 +170,11 @@ public static class LocalApiEndpointMapping
             return LiveSessionMapper.Map(state);
         });
 
+        api.MapGet("/session/ari-context", (IAriContextProvider ariContext) =>
+        {
+            return ariContext.GetContext();
+        });
+
         api.MapGet("/inputs/summary", (IAgentCoreController controller, int? window) =>
         {
             AgentInputSummary summary = controller.GetInputsSummary(window ?? 60);

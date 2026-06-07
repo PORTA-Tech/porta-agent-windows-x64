@@ -174,6 +174,30 @@ internal sealed class ControlPlaneClient : IDisposable
             token).ConfigureAwait(false);
     }
 
+    public async Task<UserContextPayload?> GetUserContextAsync(string accountId, CancellationToken token)
+    {
+        if (_httpClient is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            string url = "api/agent/user-context?accountId=" + Uri.EscapeDataString(accountId);
+            using HttpResponseMessage response = await _httpClient.GetAsync(url, token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<UserContextPayload>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public void Dispose()
     {
         _httpClient?.Dispose();

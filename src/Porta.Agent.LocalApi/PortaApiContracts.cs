@@ -868,3 +868,14 @@ public sealed record LocalApiExportResponse(
     bool Success,
     string BundlePath,
     DateTimeOffset TimestampUtc);
+
+// Ari user context — served by GET /v1/session/ari-context
+public sealed record LocalApiAriContextResponse(
+    string? FirstName,
+    int? WeakHour,
+    int? AvgStreakMin);
+
+public interface IAriContextProvider
+{
+    LocalApiAriContextResponse GetContext();
+}

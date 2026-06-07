@@ -134,6 +134,28 @@
                 KeyPath="yes"
                 Checksum="yes" />
         </Component>
+
+        <!-- porta:// URI scheme — lets email/web links open the Control Center directly -->
+        <Component Id="PortaUriSchemeComponent" Guid="a8f3d921-6c4b-4e87-b2d5-9f1e0c738a55">
+          <RegistryValue Root="HKCR"
+                         Key="porta"
+                         Type="string"
+                         Value="URL:Porta Protocol"
+                         KeyPath="yes" />
+          <RegistryValue Root="HKCR"
+                         Key="porta"
+                         Name="URL Protocol"
+                         Type="string"
+                         Value="" />
+          <RegistryValue Root="HKCR"
+                         Key="porta\DefaultIcon"
+                         Type="string"
+                         Value="[INSTALLFOLDER]Porta.ControlCenter.exe,1" />
+          <RegistryValue Root="HKCR"
+                         Key="porta\shell\open\command"
+                         Type="string"
+                         Value="&quot;[INSTALLFOLDER]Porta.ControlCenter.exe&quot; &quot;%1&quot;" />
+        </Component>
       </Directory>
     </StandardDirectory>
 
@@ -192,6 +214,7 @@
       <ComponentRef Id="UserAgentExeComponent" />
       <ComponentRef Id="UserAgentStartupEntryComponent" />
       <ComponentRef Id="ControlCenterExeComponent" />
+      <ComponentRef Id="PortaUriSchemeComponent" />
       <ComponentRef Id="ControlCenterShortcutComponent" />
       <ComponentRef Id="DesktopShortcutComponent" />
       <ComponentGroupRef Id="SharedPayloadComponentGroup" />

@@ -85,11 +85,14 @@ internal sealed class AgentService : IHostedService, IDisposable
                 sp.GetRequiredService<IAgentCoreController>()));
         services.AddHostedService<CurrentSessionUserAgentWatchdog>();
         services.AddSingleton<ControlPlaneClient>();
+        services.AddSingleton<AriContextCache>();
+        services.AddSingleton<IAriContextProvider>(sp => sp.GetRequiredService<AriContextCache>());
         services.AddSingleton<ControlPlaneReporterStateStore>();
         services.AddSingleton<MachineSummaryMapper>();
         services.AddSingleton<MachineActionMapper>();
         services.AddHostedService<ControlPlaneReporter>();
         services.AddHostedService<DailyDigestReporter>();
+        services.AddHostedService<UserContextRefresher>();
         services.AddHostedService<DefenderExclusionWorker>();
     }
 

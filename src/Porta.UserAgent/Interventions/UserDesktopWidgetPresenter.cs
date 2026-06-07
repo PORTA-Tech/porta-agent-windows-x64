@@ -859,15 +859,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 break;
 
             case UserDesktopWidgetAction.ResetPosition:
-                if (TryDispatchToWidget(window => window.ResetToDefaultPosition(), out _))
-                {
-                    _ = TryShow("Ari", "Widget reset to the top-right corner.", out _);
-                }
-                else
-                {
-                    _ = TryShow("Tracking limited", "The widget could not reset its position right now.", out _);
-                }
-
+                TryDispatchToWidget(window => window.ResetToDefaultPosition(), out _);
                 break;
         }
     }

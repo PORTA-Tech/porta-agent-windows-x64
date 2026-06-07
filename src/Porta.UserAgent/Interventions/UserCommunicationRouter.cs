@@ -1,6 +1,7 @@
 namespace Porta.UserAgent.Interventions;
 
 using Porta.Agent.LocalApi;
+using Porta.UserAgent.Input;
 
 internal sealed record UserCommunicationToast(
     string Key,
@@ -254,6 +255,96 @@ internal static class UserCommunicationRouter
         }
 
         return ResolveCriticalEventState(recentEvents ?? [], nowUtc);
+    }
+
+    /// <summary>
+    /// Evaluates the 7 Ari behavioral toast triggers in priority order.
+    /// Respects the 8-minute global suppression via sessionState.CanShowToast.
+    /// Caller must call sessionState.RecordToastShown(nowUtc) when a toast is displayed.
+    /// </summary>
+    public static UserCommunicationToast? TryBuildAriToast(
+        LocalApiCurrentSnapshotResponse snapshot,
+        UserAgentSessionState sessionState,
+        LocalApiAriContextResponse? context,
+        DateTimeOffset nowUtc)
+    {
+        // Global 8-minute suppression gate
+        if (!sessionState.CanShowToast(nowUtc))
+        {
+            return null;
+        }
+
+        double focusSec = snapshot.FocusEpisodeSeconds;
+        // In active focus: episode is accumulating and not currently in distraction
+        bool inActiveFocus = focusSec >= 60 && !snapshot.DistractionEpisodeActive;
+        string? name = string.IsNullOrWhiteSpace(context?.FirstName) ? null : context!.FirstName!.Trim();
+
+        // --- Trigger 1: First focus of the session (≥3 min) ---
+        if (inActiveFocus && focusSec >= 180 && !sessionState.FirstFocusMessageSent)
+        {
+            sessionState.MarkFirstFocusMessageSent();
+            string msg = name is null
+                ? "You're in a solid focus streak. Keep it going."
+                : name + ", you're in a solid focus streak. Keep it going.";
+            return new UserCommunicationToast(
+                Key: "ari:first_focus",
+                Title: "Nice start",
+                Message: msg);
+        }
+
+        // --- Triggers 2–5: Focus milestones (90, 60, 30, 15 min — descending so highest wins) ---
+        int[] milestones = { 90, 60, 30, 15 };
+        foreach (int milestone in milestones)
+        {
+            if (inActiveFocus && focusSec >= milestone * 60 && sessionState.TryFireMilestone(milestone))
+            {
+                string label = milestone >= 60
+                    ? (milestone / 60) + "h"
+                    : milestone + "min";
+                string msg = name is null
+                    ? "You're on a " + label + " focus run. Deep work is compounding."
+                    : name + ", you're on a " + label + " focus run. Deep work is compounding.";
+                return new UserCommunicationToast(
+                    Key: "ari:milestone_" + milestone,
+                    Title: label + " streak",
+                    Message: msg);
+            }
+        }
+
+        // --- Trigger 6: Long session (≥1.5× personal average streak) ---
+        int? avgMin = context?.AvgStreakMin;
+        if (inActiveFocus
+            && avgMin is > 5
+            && focusSec >= avgMin.Value * 60 * 1.5
+            && !sessionState.LongSessionToastSent)
+        {
+            sessionState.MarkLongSessionToastSent();
+            return new UserCommunicationToast(
+                Key: "ari:long_session",
+                Title: "Above your average",
+                Message: "This streak is already longer than your usual " + avgMin + "min average. A short break can lock in the gains.");
+        }
+
+        // --- Trigger 7: Weak hour nudge (not in active focus during personal weak hour) ---
+        int? weakHour = context?.WeakHour;
+        if (weakHour.HasValue && !inActiveFocus)
+        {
+            int localHour = nowUtc.ToLocalTime().Hour;
+            if (localHour == weakHour.Value)
+            {
+                // Sentinel key (500 + hour) fires once per day per weak-hour slot
+                int weakHourKey = 500 + weakHour.Value;
+                if (sessionState.TryFireMilestone(weakHourKey))
+                {
+                    return new UserCommunicationToast(
+                        Key: "ari:weak_hour",
+                        Title: "Your toughest hour",
+                        Message: "This is typically your hardest hour to focus. Even 10 focused minutes now helps build the habit.");
+                }
+            }
+        }
+
+        return null;
     }
 
     private static bool TryBuildRecentEventToast(
