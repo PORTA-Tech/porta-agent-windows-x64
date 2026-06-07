@@ -83,6 +83,8 @@ public partial class MainWindow : Window
     private long _dismissedRecoveryEventId;
     private long _activeRecoveryEventId;
     private DateTimeOffset _lastManualRefreshUtc = DateTimeOffset.MinValue;
+    private LocalApiAriContextResponse? _ariContext;
+    private DateTimeOffset _lastAriContextRefreshUtc = DateTimeOffset.MinValue;
     private HistoryRange _historyRange = HistoryRange.Today;
     private HistoryPeriod _historyPeriod = HistoryPeriod.Day;
     private IReadOnlyList<LocalApiEventResponse> _lastInterventionEvents = Array.Empty<LocalApiEventResponse>();
@@ -475,6 +477,17 @@ public partial class MainWindow : Window
         _latestStatus = fetchedStatus ?? previousStatus;
         _lastSnapshot = fetchedSnapshot ?? previousSnapshot;
         _latestLiveSession = fetchedLiveSession ?? previousLiveSession;
+
+        // Refresh Ari context once every 30 minutes
+        if ((DateTimeOffset.UtcNow - _lastAriContextRefreshUtc).TotalMinutes >= 30)
+        {
+            LocalApiAriContextResponse? freshAriContext = await _apiClient.GetAriContextAsync().ConfigureAwait(true);
+            if (freshAriContext is not null)
+            {
+                _ariContext = freshAriContext;
+                _lastAriContextRefreshUtc = DateTimeOffset.UtcNow;
+            }
+        }
 
         if (fetchedStatus == null && _latestStatus != null)
         {
@@ -1606,7 +1619,20 @@ public partial class MainWindow : Window
             nowUtc);
         TodayTrackingState todayState = TodayPageCopyBuilder.ResolveTrackingState(_latestStatus, snapshot, liveSession);
         string readableExplanation = TodayPageCopyBuilder.BuildReadableExplanation(todayState, nowTruth.Explanation);
-        string currentStatusText = BuildCurrentStatusSentence(liveSession) ?? visualState.OperatingSentence;
+        double todayFocusMin = todayMetrics.FocusedTodaySeconds / 60d;
+        double todayTrackedMin = todayMetrics.TrackedTodaySeconds / 60d;
+        bool isPressureHigh = snapshot?.OverloadActive == true ||
+            (snapshot is { analysis_ready: true } && ResolvePressureLevel(snapshot) >= 0.75);
+        string ariStatus = TodayPageCopyBuilder.BuildAriStatusMessage(
+            snapshot,
+            _ariContext,
+            todayFocusMin,
+            todayTrackedMin,
+            distractionCount: 0,
+            avgRecoveryMin: 0d,
+            isPressureHigh,
+            contextSwitchesRecent: 0);
+        string currentStatusText = ariStatus;
 
         TodaySummaryText.Text = BuildTodaySummarySentence(
             todayState,

@@ -183,4 +183,6 @@ internal sealed record MachineActionEventPayload(
 internal sealed record UserContextPayload(
     [property: JsonPropertyName("firstName")] string? FirstName,
     [property: JsonPropertyName("weakHour")] int? WeakHour,
-    [property: JsonPropertyName("avgStreakMin")] int? AvgStreakMin);
+    [property: JsonPropertyName("avgStreakMin")] int? AvgStreakMin,
+    [property: JsonPropertyName("strongWindowStart")] int? StrongWindowStart,
+    [property: JsonPropertyName("strongWindowEnd")] int? StrongWindowEnd);

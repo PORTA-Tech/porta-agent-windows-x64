@@ -146,6 +146,68 @@ internal static class TodayPageCopyBuilder
         };
     }
 
+    /// <summary>
+    /// Returns a contextual Ari status bubble message for the Today page.
+    /// All parameters are nullable / zero-safe — always returns a non-null string.
+    /// </summary>
+    public static string BuildAriStatusMessage(
+        LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiAriContextResponse? context,
+        double todayFocusMin,
+        double todayTrackedMin,
+        int distractionCount,
+        double avgRecoveryMin,
+        bool isPressureHigh,
+        int contextSwitchesRecent)
+    {
+        int currentHour = DateTime.Now.Hour;
+
+        // Morning — no focus yet
+        if (todayFocusMin < 5)
+        {
+            if (context?.StrongWindowStart is { } swStart && context.StrongWindowEnd is { } swEnd)
+            {
+                int timeLeft = swStart - currentHour;
+                if (timeLeft is > 0 and <= 3)
+                    return $"Your best window — {context.StrongWindowLabel} — starts in {timeLeft}h. Get ready.";
+                if (timeLeft <= 0 && currentHour <= swEnd)
+                    return $"Your strongest window is open now — {context.StrongWindowLabel}. No focus yet today.";
+            }
+            return "No focus yet today. Ari is ready when you are.";
+        }
+
+        // Pressure state
+        if (isPressureHigh || contextSwitchesRecent >= 3)
+        {
+            return $"Pressure building — {contextSwitchesRecent} context switches recently. Consider slowing down.";
+        }
+
+        // Active session going well
+        if (snapshot?.FocusStrength > 0.6)
+        {
+            string namePrefix = string.IsNullOrWhiteSpace(context?.FirstName)
+                ? "Strong start —"
+                : $"{context.FirstName}, strong start —";
+            return $"{namePrefix} {(int)todayFocusMin}min of focus so far today.";
+        }
+
+        // Has had distraction but recovering fast
+        if (distractionCount > 0 && avgRecoveryMin > 0 && avgRecoveryMin < 5)
+        {
+            return $"{distractionCount} distraction episodes — recovered from each in under {(int)avgRecoveryMin}min. Unusually fast.";
+        }
+
+        // End of day (tracked > 3h and current time > 18:00)
+        if (todayTrackedMin >= 180 && currentHour >= 18)
+        {
+            int focusPct = (int)(todayFocusMin / todayTrackedMin * 100);
+            return $"{(int)todayFocusMin}min focused out of {(int)todayTrackedMin}min tracked — {focusPct}%. Digest fires at 23:30.";
+        }
+
+        // Default active state
+        return $"{(int)todayFocusMin}min of focus today. Ari is watching.";
+    }
+
     private static bool IsFreshState(string? freshnessState) =>
         string.Equals(freshnessState, "fresh", StringComparison.OrdinalIgnoreCase);
 }

@@ -873,7 +873,17 @@ public sealed record LocalApiExportResponse(
 public sealed record LocalApiAriContextResponse(
     string? FirstName,
     int? WeakHour,
-    int? AvgStreakMin);
+    int? AvgStreakMin,
+    int? StrongWindowStart,
+    int? StrongWindowEnd)
+{
+    public string? StrongWindowLabel => StrongWindowStart.HasValue && StrongWindowEnd.HasValue
+        ? $"{FormatHour(StrongWindowStart.Value)}–{FormatHour(StrongWindowEnd.Value)}"
+        : null;
+
+    private static string FormatHour(int h) =>
+        h == 0 ? "12am" : h < 12 ? $"{h}am" : h == 12 ? "12pm" : $"{h - 12}pm";
+}
 
 public interface IAriContextProvider
 {

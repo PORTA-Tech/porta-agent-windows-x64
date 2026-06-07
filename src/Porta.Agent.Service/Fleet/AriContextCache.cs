@@ -8,7 +8,7 @@ using Porta.Agent.LocalApi;
 /// </summary>
 internal sealed class AriContextCache : IAriContextProvider
 {
-    private static readonly LocalApiAriContextResponse Empty = new(null, null, null);
+    private static readonly LocalApiAriContextResponse Empty = new(null, null, null, null, null);
     private volatile LocalApiAriContextResponse _context = Empty;
 
     public LocalApiAriContextResponse GetContext() => _context;

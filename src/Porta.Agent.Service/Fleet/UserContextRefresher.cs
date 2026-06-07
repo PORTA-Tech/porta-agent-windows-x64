@@ -68,7 +68,9 @@ internal sealed class UserContextRefresher : BackgroundService
                     _cache.Update(new LocalApiAriContextResponse(
                         payload.FirstName,
                         payload.WeakHour,
-                        payload.AvgStreakMin));
+                        payload.AvgStreakMin,
+                        payload.StrongWindowStart,
+                        payload.StrongWindowEnd));
                     nextWait = RefreshInterval;
                 }
                 else
