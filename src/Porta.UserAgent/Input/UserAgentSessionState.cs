@@ -8,6 +8,19 @@ internal sealed class UserAgentSessionState
     private bool _sessionWrapToastSent;
     private DateTimeOffset _lastToastSentUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _sessionDate;
+    private double _totalFocusSecondsToday;
+
+    // Tracks last time any activity was observed (updated by UserAgentHost each tick)
+    public DateTimeOffset LastActivityUtc { get; private set; } = DateTimeOffset.MinValue;
+
+    // Accumulated focus seconds for today (updated each tick when in active focus)
+    public double TotalFocusSecondsToday => _totalFocusSecondsToday;
+
+    public void RecordActivity(DateTimeOffset nowUtc, double focusSecondsThisTick)
+    {
+        LastActivityUtc = nowUtc;
+        _totalFocusSecondsToday += focusSecondsThisTick;
+    }
 
     // Pre-distraction focus duration — set when distraction episode starts
     public double PreDistractionFocusSeconds { get; set; }
@@ -58,6 +71,8 @@ internal sealed class UserAgentSessionState
             _lastToastSentUtc = DateTimeOffset.MinValue;
             InDistractionEpisode = false;
             PreDistractionFocusSeconds = 0;
+            _totalFocusSecondsToday = 0;
+            LastActivityUtc = DateTimeOffset.MinValue;
             _sessionDate = nowUtc;
         }
     }

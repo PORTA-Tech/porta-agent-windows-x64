@@ -258,9 +258,9 @@ internal static class UserCommunicationRouter
     }
 
     /// <summary>
-    /// Evaluates the 7 Ari behavioral toast triggers in priority order.
-    /// Respects the 8-minute global suppression via sessionState.CanShowToast.
-    /// Caller must call sessionState.RecordToastShown(nowUtc) when a toast is displayed.
+    /// Evaluates all 8 Ari behavioral toast triggers in priority order.
+    /// Priority: Recovery nudge > Pressure rising > Milestone > Break prompt > Weak hour > First focus > Session wrap.
+    /// Respects 8-minute global suppression via sessionState.CanShowToast.
     /// </summary>
     public static UserCommunicationToast? TryBuildAriToast(
         LocalApiCurrentSnapshotResponse snapshot,
@@ -268,79 +268,136 @@ internal static class UserCommunicationRouter
         LocalApiAriContextResponse? context,
         DateTimeOffset nowUtc)
     {
-        // Global 8-minute suppression gate
-        if (!sessionState.CanShowToast(nowUtc))
-        {
-            return null;
-        }
-
         double focusSec = snapshot.FocusEpisodeSeconds;
-        // In active focus: episode is accumulating and not currently in distraction
         bool inActiveFocus = focusSec >= 60 && !snapshot.DistractionEpisodeActive;
         string? name = string.IsNullOrWhiteSpace(context?.FirstName) ? null : context!.FirstName!.Trim();
 
-        // --- Trigger 1: First focus of the session (≥3 min) ---
-        if (inActiveFocus && focusSec >= 180 && !sessionState.FirstFocusMessageSent)
+        // Track distraction state transitions
+        bool distractionJustEnded = sessionState.InDistractionEpisode && !snapshot.DistractionEpisodeActive;
+        bool distractionJustStarted = !sessionState.InDistractionEpisode && snapshot.DistractionEpisodeActive;
+
+        if (distractionJustStarted)
         {
-            sessionState.MarkFirstFocusMessageSent();
-            string msg = name is null
-                ? "You're in a solid focus streak. Keep it going."
-                : name + ", you're in a solid focus streak. Keep it going.";
-            return new UserCommunicationToast(
-                Key: "ari:first_focus",
-                Title: "Nice start",
-                Message: msg);
+            sessionState.MarkDistractionStarted(focusSec, nowUtc);
         }
 
-        // --- Triggers 2–5: Focus milestones (90, 60, 30, 15 min — descending so highest wins) ---
-        int[] milestones = { 90, 60, 30, 15 };
-        foreach (int milestone in milestones)
+        // --- Priority 1: Recovery nudge (fires immediately when distraction ends, no 8-min gate) ---
+        if (distractionJustEnded)
         {
-            if (inActiveFocus && focusSec >= milestone * 60 && sessionState.TryFireMilestone(milestone))
+            sessionState.MarkDistractionEnded();
+            int preMin = (int)(sessionState.PreDistractionFocusSeconds / 60);
+            if (preMin >= 5 && sessionState.CanShowToast(nowUtc))
             {
-                string label = milestone >= 60
-                    ? (milestone / 60) + "h"
-                    : milestone + "min";
-                string msg = name is null
-                    ? "You're on a " + label + " focus run. Deep work is compounding."
-                    : name + ", you're on a " + label + " focus run. Deep work is compounding.";
-                return new UserCommunicationToast(
-                    Key: "ari:milestone_" + milestone,
-                    Title: label + " streak",
-                    Message: msg);
+                string msg = preMin >= 30
+                    ? $"You were {preMin}min into your best run today. Pick it back up."
+                    : name is not null
+                        ? $"{name}, {preMin}min of strong focus before that drift. Recapture it."
+                        : $"Back. {preMin}min drifted. Your streak was {preMin}min — restart it.";
+                sessionState.RecordToastShown(nowUtc);
+                return new UserCommunicationToast(Key: "ari:recovery", Title: "Ari", Message: msg);
             }
         }
 
-        // --- Trigger 6: Long session (≥1.5× personal average streak) ---
-        int? avgMin = context?.AvgStreakMin;
-        if (inActiveFocus
-            && avgMin is > 5
-            && focusSec >= avgMin.Value * 60 * 1.5
-            && !sessionState.LongSessionToastSent)
+        // All remaining triggers respect the 8-minute gate
+        if (!sessionState.CanShowToast(nowUtc)) return null;
+
+        // --- Priority 2: Pressure rising ---
+        if (snapshot.OverloadActive && sessionState.TryFireMilestone(999)) // 999 = pressure sentinel
         {
-            sessionState.MarkLongSessionToastSent();
-            return new UserCommunicationToast(
-                Key: "ari:long_session",
-                Title: "Above your average",
-                Message: "This streak is already longer than your usual " + avgMin + "min average. A short break can lock in the gains.");
+            string msg = name is not null
+                ? $"{name}, slow down. Pressure is spiking — close the extra tabs."
+                : "Ari sees the drift starting. Close the extra tabs.";
+            sessionState.RecordToastShown(nowUtc);
+            return new UserCommunicationToast(Key: "ari:pressure", Title: "Ari", Message: msg);
         }
 
-        // --- Trigger 7: Weak hour nudge (not in active focus during personal weak hour) ---
+        // --- Priority 3: Focus milestones (highest milestone wins) ---
+        if (inActiveFocus)
+        {
+            int[] milestones = { 90, 60, 45, 30, 15 };
+            foreach (int milestone in milestones)
+            {
+                if (focusSec < milestone * 60) continue;
+                if (!sessionState.TryFireMilestone(milestone)) continue;
+
+                int? avgStreak = context?.AvgStreakMin;
+                string msg = milestone switch
+                {
+                    15 => name is not null
+                        ? $"{name}, 15 minutes clean. Ari is watching."
+                        : "15 minutes clean. Ari is watching.",
+                    30 => "30 minutes. You're in it now.",
+                    45 => avgStreak is > 0
+                        ? $"45min uninterrupted. Above your average streak of {avgStreak}min."
+                        : "45 minutes uninterrupted. Keep going.",
+                    60 => name is not null
+                        ? $"{name} — 60 minutes. Your best run today. Don't stop."
+                        : "60 minutes. Your best run today. Don't stop.",
+                    90 => "90min. That's a strong session.",
+                    _ => string.Empty
+                };
+                if (string.IsNullOrEmpty(msg)) continue;
+
+                sessionState.RecordToastShown(nowUtc);
+                return new UserCommunicationToast(Key: $"ari:milestone_{milestone}", Title: "Ari", Message: msg);
+            }
+        }
+
+        // --- Priority 4: Long session / no break warning (3h+ with no break) ---
+        if (!sessionState.LongSessionToastSent)
+        {
+            double sessionHours = focusSec / 3600d;
+            if (sessionHours >= 3.0)
+            {
+                sessionState.MarkLongSessionToastSent();
+                string msg = name is not null
+                    ? $"{name}, {(int)sessionHours}h with no break detected. Your next focus window will be stronger with one."
+                    : "3 hours without a break. That's above your normal range. Consider a short stop.";
+                sessionState.RecordToastShown(nowUtc);
+                return new UserCommunicationToast(Key: "ari:long_session_no_break", Title: "Ari", Message: msg);
+            }
+        }
+
+        // --- Priority 5: Weak hour nudge (in active focus during personal weak hour) ---
         int? weakHour = context?.WeakHour;
-        if (weakHour.HasValue && !inActiveFocus)
+        if (weakHour.HasValue && inActiveFocus)
         {
             int localHour = nowUtc.ToLocalTime().Hour;
             if (localHour == weakHour.Value)
             {
-                // Sentinel key (500 + hour) fires once per day per weak-hour slot
                 int weakHourKey = 500 + weakHour.Value;
                 if (sessionState.TryFireMilestone(weakHourKey))
                 {
-                    return new UserCommunicationToast(
-                        Key: "ari:weak_hour",
-                        Title: "Your toughest hour",
-                        Message: "This is typically your hardest hour to focus. Even 10 focused minutes now helps build the habit.");
+                    string msg = $"{weakHour}:00 is usually your soft spot. You're still focused. Keep it.";
+                    sessionState.RecordToastShown(nowUtc);
+                    return new UserCommunicationToast(Key: "ari:weak_hour", Title: "Ari", Message: msg);
                 }
+            }
+        }
+
+        // --- Priority 6: First focus of the day ---
+        if (!sessionState.FirstFocusMessageSent && inActiveFocus && focusSec >= 120)
+        {
+            sessionState.MarkFirstFocusMessageSent();
+            string timeLabel = nowUtc.ToLocalTime().ToString("h:mm tt");
+            string msg = name is not null
+                ? $"Deep work started. {name}, Ari has you."
+                : $"First focus block of the day — {timeLabel}. Ari is watching.";
+            sessionState.RecordToastShown(nowUtc);
+            return new UserCommunicationToast(Key: "ari:first_focus", Title: "Ari", Message: msg);
+        }
+
+        // --- Priority 7: Session wrap (idle after meaningful work) ---
+        if (!sessionState.SessionWrapToastSent && !inActiveFocus && !snapshot.DistractionEpisodeActive)
+        {
+            double idleSec = (nowUtc - sessionState.LastActivityUtc).TotalSeconds;
+            if (idleSec >= 1200 && sessionState.TotalFocusSecondsToday >= 1800) // 20min idle, 30min focus today
+            {
+                sessionState.MarkSessionWrapToastSent();
+                int focusMin = (int)(sessionState.TotalFocusSecondsToday / 60);
+                string msg = $"Session wrapped. {focusMin}min of focus today. Ari will send the digest tonight.";
+                sessionState.RecordToastShown(nowUtc);
+                return new UserCommunicationToast(Key: "ari:session_wrap", Title: "Ari", Message: msg);
             }
         }
 
