@@ -193,6 +193,7 @@ $tc.Connect("127.0.0.1", (Get-Content C:\ProgramData\PortaAgent\local-api.endpoi
 
 | Version | Key change |
 |---|---|
+| 1.2.80 | Ari Messaging System — scored email digest observations (10 conditions, personal baselines), priority toast triggers (recovery nudge, pressure, milestones, weak hour), Control Center status bubble (6 states: cold, morning, pressure, recovery, active, end of day) |
 | 1.2.63 | Editable notification email in Control Center Settings |
 | 1.2.62 | Control plane HTTP timeout 5s → 60s (Render cold starts); widget menu click-to-close fix |
 | 1.2.60 | Nightly digest email (23:30 Dubai time, min 1h tracked) |
