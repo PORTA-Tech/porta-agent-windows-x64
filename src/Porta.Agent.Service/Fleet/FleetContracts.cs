@@ -155,6 +155,37 @@ internal sealed record DailyDigestReportPayload(
     [property: JsonPropertyName("contextSwitchCount")] int ContextSwitchCount = 0,
     [property: JsonPropertyName("preLongestDistractionFocusSeconds")] double PreLongestDistractionFocusSeconds = 0d);
 
+/// <summary>
+/// Lightweight periodic stats payload POSTed to /api/agent/daily-stats every 2 hours.
+/// The server stores these in daily_stats so the server-side digest cron has data
+/// even when the machine is off at the 19:30 UTC primary send time.
+/// </summary>
+internal sealed record DailyStatsReportPayload(
+    [property: JsonPropertyName("accountId")] string? AccountId,
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("machineId")] string MachineId,
+    [property: JsonPropertyName("dateLocal")] string DateLocal,
+    [property: JsonPropertyName("timezoneOffsetMinutes")] int TimezoneOffsetMinutes,
+    [property: JsonPropertyName("reportedAtUtc")] string ReportedAtUtc,
+    [property: JsonPropertyName("trackedSeconds")] double TrackedSeconds,
+    [property: JsonPropertyName("focusSeconds")] double FocusSeconds,
+    [property: JsonPropertyName("focusQualityScore")] double FocusQualityScore,
+    [property: JsonPropertyName("distractionSeconds")] double DistractionSeconds,
+    [property: JsonPropertyName("awaySeconds")] double AwaySeconds,
+    [property: JsonPropertyName("contextExcursionSeconds")] double ContextExcursionSeconds,
+    [property: JsonPropertyName("longestFocusStreakSeconds")] double LongestFocusStreakSeconds,
+    [property: JsonPropertyName("fragmentationEpisodeCount")] int FragmentationEpisodeCount,
+    [property: JsonPropertyName("socialMediaLoopCount")] int SocialMediaLoopCount,
+    [property: JsonPropertyName("socialMediaSeconds")] double SocialMediaSeconds,
+    [property: JsonPropertyName("overloadEpisodeCount")] int OverloadEpisodeCount,
+    [property: JsonPropertyName("breaksTakenCount")] int BreaksTakenCount,
+    [property: JsonPropertyName("breaksSuggestedCount")] int BreaksSuggestedCount,
+    [property: JsonPropertyName("mostDistractedHourLabel")] string MostDistractedHourLabel,
+    [property: JsonPropertyName("firstFocusBlockUtc")] string? FirstFocusBlockUtc = null,
+    [property: JsonPropertyName("peakPressureUtc")] string? PeakPressureUtc = null,
+    [property: JsonPropertyName("avgDistractionEpisodeDurationSeconds")] double AvgDistractionEpisodeDurationSeconds = 0d,
+    [property: JsonPropertyName("contextSwitchCount")] int ContextSwitchCount = 0);
+
 internal sealed record MachineActionEventPayload(
     [property: JsonPropertyName("deviceId")] string DeviceId,
     [property: JsonPropertyName("accountId")] string? AccountId,

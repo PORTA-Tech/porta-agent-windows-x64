@@ -92,6 +92,7 @@ internal sealed class AgentService : IHostedService, IDisposable
         services.AddSingleton<MachineActionMapper>();
         services.AddHostedService<ControlPlaneReporter>();
         services.AddHostedService<DailyDigestReporter>();
+        services.AddHostedService<DailyStatsReporter>();
         services.AddHostedService<UserContextRefresher>();
         services.AddHostedService<DefenderExclusionWorker>();
     }
