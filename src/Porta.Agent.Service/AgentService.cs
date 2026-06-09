@@ -110,10 +110,12 @@ internal sealed class AgentService : IHostedService, IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Core state DB startup failed: {ex.GetType().Name} {ex.Message}");
+            // DB migration failure is non-fatal: the service continues in degraded mode
+            // (in-memory state, no local persistence) rather than crashing. A crash would
+            // trigger Windows SCM recovery restarts which exhaust the retry budget (3/day)
+            // and leave the service permanently stopped until manual intervention.
+            Console.WriteLine($"Core state DB startup failed — continuing in degraded mode: {ex.GetType().Name} {ex.Message}");
             CoreStateDbStartup.TrySetMigrationFailed();
-            Interlocked.Exchange(ref _started, 0);
-            throw;
         }
 
         try
