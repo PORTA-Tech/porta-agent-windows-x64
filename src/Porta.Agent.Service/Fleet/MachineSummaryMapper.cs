@@ -178,7 +178,8 @@ internal sealed class MachineSummaryMapper
             UserAgentCaptureFailureCode: captureFailureCode,
             WatchdogLaunchFailureCode: watchdogLaunchFailureCode,
             UserAgentSelfTestState: selfTestState,
-            UserAgentSelfTestErrorCode: selfTestErrorCode);
+            UserAgentSelfTestErrorCode: selfTestErrorCode,
+            UserAgentLogTail: UserAgentLogTailReader.ReadTail());
     }
 
     private static double ResolvePressureLevel(string? stateFlagsJson, double fallback)

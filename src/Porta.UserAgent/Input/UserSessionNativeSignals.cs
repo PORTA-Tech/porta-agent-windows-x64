@@ -16,31 +16,54 @@ internal static class UserSessionNativeSignals
 
     public static string? TryGetForegroundAppHash()
     {
-        IntPtr hwnd = NativeMethods.GetForegroundWindow();
-        if (hwnd == IntPtr.Zero)
+        // This method is called on every sampling tick and MUST be exception-safe:
+        // HashIdentifier -> Secrets.GetInstallSecret() is fail-closed and throws when
+        // the install secret can't be read in the user's context. An uncaught throw
+        // here used to kill the entire capture loop while heartbeats kept flowing.
+        try
         {
+            IntPtr hwnd = NativeMethods.GetForegroundWindow();
+            if (hwnd == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            _ = NativeMethods.GetWindowThreadProcessId(hwnd, out uint processId);
+            if (processId == 0)
+            {
+                return null;
+            }
+
+            long nowTicks = DateTimeOffset.UtcNow.UtcTicks;
+            if (ForegroundHashCache.TryGetValue(processId, out CacheEntry cached)
+                && nowTicks <= cached.ExpiresAtUtcTicks)
+            {
+                return cached.AppHash;
+            }
+
+            string identifier = ResolveStableAppIdentifier(processId);
+            AppCategory category = AppCategoryClassifier.ClassifyStableIdentifier(identifier);
+            string hash = HashIdentifier(identifier);
+            AppCategoryClassifier.RegisterHashCategory(hash, category);
+            ForegroundHashCache[processId] = new CacheEntry(hash, DateTimeOffset.UtcNow.Add(CacheTtl).UtcTicks);
+            return hash;
+        }
+        catch (Exception ex)
+        {
+            LogForegroundHashFailureOnce(ex);
             return null;
         }
+    }
 
-        _ = NativeMethods.GetWindowThreadProcessId(hwnd, out uint processId);
-        if (processId == 0)
+    private static int _foregroundHashFailureLogged;
+
+    private static void LogForegroundHashFailureOnce(Exception ex)
+    {
+        if (System.Threading.Interlocked.Exchange(ref _foregroundHashFailureLogged, 1) == 0)
         {
-            return null;
+            Console.Error.WriteLine(
+                $"foreground_app_hash_failed error={ex.GetType().Name}:{ex.Message}");
         }
-
-        long nowTicks = DateTimeOffset.UtcNow.UtcTicks;
-        if (ForegroundHashCache.TryGetValue(processId, out CacheEntry cached)
-            && nowTicks <= cached.ExpiresAtUtcTicks)
-        {
-            return cached.AppHash;
-        }
-
-        string identifier = ResolveStableAppIdentifier(processId);
-        AppCategory category = AppCategoryClassifier.ClassifyStableIdentifier(identifier);
-        string hash = HashIdentifier(identifier);
-        AppCategoryClassifier.RegisterHashCategory(hash, category);
-        ForegroundHashCache[processId] = new CacheEntry(hash, DateTimeOffset.UtcNow.Add(CacheTtl).UtcTicks);
-        return hash;
     }
 
     public static double ReadIdleDurationSeconds()

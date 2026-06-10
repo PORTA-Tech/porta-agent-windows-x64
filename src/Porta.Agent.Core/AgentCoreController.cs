@@ -1034,15 +1034,27 @@ public sealed class AgentCoreController : IAgentCoreController
                 packet.HeartbeatCaptureContext);
             _lastInputAgentInstanceId = agentInstanceId;
             _lastInputSessionId = sessionId;
-            _lastInputEventUtc = packet.LastInputEventUtc?.ToUniversalTime() ?? fallbackEventUtc;
+            // Only advance the last-input timestamp when the packet carries REAL captured
+            // input. The old fallback (windowEndUtc) fabricated fresh "last activity" values
+            // for packets with zero input, masking dead capture pipelines fleet-wide.
+            bool packetHasRealInput = keyboardKeydownCount > 0
+                || keyboardBackspaceCount > 0
+                || mouseWheelDelta != 0
+                || mouseMoveDx is not 0d
+                || mouseMoveDy is not 0d;
+            if (packet.LastInputEventUtc.HasValue && packetHasRealInput)
+            {
+                _lastInputEventUtc = packet.LastInputEventUtc.Value.ToUniversalTime();
+            }
+
             if (keyboardKeydownCount > 0 || keyboardBackspaceCount > 0)
             {
-                _lastKeyboardSignalUtc = _lastInputEventUtc;
+                _lastKeyboardSignalUtc = packet.LastInputEventUtc?.ToUniversalTime() ?? fallbackEventUtc;
             }
 
             if (mouseWheelDelta != 0 || mouseMoveDx is not 0d || mouseMoveDy is not 0d)
             {
-                _lastMouseSignalUtc = _lastInputEventUtc;
+                _lastMouseSignalUtc = packet.LastInputEventUtc?.ToUniversalTime() ?? fallbackEventUtc;
             }
 
             if (_paused || !_consentActive)

@@ -62,6 +62,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private int _heartbeatWriteFailureCount;
     private int _consecutiveSignalDeliveryFailures;
     private string? _captureFailureCode;
+    private long _lastCaptureLoopTickUtcTicks;
+    private long _captureLoopFailureStreak;
     private volatile bool _shouldExit;
     private DateTimeOffset? _selfTestFailedSinceUtc;
     private bool _heartbeatReadyLogged;
@@ -154,24 +156,48 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             {
                 if (_captureContext == UserAgentCaptureContexts.UserSession)
                 {
-                    DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
-                    SampleAmbientSignals(nowUtc);
-                    await PublishLiveSessionStateIfDueAsync(nowUtc, stoppingToken).ConfigureAwait(false);
-                    await EvaluateCaptureSelfTestAsync(nowUtc, stoppingToken).ConfigureAwait(false);
-                    if ((nowUtc - _lastUiRefreshUtc) >= UiRefreshInterval)
+                    // CRITICAL: one unhandled exception in this body must never kill capture
+                    // while the heartbeat loop keeps reporting the process as healthy.
+                    // (Root cause of fleet-wide "Activity: No" — loop died, heartbeats lived.)
+                    try
                     {
-                        await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
-                        _lastUiRefreshUtc = nowUtc;
-                    }
+                        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+                        Interlocked.Exchange(ref _lastCaptureLoopTickUtcTicks, nowUtc.UtcTicks);
+                        SampleAmbientSignals(nowUtc);
+                        await PublishLiveSessionStateIfDueAsync(nowUtc, stoppingToken).ConfigureAwait(false);
+                        await EvaluateCaptureSelfTestAsync(nowUtc, stoppingToken).ConfigureAwait(false);
+                        if ((nowUtc - _lastUiRefreshUtc) >= UiRefreshInterval)
+                        {
+                            await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
+                            _lastUiRefreshUtc = nowUtc;
+                        }
 
-                    // Keep the durable input/analytics flush on the shared bucket cadence.
-                    // Later live-session UI work should add a separate fast path instead of shrinking this window.
-                    if ((nowUtc - _windowStartUtc) >= TimeSpan.FromSeconds(Time.bucketSeconds))
+                        // Keep the durable input/analytics flush on the shared bucket cadence.
+                        // Later live-session UI work should add a separate fast path instead of shrinking this window.
+                        if ((nowUtc - _windowStartUtc) >= TimeSpan.FromSeconds(Time.bucketSeconds))
+                        {
+                            await FlushSignalsAsync(stoppingToken).ConfigureAwait(false);
+                            await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
+                            _lastUiRefreshUtc = DateTimeOffset.UtcNow;
+                            await PollPendingInterventionsAsync(stoppingToken).ConfigureAwait(false);
+                        }
+
+                        Interlocked.Exchange(ref _captureLoopFailureStreak, 0);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                     {
-                        await FlushSignalsAsync(stoppingToken).ConfigureAwait(false);
-                        await RefreshLocalUiSignalsAsync(stoppingToken).ConfigureAwait(false);
-                        _lastUiRefreshUtc = DateTimeOffset.UtcNow;
-                        await PollPendingInterventionsAsync(stoppingToken).ConfigureAwait(false);
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        long streak = Interlocked.Increment(ref _captureLoopFailureStreak);
+                        if (streak <= 3 || streak % 60 == 0)
+                        {
+                            UserAgentFileLog.Error(
+                                $"capture_loop_iteration_failed pid={Environment.ProcessId} session={_sessionId} streak={streak}",
+                                ex);
+                            _logger.LogError(ex, "Capture loop iteration failed (streak {Streak}). Continuing.", streak);
+                        }
                     }
                 }
 
@@ -584,6 +610,27 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             response?.Message ?? "null");
     }
 
+    private string? ResolveHeartbeatCaptureFailureCode(DateTimeOffset nowUtc)
+    {
+        // Runs on the heartbeat loop thread. If the capture loop has stopped ticking
+        // or keeps throwing, the heartbeat must say so instead of looking healthy.
+        if (_captureContext == UserAgentCaptureContexts.UserSession)
+        {
+            long lastTickTicks = Interlocked.Read(ref _lastCaptureLoopTickUtcTicks);
+            if (lastTickTicks > 0 && (nowUtc.UtcTicks - lastTickTicks) > TimeSpan.FromSeconds(60).Ticks)
+            {
+                return "capture_loop_stalled";
+            }
+
+            if (Interlocked.Read(ref _captureLoopFailureStreak) >= 5)
+            {
+                return "capture_loop_erroring";
+            }
+        }
+
+        return _captureFailureCode;
+    }
+
     private UserAgentSessionContextSnapshot PublishSessionContext()
     {
         bool widgetHealthyForHeartbeat = true;
@@ -591,6 +638,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         CaptureSelfTestHeartbeatProjection selfTest = _captureSelfTest.GetHeartbeatProjection();
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         long heartbeatSequence = Interlocked.Increment(ref _heartbeatSequence);
+        string? effectiveCaptureFailureCode = ResolveHeartbeatCaptureFailureCode(nowUtc);
         UserAgentSessionContextSnapshot snapshot = new(
             SchemaVersion: UserAgentSessionContextStore.CurrentSchemaVersion,
             CaptureContext: _captureContext,
@@ -607,7 +655,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             CaptureSelfTestState: selfTest.State,
             CaptureSelfTestErrorCode: selfTest.ErrorCode,
             CaptureSelfTestRemediationCount: selfTest.RemediationCount,
-            CaptureFailureCode: _captureFailureCode);
+            CaptureFailureCode: effectiveCaptureFailureCode);
 
         try
         {
