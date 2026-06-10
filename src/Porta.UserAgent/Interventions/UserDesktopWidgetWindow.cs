@@ -12,6 +12,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
+using System.Runtime.CompilerServices;
 using System.Windows.Threading;
 using FormsCursor = System.Windows.Forms.Cursor;
 
@@ -46,6 +47,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly DispatcherTimer _collapseTimer;
     private readonly DispatcherTimer _menuDismissTimer;
     private bool _menuDismissButtonWasDown;
+    private string _lastSizeLogSignature = string.Empty;
     private readonly Border _rootBorder;
     private readonly StackPanel _expandedStack;
     private readonly Grid _headerRow;
@@ -1538,8 +1540,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         UpdateWindowHeight();
     }
 
-    private void AnimateWindowWidth(double targetWidth)
+    private void AnimateWindowWidth(double targetWidth, [CallerMemberName] string caller = "")
     {
+        LogSizeEvent($"anim_width target={targetWidth:F0} caller={caller}");
         BeginAnimation(WidthProperty, new DoubleAnimation(targetWidth, TransitionDuration)
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
@@ -1547,19 +1550,47 @@ internal sealed class UserDesktopWidgetWindow : Window
         RefreshSurfaceVisibilityHealth();
     }
 
-    private void AnimateWindowHeight(double targetHeight)
+    private void AnimateWindowHeight(double targetHeight, [CallerMemberName] string caller = "")
     {
         double current = ActualHeight > 0d ? ActualHeight : Height;
         if (Math.Abs(targetHeight - current) < 0.5d)
         {
+            LogSizeEvent($"anim_height_skipped target={targetHeight:F0} caller={caller}");
             return;
         }
 
+        LogSizeEvent($"anim_height target={targetHeight:F0} caller={caller}");
         BeginAnimation(HeightProperty, new DoubleAnimation(targetHeight, TransitionDuration)
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         });
         RefreshSurfaceVisibilityHealth();
+    }
+
+    /// <summary>
+    /// TEMP DIAGNOSTIC for the strip bug: records every size decision with full
+    /// context. Deduplicated by signature so the log tail is not flooded.
+    /// </summary>
+    private void LogSizeEvent(string detail)
+    {
+        try
+        {
+            string signature =
+                $"{detail} aw={ActualWidth:F0} ah={ActualHeight:F0} w={Width:F0} h={Height:F0}"
+                + $" collapsed={_collapsed} menu={_menuOpen} stateNull={_currentState == null}"
+                + $" metrics={_metricsPanel.Visibility} stack={_expandedStack.Visibility}"
+                + $" body={_bodyGrid.Visibility} msg={_messageCard.Visibility}";
+            if (string.Equals(signature, _lastSizeLogSignature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastSizeLogSignature = signature;
+            UserAgentFileLog.Info($"widget_size {signature}");
+        }
+        catch
+        {
+        }
     }
 
     private void BeginDragFromHeader(object sender, MouseButtonEventArgs e)
@@ -1672,6 +1703,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         // Measure against the logical expanded width — tall cap so message text never clips.
         _rootBorder.Measure(new Size(ExpandedWidth, 800d));
         double measured = _rootBorder.DesiredSize.Height;
+        LogSizeEvent($"measure result={measured:F1}");
         double targetHeight = Math.Ceiling(Math.Max(BaseHeight, measured));
         AnimateWindowHeight(targetHeight);
     }
@@ -1806,6 +1838,25 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             handled = true;
             return new IntPtr(NativeMethods.HtTransparent);
+        }
+
+        // TEMP DIAGNOSTIC for the strip bug: log every HWND-level size change in
+        // PHYSICAL pixels. If a resize appears here with no matching anim_* log line,
+        // something outside WPF (driver, DWM, another process, a rogue API call) is
+        // resizing the window.
+        if (msg == NativeMethods.WmWindowPosChanged)
+        {
+            try
+            {
+                NativeMethods.WindowPos pos = Marshal.PtrToStructure<NativeMethods.WindowPos>(lParam);
+                if ((pos.flags & NativeMethods.SwpNoSize) == 0)
+                {
+                    LogSizeEvent($"hwnd_resize physical={pos.cx}x{pos.cy} flags=0x{pos.flags:X}");
+                }
+            }
+            catch
+            {
+            }
         }
 
         return IntPtr.Zero;
@@ -2448,6 +2499,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     {
         internal const int GwlExStyle = -20;
         internal const int WmNcHitTest = 0x0084;
+        internal const int WmWindowPosChanged = 0x0047;
         internal const int HtTransparent = -1;
         internal const long WsExToolWindow = 0x00000080L;
         internal const long WsExNoActivate = 0x08000000L;
@@ -2477,5 +2529,17 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         [DllImport("user32.dll")]
         internal static extern short GetAsyncKeyState(int vKey);
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct WindowPos
+        {
+            public IntPtr hwnd;
+            public IntPtr hwndInsertAfter;
+            public int x;
+            public int y;
+            public int cx;
+            public int cy;
+            public uint flags;
+        }
     }
 }
