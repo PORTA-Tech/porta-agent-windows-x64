@@ -11,6 +11,7 @@ using Porta.Agent.Runtime.Input;
 using Porta.UserAgent.Interventions;
 using Porta.UserAgent.Input;
 using System.Diagnostics;
+using System.IO;
 
 public sealed class UserAgentHost : BackgroundService, IDisposable
 {
