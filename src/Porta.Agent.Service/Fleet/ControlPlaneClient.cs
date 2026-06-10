@@ -222,6 +222,29 @@ internal sealed class ControlPlaneClient : IDisposable
         }
     }
 
+    public async Task<WindowsReleaseManifestPayload?> GetLatestWindowsReleaseAsync(CancellationToken token)
+    {
+        if (_httpClient is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using HttpResponseMessage response = await _httpClient.GetAsync("api/client-release/windows/latest", token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<WindowsReleaseManifestPayload>(JsonOptions, token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public void Dispose()
     {
         _httpClient?.Dispose();

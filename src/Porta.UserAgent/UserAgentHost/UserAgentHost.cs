@@ -140,6 +140,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         Task heartbeatTask = RunHeartbeatLoopAsync(stoppingToken);
         Task widgetMaintenanceTask = RunWidgetMaintenanceLoopAsync(stoppingToken);
+        _ = ShowUpdateToastIfVersionChangedAsync(stoppingToken);
 
         UpdateTrayState(new(
             UserInterventionToastRenderer.UserTrayMode.Normal,
@@ -379,6 +380,85 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 "Failed to present overload recovery message for event {EventId}. Error={ErrorCode}",
                 signals.RecoveryEventId,
                 errorCode);
+        }
+    }
+
+    /// <summary>
+    /// The ONLY thing users see from silent auto-update: one small widget toast
+    /// after the first start on a new version. The acknowledged-version file makes
+    /// it fire exactly once per version; a fresh install records silently.
+    /// </summary>
+    private async Task ShowUpdateToastIfVersionChangedAsync(CancellationToken token)
+    {
+        try
+        {
+            // Let the widget surface finish starting before presenting anything.
+            await Task.Delay(TimeSpan.FromSeconds(25), token).ConfigureAwait(false);
+            if (token.IsCancellationRequested || _shouldExit || string.IsNullOrWhiteSpace(_binaryVersion))
+            {
+                return;
+            }
+
+            string path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "PortaAgent",
+                "last-acknowledged-version.txt");
+
+            string? previous = null;
+            try
+            {
+                if (File.Exists(path))
+                {
+                    previous = File.ReadAllText(path).Trim();
+                }
+            }
+            catch
+            {
+            }
+
+            if (string.Equals(previous, _binaryVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (previous is null)
+            {
+                // Fresh install - nothing to announce, just remember this version.
+                TryWriteAcknowledgedVersion(path, _binaryVersion);
+                return;
+            }
+
+            string display = _binaryVersion;
+            if (Version.TryParse(_binaryVersion, out Version? parsed))
+            {
+                display = $"{parsed.Major}.{parsed.Minor}.{parsed.Build}";
+            }
+
+            if (_toastRenderer.TryShow("Ari", $"Ari updated to {display} ✓", out _))
+            {
+                UserAgentFileLog.Info($"agent_update_toast_shown version={_binaryVersion}");
+                TryWriteAcknowledgedVersion(path, _binaryVersion);
+            }
+            // On failure: leave the file untouched so the next start retries once more.
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error("agent_update_toast_failed", ex);
+        }
+    }
+
+    private static void TryWriteAcknowledgedVersion(string path, string version)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, version);
+        }
+        catch
+        {
         }
     }
 

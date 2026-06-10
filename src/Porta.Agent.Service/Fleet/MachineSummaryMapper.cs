@@ -179,7 +179,8 @@ internal sealed class MachineSummaryMapper
             WatchdogLaunchFailureCode: watchdogLaunchFailureCode,
             UserAgentSelfTestState: selfTestState,
             UserAgentSelfTestErrorCode: selfTestErrorCode,
-            UserAgentLogTail: UserAgentLogTailReader.ReadTail());
+            UserAgentLogTail: UserAgentLogTailReader.ReadTail(),
+            WindowsUpdateStatus: WindowsUpdateStatusReader.ReadStatus());
     }
 
     private static double ResolvePressureLevel(string? stateFlagsJson, double fallback)

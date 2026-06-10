@@ -192,7 +192,9 @@ internal sealed record ControlPlaneWindowsReleaseManifest(
     [property: JsonPropertyName("required")] bool Required,
     [property: JsonPropertyName("title")] string? Title,
     [property: JsonPropertyName("summary")] string? Summary,
-    [property: JsonPropertyName("sha256")] string? Sha256);
+    [property: JsonPropertyName("sha256")] string? Sha256,
+    [property: JsonPropertyName("requireSignature")] bool RequireSignature = false,
+    [property: JsonPropertyName("rolloutPercent")] int RolloutPercent = 100);
 
 internal sealed record ControlPlaneSessionState(
     string AccessToken,

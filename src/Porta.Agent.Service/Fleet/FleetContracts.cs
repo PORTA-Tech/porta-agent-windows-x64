@@ -67,7 +67,22 @@ internal sealed record MachineSummaryReportPayload(
     [property: JsonPropertyName("watchdogLaunchFailureCode")] string? WatchdogLaunchFailureCode = null,
     [property: JsonPropertyName("userAgentSelfTestState")] string? UserAgentSelfTestState = null,
     [property: JsonPropertyName("userAgentSelfTestErrorCode")] string? UserAgentSelfTestErrorCode = null,
-    [property: JsonPropertyName("userAgentLogTail")] string? UserAgentLogTail = null);
+    [property: JsonPropertyName("userAgentLogTail")] string? UserAgentLogTail = null,
+    [property: JsonPropertyName("windowsUpdateStatus")] string? WindowsUpdateStatus = null);
+
+internal sealed record WindowsReleaseManifestPayload(
+    [property: JsonPropertyName("platform")] string? Platform,
+    [property: JsonPropertyName("channel")] string? Channel,
+    [property: JsonPropertyName("version")] string? Version,
+    [property: JsonPropertyName("msiUrl")] string? MsiUrl,
+    [property: JsonPropertyName("publishedAtUtc")] string? PublishedAtUtc,
+    [property: JsonPropertyName("minimumSupportedVersion")] string? MinimumSupportedVersion,
+    [property: JsonPropertyName("required")] bool Required = false,
+    [property: JsonPropertyName("title")] string? Title = null,
+    [property: JsonPropertyName("summary")] string? Summary = null,
+    [property: JsonPropertyName("sha256")] string? Sha256 = null,
+    [property: JsonPropertyName("requireSignature")] bool RequireSignature = false,
+    [property: JsonPropertyName("rolloutPercent")] int RolloutPercent = 100);
 
 internal sealed record DeviceRegistrationRequestPayload(
     [property: JsonPropertyName("deviceId")] string DeviceId,

@@ -10,12 +10,18 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Porta.ControlCenter.Identity;
+using Porta.Agent.Common.Updates;
 using Porta.ControlCenter.Updates;
 
 namespace Porta.ControlCenter;
 
 public partial class MainWindow
 {
+    // Silent auto-update era: the service installs updates on its own, so the
+    // Control Center never interrupts. The Updates page still works manually;
+    // only the unsolicited overlay / badges / taskbar nag are disabled.
+    private const bool AutoUpdatePromptingEnabled = false;
+
     private const string UpdateServiceName = "AriAgent";
     private const string UpdateInstallHelperFileName = "windows-update.install.ps1";
     private const string UpdateInstallStatusFileName = "windows-update.status.json";
@@ -78,7 +84,8 @@ public partial class MainWindow
             _dismissedWindowsReleaseVersion = null;
         }
 
-        if (!string.Equals(_dismissedWindowsReleaseVersion, _latestWindowsRelease.Version, StringComparison.OrdinalIgnoreCase))
+        if (AutoUpdatePromptingEnabled
+            && !string.Equals(_dismissedWindowsReleaseVersion, _latestWindowsRelease.Version, StringComparison.OrdinalIgnoreCase))
         {
             _updateOverlayOpen = true;
         }
@@ -122,7 +129,7 @@ public partial class MainWindow
         AccountUpdateBodyText.Text = presentation.Summary;
         AccountUpdateStatusText.Text = presentation.Status;
         AccountNavUpdateBadgeText.Text = "1";
-        AccountNavUpdateBadgeBorder.Visibility = presentation.AccountBadgeVisible ? Visibility.Visible : Visibility.Collapsed;
+        AccountNavUpdateBadgeBorder.Visibility = AutoUpdatePromptingEnabled && presentation.AccountBadgeVisible ? Visibility.Visible : Visibility.Collapsed;
         AccountNavButton.ToolTip = $"Ari {release.Version} update available";
 
         UpdateOverlayTitleText.Text = presentation.Title;
@@ -135,13 +142,13 @@ public partial class MainWindow
 
         GlobalUpdateButtonText.Text = presentation.GlobalButtonText;
         GlobalUpdateButton.ToolTip = presentation.Summary;
-        GlobalUpdateButton.Visibility = presentation.GlobalButtonVisible ? Visibility.Visible : Visibility.Collapsed;
+        GlobalUpdateButton.Visibility = AutoUpdatePromptingEnabled && presentation.GlobalButtonVisible ? Visibility.Visible : Visibility.Collapsed;
         GlobalUpdateButtonBadgeText.Text = "1";
 
         if (WindowTaskbarItemInfo != null)
         {
-            WindowTaskbarItemInfo.Overlay = presentation.TaskbarOverlayVisible ? UpdateTaskbarOverlayImage : null;
-            WindowTaskbarItemInfo.Description = presentation.TaskbarDescription;
+            WindowTaskbarItemInfo.Overlay = AutoUpdatePromptingEnabled && presentation.TaskbarOverlayVisible ? UpdateTaskbarOverlayImage : null;
+            WindowTaskbarItemInfo.Description = AutoUpdatePromptingEnabled ? presentation.TaskbarDescription : "PORTA";
         }
     }
 
@@ -325,7 +332,9 @@ public partial class MainWindow
             InstallerPath: installerPath,
             ExpectedSha256: NormalizeHash(release.Sha256),
             RequireSha256Validation: !downloadUri.IsLoopback,
-            RequireSignatureValidation: !downloadUri.IsLoopback,
+            // Manifest-controlled: unsigned preview builds update via SHA-256 until the
+            // signing certificate arrives, then the control plane flips this to true.
+            RequireSignatureValidation: release.RequireSignature,
             Version: release.Version,
             ServiceName: UpdateServiceName,
             CurrentControlCenterPid: Environment.ProcessId,

@@ -95,6 +95,7 @@ internal sealed class AgentService : IHostedService, IDisposable
         services.AddHostedService<DailyStatsReporter>();
         services.AddHostedService<UserContextRefresher>();
         services.AddHostedService<DefenderExclusionWorker>();
+        services.AddHostedService<AgentUpdateWorker>();
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
