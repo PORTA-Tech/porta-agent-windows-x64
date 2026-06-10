@@ -23,6 +23,9 @@ internal sealed class UserDesktopWidgetWindow : Window
     private const double ExpandedWidth = 200d;
     private const double CollapsedWidth = 24d;
     private const double BaseHeight = 22d;
+    // Resting height of the normal summary surface. Used before the first state
+    // arrives so a freshly (re)started widget never renders as a 22px strip.
+    private const double DefaultSummaryHeight = 64d;
     private const double CollapsedHeight = 24d;
     private const double TopMargin = 16d;
     private const double RightMargin = 16d;
@@ -41,6 +44,8 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly DispatcherTimer _stateTakeoverTimer;
     private readonly DispatcherTimer _reexpandTimer;
     private readonly DispatcherTimer _collapseTimer;
+    private readonly DispatcherTimer _menuDismissTimer;
+    private bool _menuDismissButtonWasDown;
     private readonly Border _rootBorder;
     private readonly StackPanel _expandedStack;
     private readonly Grid _headerRow;
@@ -133,6 +138,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         ShowActivated = false;
         Topmost = true;
         Width = ExpandedWidth;
+        // BaseHeight here keeps construction-time expectations (and tests) stable;
+        // Loaded fires UpdateWindowHeight immediately, which holds DefaultSummaryHeight
+        // until the first state arrives — so users never see a 22px strip.
         Height = BaseHeight;
 
         _attentionTimer = new DispatcherTimer { Interval = AttentionDuration };
@@ -161,7 +169,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _reexpandTimer = new DispatcherTimer { Interval = ReexpandPollInterval };
         _reexpandTimer.Tick += (_, _) =>
         {
-            if (_menuOpen || !_collapsed)
+            if (_menuOpen || !_collapsed || _dragInProgress)
             {
                 return;
             }
@@ -188,6 +196,13 @@ internal sealed class UserDesktopWidgetWindow : Window
 
             Collapse();
         };
+
+        // Closes the menu on a click anywhere outside it. The widget is a
+        // WS_EX_NOACTIVATE window, so WPF's StaysOpen=false light-dismiss never sees
+        // clicks that land in other applications. This poll runs ONLY while the menu
+        // is open (started in Opened, stopped in Closed) — zero cost otherwise.
+        _menuDismissTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        _menuDismissTimer.Tick += (_, _) => DismissMenuOnOutsideClick();
 
         _rootBorder = new Border
         {
@@ -597,6 +612,9 @@ internal sealed class UserDesktopWidgetWindow : Window
             _menuOpen = true;
             _collapseTimer.Stop();
             _reexpandTimer.Stop();
+            // Treat the opening click as "already down" so it can never insta-dismiss.
+            _menuDismissButtonWasDown = true;
+            _menuDismissTimer.Start();
             // Only expand when the widget is already expanded — when opened from the
             // collapsed pill the widget stays collapsed so the menu appears over the pill.
             if (!_collapsed)
@@ -606,6 +624,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         };
         _menuPopup.Closed += (_, _) =>
         {
+            _menuDismissTimer.Stop();
             _menuOpen = false;
             _menuClosedAt = DateTimeOffset.UtcNow;
             if (_collapsed)
@@ -1387,6 +1406,68 @@ internal sealed class UserDesktopWidgetWindow : Window
         _menuPopup.IsOpen = true;
     }
 
+    private void DismissMenuOnOutsideClick()
+    {
+        if (!_menuPopup.IsOpen)
+        {
+            _menuDismissTimer.Stop();
+            return;
+        }
+
+        bool buttonDown =
+            (NativeMethods.GetAsyncKeyState(NativeMethods.VkLButton) & 0x8000) != 0
+            || (NativeMethods.GetAsyncKeyState(NativeMethods.VkRButton) & 0x8000) != 0;
+        bool newPress = buttonDown && !_menuDismissButtonWasDown;
+        _menuDismissButtonWasDown = buttonDown;
+        if (!newPress)
+        {
+            return;
+        }
+
+        try
+        {
+            System.Drawing.Point physical = FormsCursor.Position;
+            var cursor = new Point(physical.X, physical.Y);
+
+            // PointToScreen returns physical device pixels — same space as Cursor.Position.
+            if (_menuPopup.Child is not FrameworkElement chrome
+                || !chrome.IsLoaded
+                || chrome.ActualWidth <= 0d
+                || chrome.ActualHeight <= 0d)
+            {
+                // Cannot establish popup bounds — never dismiss blind.
+                return;
+            }
+
+            Point popupTopLeft = chrome.PointToScreen(new Point(0d, 0d));
+            Point popupBottomRight = chrome.PointToScreen(new Point(chrome.ActualWidth, chrome.ActualHeight));
+            if (new Rect(popupTopLeft, popupBottomRight).Contains(cursor))
+            {
+                return;
+            }
+
+            // Clicks on the widget itself keep their existing behaviors (menu button
+            // toggle, pill click) — only clicks outside BOTH surfaces dismiss here.
+            if (IsVisible && PresentationSource.FromVisual(this)?.CompositionTarget is not null)
+            {
+                Point windowTopLeft = PointToScreen(new Point(0d, 0d));
+                Point windowBottomRight = PointToScreen(new Point(
+                    ActualWidth > 0d ? ActualWidth : Width,
+                    ActualHeight > 0d ? ActualHeight : Height));
+                if (new Rect(windowTopLeft, windowBottomRight).Contains(cursor))
+                {
+                    return;
+                }
+            }
+
+            _menuPopup.IsOpen = false;
+        }
+        catch
+        {
+            // Bounds computation failed — do nothing rather than dismiss incorrectly.
+        }
+    }
+
     private void Collapse()
     {
         if (!ShouldAutoCollapseSummary())
@@ -1579,6 +1660,15 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        // Before the first state arrives the layout is empty — measuring it yields a
+        // ~22px strip. Hold the default summary height instead; the first ApplyState
+        // re-measures and corrects within one state push.
+        if (_currentState == null)
+        {
+            AnimateWindowHeight(DefaultSummaryHeight);
+            return;
+        }
+
         // Measure against the logical expanded width — tall cap so message text never clips.
         _rootBorder.Measure(new Size(ExpandedWidth, 800d));
         double measured = _rootBorder.DesiredSize.Height;
@@ -1600,6 +1690,15 @@ internal sealed class UserDesktopWidgetWindow : Window
     private void ApplyAnchorPosition()
     {
         if (!_placementInitialized)
+        {
+            return;
+        }
+
+        // A drag in progress owns Left/Top. Size animations fire SizeChanged dozens
+        // of times while DragMove pumps the dispatcher — snapping back to the anchor
+        // mid-drag made the widget impossible to move whenever anything was animating
+        // (messages always animate). SaveCurrentPlacement re-syncs the anchor on drop.
+        if (_dragInProgress)
         {
             return;
         }
@@ -2116,13 +2215,13 @@ internal sealed class UserDesktopWidgetWindow : Window
             Kind: kind));
     }
 
-    private bool HasBlockingSurfaceVisible()
-    {
-        return _messageCard.Visibility == Visibility.Visible;
-    }
-
     private bool ShouldAutoCollapseSummary()
     {
+        // Only surfaces that REQUIRE a user response may pin the widget open:
+        // active prompts (timed answer buttons) and critical action-required cards.
+        // Informational messages (attention toasts, state takeovers) stay collapsible
+        // and movable — Expand() re-renders them via RefreshInlineMessage, so nothing
+        // is lost if the user collapses mid-message.
         return CanAcceptUiActions
             && _currentState != null
             && !_collapsed
@@ -2130,10 +2229,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             && !_dragInProgress
             && !_suspendAutoCollapseUntilPointerLeaves
             && _activePrompt == null
-            && _attentionMessage == null
-            && _stateTakeoverMessage == null
-            && _currentState?.CriticalState == null
-            && !HasBlockingSurfaceVisible();
+            && _currentState?.CriticalState == null;
     }
 
     private static bool IsInteractiveElement(DependencyObject child)
@@ -2214,14 +2310,15 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        // Z-order + visibility ONLY. SWP_NOMOVE | SWP_NOSIZE are mandatory here:
+        // Left/Top/ActualWidth/ActualHeight are WPF logical units and must never be
+        // passed to a physical-pixel API — doing so shrank the widget 20-33% on
+        // 125-150% DPI displays every time recovery ran (wake, unlock, hiccups).
         _ = NativeMethods.SetWindowPos(
             hwnd,
             NativeMethods.HwndTopMost,
-            (int)Math.Round(Left),
-            (int)Math.Round(Top),
-            (int)Math.Round(ActualWidth > 0d ? ActualWidth : Width),
-            (int)Math.Round(ActualHeight > 0d ? ActualHeight : Height),
-            NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow);
+            0, 0, 0, 0,
+            NativeMethods.SwpNoActivate | NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpShowWindow);
     }
 
     /// <summary>
@@ -2359,6 +2456,8 @@ internal sealed class UserDesktopWidgetWindow : Window
         internal const uint SwpNoMove = 0x0002;
         internal const uint SwpNoSize = 0x0001;
         internal const uint SwpShowWindow = 0x0040;
+        internal const int VkLButton = 0x01;
+        internal const int VkRButton = 0x02;
 
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
         internal static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
@@ -2375,5 +2474,8 @@ internal sealed class UserDesktopWidgetWindow : Window
             int cx,
             int cy,
             uint uFlags);
+
+        [DllImport("user32.dll")]
+        internal static extern short GetAsyncKeyState(int vKey);
     }
 }
