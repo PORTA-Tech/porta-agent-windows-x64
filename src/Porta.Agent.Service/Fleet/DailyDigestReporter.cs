@@ -163,7 +163,11 @@ internal sealed class DailyDigestReporter : BackgroundService
                 PeakPressureUtc: agg.PeakPressureUtc,
                 AvgDistractionEpisodeDurationSeconds: agg.AvgDistractionEpisodeDurationSeconds,
                 ContextSwitchCount: agg.ContextSwitchCount,
-                PreLongestDistractionFocusSeconds: agg.PreLongestDistractionFocusSeconds);
+                PreLongestDistractionFocusSeconds: agg.PreLongestDistractionFocusSeconds,
+                // Social-media and gaming accumulators are pattern-detection windows
+                // (grow/decay per bucket), not daily totals — declare them missing so
+                // the email renders "no data" instead of a misleading number.
+                MissingFields: new[] { "gaming", "socialMedia" });
 
             bool sent = await _client.PostDailyDigestAsync(payload, token).ConfigureAwait(false);
             if (sent)

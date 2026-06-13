@@ -169,7 +169,10 @@ internal sealed record DailyDigestReportPayload(
     [property: JsonPropertyName("peakPressureUtc")] string? PeakPressureUtc = null,
     [property: JsonPropertyName("avgDistractionEpisodeDurationSeconds")] double AvgDistractionEpisodeDurationSeconds = 0d,
     [property: JsonPropertyName("contextSwitchCount")] int ContextSwitchCount = 0,
-    [property: JsonPropertyName("preLongestDistractionFocusSeconds")] double PreLongestDistractionFocusSeconds = 0d);
+    [property: JsonPropertyName("preLongestDistractionFocusSeconds")] double PreLongestDistractionFocusSeconds = 0d,
+    // Callers that know certain metrics are unreliable declare them here so the
+    // email builder can render "no data" instead of fabricated numbers.
+    [property: JsonPropertyName("missingFields")] IReadOnlyList<string>? MissingFields = null);
 
 /// <summary>
 /// Lightweight periodic stats payload POSTed to /api/agent/daily-stats every 2 hours.

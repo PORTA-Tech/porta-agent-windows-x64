@@ -27,6 +27,7 @@ internal static class DigestTimelineAggregator
         double contextExcursionSeconds = 0d;
         double focusStrengthSum = 0d;
         int focusedBuckets = 0;
+        double currentStreakSec = 0d;
         double longestStreakSec = 0d;
         int overloadEpisodeCount = 0;
         int fragmentationEpisodeCount = 0;
@@ -94,9 +95,17 @@ internal static class DigestTimelineAggregator
                 }
             }
 
-            if (s.SustainedAttentionDurationSec > longestStreakSec)
+            // Streak: accumulate focused buckets; reset on distraction or away.
+            // Context excursion intentionally does not reset (mirrors TaskContinuitySeconds semantics).
+            if (isDistraction || isAway)
             {
-                longestStreakSec = s.SustainedAttentionDurationSec;
+                currentStreakSec = 0d;
+            }
+            else
+            {
+                currentStreakSec += bucketSec;
+                if (currentStreakSec > longestStreakSec)
+                    longestStreakSec = currentStreakSec;
             }
 
             if (s.OverloadActive && !prevOverloadActive)
