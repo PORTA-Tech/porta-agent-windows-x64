@@ -12,3 +12,6 @@ obj/
 
 # Local soak logs
 soak-*.csv
+
+# Release artifacts (MSIs go to GitHub Releases, not the repo)
+artifacts/publish/
