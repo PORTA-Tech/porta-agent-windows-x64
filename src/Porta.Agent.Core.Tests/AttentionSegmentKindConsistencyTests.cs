@@ -1,3 +1,4 @@
+using System.Reflection;
 using Porta.Agent.Common.Analysis;
 using Porta.Agent.Core;
 using Porta.Agent.LocalApi;
@@ -48,6 +49,27 @@ public sealed class AttentionSegmentKindConsistencyTests
             // Must normalize to a recognized kind (never the silent 'focus' fallback).
             string normalized = LocalAttentionSegmentAnalytics.NormalizeAttentionSegmentKind(kind);
             Assert.NotEqual(LocalAttentionSegmentAnalytics.FocusSegmentKind, normalized);
+        }
+    }
+
+    // Drift guard: reflects over every public string constant declared in the canonical
+    // AttentionSegmentKinds registry and asserts each is listed in AllKinds and recognized.
+    // Because the agent now emits ONLY these constants, a new kind cannot reach production
+    // without being registered here — this test fails the build the moment that's skipped.
+    [Fact]
+    public void EveryKindConstant_IsRegisteredInAllKindsAndRecognized()
+    {
+        string[] declaredConstants = typeof(AttentionSegmentKinds)
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(f => f.IsLiteral && f.FieldType == typeof(string))
+            .Select(f => (string)f.GetRawConstantValue()!)
+            .ToArray();
+
+        Assert.NotEmpty(declaredConstants);
+        foreach (string value in declaredConstants)
+        {
+            Assert.Contains(value, AttentionSegmentKinds.AllKinds);
+            Assert.Equal(value, AttentionSegmentKinds.NormalizeKind(value));
         }
     }
 

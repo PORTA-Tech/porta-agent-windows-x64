@@ -743,7 +743,7 @@ internal static class DerivedSessionMetricsComputer
         if (socialMediaAcc >= PortaExecutionConstants.DistractionEpisodes.SocialMediaDistractionMinSeconds * mult)
         {
             return new AttentionSegmentDecision(
-                Kind: "social_media_distraction", SegmentSeconds: socialMediaAcc,
+                Kind: AttentionSegmentKinds.SocialMediaDistraction, SegmentSeconds: socialMediaAcc,
                 DistractionEpisodeActive: true, DistractionEpisodeSeconds: socialMediaAcc,
                 ReasonCode: "social_media_distraction", ReasonText: "Social media use during work time.",
                 NewEwmaSwitchRate: previous.EwmaSwitchRate,
@@ -776,7 +776,7 @@ internal static class DerivedSessionMetricsComputer
         if (gamingLauncherAcc >= PortaExecutionConstants.DistractionEpisodes.GamingLauncherMinSeconds * mult)
         {
             return new AttentionSegmentDecision(
-                Kind: "gaming_launcher_distraction", SegmentSeconds: gamingLauncherAcc,
+                Kind: AttentionSegmentKinds.GamingLauncherDistraction, SegmentSeconds: gamingLauncherAcc,
                 DistractionEpisodeActive: true, DistractionEpisodeSeconds: gamingLauncherAcc,
                 ReasonCode: "gaming_launcher_distraction", ReasonText: "Gaming launcher browsed during work time.",
                 NewEwmaSwitchRate: previous.EwmaSwitchRate,
@@ -809,7 +809,7 @@ internal static class DerivedSessionMetricsComputer
         if (gamingActiveAcc >= PortaExecutionConstants.DistractionEpisodes.GamingActiveMinSeconds)
         {
             return new AttentionSegmentDecision(
-                Kind: "active_gaming_distraction", SegmentSeconds: gamingActiveAcc,
+                Kind: AttentionSegmentKinds.ActiveGamingDistraction, SegmentSeconds: gamingActiveAcc,
                 DistractionEpisodeActive: true, DistractionEpisodeSeconds: gamingActiveAcc,
                 ReasonCode: "active_gaming_distraction", ReasonText: "Active gaming during work time.",
                 NewEwmaSwitchRate: previous.EwmaSwitchRate,
@@ -842,7 +842,7 @@ internal static class DerivedSessionMetricsComputer
         if (socialMediaReturnCount >= PortaExecutionConstants.DistractionEpisodes.SocialMediaLoopMinReturns)
         {
             return new AttentionSegmentDecision(
-                Kind: "social_media_loop", SegmentSeconds: p3SessionActive - socialMediaWindowStart,
+                Kind: AttentionSegmentKinds.SocialMediaLoop, SegmentSeconds: p3SessionActive - socialMediaWindowStart,
                 DistractionEpisodeActive: true, DistractionEpisodeSeconds: p3SessionActive - socialMediaWindowStart,
                 ReasonCode: "social_media_loop", ReasonText: "Repeated check-in loop to social media.",
                 NewEwmaSwitchRate: previous.EwmaSwitchRate,
@@ -882,7 +882,7 @@ internal static class DerivedSessionMetricsComputer
                 bucket.TrueBreakSeconds > 0d ? bucket.TrueBreakSeconds : Time.bucketSeconds);
             // Away: carry session interaction seconds but preserve unfocused flag
             return new AttentionSegmentDecision(
-                Kind: "away",
+                Kind: AttentionSegmentKinds.Away,
                 SegmentSeconds: ClampNonNegativeFinite(awaySeconds),
                 DistractionEpisodeActive: false,
                 DistractionEpisodeSeconds: 0d,
@@ -919,7 +919,7 @@ internal static class DerivedSessionMetricsComputer
             bool offTaskDistraction = evidence.AnyInteractionActive
                 && continuity.ContextSwitchSeconds >= PortaExecutionConstants.DistractionEpisodes.OffTaskDistractionStartSeconds;
             return new AttentionSegmentDecision(
-                Kind: offTaskDistraction ? "off_task_distraction" : "context_excursion",
+                Kind: offTaskDistraction ? AttentionSegmentKinds.OffTaskDistraction : AttentionSegmentKinds.ContextExcursion,
                 SegmentSeconds: ClampNonNegativeFinite(segmentSeconds),
                 DistractionEpisodeActive: offTaskDistraction,
                 DistractionEpisodeSeconds: offTaskDistraction ? ClampNonNegativeFinite(segmentSeconds) : 0d,
@@ -962,7 +962,7 @@ internal static class DerivedSessionMetricsComputer
                 && continuity.InstabilitySeconds >= PortaExecutionConstants.DistractionEpisodes.FragmentationDistractionStartSeconds;
             double segmentSeconds = Math.Max(continuity.InstabilitySeconds, Time.bucketSeconds);
             return new AttentionSegmentDecision(
-                Kind: fragmentationDistraction ? "fragmentation_distraction" : "focus",
+                Kind: fragmentationDistraction ? AttentionSegmentKinds.FragmentationDistraction : AttentionSegmentKinds.Focus,
                 SegmentSeconds: fragmentationDistraction ? ClampNonNegativeFinite(segmentSeconds) : 0d,
                 DistractionEpisodeActive: fragmentationDistraction,
                 DistractionEpisodeSeconds: fragmentationDistraction ? ClampNonNegativeFinite(segmentSeconds) : 0d,
@@ -997,7 +997,7 @@ internal static class DerivedSessionMetricsComputer
         if (!evidence.AnyInteractionActive)
         {
             return new AttentionSegmentDecision(
-                Kind: "focus", SegmentSeconds: 0d, DistractionEpisodeActive: false, DistractionEpisodeSeconds: 0d,
+                Kind: AttentionSegmentKinds.Focus, SegmentSeconds: 0d, DistractionEpisodeActive: false, DistractionEpisodeSeconds: 0d,
                 ReasonCode: ResolveSteadyFocusReasonCode(continuity.ReasonCode),
                 ReasonText: ResolveSteadyFocusReasonText(continuity.ReasonCode),
                 NewEwmaSwitchRate: previous.EwmaSwitchRate,
@@ -1036,7 +1036,7 @@ internal static class DerivedSessionMetricsComputer
         if (microBurstAccSec >= PortaExecutionConstants.DistractionEpisodes.MicroBurstMinTriggerSeconds * mult)
         {
             return new AttentionSegmentDecision(
-                Kind: "rolling_micro_burst", SegmentSeconds: microBurstAccSec,
+                Kind: AttentionSegmentKinds.RollingMicroBurst, SegmentSeconds: microBurstAccSec,
                 DistractionEpisodeActive: true, DistractionEpisodeSeconds: microBurstAccSec,
                 ReasonCode: "rolling_micro_burst", ReasonText: "Rapid repeated app switching detected.",
                 NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
@@ -1098,7 +1098,7 @@ internal static class DerivedSessionMetricsComputer
         if (pingPongCycles >= PortaExecutionConstants.DistractionEpisodes.PingPongMinCycles)
         {
             return new AttentionSegmentDecision(
-                Kind: "return_loop_distraction", SegmentSeconds: sessionActiveSec - pingPongWindowStart,
+                Kind: AttentionSegmentKinds.ReturnLoopDistraction, SegmentSeconds: sessionActiveSec - pingPongWindowStart,
                 DistractionEpisodeActive: true, DistractionEpisodeSeconds: sessionActiveSec - pingPongWindowStart,
                 ReasonCode: "return_loop_distraction", ReasonText: "Repetitive app ping-pong detected.",
                 NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
@@ -1123,7 +1123,7 @@ internal static class DerivedSessionMetricsComputer
         {
             unfocusedFired = true;
             return new AttentionSegmentDecision(
-                Kind: "unfocused_session", SegmentSeconds: sessionActiveSec,
+                Kind: AttentionSegmentKinds.UnfocusedSession, SegmentSeconds: sessionActiveSec,
                 DistractionEpisodeActive: true, DistractionEpisodeSeconds: sessionActiveSec,
                 ReasonCode: "unfocused_session", ReasonText: "Active session without a stable focus anchor.",
                 NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
@@ -1158,7 +1158,7 @@ internal static class DerivedSessionMetricsComputer
         if (shallowDwellAcc >= PortaExecutionConstants.DistractionEpisodes.ShallowDwellMinTriggerSeconds * mult)
         {
             return new AttentionSegmentDecision(
-                Kind: "shallow_dwell_distraction", SegmentSeconds: shallowDwellAcc,
+                Kind: AttentionSegmentKinds.ShallowDwellDistraction, SegmentSeconds: shallowDwellAcc,
                 DistractionEpisodeActive: true, DistractionEpisodeSeconds: shallowDwellAcc,
                 ReasonCode: "shallow_dwell_distraction", ReasonText: "Sustained grazing behaviour detected.",
                 NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
@@ -1225,7 +1225,7 @@ internal static class DerivedSessionMetricsComputer
         if (passiveConsumptionAcc >= PortaExecutionConstants.DistractionEpisodes.PassiveConsumptionMinTriggerSeconds * mult)
         {
             return new AttentionSegmentDecision(
-                Kind: "passive_consumption", SegmentSeconds: passiveConsumptionAcc,
+                Kind: AttentionSegmentKinds.PassiveConsumption, SegmentSeconds: passiveConsumptionAcc,
                 DistractionEpisodeActive: true, DistractionEpisodeSeconds: passiveConsumptionAcc,
                 ReasonCode: "passive_consumption", ReasonText: "Passive media consumption during work time.",
                 NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
@@ -1251,7 +1251,7 @@ internal static class DerivedSessionMetricsComputer
         if (commReturnCount >= PortaExecutionConstants.DistractionEpisodes.CommMonitoringMinReturns)
         {
             return new AttentionSegmentDecision(
-                Kind: "comm_monitoring_loop", SegmentSeconds: sessionActiveSec - commWindowStart,
+                Kind: AttentionSegmentKinds.CommMonitoringLoop, SegmentSeconds: sessionActiveSec - commWindowStart,
                 DistractionEpisodeActive: true, DistractionEpisodeSeconds: sessionActiveSec - commWindowStart,
                 ReasonCode: "comm_monitoring_loop", ReasonText: "Repeated check-in loop to communication apps.",
                 NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
@@ -1277,7 +1277,7 @@ internal static class DerivedSessionMetricsComputer
         if (focusCategoryAbsSec >= PortaExecutionConstants.DistractionEpisodes.FocusCategoryAbsentMinSeconds * mult)
         {
             return new AttentionSegmentDecision(
-                Kind: "focus_category_absent", SegmentSeconds: focusCategoryAbsSec,
+                Kind: AttentionSegmentKinds.FocusCategoryAbsent, SegmentSeconds: focusCategoryAbsSec,
                 DistractionEpisodeActive: true, DistractionEpisodeSeconds: focusCategoryAbsSec,
                 ReasonCode: "focus_category_absent",
                 ReasonText: $"No productive app in focus for {FormatEpisodeDuration(focusCategoryAbsSec)}.",
@@ -1310,7 +1310,7 @@ internal static class DerivedSessionMetricsComputer
             if (startRatio >= PortaExecutionConstants.DistractionEpisodes.SessionStartQualityMinDistractionRatio)
             {
                 return new AttentionSegmentDecision(
-                    Kind: "bad_session_start", SegmentSeconds: sessionStartDistrSec,
+                    Kind: AttentionSegmentKinds.BadSessionStart, SegmentSeconds: sessionStartDistrSec,
                     DistractionEpisodeActive: true, DistractionEpisodeSeconds: sessionStartDistrSec,
                     ReasonCode: "bad_session_start",
                     ReasonText: "Session opened with high distraction activity.",
@@ -1359,7 +1359,7 @@ internal static class DerivedSessionMetricsComputer
                 && offAnchorSec >= PortaExecutionConstants.DistractionEpisodes.FocusDepartureThresholdSeconds * mult)
             {
                 return new AttentionSegmentDecision(
-                    Kind: "focus_departure_distraction", SegmentSeconds: offAnchorSec,
+                    Kind: AttentionSegmentKinds.FocusDepartureDistraction, SegmentSeconds: offAnchorSec,
                     DistractionEpisodeActive: true, DistractionEpisodeSeconds: offAnchorSec,
                     ReasonCode: "focus_departure_distraction", ReasonText: $"Away from focus app for {FormatEpisodeDuration(offAnchorSec)}.",
                     NewEwmaSwitchRate: ewmaSwitchRate, NewMicroBurstAccumulatedSeconds: microBurstAccSec,
@@ -1382,7 +1382,7 @@ internal static class DerivedSessionMetricsComputer
 
         // ── No new pattern fired — steady focus ───────────────────────────────
         return new AttentionSegmentDecision(
-            Kind: "focus", SegmentSeconds: 0d, DistractionEpisodeActive: false, DistractionEpisodeSeconds: 0d,
+            Kind: AttentionSegmentKinds.Focus, SegmentSeconds: 0d, DistractionEpisodeActive: false, DistractionEpisodeSeconds: 0d,
             ReasonCode: ResolveSteadyFocusReasonCode(continuity.ReasonCode),
             ReasonText: ResolveSteadyFocusReasonText(continuity.ReasonCode),
             NewEwmaSwitchRate: ewmaSwitchRate,
