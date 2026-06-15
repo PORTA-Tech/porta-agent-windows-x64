@@ -14,7 +14,9 @@ internal readonly record struct BreakFocusWindowSnapshot(
     double LongBreakWindowEffectiveFocusSeconds,
     bool DeliveryBoundaryReached,
     string DeliveryBoundaryKind,
-    bool HighPressure);
+    bool HighPressure,
+    bool FlowStateActive,
+    long BreakDueSinceUtcMs);
 
 internal readonly record struct BreakSuggestionDecision(
     bool ShouldEmit,
@@ -52,7 +54,9 @@ internal static class BreakSuggestionPolicy
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds,
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMaxSeconds,
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryTypingQuietMax,
-            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax);
+            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax,
+            PortaExecutionConstants.BreakPolicy.FlowStateWindowSeconds,
+            PortaExecutionConstants.BreakPolicy.HardTimeoutSeconds);
         if (!gating.SuggestionsEnabled)
         {
             return Fail("suggestions_not_enabled");
@@ -124,7 +128,11 @@ internal static class BreakSuggestionPolicy
                 highPressure: highPressure);
         }
 
-        if (!focusWindow.DeliveryBoundaryReached)
+        bool hardTimeoutExpired = focusWindow.BreakDueSinceUtcMs > 0
+            && (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - focusWindow.BreakDueSinceUtcMs)
+                >= (long)(settings.HardTimeoutSeconds * 1000L);
+
+        if (!focusWindow.DeliveryBoundaryReached && !hardTimeoutExpired)
         {
             return Fail(
                 "awaiting_delivery_boundary",
@@ -134,6 +142,10 @@ internal static class BreakSuggestionPolicy
                 effectiveFocusWindowSeconds: windowSeconds,
                 highPressure: highPressure);
         }
+
+        string resolvedBoundaryKind = focusWindow.DeliveryBoundaryReached
+            ? focusWindow.DeliveryBoundaryKind
+            : "hard_timeout";
 
         BreakPolicyCooldownSnapshot cooldown = resolveCooldown();
         if (!cooldown.CooldownExpired)
@@ -146,7 +158,7 @@ internal static class BreakSuggestionPolicy
                 breakKind: breakKind,
                 effectiveFocusSeconds: effectiveFocusSeconds,
                 effectiveFocusWindowSeconds: windowSeconds,
-                deliveryBoundaryKind: focusWindow.DeliveryBoundaryKind,
+                deliveryBoundaryKind: resolvedBoundaryKind,
                 highPressure: highPressure);
         }
 
@@ -159,7 +171,7 @@ internal static class BreakSuggestionPolicy
             Cooldown: cooldown,
             EffectiveFocusSeconds: effectiveFocusSeconds,
             EffectiveFocusWindowSeconds: windowSeconds,
-            DeliveryBoundaryKind: NormalizeBoundaryKind(focusWindow.DeliveryBoundaryKind),
+            DeliveryBoundaryKind: NormalizeBoundaryKind(resolvedBoundaryKind),
             HighPressure: highPressure);
     }
 

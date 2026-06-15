@@ -246,7 +246,9 @@ public sealed class Phase09ValidationHarnessTests
             LongBreakWindowEffectiveFocusSeconds: 2100d,
             DeliveryBoundaryReached: true,
             DeliveryBoundaryKind: "short_idle",
-            HighPressure: false);
+            HighPressure: false,
+            FlowStateActive: false,
+            BreakDueSinceUtcMs: 0);
 
         string trustTier = CalibrationTruth.ResolveTrustTier(
             gating.CalibrationStage,

@@ -189,7 +189,9 @@ public sealed class Phase10RolloutAuditTests
                 LongBreakWindowEffectiveFocusSeconds: 2100d,
                 DeliveryBoundaryReached: true,
                 DeliveryBoundaryKind: "short_idle",
-                HighPressure: false);
+                HighPressure: false,
+                FlowStateActive: false,
+                BreakDueSinceUtcMs: 0);
 
             string trustTier = CalibrationTruth.ResolveTrustTier(
                 gating.CalibrationStage,

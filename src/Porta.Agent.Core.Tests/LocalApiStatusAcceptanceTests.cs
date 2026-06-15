@@ -1194,7 +1194,9 @@ public sealed class LocalApiStatusAcceptanceTests
                         PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds,
                         PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMaxSeconds,
                         PortaExecutionConstants.BreakPolicy.DeliveryBoundaryTypingQuietMax,
-                        PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax),
+                        PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax,
+                        PortaExecutionConstants.BreakPolicy.FlowStateWindowSeconds,
+                        PortaExecutionConstants.BreakPolicy.HardTimeoutSeconds),
                     new RuntimeDeepWorkDetectionSettings(
                         PortaExecutionConstants.DeepWorkDetection.SustainedAttentionSeconds,
                         PortaExecutionConstants.DeepWorkDetection.ConfidenceMin,

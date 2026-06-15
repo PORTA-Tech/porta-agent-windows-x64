@@ -5667,6 +5667,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         long cooldownEndTsMs = existingCooldown.CooldownEndTsMs;
         long lastFiredTsMs = 0;
         string lastAction = string.Empty;
+        long breakDueSinceUtcMs = 0;
         if (decision.ShouldEmit && breakInserted)
         {
             cooldownEndTsMs = checked(nowUtcMs + (breakPolicy.CooldownSeconds * 1000L));
@@ -5695,11 +5696,27 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                             lastAction = ReadStringProperty(root, "last_action");
                         }
                     }
+
+                    breakDueSinceUtcMs = ReadInt64Property(root, "break_due_since_utc_ms");
                 }
             }
             catch
             {
             }
+        }
+
+        // Track when the break first became due (focus threshold met, awaiting delivery boundary).
+        // Reset whenever the break fires or is no longer pending.
+        if (string.Equals(decision.ReasonCode, "awaiting_delivery_boundary", StringComparison.Ordinal))
+        {
+            if (breakDueSinceUtcMs <= 0)
+            {
+                breakDueSinceUtcMs = nowUtcMs;
+            }
+        }
+        else
+        {
+            breakDueSinceUtcMs = 0;
         }
 
         string valueJson = JsonSerializer.Serialize(new
@@ -5709,11 +5726,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             break_cooldown_until_utc_ms = cooldownEndTsMs,
             break_last_fired_utc_ms = lastFiredTsMs,
             break_last_action = lastAction,
+            break_due_since_utc_ms = breakDueSinceUtcMs,
             short_break_effective_focus_s = focusWindow.ShortBreakWindowEffectiveFocusSeconds,
             long_break_effective_focus_s = focusWindow.LongBreakWindowEffectiveFocusSeconds,
             current_bucket_effective_focus_s = focusWindow.CurrentBucketEffectiveFocusSeconds,
             delivery_boundary_reached = focusWindow.DeliveryBoundaryReached,
             delivery_boundary_kind = focusWindow.DeliveryBoundaryKind ?? string.Empty,
+            flow_state_active = focusWindow.FlowStateActive,
             high_pressure = focusWindow.HighPressure,
             pending_action = decision.Action,
             pending_break_kind = decision.BreakKind,
@@ -5809,14 +5828,41 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             segmentCursorUtcMs = timestampUtcMs;
         }
 
+        // Flow state: user has been in uninterrupted task continuity for FlowStateWindowSeconds
+        // with no app switch in the current bucket. Suppresses typing_quiet delivery boundary.
+        bool flowStateActive =
+            !string.Equals(derivedSession.ContinuityState, "reset", StringComparison.Ordinal)
+            && derivedSession.TaskContinuitySeconds >= settings.FlowStateWindowSeconds
+            && inputBucket.FocusSwitchCount == 0;
+
+        // Read persisted break_due_since_utc_ms so the hard-timeout can be evaluated.
+        long breakDueSinceUtcMs = 0;
+        string? existingBreakRuntimeJson = ReadRuntimeStateValue(connection, tx, PortaExecutionConstants.BreakPolicy.RuntimeStateKey);
+        if (!string.IsNullOrWhiteSpace(existingBreakRuntimeJson))
+        {
+            try
+            {
+                using JsonDocument bDoc = JsonDocument.Parse(existingBreakRuntimeJson);
+                if (bDoc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    breakDueSinceUtcMs = ReadInt64Property(bDoc.RootElement, "break_due_since_utc_ms");
+                }
+            }
+            catch
+            {
+            }
+        }
+
         return new BreakFocusWindowSnapshot(
             CurrentBucketEffectiveFocusSeconds: currentBucketEffectiveFocusSeconds,
             ShortBreakWindowEffectiveFocusSeconds: shortBreakWindowEffectiveFocusSeconds,
             LongBreakWindowEffectiveFocusSeconds: longBreakWindowEffectiveFocusSeconds,
-            DeliveryBoundaryReached: IsBreakDeliveryBoundary(inputBucket, derivedSession, settings),
-            DeliveryBoundaryKind: ResolveBreakDeliveryBoundaryKind(inputBucket, derivedSession, settings),
+            DeliveryBoundaryReached: IsBreakDeliveryBoundary(inputBucket, derivedSession, flowStateActive, settings),
+            DeliveryBoundaryKind: ResolveBreakDeliveryBoundaryKind(inputBucket, derivedSession, flowStateActive, settings),
             HighPressure: overloadStabilization.OverloadActive
-                || overloadInference.PressureLevel >= settings.HighPressureLevel);
+                || overloadInference.PressureLevel >= settings.HighPressureLevel,
+            FlowStateActive: flowStateActive,
+            BreakDueSinceUtcMs: breakDueSinceUtcMs);
     }
 
     private static double ResolveCurrentBucketEffectiveFocusSeconds(DerivedSessionMetricsResult derivedSession)
@@ -5895,14 +5941,16 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private static bool IsBreakDeliveryBoundary(
         InputBucketRow inputBucket,
         DerivedSessionMetricsResult derivedSession,
+        bool flowStateActive,
         RuntimeBreakPolicySettings? policy = null)
     {
-        return !string.IsNullOrWhiteSpace(ResolveBreakDeliveryBoundaryKind(inputBucket, derivedSession, policy));
+        return !string.IsNullOrWhiteSpace(ResolveBreakDeliveryBoundaryKind(inputBucket, derivedSession, flowStateActive, policy));
     }
 
     private static string ResolveBreakDeliveryBoundaryKind(
         InputBucketRow inputBucket,
         DerivedSessionMetricsResult derivedSession,
+        bool flowStateActive,
         RuntimeBreakPolicySettings? policy = null)
     {
         RuntimeBreakPolicySettings settings = policy ?? DefaultBreakPolicySettings();
@@ -5928,7 +5976,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             return "post_switch_settle";
         }
 
-        if (inputBucket.TypingBurstIntensity <= settings.DeliveryBoundaryTypingQuietMax
+        // typing_quiet suppressed during flow state — a brief keyboard lull mid-deep-work
+        // is not a natural pause and would interrupt focus.
+        if (!flowStateActive
+            && inputBucket.TypingBurstIntensity <= settings.DeliveryBoundaryTypingQuietMax
             && inputBucket.KeyboardBurstRate <= settings.DeliveryBoundaryKeyboardBurstQuietMax)
         {
             return "typing_quiet";
@@ -5982,7 +6033,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds,
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMaxSeconds,
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryTypingQuietMax,
-            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax);
+            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax,
+            PortaExecutionConstants.BreakPolicy.FlowStateWindowSeconds,
+            PortaExecutionConstants.BreakPolicy.HardTimeoutSeconds);
     }
 
     private static RuntimeOverloadStabilizationSettings DefaultOverloadStabilizationSettings()

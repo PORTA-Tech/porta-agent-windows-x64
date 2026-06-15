@@ -26,7 +26,9 @@ public sealed record RuntimeBreakPolicySettings(
     double DeliveryBoundaryIdleMinSeconds,
     double DeliveryBoundaryIdleMaxSeconds,
     double DeliveryBoundaryTypingQuietMax,
-    double DeliveryBoundaryKeyboardBurstQuietMax);
+    double DeliveryBoundaryKeyboardBurstQuietMax,
+    int FlowStateWindowSeconds,
+    int HardTimeoutSeconds);
 
 public sealed record RuntimeDeepWorkDetectionSettings(
     int SustainedAttentionSeconds,
@@ -247,7 +249,9 @@ public sealed class FileRuntimePolicyProvider : IRuntimePolicyProvider
             DeliveryBoundaryIdleMinSeconds: Clamp(doc?.DeliveryBoundaryIdleMinSeconds ?? fallback.DeliveryBoundaryIdleMinSeconds, 0.5d, 60d),
             DeliveryBoundaryIdleMaxSeconds: Clamp(doc?.DeliveryBoundaryIdleMaxSeconds ?? fallback.DeliveryBoundaryIdleMaxSeconds, 1d, 120d),
             DeliveryBoundaryTypingQuietMax: Clamp(doc?.DeliveryBoundaryTypingQuietMax ?? fallback.DeliveryBoundaryTypingQuietMax, 0d, 1d),
-            DeliveryBoundaryKeyboardBurstQuietMax: Clamp(doc?.DeliveryBoundaryKeyboardBurstQuietMax ?? fallback.DeliveryBoundaryKeyboardBurstQuietMax, 0d, 1d));
+            DeliveryBoundaryKeyboardBurstQuietMax: Clamp(doc?.DeliveryBoundaryKeyboardBurstQuietMax ?? fallback.DeliveryBoundaryKeyboardBurstQuietMax, 0d, 1d),
+            FlowStateWindowSeconds: fallback.FlowStateWindowSeconds,
+            HardTimeoutSeconds: fallback.HardTimeoutSeconds);
     }
 
     private static RuntimeDeepWorkDetectionSettings ResolveDeepWork(
@@ -320,7 +324,9 @@ public sealed class FileRuntimePolicyProvider : IRuntimePolicyProvider
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMinSeconds,
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryIdleMaxSeconds,
             PortaExecutionConstants.BreakPolicy.DeliveryBoundaryTypingQuietMax,
-            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax);
+            PortaExecutionConstants.BreakPolicy.DeliveryBoundaryKeyboardBurstQuietMax,
+            PortaExecutionConstants.BreakPolicy.FlowStateWindowSeconds,
+            PortaExecutionConstants.BreakPolicy.HardTimeoutSeconds);
 
         RuntimeDeepWorkDetectionSettings deepWork = new(
             PortaExecutionConstants.DeepWorkDetection.SustainedAttentionSeconds,

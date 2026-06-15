@@ -216,6 +216,8 @@ public static class PortaExecutionConstants
         public const double DeliveryBoundaryIdleMaxSeconds = 30.0;
         public const double DeliveryBoundaryTypingQuietMax = 0.35;
         public const double DeliveryBoundaryKeyboardBurstQuietMax = 0.20;
+        public const int FlowStateWindowSeconds = 180;   // 3 min of uninterrupted continuity = flow state
+        public const int HardTimeoutSeconds = 15;        // show break after holding this long with no pause
         public const string RuntimeStateKey = "break_policy:cooldown";
         public const string ContractVersion = "v2";
     }

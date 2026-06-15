@@ -153,7 +153,9 @@ public sealed class BreakSuggestionPolicyTests
             DeliveryBoundaryIdleMinSeconds: 2.0d,
             DeliveryBoundaryIdleMaxSeconds: 30.0d,
             DeliveryBoundaryTypingQuietMax: 0.35d,
-            DeliveryBoundaryKeyboardBurstQuietMax: 0.20d);
+            DeliveryBoundaryKeyboardBurstQuietMax: 0.20d,
+            FlowStateWindowSeconds: PortaExecutionConstants.BreakPolicy.FlowStateWindowSeconds,
+            HardTimeoutSeconds: PortaExecutionConstants.BreakPolicy.HardTimeoutSeconds);
 
         BreakSuggestionDecision withOverride = BreakSuggestionPolicy.ShouldTriggerBreak(
             gating,
@@ -681,7 +683,9 @@ public sealed class BreakSuggestionPolicyTests
             LongBreakWindowEffectiveFocusSeconds: longBreakSeconds,
             DeliveryBoundaryReached: !string.IsNullOrWhiteSpace(boundaryKind),
             DeliveryBoundaryKind: boundaryKind,
-            HighPressure: highPressure);
+            HighPressure: highPressure,
+            FlowStateActive: false,
+            BreakDueSinceUtcMs: 0);
     }
 
     private static AgentBrainSnapshot BuildMinimalSnapshot(long bucketSeq, double overload, double confidence)
