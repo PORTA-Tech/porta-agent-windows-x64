@@ -17,6 +17,23 @@ public static class LocalAttentionSegmentAnalytics
     public const string UnfocusedSessionSegmentKind          = "unfocused_session";
     public const string ShallowDwellDistractionSegmentKind   = "shallow_dwell_distraction";
     public const string FocusDepartureDistractionSegmentKind = "focus_departure_distraction";
+    // Phase 3 / category-based distraction kinds emitted by the agent
+    // (DerivedSessionMetricsComputer). These were added to the producer but never registered
+    // here, so they silently collapsed to "focus" on read and never rendered as distraction
+    // in the Control Center history (while the live widget, which keys off the
+    // distraction_episode_active flag, still showed them — hence the widget/console mismatch).
+    // Until they get their own Control Center episode kinds + colours, they are display-mapped
+    // to OffTaskDistractionSegmentKind in NormalizeAttentionSegmentKind below, so existing
+    // rendering treats them as distraction. The specific story is preserved in the
+    // attention_segment_reason_text the agent writes (e.g. "Social media use during work time").
+    public const string SocialMediaDistractionSegmentKind    = "social_media_distraction";
+    public const string SocialMediaLoopSegmentKind           = "social_media_loop";
+    public const string GamingLauncherDistractionSegmentKind = "gaming_launcher_distraction";
+    public const string ActiveGamingDistractionSegmentKind   = "active_gaming_distraction";
+    public const string PassiveConsumptionSegmentKind        = "passive_consumption";
+    public const string CommMonitoringLoopSegmentKind        = "comm_monitoring_loop";
+    public const string FocusCategoryAbsentSegmentKind       = "focus_category_absent";
+    public const string BadSessionStartSegmentKind           = "bad_session_start";
 
     public static string ResolveAttentionSegmentKind(LocalApiCurrentSnapshotResponse snapshot)
     {
@@ -231,6 +248,18 @@ public static class LocalAttentionSegmentAnalytics
             UnfocusedSessionSegmentKind              => UnfocusedSessionSegmentKind,
             ShallowDwellDistractionSegmentKind       => ShallowDwellDistractionSegmentKind,
             FocusDepartureDistractionSegmentKind     => FocusDepartureDistractionSegmentKind,
+            // Phase 3 / category kinds — display-mapped to off-task distraction so the existing
+            // Control Center episode rendering and counts treat them as distraction. Mapping
+            // here (the single chokepoint every read path funnels through) means no Control
+            // Center code needs to change. See the const block above for why.
+            SocialMediaDistractionSegmentKind        => OffTaskDistractionSegmentKind,
+            SocialMediaLoopSegmentKind               => OffTaskDistractionSegmentKind,
+            GamingLauncherDistractionSegmentKind     => OffTaskDistractionSegmentKind,
+            ActiveGamingDistractionSegmentKind       => OffTaskDistractionSegmentKind,
+            PassiveConsumptionSegmentKind            => OffTaskDistractionSegmentKind,
+            CommMonitoringLoopSegmentKind            => OffTaskDistractionSegmentKind,
+            FocusCategoryAbsentSegmentKind           => OffTaskDistractionSegmentKind,
+            BadSessionStartSegmentKind               => OffTaskDistractionSegmentKind,
             _ => FocusSegmentKind
         };
 
