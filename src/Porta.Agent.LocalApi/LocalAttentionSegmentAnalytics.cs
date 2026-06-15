@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Porta.Agent.Common.Analysis;
 
 namespace Porta.Agent.LocalApi;
 
@@ -6,34 +7,31 @@ public static class LocalAttentionSegmentAnalytics
 {
     public const string SteadyFocusReasonCode = "steady_focus";
     public const string FocusEpisodeActiveReasonCode = "focus_episode_active";
-    public const string FocusSegmentKind = "focus";
-    public const string ContextExcursionSegmentKind = "context_excursion";
-    public const string OffTaskDistractionSegmentKind = "off_task_distraction";
-    public const string FragmentationDistractionSegmentKind = "fragmentation_distraction";
-    public const string AwaySegmentKind = "away";
-    // Block F — new distraction kinds
-    public const string RollingMicroBurstSegmentKind         = "rolling_micro_burst";
-    public const string ReturnLoopDistractionSegmentKind     = "return_loop_distraction";
-    public const string UnfocusedSessionSegmentKind          = "unfocused_session";
-    public const string ShallowDwellDistractionSegmentKind   = "shallow_dwell_distraction";
-    public const string FocusDepartureDistractionSegmentKind = "focus_departure_distraction";
-    // Phase 3 / category-based distraction kinds emitted by the agent
-    // (DerivedSessionMetricsComputer). These were added to the producer but never registered
-    // here, so they silently collapsed to "focus" on read and never rendered as distraction
-    // in the Control Center history (while the live widget, which keys off the
-    // distraction_episode_active flag, still showed them — hence the widget/console mismatch).
-    // Until they get their own Control Center episode kinds + colours, they are display-mapped
-    // to OffTaskDistractionSegmentKind in NormalizeAttentionSegmentKind below, so existing
-    // rendering treats them as distraction. The specific story is preserved in the
-    // attention_segment_reason_text the agent writes (e.g. "Social media use during work time").
-    public const string SocialMediaDistractionSegmentKind    = "social_media_distraction";
-    public const string SocialMediaLoopSegmentKind           = "social_media_loop";
-    public const string GamingLauncherDistractionSegmentKind = "gaming_launcher_distraction";
-    public const string ActiveGamingDistractionSegmentKind   = "active_gaming_distraction";
-    public const string PassiveConsumptionSegmentKind        = "passive_consumption";
-    public const string CommMonitoringLoopSegmentKind        = "comm_monitoring_loop";
-    public const string FocusCategoryAbsentSegmentKind       = "focus_category_absent";
-    public const string BadSessionStartSegmentKind           = "bad_session_start";
+
+    // Kind strings are defined once in Porta.Agent.Common.Analysis.AttentionSegmentKinds — the
+    // single source of truth shared by the agent producer and every reader. These public
+    // aliases keep the existing LocalApi / Control Center / test call sites working unchanged
+    // while guaranteeing there is only one place a kind string is ever spelled.
+    public const string FocusSegmentKind                     = AttentionSegmentKinds.Focus;
+    public const string ContextExcursionSegmentKind          = AttentionSegmentKinds.ContextExcursion;
+    public const string OffTaskDistractionSegmentKind        = AttentionSegmentKinds.OffTaskDistraction;
+    public const string FragmentationDistractionSegmentKind  = AttentionSegmentKinds.FragmentationDistraction;
+    public const string AwaySegmentKind                      = AttentionSegmentKinds.Away;
+    // Block F distraction kinds
+    public const string RollingMicroBurstSegmentKind         = AttentionSegmentKinds.RollingMicroBurst;
+    public const string ReturnLoopDistractionSegmentKind     = AttentionSegmentKinds.ReturnLoopDistraction;
+    public const string UnfocusedSessionSegmentKind          = AttentionSegmentKinds.UnfocusedSession;
+    public const string ShallowDwellDistractionSegmentKind   = AttentionSegmentKinds.ShallowDwellDistraction;
+    public const string FocusDepartureDistractionSegmentKind = AttentionSegmentKinds.FocusDepartureDistraction;
+    // Phase 3 / category distraction kinds
+    public const string SocialMediaDistractionSegmentKind    = AttentionSegmentKinds.SocialMediaDistraction;
+    public const string SocialMediaLoopSegmentKind           = AttentionSegmentKinds.SocialMediaLoop;
+    public const string GamingLauncherDistractionSegmentKind = AttentionSegmentKinds.GamingLauncherDistraction;
+    public const string ActiveGamingDistractionSegmentKind   = AttentionSegmentKinds.ActiveGamingDistraction;
+    public const string PassiveConsumptionSegmentKind        = AttentionSegmentKinds.PassiveConsumption;
+    public const string CommMonitoringLoopSegmentKind        = AttentionSegmentKinds.CommMonitoringLoop;
+    public const string FocusCategoryAbsentSegmentKind       = AttentionSegmentKinds.FocusCategoryAbsent;
+    public const string BadSessionStartSegmentKind           = AttentionSegmentKinds.BadSessionStart;
 
     public static string ResolveAttentionSegmentKind(LocalApiCurrentSnapshotResponse snapshot)
     {
@@ -85,18 +83,8 @@ public static class LocalAttentionSegmentAnalytics
     /// distraction episode. Context excursion and away are intentionally excluded —
     /// context excursion does not reset the focus timer; away has its own gating path.
     /// </summary>
-    public static bool IsDistractionKind(string? kind)
-    {
-        string normalized = NormalizeAttentionSegmentKind(kind);
-        return normalized is
-            OffTaskDistractionSegmentKind or
-            FragmentationDistractionSegmentKind or
-            RollingMicroBurstSegmentKind or
-            ReturnLoopDistractionSegmentKind or
-            UnfocusedSessionSegmentKind or
-            ShallowDwellDistractionSegmentKind or
-            FocusDepartureDistractionSegmentKind;
-    }
+    public static bool IsDistractionKind(string? kind) =>
+        AttentionSegmentKinds.IsDistraction(kind);
 
     public static double ResolveDistractionEpisodeSeconds(LocalApiCurrentSnapshotResponse snapshot)
     {

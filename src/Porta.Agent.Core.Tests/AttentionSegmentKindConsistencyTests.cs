@@ -1,3 +1,4 @@
+using Porta.Agent.Common.Analysis;
 using Porta.Agent.Core;
 using Porta.Agent.LocalApi;
 using Porta.Agent.LocalApi.Mappers;
@@ -16,29 +17,10 @@ namespace Porta.Agent.Core.Tests;
 /// </summary>
 public sealed class AttentionSegmentKindConsistencyTests
 {
-    // Every distraction kind the agent (DerivedSessionMetricsComputer) can emit.
-    // If a new kind is added to the producer, add it here — the contract test below will then
-    // fail until the read side (LocalAttentionSegmentAnalytics) recognizes it.
-    public static readonly string[] AgentDistractionKinds =
-    [
-        // Recognized before this fix
-        LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind,
-        LocalAttentionSegmentAnalytics.FragmentationDistractionSegmentKind,
-        LocalAttentionSegmentAnalytics.RollingMicroBurstSegmentKind,
-        LocalAttentionSegmentAnalytics.ReturnLoopDistractionSegmentKind,
-        LocalAttentionSegmentAnalytics.UnfocusedSessionSegmentKind,
-        LocalAttentionSegmentAnalytics.ShallowDwellDistractionSegmentKind,
-        LocalAttentionSegmentAnalytics.FocusDepartureDistractionSegmentKind,
-        // Previously dropped to "focus" (the bug this fix closes)
-        LocalAttentionSegmentAnalytics.SocialMediaDistractionSegmentKind,
-        LocalAttentionSegmentAnalytics.SocialMediaLoopSegmentKind,
-        LocalAttentionSegmentAnalytics.GamingLauncherDistractionSegmentKind,
-        LocalAttentionSegmentAnalytics.ActiveGamingDistractionSegmentKind,
-        LocalAttentionSegmentAnalytics.PassiveConsumptionSegmentKind,
-        LocalAttentionSegmentAnalytics.CommMonitoringLoopSegmentKind,
-        LocalAttentionSegmentAnalytics.FocusCategoryAbsentSegmentKind,
-        LocalAttentionSegmentAnalytics.BadSessionStartSegmentKind,
-    ];
+    // Single source of truth: every distraction kind the agent can emit, defined once in
+    // Porta.Agent.Common.Analysis.AttentionSegmentKinds. If a new kind is added there, every
+    // assertion below automatically covers it.
+    public static readonly IReadOnlyList<string> AgentDistractionKinds = AttentionSegmentKinds.AllDistractionKinds;
 
     // The 8 kinds that were previously collapsing to "focus" on read.
     public static readonly TheoryData<string> PreviouslyDroppedKinds = new()
