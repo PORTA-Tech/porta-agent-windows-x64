@@ -1086,7 +1086,11 @@ internal static class DerivedSessionMetricsComputer
                 bool alternates = true;
                 for (int i = 1; i < ring.Count; i++)
                     if (string.Equals(ring[i].Hash, ring[i - 1].Hash, StringComparison.Ordinal)) { alternates = false; break; }
-                if (alternates)
+                // Editor <-> browser cycling while working is normal, not ping-pong distraction:
+                // suppress when either side of the loop is a focus-positive (Dev/Productivity) app.
+                bool eitherFocusPositive = distinct.Any(h =>
+                    AppCategoryClassifier.IsFocusPositive(AppCategoryClassifier.GetCategoryForHash(h)));
+                if (alternates && !eitherFocusPositive)
                 {
                     double totalTime = ring[^1].T - ring[0].T;
                     double avgDwell = totalTime / Math.Max(ring.Count - 1, 1);
@@ -1178,10 +1182,18 @@ internal static class DerivedSessionMetricsComputer
         AppCategory currentCategory = AppCategoryClassifier.GetCategoryForHash(currentDom);
 
         // ── Phase 3: Session-level state (focus-category absence + session-start quality) ──
-        // Pattern 13 — Focus category absent: resets when Dev/Productivity is foregrounded.
-        double focusCategoryAbsSec = AppCategoryClassifier.IsFocusPositive(currentCategory)
-            ? 0d
-            : ClampNonNegativeFinite(previous.FocusCategoryAbsentSeconds + Time.bucketSeconds);
+        // Pattern 13 — Focus category absent.
+        // Only KNOWN-distracting categories accumulate focus-absence. Unknown (e.g. browsers we
+        // cannot classify yet) and Communication are treated as NEUTRAL — neither focus nor
+        // distraction — so ordinary browser/research/chat time is no longer mislabeled as
+        // "no productive app in focus". (Focus-positive Dev/Productivity also resets, as before.)
+        bool distractingCategory = currentCategory is AppCategory.Entertainment
+            or AppCategory.SocialMedia
+            or AppCategory.Gaming
+            or AppCategory.GamingLauncher;
+        double focusCategoryAbsSec = distractingCategory
+            ? ClampNonNegativeFinite(previous.FocusCategoryAbsentSeconds + Time.bucketSeconds)
+            : 0d;
 
         // Pattern 14 — Bad session start: one-shot check after first 10 min of session.
         bool sessionStartChecked = previous.SessionStartChecked;
