@@ -460,7 +460,7 @@ public partial class MainWindow
         Process.Start(new ProcessStartInfo
         {
             FileName = powershellPath,
-            Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{launchPlan.HelperScriptPath}\" -ContextPath \"{launchPlan.ContextPath}\"",
+            Arguments = $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{launchPlan.HelperScriptPath}\" -ContextPath \"{launchPlan.ContextPath}\"",
             UseShellExecute = true,
             Verb = "runas",
             WorkingDirectory = Path.GetDirectoryName(launchPlan.Context.InstallerPath) ?? AppContext.BaseDirectory

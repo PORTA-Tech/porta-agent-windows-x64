@@ -39,6 +39,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private readonly KeyboardHook _keyboardHook = new();
     private readonly UserKeyboardActivityPoller _keyboardPoller = new();
     private readonly MouseHook _mouseHook = new();
+    // Tracks the Environment.TickCount at the last keyboard HOOK event so the
+    // concurrent polling fallback can suppress duplicate events when the hook is
+    // working. When the hook goes silent (e.g. elevated-integrity foreground app),
+    // elapsed ticks exceed the dedup window and poller events pass through.
+    private volatile int _lastHookKeyboardEventTick = 0;
     private readonly CaptureSelfTestCoordinator _captureSelfTest = new();
     private readonly string _agentInstanceId = BuildAgentInstanceId();
     private DateTimeOffset _sessionStartedUtc = DateTimeOffset.UtcNow;
@@ -98,8 +103,35 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             _notificationController,
             _notificationSnapshotStore,
             _interventionPreferenceStore);
-        _keyboardHook.KeyChanged += OnKeyboardChanged;
-        _keyboardPoller.KeyChanged += OnKeyboardChanged;
+        // Hook fires immediately but is bypassed by Windows for elevated-integrity
+        // foreground apps. We track the last hook-tick so the poller can suppress
+        // duplicates when the hook IS working and take over when it goes silent.
+        _keyboardHook.KeyChanged += (isKeyDown, isBackspace, isInjected) =>
+        {
+            if (isKeyDown && !isInjected)
+            {
+                Volatile.Write(ref _lastHookKeyboardEventTick, Environment.TickCount);
+            }
+
+            OnKeyboardChanged(isKeyDown, isBackspace, isInjected);
+        };
+        // Poller (GetAsyncKeyState) works even for elevated-integrity foreground apps.
+        // Suppress its events if the hook fired within the last 30 ms to avoid
+        // double-counting the same keypress.
+        _keyboardPoller.KeyChanged += (isKeyDown, isBackspace, isInjected) =>
+        {
+            if (isKeyDown && !isInjected)
+            {
+                int lastHookTick = Volatile.Read(ref _lastHookKeyboardEventTick);
+                int elapsed = unchecked(Environment.TickCount - lastHookTick);
+                if (elapsed >= 0 && elapsed < 30)
+                {
+                    return; // Hook is active — let it own the event
+                }
+            }
+
+            OnKeyboardChanged(isKeyDown, isBackspace, isInjected);
+        };
         _mouseHook.MouseMoved += OnMouseMoved;
         _mouseHook.ScrollDeltaChanged += OnMouseWheelChanged;
     }
@@ -809,12 +841,20 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
     private void StartCaptureHooks()
     {
-        bool keyboardInstalled = _keyboardHook.Install();
-        if (!keyboardInstalled)
+        bool keyboardHookInstalled = _keyboardHook.Install();
+        if (!keyboardHookInstalled)
         {
-            _logger.LogWarning("Keyboard hook did not install. Falling back to keyboard polling.");
-            keyboardInstalled = _keyboardPoller.Install();
+            _logger.LogWarning("Keyboard hook did not install.");
         }
+
+        // Always start the poller alongside the hook. On Windows, WH_KEYBOARD_LL
+        // hooks are silently bypassed when a high-integrity (elevated) app is in the
+        // foreground, so the hook alone cannot guarantee coverage. The poller uses
+        // GetAsyncKeyState, which reads raw hardware state regardless of foreground
+        // integrity level. Duplicate events are suppressed in the KeyChanged handler
+        // when the hook is also active (30 ms dedup window).
+        bool pollerInstalled = _keyboardPoller.Install();
+        bool keyboardInstalled = keyboardHookInstalled || pollerInstalled;
 
         bool mouseInstalled = _mouseHook.Install();
         _keyboardCaptureAvailable = keyboardInstalled;
@@ -823,7 +863,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         if (!keyboardInstalled)
         {
-            _logger.LogWarning("Keyboard capture is unavailable. Keyboard capture will stay inactive.");
+            _logger.LogWarning("Keyboard capture is unavailable (hook and poller both failed). Keyboard capture will stay inactive.");
         }
 
         if (!mouseInstalled)
