@@ -193,6 +193,7 @@ $tc.Connect("127.0.0.1", (Get-Content C:\ProgramData\PortaAgent\local-api.endpoi
 
 | Version | Key change |
 |---|---|
+| 1.2.90 | Fix CS0420 compiler warning: remove redundant `volatile` keyword from `_lastHookKeyboardEventTick` (field accessed exclusively via `Volatile.Read`/`Volatile.Write` which provide their own memory barriers) |
 | 1.2.89 | Fix keyboard capture on machines where elevated-integrity apps (terminals, VS run as Admin) are used: always run `GetAsyncKeyState` poller alongside `WH_KEYBOARD_LL` hook; 30ms dedup window prevents double-counting when both fire; poller takes over silently when hook is bypassed by Windows. Fixes 0% calibration and missing focus/distraction data on other users' machines |
 | 1.2.88 | Fix Control Center manual update path: add `-WindowStyle Hidden` to PowerShell launch so the update window no longer flashes during manual install |
 | 1.2.87 | Silent background auto-update (AgentUpdateWorker): checks every 6h, installs during idle window (10+ min idle or 3am), fully hidden via `CreateNoWindow=true` |

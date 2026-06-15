@@ -43,7 +43,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     // concurrent polling fallback can suppress duplicate events when the hook is
     // working. When the hook goes silent (e.g. elevated-integrity foreground app),
     // elapsed ticks exceed the dedup window and poller events pass through.
-    private volatile int _lastHookKeyboardEventTick = 0;
+    private int _lastHookKeyboardEventTick = 0;
     private readonly CaptureSelfTestCoordinator _captureSelfTest = new();
     private readonly string _agentInstanceId = BuildAgentInstanceId();
     private DateTimeOffset _sessionStartedUtc = DateTimeOffset.UtcNow;
