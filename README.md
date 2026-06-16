@@ -6,7 +6,7 @@
 
 ## What Ari Does
 
-1. **Captures input signals** every second — keystrokes count, mouse movement, scroll velocity, app focus switches, idle time. Never raw text, screen content, clipboard, or file names.
+1. **Captures input signals** every second — keystrokes count, mouse movement, scroll velocity, app focus switches, idle time. Never raw text, screen content, clipboard, or file names. Browser tab titles are read in memory to tell work sites from distractions (e.g. GitHub vs. YouTube); only the resulting category is stored — never the title — and this can be turned off in **Settings → Privacy**.
 2. **Analyzes in 5-second buckets** — normalizes signals against a personal baseline (Welford online stats), scores focus strength, overload likelihood, distraction pressure.
 3. **Tracks work sessions** — detects focus episodes (≥15 s sustained focus), passive focus (reading/thinking without input), context switches, breaks. Resets only on genuine 3+ min idle or 5+ min app context shift.
 4. **Detects distractions** — 14 distraction patterns (app-switch spirals, context excursions, social interrupts, junk browsing, gaming launchers) with time-of-day multipliers so morning deep-work is scored more strictly.

@@ -185,6 +185,7 @@ public partial class MainWindow : Window
         SidebarDateText.Text = DateTime.Now.ToString("ddd d MMM", System.Globalization.CultureInfo.InvariantCulture);
         _isLightTheme = AppearancePreferenceStore.LoadIsLightTheme();
         AppearanceLightModeToggle.IsChecked = _isLightTheme;
+        BrowserTitleReadingToggle.IsChecked = Porta.Agent.Common.Privacy.PrivacySettingsStore.ReadBrowserTitlesEnabled();
         if (_isLightTheme)
         {
             ApplyTheme(true);
@@ -1065,6 +1066,12 @@ public partial class MainWindow : Window
         _isLightTheme = AppearanceLightModeToggle.IsChecked == true;
         AppearancePreferenceStore.Save(_isLightTheme);
         ApplyTheme(_isLightTheme);
+    }
+
+    private void BrowserTitleReadingToggle_Click(object sender, RoutedEventArgs e)
+    {
+        Porta.Agent.Common.Privacy.PrivacySettingsStore.Save(
+            new Porta.Agent.Common.Privacy.PrivacySettings(BrowserTitleReadingToggle.IsChecked == true));
     }
 
     private void ApplyTheme(bool isLight)

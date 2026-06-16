@@ -1526,6 +1526,18 @@
                                         </Grid>
                                     </StackPanel>
                                 </Border>
+                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="BROWSER CONTEXT" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                                <TextBlock Text="Read browser tab titles" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
+                                                <TextBlock Text="Lets Ari tell work sites (GitHub, docs) from distractions (YouTube, social) so your focus vs. distraction split is accurate. Titles are read on this device only — never stored or sent. Ari keeps only the category." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <CheckBox x:Name="BrowserTitleReadingToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="BrowserTitleReadingToggle_Click" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
                                 <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16">
                                     <StackPanel>
                                         <TextBlock Text="DATA CONTROLS" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
