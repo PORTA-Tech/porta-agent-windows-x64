@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using Porta.Agent.Common.Analysis;
+using Porta.Agent.Common.Privacy;
 using Porta.Agent.Core.Security;
 
 namespace Porta.UserAgent.Input;
@@ -74,7 +75,11 @@ internal static class UserSessionNativeSignals
             // category, and fold the site into the app identity so each site is tracked as its
             // own "app" (e.g. YouTube vs GitHub). The raw title is NEVER stored or returned —
             // only the hashed identity and the category enum leave this method.
-            string? title = TryReadForegroundTitle(hwnd);
+            // Honor the user's privacy setting: when title reading is disabled, no title is
+            // read at all and the browser stays in the neutral Unknown category.
+            string? title = PrivacySettingsStore.ReadBrowserTitlesEnabled()
+                ? TryReadForegroundTitle(hwnd)
+                : null;
             (string siteToken, AppCategory siteCategory) = BrowserTitleClassifier.ClassifyTitle(title);
             string siteHash = HashIdentifier($"{exeIdentifier}|site:{siteToken}");
             AppCategoryClassifier.RegisterHashCategory(siteHash, siteCategory);
