@@ -35,18 +35,50 @@ internal static class UserSessionNativeSignals
             }
 
             long nowTicks = DateTimeOffset.UtcNow.UtcTicks;
+            string exeIdentifier;
+
             if (ForegroundHashCache.TryGetValue(processId, out CacheEntry cached)
                 && nowTicks <= cached.ExpiresAtUtcTicks)
             {
-                return cached.AppHash;
+                // Non-browser apps have a single stable identity -> fully cached.
+                if (!cached.IsBrowser)
+                {
+                    return cached.NonBrowserHash;
+                }
+
+                exeIdentifier = cached.ExeIdentifier;
+            }
+            else
+            {
+                exeIdentifier = ResolveStableAppIdentifier(processId);
+                bool isBrowser = BrowserTitleClassifier.IsBrowserExe(ExtractExeName(exeIdentifier));
+                long expiresAt = DateTimeOffset.UtcNow.Add(CacheTtl).UtcTicks;
+
+                if (!isBrowser)
+                {
+                    AppCategory category = AppCategoryClassifier.ClassifyStableIdentifier(exeIdentifier);
+                    string hash = HashIdentifier(exeIdentifier);
+                    AppCategoryClassifier.RegisterHashCategory(hash, category);
+                    ForegroundHashCache[processId] = new CacheEntry(exeIdentifier, false, hash, expiresAt);
+                    return hash;
+                }
+
+                // Browser: cache the resolved identity, but recompute the per-site hash on every
+                // tick below — one browser process shows many sites over time, so it cannot have a
+                // single cached category.
+                ForegroundHashCache[processId] = new CacheEntry(exeIdentifier, true, null, expiresAt);
             }
 
-            string identifier = ResolveStableAppIdentifier(processId);
-            AppCategory category = AppCategoryClassifier.ClassifyStableIdentifier(identifier);
-            string hash = HashIdentifier(identifier);
-            AppCategoryClassifier.RegisterHashCategory(hash, category);
-            ForegroundHashCache[processId] = new CacheEntry(hash, DateTimeOffset.UtcNow.Add(CacheTtl).UtcTicks);
-            return hash;
+            // ── Browser content classification ───────────────────────────────────
+            // Read the foreground window TITLE in memory only, derive a coarse site token +
+            // category, and fold the site into the app identity so each site is tracked as its
+            // own "app" (e.g. YouTube vs GitHub). The raw title is NEVER stored or returned —
+            // only the hashed identity and the category enum leave this method.
+            string? title = TryReadForegroundTitle(hwnd);
+            (string siteToken, AppCategory siteCategory) = BrowserTitleClassifier.ClassifyTitle(title);
+            string siteHash = HashIdentifier($"{exeIdentifier}|site:{siteToken}");
+            AppCategoryClassifier.RegisterHashCategory(siteHash, siteCategory);
+            return siteHash;
         }
         catch (Exception ex)
         {
@@ -154,6 +186,64 @@ internal static class UserSessionNativeSignals
         return Convert.ToHexString(hash.AsSpan(0, 16)).ToLowerInvariant();
     }
 
+    /// <summary>
+    /// Reads the foreground window title into memory for in-process classification only.
+    /// The returned string is handed to <see cref="BrowserTitleClassifier"/> and discarded;
+    /// it is never persisted, logged, or transmitted.
+    /// </summary>
+    private static string? TryReadForegroundTitle(IntPtr hwnd)
+    {
+        try
+        {
+            int length = NativeMethods.GetWindowTextLength(hwnd);
+            if (length <= 0)
+            {
+                return null;
+            }
+
+            int capacity = Math.Min(length, 512) + 1;
+            var buffer = new StringBuilder(capacity);
+            int copied = NativeMethods.GetWindowText(hwnd, buffer, capacity);
+            return copied > 0 ? buffer.ToString() : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Extracts the lowercase exe base name (no extension) from a stable identifier.</summary>
+    private static string ExtractExeName(string identifier)
+    {
+        string value;
+        if (identifier.StartsWith("exe:", StringComparison.Ordinal))
+        {
+            value = identifier["exe:".Length..];
+        }
+        else if (identifier.StartsWith("process:", StringComparison.Ordinal))
+        {
+            value = identifier["process:".Length..];
+        }
+        else
+        {
+            return string.Empty;
+        }
+
+        int slash = value.LastIndexOfAny(new[] { '\\', '/' });
+        if (slash >= 0)
+        {
+            value = value[(slash + 1)..];
+        }
+
+        int dot = value.LastIndexOf('.');
+        if (dot > 0)
+        {
+            value = value[..dot];
+        }
+
+        return value;
+    }
+
     private static class NativeMethods
     {
         [DllImport("user32.dll")]
@@ -161,6 +251,12 @@ internal static class UserSessionNativeSignals
 
         [DllImport("user32.dll")]
         internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        internal static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern int GetWindowTextLength(IntPtr hWnd);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -185,5 +281,9 @@ internal static class UserSessionNativeSignals
         public uint DwTime;
     }
 
-    private readonly record struct CacheEntry(string AppHash, long ExpiresAtUtcTicks);
+    private readonly record struct CacheEntry(
+        string ExeIdentifier,
+        bool IsBrowser,
+        string? NonBrowserHash,
+        long ExpiresAtUtcTicks);
 }
