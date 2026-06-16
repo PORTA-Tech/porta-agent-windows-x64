@@ -17,6 +17,13 @@ public sealed class BrowserTitleClassifierTests
     [InlineData("(3) Feed | LinkedIn", "linkedin", AppCategory.Productivity)]
     [InlineData("localhost:3000/dashboard - Google Chrome", "localhost", AppCategory.Development)]
     [InlineData("Q3 Budget - Google Sheets - Google Chrome", "googlesheets", AppCategory.Productivity)]
+    [InlineData("Discover Weekly - Spotify - Google Chrome", "spotify", AppCategory.Entertainment)]
+    [InlineData("Play Chess Online - Chess.com", "chess", AppCategory.Gaming)]
+    [InlineData("Zoom Meeting", "zoom", AppCategory.Communication)]
+    [InlineData("Two Sum - LeetCode", "leetcode", AppCategory.Development)]
+    [InlineData("Hacker News", "hackernews", AppCategory.Development)]
+    [InlineData("Today - Todoist", "todoist", AppCategory.Productivity)]
+    [InlineData("Claude", "claude", AppCategory.Productivity)]
     public void ClassifyTitle_KnownSites_ReturnExpectedTokenAndCategory(
         string title, string expectedToken, AppCategory expectedCategory)
     {
