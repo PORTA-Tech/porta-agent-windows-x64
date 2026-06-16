@@ -24,6 +24,11 @@ public sealed class BrowserTitleClassifierTests
     [InlineData("Hacker News", "hackernews", AppCategory.Development)]
     [InlineData("Today - Todoist", "todoist", AppCategory.Productivity)]
     [InlineData("Claude", "claude", AppCategory.Productivity)]
+    [InlineData("Dashboard - Binance", "binance", AppCategory.Productivity)]
+    [InlineData("Why startups fail | by Author | Medium", "medium", AppCategory.Productivity)]
+    [InlineData("Watch Movies & tv Shows Online free - 123Movies", "123movies", AppCategory.Entertainment)]
+    [InlineData("npm | Home", "npm", AppCategory.Development)]
+    [InlineData("Marketing Hub | HubSpot", "hubspot", AppCategory.Productivity)]
     public void ClassifyTitle_KnownSites_ReturnExpectedTokenAndCategory(
         string title, string expectedToken, AppCategory expectedCategory)
     {

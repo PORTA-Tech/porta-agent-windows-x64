@@ -254,6 +254,38 @@ public static class BrowserTitleClassifier
         ("claude",          "claude",       AppCategory.Productivity),
         ("deepseek",        "deepseek",     AppCategory.Productivity),
         ("copilot",         "copilot",      AppCategory.Productivity),
+
+        // ── Added from real usage — dev / founder / finance stack ───────
+        ("cursor",          "cursor",       AppCategory.Development),    // cursor.com/docs (desktop app also classified by exe)
+        ("npm |",           "npm",          AppCategory.Development),
+        ("codex",           "codex",        AppCategory.Development),
+        ("google for developers", "googledev", AppCategory.Development),
+        ("wordpress",       "wordpress",    AppCategory.Productivity),
+        ("wix.com",         "wix",          AppCategory.Productivity),
+        ("hubspot",         "hubspot",      AppCategory.Productivity),
+        ("paypal",          "paypal",       AppCategory.Productivity),
+        ("y combinator",    "ycombinator",  AppCategory.Productivity),
+        ("techstars",       "techstars",    AppCategory.Productivity),
+        ("antler hub",      "antler",       AppCategory.Productivity),
+        ("f6s",             "f6s",          AppCategory.Productivity),
+        ("binance",         "binance",      AppCategory.Productivity),   // finance = work here; move to neutral/distraction if it's personal
+        ("tradingview",     "tradingview",  AppCategory.Productivity),
+        ("coinbase",        "coinbase",     AppCategory.Productivity),
+        ("coinmarketcap",   "coinmarketcap",AppCategory.Productivity),
+
+        // ── Reading / news: treated as WORK per product decision (leisure, not distraction)
+        ("| medium",        "medium",       AppCategory.Productivity),
+        ("substack",        "substack",     AppCategory.Productivity),
+        ("techcrunch",      "techcrunch",   AppCategory.Productivity),
+        ("- the verge",     "theverge",     AppCategory.Productivity),
+        ("bloomberg",       "bloomberg",    AppCategory.Productivity),
+        ("reuters",         "reuters",      AppCategory.Productivity),
+        ("new york times",  "nytimes",      AppCategory.Productivity),
+        ("ars technica",    "arstechnica",  AppCategory.Productivity),
+
+        // ── Free-streaming / movie sites: distraction ───────────────────
+        ("movie4k",         "movie4k",      AppCategory.Entertainment),
+        ("123movies",       "123movies",    AppCategory.Entertainment),
     };
 
     /// <summary>
