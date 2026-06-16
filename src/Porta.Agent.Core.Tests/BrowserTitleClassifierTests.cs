@@ -1,0 +1,66 @@
+using Porta.Agent.Common.Analysis;
+
+namespace Porta.Agent.Core.Tests;
+
+public sealed class BrowserTitleClassifierTests
+{
+    [Theory]
+    [InlineData("Rick Astley - Never Gonna Give You Up - YouTube - Google Chrome", "youtube", AppCategory.Entertainment)]
+    [InlineData("Inbox (5) - me@gmail.com - Gmail - Google Chrome", "gmail", AppCategory.Communication)]
+    [InlineData("Fix bug · Pull Request #42 · owner/repo · GitHub - Google Chrome", "github", AppCategory.Development)]
+    [InlineData("c# - How to parse JSON - Stack Overflow - Google Chrome", "stackoverflow", AppCategory.Development)]
+    [InlineData("Cute cats : r/aww - Google Chrome", "reddit", AppCategory.SocialMedia)]
+    [InlineData("photographer (@someone) • Instagram photos - Google Chrome", "instagram", AppCategory.SocialMedia)]
+    [InlineData("Project Plan - Notion - Google Chrome", "notion", AppCategory.Productivity)]
+    [InlineData("Untitled - Figma - Google Chrome", "figma", AppCategory.Productivity)]
+    [InlineData("Slack | general | MyWorkspace", "slack", AppCategory.Communication)]
+    [InlineData("(3) Feed | LinkedIn", "linkedin", AppCategory.Productivity)]
+    [InlineData("localhost:3000/dashboard - Google Chrome", "localhost", AppCategory.Development)]
+    [InlineData("Q3 Budget - Google Sheets - Google Chrome", "googlesheets", AppCategory.Productivity)]
+    public void ClassifyTitle_KnownSites_ReturnExpectedTokenAndCategory(
+        string title, string expectedToken, AppCategory expectedCategory)
+    {
+        (string token, AppCategory category) = BrowserTitleClassifier.ClassifyTitle(title);
+        Assert.Equal(expectedToken, token);
+        Assert.Equal(expectedCategory, category);
+    }
+
+    [Theory]
+    [InlineData("Some personal blog about gardening - Google Chrome")]
+    [InlineData("Online Banking - Account Summary")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void ClassifyTitle_Unrecognized_IsNeutralUnknown(string? title)
+    {
+        (string token, AppCategory category) = BrowserTitleClassifier.ClassifyTitle(title);
+        Assert.Equal(BrowserTitleClassifier.UnknownSiteToken, token);
+        Assert.Equal(AppCategory.Unknown, category);
+    }
+
+    [Fact]
+    public void ClassifyTitle_PlatformBeatsTopicMentionedInTitle()
+    {
+        // Watching a video *about* GitHub is YouTube time, not Development.
+        (string token, AppCategory category) =
+            BrowserTitleClassifier.ClassifyTitle("How to use GitHub - YouTube - Google Chrome");
+        Assert.Equal("youtube", token);
+        Assert.Equal(AppCategory.Entertainment, category);
+    }
+
+    [Theory]
+    [InlineData("chrome", true)]
+    [InlineData("CHROME", true)]
+    [InlineData("msedge", true)]
+    [InlineData("firefox", true)]
+    [InlineData("brave", true)]
+    [InlineData("cursor", false)]
+    [InlineData("code", false)]
+    [InlineData("explorer", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsBrowserExe_RecognizesBrowsersOnly(string? exe, bool expected)
+    {
+        Assert.Equal(expected, BrowserTitleClassifier.IsBrowserExe(exe));
+    }
+}
