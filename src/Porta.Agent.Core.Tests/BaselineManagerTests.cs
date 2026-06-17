@@ -145,6 +145,79 @@ public sealed class BaselineManagerTests
     }
 
     [Fact]
+    public void UpdateForFinalizedBucket_AllowsBaseline_WhenPartialOnlyDueToMissingFocus()
+    {
+        // A machine that captures keyboard/mouse/idle but never resolves a foreground
+        // window is partial on every bucket. It must still build the non-focus baselines
+        // (otherwise it is stuck "warming up" forever), while the focus-derived metrics are
+        // skipped so the focus baseline is never polluted with empty data.
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+
+        long tsMs = Time.epoch_anchor_ms;
+        InputBucketRow row = BuildRow(bucketSeq: 0, startUtc: Time.toIsoUtcMsString(tsMs), quality: 0.76) with
+        {
+            Partial = 1,
+            ContributorsJson = "{\"schema_ver\":1,\"missing_major_channels\":[\"focus\"]}"
+        };
+        InsertInputBucketRow(connection, tx, row);
+
+        BaselineManager.UpdateForFinalizedBucket(connection, tx, row);
+        tx.Commit();
+
+        // 13 metrics total minus the 3 focus metrics = 10 written.
+        Assert.Equal(BaselineMetricRegistry.Metrics.Count - 3, ReadInt(connection, "SELECT COUNT(*) FROM baseline_stats;"));
+        Assert.Equal(1, ReadInt(connection, "SELECT sample_count FROM baseline_stats WHERE metric_key='keyboard_iki_mean';"));
+        Assert.Equal(1, ReadInt(connection, "SELECT sample_count FROM baseline_stats WHERE metric_key='idle_seconds';"));
+        // Focus metrics must NOT be written even though the row carries non-zero focus values.
+        Assert.Equal(0, ReadInt(connection, "SELECT COUNT(*) FROM baseline_stats WHERE metric_key='focus_switch_rate';"));
+        Assert.Equal(0, ReadInt(connection, "SELECT COUNT(*) FROM baseline_stats WHERE metric_key='focus_app_entropy';"));
+        Assert.Equal(0, ReadInt(connection, "SELECT COUNT(*) FROM baseline_stats WHERE metric_key='focus_active_app_count';"));
+    }
+
+    [Fact]
+    public void UpdateForFinalizedBucket_SkipsBaseline_WhenPartialFromMissingInteractionAndFocus()
+    {
+        // Focus-relaxation must NOT leak to buckets that are also missing interaction:
+        // when both keyboard and mouse are gone the bucket stays excluded.
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+
+        long tsMs = Time.epoch_anchor_ms;
+        InputBucketRow row = BuildRow(bucketSeq: 0, startUtc: Time.toIsoUtcMsString(tsMs), quality: 0.90) with
+        {
+            Partial = 1,
+            ContributorsJson = "{\"schema_ver\":1,\"missing_major_channels\":[\"keyboard\",\"mouse\",\"focus\"]}"
+        };
+        InsertInputBucketRow(connection, tx, row);
+
+        BaselineManager.UpdateForFinalizedBucket(connection, tx, row);
+        tx.Commit();
+
+        Assert.Equal(0, ReadInt(connection, "SELECT COUNT(*) FROM baseline_stats;"));
+    }
+
+    [Fact]
+    public void UpdateForFinalizedBucket_SkipsBaseline_WhenPartialFromMissingIdleAndFocus()
+    {
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+
+        long tsMs = Time.epoch_anchor_ms;
+        InputBucketRow row = BuildRow(bucketSeq: 0, startUtc: Time.toIsoUtcMsString(tsMs), quality: 0.90) with
+        {
+            Partial = 1,
+            ContributorsJson = "{\"schema_ver\":1,\"missing_major_channels\":[\"idle\",\"focus\"]}"
+        };
+        InsertInputBucketRow(connection, tx, row);
+
+        BaselineManager.UpdateForFinalizedBucket(connection, tx, row);
+        tx.Commit();
+
+        Assert.Equal(0, ReadInt(connection, "SELECT COUNT(*) FROM baseline_stats;"));
+    }
+
+    [Fact]
     public void UpdateForFinalizedBucket_RecoversFromPartialBuckets_AndUnlocksTrustAtReadyThreshold()
     {
         using var connection = OpenInMemoryDb();

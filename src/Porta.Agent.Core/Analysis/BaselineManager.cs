@@ -75,8 +75,19 @@ internal static class BaselineManager
         bool canUpdateBaseline = IsStableForBaselineUpdate(connection, tx, inputBucketRow);
         if (canUpdateBaseline)
         {
+            // When the foreground/focus channel is unavailable for this bucket we still
+            // accumulate the keyboard/mouse/idle baselines (so a machine that cannot
+            // capture the foreground window can still calibrate), but we must NOT fold the
+            // focus-derived metrics in: their raw value would be 0, which passes the metric
+            // spike guard (min = 0) and would silently drag the focus baselines toward 0.
+            bool focusChannelUnavailable = IsFocusChannelMissing(inputBucketRow);
             foreach (BaselineMetricDefinition metric in BaselineMetricRegistry.Metrics)
             {
+                if (focusChannelUnavailable && FocusBaselineMetricKeys.Contains(metric.MetricKey))
+                {
+                    continue;
+                }
+
                 if (!metric.TryGetTransformedValue(inputBucketRow, out double value))
                 {
                     continue;
@@ -388,12 +399,29 @@ internal static class BaselineManager
         cmd.ExecuteNonQuery();
     }
 
+    private static readonly HashSet<string> FocusBaselineMetricKeys = new(StringComparer.Ordinal)
+    {
+        "focus_switch_rate",
+        "focus_app_entropy",
+        "focus_active_app_count"
+    };
+
     private static bool IsStableForBaselineUpdate(
         SqliteConnection connection,
         SqliteTransaction tx,
         InputBucketRow row)
     {
-        if (row.Partial != 0)
+        // A bucket is normally excluded from baseline updates when it is "partial". The
+        // dominant real-world cause of a permanently-partial machine is a missing FOCUS
+        // (foreground-app) channel: some sessions never yield a foreground window, so every
+        // bucket is partial, no baseline ever accumulates, and the machine is stuck
+        // "warming up" forever even though keyboard/mouse/idle are captured fine.
+        //
+        // Allow a bucket through when focus is the ONLY reason it is partial (interaction
+        // and idle are present). The MinQualityScore floor below still rejects buckets whose
+        // interaction/idle quality is genuinely too low, and the metric loop skips the
+        // focus-derived metrics so the focus baseline is never polluted with empty data.
+        if (row.Partial != 0 && !IsPartialOnlyDueToMissingFocus(row))
         {
             return false;
         }
@@ -404,6 +432,72 @@ internal static class BaselineManager
         }
 
         return !ReadOverloadActive(connection, tx);
+    }
+
+    private static bool IsFocusChannelMissing(InputBucketRow row)
+    {
+        return TryReadMissingMajorChannels(row.ContributorsJson, out HashSet<string> missing)
+            && missing.Contains("focus");
+    }
+
+    private static bool IsPartialOnlyDueToMissingFocus(InputBucketRow row)
+    {
+        if (!TryReadMissingMajorChannels(row.ContributorsJson, out HashSet<string> missing))
+        {
+            return false;
+        }
+
+        if (!missing.Contains("focus"))
+        {
+            return false;
+        }
+
+        // interactionMissing in the quality scorer means BOTH keyboard and mouse are absent;
+        // a bucket where only one of them is missing is still interaction-bearing.
+        bool interactionMissing = missing.Contains("keyboard") && missing.Contains("mouse");
+        bool idleMissing = missing.Contains("idle");
+        return !interactionMissing && !idleMissing;
+    }
+
+    private static bool TryReadMissingMajorChannels(string contributorsJson, out HashSet<string> missingChannels)
+    {
+        missingChannels = new HashSet<string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(contributorsJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(contributorsJson);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("missing_major_channels", out JsonElement missing)
+                || missing.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            foreach (JsonElement element in missing.EnumerateArray())
+            {
+                if (element.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                string? value = element.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    missingChannels.Add(value.Trim().ToLowerInvariant());
+                }
+            }
+
+            return missingChannels.Count > 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static bool ReadOverloadActive(SqliteConnection connection, SqliteTransaction tx)

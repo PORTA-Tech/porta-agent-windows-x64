@@ -26,12 +26,20 @@ internal static class UserSessionNativeSignals
             IntPtr hwnd = NativeMethods.GetForegroundWindow();
             if (hwnd == IntPtr.Zero)
             {
+                // SILENT-NULL PATH (root cause of "focus channel missing forever"):
+                // GetForegroundWindow returns 0 when the calling thread's desktop has no
+                // foreground window — a locked/secure desktop, a disconnected/RDP session,
+                // or the agent thread being attached to a different desktop than the active
+                // input desktop. No exception is thrown, so this used to vanish without a
+                // trace while keyboard/mouse (low-level hooks) kept working. Count + log it.
+                RecordForegroundUnavailable("no_foreground_window");
                 return null;
             }
 
             _ = NativeMethods.GetWindowThreadProcessId(hwnd, out uint processId);
             if (processId == 0)
             {
+                RecordForegroundUnavailable("zero_process_id");
                 return null;
             }
 
@@ -93,6 +101,29 @@ internal static class UserSessionNativeSignals
     }
 
     private static int _foregroundHashFailureLogged;
+
+    // Running count of ticks where the foreground window could not be resolved (silent-null
+    // path). Read by the host to surface a fleet-visible signal; logged on a throttle so a
+    // persistently-blind session is obvious in the log tail without flooding it.
+    private static long _foregroundUnavailableCount;
+    private const long ForegroundUnavailableLogEvery = 240; // ~20 min at 5s sampling.
+
+    private static void RecordForegroundUnavailable(string reason)
+    {
+        long count = System.Threading.Interlocked.Increment(ref _foregroundUnavailableCount);
+        if (count == 1 || count % ForegroundUnavailableLogEvery == 0)
+        {
+            Console.Error.WriteLine($"foreground_window_unavailable reason={reason} count={count}");
+        }
+    }
+
+    /// <summary>
+    /// Total number of sampling ticks since process start where the foreground window was
+    /// unavailable (locked/secure desktop, disconnected session, or desktop mismatch). A
+    /// large and growing value indicates the focus channel is being starved on this machine.
+    /// </summary>
+    public static long ReadForegroundUnavailableCount()
+        => System.Threading.Interlocked.Read(ref _foregroundUnavailableCount);
 
     private static void LogForegroundHashFailureOnce(Exception ex)
     {
