@@ -35,6 +35,13 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private int _widgetNotReadyLogged;
     private int _widgetFailedLogged;
     private int _topmostNudgeCounter;
+    // Backoff for the maintenance-loop forced restart. On a machine where the widget can
+    // never become healthy (e.g. its desktop surface never reports visible), the 2s loop
+    // would otherwise restart the widget thread on every tick — flooding the log and
+    // churning the process without ever helping. Healthy machines never enter the restart
+    // path at all, so this throttle is completely inert for them.
+    private static readonly TimeSpan MaintenanceRestartBackoff = TimeSpan.FromSeconds(60);
+    private DateTimeOffset _lastMaintenanceRestartUtc = DateTimeOffset.MinValue;
     private bool _disposed;
 
     public UserDesktopWidgetPresenter(UserDesktopWidgetRollout? rollout = null)
@@ -123,6 +130,17 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             return;
         }
 
+        // Backoff: cap forced restarts so a widget that can't stay healthy on this machine
+        // doesn't thrash the thread (and flood the log) on every 2s maintenance tick. The
+        // first restart still fires immediately; only repeats within the window are skipped.
+        // Healthy machines never reach this path, so this changes nothing for them.
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        if ((nowUtc - _lastMaintenanceRestartUtc) < MaintenanceRestartBackoff)
+        {
+            return;
+        }
+
+        _lastMaintenanceRestartUtc = nowUtc;
         UserAgentFileLog.Info("desktop_widget_recovery_requested");
         EnsureWidgetThreadStarted(forceRestart: true);
     }
