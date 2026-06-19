@@ -24,23 +24,37 @@ internal static class UserSessionNativeSignals
         try
         {
             IntPtr hwnd = NativeMethods.GetForegroundWindow();
-            if (hwnd == IntPtr.Zero)
+            uint processId = 0;
+            if (hwnd != IntPtr.Zero)
             {
-                // SILENT-NULL PATH (root cause of "focus channel missing forever"):
-                // GetForegroundWindow returns 0 when the calling thread's desktop has no
-                // foreground window — a locked/secure desktop, a disconnected/RDP session,
-                // or the agent thread being attached to a different desktop than the active
-                // input desktop. No exception is thrown, so this used to vanish without a
-                // trace while keyboard/mouse (low-level hooks) kept working. Count + log it.
-                RecordForegroundUnavailable("no_foreground_window");
-                return null;
+                _ = NativeMethods.GetWindowThreadProcessId(hwnd, out processId);
             }
 
-            _ = NativeMethods.GetWindowThreadProcessId(hwnd, out uint processId);
-            if (processId == 0)
+            if (hwnd == IntPtr.Zero || processId == 0)
             {
-                RecordForegroundUnavailable("zero_process_id");
-                return null;
+                // FALLBACK (A2 — fix for "focus channel missing forever" on RDP/remote/relaunched
+                // sessions): GetForegroundWindow returns 0 when THIS thread is attached to a
+                // different desktop than the active input desktop. Keyboard/mouse still flow
+                // (their low-level hooks are session-wide, not desktop-bound), but the focus
+                // channel goes empty. Re-read the foreground from a short-lived dedicated thread
+                // attached to the input desktop. This path ONLY runs when the direct read already
+                // failed, so machines where GetForegroundWindow works (the healthy majority) never
+                // execute any of it. Per-machine kill switch: set the environment variable
+                // PORTA_DISABLE_FOREGROUND_DESKTOP_REATTACH=1 and restart the agent.
+                if (!IsDesktopReattachDisabled()
+                    && TryProbeForegroundOnInputDesktop(out uint probedProcessId, out IntPtr probedHwnd)
+                    && probedHwnd != IntPtr.Zero
+                    && probedProcessId != 0)
+                {
+                    hwnd = probedHwnd;
+                    processId = probedProcessId;
+                    LogForegroundRecoveredOnce();
+                }
+                else
+                {
+                    RecordForegroundUnavailable(hwnd == IntPtr.Zero ? "no_foreground_window" : "zero_process_id");
+                    return null;
+                }
             }
 
             long nowTicks = DateTimeOffset.UtcNow.UtcTicks;
@@ -131,6 +145,125 @@ internal static class UserSessionNativeSignals
         {
             Console.Error.WriteLine(
                 $"foreground_app_hash_failed error={ex.GetType().Name}:{ex.Message}");
+        }
+    }
+
+    // ── A2: input-desktop re-attach fallback ────────────────────────────────────────────
+    // Only used when the direct GetForegroundWindow read fails. Reads the foreground from a
+    // dedicated short-lived thread attached to the active input desktop, so the main capture
+    // thread is never reassigned to a different desktop and nothing leaks across ticks.
+
+    private const uint MaximumAllowed = 0x02000000;
+    private static readonly TimeSpan ProbeJoinTimeout = TimeSpan.FromMilliseconds(300);
+    private static int _reattachDisabled = -1; // -1 unknown, 0 enabled, 1 disabled
+    private static int _foregroundRecoveredLogged;
+
+    private static bool IsDesktopReattachDisabled()
+    {
+        int cached = Volatile.Read(ref _reattachDisabled);
+        if (cached >= 0)
+        {
+            return cached == 1;
+        }
+
+        bool disabled = false;
+        try
+        {
+            string? value = System.Environment.GetEnvironmentVariable("PORTA_DISABLE_FOREGROUND_DESKTOP_REATTACH");
+            disabled = !string.IsNullOrWhiteSpace(value)
+                && (value.Trim() == "1" || value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            disabled = false;
+        }
+
+        Volatile.Write(ref _reattachDisabled, disabled ? 1 : 0);
+        return disabled;
+    }
+
+    private static bool TryProbeForegroundOnInputDesktop(out uint processId, out IntPtr hwnd)
+    {
+        processId = 0;
+        hwnd = IntPtr.Zero;
+
+        uint capturedProcessId = 0;
+        IntPtr capturedHwnd = IntPtr.Zero;
+
+        var probe = new Thread(() =>
+        {
+            // OpenInputDesktop returns a handle to the desktop currently receiving user input.
+            IntPtr desktop = NativeMethods.OpenInputDesktop(0, false, MaximumAllowed);
+            if (desktop == IntPtr.Zero)
+            {
+                return;
+            }
+
+            bool attached = false;
+            try
+            {
+                // Attach THIS dedicated thread (not the capture loop thread) to the input desktop.
+                // SetThreadDesktop succeeds because this fresh thread owns no windows or hooks.
+                attached = NativeMethods.SetThreadDesktop(desktop);
+                if (attached)
+                {
+                    IntPtr foreground = NativeMethods.GetForegroundWindow();
+                    if (foreground != IntPtr.Zero)
+                    {
+                        _ = NativeMethods.GetWindowThreadProcessId(foreground, out uint pid);
+                        capturedHwnd = foreground;
+                        capturedProcessId = pid;
+                    }
+                }
+            }
+            catch
+            {
+                // Never let the probe throw.
+            }
+            finally
+            {
+                // If we failed to attach, the desktop is not bound to this thread, so close it to
+                // avoid a handle leak. If we DID attach, the system closes it when this thread
+                // exits (closing an attached desktop here would just fail), so leave it.
+                if (!attached)
+                {
+                    _ = NativeMethods.CloseDesktop(desktop);
+                }
+            }
+        })
+        {
+            IsBackground = true,
+            Name = "porta-fg-desktop-probe"
+        };
+
+        bool completed;
+        try
+        {
+            probe.Start();
+            completed = probe.Join(ProbeJoinTimeout);
+        }
+        catch
+        {
+            return false;
+        }
+
+        // Only read the captured values once the probe thread has fully finished — Join provides
+        // the memory barrier. If it timed out, abandon it (it will exit on its own) and skip.
+        if (!completed)
+        {
+            return false;
+        }
+
+        processId = capturedProcessId;
+        hwnd = capturedHwnd;
+        return capturedHwnd != IntPtr.Zero;
+    }
+
+    private static void LogForegroundRecoveredOnce()
+    {
+        if (System.Threading.Interlocked.Exchange(ref _foregroundRecoveredLogged, 1) == 0)
+        {
+            Console.Error.WriteLine("foreground_recovered_via_input_desktop");
         }
     }
 
@@ -300,6 +433,10 @@ internal static class UserSessionNativeSignals
 
         [DllImport("user32.dll", SetLastError = true)]
         internal static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool SetThreadDesktop(IntPtr hDesktop);
 
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
