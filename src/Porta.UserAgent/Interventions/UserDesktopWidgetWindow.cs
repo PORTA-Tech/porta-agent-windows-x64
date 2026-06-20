@@ -1569,10 +1569,14 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     /// <summary>
     /// TEMP DIAGNOSTIC for the strip bug: records every size decision with full
-    /// context. Deduplicated by signature so the log tail is not flooded.
+    /// context. Disabled — on machines where the widget surface oscillates it floods the
+    /// log tail every few seconds and buries the capture diagnostics we actually need to
+    /// read remotely. Kept as a no-op so call sites still compile.
     /// </summary>
     private void LogSizeEvent(string detail)
     {
+        _ = detail;
+        return;
         try
         {
             string signature =

@@ -41,14 +41,21 @@ internal static class UserSessionNativeSignals
                 // failed, so machines where GetForegroundWindow works (the healthy majority) never
                 // execute any of it. Per-machine kill switch: set the environment variable
                 // PORTA_DISABLE_FOREGROUND_DESKTOP_REATTACH=1 and restart the agent.
-                if (!IsDesktopReattachDisabled()
-                    && TryProbeForegroundOnInputDesktop(out uint probedProcessId, out IntPtr probedHwnd)
+                uint probedProcessId = 0;
+                IntPtr probedHwnd = IntPtr.Zero;
+                bool recovered = !IsDesktopReattachDisabled()
+                    && TryProbeForegroundOnInputDesktop(out probedProcessId, out probedHwnd)
                     && probedHwnd != IntPtr.Zero
-                    && probedProcessId != 0)
+                    && probedProcessId != 0;
+
+                // Log the running probe outcome (throttled) so the console log tail shows exactly
+                // which step is failing — open desktop / attach / read — without a buried one-time line.
+                MaybeLogForegroundStatus();
+
+                if (recovered)
                 {
                     hwnd = probedHwnd;
                     processId = probedProcessId;
-                    LogForegroundRecoveredOnce();
                 }
                 else
                 {
@@ -156,7 +163,17 @@ internal static class UserSessionNativeSignals
     private const uint MaximumAllowed = 0x02000000;
     private static readonly TimeSpan ProbeJoinTimeout = TimeSpan.FromMilliseconds(300);
     private static int _reattachDisabled = -1; // -1 unknown, 0 enabled, 1 disabled
-    private static int _foregroundRecoveredLogged;
+
+    // A2 probe outcome counters. Surfaced via the periodic `foreground_status` log line so we can
+    // read — remotely, from the truncated log tail — exactly which step of the input-desktop probe
+    // is failing on a given machine, without relying on a single one-time line that scrolls away.
+    private static long _probeRecoveredCount;       // attached + read a real foreground (success)
+    private static long _probeOpenDesktopFailCount; // OpenInputDesktop returned 0
+    private static long _probeAttachFailCount;       // SetThreadDesktop returned false
+    private static long _probeNoForegroundCount;     // attached, but GetForegroundWindow still 0
+    private static long _probeTimeoutCount;          // probe thread did not finish within the join window
+    private static long _foregroundStatusLastLogTicks;
+    private static readonly long ForegroundStatusLogEveryTicks = TimeSpan.FromSeconds(15).Ticks;
 
     private static bool IsDesktopReattachDisabled()
     {
@@ -196,6 +213,7 @@ internal static class UserSessionNativeSignals
             IntPtr desktop = NativeMethods.OpenInputDesktop(0, false, MaximumAllowed);
             if (desktop == IntPtr.Zero)
             {
+                System.Threading.Interlocked.Increment(ref _probeOpenDesktopFailCount);
                 return;
             }
 
@@ -205,7 +223,11 @@ internal static class UserSessionNativeSignals
                 // Attach THIS dedicated thread (not the capture loop thread) to the input desktop.
                 // SetThreadDesktop succeeds because this fresh thread owns no windows or hooks.
                 attached = NativeMethods.SetThreadDesktop(desktop);
-                if (attached)
+                if (!attached)
+                {
+                    System.Threading.Interlocked.Increment(ref _probeAttachFailCount);
+                }
+                else
                 {
                     IntPtr foreground = NativeMethods.GetForegroundWindow();
                     if (foreground != IntPtr.Zero)
@@ -213,6 +235,11 @@ internal static class UserSessionNativeSignals
                         _ = NativeMethods.GetWindowThreadProcessId(foreground, out uint pid);
                         capturedHwnd = foreground;
                         capturedProcessId = pid;
+                        System.Threading.Interlocked.Increment(ref _probeRecoveredCount);
+                    }
+                    else
+                    {
+                        System.Threading.Interlocked.Increment(ref _probeNoForegroundCount);
                     }
                 }
             }
@@ -251,6 +278,7 @@ internal static class UserSessionNativeSignals
         // the memory barrier. If it timed out, abandon it (it will exit on its own) and skip.
         if (!completed)
         {
+            System.Threading.Interlocked.Increment(ref _probeTimeoutCount);
             return false;
         }
 
@@ -259,12 +287,36 @@ internal static class UserSessionNativeSignals
         return capturedHwnd != IntPtr.Zero;
     }
 
-    private static void LogForegroundRecoveredOnce()
+    // Emitted (throttled) whenever the foreground fallback runs, so the truncated log tail in the
+    // console always carries a recent line showing exactly how the input-desktop probe is doing:
+    //   recovered = times it attached and read a real foreground (the win)
+    //   openFail  = OpenInputDesktop returned 0 (agent not on the interactive window station)
+    //   attachFail= SetThreadDesktop failed
+    //   noFg      = attached fine but the input desktop still had no foreground window
+    //   timeout   = probe thread didn't finish in time
+    private static void MaybeLogForegroundStatus()
     {
-        if (System.Threading.Interlocked.Exchange(ref _foregroundRecoveredLogged, 1) == 0)
+        long nowTicks = DateTimeOffset.UtcNow.UtcTicks;
+        long last = System.Threading.Interlocked.Read(ref _foregroundStatusLastLogTicks);
+        if (nowTicks - last < ForegroundStatusLogEveryTicks)
         {
-            Console.Error.WriteLine("foreground_recovered_via_input_desktop");
+            return;
         }
+
+        if (System.Threading.Interlocked.CompareExchange(ref _foregroundStatusLastLogTicks, nowTicks, last) != last)
+        {
+            return;
+        }
+
+        Console.Error.WriteLine(
+            "foreground_status"
+            + " unavailable=" + System.Threading.Interlocked.Read(ref _foregroundUnavailableCount)
+            + " recovered=" + System.Threading.Interlocked.Read(ref _probeRecoveredCount)
+            + " openFail=" + System.Threading.Interlocked.Read(ref _probeOpenDesktopFailCount)
+            + " attachFail=" + System.Threading.Interlocked.Read(ref _probeAttachFailCount)
+            + " noFg=" + System.Threading.Interlocked.Read(ref _probeNoForegroundCount)
+            + " timeout=" + System.Threading.Interlocked.Read(ref _probeTimeoutCount)
+            + " reattachDisabled=" + (IsDesktopReattachDisabled() ? 1 : 0));
     }
 
     public static double ReadIdleDurationSeconds()
