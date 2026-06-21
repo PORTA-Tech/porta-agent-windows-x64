@@ -108,6 +108,16 @@ internal sealed class MachineSummaryMapper
             ?? NullIfWhiteSpace(latestState?.BreakPendingAction);
         bool breakNeeded = breakPendingKind is not null || breakPendingAction is not null;
 
+        // Diagnostic-only: the WTS connect-state of the session the user-agent runs in.
+        // "active" => the user is connected and an input desktop exists (so a missing focus
+        // channel points to a desktop-attach bug we can fix); "disconnected" => the RDP
+        // session is left running with nobody attached, so there is genuinely no foreground
+        // to read and the right answer is to represent that time as away. Purely additive;
+        // it changes no behavior on any machine.
+        string? userAgentSessionConnectState = TryParseSessionId(status.UserAgentSessionId, out int connectStateSessionId)
+            ? QuerySessionConnectState(connectStateSessionId)
+            : null;
+
         return new MachineSummaryReportPayload(
             DeviceId: identityLink.DeviceId,
             AccountId: accountId,
@@ -180,7 +190,8 @@ internal sealed class MachineSummaryMapper
             UserAgentSelfTestState: selfTestState,
             UserAgentSelfTestErrorCode: selfTestErrorCode,
             UserAgentLogTail: UserAgentLogTailReader.ReadTail(),
-            WindowsUpdateStatus: WindowsUpdateStatusReader.ReadStatus());
+            WindowsUpdateStatus: WindowsUpdateStatusReader.ReadStatus(),
+            UserAgentSessionConnectState: userAgentSessionConnectState);
     }
 
     private static double ResolvePressureLevel(string? stateFlagsJson, double fallback)
@@ -661,6 +672,41 @@ internal sealed class MachineSummaryMapper
         }
     }
 
+    // Reads WTS_INFO_CLASS.WTSConnectState (an int / WTS_CONNECTSTATE_CLASS) for a session and
+    // maps it to a stable lowercase token. Diagnostic-only; never throws into the caller.
+    private static string? QuerySessionConnectState(int sessionId)
+    {
+        if (!WTSQuerySessionInformation(IntPtr.Zero, sessionId, WtsInfoClass.WTSConnectState, out IntPtr buffer, out int bytesReturned)
+            || buffer == IntPtr.Zero
+            || bytesReturned < sizeof(int))
+        {
+            return null;
+        }
+
+        try
+        {
+            int state = Marshal.ReadInt32(buffer);
+            return state switch
+            {
+                0 => "active",
+                1 => "connected",
+                2 => "connect_query",
+                3 => "shadow",
+                4 => "disconnected",
+                5 => "idle",
+                6 => "listen",
+                7 => "reset",
+                8 => "down",
+                9 => "init",
+                _ => "unknown_" + state.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            };
+        }
+        finally
+        {
+            WTSFreeMemory(buffer);
+        }
+    }
+
     [DllImport("Wtsapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern bool WTSQuerySessionInformation(
         IntPtr hServer,
@@ -684,6 +730,7 @@ internal sealed class MachineSummaryMapper
         WTSSessionId,
         WTSUserName,
         WTSWinStationName,
-        WTSDomainName
+        WTSDomainName,
+        WTSConnectState
     }
 }

@@ -68,7 +68,8 @@ internal sealed record MachineSummaryReportPayload(
     [property: JsonPropertyName("userAgentSelfTestState")] string? UserAgentSelfTestState = null,
     [property: JsonPropertyName("userAgentSelfTestErrorCode")] string? UserAgentSelfTestErrorCode = null,
     [property: JsonPropertyName("userAgentLogTail")] string? UserAgentLogTail = null,
-    [property: JsonPropertyName("windowsUpdateStatus")] string? WindowsUpdateStatus = null);
+    [property: JsonPropertyName("windowsUpdateStatus")] string? WindowsUpdateStatus = null,
+    [property: JsonPropertyName("userAgentSessionConnectState")] string? UserAgentSessionConnectState = null);
 
 internal sealed record WindowsReleaseManifestPayload(
     [property: JsonPropertyName("platform")] string? Platform,

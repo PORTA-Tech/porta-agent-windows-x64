@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
@@ -11,8 +12,22 @@ namespace Porta.Agent.Service.Fleet;
 /// </summary>
 internal static class UserAgentLogTailReader
 {
-    private const int MaxTailBytes = 6 * 1024;
-    private const int MaxTailChars = 4000;
+    // Scan a large window of the file so that, even when high-frequency widget-surface lines
+    // dominate it, enough real signal lines remain after filtering to fill the returned tail.
+    private const int MaxScanBytes = 512 * 1024;
+    private const int MaxTailChars = 6000;
+
+    // High-frequency, low-value widget-surface lifecycle lines. On machines where the widget
+    // can't stay healthy these repeat several times a second and bury the capture diagnostics
+    // (foreground_status, host_run_begin, capture failures) that operators actually need. They
+    // are dropped from the transmitted tail only — the on-disk log is untouched.
+    private static readonly string[] NoiseMarkers =
+    {
+        "widget_size",
+        "desktop_widget_thread_starting",
+        "desktop_widget_window_initializing",
+        "desktop_widget_window_shown",
+    };
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
     private static readonly object Gate = new();
     private static string? _cachedTail;
@@ -51,7 +66,7 @@ internal static class UserAgentLogTailReader
                 FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete);
 
-            long start = Math.Max(0, stream.Length - MaxTailBytes);
+            long start = Math.Max(0, stream.Length - MaxScanBytes);
             stream.Seek(start, SeekOrigin.Begin);
             using var reader = new StreamReader(stream, Encoding.UTF8);
             string raw = reader.ReadToEnd();
@@ -66,17 +81,48 @@ internal static class UserAgentLogTailReader
                 }
             }
 
-            raw = raw.Trim();
-            if (raw.Length == 0)
+            // Keep only signal lines: drop the high-frequency widget-surface noise so the
+            // limited tail we transmit carries the diagnostics operators need.
+            var kept = new List<string>();
+            foreach (string line in raw.Split('\n'))
+            {
+                if (IsNoise(line))
+                {
+                    continue;
+                }
+
+                kept.Add(line.TrimEnd('\r'));
+            }
+
+            string filtered = string.Join("\n", kept).Trim();
+            if (filtered.Length == 0)
             {
                 return null;
             }
 
-            return raw.Length <= MaxTailChars ? raw : raw[^MaxTailChars..];
+            return filtered.Length <= MaxTailChars ? filtered : filtered[^MaxTailChars..];
         }
         catch
         {
             return null;
         }
+    }
+
+    private static bool IsNoise(string line)
+    {
+        if (string.IsNullOrEmpty(line))
+        {
+            return false;
+        }
+
+        foreach (string marker in NoiseMarkers)
+        {
+            if (line.Contains(marker, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

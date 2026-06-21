@@ -3,10 +3,10 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <Version>1.2.95</Version>
-    <AssemblyVersion>1.2.95.0</AssemblyVersion>
-    <FileVersion>1.2.95.0</FileVersion>
-    <InformationalVersion>1.2.95</InformationalVersion>
+    <Version>1.2.97</Version>
+    <AssemblyVersion>1.2.97.0</AssemblyVersion>
+    <FileVersion>1.2.97.0</FileVersion>
+    <InformationalVersion>1.2.97</InformationalVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
