@@ -141,6 +141,7 @@ internal sealed class BucketFinalizer
         int[] mouseWheelEventsBySlice = DistributeNonNegativeInt(packet.MouseWheelEventCount, slices);
         int[] mouseScrollBurstsBySlice = DistributeNonNegativeInt(packet.MouseScrollBurstCount, slices);
         int[] idleObservationCountBySlice = DistributeNonNegativeInt(packet.IdleObservationCount, slices);
+        int[] focusObservationCountBySlice = DistributeNonNegativeInt(packet.FocusObservationCount, slices);
         double[] idleSecondsBySlice = DistributeTrailingIdleSeconds(
             packet.IdleSeconds,
             windowStartUtcMs,
@@ -232,6 +233,7 @@ internal sealed class BucketFinalizer
                 mouseScrollBurstRate: packet.MouseScrollBurstRate ?? 0d,
                 mouseScrollSpeedMean: packet.MouseScrollSpeedMean ?? 0d,
                 focusAppHash: focusAppHash,
+                focusObservationCount: focusObservationCountBySlice[i],
                 idleSeconds: idleSecondsBySlice[i],
                 idleObservationCount: idleObservationCountBySlice[i],
                 idleSecondsWithinWindow: idleSecondsWithinWindowBySlice[i],
@@ -692,6 +694,7 @@ internal sealed class BucketFinalizer
         double mouseScrollBurstRate,
         double mouseScrollSpeedMean,
         string? focusAppHash,
+        int focusObservationCount,
         double idleSeconds,
         int idleObservationCount,
         double idleSecondsWithinWindow,
@@ -712,6 +715,7 @@ internal sealed class BucketFinalizer
             || mouseWheelEventCount > 0
             || mouseScrollBurstCount > 0
             || !string.IsNullOrWhiteSpace(focusAppHash)
+            || focusObservationCount > 0
             || idleSeconds > 0d
             || idleObservationCount > 0
             || idleSecondsWithinWindow > 0d
@@ -784,6 +788,7 @@ internal sealed class BucketFinalizer
                     mouseScrollBurstRate,
                     mouseScrollSpeedMean,
                     focusAppHash,
+                    focusObservationCount,
                     idleSeconds,
                     idleObservationCount,
                     idleSecondsWithinWindow,

@@ -117,6 +117,7 @@ internal static class BucketAggregators
         double mouseScrollBurstRate,
         double mouseScrollSpeedMean,
         string? focusAppHash,
+        int focusObservationCount,
         double idleSeconds,
         int idleObservationCount,
         double idleSecondsWithinWindow,
@@ -189,6 +190,19 @@ internal static class BucketAggregators
         if (!string.IsNullOrWhiteSpace(focusAppHash))
         {
             bucket.Focus.RecordObservedInterval(sliceStartUtcMs, sliceEndUtcMs, focusAppHash);
+            bucket.StateFlagsStage["focus_app_identity"] = "resolved";
+        }
+        else if (focusObservationCount > 0)
+        {
+            // Focus resilience: the foreground WAS sampled this slice, but its app-identity
+            // arrived blank (identity unresolvable on some sessions). Mirror how idle records
+            // regardless of value — record the focus interval as "unknown" so the focus channel
+            // still counts as present and the machine can calibrate, instead of silently
+            // dropping the entire channel (the bug that left only-focus missing). Healthy
+            // machines hit the branch above and are byte-identical. The flag lets the console
+            // show that the app-identity, not the focus capture, is what's blank on a machine.
+            bucket.Focus.RecordObservedInterval(sliceStartUtcMs, sliceEndUtcMs, "unknown");
+            bucket.StateFlagsStage["focus_app_identity"] = "blank";
         }
 
         bool hasIdleSummary = useTelemetrySummaries

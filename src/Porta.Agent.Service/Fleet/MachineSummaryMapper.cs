@@ -118,6 +118,12 @@ internal sealed class MachineSummaryMapper
             ? QuerySessionConnectState(connectStateSessionId)
             : null;
 
+        // Diagnostic-only: whether the latest bucket resolved the foreground app-identity
+        // ("resolved") or recorded focus with a blank identity ("blank"). "blank" means focus
+        // capture works but the app name couldn't be resolved on this machine — the precise
+        // gap behind "only focus missing". Set by BucketAggregators when focus is ingested.
+        string? focusAppIdentity = NullIfWhiteSpace(ReadStringFlag(latestState?.StateFlagsJson, "focus_app_identity"));
+
         return new MachineSummaryReportPayload(
             DeviceId: identityLink.DeviceId,
             AccountId: accountId,
@@ -191,7 +197,8 @@ internal sealed class MachineSummaryMapper
             UserAgentSelfTestErrorCode: selfTestErrorCode,
             UserAgentLogTail: UserAgentLogTailReader.ReadTail(),
             WindowsUpdateStatus: WindowsUpdateStatusReader.ReadStatus(),
-            UserAgentSessionConnectState: userAgentSessionConnectState);
+            UserAgentSessionConnectState: userAgentSessionConnectState,
+            FocusAppIdentity: focusAppIdentity);
     }
 
     private static double ResolvePressureLevel(string? stateFlagsJson, double fallback)

@@ -69,7 +69,8 @@ internal sealed record MachineSummaryReportPayload(
     [property: JsonPropertyName("userAgentSelfTestErrorCode")] string? UserAgentSelfTestErrorCode = null,
     [property: JsonPropertyName("userAgentLogTail")] string? UserAgentLogTail = null,
     [property: JsonPropertyName("windowsUpdateStatus")] string? WindowsUpdateStatus = null,
-    [property: JsonPropertyName("userAgentSessionConnectState")] string? UserAgentSessionConnectState = null);
+    [property: JsonPropertyName("userAgentSessionConnectState")] string? UserAgentSessionConnectState = null,
+    [property: JsonPropertyName("focusAppIdentity")] string? FocusAppIdentity = null);
 
 internal sealed record WindowsReleaseManifestPayload(
     [property: JsonPropertyName("platform")] string? Platform,
