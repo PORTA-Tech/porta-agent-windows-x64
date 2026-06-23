@@ -25,6 +25,7 @@ internal sealed class ControlPlaneReporter : BackgroundService
     private readonly ILocalIdentityLinkStore _identityLinkStore;
     private DateTimeOffset? _lastSummaryFailureLogUtc;
     private DateTimeOffset? _lastActionFailureLogUtc;
+    private DateTimeOffset? _lastLoopFailureLogUtc;
 
     public ControlPlaneReporter(
         IAgentCoreController controller,
@@ -50,44 +51,72 @@ internal sealed class ControlPlaneReporter : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            if (!_client.IsEnabled)
+            try
             {
-                if (!disabledLogged && !string.IsNullOrWhiteSpace(_client.DisabledReason))
+                if (!_client.IsEnabled)
                 {
-                    Console.WriteLine($"Fleet reporter disabled: {_client.DisabledReason}.");
-                    disabledLogged = true;
+                    if (!disabledLogged && !string.IsNullOrWhiteSpace(_client.DisabledReason))
+                    {
+                        Console.WriteLine($"Fleet reporter disabled: {_client.DisabledReason}.");
+                        disabledLogged = true;
+                    }
+
+                    await Task.Delay(TimeSpan.FromSeconds(SummaryIntervalSeconds), stoppingToken).ConfigureAwait(false);
+                    continue;
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(SummaryIntervalSeconds), stoppingToken).ConfigureAwait(false);
-                continue;
-            }
+                DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+                AgentServiceStatusSnapshot currentStatus = _controller.GetStatus();
+                string userName = _summaryMapper.ResolveUserName(currentStatus);
+                LocalIdentityLinkSnapshot identityLink = _identityLinkStore.GetCurrent();
+                identityLink = await SyncDeviceIdentityAsync(currentStatus, identityLink, stoppingToken).ConfigureAwait(false);
 
-            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
-            AgentServiceStatusSnapshot currentStatus = _controller.GetStatus();
-            string userName = _summaryMapper.ResolveUserName(currentStatus);
-            LocalIdentityLinkSnapshot identityLink = _identityLinkStore.GetCurrent();
-            identityLink = await SyncDeviceIdentityAsync(currentStatus, identityLink, stoppingToken).ConfigureAwait(false);
-
-            if (nowUtc >= nextSummaryDueUtc)
-            {
-                bool summarySent = await TryPublishSummaryAsync(state, currentStatus, identityLink, userName, nowUtc, stoppingToken).ConfigureAwait(false);
-                if (summarySent)
+                if (nowUtc >= nextSummaryDueUtc)
                 {
-                    state = state with { LastSummarySuccessUtc = nowUtc };
+                    bool summarySent = await TryPublishSummaryAsync(state, currentStatus, identityLink, userName, nowUtc, stoppingToken).ConfigureAwait(false);
+                    if (summarySent)
+                    {
+                        state = state with { LastSummarySuccessUtc = nowUtc };
+                    }
+
+                    nextSummaryDueUtc = nowUtc.AddSeconds(SummaryIntervalSeconds);
                 }
 
-                nextSummaryDueUtc = nowUtc.AddSeconds(SummaryIntervalSeconds);
-            }
+                ActionPublishResult actionPublishResult = await TryPublishActionsAsync(state, identityLink, userName, stoppingToken).ConfigureAwait(false);
+                state = actionPublishResult.State;
+                if (actionPublishResult.AnySent)
+                {
+                    state = state with { LastActionSuccessUtc = DateTimeOffset.UtcNow };
+                }
 
-            ActionPublishResult actionPublishResult = await TryPublishActionsAsync(state, identityLink, userName, stoppingToken).ConfigureAwait(false);
-            state = actionPublishResult.State;
-            if (actionPublishResult.AnySent)
+                _stateStore.Save(state);
+                await Task.Delay(TimeSpan.FromSeconds(ActionPollIntervalSeconds), stoppingToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                state = state with { LastActionSuccessUtc = DateTimeOffset.UtcNow };
+                break;
             }
-
-            _stateStore.Save(state);
-            await Task.Delay(TimeSpan.FromSeconds(ActionPollIntervalSeconds), stoppingToken).ConfigureAwait(false);
+            catch (Exception ex)
+            {
+                // RESILIENCE (root-cause fix for fleet-wide "reporting dies, needs reboot"):
+                // a single failing cycle — the summary mapper, a local-DB read
+                // (GetLatestStateDetails / GetEventsSinceId), the state-file write, or a WTS
+                // user lookup throwing — must NEVER escape this loop. The host runs with the
+                // default StopHost behavior, so an escaped exception would stop the ENTIRE
+                // AriAgent service: capture (a separate process) keeps running and the widget
+                // looks fine, while fleet reporting is dead until a manual restart/reboot
+                // (observed: machines silent ~30h with the widget still alive). Log throttled,
+                // back off, and continue so the next cycle retries cleanly.
+                LogLoopFailureThrottled(ex);
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(SummaryIntervalSeconds), stoppingToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
         }
     }
 
@@ -212,6 +241,16 @@ internal sealed class ControlPlaneReporter : BackgroundService
         {
             Console.WriteLine("Fleet reporter failed to post machine summary.");
             _lastSummaryFailureLogUtc = nowUtc;
+        }
+    }
+
+    private void LogLoopFailureThrottled(Exception ex)
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        if (!_lastLoopFailureLogUtc.HasValue || (nowUtc - _lastLoopFailureLogUtc.Value) >= FailureLogInterval)
+        {
+            Console.WriteLine($"Fleet reporter cycle error (recovered, will retry): {ex.GetType().Name}: {ex.Message}");
+            _lastLoopFailureLogUtc = nowUtc;
         }
     }
 
