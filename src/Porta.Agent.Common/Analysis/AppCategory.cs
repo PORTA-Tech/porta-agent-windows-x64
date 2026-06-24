@@ -24,6 +24,38 @@ public static class AppCategoryClassifier
     private static readonly ConcurrentDictionary<string, AppCategory> HashRegistry =
         new(StringComparer.Ordinal);
 
+    // Parallel to HashRegistry: maps the same focus-identity hash to a COARSE, human-readable
+    // label — a browser site token ("youtube", "github") or an exe base name ("code", "chrome").
+    // PRIVACY: coarse token only, never the raw window title or URL. This is what lets the digest
+    // and console show "YouTube 40m, VS Code 3h" by joining a stored hash back to a name.
+    private static readonly ConcurrentDictionary<string, string> HashLabelRegistry =
+        new(StringComparer.Ordinal);
+
+    /// <summary>Records the coarse human label for a focus-identity hash (idempotent upsert).</summary>
+    public static void RegisterHashLabel(string hash, string label)
+    {
+        if (string.IsNullOrWhiteSpace(hash) || string.IsNullOrWhiteSpace(label))
+            return;
+
+        HashLabelRegistry[hash] = label.Trim().ToLowerInvariant();
+    }
+
+    /// <summary>Returns the coarse label for a focus-identity hash, or null if not seen.</summary>
+    public static string? GetLabelForHash(string? hash)
+    {
+        if (string.IsNullOrWhiteSpace(hash))
+            return null;
+
+        return HashLabelRegistry.TryGetValue(hash, out string? label) ? label : null;
+    }
+
+    /// <summary>
+    /// Snapshot of all known hash → coarse-label pairs, for persistence and upload so the
+    /// digest/console can join a stored focus hash back to a human name. Coarse labels only.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> SnapshotHashLabels()
+        => new Dictionary<string, string>(HashLabelRegistry, StringComparer.Ordinal);
+
     /// <summary>
     /// Classifies a stable identifier (as produced by ResolveStableAppIdentifier)
     /// into an AppCategory. The identifier is either "exe:{path}", "process:{name}",

@@ -555,6 +555,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         }
 
         SampleAmbientSignals(windowEndUtc);
+        // Persist the coarse hash → label map so the service/core can name apps/sites in the
+        // digest and console. Best-effort, coarse labels only; never touches capture.
+        FocusAppLabelStore.Persist();
         UserSessionSignalSnapshot snapshot = _signalAggregator.SnapshotAndReset();
         string sessionId = BuildSessionId(_sessionId);
         double windowSeconds = Math.Max(0.001d, (windowEndUtc - windowStartUtc).TotalSeconds);

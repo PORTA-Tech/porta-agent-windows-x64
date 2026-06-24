@@ -89,6 +89,9 @@ internal static class UserSessionNativeSignals
                     AppCategory category = AppCategoryClassifier.ClassifyStableIdentifier(exeIdentifier);
                     string hash = HashIdentifier(exeIdentifier);
                     AppCategoryClassifier.RegisterHashCategory(hash, category);
+                    // Retain a coarse human label for this hash (e.g. "code", "chrome", "slack")
+                    // so the digest/console can show real app names. Coarse only; no raw path/title.
+                    AppCategoryClassifier.RegisterHashLabel(hash, ExtractExeName(exeIdentifier));
                     ForegroundHashCache[processId] = new CacheEntry(exeIdentifier, false, hash, expiresAt);
                     return hash;
                 }
@@ -112,6 +115,9 @@ internal static class UserSessionNativeSignals
             (string siteToken, AppCategory siteCategory) = BrowserTitleClassifier.ClassifyTitle(title);
             string siteHash = HashIdentifier($"{exeIdentifier}|site:{siteToken}");
             AppCategoryClassifier.RegisterHashCategory(siteHash, siteCategory);
+            // Retain the coarse site token ("youtube", "github", or "web" if unrecognized) as the
+            // label for this site hash — the human-readable half of what the digest/console show.
+            AppCategoryClassifier.RegisterHashLabel(siteHash, siteToken);
             return siteHash;
         }
         catch (Exception ex)
