@@ -6,30 +6,37 @@ using System.Text.Json;
 namespace Porta.Agent.Service.Fleet;
 
 /// <summary>
-/// Reads the coarse hash → label map that the user-agent persists to ProgramData
-/// (focus-app-labels.v1.json), so the service can turn stored focus hashes into human names
-/// ("youtube", "code") for the digest. Best-effort: returns an empty map on any error.
+/// Reads the coarse focus-identity maps the user-agent persists to ProgramData
+/// (hash → label and hash → category), so the service can turn stored focus hashes into human
+/// names ("youtube", "code") and REAL per-category time for the digest. Best-effort: returns an
+/// empty map on any error.
 /// </summary>
 internal static class FocusAppLabelMapReader
 {
-    public static IReadOnlyDictionary<string, string> Read()
+    public static IReadOnlyDictionary<string, string> ReadLabels()
+        => ReadMap<string>("focus-app-labels.v1.json");
+
+    public static IReadOnlyDictionary<string, int> ReadCategories()
+        => ReadMap<int>("focus-app-categories.v1.json");
+
+    private static IReadOnlyDictionary<string, T> ReadMap<T>(string fileName)
     {
         try
         {
             string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            string path = Path.Combine(root, "PortaAgent", "focus-app-labels.v1.json");
+            string path = Path.Combine(root, "PortaAgent", fileName);
             if (!File.Exists(path))
             {
-                return new Dictionary<string, string>(StringComparer.Ordinal);
+                return new Dictionary<string, T>(StringComparer.Ordinal);
             }
 
             string json = File.ReadAllText(path);
-            Dictionary<string, string>? map = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-            return map ?? new Dictionary<string, string>(StringComparer.Ordinal);
+            Dictionary<string, T>? map = JsonSerializer.Deserialize<Dictionary<string, T>>(json);
+            return map ?? new Dictionary<string, T>(StringComparer.Ordinal);
         }
         catch
         {
-            return new Dictionary<string, string>(StringComparer.Ordinal);
+            return new Dictionary<string, T>(StringComparer.Ordinal);
         }
     }
 }

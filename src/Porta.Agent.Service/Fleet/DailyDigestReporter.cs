@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Porta.Agent.Common.Analysis;
 using Porta.Agent.Common.Identity;
 using Porta.Agent.Core;
 using Porta.Agent.LocalApi;
@@ -128,10 +129,22 @@ internal sealed class DailyDigestReporter : BackgroundService
 
             string machineId = ResolveMachineId();
 
-            // "Where your time went": per-app foreground seconds for today, joined to coarse labels.
-            IReadOnlyList<FocusAppUsagePayload> topApps = BuildTopApps(
-                _controller.GetFocusAppDwellSeconds(startOfDayUtc, nowUtc),
-                FocusAppLabelMapReader.Read());
+            // "Where your time went" + real per-category time, from per-app dwell joined to the
+            // coarse label/category maps the user-agent persists.
+            IReadOnlyDictionary<string, double> dwellByHash = _controller.GetFocusAppDwellSeconds(startOfDayUtc, nowUtc);
+            IReadOnlyDictionary<string, int> categoryByHash = FocusAppLabelMapReader.ReadCategories();
+            IReadOnlyList<FocusAppUsagePayload> topApps = BuildTopApps(dwellByHash, FocusAppLabelMapReader.ReadLabels());
+
+            // Real category seconds replace the old state-based proxies (entertainment=distraction,
+            // development=focus-strength) when we actually have category data for this machine.
+            bool haveCategories = categoryByHash.Count > 0;
+            Dictionary<AppCategory, double> categorySeconds = haveCategories
+                ? BuildCategorySeconds(dwellByHash, categoryByHash)
+                : new Dictionary<AppCategory, double>();
+            double developmentSeconds = haveCategories ? categorySeconds.GetValueOrDefault(AppCategory.Development) : agg.DevelopmentSeconds;
+            double productivitySeconds = haveCategories ? categorySeconds.GetValueOrDefault(AppCategory.Productivity) : agg.ProductivitySeconds;
+            double communicationSeconds = haveCategories ? categorySeconds.GetValueOrDefault(AppCategory.Communication) : agg.CommunicationSeconds;
+            double entertainmentSeconds = haveCategories ? categorySeconds.GetValueOrDefault(AppCategory.Entertainment) : agg.EntertainmentSeconds;
 
             DailyDigestReportPayload payload = new(
                 AccountId: identity.AccountId,
@@ -161,10 +174,10 @@ internal sealed class DailyDigestReporter : BackgroundService
                 BreaksTakenCount: breaksTaken,
                 BreaksSuggestedCount: breaksSuggested,
                 MostDistractedHourLabel: agg.MostDistractedHourLabel,
-                DevelopmentSeconds: agg.DevelopmentSeconds,
-                ProductivitySeconds: agg.ProductivitySeconds,
-                CommunicationSeconds: agg.CommunicationSeconds,
-                EntertainmentSeconds: agg.EntertainmentSeconds,
+                DevelopmentSeconds: developmentSeconds,
+                ProductivitySeconds: productivitySeconds,
+                CommunicationSeconds: communicationSeconds,
+                EntertainmentSeconds: entertainmentSeconds,
                 FirstFocusBlockUtc: agg.FirstFocusBlockUtc,
                 PeakPressureUtc: agg.PeakPressureUtc,
                 AvgDistractionEpisodeDurationSeconds: agg.AvgDistractionEpisodeDurationSeconds,
@@ -196,6 +209,25 @@ internal sealed class DailyDigestReporter : BackgroundService
             Console.WriteLine($"Daily digest error: {ex.GetType().Name} {ex.Message}");
         }
     }
+    private static Dictionary<AppCategory, double> BuildCategorySeconds(
+        IReadOnlyDictionary<string, double> dwellByHash,
+        IReadOnlyDictionary<string, int> categoryByHash)
+    {
+        var totals = new Dictionary<AppCategory, double>();
+        foreach (KeyValuePair<string, double> entry in dwellByHash)
+        {
+            if (!categoryByHash.TryGetValue(entry.Key, out int categoryInt))
+            {
+                continue;
+            }
+
+            var category = (AppCategory)categoryInt;
+            totals[category] = totals.TryGetValue(category, out double existing) ? existing + entry.Value : entry.Value;
+        }
+
+        return totals;
+    }
+
     private static IReadOnlyList<FocusAppUsagePayload> BuildTopApps(
         IReadOnlyDictionary<string, double> dwellByHash,
         IReadOnlyDictionary<string, string> labelByHash)

@@ -57,6 +57,21 @@ public static class AppCategoryClassifier
         => new Dictionary<string, string>(HashLabelRegistry, StringComparer.Ordinal);
 
     /// <summary>
+    /// Snapshot of hash → category (as the enum's int value) for persistence, so the digest can
+    /// compute REAL per-category time from stored focus hashes instead of state-based proxies.
+    /// </summary>
+    public static IReadOnlyDictionary<string, int> SnapshotHashCategories()
+    {
+        var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (KeyValuePair<string, AppCategory> entry in HashRegistry)
+        {
+            result[entry.Key] = (int)entry.Value;
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Classifies a stable identifier (as produced by ResolveStableAppIdentifier)
     /// into an AppCategory. The identifier is either "exe:{path}", "process:{name}",
     /// or "pid:{id}".
