@@ -1448,6 +1448,57 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return rows;
     }
 
+    public IReadOnlyDictionary<string, double> ReadFocusAppDwellSeconds(
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc)
+    {
+        var totals = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (toUtc <= fromUtc)
+        {
+            return totals;
+        }
+
+        using ReadGateLease _ = AcquireReadGate();
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT focus_app_hash, window_start_utc, window_end_utc
+            FROM input_signal_windows
+            WHERE window_start_utc >= $from AND window_start_utc < $to AND focus_app_hash <> ''
+            """;
+        cmd.Parameters.AddWithValue("$from", fromUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$to", toUtc.ToString("O"));
+
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            string hash = reader.IsDBNull(0) ? string.Empty : reader.GetString(0);
+            if (string.IsNullOrEmpty(hash))
+            {
+                continue;
+            }
+
+            if (!DateTimeOffset.TryParse(reader.GetString(1), out DateTimeOffset start)
+                || !DateTimeOffset.TryParse(reader.GetString(2), out DateTimeOffset end))
+            {
+                continue;
+            }
+
+            double seconds = (end - start).TotalSeconds;
+            if (seconds <= 0d)
+            {
+                continue;
+            }
+
+            // Clamp a single window's contribution so a clock jump or bad row can't dominate a day.
+            seconds = Math.Min(seconds, 600d);
+            totals[hash] = totals.TryGetValue(hash, out double existing) ? existing + seconds : seconds;
+        }
+
+        return totals;
+    }
+
     public IReadOnlyList<AgentInputSignalWindow> ReadInputSignalWindows(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,

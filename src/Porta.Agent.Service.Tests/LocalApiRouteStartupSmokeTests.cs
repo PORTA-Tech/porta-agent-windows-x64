@@ -236,6 +236,7 @@ public sealed class LocalApiRouteStartupSmokeTests
             BucketSeconds: bucketSeconds,
             Snapshots: [],
             Interventions: []);
+        public IReadOnlyDictionary<string, double> GetFocusAppDwellSeconds(DateTimeOffset fromUtc, DateTimeOffset toUtc) => new Dictionary<string, double>();
         public void PublishLiveSessionState(AgentLiveSessionSignalPacket packet) => throw new NotSupportedException();
         public void IngestInputSignals(InputSignalsPacket packet) => throw new NotSupportedException();
         public AgentSettingsState GetEffectiveSettings() => new(

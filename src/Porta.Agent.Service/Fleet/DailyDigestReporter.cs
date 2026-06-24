@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -127,6 +128,11 @@ internal sealed class DailyDigestReporter : BackgroundService
 
             string machineId = ResolveMachineId();
 
+            // "Where your time went": per-app foreground seconds for today, joined to coarse labels.
+            IReadOnlyList<FocusAppUsagePayload> topApps = BuildTopApps(
+                _controller.GetFocusAppDwellSeconds(startOfDayUtc, nowUtc),
+                FocusAppLabelMapReader.Read());
+
             DailyDigestReportPayload payload = new(
                 AccountId: identity.AccountId,
                 DeviceId: identity.DeviceId,
@@ -167,7 +173,8 @@ internal sealed class DailyDigestReporter : BackgroundService
                 // Social-media and gaming accumulators are pattern-detection windows
                 // (grow/decay per bucket), not daily totals — declare them missing so
                 // the email renders "no data" instead of a misleading number.
-                MissingFields: new[] { "gaming", "socialMedia" });
+                MissingFields: new[] { "gaming", "socialMedia" },
+                TopApps: topApps);
 
             bool sent = await _client.PostDailyDigestAsync(payload, token).ConfigureAwait(false);
             if (sent)
@@ -189,6 +196,29 @@ internal sealed class DailyDigestReporter : BackgroundService
             Console.WriteLine($"Daily digest error: {ex.GetType().Name} {ex.Message}");
         }
     }
+    private static IReadOnlyList<FocusAppUsagePayload> BuildTopApps(
+        IReadOnlyDictionary<string, double> dwellByHash,
+        IReadOnlyDictionary<string, string> labelByHash)
+    {
+        var byLabel = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, double> entry in dwellByHash)
+        {
+            if (!labelByHash.TryGetValue(entry.Key, out string? label) || string.IsNullOrWhiteSpace(label))
+            {
+                continue;
+            }
+
+            byLabel[label] = byLabel.TryGetValue(label, out double existing) ? existing + entry.Value : entry.Value;
+        }
+
+        return byLabel
+            .Where(static kv => kv.Value >= 60d)
+            .OrderByDescending(static kv => kv.Value)
+            .Take(8)
+            .Select(static kv => new FocusAppUsagePayload(kv.Key, Math.Round(kv.Value)))
+            .ToList();
+    }
+
     private static bool IsBreakSuggestionEvent(string? action)
     {
         if (string.IsNullOrWhiteSpace(action))

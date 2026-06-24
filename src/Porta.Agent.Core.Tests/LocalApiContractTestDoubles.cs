@@ -148,6 +148,7 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null) => RecentEvents.Take(limit).ToList();
     public IReadOnlyList<AgentControlEvent> ReadEventsSinceId(long sinceIdExclusive, int limit = 200) => [];
     public IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000) => [];
+    public IReadOnlyDictionary<string, double> ReadFocusAppDwellSeconds(DateTimeOffset fromUtc, DateTimeOffset toUtc) => new Dictionary<string, double>();
     public IReadOnlyList<AgentPendingIntervention> ReadPendingInterventions(string sessionId, int limit = 20)
         => PendingInterventions
             .Where(i => string.Equals(i.SessionId, sessionId, StringComparison.Ordinal))

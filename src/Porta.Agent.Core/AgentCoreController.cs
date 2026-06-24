@@ -938,6 +938,16 @@ public sealed class AgentCoreController : IAgentCoreController
             Interventions: interventions);
     }
 
+    public IReadOnlyDictionary<string, double> GetFocusAppDwellSeconds(DateTimeOffset fromUtc, DateTimeOffset toUtc)
+    {
+        if (toUtc <= fromUtc)
+        {
+            return new Dictionary<string, double>();
+        }
+
+        return _stateStore.ReadFocusAppDwellSeconds(fromUtc, toUtc);
+    }
+
     public void IngestInputSignals(InputSignalsPacket packet)
     {
         if (packet is null)

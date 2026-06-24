@@ -246,6 +246,7 @@ public sealed class InputSignalsBucketIntegrationTests
         public IReadOnlyList<AgentControlEvent> ReadRecentEvents(int limit = 50, DateTimeOffset? sinceUtc = null) => [];
         public IReadOnlyList<AgentControlEvent> ReadEventsSinceId(long sinceIdExclusive, int limit = 200) => [];
         public IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000) => [];
+        public IReadOnlyDictionary<string, double> ReadFocusAppDwellSeconds(DateTimeOffset fromUtc, DateTimeOffset toUtc) => new Dictionary<string, double>();
         public IReadOnlyList<AgentPendingIntervention> ReadPendingInterventions(string sessionId, int limit = 20) => [];
         public bool AcknowledgeIntervention(AgentInterventionAck ack) => true;
         public AgentStorageInfo ReadStorageInfo() => new(RetentionDays: 90, DatabaseBytes: 0);

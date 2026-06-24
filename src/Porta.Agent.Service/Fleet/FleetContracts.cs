@@ -135,6 +135,12 @@ internal sealed record DeviceLinkResultPayload(
     [property: JsonPropertyName("linkState")] string LinkState,
     [property: JsonPropertyName("device")] DeviceProfilePayload Device);
 
+/// <summary>One app/site's foreground time for the day — coarse label + seconds. Powers the
+/// "where your time went" section of the digest. Label is a coarse token only (e.g. "youtube").</summary>
+internal sealed record FocusAppUsagePayload(
+    [property: JsonPropertyName("label")] string Label,
+    [property: JsonPropertyName("seconds")] double Seconds);
+
 internal sealed record DailyDigestReportPayload(
     [property: JsonPropertyName("accountId")] string? AccountId,
     [property: JsonPropertyName("deviceId")] string DeviceId,
@@ -174,7 +180,8 @@ internal sealed record DailyDigestReportPayload(
     [property: JsonPropertyName("preLongestDistractionFocusSeconds")] double PreLongestDistractionFocusSeconds = 0d,
     // Callers that know certain metrics are unreliable declare them here so the
     // email builder can render "no data" instead of fabricated numbers.
-    [property: JsonPropertyName("missingFields")] IReadOnlyList<string>? MissingFields = null);
+    [property: JsonPropertyName("missingFields")] IReadOnlyList<string>? MissingFields = null,
+    [property: JsonPropertyName("topApps")] IReadOnlyList<FocusAppUsagePayload>? TopApps = null);
 
 /// <summary>
 /// Lightweight periodic stats payload POSTed to /api/agent/daily-stats every 2 hours.

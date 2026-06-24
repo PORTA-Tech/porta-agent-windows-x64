@@ -18,6 +18,9 @@ public interface IAgentCoreController
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,
         int bucketSeconds = Time.bucketSeconds);
+
+    /// <summary>Foreground dwell seconds per focus-identity hash over the window (for the digest breakdown).</summary>
+    IReadOnlyDictionary<string, double> GetFocusAppDwellSeconds(DateTimeOffset fromUtc, DateTimeOffset toUtc);
     void PublishLiveSessionState(AgentLiveSessionSignalPacket packet);
     void IngestInputSignals(InputSignalsPacket packet);
     AgentSettingsState GetEffectiveSettings();

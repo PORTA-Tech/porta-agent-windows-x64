@@ -57,6 +57,8 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
 
     public IReadOnlyList<AgentControlEvent> ReadEvents(DateTimeOffset fromUtc, DateTimeOffset toUtc, int limit = 2000)
         => _inner.ReadEvents(fromUtc, toUtc, limit);
+    public IReadOnlyDictionary<string, double> ReadFocusAppDwellSeconds(DateTimeOffset fromUtc, DateTimeOffset toUtc)
+        => _inner.ReadFocusAppDwellSeconds(fromUtc, toUtc);
     public IReadOnlyList<AgentPendingIntervention> ReadPendingInterventions(string sessionId, int limit = 20)
         => _inner.ReadPendingInterventions(sessionId, limit);
     public bool AcknowledgeIntervention(AgentInterventionAck ack)
