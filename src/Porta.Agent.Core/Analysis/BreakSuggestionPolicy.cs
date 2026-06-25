@@ -105,6 +105,17 @@ internal static class BreakSuggestionPolicy
             ? settings.LongBreakEffectiveFocusSecondsHighPressure
             : settings.LongBreakEffectiveFocusSecondsLowPressure;
 
+        // State-driven gate (Launch 2.3 — "follow the state, don't nag the clock").
+        // A SHORT break is only warranted when the state shows a genuine, elevated need:
+        // overload is active, or pressure / overload likelihood has risen into the need band.
+        // A fresh, energized user who has simply been focused a while is NOT interrupted —
+        // ignored nudges only train the user to dismiss every nudge. A LONG break stays
+        // justified by genuinely prolonged focus on its own (the "you've been at it a long
+        // time, that's normal" case), so deep, sustained work still eventually earns a rest.
+        bool breakNeedState = overloadStabilization.OverloadActive
+            || overloadInference.PressureLevel >= PortaExecutionConstants.BreakPolicy.BreakNeedPressureLevel
+            || overloadInference.OverloadLikelihood >= PortaExecutionConstants.BreakPolicy.BreakNeedOverloadLikelihood;
+
         string action;
         string breakKind;
         int windowSeconds;
@@ -121,6 +132,18 @@ internal static class BreakSuggestionPolicy
         }
         else if (Math.Max(0d, focusWindow.ShortBreakWindowEffectiveFocusSeconds) >= shortBreakThresholdSeconds)
         {
+            if (!breakNeedState)
+            {
+                // Focus duration alone is met, but the user shows no sign of needing a break
+                // yet — leave them in flow. A long break will still be offered later if the
+                // focus run becomes genuinely prolonged.
+                return Fail(
+                    "state_not_warranting_break",
+                    effectiveFocusSeconds: Math.Max(0d, focusWindow.ShortBreakWindowEffectiveFocusSeconds),
+                    effectiveFocusWindowSeconds: 0,
+                    highPressure: highPressure);
+            }
+
             action = PortaBreakSemantics.ShortBreakKind;
             breakKind = PortaBreakSemantics.ShortBreakKind;
             windowSeconds = settings.ShortBreakWindowSeconds;

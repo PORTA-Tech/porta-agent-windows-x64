@@ -56,6 +56,47 @@ public sealed class BreakSuggestionPolicyTests
     }
 
     [Fact]
+    public void ShouldTriggerBreak_FreshState_ShortBreakDurationMet_DoesNotNag()
+    {
+        // User has focused long enough to cross the short-break duration threshold, but the
+        // state is fresh: no overload, low pressure, low overload likelihood. A break should
+        // NOT be suggested — "follow the state, don't nag the clock".
+        BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
+            BaselineGatingResult.Warm,
+            BuildStabilization(overloadActive: false),
+            BuildOverloadInference(confidence: 0.70d, overloadLikelihood: 0.20d, pressureLevel: 0.20d),
+            BuildSession(saSeconds: 1600d),
+            BuildFocusWindow(
+                shortBreakSeconds: PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowPressure,
+                longBreakSeconds: 2400d,
+                boundaryKind: "short_idle"),
+            resolveCooldown: () => new BreakPolicyCooldownSnapshot(true, 0, 0));
+
+        Assert.False(decision.ShouldEmit);
+        Assert.Equal("state_not_warranting_break", decision.ReasonCode);
+    }
+
+    [Fact]
+    public void ShouldTriggerBreak_FreshState_ProlongedFocus_StillOffersLongBreak()
+    {
+        // Even with a fresh state (no overload/pressure), a genuinely prolonged focus run
+        // earns a long break — the "you've been at it a long time, that's normal" case.
+        BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
+            BaselineGatingResult.Warm,
+            BuildStabilization(overloadActive: false),
+            BuildOverloadInference(confidence: 0.70d, overloadLikelihood: 0.20d, pressureLevel: 0.20d),
+            BuildSession(saSeconds: 4000d),
+            BuildFocusWindow(
+                shortBreakSeconds: 2400d,
+                longBreakSeconds: PortaExecutionConstants.BreakPolicy.LongBreakEffectiveFocusSecondsLowPressure,
+                boundaryKind: "short_idle"),
+            resolveCooldown: () => new BreakPolicyCooldownSnapshot(true, 0, 0));
+
+        Assert.True(decision.ShouldEmit);
+        Assert.Equal("long_break", decision.Action);
+    }
+
+    [Fact]
     public void ShouldTriggerBreak_LowConfidence_FailsWithoutCooldownLookup()
     {
         int cooldownReads = 0;
@@ -587,9 +628,13 @@ public sealed class BreakSuggestionPolicyTests
             BuildStabilization(overloadActive: false),
             BuildOverloadInference(confidence: 0.80d));
 
+        // Since v1.2.14 a short pause (bucket 97) contributes 0 focus but does NOT abort the
+        // scan — only a genuine timestamp gap does. So the three active buckets (96, 98, 99)
+        // across the brief pause each contribute one bucket (5s) = 15s. The current bucket is a
+        // pause and contributes 0.
         Assert.Equal(0d, snapshot.CurrentBucketEffectiveFocusSeconds, precision: 6);
-        Assert.Equal(10d, snapshot.ShortBreakWindowEffectiveFocusSeconds, precision: 6);
-        Assert.Equal(10d, snapshot.LongBreakWindowEffectiveFocusSeconds, precision: 6);
+        Assert.Equal(15d, snapshot.ShortBreakWindowEffectiveFocusSeconds, precision: 6);
+        Assert.Equal(15d, snapshot.LongBreakWindowEffectiveFocusSeconds, precision: 6);
         Assert.True(snapshot.DeliveryBoundaryReached);
         Assert.Equal("short_idle", snapshot.DeliveryBoundaryKind);
     }
@@ -631,10 +676,14 @@ public sealed class BreakSuggestionPolicyTests
         Assert.Equal(5d, snapshot.LongBreakWindowEffectiveFocusSeconds, precision: 6);
     }
 
-    private static OverloadInferenceResult BuildOverloadInference(double confidence, double quality = 1d)
+    private static OverloadInferenceResult BuildOverloadInference(
+        double confidence,
+        double quality = 1d,
+        double overloadLikelihood = 0.9d,
+        double pressureLevel = 0d)
     {
         return new OverloadInferenceResult(
-            OverloadLikelihood: 0.9d,
+            OverloadLikelihood: overloadLikelihood,
             Confidence: confidence,
             FComponent: 0.8d,
             IComponent: 0.8d,
@@ -648,7 +697,8 @@ public sealed class BreakSuggestionPolicyTests
             MissingPrimitiveCount: 0,
             UsedSnapshotFallback: false,
             Source: "bucket_finalizer",
-            ComponentsRegistryVersion: 1);
+            ComponentsRegistryVersion: 1,
+            PressureLevel: pressureLevel);
     }
 
     private static OverloadStabilizationResult BuildStabilization(bool overloadActive)

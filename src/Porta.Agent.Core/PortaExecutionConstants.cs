@@ -212,6 +212,17 @@ public static class PortaExecutionConstants
         public const long CooldownWindowMs = CooldownSeconds * 1000L;
         public const double ConfidenceMin = 0.50;
         public const double HighPressureLevel = OverloadStabilization.ThresholdOn;
+
+        // State-driven break gating (Launch 2.3 — "follow the state, don't nag the clock").
+        // A SHORT break is only suggested when the state shows a genuine, elevated need —
+        // pressure or overload rising into this band — not merely because focus time crossed a
+        // threshold. A fresh, energized user deep in focus is NOT interrupted. (A LONG break is
+        // still offered after genuinely prolonged focus, which is its own valid reason — the
+        // "you've been at it a long time, that's normal" case — regardless of pressure.)
+        // Band is below HighPressureLevel (0.72) so a break can arrive as need builds, before
+        // full overload, but above a fresh/low baseline so the fresh user is left alone.
+        public const double BreakNeedOverloadLikelihood = OverloadStabilization.ThresholdOff; // 0.58
+        public const double BreakNeedPressureLevel = 0.55;
         public const double DeliveryBoundaryIdleMinSeconds = 2.0;
         public const double DeliveryBoundaryIdleMaxSeconds = 30.0;
         public const double DeliveryBoundaryTypingQuietMax = 0.35;
