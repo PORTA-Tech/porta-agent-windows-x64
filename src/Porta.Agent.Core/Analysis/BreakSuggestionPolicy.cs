@@ -39,8 +39,17 @@ internal static class BreakSuggestionPolicy
         DerivedSessionMetricsResult derivedSession,
         BreakFocusWindowSnapshot focusWindow,
         Func<BreakPolicyCooldownSnapshot> resolveCooldown,
-        RuntimeBreakPolicySettings? policy = null)
+        RuntimeBreakPolicySettings? policy = null,
+        bool meetingInProgress = false)
     {
+        // Meeting shield (lite): never interrupt with a break nudge while a real-time meeting
+        // app (Zoom/Teams/Webex/Google Meet) is foreground. Interrupting a call reads as the
+        // product getting in the way. Coarse by design — no audio/mic signal is captured.
+        if (meetingInProgress)
+        {
+            return Fail("meeting_in_progress");
+        }
+
         RuntimeBreakPolicySettings settings = policy ?? new RuntimeBreakPolicySettings(
             PortaExecutionConstants.BreakPolicy.ShortBreakWindowSeconds,
             PortaExecutionConstants.BreakPolicy.ShortBreakEffectiveFocusSecondsLowPressure,

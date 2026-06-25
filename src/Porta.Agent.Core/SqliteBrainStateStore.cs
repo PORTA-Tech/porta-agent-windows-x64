@@ -378,6 +378,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     overloadStabilization,
                     overloadInference,
                     policy.BreakPolicy);
+                bool meetingInProgress = Porta.Agent.Common.Analysis.AppCategoryClassifier.IsMeetingApp(mapped.DominantAppHash);
                 BreakSuggestionDecision breakSuggestionDecision = BreakSuggestionPolicy.ShouldTriggerBreak(
                     gating,
                     overloadStabilization,
@@ -385,7 +386,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     derivedSession,
                     breakFocusWindow,
                     resolveCooldown: () => ReadBreakPolicyCooldownSnapshot(connection, tx, finalizeTsMs),
-                    policy.BreakPolicy);
+                    policy.BreakPolicy,
+                    meetingInProgress: meetingInProgress);
                 AgentBrainSnapshot inferredSnapshot = ApplyOverloadInference(gatedSnapshot, overloadInference);
                 PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, primitive, robust);
                 StateBucketWriteModel stateRow = BuildStateBucketRow(

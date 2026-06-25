@@ -32,6 +32,30 @@ public sealed class BreakSuggestionPolicyTests
     }
 
     [Fact]
+    public void ShouldTriggerBreak_MeetingInProgress_FailsWithoutCooldownLookup()
+    {
+        int cooldownReads = 0;
+        BreakSuggestionDecision decision = BreakSuggestionPolicy.ShouldTriggerBreak(
+            BaselineGatingResult.Warm,
+            BuildStabilization(overloadActive: true),
+            BuildOverloadInference(confidence: 0.9d),
+            BuildSession(saSeconds: 7200d),
+            BuildFocusWindow(shortBreakSeconds: 1800d, longBreakSeconds: 3600d, boundaryKind: "short_idle"),
+            resolveCooldown: () =>
+            {
+                cooldownReads++;
+                return new BreakPolicyCooldownSnapshot(true, 0, 0);
+            },
+            policy: null,
+            meetingInProgress: true);
+
+        Assert.False(decision.ShouldEmit);
+        Assert.Equal("meeting_in_progress", decision.ReasonCode);
+        Assert.Equal(0, cooldownReads);
+        Assert.False(decision.CooldownChecked);
+    }
+
+    [Fact]
     public void ShouldTriggerBreak_LowConfidence_FailsWithoutCooldownLookup()
     {
         int cooldownReads = 0;

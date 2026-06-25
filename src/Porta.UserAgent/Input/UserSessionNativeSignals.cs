@@ -92,6 +92,12 @@ internal static class UserSessionNativeSignals
                     // Retain a coarse human label for this hash (e.g. "code", "chrome", "slack")
                     // so the digest/console can show real app names. Coarse only; no raw path/title.
                     AppCategoryClassifier.RegisterHashLabel(hash, ExtractExeName(exeIdentifier));
+                    // Meeting shield: flag dedicated meeting apps (Zoom/Teams/Webex) so break
+                    // nudges hold while they are foreground. Coarse — no audio/mic signal.
+                    if (AppCategoryClassifier.IsMeetingIdentifier(exeIdentifier))
+                    {
+                        AppCategoryClassifier.RegisterHashMeeting(hash);
+                    }
                     ForegroundHashCache[processId] = new CacheEntry(exeIdentifier, false, hash, expiresAt);
                     return hash;
                 }
@@ -118,6 +124,11 @@ internal static class UserSessionNativeSignals
             // Retain the coarse site token ("youtube", "github", or "web" if unrecognized) as the
             // label for this site hash — the human-readable half of what the digest/console show.
             AppCategoryClassifier.RegisterHashLabel(siteHash, siteToken);
+            // Meeting shield: Google Meet / Zoom-web / Teams-web / Webex running in a browser tab.
+            if (AppCategoryClassifier.IsMeetingSiteToken(siteToken))
+            {
+                AppCategoryClassifier.RegisterHashMeeting(siteHash);
+            }
             return siteHash;
         }
         catch (Exception ex)

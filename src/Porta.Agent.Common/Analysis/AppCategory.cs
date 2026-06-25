@@ -31,6 +31,50 @@ public static class AppCategoryClassifier
     private static readonly ConcurrentDictionary<string, string> HashLabelRegistry =
         new(StringComparer.Ordinal);
 
+    // Focus-identity hashes that belong to a real-time meeting app (Zoom / Teams / Webex /
+    // Google Meet). Used by the "meeting shield" so break nudges are held while a meeting app
+    // is foreground. Coarse and conservative: only dedicated meeting apps are flagged — generic
+    // chat (Slack, Discord, Telegram) is NOT, because an open chat window is not a call and we
+    // deliberately capture no audio/mic signal to tell a huddle from messaging.
+    private static readonly ConcurrentDictionary<string, byte> MeetingHashRegistry =
+        new(StringComparer.Ordinal);
+
+    // Exe base names (lowercase, no extension) of dedicated meeting apps.
+    private static readonly HashSet<string> MeetingExeNames = new(StringComparer.Ordinal)
+    {
+        "zoom", "teams", "msteams", "ms-teams",
+        "webex", "webexhost", "ciscowebexstart"
+    };
+
+    // Browser site tokens (as produced by BrowserTitleClassifier) for real-time meetings.
+    private static readonly HashSet<string> MeetingSiteTokens = new(StringComparer.Ordinal)
+    {
+        "zoom", "teams", "googlemeet", "webex"
+    };
+
+    /// <summary>True if the stable identifier ("exe:..." / "process:...") is a dedicated meeting app.</summary>
+    public static bool IsMeetingIdentifier(string stableIdentifier)
+    {
+        string name = ExtractClassifiableName(stableIdentifier);
+        return !string.IsNullOrEmpty(name) && MeetingExeNames.Contains(name);
+    }
+
+    /// <summary>True if a browser site token (from BrowserTitleClassifier) is a real-time meeting.</summary>
+    public static bool IsMeetingSiteToken(string? siteToken)
+        => !string.IsNullOrWhiteSpace(siteToken) && MeetingSiteTokens.Contains(siteToken.Trim().ToLowerInvariant());
+
+    /// <summary>Flags a focus-identity hash as a meeting app (idempotent).</summary>
+    public static void RegisterHashMeeting(string hash)
+    {
+        if (string.IsNullOrWhiteSpace(hash))
+            return;
+        MeetingHashRegistry[hash] = 1;
+    }
+
+    /// <summary>True if the hash was registered as a meeting app this session.</summary>
+    public static bool IsMeetingApp(string? hash)
+        => !string.IsNullOrWhiteSpace(hash) && MeetingHashRegistry.ContainsKey(hash);
+
     /// <summary>Records the coarse human label for a focus-identity hash (idempotent upsert).</summary>
     public static void RegisterHashLabel(string hash, string label)
     {
