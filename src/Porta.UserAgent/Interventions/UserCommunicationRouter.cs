@@ -259,7 +259,7 @@ internal static class UserCommunicationRouter
 
     /// <summary>
     /// Evaluates all 8 Ari behavioral toast triggers in priority order.
-    /// Priority: Recovery nudge > Pressure rising > Milestone > Break prompt > Weak hour > First focus > Session wrap.
+    /// Priority: Recovery nudge > Pressure rising > First-win (cold-start) > Milestone > Long session > Weak hour > Session wrap.
     /// Respects 8-minute global suppression via sessionState.CanShowToast.
     /// </summary>
     public static UserCommunicationToast? TryBuildAriToast(
@@ -313,6 +313,22 @@ internal static class UserCommunicationRouter
                 : "Ari sees the drift starting. Close the extra tabs.";
             sessionState.RecordToastShown(nowUtc);
             return new UserCommunicationToast(Key: "ari:pressure", Title: "Ari", Message: msg);
+        }
+
+        // --- Priority 2.5: First-win moment (cold-start proof of life, Launch 2.5) ---
+        // After the user's first real focus run of the day (~30 min), one toast confirming the
+        // product is working and the digest is coming. Placed above the milestone ladder so this
+        // lands instead of the generic "30 minutes" milestone on that first run — the new user's
+        // first concrete sign that Ari is doing something.
+        if (!sessionState.FirstFocusMessageSent && inActiveFocus && focusSec >= 1800)
+        {
+            sessionState.MarkFirstFocusMessageSent();
+            int runMin = (int)(focusSec / 60);
+            string msg = name is not null
+                ? $"{name}, that was your first focus run of the day — {runMin} minutes. Your daily summary arrives tonight."
+                : $"That was your first focus run of the day — {runMin} minutes. Your daily summary arrives tonight.";
+            sessionState.RecordToastShown(nowUtc);
+            return new UserCommunicationToast(Key: "ari:first_focus", Title: "Ari", Message: msg);
         }
 
         // --- Priority 3: Focus milestones (highest milestone wins) ---
@@ -377,18 +393,6 @@ internal static class UserCommunicationRouter
                     return new UserCommunicationToast(Key: "ari:weak_hour", Title: "Ari", Message: msg);
                 }
             }
-        }
-
-        // --- Priority 6: First focus of the day ---
-        if (!sessionState.FirstFocusMessageSent && inActiveFocus && focusSec >= 120)
-        {
-            sessionState.MarkFirstFocusMessageSent();
-            string timeLabel = nowUtc.ToLocalTime().ToString("h:mm tt");
-            string msg = name is not null
-                ? $"Deep work started. {name}, Ari has you."
-                : $"First focus block of the day — {timeLabel}. Ari is watching.";
-            sessionState.RecordToastShown(nowUtc);
-            return new UserCommunicationToast(Key: "ari:first_focus", Title: "Ari", Message: msg);
         }
 
         // --- Priority 7: Session wrap (idle after meaningful work) ---

@@ -9529,7 +9529,21 @@ public partial class MainWindow : Window
                 snapshotValue.CalibrationStage ?? status?.CalibrationStage,
                 snapshotValue.BaselineReady,
                 snapshotValue.ColdStart);
-            CalibrationBadgeText.Text = $"Learning your pattern: {ToCalibrationStageLabel(calibrationStage)}";
+            // Cold-start (Launch 2.5): while still learning, show an explicit "day N of ~5"
+            // countdown instead of a bare stage label, so a new user understands the product is
+            // actively calibrating (not inert). Day is derived from baseline-metrics readiness
+            // mapped onto the ~5-day calibration window.
+            if (string.Equals(calibrationStage, CalibrationStageCalibrated, StringComparison.Ordinal))
+            {
+                CalibrationBadgeText.Text = "Learning your pattern: Calibrated";
+            }
+            else
+            {
+                int calibrationDay = snapshotValue.BaselineReadyPct.HasValue
+                    ? Math.Clamp((int)Math.Ceiling(Math.Clamp(snapshotValue.BaselineReadyPct.Value, 0d, 1d) * 5d), 1, 5)
+                    : 1;
+                CalibrationBadgeText.Text = $"Learning your patterns — day {calibrationDay} of ~5";
+            }
             SetCalibrationBadgeVisual(calibrationStage);
         }
 
