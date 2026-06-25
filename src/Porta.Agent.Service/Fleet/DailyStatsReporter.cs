@@ -108,6 +108,14 @@ internal sealed class DailyStatsReporter : BackgroundService
             // Distraction social media loops from current session
             AgentDistractionSummary distraction = _controller.GetCurrentDistractionSummary();
 
+            // Coarse per-app foreground time for the day, joined to human labels — same ranking
+            // the digest uses. Lets the console show "where the day went" per machine and gives
+            // the server-fallback digest real app names.
+            System.Collections.Generic.IReadOnlyList<FocusAppUsagePayload> topApps =
+                FocusAppUsageBuilder.BuildTopApps(
+                    _controller.GetFocusAppDwellSeconds(startOfDayUtc, nowUtc),
+                    FocusAppLabelMapReader.ReadLabels());
+
             DateTimeOffset dubaiNow = nowUtc.ToOffset(TimeSpan.FromMinutes(DubaiOffsetMinutes));
             string dateLocal = dubaiNow.ToString("yyyy-MM-dd");
             string machineId = ResolveMachineId();
@@ -136,7 +144,8 @@ internal sealed class DailyStatsReporter : BackgroundService
                 FirstFocusBlockUtc: agg.FirstFocusBlockUtc,
                 PeakPressureUtc: agg.PeakPressureUtc,
                 AvgDistractionEpisodeDurationSeconds: agg.AvgDistractionEpisodeDurationSeconds,
-                ContextSwitchCount: agg.ContextSwitchCount);
+                ContextSwitchCount: agg.ContextSwitchCount,
+                TopApps: topApps);
 
             bool sent = await _client.PostDailyStatsAsync(payload, token).ConfigureAwait(false);
             if (!sent)

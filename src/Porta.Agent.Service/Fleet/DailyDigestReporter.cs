@@ -133,7 +133,7 @@ internal sealed class DailyDigestReporter : BackgroundService
             // coarse label/category maps the user-agent persists.
             IReadOnlyDictionary<string, double> dwellByHash = _controller.GetFocusAppDwellSeconds(startOfDayUtc, nowUtc);
             IReadOnlyDictionary<string, int> categoryByHash = FocusAppLabelMapReader.ReadCategories();
-            IReadOnlyList<FocusAppUsagePayload> topApps = BuildTopApps(dwellByHash, FocusAppLabelMapReader.ReadLabels());
+            IReadOnlyList<FocusAppUsagePayload> topApps = FocusAppUsageBuilder.BuildTopApps(dwellByHash, FocusAppLabelMapReader.ReadLabels());
 
             // Real category seconds replace the old state-based proxies (entertainment=distraction,
             // development=focus-strength) when we actually have category data for this machine.
@@ -226,29 +226,6 @@ internal sealed class DailyDigestReporter : BackgroundService
         }
 
         return totals;
-    }
-
-    private static IReadOnlyList<FocusAppUsagePayload> BuildTopApps(
-        IReadOnlyDictionary<string, double> dwellByHash,
-        IReadOnlyDictionary<string, string> labelByHash)
-    {
-        var byLabel = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        foreach (KeyValuePair<string, double> entry in dwellByHash)
-        {
-            if (!labelByHash.TryGetValue(entry.Key, out string? label) || string.IsNullOrWhiteSpace(label))
-            {
-                continue;
-            }
-
-            byLabel[label] = byLabel.TryGetValue(label, out double existing) ? existing + entry.Value : entry.Value;
-        }
-
-        return byLabel
-            .Where(static kv => kv.Value >= 60d)
-            .OrderByDescending(static kv => kv.Value)
-            .Take(8)
-            .Select(static kv => new FocusAppUsagePayload(kv.Key, Math.Round(kv.Value)))
-            .ToList();
     }
 
     private static bool IsBreakSuggestionEvent(string? action)

@@ -212,7 +212,10 @@ internal sealed record DailyStatsReportPayload(
     [property: JsonPropertyName("firstFocusBlockUtc")] string? FirstFocusBlockUtc = null,
     [property: JsonPropertyName("peakPressureUtc")] string? PeakPressureUtc = null,
     [property: JsonPropertyName("avgDistractionEpisodeDurationSeconds")] double AvgDistractionEpisodeDurationSeconds = 0d,
-    [property: JsonPropertyName("contextSwitchCount")] int ContextSwitchCount = 0);
+    [property: JsonPropertyName("contextSwitchCount")] int ContextSwitchCount = 0,
+    // Coarse per-app foreground time for the day (label + seconds). Powers the console
+    // per-app view and the server-fallback digest's "where your time went" section.
+    [property: JsonPropertyName("topApps")] IReadOnlyList<FocusAppUsagePayload>? TopApps = null);
 
 internal sealed record MachineActionEventPayload(
     [property: JsonPropertyName("deviceId")] string DeviceId,
