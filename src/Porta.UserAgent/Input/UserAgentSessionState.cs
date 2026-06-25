@@ -10,6 +10,14 @@ internal sealed class UserAgentSessionState
     private DateTimeOffset _sessionDate;
     private double _totalFocusSecondsToday;
 
+    // Recovery-nudge caps (Launch 2.2): the "you were close" nudge is high-value but a nag if
+    // overused, so it is limited beyond the global 8-minute toast gate — at most a few per day
+    // and never twice within an hour.
+    private int _recoveryNudgesToday;
+    private DateTimeOffset _lastRecoveryNudgeUtc = DateTimeOffset.MinValue;
+    private const int MaxRecoveryNudgesPerDay = 3;
+    private const double RecoveryNudgeMinIntervalMinutes = 60;
+
     // Tracks last time any activity was observed (updated by UserAgentHost each tick)
     public DateTimeOffset LastActivityUtc { get; private set; } = DateTimeOffset.MinValue;
 
@@ -37,6 +45,17 @@ internal sealed class UserAgentSessionState
         (nowUtc - _lastToastSentUtc).TotalMinutes >= 8;
 
     public void RecordToastShown(DateTimeOffset nowUtc) => _lastToastSentUtc = nowUtc;
+
+    // Recovery nudge may fire only if under the daily cap AND at least an hour since the last one.
+    public bool CanShowRecoveryNudge(DateTimeOffset nowUtc) =>
+        _recoveryNudgesToday < MaxRecoveryNudgesPerDay
+        && (nowUtc - _lastRecoveryNudgeUtc).TotalMinutes >= RecoveryNudgeMinIntervalMinutes;
+
+    public void RecordRecoveryNudgeShown(DateTimeOffset nowUtc)
+    {
+        _recoveryNudgesToday++;
+        _lastRecoveryNudgeUtc = nowUtc;
+    }
 
     public bool FirstFocusMessageSent => _firstFocusMessageSent;
 
@@ -71,6 +90,8 @@ internal sealed class UserAgentSessionState
             _lastToastSentUtc = DateTimeOffset.MinValue;
             InDistractionEpisode = false;
             PreDistractionFocusSeconds = 0;
+            _recoveryNudgesToday = 0;
+            _lastRecoveryNudgeUtc = DateTimeOffset.MinValue;
             _totalFocusSecondsToday = 0;
             LastActivityUtc = DateTimeOffset.MinValue;
             _sessionDate = nowUtc;

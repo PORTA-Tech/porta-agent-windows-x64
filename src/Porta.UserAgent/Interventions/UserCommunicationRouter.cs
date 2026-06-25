@@ -281,19 +281,23 @@ internal static class UserCommunicationRouter
             sessionState.MarkDistractionStarted(focusSec, nowUtc);
         }
 
-        // --- Priority 1: Recovery nudge (fires immediately when distraction ends, no 8-min gate) ---
+        // --- Priority 1: Recovery nudge ("you were close") ---
+        // Fires when a real focus run (>= 10 min, per Launch 2.2) ends by distraction and the
+        // user returns. Capped to a few per day and never twice within an hour (a nag is worse
+        // than nothing) on top of the global 8-minute toast gate.
         if (distractionJustEnded)
         {
             sessionState.MarkDistractionEnded();
             int preMin = (int)(sessionState.PreDistractionFocusSeconds / 60);
-            if (preMin >= 5 && sessionState.CanShowToast(nowUtc))
+            if (preMin >= 10 && sessionState.CanShowToast(nowUtc) && sessionState.CanShowRecoveryNudge(nowUtc))
             {
                 string msg = preMin >= 30
                     ? $"You were {preMin}min into your best run today. Pick it back up."
                     : name is not null
                         ? $"{name}, {preMin}min of strong focus before that drift. Recapture it."
-                        : $"Back. {preMin}min drifted. Your streak was {preMin}min — restart it.";
+                        : $"You were {preMin}min into a strong run before that drift. Pick it back up.";
                 sessionState.RecordToastShown(nowUtc);
+                sessionState.RecordRecoveryNudgeShown(nowUtc);
                 return new UserCommunicationToast(Key: "ari:recovery", Title: "Ari", Message: msg);
             }
         }
