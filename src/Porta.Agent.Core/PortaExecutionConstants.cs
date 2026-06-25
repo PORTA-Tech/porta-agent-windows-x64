@@ -219,10 +219,16 @@ public static class PortaExecutionConstants
         // threshold. A fresh, energized user deep in focus is NOT interrupted. (A LONG break is
         // still offered after genuinely prolonged focus, which is its own valid reason — the
         // "you've been at it a long time, that's normal" case — regardless of pressure.)
-        // Band is below HighPressureLevel (0.72) so a break can arrive as need builds, before
-        // full overload, but above a fresh/low baseline so the fresh user is left alone.
-        public const double BreakNeedOverloadLikelihood = OverloadStabilization.ThresholdOff; // 0.58
-        public const double BreakNeedPressureLevel = 0.55;
+        //
+        // CALIBRATION (observed, not theoretical): in practice pressure/overload rarely climb
+        // past ~0.50 even when busy — the strain floors (0.58/0.72) only trigger on frantic
+        // multitasking (>=3 app-switches/5s, >=4 apps), and the component blend tops out near
+        // 0.5 for sustained single-app work. So the need band is set near the top of the real
+        // observed range, NOT the theoretical 0.72: a calm baseline sits below this, a genuinely
+        // busy stretch reaches it. This is a deliberate stopgap — revisit together with a proper
+        // pressure-model analysis (the model never using its top half is a known, separate gap).
+        public const double BreakNeedOverloadLikelihood = 0.45;
+        public const double BreakNeedPressureLevel = 0.45;
         public const double DeliveryBoundaryIdleMinSeconds = 2.0;
         public const double DeliveryBoundaryIdleMaxSeconds = 30.0;
         public const double DeliveryBoundaryTypingQuietMax = 0.35;
