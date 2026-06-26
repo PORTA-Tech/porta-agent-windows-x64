@@ -114,7 +114,8 @@ internal sealed class DailyStatsReporter : BackgroundService
             System.Collections.Generic.IReadOnlyList<FocusAppUsagePayload> topApps =
                 FocusAppUsageBuilder.BuildTopApps(
                     _controller.GetFocusAppDwellSeconds(startOfDayUtc, nowUtc),
-                    FocusAppLabelMapReader.ReadLabels());
+                    FocusAppLabelMapReader.ReadLabels(),
+                    FocusAppLabelMapReader.ReadCategories());
 
             DateTimeOffset dubaiNow = nowUtc.ToOffset(TimeSpan.FromMinutes(DubaiOffsetMinutes));
             string dateLocal = dubaiNow.ToString("yyyy-MM-dd");

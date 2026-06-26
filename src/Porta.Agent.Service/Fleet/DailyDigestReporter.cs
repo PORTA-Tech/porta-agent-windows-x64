@@ -133,7 +133,7 @@ internal sealed class DailyDigestReporter : BackgroundService
             // coarse label/category maps the user-agent persists.
             IReadOnlyDictionary<string, double> dwellByHash = _controller.GetFocusAppDwellSeconds(startOfDayUtc, nowUtc);
             IReadOnlyDictionary<string, int> categoryByHash = FocusAppLabelMapReader.ReadCategories();
-            IReadOnlyList<FocusAppUsagePayload> topApps = FocusAppUsageBuilder.BuildTopApps(dwellByHash, FocusAppLabelMapReader.ReadLabels());
+            IReadOnlyList<FocusAppUsagePayload> topApps = FocusAppUsageBuilder.BuildTopApps(dwellByHash, FocusAppLabelMapReader.ReadLabels(), categoryByHash);
 
             // Real category seconds replace the old state-based proxies (entertainment=distraction,
             // development=focus-strength) when we actually have category data for this machine.

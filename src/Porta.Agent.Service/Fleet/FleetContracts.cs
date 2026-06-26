@@ -140,7 +140,10 @@ internal sealed record DeviceLinkResultPayload(
 /// "where your time went" section of the digest. Label is a coarse token only (e.g. "youtube").</summary>
 internal sealed record FocusAppUsagePayload(
     [property: JsonPropertyName("label")] string Label,
-    [property: JsonPropertyName("seconds")] double Seconds);
+    [property: JsonPropertyName("seconds")] double Seconds,
+    // Coarse AppCategory enum value (0=Unknown) so distraction can be attributed to specific
+    // apps/sites (entertainment/social/gaming = distracting) without re-deriving categories server-side.
+    [property: JsonPropertyName("category")] int Category = 0);
 
 internal sealed record DailyDigestReportPayload(
     [property: JsonPropertyName("accountId")] string? AccountId,
