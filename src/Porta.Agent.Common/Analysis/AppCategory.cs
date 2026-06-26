@@ -207,6 +207,7 @@ public static class AppCategoryClassifier
             "devenv"
                 or "code" or "code - insiders"
                 or "cursor"
+                or "claude"
                 or "rider64" or "rider"
                 or "idea64" or "idea"
                 or "pycharm64" or "pycharm"
