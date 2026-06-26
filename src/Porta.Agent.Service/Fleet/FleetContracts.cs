@@ -70,7 +70,8 @@ internal sealed record MachineSummaryReportPayload(
     [property: JsonPropertyName("userAgentLogTail")] string? UserAgentLogTail = null,
     [property: JsonPropertyName("windowsUpdateStatus")] string? WindowsUpdateStatus = null,
     [property: JsonPropertyName("userAgentSessionConnectState")] string? UserAgentSessionConnectState = null,
-    [property: JsonPropertyName("focusAppIdentity")] string? FocusAppIdentity = null);
+    [property: JsonPropertyName("focusAppIdentity")] string? FocusAppIdentity = null,
+    [property: JsonPropertyName("focusAppLabel")] string? FocusAppLabel = null);
 
 internal sealed record WindowsReleaseManifestPayload(
     [property: JsonPropertyName("platform")] string? Platform,

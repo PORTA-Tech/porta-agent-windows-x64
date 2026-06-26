@@ -124,6 +124,17 @@ internal sealed class MachineSummaryMapper
         // gap behind "only focus missing". Set by BucketAggregators when focus is ingested.
         string? focusAppIdentity = NullIfWhiteSpace(ReadStringFlag(latestState?.StateFlagsJson, "focus_app_identity"));
 
+        // Live current-app NAME: the latest bucket records the dominant focus hash in its
+        // state-flags; resolve it to the coarse human label the user-agent persisted
+        // (focus-app-labels.v1.json) so the console can show *what* each machine is focused on
+        // ("claude", "gmail", "youtube"), not just "focused 30m". Coarse token only — no raw
+        // title/URL. Null on pre-1.2.100 machines (no labels file) or until a hash is seen.
+        string? dominantAppHash = NullIfWhiteSpace(ReadStringFlag(latestState?.StateFlagsJson, "dominant_app_hash"));
+        string? focusAppLabel = dominantAppHash is not null
+            && FocusAppLabelMapReader.ReadLabels().TryGetValue(dominantAppHash, out string? resolvedLabel)
+                ? resolvedLabel
+                : null;
+
         return new MachineSummaryReportPayload(
             DeviceId: identityLink.DeviceId,
             AccountId: accountId,
@@ -198,7 +209,8 @@ internal sealed class MachineSummaryMapper
             UserAgentLogTail: UserAgentLogTailReader.ReadTail(),
             WindowsUpdateStatus: WindowsUpdateStatusReader.ReadStatus(),
             UserAgentSessionConnectState: userAgentSessionConnectState,
-            FocusAppIdentity: focusAppIdentity);
+            FocusAppIdentity: focusAppIdentity,
+            FocusAppLabel: focusAppLabel);
     }
 
     private static double ResolvePressureLevel(string? stateFlagsJson, double fallback)
