@@ -318,7 +318,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     mapped,
                     primitive,
                     gating,
-                    robust);
+                    robust,
+                    derivedSession.TaskContinuitySeconds);
                 string trustTier = CalibrationTruth.ResolveTrustTier(
                     gating.CalibrationStage,
                     overloadInference.Confidence,

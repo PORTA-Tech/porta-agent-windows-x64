@@ -33,7 +33,8 @@ internal static class OverloadInferenceComputer
         InputBucketRow bucket,
         PrimitiveComputationResult primitive,
         BaselineGatingResult gating,
-        RobustNormalizationSnapshot? robust)
+        RobustNormalizationSnapshot? robust,
+        double sustainedOnTaskSeconds = 0d)
     {
         _ = snapshot;
         _ = robust;
@@ -54,7 +55,7 @@ internal static class OverloadInferenceComputer
         // Compatibility contract:
         // OverloadLikelihood remains the conservative component-weighted action signal.
         double overload = componentOverload;
-        double pressure = ComputePressureLevel(bucket, fComponent, iComponent, vComponent, overload);
+        double pressure = ComputePressureLevel(bucket, fComponent, iComponent, vComponent, overload, sustainedOnTaskSeconds);
 
         double agreementRaw = ComputeAgreementRaw(primitiveValues);
         (double coverage, int missingCount) = ComputePrimitiveCoverage(primitiveAvailability);
@@ -91,7 +92,8 @@ internal static class OverloadInferenceComputer
         double fComponent,
         double iComponent,
         double vComponent,
-        double overload)
+        double overload,
+        double sustainedOnTaskSeconds)
     {
         double strongest = Math.Max(fComponent, Math.Max(iComponent, vComponent));
         double mean = (fComponent + iComponent + vComponent) / 3d;
@@ -99,7 +101,43 @@ internal static class OverloadInferenceComputer
             (PortaExecutionConstants.OverloadInference.PressureDominantComponentWeight * strongest)
             + (PortaExecutionConstants.OverloadInference.PressureMeanComponentWeight * mean));
         double absoluteStrainFloor = ComputeAbsoluteStrainFloor(bucket);
-        return Clamp01(Math.Max(overload, Math.Max(expressiveBlend, absoluteStrainFloor)));
+        double basePressure = Clamp01(Math.Max(overload, Math.Max(expressiveBlend, absoluteStrainFloor)));
+
+        // Sustained-on-task lift (1a). The component blend and strain floors only react to
+        // multitasking; sustained single-app effort never moved pressure past ~0.51 across 44k
+        // real buckets, leaving the upper half of the scale permanently dead. This term raises
+        // pressure as continuous, genuinely-active, no-recovery focus accumulates over time.
+        // It is strictly additive and a no-op when on-task duration is below the ramp start, so
+        // brief work and every existing caller (which passes 0) are byte-identical to before.
+        double sustainedPressure = ComputeSustainedPressure(basePressure, expressiveBlend, sustainedOnTaskSeconds);
+        return Clamp01(Math.Max(basePressure, sustainedPressure));
+    }
+
+    private static double ComputeSustainedPressure(
+        double basePressure,
+        double expressiveBlend,
+        double sustainedOnTaskSeconds)
+    {
+        double rampStart = PortaExecutionConstants.OverloadInference.PressureSustainedRampStartSeconds;
+        double rampFull = PortaExecutionConstants.OverloadInference.PressureSustainedRampFullSeconds;
+        double rampSpan = rampFull - rampStart;
+        if (!double.IsFinite(sustainedOnTaskSeconds)
+            || sustainedOnTaskSeconds <= rampStart
+            || rampSpan <= 0d)
+        {
+            return basePressure;
+        }
+
+        // Duration ramp: 0 at the ramp start, 1 at the ramp full point.
+        double ramp = Clamp01((sustainedOnTaskSeconds - rampStart) / rampSpan);
+        // Active gate: suppresses the lift when the user is not genuinely working (idle/quiet),
+        // so simply leaving an app foreground without input cannot manufacture pressure.
+        double activeGate = Clamp01(
+            expressiveBlend / PortaExecutionConstants.OverloadInference.PressureSustainedActiveGateReference);
+        double lift = PortaExecutionConstants.OverloadInference.PressureSustainedLiftGain * ramp * activeGate;
+        // Cap keeps the sustained lift below the overload band (0.72): deep focus reads as
+        // "high pressure", never as conservative overload, and never auto-shortens break windows.
+        return Math.Min(PortaExecutionConstants.OverloadInference.PressureSustainedCap, basePressure + lift);
     }
 
     private static double ComputeAbsoluteStrainFloor(InputBucketRow bucket)

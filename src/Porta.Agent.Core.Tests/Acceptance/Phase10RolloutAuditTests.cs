@@ -321,7 +321,7 @@ public sealed class Phase10RolloutAuditTests
             UsedSnapshotFallback: false,
             Source: "acceptance_harness",
             ComponentsRegistryVersion: 1,
-            // Pressure rising into the need band (>= BreakNeedPressureLevel 0.55, below
+            // Pressure rising into the need band (>= BreakNeedPressureLevel 0.50, below
             // HighPressureLevel 0.72): a short break is genuinely warranted under the
             // state-driven policy, so this scenario still exercises suggestion emission.
             PressureLevel: 0.60d);

@@ -110,6 +110,70 @@ public sealed class OverloadInferenceComputerTests
     }
 
     [Fact]
+    public void ComputeForFinalizedBucket_NoSustainedOnTask_IsByteIdenticalToBaseline()
+    {
+        // Phase 1a backward-compat guarantee: with zero (or below-ramp-start) on-task duration,
+        // the sustained term contributes nothing and pressure equals the pre-1a value exactly.
+        AgentBrainSnapshot snapshot = BuildSnapshot(overload: 0d, confidence: 0d);
+        InputBucketRow bucket = BuildBucket(quality: 0.70d);
+        PrimitiveComputationResult primitive = BuildPrimitive(typing: 0.80d, scroll: 0.20d, focus: 0.60d);
+
+        OverloadInferenceResult defaulted = OverloadInferenceComputer.ComputeForFinalizedBucket(
+            snapshot, bucket, primitive, BaselineGatingResult.Warm, robust: null);
+        OverloadInferenceResult zero = OverloadInferenceComputer.ComputeForFinalizedBucket(
+            snapshot, bucket, primitive, BaselineGatingResult.Warm, robust: null, sustainedOnTaskSeconds: 0d);
+        OverloadInferenceResult belowRampStart = OverloadInferenceComputer.ComputeForFinalizedBucket(
+            snapshot, bucket, primitive, BaselineGatingResult.Warm, robust: null, sustainedOnTaskSeconds: 400d);
+
+        // 0.552667 is the pinned pre-1a pressure for this scenario.
+        Assert.Equal(0.552667d, defaulted.PressureLevel, precision: 6);
+        Assert.Equal(defaulted.PressureLevel, zero.PressureLevel, precision: 9);
+        Assert.Equal(defaulted.PressureLevel, belowRampStart.PressureLevel, precision: 9);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_SustainedOnTask_LiftsPressureButNotConservativeOverload()
+    {
+        // Sustained, genuinely-active single-app focus raises the expressive pressure into the
+        // previously-dead upper range, while the conservative OverloadLikelihood is untouched.
+        AgentBrainSnapshot snapshot = BuildSnapshot(overload: 0d, confidence: 0d);
+        InputBucketRow bucket = BuildBucket(quality: 0.80d); // single app: no strain floor
+        PrimitiveComputationResult primitive = BuildPrimitive(typing: 0.50d, scroll: 0.20d, focus: 0.20d);
+
+        OverloadInferenceResult brief = OverloadInferenceComputer.ComputeForFinalizedBucket(
+            snapshot, bucket, primitive, BaselineGatingResult.Warm, robust: null, sustainedOnTaskSeconds: 0d);
+        OverloadInferenceResult sustained = OverloadInferenceComputer.ComputeForFinalizedBucket(
+            snapshot, bucket, primitive, BaselineGatingResult.Warm, robust: null, sustainedOnTaskSeconds: 45 * 60);
+
+        // Base pressure (no lift) and the conservative signal.
+        Assert.Equal(0.333d, brief.PressureLevel, precision: 6);
+        Assert.Equal(0.275d, brief.OverloadLikelihood, precision: 6);
+
+        // After 45 min on task: ramp=1, gate=0.333/0.40=0.8325, lift=0.28*0.8325=0.23310.
+        Assert.Equal(0.566100d, sustained.PressureLevel, precision: 6);
+        // The conservative action signal is identical — interventions/actuation cannot move.
+        Assert.Equal(brief.OverloadLikelihood, sustained.OverloadLikelihood, precision: 9);
+        Assert.True(sustained.PressureLevel > brief.PressureLevel);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_SustainedLift_CapsBelowOverloadBand()
+    {
+        // Even maxed sustained focus stays below the overload band (0.72): deep work reads as
+        // high pressure, never as conservative overload, and never auto-shortens break windows.
+        AgentBrainSnapshot snapshot = BuildSnapshot(overload: 0d, confidence: 0d);
+        InputBucketRow bucket = BuildBucket(quality: 0.80d);
+        PrimitiveComputationResult primitive = BuildPrimitive(typing: 0.80d, scroll: 0.20d, focus: 0.60d);
+
+        OverloadInferenceResult sustained = OverloadInferenceComputer.ComputeForFinalizedBucket(
+            snapshot, bucket, primitive, BaselineGatingResult.Warm, robust: null, sustainedOnTaskSeconds: 45 * 60);
+
+        Assert.Equal(PortaExecutionConstants.OverloadInference.PressureSustainedCap, sustained.PressureLevel, precision: 6);
+        Assert.True(sustained.PressureLevel < PortaExecutionConstants.OverloadStabilization.ThresholdOn);
+        Assert.True(sustained.OverloadLikelihood < PortaExecutionConstants.OverloadStabilization.ThresholdOn);
+    }
+
+    [Fact]
     public void ComputeForFinalizedBucket_CapsConfidenceDuringColdStart()
     {
         AgentBrainSnapshot snapshot = BuildSnapshot(overload: 0.70d, confidence: 0.90d);

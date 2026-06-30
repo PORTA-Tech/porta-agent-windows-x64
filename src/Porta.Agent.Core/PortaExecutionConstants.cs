@@ -198,6 +198,17 @@ public static class PortaExecutionConstants
         public const double PressureAbsoluteActiveAppsHardThreshold = 5.0;
         public const double PressureAbsoluteSoftFloor = 0.58;
         public const double PressureAbsoluteHardFloor = 0.72;
+
+        // Sustained-on-task pressure term (Phase 1a). Fitted to 44k real per-bucket samples and
+        // validated by replay: it lifts pressure as continuous, genuinely-active, no-recovery
+        // focus accumulates, so the previously-dead upper half of the scale (pressure never
+        // exceeded ~0.51 in the field) is finally used. The lift is a no-op below the ramp start,
+        // so brief work is unchanged. Re-fit these five numbers from data if recalibrated.
+        public const double PressureSustainedRampStartSeconds = 8 * 60;    // lift begins after 8 min continuous on-task
+        public const double PressureSustainedRampFullSeconds = 45 * 60;    // lift reaches full at 45 min
+        public const double PressureSustainedActiveGateReference = 0.40;   // expressive blend at/above this counts as fully active; idle suppresses the lift
+        public const double PressureSustainedLiftGain = 0.28;              // maximum additive lift from sustained effort
+        public const double PressureSustainedCap = 0.70;                   // sustained lift stays below the overload band (0.72)
     }
 
     public static class BreakPolicy
@@ -220,15 +231,18 @@ public static class PortaExecutionConstants
         // still offered after genuinely prolonged focus, which is its own valid reason — the
         // "you've been at it a long time, that's normal" case — regardless of pressure.)
         //
-        // CALIBRATION (observed, not theoretical): in practice pressure/overload rarely climb
-        // past ~0.50 even when busy — the strain floors (0.58/0.72) only trigger on frantic
-        // multitasking (>=3 app-switches/5s, >=4 apps), and the component blend tops out near
-        // 0.5 for sustained single-app work. So the need band is set near the top of the real
-        // observed range, NOT the theoretical 0.72: a calm baseline sits below this, a genuinely
-        // busy stretch reaches it. This is a deliberate stopgap — revisit together with a proper
-        // pressure-model analysis (the model never using its top half is a known, separate gap).
+        // CALIBRATION (Phase 1a — fitted to real data, replacing the old 0.45 stopgap). The
+        // pressure model now uses its full range: the sustained-on-task term lifts prolonged,
+        // genuinely-active focus into the upper band (see OverloadInference.PressureSustained*),
+        // instead of capping near ~0.51 as it did for single-app work. With pressure spanning a
+        // real range, the short-break need band is re-pointed to 0.50 — fitted on 44k buckets so
+        // brief sessions (which sit ~0.27) stay below it and sustained work (~0.55–0.70) crosses
+        // it and reliably earns a short break. Replay over real history showed 0–5 min sessions
+        // unchanged while 25 min+ grinds became correctly break-eligible, with nothing entering
+        // the overload band (>=0.72). BreakNeedOverloadLikelihood is left at 0.45 because the
+        // conservative OverloadLikelihood signal and its distribution are unchanged by 1a.
         public const double BreakNeedOverloadLikelihood = 0.45;
-        public const double BreakNeedPressureLevel = 0.45;
+        public const double BreakNeedPressureLevel = 0.50;
         public const double DeliveryBoundaryIdleMinSeconds = 2.0;
         public const double DeliveryBoundaryIdleMaxSeconds = 30.0;
         public const double DeliveryBoundaryTypingQuietMax = 0.35;
