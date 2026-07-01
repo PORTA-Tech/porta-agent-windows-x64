@@ -1953,47 +1953,52 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         {
             using var connection = DbOpen.OpenConnection(_connectionString);
             using SqliteTransaction tx = BeginImmediateTransaction(connection);
-            using (var cmd = connection.CreateCommand())
-            {
-                cmd.Transaction = tx;
-                cmd.CommandText =
-                    """
-                    INSERT INTO ground_truth_labels (
-                        created_at_utc, bucket_seq, bucket_timestamp_utc,
-                        label_source, prompt_kind, response_kind, label_target, label_value,
-                        response_latency_ms, intervention_id, features_json,
-                        pressure_level, overload_likelihood, confidence,
-                        dominant_state, calibration_stage, trust_tier, schema_ver)
-                    VALUES (
-                        $created, $bseq, $bts,
-                        $src, $pk, $rk, $tgt, $val,
-                        $lat, $iid, $feat,
-                        $pl, $ol, $conf,
-                        $ds, $cs, $tt, $sv);
-                    """;
-                cmd.Parameters.AddWithValue("$created", label.CreatedAtUtc.ToString("O"));
-                cmd.Parameters.AddWithValue("$bseq", label.BucketSeq);
-                cmd.Parameters.AddWithValue("$bts", label.BucketTimestampUtc ?? string.Empty);
-                cmd.Parameters.AddWithValue("$src", label.LabelSource ?? string.Empty);
-                cmd.Parameters.AddWithValue("$pk", label.PromptKind ?? string.Empty);
-                cmd.Parameters.AddWithValue("$rk", label.ResponseKind ?? string.Empty);
-                cmd.Parameters.AddWithValue("$tgt", label.LabelTarget ?? string.Empty);
-                cmd.Parameters.AddWithValue("$val", label.LabelValue);
-                cmd.Parameters.AddWithValue("$lat", label.ResponseLatencyMs);
-                cmd.Parameters.AddWithValue("$iid", label.InterventionId ?? string.Empty);
-                cmd.Parameters.AddWithValue("$feat", string.IsNullOrEmpty(label.FeaturesJson) ? "{}" : label.FeaturesJson);
-                cmd.Parameters.AddWithValue("$pl", label.PressureLevel);
-                cmd.Parameters.AddWithValue("$ol", label.OverloadLikelihood);
-                cmd.Parameters.AddWithValue("$conf", label.Confidence);
-                cmd.Parameters.AddWithValue("$ds", label.DominantState ?? string.Empty);
-                cmd.Parameters.AddWithValue("$cs", label.CalibrationStage ?? string.Empty);
-                cmd.Parameters.AddWithValue("$tt", label.TrustTier ?? string.Empty);
-                cmd.Parameters.AddWithValue("$sv", label.SchemaVer);
-                cmd.ExecuteNonQuery();
-            }
-
+            WriteGroundTruthLabelRow(connection, tx, label);
             tx.Commit();
         }
+    }
+
+    // Inserts one label row on the GIVEN connection/transaction. Callers that already hold a
+    // write transaction (e.g. AcknowledgeIntervention) MUST use this — never RecordGroundTruthLabel,
+    // which opens its own connection and would deadlock SQLite against the held write lock.
+    private static void WriteGroundTruthLabelRow(SqliteConnection connection, SqliteTransaction tx, GroundTruthLabel label)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            INSERT INTO ground_truth_labels (
+                created_at_utc, bucket_seq, bucket_timestamp_utc,
+                label_source, prompt_kind, response_kind, label_target, label_value,
+                response_latency_ms, intervention_id, features_json,
+                pressure_level, overload_likelihood, confidence,
+                dominant_state, calibration_stage, trust_tier, schema_ver)
+            VALUES (
+                $created, $bseq, $bts,
+                $src, $pk, $rk, $tgt, $val,
+                $lat, $iid, $feat,
+                $pl, $ol, $conf,
+                $ds, $cs, $tt, $sv);
+            """;
+        cmd.Parameters.AddWithValue("$created", label.CreatedAtUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$bseq", label.BucketSeq);
+        cmd.Parameters.AddWithValue("$bts", label.BucketTimestampUtc ?? string.Empty);
+        cmd.Parameters.AddWithValue("$src", label.LabelSource ?? string.Empty);
+        cmd.Parameters.AddWithValue("$pk", label.PromptKind ?? string.Empty);
+        cmd.Parameters.AddWithValue("$rk", label.ResponseKind ?? string.Empty);
+        cmd.Parameters.AddWithValue("$tgt", label.LabelTarget ?? string.Empty);
+        cmd.Parameters.AddWithValue("$val", label.LabelValue);
+        cmd.Parameters.AddWithValue("$lat", label.ResponseLatencyMs);
+        cmd.Parameters.AddWithValue("$iid", label.InterventionId ?? string.Empty);
+        cmd.Parameters.AddWithValue("$feat", string.IsNullOrEmpty(label.FeaturesJson) ? "{}" : label.FeaturesJson);
+        cmd.Parameters.AddWithValue("$pl", label.PressureLevel);
+        cmd.Parameters.AddWithValue("$ol", label.OverloadLikelihood);
+        cmd.Parameters.AddWithValue("$conf", label.Confidence);
+        cmd.Parameters.AddWithValue("$ds", label.DominantState ?? string.Empty);
+        cmd.Parameters.AddWithValue("$cs", label.CalibrationStage ?? string.Empty);
+        cmd.Parameters.AddWithValue("$tt", label.TrustTier ?? string.Empty);
+        cmd.Parameters.AddWithValue("$sv", label.SchemaVer);
+        cmd.ExecuteNonQuery();
     }
 
     // Phase 1b: lightweight count so we can confirm labels are actually accumulating.
@@ -2193,6 +2198,16 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         tx,
                         targetRow,
                         ack with { Result = normalizedResult });
+
+                    // Phase 1b (passive label capture): a genuine user choice on a break/recovery
+                    // nudge becomes a durable ground-truth label. Best-effort and on THIS tx.
+                    TryRecordPassiveNudgeLabel(
+                        connection,
+                        tx,
+                        targetRow.Id,
+                        targetRow.Action,
+                        interventionId,
+                        ack with { Result = normalizedResult });
                 }
                 tx.Commit();
                 return updated;
@@ -2203,6 +2218,126 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 throw;
             }
         }
+    }
+
+    // Phase 1b (passive capture): map a genuine user choice on a break/recovery nudge to a durable
+    // ground-truth label, tagged with the decision-time context Ari acted on. Best-effort — a label
+    // failure must never break the intervention ack, so the whole body is wrapped and swallowed.
+    private static void TryRecordPassiveNudgeLabel(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long interventionRowId,
+        string action,
+        string interventionId,
+        AgentInterventionAck ack)
+    {
+        try
+        {
+            int labelValue;
+            switch (ack.Result)
+            {
+                case "accepted":
+                    labelValue = 1;   // user chose the break -> Ari was right to suggest it
+                    break;
+                case "dismissed":
+                case "skipped":
+                    labelValue = -1;  // user declined -> the break was not needed
+                    break;
+                case "snoozed":
+                    labelValue = 0;   // deferred -> ambiguous
+                    break;
+                default:
+                    return;           // applied / overlay_* / suppressed -> not a ground-truth choice
+            }
+
+            // Only break/recovery nudges the user actually chooses on become labels; auto-applied
+            // system actions never reach here with these results, but gate defensively anyway.
+            string breakKind = (ack.BreakKind ?? string.Empty).Trim();
+            if (!PortaBreakSemantics.IsBreakSuggestionAction(action) && breakKind.Length == 0)
+            {
+                return;
+            }
+
+            // Read the decision-time context frozen on the intervention row (what Ari saw).
+            string bucketTs = string.Empty;
+            string triggerState = string.Empty;
+            string contributorsJson = "{}";
+            double triggerValue = 0d;
+            double confidence = 0d;
+            using (var ctx = connection.CreateCommand())
+            {
+                ctx.Transaction = tx;
+                ctx.CommandText =
+                    """
+                    SELECT timestamp_utc, trigger_state, trigger_value, confidence, contributors_json
+                    FROM interventions
+                    WHERE id = $id
+                    LIMIT 1;
+                    """;
+                ctx.Parameters.AddWithValue("$id", interventionRowId);
+                using SqliteDataReader r = ctx.ExecuteReader();
+                if (r.Read())
+                {
+                    bucketTs = ReadStringOrFallback(r, 0, string.Empty);
+                    triggerState = ReadStringOrFallback(r, 1, string.Empty);
+                    triggerValue = ReadDoubleOrFallback(r, 2, 0d);
+                    confidence = ReadDoubleOrFallback(r, 3, 0d);
+                    contributorsJson = ReadStringOrFallback(r, 4, "{}");
+                }
+            }
+
+            var label = new GroundTruthLabel(
+                CreatedAtUtc: DateTimeOffset.UtcNow,
+                BucketSeq: -1,
+                BucketTimestampUtc: bucketTs,
+                LabelSource: "break_nudge",
+                PromptKind: string.IsNullOrWhiteSpace(action) ? "break" : action,
+                ResponseKind: ack.Result,
+                LabelTarget: "break_need",
+                LabelValue: labelValue,
+                ResponseLatencyMs: -1,
+                InterventionId: interventionId ?? string.Empty,
+                FeaturesJson: string.IsNullOrWhiteSpace(contributorsJson) ? "{}" : contributorsJson,
+                PressureLevel: TryReadJsonDouble(contributorsJson, "pressure_level", triggerValue),
+                OverloadLikelihood: TryReadJsonDouble(contributorsJson, "overload_likelihood", triggerValue),
+                Confidence: confidence,
+                DominantState: triggerState,
+                CalibrationStage: string.Empty,
+                TrustTier: string.Empty,
+                SchemaVer: 1);
+
+            WriteGroundTruthLabelRow(connection, tx, label);
+        }
+        catch (Exception)
+        {
+            // Best-effort: never let label capture break the intervention ack.
+        }
+    }
+
+    private static double TryReadJsonDouble(string json, string key, double fallback)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return fallback;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty(key, out JsonElement el)
+                && el.ValueKind == JsonValueKind.Number
+                && el.TryGetDouble(out double value)
+                && double.IsFinite(value))
+            {
+                return value;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return fallback;
     }
 
     public AgentStorageInfo ReadStorageInfo()
