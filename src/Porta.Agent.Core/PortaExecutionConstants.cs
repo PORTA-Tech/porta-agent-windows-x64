@@ -255,6 +255,22 @@ public static class PortaExecutionConstants
         public const string ContractVersion = "v2";
     }
 
+    // Phase 1b — Step 3: sampling caps for the active one-tap ground-truth prompts
+    // (focus / distraction / overload). Deliberately conservative so users are never pulled into
+    // Ari: capture is opportunistic and rare, biased to the uncertain moments where a label
+    // teaches most. Values live here (not hard-coded in the governor) so they can be tuned later.
+    public static class LabelCapture
+    {
+        public const int MaxActivePromptsPerDay = 6;
+        public const int MinMinutesBetweenPrompts = 90;
+        // Ask only when Ari is genuinely uncertain — a label is most informative in the mid band.
+        public const double ConfidenceInformativeMin = 0.35;
+        public const double ConfidenceInformativeMax = 0.80;
+        // Pressure at/above this (while focused) makes an "overload" check the most useful question.
+        public const double OverloadCheckPressureMin = 0.50;
+        public const string ContractVersion = "v1";
+    }
+
     public static class DeepWorkDetection
     {
         public const int SustainedAttentionSeconds = 600;
