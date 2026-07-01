@@ -438,6 +438,47 @@ internal static class Schema
         cmd.ExecuteNonQuery();
     }
 
+    internal static void ApplyGroundTruthLabelsV20(SqliteConnection connection)
+    {
+        // Phase 1b: durable ground-truth labels ("was Ari right?"). This is deliberately a
+        // SEPARATE table that the 14-day PruneIfNeeded does NOT touch — labels must survive
+        // months for the future learned model. Rows are rare (a handful/day) and self-contained
+        // (the full feature snapshot lives in features_json), so keeping them forever costs
+        // ~single-digit MB/year and never approaches the raw-firehose sizes that force the prune.
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS ground_truth_labels (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at_utc        TEXT    NOT NULL,
+                bucket_seq            INTEGER NOT NULL DEFAULT -1,
+                bucket_timestamp_utc  TEXT    NOT NULL DEFAULT '',
+                label_source          TEXT    NOT NULL,
+                prompt_kind           TEXT    NOT NULL,
+                response_kind         TEXT    NOT NULL,
+                label_target          TEXT    NOT NULL,
+                label_value           INTEGER NOT NULL,
+                response_latency_ms   INTEGER NOT NULL DEFAULT -1,
+                intervention_id       TEXT    NOT NULL DEFAULT '',
+                features_json         TEXT    NOT NULL,
+                pressure_level        REAL    NOT NULL DEFAULT 0,
+                overload_likelihood   REAL    NOT NULL DEFAULT 0,
+                confidence            REAL    NOT NULL DEFAULT 0,
+                dominant_state        TEXT    NOT NULL DEFAULT '',
+                calibration_stage     TEXT    NOT NULL DEFAULT '',
+                trust_tier            TEXT    NOT NULL DEFAULT '',
+                schema_ver            INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_gtl_created
+                ON ground_truth_labels(created_at_utc);
+
+            CREATE INDEX IF NOT EXISTS idx_gtl_target
+                ON ground_truth_labels(label_target, label_value);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
     internal static void ApplyContractSchemaV3(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

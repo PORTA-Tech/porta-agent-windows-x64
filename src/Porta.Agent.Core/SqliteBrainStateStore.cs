@@ -753,6 +753,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     DELETE FROM consent;
                     DELETE FROM settings;
                     DELETE FROM brain_snapshots;
+                    DELETE FROM ground_truth_labels;
                     DELETE FROM sqlite_sequence;
                     """;
                 cmd.ExecuteNonQuery();
@@ -1940,6 +1941,89 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 TryRollback(tx);
                 throw;
             }
+        }
+    }
+
+    // Phase 1b: append a durable ground-truth label. Deliberately does NOT call PruneIfNeeded —
+    // ground_truth_labels is exempt from the 14-day prune and must persist for months.
+    public void RecordGroundTruthLabel(GroundTruthLabel label)
+    {
+        ArgumentNullException.ThrowIfNull(label);
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText =
+                    """
+                    INSERT INTO ground_truth_labels (
+                        created_at_utc, bucket_seq, bucket_timestamp_utc,
+                        label_source, prompt_kind, response_kind, label_target, label_value,
+                        response_latency_ms, intervention_id, features_json,
+                        pressure_level, overload_likelihood, confidence,
+                        dominant_state, calibration_stage, trust_tier, schema_ver)
+                    VALUES (
+                        $created, $bseq, $bts,
+                        $src, $pk, $rk, $tgt, $val,
+                        $lat, $iid, $feat,
+                        $pl, $ol, $conf,
+                        $ds, $cs, $tt, $sv);
+                    """;
+                cmd.Parameters.AddWithValue("$created", label.CreatedAtUtc.ToString("O"));
+                cmd.Parameters.AddWithValue("$bseq", label.BucketSeq);
+                cmd.Parameters.AddWithValue("$bts", label.BucketTimestampUtc ?? string.Empty);
+                cmd.Parameters.AddWithValue("$src", label.LabelSource ?? string.Empty);
+                cmd.Parameters.AddWithValue("$pk", label.PromptKind ?? string.Empty);
+                cmd.Parameters.AddWithValue("$rk", label.ResponseKind ?? string.Empty);
+                cmd.Parameters.AddWithValue("$tgt", label.LabelTarget ?? string.Empty);
+                cmd.Parameters.AddWithValue("$val", label.LabelValue);
+                cmd.Parameters.AddWithValue("$lat", label.ResponseLatencyMs);
+                cmd.Parameters.AddWithValue("$iid", label.InterventionId ?? string.Empty);
+                cmd.Parameters.AddWithValue("$feat", string.IsNullOrEmpty(label.FeaturesJson) ? "{}" : label.FeaturesJson);
+                cmd.Parameters.AddWithValue("$pl", label.PressureLevel);
+                cmd.Parameters.AddWithValue("$ol", label.OverloadLikelihood);
+                cmd.Parameters.AddWithValue("$conf", label.Confidence);
+                cmd.Parameters.AddWithValue("$ds", label.DominantState ?? string.Empty);
+                cmd.Parameters.AddWithValue("$cs", label.CalibrationStage ?? string.Empty);
+                cmd.Parameters.AddWithValue("$tt", label.TrustTier ?? string.Empty);
+                cmd.Parameters.AddWithValue("$sv", label.SchemaVer);
+                cmd.ExecuteNonQuery();
+            }
+
+            tx.Commit();
+        }
+    }
+
+    // Phase 1b: lightweight count so we can confirm labels are actually accumulating.
+    public AgentLabelDiagnostics ReadLabelDiagnostics()
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    COALESCE(SUM(CASE WHEN created_at_utc >= $since1d THEN 1 ELSE 0 END), 0) AS last1d,
+                    COALESCE(SUM(CASE WHEN created_at_utc >= $since7d THEN 1 ELSE 0 END), 0) AS last7d
+                FROM ground_truth_labels;
+                """;
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            cmd.Parameters.AddWithValue("$since1d", now.AddDays(-1).ToString("O"));
+            cmd.Parameters.AddWithValue("$since7d", now.AddDays(-7).ToString("O"));
+            using var reader = cmd.ExecuteReader();
+            if (reader.Read())
+            {
+                return new AgentLabelDiagnostics(
+                    TotalLabels: reader.GetInt64(0),
+                    LabelsLast24h: reader.GetInt64(1),
+                    LabelsLast7d: reader.GetInt64(2));
+            }
+
+            return new AgentLabelDiagnostics(0, 0, 0);
         }
     }
 
@@ -7501,6 +7585,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         DateTimeOffset cutoff = nowUtc.Subtract(_retention);
         string cutoffRaw = cutoff.ToString("O");
 
+        // IMPORTANT: ground_truth_labels is intentionally NOT pruned here. Labels must survive
+        // for months to feed the future learned model (Phase 1b). They are rare and self-contained,
+        // so keeping them forever is cheap. Do NOT add ground_truth_labels to this DELETE list.
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText =

@@ -66,6 +66,34 @@ public sealed record AgentInterventionAck(
     string? DeliverySurface = null,
     string? BreakKind = null);
 
+// Phase 1b: a single durable ground-truth label — a self-contained training example
+// (full feature snapshot + the answer). Stored in the prune-exempt ground_truth_labels table.
+public sealed record GroundTruthLabel(
+    DateTimeOffset CreatedAtUtc,
+    long BucketSeq,
+    string BucketTimestampUtc,
+    string LabelSource,     // break_nudge | recovery_nudge | focus_check | overload_check | distraction_check
+    string PromptKind,      // what was asked, e.g. accept_break | focused_now | on_task_now | overload_right
+    string ResponseKind,    // raw answer, e.g. accepted | dismissed | skipped | snoozed | focused | not_focused | on_task | off_task
+    string LabelTarget,     // what it teaches: break_need | focus_state | distraction | overload
+    int LabelValue,         // normalized: +1 positive / -1 negative / 0 neutral
+    int ResponseLatencyMs,
+    string InterventionId,
+    string FeaturesJson,
+    double PressureLevel,
+    double OverloadLikelihood,
+    double Confidence,
+    string DominantState,
+    string CalibrationStage,
+    string TrustTier,
+    int SchemaVer = 1);
+
+// Phase 1b: lightweight readout so we can confirm labels are actually accumulating.
+public sealed record AgentLabelDiagnostics(
+    long TotalLabels,
+    long LabelsLast24h,
+    long LabelsLast7d);
+
 public sealed record AgentDiagnosticsSnapshot(
     DateTimeOffset TimestampUtc,
     bool BackendConnected,
