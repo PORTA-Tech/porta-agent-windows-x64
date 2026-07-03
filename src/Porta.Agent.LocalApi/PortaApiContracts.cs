@@ -864,6 +864,21 @@ public sealed record LocalApiAckResponse(
     string Message,
     DateTimeOffset TimestampUtc);
 
+// Phase 1b — Step 3b: sampled ground-truth prompts.
+public sealed record LocalApiLabelPromptDueResponse(
+    bool ShouldPrompt,
+    string LabelTarget,
+    string PromptKind,
+    string ReasonCode,
+    DateTimeOffset TimestampUtc);
+
+public sealed record LocalApiFocusLabelRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("label_target")] string? LabelTarget,
+    [property: JsonPropertyName("prompt_kind")] string? PromptKind,
+    [property: JsonPropertyName("answer")] string? Answer,
+    [property: JsonPropertyName("response_latency_ms")] int ResponseLatencyMs);
+
 public sealed record LocalApiExportResponse(
     bool Success,
     string BundlePath,

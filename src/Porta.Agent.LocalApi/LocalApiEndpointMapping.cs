@@ -190,6 +190,60 @@ public static class LocalApiEndpointMapping
                 summary.NotificationLatencyIndex);
         });
 
+        // Phase 1b — Step 3b: sampled ground-truth prompts.
+        api.MapGet("/labels/prompt-due", (IAgentCoreController controller, bool? meeting) =>
+        {
+            AgentLabelPromptDecision decision = controller.GetLabelPromptDecision(meeting ?? false);
+            return new LocalApiLabelPromptDueResponse(
+                ShouldPrompt: decision.ShouldPrompt,
+                LabelTarget: decision.LabelTarget,
+                PromptKind: decision.PromptKind,
+                ReasonCode: decision.ReasonCode,
+                TimestampUtc: DateTimeOffset.UtcNow);
+        });
+
+        api.MapPost("/labels/focus", (IAgentCoreController controller, LocalApiFocusLabelRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_payload_or_schema",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            try
+            {
+                bool recorded = controller.RecordFocusLabel(new AgentFocusLabelRequest(
+                    LabelTarget: request.LabelTarget?.Trim() ?? string.Empty,
+                    PromptKind: request.PromptKind?.Trim() ?? string.Empty,
+                    Answer: request.Answer?.Trim() ?? string.Empty,
+                    ResponseLatencyMs: request.ResponseLatencyMs));
+
+                if (!recorded)
+                {
+                    return Results.BadRequest(new LocalApiAckResponse(
+                        Success: false,
+                        Message: "unrecognized_label",
+                        TimestampUtc: DateTimeOffset.UtcNow));
+                }
+
+                return Results.Ok(new LocalApiAckResponse(
+                    Success: true,
+                    Message: "label_recorded",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+            catch (Exception)
+            {
+                return Results.Json(
+                    new LocalApiAckResponse(
+                        Success: false,
+                        Message: "label_record_failed",
+                        TimestampUtc: DateTimeOffset.UtcNow),
+                    statusCode: StatusCodes.Status500InternalServerError);
+            }
+        });
+
         api.MapPost("/input/signals", (IAgentCoreController controller, LocalApiInputSignalsRequest? request) =>
         {
             if (request is null || (request.SchemaVer is not 1 and not 2))
