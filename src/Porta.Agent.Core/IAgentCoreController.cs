@@ -38,4 +38,8 @@ public interface IAgentCoreController
     void AcknowledgeIntervention(AgentInterventionAck ack);
     void TriggerTestIntervention(string action);
     string ExportBundle();
+
+    // Phase 1b — Step 3b: sampled ground-truth prompts.
+    AgentLabelPromptDecision GetLabelPromptDecision(bool meetingInProgress);
+    bool RecordFocusLabel(AgentFocusLabelRequest request);
 }

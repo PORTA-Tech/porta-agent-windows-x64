@@ -233,6 +233,8 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         public void AcknowledgeIntervention(Porta.Agent.Core.AgentInterventionAck ack) { }
         public void TriggerTestIntervention(string action) { }
         public string ExportBundle() => string.Empty;
+        public Porta.Agent.Core.AgentLabelPromptDecision GetLabelPromptDecision(bool meetingInProgress) => throw new NotSupportedException();
+        public bool RecordFocusLabel(Porta.Agent.Core.AgentFocusLabelRequest request) => throw new NotSupportedException();
     }
 
     private sealed class FakeRuntime : ICurrentSessionUserAgentRuntime

@@ -100,6 +100,20 @@ public sealed record AgentLabelPromptCadence(
     int ActivePromptsLast24h,
     DateTimeOffset? LastActivePromptAtUtc);
 
+// Phase 1b — Step 3b: public projection of the governor's decision, returned by the prompt-due endpoint.
+public sealed record AgentLabelPromptDecision(
+    bool ShouldPrompt,
+    string LabelTarget,
+    string PromptKind,
+    string ReasonCode);
+
+// Phase 1b — Step 3b: a widget one-tap answer to record as a label.
+public sealed record AgentFocusLabelRequest(
+    string LabelTarget,   // focus_state | distraction | overload
+    string PromptKind,    // focused_now | on_task_now | overload_now
+    string Answer,        // focused | not_focused | working | break | overloaded | fine ...
+    int ResponseLatencyMs);
+
 public sealed record AgentDiagnosticsSnapshot(
     DateTimeOffset TimestampUtc,
     bool BackendConnected,

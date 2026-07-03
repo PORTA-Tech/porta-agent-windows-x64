@@ -1458,6 +1458,76 @@ public sealed class AgentCoreController : IAgentCoreController
         }
     }
 
+    // Phase 1b — Step 3b: gather the live inputs and ask the (pure) governor whether a sampled
+    // one-tap prompt is warranted right now, and which question. Read-only; changes nothing.
+    public AgentLabelPromptDecision GetLabelPromptDecision(bool meetingInProgress)
+    {
+        AgentServiceStatusSnapshot status = GetStatus();
+        AgentBrainSnapshot snapshot = GetCurrentSnapshot();
+        AgentLabelPromptCadence cadence = _stateStore.ReadLabelPromptCadence();
+
+        var input = new Analysis.LabelPromptGovernorInput(
+            NowUtc: DateTimeOffset.UtcNow,
+            Confidence: status.PressureConfidence,
+            PressureLevel: status.PressureLevel,
+            CalibrationStage: status.CalibrationStage ?? string.Empty,
+            DominantState: snapshot.DominantStateName ?? string.Empty,
+            SuggestionsEnabled: status.ConsentActive,
+            Paused: status.Paused,
+            MeetingInProgress: meetingInProgress,
+            ActivePromptsLast24h: cadence.ActivePromptsLast24h,
+            LastActivePromptAtUtc: cadence.LastActivePromptAtUtc);
+
+        Analysis.LabelPromptDecision decision = Analysis.LabelPromptGovernor.Decide(input);
+        return new AgentLabelPromptDecision(
+            ShouldPrompt: decision.ShouldPrompt,
+            LabelTarget: decision.LabelTarget,
+            PromptKind: decision.PromptKind,
+            ReasonCode: decision.ReasonCode);
+    }
+
+    // Phase 1b — Step 3b: record a widget one-tap answer as a durable ground-truth label, tagged
+    // with the current feature context. Returns false for an unrecognized target/answer.
+    public bool RecordFocusLabel(AgentFocusLabelRequest request)
+    {
+        if (request is null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        (string source, string responseKind, int value) = Analysis.LabelResponseMap.Map(request.LabelTarget, request.Answer);
+        if (source.Length == 0)
+        {
+            return false;
+        }
+
+        AgentServiceStatusSnapshot status = GetStatus();
+        AgentBrainSnapshot snapshot = GetCurrentSnapshot();
+
+        var label = new GroundTruthLabel(
+            CreatedAtUtc: DateTimeOffset.UtcNow,
+            BucketSeq: -1,
+            BucketTimestampUtc: status.LastUpdatedUtc.ToString("O"),
+            LabelSource: source,
+            PromptKind: string.IsNullOrWhiteSpace(request.PromptKind) ? source : request.PromptKind.Trim(),
+            ResponseKind: responseKind,
+            LabelTarget: (request.LabelTarget ?? string.Empty).Trim().ToLowerInvariant(),
+            LabelValue: value,
+            ResponseLatencyMs: Math.Max(-1, request.ResponseLatencyMs),
+            InterventionId: string.Empty,
+            FeaturesJson: string.IsNullOrWhiteSpace(status.LatestContributorsJson) ? "{}" : status.LatestContributorsJson,
+            PressureLevel: status.PressureLevel,
+            OverloadLikelihood: status.OverloadLikelihood,
+            Confidence: status.PressureConfidence,
+            DominantState: snapshot.DominantStateName ?? string.Empty,
+            CalibrationStage: status.CalibrationStage ?? string.Empty,
+            TrustTier: status.TrustTier ?? string.Empty,
+            SchemaVer: 1);
+
+        _stateStore.RecordGroundTruthLabel(label);
+        return true;
+    }
+
     public void AcknowledgeIntervention(AgentInterventionAck ack)
     {
         if (ack is null)
