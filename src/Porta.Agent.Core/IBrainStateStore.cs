@@ -32,6 +32,10 @@ public interface IBrainStateStore
 
     IReadOnlyList<AgentPendingIntervention> ReadPendingInterventions(string sessionId, int limit = 20);
     bool AcknowledgeIntervention(AgentInterventionAck ack);
+
+    // Phase 1b: durable ground-truth labels (see ground_truth_labels).
+    void RecordGroundTruthLabel(GroundTruthLabel label);
+    AgentLabelPromptCadence ReadLabelPromptCadence();
     AgentStorageInfo ReadStorageInfo();
     AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);
     AgentDistractionSummary ReadCurrentDistractionSummary();

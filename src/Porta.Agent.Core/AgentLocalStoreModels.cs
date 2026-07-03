@@ -94,6 +94,12 @@ public sealed record AgentLabelDiagnostics(
     long LabelsLast24h,
     long LabelsLast7d);
 
+// Phase 1b — Step 3: recent cadence of the ACTIVE one-tap prompts (focus/distraction/overload
+// checks only), used by the governor's daily-cap and min-interval gates.
+public sealed record AgentLabelPromptCadence(
+    int ActivePromptsLast24h,
+    DateTimeOffset? LastActivePromptAtUtc);
+
 public sealed record AgentDiagnosticsSnapshot(
     DateTimeOffset TimestampUtc,
     bool BackendConnected,

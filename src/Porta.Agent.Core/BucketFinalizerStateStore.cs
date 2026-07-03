@@ -63,6 +63,8 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
         => _inner.ReadPendingInterventions(sessionId, limit);
     public bool AcknowledgeIntervention(AgentInterventionAck ack)
         => _inner.AcknowledgeIntervention(ack);
+    public void RecordGroundTruthLabel(GroundTruthLabel label) => _inner.RecordGroundTruthLabel(label);
+    public AgentLabelPromptCadence ReadLabelPromptCadence() => _inner.ReadLabelPromptCadence();
 
     public AgentStorageInfo ReadStorageInfo() => _inner.ReadStorageInfo();
     public AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null) => _inner.ReadTodaySummary(dateUtc);

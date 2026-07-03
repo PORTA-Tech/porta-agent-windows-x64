@@ -96,6 +96,8 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     public void WriteSettings(AgentSettingsRecord settings) => LatestSettings = settings;
     public AgentSettingsRecord? ReadLatestSettings() => LatestSettings;
     public void DeleteLocalData() { }
+    public void RecordGroundTruthLabel(GroundTruthLabel label) { }
+    public AgentLabelPromptCadence ReadLabelPromptCadence() => new(0, null);
     public AgentBrainSnapshot? ReadLatestSnapshot() => LatestSnapshot;
     public AgentLatestStateDetails? ReadLatestStateDetails()
     {

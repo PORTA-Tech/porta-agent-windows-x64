@@ -92,6 +92,23 @@ public sealed class GroundTruthLabelsStoreTests
         });
     }
 
+    [Fact]
+    public void ReadLabelPromptCadence_CountsOnlyActivePromptSources()
+    {
+        RunWithTempDb(store =>
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            // Active one-tap prompt (focus_check) — counts toward cadence.
+            store.RecordGroundTruthLabel(SampleLabel(now));
+            // Passive break-outcome label — must NOT count as a prompt (it never interrupts).
+            store.RecordGroundTruthLabel(SampleLabel(now) with { LabelSource = "break_nudge", LabelTarget = "break_need" });
+
+            AgentLabelPromptCadence cadence = store.ReadLabelPromptCadence();
+            Assert.Equal(1, cadence.ActivePromptsLast24h);
+            Assert.NotNull(cadence.LastActivePromptAtUtc);
+        });
+    }
+
     private static void RunWithTempDb(Action<SqliteBrainStateStore> body)
     {
         string dir = Path.Combine(Path.GetTempPath(), "porta-gtl-tests", Guid.NewGuid().ToString("N"));

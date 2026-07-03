@@ -158,6 +158,8 @@ public sealed class BucketRecomputeRulesTests
         public void WriteSettings(AgentSettingsRecord settings) { }
         public AgentSettingsRecord? ReadLatestSettings() => null;
         public void DeleteLocalData() { }
+        public void RecordGroundTruthLabel(GroundTruthLabel label) { }
+        public AgentLabelPromptCadence ReadLabelPromptCadence() => new(0, null);
         public AgentBrainSnapshot? ReadLatestSnapshot() => null;
         public AgentLatestStateDetails? ReadLatestStateDetails() => null;
         public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus()

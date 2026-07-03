@@ -2032,6 +2032,49 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
     }
 
+    // Phase 1b — Step 3b: recent cadence of the ACTIVE one-tap prompts (focus/distraction/overload
+    // checks), used by the governor's caps. Passive break-outcome labels are excluded — they are
+    // not prompts, so they must not count toward "don't nag the user" limits.
+    public AgentLabelPromptCadence ReadLabelPromptCadence()
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT
+                    COALESCE(SUM(CASE WHEN created_at_utc >= $since24h THEN 1 ELSE 0 END), 0) AS active_24h,
+                    MAX(created_at_utc) AS last_at
+                FROM ground_truth_labels
+                WHERE label_source IN ('focus_check', 'distraction_check', 'overload_check');
+                """;
+            cmd.Parameters.AddWithValue("$since24h", DateTimeOffset.UtcNow.AddDays(-1).ToString("O"));
+            using var reader = cmd.ExecuteReader();
+            if (reader.Read())
+            {
+                int active24h = reader.IsDBNull(0) ? 0 : (int)reader.GetInt64(0);
+                DateTimeOffset? lastAt = null;
+                if (!reader.IsDBNull(1))
+                {
+                    string raw = reader.GetString(1);
+                    if (DateTimeOffset.TryParse(
+                            raw,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.RoundtripKind,
+                            out DateTimeOffset parsed))
+                    {
+                        lastAt = parsed;
+                    }
+                }
+
+                return new AgentLabelPromptCadence(active24h, lastAt);
+            }
+
+            return new AgentLabelPromptCadence(0, null);
+        }
+    }
+
     public bool AcknowledgeIntervention(AgentInterventionAck ack)
     {
         ArgumentNullException.ThrowIfNull(ack);
