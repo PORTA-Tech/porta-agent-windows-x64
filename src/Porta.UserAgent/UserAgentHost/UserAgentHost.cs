@@ -25,6 +25,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private static readonly TimeSpan RecentEventsRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan WidgetDetailRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan AriContextRefreshInterval = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan LabelPromptCheckInterval = TimeSpan.FromSeconds(60);
     private readonly ILogger<UserAgentHost> _logger;
     private readonly IUserAgentSessionContextStore _sessionContextStore;
     private readonly UserAgentStartupMetadata _startupMetadata;
@@ -60,6 +61,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private LocalApiSettingsResponse? _widgetDetailSettings;
     private DateTimeOffset _lastWidgetDetailRefreshUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _lastUiRefreshUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastLabelPromptCheckUtc = DateTimeOffset.MinValue;
+    private UserDesktopWidgetLabelPrompt? _activeLabelPrompt;
     private bool _widgetFallbackLogged;
     private bool _hooksInstalled;
     private bool _keyboardCaptureAvailable;
@@ -338,6 +341,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         UpdateTrayState(new(
             MapTrayMode(signals.Mode),
             signals.TooltipText));
+        await RefreshLabelPromptAsync(nowUtc, token).ConfigureAwait(false);
         UpdateWidgetState(UserDesktopWidgetStateBuilder.Build(
             status,
             snapshot,
@@ -348,7 +352,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             widgetDetails.Timeline,
             widgetDetails.Settings,
             _localApiClient.LastStatusHttpCode,
-            nowUtc));
+            nowUtc) with { LabelPrompt = _activeLabelPrompt });
 
         UserCommunicationToast? recentEventToast = UserCommunicationRouter.ResolveRecentEventToast(
             recentEvents,
@@ -1241,6 +1245,49 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         }
 
         _logger.LogDebug("Failed to update PORTA tray state. Error={ErrorCode}", errorCode);
+    }
+
+    // Phase 1b — Step 3c: poll for a due ground-truth prompt at natural boundaries. The core
+    // governor owns caps/cooldown/informative-band/meeting gating; the widget holds one prompt at a
+    // time and only asks for a new one once the current is resolved (answered/dismissed/ignored).
+    private async Task RefreshLabelPromptAsync(DateTimeOffset nowUtc, CancellationToken token)
+    {
+        if (_activeLabelPrompt is not null)
+        {
+            return;
+        }
+
+        if ((nowUtc - _lastLabelPromptCheckUtc) < LabelPromptCheckInterval)
+        {
+            return;
+        }
+
+        _lastLabelPromptCheckUtc = nowUtc;
+
+        LocalApiLabelPromptDueResponse? due = await _localApiClient
+            .GetLabelPromptDueAsync(meetingInProgress: false, token)
+            .ConfigureAwait(false);
+        if (due is { ShouldPrompt: true })
+        {
+            _activeLabelPrompt = MapLabelPrompt(due);
+        }
+    }
+
+    private static UserDesktopWidgetLabelPrompt? MapLabelPrompt(LocalApiLabelPromptDueResponse due)
+    {
+        return due.LabelTarget switch
+        {
+            "focus_state" => new UserDesktopWidgetLabelPrompt(
+                due.LabelTarget, due.PromptKind,
+                "Were you focused just now?", "Yes", "yes", "No", "no"),
+            "distraction" => new UserDesktopWidgetLabelPrompt(
+                due.LabelTarget, due.PromptKind,
+                "Were you working, or taking a break?", "Working", "working", "Break", "break"),
+            "overload" => new UserDesktopWidgetLabelPrompt(
+                due.LabelTarget, due.PromptKind,
+                "Are you feeling overwhelmed?", "Yes", "yes", "No", "no"),
+            _ => null,
+        };
     }
 
     private void UpdateWidgetState(UserDesktopWidgetState state)
