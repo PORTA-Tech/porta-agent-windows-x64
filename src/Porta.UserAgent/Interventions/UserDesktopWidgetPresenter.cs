@@ -459,7 +459,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         {
             SetWidgetHealthStateOnWidgetThread(WidgetHealthStarting);
             UserAgentFileLog.Info("desktop_widget_window_initializing");
-            var window = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore);
+            var window = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore, OnLabelAnswerRequested);
             window.Closed += OnWidgetWindowClosed;
 
             lock (_widgetLifecycleGate)
@@ -880,6 +880,23 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 TryDispatchToWidget(window => window.ResetToDefaultPosition(), out _);
                 break;
         }
+    }
+
+    // Phase 1b — Step 3c: POST the one-tap ground-truth answer. The core records it and the governor's
+    // cooldown/cap keys off recorded labels; the widget already collapsed the pill locally.
+    private async void OnLabelAnswerRequested(UserDesktopWidgetLabelAnswer answer)
+    {
+        if (answer.IsDismiss || string.IsNullOrWhiteSpace(answer.Answer))
+        {
+            return;
+        }
+
+        await _actionClient.RecordFocusLabelAsync(new LocalApiFocusLabelRequest(
+            SchemaVer: 1,
+            LabelTarget: answer.Target,
+            PromptKind: answer.PromptKind,
+            Answer: answer.Answer,
+            ResponseLatencyMs: 0)).ConfigureAwait(false);
     }
 
     private async Task ExecuteCriticalRetryAsync()

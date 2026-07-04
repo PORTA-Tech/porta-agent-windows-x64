@@ -24,7 +24,10 @@ internal enum UserDesktopWidgetAction
     PauseOneHour,
     Resume,
     Recalibrate,
-    ResetPosition
+    ResetPosition,
+    LabelAnswerPositive,
+    LabelAnswerNegative,
+    LabelDismiss
 }
 
 internal enum UserDesktopWidgetMessageSeverity
@@ -68,6 +71,7 @@ internal sealed record UserDesktopWidgetState(
 
 // Phase 1b — Step 3c: one-tap ground-truth prompt shown in the widget pill.
 internal sealed record UserDesktopWidgetLabelPrompt(
+    string PromptId,        // unique per prompt instance (suppresses re-show after resolve)
     string Target,          // focus_state | distraction | overload
     string PromptKind,      // focused_now | on_task_now | overload_now
     string Question,        // e.g. "Were you focused just now?"
@@ -75,3 +79,10 @@ internal sealed record UserDesktopWidgetLabelPrompt(
     string PositiveAnswer,  // e.g. "yes" / "working"
     string NegativeLabel,   // e.g. "No" / "Break"
     string NegativeAnswer); // e.g. "no" / "break"
+
+// Phase 1b — Step 3c: a resolved one-tap answer routed from the widget to the label endpoint.
+internal sealed record UserDesktopWidgetLabelAnswer(
+    string Target,
+    string PromptKind,
+    string Answer,
+    bool IsDismiss);

@@ -38,6 +38,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private static readonly TimeSpan ReexpandDelay = TimeSpan.FromMilliseconds(1200);
 
     private readonly Action<UserDesktopWidgetAction> _actionRequested;
+    private readonly Action<UserDesktopWidgetLabelAnswer>? _labelAnswerRequested;
     private readonly Action<UserInterventionPromptResponse> _promptResponseRequested;
     private readonly UserDesktopWidgetPlacementStore _placementStore;
     private readonly DispatcherTimer _attentionTimer;
@@ -123,15 +124,19 @@ internal sealed class UserDesktopWidgetWindow : Window
     private WidgetAttentionMessage? _attentionMessage;
     private WidgetTakeoverMessage? _stateTakeoverMessage;
     private string? _lastStateTakeoverKey;
+    private UserDesktopWidgetLabelPrompt? _labelPrompt;
+    private string? _resolvedLabelPromptId;
 
     public UserDesktopWidgetWindow(
         Action<UserDesktopWidgetAction> actionRequested,
         Action<UserInterventionPromptResponse> promptResponseRequested,
-        UserDesktopWidgetPlacementStore placementStore)
+        UserDesktopWidgetPlacementStore placementStore,
+        Action<UserDesktopWidgetLabelAnswer>? labelAnswerRequested = null)
     {
         _actionRequested = actionRequested;
         _promptResponseRequested = promptResponseRequested;
         _placementStore = placementStore;
+        _labelAnswerRequested = labelAnswerRequested;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
         AllowsTransparency = true;
@@ -724,6 +729,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _pauseHourButton.IsEnabled = state.CanPause;
         _resumeButton.IsEnabled = state.CanResume;
         UpdateStateTakeover(state);
+        UpdateLabelPrompt(state);
         RefreshInlineMessage();
         ApplyModeChrome(state.Mode, state.ShowLimitedBadge);
         UpdateWindowHeight();
@@ -1964,7 +1970,34 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        if (_labelPrompt != null
+            && !string.Equals(_labelPrompt.PromptId, _resolvedLabelPromptId, StringComparison.Ordinal))
+        {
+            RenderInlineMessage(
+                title: "Ari",
+                body: _labelPrompt.Question,
+                footer: string.Empty,
+                severity: UserDesktopWidgetMessageSeverity.Info,
+                primaryAction: UserDesktopWidgetAction.LabelAnswerPositive,
+                primaryLabel: _labelPrompt.PositiveLabel,
+                secondaryAction: UserDesktopWidgetAction.LabelAnswerNegative,
+                secondaryLabel: _labelPrompt.NegativeLabel,
+                tertiaryAction: UserDesktopWidgetAction.LabelDismiss,
+                tertiaryLabel: "Not now");
+            return;
+        }
+
         RenderSummarySurface();
+    }
+
+    private void UpdateLabelPrompt(UserDesktopWidgetState state)
+    {
+        _labelPrompt = state.LabelPrompt;
+        if (_labelPrompt != null
+            && !string.Equals(_labelPrompt.PromptId, _resolvedLabelPromptId, StringComparison.Ordinal))
+        {
+            Expand();
+        }
     }
 
     private void UpdateStateTakeover(UserDesktopWidgetState state)
@@ -2243,7 +2276,39 @@ internal sealed class UserDesktopWidgetWindow : Window
         // after the user clicks a message-card action button.
         _collapseTimer.Stop();
         _suspendAutoCollapseUntilPointerLeaves = true;
+
+        if (action is UserDesktopWidgetAction.LabelAnswerPositive
+            or UserDesktopWidgetAction.LabelAnswerNegative
+            or UserDesktopWidgetAction.LabelDismiss)
+        {
+            ResolveLabelPrompt(action);
+            return;
+        }
+
         _actionRequested(action);
+    }
+
+    private void ResolveLabelPrompt(UserDesktopWidgetAction action)
+    {
+        UserDesktopWidgetLabelPrompt? prompt = _labelPrompt;
+        if (prompt == null)
+        {
+            return;
+        }
+
+        // Suppress re-showing this exact prompt while the host still holds it (until its backstop).
+        _resolvedLabelPromptId = prompt.PromptId;
+        if (action != UserDesktopWidgetAction.LabelDismiss)
+        {
+            string answer = action == UserDesktopWidgetAction.LabelAnswerPositive
+                ? prompt.PositiveAnswer
+                : prompt.NegativeAnswer;
+            _labelAnswerRequested?.Invoke(new UserDesktopWidgetLabelAnswer(
+                prompt.Target, prompt.PromptKind, answer, IsDismiss: false));
+        }
+
+        RefreshInlineMessage();
+        UpdateWindowHeight();
     }
 
     private void ResolvePrompt(UserInterventionPromptResponseKind kind)

@@ -26,6 +26,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private static readonly TimeSpan WidgetDetailRefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan AriContextRefreshInterval = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan LabelPromptCheckInterval = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan LabelPromptDisplayWindow = TimeSpan.FromSeconds(30);
     private readonly ILogger<UserAgentHost> _logger;
     private readonly IUserAgentSessionContextStore _sessionContextStore;
     private readonly UserAgentStartupMetadata _startupMetadata;
@@ -62,6 +63,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private DateTimeOffset _lastWidgetDetailRefreshUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _lastUiRefreshUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _lastLabelPromptCheckUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _labelPromptShownUtc = DateTimeOffset.MinValue;
     private UserDesktopWidgetLabelPrompt? _activeLabelPrompt;
     private bool _widgetFallbackLogged;
     private bool _hooksInstalled;
@@ -1254,6 +1256,15 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     {
         if (_activeLabelPrompt is not null)
         {
+            // Backstop: stop presenting a prompt after its display window so polling can resume.
+            // The widget locally collapses the pill the moment the user answers/dismisses; this just
+            // clears the host-held copy (also covers an ignored prompt the user never resolved).
+            if ((nowUtc - _labelPromptShownUtc) >= LabelPromptDisplayWindow)
+            {
+                _activeLabelPrompt = null;
+                _lastLabelPromptCheckUtc = nowUtc;
+            }
+
             return;
         }
 
@@ -1270,21 +1281,23 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         if (due is { ShouldPrompt: true })
         {
             _activeLabelPrompt = MapLabelPrompt(due);
+            _labelPromptShownUtc = nowUtc;
         }
     }
 
     private static UserDesktopWidgetLabelPrompt? MapLabelPrompt(LocalApiLabelPromptDueResponse due)
     {
+        string id = Guid.NewGuid().ToString("N");
         return due.LabelTarget switch
         {
             "focus_state" => new UserDesktopWidgetLabelPrompt(
-                due.LabelTarget, due.PromptKind,
+                id, due.LabelTarget, due.PromptKind,
                 "Were you focused just now?", "Yes", "yes", "No", "no"),
             "distraction" => new UserDesktopWidgetLabelPrompt(
-                due.LabelTarget, due.PromptKind,
+                id, due.LabelTarget, due.PromptKind,
                 "Were you working, or taking a break?", "Working", "working", "Break", "break"),
             "overload" => new UserDesktopWidgetLabelPrompt(
-                due.LabelTarget, due.PromptKind,
+                id, due.LabelTarget, due.PromptKind,
                 "Are you feeling overwhelmed?", "Yes", "yes", "No", "no"),
             _ => null,
         };
