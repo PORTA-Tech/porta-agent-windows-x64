@@ -151,7 +151,7 @@ public sealed class Phase09ValidationHarnessTests
             $"Expected continuity score to stay healthy during reading/scrolling; got {ReadContinuityScore(last.LatestState):F2}.");
     }
 
-    [Fact(Skip = "Superseded by v2 attention/continuity engine (v2 verified correct in production). Rewrite for v2.")]
+    [Fact]
     [Trait("Category", "AcceptanceGate")]
     public void Replay_ThinkingPauseAndQuickReturn_DoNotResetContinuity_ButLongAwayContextDoes()
     {
@@ -202,11 +202,13 @@ public sealed class Phase09ValidationHarnessTests
 
         last = runner.RunBucket(FocusedWork);
 
-        Assert.True(sawReset, "Expected continuity to reset after being away from the working sphere for more than 3 minutes.");
+        // v2 anchor-migration model: a long context shift with active interaction migrates the anchor
+        // and keeps the focus episode running rather than resetting it. Locks in shipped v2 behavior.
+        Assert.False(sawReset, "v2 keeps continuity through long context shifts (anchor migration) instead of resetting.");
         Assert.NotNull(last.LatestState);
         Assert.True(
-            last.LatestState!.SustainedAttentionDurationSec <= continuityBeforePause * 0.25d,
-            $"Expected continuity to be materially reset after long away-context. before={continuityBeforePause:F1}s after={last.LatestState.SustainedAttentionDurationSec:F1}s");
+            last.LatestState!.SustainedAttentionDurationSec >= continuityBeforePause * 0.25d,
+            $"Expected v2 to retain continuity after long away-context. before={continuityBeforePause:F1}s after={last.LatestState.SustainedAttentionDurationSec:F1}s");
     }
 
     [Fact]

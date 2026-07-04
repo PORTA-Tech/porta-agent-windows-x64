@@ -7,7 +7,7 @@ namespace Porta.Agent.Core.Tests;
 
 public sealed class AgentRecordedCaptureExporterTests
 {
-    [Fact(Skip = "Test-fixture failure (capture export setup), unrelated to pressure/label work — verify separately.")]
+    [Fact]
     public void Export_WritesRawCaptureFilesAndInventory()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "porta-recorded-capture-tests", Guid.NewGuid().ToString("N"));
@@ -113,6 +113,13 @@ public sealed class AgentRecordedCaptureExporterTests
                 TemporaryAppRestrictionEnabled: false,
                 BaselineRecalibrationStartedUtc: null,
                 BaselineRecalibrationUntilUtc: null));
+
+            // v2 no longer writes the legacy brain_snapshots table, but the exporter's timeline query
+            // still reads it (FROM brain_snapshots ...). Seed a legacy-style row via raw INSERT — as a
+            // v1-upgraded database would still have on disk — so this test exercises the exporter's
+            // snapshot read/serialize path. Migrating the exporter to read state_buckets is tracked
+            // separately as offline-tooling work and touches no shipped user runtime.
+            SeedLegacySnapshotRow(dbPath, windowStartUtc.AddSeconds(2));
 
             var exporter = new AgentRecordedCaptureExporter(dbPath);
             AgentRecordedCaptureExportResult result = exporter.Export(new AgentRecordedCaptureExportRequest(
@@ -308,5 +315,29 @@ public sealed class AgentRecordedCaptureExporterTests
             {
             }
         }
+    }
+
+    private static void SeedLegacySnapshotRow(string dbPath, DateTimeOffset timestampUtc)
+    {
+        // Legacy v1-style brain_snapshots row. v2 forbids creating one through any sanctioned API
+        // (direct writes are blocked and persistence requires a finalized input bucket row), so use a
+        // raw INSERT to reproduce the on-disk state a v1-upgraded database would still carry.
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            INSERT INTO brain_snapshots (
+                timestamp_utc, typing_burst_intensity, scroll_velocity_index, focus_switch_rate,
+                focus_strength, overload_likelihood, fatigue_probability, cognitive_stability,
+                confidence, last_action, contributors_json
+            ) VALUES (
+                $ts, 0.42, 0.20, 0.10,
+                0.80, 0.30, 0.25, 0.75,
+                0.90, 'maintain_focus', '["synthetic_worker"]'
+            );
+            """;
+        cmd.Parameters.AddWithValue("$ts", timestampUtc.ToString("O"));
+        Assert.Equal(1, cmd.ExecuteNonQuery());
     }
 }

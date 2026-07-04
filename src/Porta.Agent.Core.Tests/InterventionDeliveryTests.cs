@@ -33,7 +33,7 @@ public sealed class InterventionDeliveryTests
                 InterventionId: "i-1",
                 SessionId: "session-1",
                 Action: "break_suggestion",
-                CommandType: "show_break_toast",
+                CommandType: "show_break_overlay",
                 PayloadJson: "{}",
                 DecidedAtUtc: nowUtc,
                 ExecutionState: "decided",
@@ -63,7 +63,7 @@ public sealed class InterventionDeliveryTests
                     InterventionId: "intv-1",
                     SessionId: "session-1",
                     Action: "break_suggestion",
-                    CommandType: "show_break_toast",
+                    CommandType: "show_break_overlay",
                     PayloadJson: "{\"title\":\"PORTA\",\"message\":\"Take a short break.\"}",
                     DecidedAtUtc: nowUtc,
                     ExecutionState: "decided",
@@ -88,7 +88,7 @@ public sealed class InterventionDeliveryTests
 
         IReadOnlyList<AgentPendingIntervention> pending = controller.GetPendingInterventions("session-1", limit: 10);
         Assert.Single(pending);
-        Assert.Equal("show_break_toast", pending[0].CommandType);
+        Assert.Equal("show_break_overlay", pending[0].CommandType);
 
         controller.AcknowledgeIntervention(new AgentInterventionAck(
             InterventionId: "intv-1",
@@ -102,7 +102,7 @@ public sealed class InterventionDeliveryTests
         Assert.Equal("applied", store.AckedInterventions[0].Result);
     }
 
-    [Fact(Skip = "Asserts pre-v2 nudge copy/command wording (intentionally reworded). Update expectations to v2 copy.")]
+    [Fact]
     public void SqliteStore_QueuesSuggestionAsPending_AndAcksApplied()
     {
         string dbPath = Path.Combine(Path.GetTempPath(), $"porta-interventions-{Guid.NewGuid():N}.db");
@@ -133,7 +133,7 @@ public sealed class InterventionDeliveryTests
             IReadOnlyList<AgentPendingIntervention> pending = store.ReadPendingInterventions("session-9", 10);
             AgentPendingIntervention intervention = Assert.Single(pending);
             Assert.Equal("session-9", intervention.SessionId);
-            Assert.Equal("show_break_toast", intervention.CommandType);
+            Assert.Equal("show_break_overlay", intervention.CommandType);
             Assert.Equal("decided", intervention.ExecutionState);
 
             bool acked = store.AcknowledgeIntervention(new AgentInterventionAck(
@@ -165,7 +165,7 @@ public sealed class InterventionDeliveryTests
             IReadOnlyList<AgentControlEvent> events = store.ReadRecentEvents(10);
             AgentControlEvent storedEvent = events.First();
             Assert.Equal("break-1", storedEvent.InterventionId);
-            Assert.Equal("show_break_toast", storedEvent.CommandType);
+            Assert.Equal("show_break_overlay", storedEvent.CommandType);
             Assert.Equal("applied", storedEvent.ExecutionState);
             Assert.Equal("agent-9", storedEvent.ExecutorAgentInstanceId);
             Assert.NotNull(storedEvent.AppliedAtUtc);
@@ -331,7 +331,7 @@ public sealed class InterventionDeliveryTests
         }
     }
 
-    [Fact(Skip = "Asserts pre-v2 nudge copy/command wording (intentionally reworded). Update expectations to v2 copy.")]
+    [Fact]
     public void SqliteStore_QueuesInformAction_AsStatusToast()
     {
         string dbPath = Path.Combine(Path.GetTempPath(), $"porta-status-interventions-{Guid.NewGuid():N}.db");
@@ -364,7 +364,7 @@ public sealed class InterventionDeliveryTests
             Assert.Equal("show_status_toast", pending.CommandType);
             Assert.Equal("Overload watch", ReadPayloadString(pending, "title"));
             Assert.Equal(
-                "Ari sees overload rising, but the signal has not stayed high long enough to change anything yet. Slow down or open Now for details. You can mute this guidance in Settings.",
+                "Pressure is building. Not high enough to act yet — keep an eye on it.",
                 ReadPayloadString(pending, "message"));
         }
         finally
@@ -382,7 +382,7 @@ public sealed class InterventionDeliveryTests
         }
     }
 
-    [Fact(Skip = "Asserts pre-v2 nudge copy/command wording (intentionally reworded). Update expectations to v2 copy.")]
+    [Fact]
     public void SqliteStore_QueuesDeepWorkSuppression_WithUserFacingToastPayload()
     {
         string dbPath = Path.Combine(Path.GetTempPath(), $"porta-deepwork-payload-{Guid.NewGuid():N}.db");
@@ -413,9 +413,9 @@ public sealed class InterventionDeliveryTests
 
             AgentPendingIntervention pending = Assert.Single(store.ReadPendingInterventions("session-14", 10));
             Assert.Equal("suppress_notifications", pending.CommandType);
-            Assert.Equal("Deep work notifications", ReadPayloadString(pending, "title"));
+            Assert.Equal("Deep focus on", ReadPayloadString(pending, "title"));
             Assert.Equal(
-                "Ari detected a sustained focus block and muted Windows notification banners to reduce interruptions. Keep this block going or restore notifications when you are ready. You can turn this feature off in Settings.",
+                "Strong focus detected. Windows notifications are muted.",
                 ReadPayloadString(pending, "message"));
         }
         finally
@@ -488,7 +488,7 @@ public sealed class InterventionDeliveryTests
         }
     }
 
-    [Fact(Skip = "Asserts pre-v2 nudge copy/command wording (intentionally reworded). Update expectations to v2 copy.")]
+    [Fact]
     public void SqliteStore_QueuesOverloadRestriction_WithPlainLanguageCopy()
     {
         string dbPath = Path.Combine(Path.GetTempPath(), $"porta-overload-restrict-payload-{Guid.NewGuid():N}.db");
@@ -519,9 +519,9 @@ public sealed class InterventionDeliveryTests
 
             AgentPendingIntervention pending = Assert.Single(store.ReadPendingInterventions("session-31", 10));
             Assert.Equal("show_status_toast", pending.CommandType);
-            Assert.Equal("Temporary app limit", ReadPayloadString(pending, "title"));
+            Assert.Equal("App limits on", ReadPayloadString(pending, "title"));
             Assert.Equal(
-                "Ari saw the risk stay high long enough to limit distracting apps for a short block. Stay on task or open Settings to change this feature. You can turn it off in Settings.",
+                "Pressure stayed high. Distracting apps are limited for a short block.",
                 ReadPayloadString(pending, "message"));
         }
         finally
@@ -856,7 +856,7 @@ public sealed class InterventionDeliveryTests
         string executionState,
         string sessionId = "session-9",
         string action = "break_suggestion",
-        string commandType = "show_break_toast",
+        string commandType = "show_break_overlay",
         string? appliedAtUtc = null,
         string? ackedAtUtc = null,
         string errorCode = "",
@@ -923,7 +923,7 @@ public sealed class InterventionDeliveryTests
                 $lifecycle_state,
                 $session_id,
                 $command_type,
-                '{"schema_ver":1,"action":"break_suggestion","command_type":"show_break_toast","title":"PORTA","message":"Take a short break.","duration_seconds":300,"confidence":0.91,"policy_id":"overload-relief-v1","domain":"overload","intervention_id":"placeholder"}',
+                '{"schema_ver":1,"action":"break_suggestion","command_type":"show_break_overlay","title":"PORTA","message":"Take a short break.","duration_seconds":300,"confidence":0.91,"policy_id":"overload-relief-v1","domain":"overload","intervention_id":"placeholder"}',
                 $execution_state,
                 $decided_at_utc,
                 $applied_at_utc,

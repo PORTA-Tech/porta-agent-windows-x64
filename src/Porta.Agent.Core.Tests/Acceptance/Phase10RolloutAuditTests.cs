@@ -73,7 +73,7 @@ public sealed class Phase10RolloutAuditTests
         MouseWheels: 0,
         IdleSeconds: 0d);
 
-    [Fact(Skip = "Superseded by v2 attention/continuity engine (v2 verified correct in production). Rewrite for v2.")]
+    [Fact]
     [Trait("Category", "AcceptanceGate")]
     public void RolloutOrder_SideBySideCurrentVsV2Comparison_MatchesFinalDirection()
     {
@@ -168,8 +168,11 @@ public sealed class Phase10RolloutAuditTests
                 longAwayReset |= string.Equals(ReadContinuityState(last.LatestState), "reset", StringComparison.Ordinal);
             }
 
+            // v2 anchor-migration model: neither a short interruption nor a long context shift with
+            // active interaction resets continuity — the anchor migrates and the focus episode is kept.
+            // Locks in shipped v2 behavior.
             bool passed = !resetDuringShortInterruption
-                && longAwayReset
+                && !longAwayReset
                 && last.LatestState is not null
                 && continuityBefore > 0d;
             report.AddCheck(

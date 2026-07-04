@@ -1,0 +1,36 @@
+# Line-ending policy. Without this, the whole tree can show as "modified"
+# when CRLF/LF flips, hiding real changes in the noise.
+# Repo normalizes to LF internally; Windows-native text checks out as CRLF.
+* text=auto
+
+# Windows / .NET source and project files -> CRLF on checkout
+*.cs       text eol=crlf
+*.csproj   text eol=crlf
+*.sln      text eol=crlf
+*.xaml     text eol=crlf
+*.props    text eol=crlf
+*.targets  text eol=crlf
+*.ps1      text eol=crlf
+*.psm1     text eol=crlf
+*.cmd      text eol=crlf
+*.bat      text eol=crlf
+*.json     text eol=crlf
+*.config   text eol=crlf
+*.xml      text eol=crlf
+*.md       text eol=crlf
+*.txt      text eol=crlf
+*.csv      text eol=crlf
+*.wxs      text eol=crlf
+*.wixproj  text eol=crlf
+
+# Unix shell scripts -> always LF
+*.sh       text eol=lf
+
+# Binary assets — never touch
+*.msi   binary
+*.xlsx  binary
+*.png   binary
+*.ico   binary
+*.pem   binary
+*.dll   binary
+*.exe   binary

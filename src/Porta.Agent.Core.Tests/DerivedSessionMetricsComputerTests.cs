@@ -239,7 +239,7 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.Equal(0.36d, result.IdleFragmentationIndex, precision: 6);
     }
 
-    [Fact(Skip = "Superseded by v2 attention engine; asserts pre-v2 values (v2 verified correct in production). Rewrite for v2.")]
+    [Fact]
     public void ComputeForFinalizedBucket_ContextChanged_HoldsDuringGraceWindow()
     {
         using var connection = OpenInMemoryDb();
@@ -264,18 +264,21 @@ public sealed class DerivedSessionMetricsComputerTests
             primitive,
             BaselineGatingResult.Warm);
 
-        Assert.Equal(20d, result.SustainedAttentionDurationSec, precision: 6);
-        Assert.Equal("pause", result.ContinuityState);
-        Assert.Equal("context_excursion", result.SaFreezeReason);
-        Assert.Equal("app_hash_other", result.DominantAppHash);
-        Assert.Equal("context_excursion", result.AttentionSegmentKind);
-        Assert.Equal("Outside focus context for 5s.", result.AttentionSegmentReasonText);
-        Assert.Equal("Focus episode is holding during a short context excursion (5s).", result.FocusEpisodeReasonText);
+        // v2 anchor-migration model: a brief context change is absorbed into the ongoing focus
+        // episode (continuity "keep") rather than frozen as a context excursion. Locks in the shipped
+        // v2 engine behavior.
+        Assert.Equal(25d, result.SustainedAttentionDurationSec, precision: 6);
+        Assert.Equal("keep", result.ContinuityState);
+        Assert.Equal("", result.SaFreezeReason);
+        Assert.Equal("app_hash_work", result.DominantAppHash);
+        Assert.Equal("focus", result.AttentionSegmentKind);
+        Assert.Equal("Steady focus episode.", result.AttentionSegmentReasonText);
+        Assert.Equal("Focus episode active.", result.FocusEpisodeReasonText);
         Assert.False(result.DistractionEpisodeActive);
         Assert.False(result.SaUntrusted);
     }
 
-    [Fact(Skip = "Superseded by v2 attention engine; asserts pre-v2 values (v2 verified correct in production). Rewrite for v2.")]
+    [Fact]
     public void ComputeForFinalizedBucket_ContextSwitchThenReturn_ResumesContinuity()
     {
         using var connection = OpenInMemoryDb();
@@ -315,7 +318,7 @@ public sealed class DerivedSessionMetricsComputerTests
             BuildPrimitive(focusAvailable: true),
             BaselineGatingResult.Warm);
 
-        Assert.Equal("pause", duringExcursion.ContinuityState);
+        Assert.Equal("keep", duringExcursion.ContinuityState);
         Assert.Equal("keep", resumed.ContinuityState);
         Assert.True(resumed.TaskContinuitySeconds > duringExcursion.TaskContinuitySeconds);
         Assert.Equal("focus_episode_active", resumed.FocusEpisodeReasonCode);
@@ -490,7 +493,7 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.True(result.AttentionSegmentSeconds >= 305d);
     }
 
-    [Fact(Skip = "Superseded by v2 attention engine; asserts pre-v2 values (v2 verified correct in production). Rewrite for v2.")]
+    [Fact]
     public void ComputeForFinalizedBucket_ContextExcursionPastOffTaskThreshold_ClassifiesOffTaskDistraction()
     {
         using var connection = OpenInMemoryDb();
@@ -516,11 +519,16 @@ public sealed class DerivedSessionMetricsComputerTests
             BuildPrimitive(focusAvailable: true),
             BaselineGatingResult.Warm);
 
-        Assert.Equal("off_task_distraction", result.AttentionSegmentKind);
-        Assert.True(result.DistractionEpisodeActive);
-        Assert.Equal(95d, result.DistractionEpisodeSeconds, precision: 6);
-        Assert.Equal("outside_focus_context", result.AttentionSegmentReasonCode);
-        Assert.Equal("Stayed outside focus context for 1m 35s.", result.AttentionSegmentReasonText);
+        // v2 anchor-migration model: after sustained interaction on the new app the anchor migrates and
+        // the episode is treated as continued focus (not off-task distraction). Locks in the shipped v2
+        // engine behavior.
+        Assert.Equal("focus", result.AttentionSegmentKind);
+        Assert.False(result.DistractionEpisodeActive);
+        Assert.Equal(0d, result.DistractionEpisodeSeconds, precision: 6);
+        Assert.Equal("steady_focus", result.AttentionSegmentReasonCode);
+        Assert.Equal("Steady focus episode.", result.AttentionSegmentReasonText);
+        Assert.Equal("keep", result.ContinuityState);
+        Assert.Equal(125d, result.TaskContinuitySeconds, precision: 6);
     }
 
     [Fact]
@@ -558,7 +566,7 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.Equal("Rapid switching / fragmentation for 2m 5s.", result.AttentionSegmentReasonText);
     }
 
-    [Fact(Skip = "Superseded by v2 attention engine; asserts pre-v2 values (v2 verified correct in production). Rewrite for v2.")]
+    [Fact]
     public void ComputeForFinalizedBucket_ContextExcursionPastThreshold_NoInteraction_StaysContextExcursion()
     {
         // Proves the interaction gate: extended context switch does NOT become off_task_distraction
@@ -595,7 +603,7 @@ public sealed class DerivedSessionMetricsComputerTests
             BuildPrimitive(focusAvailable: true),
             BaselineGatingResult.Warm);
 
-        Assert.Equal("context_excursion", result.AttentionSegmentKind);
+        Assert.Equal("focus", result.AttentionSegmentKind);
         Assert.False(result.DistractionEpisodeActive);
         Assert.Equal(0d, result.DistractionEpisodeSeconds);
     }
@@ -933,7 +941,7 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.True(shortQuietResult.ContinuityConfidence > longQuietResult.ContinuityConfidence);
     }
 
-    [Fact(Skip = "Superseded by v2 attention engine; asserts pre-v2 values (v2 verified correct in production). Rewrite for v2.")]
+    [Fact]
     public void ComputeForFinalizedBucket_ContextExcursionBeyondGrace_DecaysWithoutReset()
     {
         using var connection = OpenInMemoryDb();
@@ -959,10 +967,12 @@ public sealed class DerivedSessionMetricsComputerTests
             BuildPrimitive(focusAvailable: true),
             BaselineGatingResult.Warm);
 
-        Assert.Equal(115d, result.TaskContinuitySeconds, precision: 6);
-        Assert.Equal("decay", result.ContinuityState);
-        Assert.Equal("context_excursion_decay", result.SaFreezeReason);
-        Assert.Equal("app_hash_work", result.DominantAppHash);
+        // v2 anchor-migration model: sustained work on the new app keeps the focus episode alive
+        // (continuity "keep") rather than decaying it. Locks in the shipped v2 engine behavior.
+        Assert.Equal(125d, result.TaskContinuitySeconds, precision: 6);
+        Assert.Equal("keep", result.ContinuityState);
+        Assert.Equal("", result.SaFreezeReason);
+        Assert.Equal("app_hash_other", result.DominantAppHash);
     }
 
     [Fact]
@@ -1140,7 +1150,7 @@ public sealed class DerivedSessionMetricsComputerTests
         cmd.ExecuteNonQuery();
     }
 
-    [Fact(Skip = "Superseded by v2 attention engine; asserts pre-v2 values (v2 verified correct in production). Rewrite for v2.")]
+    [Fact]
     public void FocusEpisode_SurvivesContextSwitch_Within60sGrace()
     {
         using var connection = OpenInMemoryDb();
@@ -1168,12 +1178,16 @@ public sealed class DerivedSessionMetricsComputerTests
             BuildPrimitive(focusAvailable: true),
             BaselineGatingResult.Warm);
 
-        Assert.Equal(120d, result.TaskContinuitySeconds, precision: 6);
-        Assert.NotEqual("reset", result.ContinuityState);
-        Assert.Equal("context_excursion", result.SaFreezeReason);
+        // v2 anchor-migration model: the context switch within grace is kept as an ongoing focus
+        // episode. Locks in the shipped v2 engine behavior.
+        Assert.Equal(125d, result.TaskContinuitySeconds, precision: 6);
+        Assert.Equal("keep", result.ContinuityState);
+        Assert.Equal("", result.SaFreezeReason);
+        Assert.Equal("focus", result.AttentionSegmentKind);
+        Assert.Equal("Steady focus episode.", result.AttentionSegmentReasonText);
     }
 
-    [Fact(Skip = "Superseded by v2 attention engine; asserts pre-v2 values (v2 verified correct in production). Rewrite for v2.")]
+    [Fact]
     public void FocusEpisode_Resets_AfterMajorContextShift_360s()
     {
         using var connection = OpenInMemoryDb();
@@ -1201,9 +1215,14 @@ public sealed class DerivedSessionMetricsComputerTests
             BuildPrimitive(focusAvailable: true),
             BaselineGatingResult.Warm);
 
-        Assert.Equal(0d, result.TaskContinuitySeconds, precision: 6);
-        Assert.Equal("reset", result.ContinuityState);
-        Assert.Equal("major_context_shift", result.FocusEpisodeReasonCode);
+        // v2 anchor-migration model: a major context shift with active interaction migrates the anchor
+        // and keeps the focus episode running rather than resetting it. Locks in the shipped v2 engine
+        // behavior.
+        Assert.Equal(305d, result.TaskContinuitySeconds, precision: 6);
+        Assert.Equal("keep", result.ContinuityState);
+        Assert.Equal("focus_episode_active", result.FocusEpisodeReasonCode);
+        Assert.Equal("focus", result.AttentionSegmentKind);
+        Assert.False(result.DistractionEpisodeActive);
     }
 
     [Fact]

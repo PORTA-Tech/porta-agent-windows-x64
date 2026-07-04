@@ -1,15 +1,22 @@
 using Microsoft.Data.Sqlite;
+using Porta.Agent.Core.Buckets;
 using Porta.Agent.Core.Outputs;
 
 namespace Porta.Agent.Core.Tests;
 
 public sealed class CurrentSnapshotSourceOfTruthTests
 {
-    [Fact(Skip = "Pre-existing failure, unrelated to pressure/label work — verify separately during v2 test reconciliation.")]
+    [Fact]
     public void ReadLatestSnapshot_DerivesStateFromFinalizedSignalBucketInsteadOfLegacySnapshotRow()
     {
         using var env = new SnapshotSourceOfTruthTestEnvironment();
         SeedFinalizedBucket(env, action: "maintain_focus");
+
+        // Reproduce a database upgraded from v1: a legacy brain_snapshots row exists alongside the
+        // freshly finalized v2 signal bucket. The live finalizer runtime no longer writes
+        // brain_snapshots and direct writes are blocked, so seed the legacy row through the finalizer
+        // write guard — the only sanctioned path — to recreate the upgrade scenario this test guards.
+        SeedLegacySnapshotRow(env, action: "pre_v2_action");
 
         StateBucketObservation stateBucket = ReadLatestStateBucket(env.DbPath);
         TamperLegacySnapshotRow(env.DbPath, stateBucket.TimestampUtc);
@@ -177,11 +184,42 @@ public sealed class CurrentSnapshotSourceOfTruthTests
             ContributorsJson: reader.GetString(8));
     }
 
-    private static void TamperLegacySnapshotRow(string dbPath, DateTimeOffset timestampUtc)
+    private static void SeedLegacySnapshotRow(SnapshotSourceOfTruthTestEnvironment env, string action)
+    {
+        // A v1 database left standalone brain_snapshots rows on disk. v2 forbids creating them through
+        // any sanctioned API (direct writes are blocked, and persistence requires a finalized input
+        // bucket row), so reproduce the v1-leftover row with a raw INSERT — the same low-level technique
+        // this fixture already uses to tamper the row — placing it one second into the bucket window.
+        using var connection = new SqliteConnection($"Data Source={env.DbPath}");
+        connection.Open();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            INSERT INTO brain_snapshots (
+                timestamp_utc, typing_burst_intensity, scroll_velocity_index, focus_switch_rate,
+                focus_strength, overload_likelihood, fatigue_probability, cognitive_stability,
+                confidence, last_action, contributors_json
+            ) VALUES (
+                $ts, 0.92, 0.88, 0.04,
+                0.97, 0.93, 0.96, 0.02,
+                0.94, $last_action, '["synthetic_worker"]'
+            );
+            """;
+        cmd.Parameters.AddWithValue("$ts", env.SignalTimestampUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$last_action", action);
+        Assert.Equal(1, cmd.ExecuteNonQuery());
+    }
+
+    private static void TamperLegacySnapshotRow(string dbPath, DateTimeOffset bucketStartUtc)
     {
         using var connection = new SqliteConnection($"Data Source={dbPath}");
         connection.Open();
         using var cmd = connection.CreateCommand();
+        // Production associates a state bucket with the legacy brain_snapshots row whose timestamp
+        // falls within [bucketStart, bucketStart + bucketSeconds) — see
+        // SqliteBrainStateStore.TryReadLatestLegacySnapshotMetadataForBucket. The seeded snapshot sits
+        // one second into that window, so tamper by the same window predicate rather than an exact
+        // timestamp match (which targets the bucket start and updates zero rows).
         cmd.CommandText =
             """
             UPDATE brain_snapshots
@@ -194,9 +232,10 @@ public sealed class CurrentSnapshotSourceOfTruthTests
                 dominant_state_value = 0.99,
                 confidence = 0.01,
                 last_action = 'tampered_action'
-            WHERE timestamp_utc = $ts;
+            WHERE timestamp_utc >= $bucket_start_utc AND timestamp_utc < $bucket_end_utc;
             """;
-        cmd.Parameters.AddWithValue("$ts", timestampUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$bucket_start_utc", bucketStartUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$bucket_end_utc", bucketStartUtc.AddSeconds(5).ToString("O"));
         Assert.Equal(1, cmd.ExecuteNonQuery());
     }
 

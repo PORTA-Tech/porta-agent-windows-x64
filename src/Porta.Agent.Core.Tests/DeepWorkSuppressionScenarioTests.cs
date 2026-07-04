@@ -134,7 +134,7 @@ public sealed class DeepWorkSuppressionScenarioTests
         Assert.Equal(JsonValueKind.Null, snapshotNode.ValueKind);
     }
 
-    [Fact(Skip = "Pre-existing scenario failure, unrelated to pressure/label work — verify separately during v2 test reconciliation.")]
+    [Fact]
     public void Scenario_DeepWorkExitBeforeMinOn_DelaysRestoreUntilMinOnExpires()
     {
         using var runner = new DeterministicFinalizerScenarioRunner(
@@ -144,27 +144,36 @@ public sealed class DeepWorkSuppressionScenarioTests
         ActivationOutcome activation = ActivateDeepWork(runner);
         Assert.True(activation.IsActive, BuildDebugSummary(runner, activation.LastObservation, activation.ActivationCount, activation.SearchBuckets));
 
+        // Exit signals are EMA-smoothed, so the off-dwell only starts accumulating once the smoothed
+        // components cross the exit thresholds. Deactivation therefore lands a couple of buckets past
+        // the raw DwellOff window (~bucket 13: one smoothing-lag bucket + 60s / 12-bucket DwellOff),
+        // but still well inside the 120s (24-bucket) min-on window. Drive exit buckets until
+        // deep_work_active turns off rather than hard-coding an exact bucket count.
+        const int MinOnBuckets = 24; // 120s min-on at 5s buckets.
         int deactivations = 0;
         bool previousDeepWorkActive = true;
         FinalizerTickObservation last = default;
-        for (int i = 0; i < 12; i++)
+        for (int i = 0; i < MinOnBuckets - 1; i++)
         {
-            // Exactly 60s of exit-dwell: deep_work_active should turn off, but restore should still be blocked by min-on.
             last = runner.RunBucket(DeepWorkExit);
             bool deepWorkActive = ReadDeepWorkActive(last.LatestState?.StateFlagsJson);
             if (previousDeepWorkActive && !deepWorkActive)
             {
                 deactivations++;
+                break;
             }
 
             previousDeepWorkActive = deepWorkActive;
         }
 
+        // deep_work_active turned off before the min-on window elapsed...
         Assert.Equal(1, deactivations);
+        // ...so restore must be deferred: no restore call yet, suppression still active, pending flagged.
         Assert.Equal(0, runner.NotificationController.RestoreCalls);
         Assert.True(last.NotificationStatus.Active);
         Assert.True(last.NotificationStatus.RestorePending);
 
+        // Keep driving exit buckets until the min-on window expires; restore then fires exactly once.
         for (int i = 0; i < 40; i++)
         {
             last = runner.RunBucket(DeepWorkExit);
