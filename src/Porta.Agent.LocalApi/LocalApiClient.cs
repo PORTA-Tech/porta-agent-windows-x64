@@ -192,6 +192,59 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    // Phase 1b — Step 3c: ground-truth label prompt (widget pill).
+    public async Task<LocalApiLabelPromptDueResponse?> GetLabelPromptDueAsync(
+        bool meetingInProgress = false,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            string meeting = meetingInProgress ? "true" : "false";
+            return await _httpClient.GetFromJsonAsync<LocalApiLabelPromptDueResponse>(
+                $"/v1/labels/prompt-due?meeting={meeting}", token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LocalApiAckResponse?> RecordFocusLabelAsync(
+        LocalApiFocusLabelRequest request,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        if (request.SchemaVer != 1)
+        {
+            return new LocalApiAckResponse(
+                Success: false,
+                Message: "invalid_schema_ver",
+                TimestampUtc: DateTimeOffset.UtcNow);
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/labels/focus", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiAckResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<LocalApiAckResponse?> SendInputSignalsAsync(
         LocalApiInputSignalsRequest request,
         CancellationToken token = default)
