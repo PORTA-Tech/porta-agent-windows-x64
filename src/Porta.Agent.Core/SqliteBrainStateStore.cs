@@ -2042,11 +2042,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     """
                     SELECT label_target, COUNT(*) AS cnt, COALESCE(SUM(label_value), 0) AS net
                     FROM ground_truth_labels
-                    WHERE created_at_utc >= $since7d
+                    WHERE created_at_utc >= $since1d
                     GROUP BY label_target
                     ORDER BY cnt DESC;
                     """;
-                cmd.Parameters.AddWithValue("$since7d", since7d);
+                cmd.Parameters.AddWithValue("$since1d", since1d);
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {

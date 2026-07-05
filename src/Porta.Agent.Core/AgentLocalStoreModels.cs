@@ -93,9 +93,9 @@ public sealed record AgentLabelDiagnostics(
     long TotalLabels,
     long LabelsLast24h,
     long LabelsLast7d,
-    IReadOnlyList<AgentLabelTargetCount> Last7dByTarget);
+    IReadOnlyList<AgentLabelTargetCount> Last24hByTarget);
 
-// Per-target rollup for the last 7 days. NetValue = SUM(label_value): positive means Ari's guesses
+// Per-target rollup for the last 24 hours. NetValue = SUM(label_value): positive means Ari's guesses
 // were mostly confirmed right, negative mostly wrong. Counts only — never label content.
 public sealed record AgentLabelTargetCount(
     string Target,

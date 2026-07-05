@@ -252,7 +252,7 @@ public static class LocalApiEndpointMapping
                 TotalLabels: d.TotalLabels,
                 LabelsToday: d.LabelsLast24h,
                 LabelsThisWeek: d.LabelsLast7d,
-                ByTarget: d.Last7dByTarget
+                ByTarget: d.Last24hByTarget
                     .Select(t => new LocalApiLabelTargetCount(t.Target, t.Count, t.NetValue))
                     .ToList(),
                 TimestampUtc: DateTimeOffset.UtcNow);

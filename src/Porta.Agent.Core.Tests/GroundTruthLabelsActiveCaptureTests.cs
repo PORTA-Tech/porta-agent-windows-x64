@@ -73,11 +73,11 @@ public sealed class GroundTruthLabelsActiveCaptureTests
             Assert.Equal(3, d.TotalLabels);
             Assert.Equal(3, d.LabelsLast24h);
 
-            AgentLabelTargetCount focus = d.Last7dByTarget.Single(t => t.Target == "focus_state");
+            AgentLabelTargetCount focus = d.Last24hByTarget.Single(t => t.Target == "focus_state");
             Assert.Equal(2, focus.Count);
             Assert.Equal(0, focus.NetValue);
 
-            AgentLabelTargetCount overload = d.Last7dByTarget.Single(t => t.Target == "overload");
+            AgentLabelTargetCount overload = d.Last24hByTarget.Single(t => t.Target == "overload");
             Assert.Equal(1, overload.Count);
             Assert.Equal(1, overload.NetValue);
         });
