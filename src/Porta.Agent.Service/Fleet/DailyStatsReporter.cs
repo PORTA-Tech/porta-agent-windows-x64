@@ -108,6 +108,9 @@ internal sealed class DailyStatsReporter : BackgroundService
             // Distraction social media loops from current session
             AgentDistractionSummary distraction = _controller.GetCurrentDistractionSummary();
 
+            // Phase 1b — Step 4c: privacy-safe ground-truth label engagement (counts only, never content).
+            AgentLabelDiagnostics labels = _controller.GetLabelDiagnostics();
+
             // Coarse per-app foreground time for the day, joined to human labels — same ranking
             // the digest uses. Lets the console show "where the day went" per machine and gives
             // the server-fallback digest real app names.
@@ -146,7 +149,12 @@ internal sealed class DailyStatsReporter : BackgroundService
                 PeakPressureUtc: agg.PeakPressureUtc,
                 AvgDistractionEpisodeDurationSeconds: agg.AvgDistractionEpisodeDurationSeconds,
                 ContextSwitchCount: agg.ContextSwitchCount,
-                TopApps: topApps);
+                TopApps: topApps,
+                LabelsToday: (int)labels.LabelsLast24h,
+                LabelsThisWeek: (int)labels.LabelsLast7d,
+                LabelsByTarget: labels.Last24hByTarget
+                    .Select(t => new LabelTargetCountPayload(t.Target, (int)t.Count, (int)t.NetValue))
+                    .ToList());
 
             bool sent = await _client.PostDailyStatsAsync(payload, token).ConfigureAwait(false);
             if (!sent)

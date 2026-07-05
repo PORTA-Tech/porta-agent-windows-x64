@@ -219,7 +219,17 @@ internal sealed record DailyStatsReportPayload(
     [property: JsonPropertyName("contextSwitchCount")] int ContextSwitchCount = 0,
     // Coarse per-app foreground time for the day (label + seconds). Powers the console
     // per-app view and the server-fallback digest's "where your time went" section.
-    [property: JsonPropertyName("topApps")] IReadOnlyList<FocusAppUsagePayload>? TopApps = null);
+    [property: JsonPropertyName("topApps")] IReadOnlyList<FocusAppUsagePayload>? TopApps = null,
+    // Phase 1b — Step 4c: privacy-safe ground-truth label engagement (counts only, never content).
+    // Lets the console show whether users are answering prompts and whether Ari was right (net).
+    [property: JsonPropertyName("labelsToday")] int LabelsToday = 0,
+    [property: JsonPropertyName("labelsThisWeek")] int LabelsThisWeek = 0,
+    [property: JsonPropertyName("labelsByTarget")] IReadOnlyList<LabelTargetCountPayload>? LabelsByTarget = null);
+
+internal sealed record LabelTargetCountPayload(
+    [property: JsonPropertyName("target")] string Target,
+    [property: JsonPropertyName("count")] int Count,
+    [property: JsonPropertyName("net")] int Net);
 
 internal sealed record MachineActionEventPayload(
     [property: JsonPropertyName("deviceId")] string DeviceId,
