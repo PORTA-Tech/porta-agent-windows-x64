@@ -1973,8 +1973,10 @@ internal sealed class UserDesktopWidgetWindow : Window
         if (_labelPrompt != null
             && !string.Equals(_labelPrompt.PromptId, _resolvedLabelPromptId, StringComparison.Ordinal))
         {
+            // #5 size: no redundant "Ari" title line — the one-tap question stands alone above the
+            // buttons, so the prompt collapses to the compact, notification-sized card the user wanted.
             RenderInlineMessage(
-                title: "Ari",
+                title: string.Empty,
                 body: _labelPrompt.Question,
                 footer: string.Empty,
                 severity: UserDesktopWidgetMessageSeverity.Info,
@@ -2349,8 +2351,17 @@ internal sealed class UserDesktopWidgetWindow : Window
             && !_dragInProgress
             && !_suspendAutoCollapseUntilPointerLeaves
             && _activePrompt == null
-            && _currentState?.CriticalState == null;
+            && _currentState?.CriticalState == null
+            && !IsLabelPromptActive();
     }
+
+    // A one-tap label question (focus/distraction/overload) needs an answer, so — like active prompts
+    // and critical cards — it must pin the widget open until the user taps or it resolves. Without this
+    // the auto-collapse fires while the question is up: the pill closes as you reach for Yes/No, and the
+    // collapse/re-expand cycling also prevents the window height from settling to the content.
+    private bool IsLabelPromptActive()
+        => _labelPrompt != null
+            && !string.Equals(_labelPrompt.PromptId, _resolvedLabelPromptId, StringComparison.Ordinal);
 
     private static bool IsInteractiveElement(DependencyObject child)
     {

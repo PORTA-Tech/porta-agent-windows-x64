@@ -154,7 +154,11 @@ internal sealed class DailyStatsReporter : BackgroundService
                 LabelsThisWeek: (int)labels.LabelsLast7d,
                 LabelsByTarget: labels.Last24hByTarget
                     .Select(t => new LabelTargetCountPayload(t.Target, (int)t.Count, (int)t.NetValue))
-                    .ToList());
+                    .ToList(),
+                PromptsShownToday: (int)labels.PromptsShownLast24h,
+                PromptsAnsweredToday: (int)labels.PromptsAnsweredLast24h,
+                PromptsShownThisWeek: (int)labels.PromptsShownLast7d,
+                PromptsAnsweredThisWeek: (int)labels.PromptsAnsweredLast7d);
 
             bool sent = await _client.PostDailyStatsAsync(payload, token).ConfigureAwait(false);
             if (!sent)

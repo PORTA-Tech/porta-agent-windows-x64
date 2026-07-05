@@ -754,6 +754,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     DELETE FROM settings;
                     DELETE FROM brain_snapshots;
                     DELETE FROM ground_truth_labels;
+                    DELETE FROM prompt_events;
                     DELETE FROM sqlite_sequence;
                     """;
                 cmd.ExecuteNonQuery();
@@ -2057,13 +2058,94 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 }
             }
 
-            return new AgentLabelDiagnostics(total, last1d, last7d, byTarget);
+            // Prompt response rate (shown vs answered) from prompt_events, so an operator can tell
+            // whether people are actually engaging with the one-tap prompts. Counts only.
+            long shown1d = 0, answered1d = 0, shown7d = 0, answered7d = 0;
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText =
+                    """
+                    SELECT
+                        COALESCE(SUM(CASE WHEN created_at_utc >= $since1d THEN 1 ELSE 0 END), 0) AS shown_1d,
+                        COALESCE(SUM(CASE WHEN created_at_utc >= $since1d AND outcome = 'answered' THEN 1 ELSE 0 END), 0) AS answered_1d,
+                        COALESCE(SUM(CASE WHEN created_at_utc >= $since7d THEN 1 ELSE 0 END), 0) AS shown_7d,
+                        COALESCE(SUM(CASE WHEN created_at_utc >= $since7d AND outcome = 'answered' THEN 1 ELSE 0 END), 0) AS answered_7d
+                    FROM prompt_events;
+                    """;
+                cmd.Parameters.AddWithValue("$since1d", since1d);
+                cmd.Parameters.AddWithValue("$since7d", since7d);
+                using var reader = cmd.ExecuteReader();
+                if (reader.Read())
+                {
+                    shown1d = reader.GetInt64(0);
+                    answered1d = reader.GetInt64(1);
+                    shown7d = reader.GetInt64(2);
+                    answered7d = reader.GetInt64(3);
+                }
+            }
+
+            return new AgentLabelDiagnostics(
+                total, last1d, last7d, byTarget,
+                PromptsShownLast24h: shown1d,
+                PromptsAnsweredLast24h: answered1d,
+                PromptsShownLast7d: shown7d,
+                PromptsAnsweredLast7d: answered7d);
         }
     }
 
-    // Phase 1b — Step 3b: recent cadence of the ACTIVE one-tap prompts (focus/distraction/overload
-    // checks), used by the governor's caps. Passive break-outcome labels are excluded — they are
-    // not prompts, so they must not count toward "don't nag the user" limits.
+    // Phase 1b — anti-spam: record that an ACTIVE one-tap prompt was SHOWN to the user. This is the
+    // signal the governor's cap + cooldown key off — recorded whether or not the user ends up
+    // answering — so an ignored prompt still counts and Ari backs off instead of re-asking.
+    public void RecordPromptShown(string labelTarget, string promptKind, DateTimeOffset shownAtUtc)
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                INSERT INTO prompt_events
+                    (prompt_id, created_at_utc, label_target, prompt_kind, outcome, resolved_at_utc, schema_ver)
+                VALUES
+                    ($pid, $created, $target, $kind, 'shown', '', 1);
+                """;
+            cmd.Parameters.AddWithValue("$pid", Guid.NewGuid().ToString("N"));
+            cmd.Parameters.AddWithValue("$created", shownAtUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$target", (labelTarget ?? string.Empty).Trim().ToLowerInvariant());
+            cmd.Parameters.AddWithValue("$kind", (promptKind ?? string.Empty).Trim());
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    // Phase 1b — anti-spam: mark the most recent still-'shown' prompt for this target as answered, so
+    // the back-off streak resets once the user engages. Best-effort: an answer with no matching shown
+    // row (e.g. an upgrade mid-cycle) simply records nothing here.
+    public void ResolvePromptAnswered(string labelTarget, DateTimeOffset answeredAtUtc)
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                UPDATE prompt_events
+                SET outcome = 'answered', resolved_at_utc = $resolved
+                WHERE id = (
+                    SELECT id FROM prompt_events
+                    WHERE label_target = $target AND outcome = 'shown'
+                    ORDER BY created_at_utc DESC
+                    LIMIT 1
+                );
+                """;
+            cmd.Parameters.AddWithValue("$resolved", answeredAtUtc.ToString("O"));
+            cmd.Parameters.AddWithValue("$target", (labelTarget ?? string.Empty).Trim().ToLowerInvariant());
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    // Phase 1b — anti-spam: recent cadence of ACTIVE one-tap prompts, read from prompt_events so the
+    // governor's cap + cooldown engage on SHOWN prompts (not only answered ones). UnansweredPromptsLast24h
+    // drives progressive back-off: the more shown-but-unanswered prompts recently, the longer Ari waits.
     public AgentLabelPromptCadence ReadLabelPromptCadence()
     {
         lock (_gate)
@@ -2073,20 +2155,21 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             cmd.CommandText =
                 """
                 SELECT
-                    COALESCE(SUM(CASE WHEN created_at_utc >= $since24h THEN 1 ELSE 0 END), 0) AS active_24h,
+                    COALESCE(SUM(CASE WHEN created_at_utc >= $since24h THEN 1 ELSE 0 END), 0) AS shown_24h,
+                    COALESCE(SUM(CASE WHEN created_at_utc >= $since24h AND outcome <> 'answered' THEN 1 ELSE 0 END), 0) AS unanswered_24h,
                     MAX(created_at_utc) AS last_at
-                FROM ground_truth_labels
-                WHERE label_source IN ('focus_check', 'distraction_check', 'overload_check');
+                FROM prompt_events;
                 """;
             cmd.Parameters.AddWithValue("$since24h", DateTimeOffset.UtcNow.AddDays(-1).ToString("O"));
             using var reader = cmd.ExecuteReader();
             if (reader.Read())
             {
-                int active24h = reader.IsDBNull(0) ? 0 : (int)reader.GetInt64(0);
+                int shown24h = reader.IsDBNull(0) ? 0 : (int)reader.GetInt64(0);
+                int unanswered24h = reader.IsDBNull(1) ? 0 : (int)reader.GetInt64(1);
                 DateTimeOffset? lastAt = null;
-                if (!reader.IsDBNull(1))
+                if (!reader.IsDBNull(2))
                 {
-                    string raw = reader.GetString(1);
+                    string raw = reader.GetString(2);
                     if (DateTimeOffset.TryParse(
                             raw,
                             System.Globalization.CultureInfo.InvariantCulture,
@@ -2097,10 +2180,10 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     }
                 }
 
-                return new AgentLabelPromptCadence(active24h, lastAt);
+                return new AgentLabelPromptCadence(shown24h, lastAt, unanswered24h);
             }
 
-            return new AgentLabelPromptCadence(0, null);
+            return new AgentLabelPromptCadence(0, null, 0);
         }
     }
 

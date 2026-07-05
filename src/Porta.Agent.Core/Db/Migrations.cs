@@ -8,7 +8,7 @@ namespace Porta.Agent.Core.Db;
 
 internal static class Migrations
 {
-    private const int LatestSchemaVersion = 20;
+    private const int LatestSchemaVersion = 21;
 
     private static readonly MigrationStep[] OrderedSteps =
     [
@@ -91,7 +91,11 @@ internal static class Migrations
         new(
             Version: 20,
             Name: "ground_truth_labels_v20",
-            Apply: Schema.ApplyGroundTruthLabelsV20)
+            Apply: Schema.ApplyGroundTruthLabelsV20),
+        new(
+            Version: 21,
+            Name: "prompt_events_v21",
+            Apply: Schema.ApplyPromptEventsV21)
     ];
 
     internal static void Migrate(SqliteConnection connection)

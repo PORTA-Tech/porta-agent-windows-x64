@@ -479,6 +479,40 @@ internal static class Schema
         cmd.ExecuteNonQuery();
     }
 
+    internal static void ApplyPromptEventsV21(SqliteConnection connection)
+    {
+        // Phase 1b — anti-spam: record every ACTIVE prompt Ari SHOWS (not only the ones the user
+        // answers), so the governor's daily cap and min-interval cooldown engage on SHOWN prompts
+        // and can back off progressively when the user keeps ignoring them. Without this the cadence
+        // was read from ground_truth_labels — which only has rows on an ANSWER — so an ignored prompt
+        // left the cadence at 0 and Ari re-asked every poll cycle (the "spam" bug).
+        //
+        // Rows are tiny (a handful/day) and self-contained. Unlike ground_truth_labels this table is
+        // NOT needed for the future model, so it is fine for the 14-day prune to trim old rows; the
+        // governor only looks back 24h. It IS wiped on local-data reset (privacy).
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS prompt_events (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                prompt_id       TEXT    NOT NULL DEFAULT '',
+                created_at_utc  TEXT    NOT NULL,
+                label_target    TEXT    NOT NULL DEFAULT '',
+                prompt_kind     TEXT    NOT NULL DEFAULT '',
+                outcome         TEXT    NOT NULL DEFAULT 'shown',
+                resolved_at_utc TEXT    NOT NULL DEFAULT '',
+                schema_ver      INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_prompt_events_created
+                ON prompt_events(created_at_utc);
+
+            CREATE INDEX IF NOT EXISTS idx_prompt_events_target_outcome
+                ON prompt_events(label_target, outcome, created_at_utc);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
     internal static void ApplyContractSchemaV3(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

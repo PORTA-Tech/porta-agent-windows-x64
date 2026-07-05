@@ -93,19 +93,52 @@ public sealed class GroundTruthLabelsStoreTests
     }
 
     [Fact]
-    public void ReadLabelPromptCadence_CountsOnlyActivePromptSources()
+    public void ReadLabelPromptCadence_CountsShownPromptsFromPromptEvents()
     {
         RunWithTempDb(store =>
         {
             DateTimeOffset now = DateTimeOffset.UtcNow;
-            // Active one-tap prompt (focus_check) — counts toward cadence.
-            store.RecordGroundTruthLabel(SampleLabel(now));
-            // Passive break-outcome label — must NOT count as a prompt (it never interrupts).
-            store.RecordGroundTruthLabel(SampleLabel(now) with { LabelSource = "break_nudge", LabelTarget = "break_need" });
+            // Two prompts shown — both count toward the cadence cap whether or not they were answered.
+            store.RecordPromptShown("focus_state", "focused_now", now.AddMinutes(-10));
+            store.RecordPromptShown("distraction", "on_task_now", now.AddMinutes(-5));
+
+            AgentLabelPromptCadence cadence = store.ReadLabelPromptCadence();
+            Assert.Equal(2, cadence.ActivePromptsLast24h);
+            Assert.Equal(2, cadence.UnansweredPromptsLast24h);
+            Assert.NotNull(cadence.LastActivePromptAtUtc);
+        });
+    }
+
+    [Fact]
+    public void ResolvePromptAnswered_ClearsUnansweredStreakForTarget()
+    {
+        RunWithTempDb(store =>
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            store.RecordPromptShown("focus_state", "focused_now", now.AddMinutes(-20));
+            store.RecordPromptShown("focus_state", "focused_now", now.AddMinutes(-10));
+
+            // User answers: the most recent shown prompt for the target flips to 'answered'.
+            store.ResolvePromptAnswered("focus_state", now);
+
+            AgentLabelPromptCadence cadence = store.ReadLabelPromptCadence();
+            Assert.Equal(2, cadence.ActivePromptsLast24h);      // still two shown (cap counts shown)
+            Assert.Equal(1, cadence.UnansweredPromptsLast24h);  // one now answered
+        });
+    }
+
+    [Fact]
+    public void ReadLabelPromptCadence_IgnoresPromptsOlderThan24h()
+    {
+        RunWithTempDb(store =>
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            store.RecordPromptShown("focus_state", "focused_now", now.AddDays(-2));
+            store.RecordPromptShown("focus_state", "focused_now", now.AddMinutes(-5));
 
             AgentLabelPromptCadence cadence = store.ReadLabelPromptCadence();
             Assert.Equal(1, cadence.ActivePromptsLast24h);
-            Assert.NotNull(cadence.LastActivePromptAtUtc);
+            Assert.Equal(1, cadence.UnansweredPromptsLast24h);
         });
     }
 

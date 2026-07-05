@@ -23,7 +23,8 @@ internal readonly record struct LabelPromptGovernorInput(
     bool Paused,
     bool MeetingInProgress,
     int ActivePromptsLast24h,
-    DateTimeOffset? LastActivePromptAtUtc);
+    DateTimeOffset? LastActivePromptAtUtc,
+    int UnansweredPromptsLast24h = 0);
 
 internal readonly record struct LabelPromptDecision(
     bool ShouldPrompt,
@@ -68,8 +69,12 @@ internal static class LabelPromptGovernor
             return No("daily_cap_reached");
         }
 
+        // Cooldown with progressive back-off: each recently SHOWN-but-unanswered prompt stretches the
+        // required gap, so a user who keeps ignoring prompts is asked less and less often (instead of
+        // being re-asked every poll cycle). Answering resets the streak, restoring the base interval.
+        double effectiveInterval = s.MinMinutesBetweenPrompts * BackoffMultiplier(input.UnansweredPromptsLast24h);
         if (input.LastActivePromptAtUtc is DateTimeOffset last
-            && (input.NowUtc - last).TotalMinutes < s.MinMinutesBetweenPrompts)
+            && (input.NowUtc - last).TotalMinutes < effectiveInterval)
         {
             return No("min_interval_not_elapsed");
         }
@@ -129,6 +134,24 @@ internal static class LabelPromptGovernor
         ConfidenceInformativeMin: PortaExecutionConstants.LabelCapture.ConfidenceInformativeMin,
         ConfidenceInformativeMax: PortaExecutionConstants.LabelCapture.ConfidenceInformativeMax,
         OverloadCheckPressureMin: PortaExecutionConstants.LabelCapture.OverloadCheckPressureMin);
+
+    // Progressive back-off factor keyed off how many prompts were shown-but-unanswered in the last 24h.
+    // Kept as a small step function (not per-prompt exponential) so behaviour is easy to reason about
+    // and the daily cap still bounds the worst case. 0-1 unanswered = base gap; 2-3 = 2x; 4+ = 4x.
+    private static double BackoffMultiplier(int unansweredLast24h)
+    {
+        if (unansweredLast24h >= 4)
+        {
+            return 4.0;
+        }
+
+        if (unansweredLast24h >= 2)
+        {
+            return 2.0;
+        }
+
+        return 1.0;
+    }
 
     private static LabelPromptDecision No(string reasonCode) =>
         new(ShouldPrompt: false, LabelTarget: string.Empty, PromptKind: string.Empty, ReasonCode: reasonCode);

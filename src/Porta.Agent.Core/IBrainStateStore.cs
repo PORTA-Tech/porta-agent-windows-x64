@@ -35,6 +35,9 @@ public interface IBrainStateStore
 
     // Phase 1b: durable ground-truth labels (see ground_truth_labels).
     void RecordGroundTruthLabel(GroundTruthLabel label);
+    // Phase 1b — anti-spam: prompt_events shown/answered tracking for the governor's back-off.
+    void RecordPromptShown(string labelTarget, string promptKind, DateTimeOffset shownAtUtc);
+    void ResolvePromptAnswered(string labelTarget, DateTimeOffset answeredAtUtc);
     AgentLabelPromptCadence ReadLabelPromptCadence();
     AgentLabelDiagnostics ReadLabelDiagnostics();
     AgentStorageInfo ReadStorageInfo();

@@ -224,7 +224,12 @@ internal sealed record DailyStatsReportPayload(
     // Lets the console show whether users are answering prompts and whether Ari was right (net).
     [property: JsonPropertyName("labelsToday")] int LabelsToday = 0,
     [property: JsonPropertyName("labelsThisWeek")] int LabelsThisWeek = 0,
-    [property: JsonPropertyName("labelsByTarget")] IReadOnlyList<LabelTargetCountPayload>? LabelsByTarget = null);
+    [property: JsonPropertyName("labelsByTarget")] IReadOnlyList<LabelTargetCountPayload>? LabelsByTarget = null,
+    // Prompt response rate (shown vs answered) so the console can show whether people actually engage.
+    [property: JsonPropertyName("promptsShownToday")] int PromptsShownToday = 0,
+    [property: JsonPropertyName("promptsAnsweredToday")] int PromptsAnsweredToday = 0,
+    [property: JsonPropertyName("promptsShownThisWeek")] int PromptsShownThisWeek = 0,
+    [property: JsonPropertyName("promptsAnsweredThisWeek")] int PromptsAnsweredThisWeek = 0);
 
 internal sealed record LabelTargetCountPayload(
     [property: JsonPropertyName("target")] string Target,

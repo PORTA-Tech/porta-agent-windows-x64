@@ -89,11 +89,17 @@ public sealed record GroundTruthLabel(
     int SchemaVer = 1);
 
 // Phase 1b: lightweight readout so we can confirm labels are actually accumulating.
+// The Prompts* fields (from prompt_events) let the operator see the RESPONSE RATE — how many prompts
+// were shown vs actually answered — which is the real "are people engaging?" signal. Counts only.
 public sealed record AgentLabelDiagnostics(
     long TotalLabels,
     long LabelsLast24h,
     long LabelsLast7d,
-    IReadOnlyList<AgentLabelTargetCount> Last24hByTarget);
+    IReadOnlyList<AgentLabelTargetCount> Last24hByTarget,
+    long PromptsShownLast24h = 0,
+    long PromptsAnsweredLast24h = 0,
+    long PromptsShownLast7d = 0,
+    long PromptsAnsweredLast7d = 0);
 
 // Per-target rollup for the last 24 hours. NetValue = SUM(label_value): positive means Ari's guesses
 // were mostly confirmed right, negative mostly wrong. Counts only — never label content.
@@ -106,7 +112,8 @@ public sealed record AgentLabelTargetCount(
 // checks only), used by the governor's daily-cap and min-interval gates.
 public sealed record AgentLabelPromptCadence(
     int ActivePromptsLast24h,
-    DateTimeOffset? LastActivePromptAtUtc);
+    DateTimeOffset? LastActivePromptAtUtc,
+    int UnansweredPromptsLast24h = 0);
 
 // Phase 1b — Step 3b: public projection of the governor's decision, returned by the prompt-due endpoint.
 public sealed record AgentLabelPromptDecision(

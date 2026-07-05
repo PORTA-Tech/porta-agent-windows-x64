@@ -1478,9 +1478,19 @@ public sealed class AgentCoreController : IAgentCoreController
             Paused: status.Paused,
             MeetingInProgress: meetingInProgress,
             ActivePromptsLast24h: cadence.ActivePromptsLast24h,
-            LastActivePromptAtUtc: cadence.LastActivePromptAtUtc);
+            LastActivePromptAtUtc: cadence.LastActivePromptAtUtc,
+            UnansweredPromptsLast24h: cadence.UnansweredPromptsLast24h);
 
         Analysis.LabelPromptDecision decision = Analysis.LabelPromptGovernor.Decide(input);
+
+        // Anti-spam: when the governor says "prompt now", the widget host shows it unconditionally, so
+        // record it as SHOWN here. This is what makes the cap + cooldown engage on shown prompts (not
+        // only answered ones) and drives the progressive back-off when the user keeps ignoring them.
+        if (decision.ShouldPrompt)
+        {
+            _stateStore.RecordPromptShown(decision.LabelTarget, decision.PromptKind, DateTimeOffset.UtcNow);
+        }
+
         return new AgentLabelPromptDecision(
             ShouldPrompt: decision.ShouldPrompt,
             LabelTarget: decision.LabelTarget,
@@ -1527,6 +1537,10 @@ public sealed class AgentCoreController : IAgentCoreController
             SchemaVer: 1);
 
         _stateStore.RecordGroundTruthLabel(label);
+
+        // Anti-spam: this answer resolves the most recent shown prompt for this target, resetting the
+        // back-off streak so an engaged user isn't penalised by the progressive cooldown.
+        _stateStore.ResolvePromptAnswered(label.LabelTarget, DateTimeOffset.UtcNow);
         return true;
     }
 

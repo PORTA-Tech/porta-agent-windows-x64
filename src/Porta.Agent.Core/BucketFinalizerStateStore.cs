@@ -64,6 +64,10 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
     public bool AcknowledgeIntervention(AgentInterventionAck ack)
         => _inner.AcknowledgeIntervention(ack);
     public void RecordGroundTruthLabel(GroundTruthLabel label) => _inner.RecordGroundTruthLabel(label);
+    public void RecordPromptShown(string labelTarget, string promptKind, DateTimeOffset shownAtUtc)
+        => _inner.RecordPromptShown(labelTarget, promptKind, shownAtUtc);
+    public void ResolvePromptAnswered(string labelTarget, DateTimeOffset answeredAtUtc)
+        => _inner.ResolvePromptAnswered(labelTarget, answeredAtUtc);
     public AgentLabelPromptCadence ReadLabelPromptCadence() => _inner.ReadLabelPromptCadence();
     public AgentLabelDiagnostics ReadLabelDiagnostics() => _inner.ReadLabelDiagnostics();
 

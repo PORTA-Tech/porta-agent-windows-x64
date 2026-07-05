@@ -110,4 +110,51 @@ public sealed class LabelPromptGovernorTests
     {
         Assert.False(LabelPromptGovernor.Decide(Good() with { Confidence = 0.1 }).ShouldPrompt);
     }
+
+    // Progressive back-off: a gap that clears the BASE interval is still suppressed once enough recent
+    // prompts have gone unanswered, so an ignoring user is nagged less and less.
+    [Fact]
+    public void UnansweredStreak_ExtendsCooldownBeyondBaseInterval()
+    {
+        int baseInterval = PortaExecutionConstants.LabelCapture.MinMinutesBetweenPrompts;
+
+        // No back-off: a prompt just past the base interval fires.
+        Assert.True(LabelPromptGovernor.Decide(
+            Good() with { LastActivePromptAtUtc = Now.AddMinutes(-(baseInterval + 5)) }).ShouldPrompt);
+
+        // 3 unanswered → 2x interval: the same gap is now too short.
+        LabelPromptDecision backedOff = LabelPromptGovernor.Decide(Good() with
+        {
+            LastActivePromptAtUtc = Now.AddMinutes(-(baseInterval + 5)),
+            UnansweredPromptsLast24h = 3,
+        });
+        Assert.False(backedOff.ShouldPrompt);
+        Assert.Equal("min_interval_not_elapsed", backedOff.ReasonCode);
+    }
+
+    [Fact]
+    public void UnansweredStreak_PromptsOnceBackedOffIntervalElapses()
+    {
+        int baseInterval = PortaExecutionConstants.LabelCapture.MinMinutesBetweenPrompts;
+
+        // 3 unanswered → 2x interval; wait past 2x and it fires again.
+        Assert.True(LabelPromptGovernor.Decide(Good() with
+        {
+            LastActivePromptAtUtc = Now.AddMinutes(-(baseInterval * 2 + 5)),
+            UnansweredPromptsLast24h = 3,
+        }).ShouldPrompt);
+    }
+
+    [Fact]
+    public void HeavyUnansweredStreak_AppliesLongestBackoff()
+    {
+        int baseInterval = PortaExecutionConstants.LabelCapture.MinMinutesBetweenPrompts;
+
+        // 5 unanswered → 4x interval: a gap of 3x is still suppressed.
+        Assert.False(LabelPromptGovernor.Decide(Good() with
+        {
+            LastActivePromptAtUtc = Now.AddMinutes(-(baseInterval * 3)),
+            UnansweredPromptsLast24h = 5,
+        }).ShouldPrompt);
+    }
 }

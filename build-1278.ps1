@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $root = "C:\Users\hp\porta-agent-windows-x64"
 $payload = "$root\installer\payload"
 $sharedPayload = "$root\installer\payload\SharedFiles"
-$version = "1.2.104"
+$version = "1.2.105"
 
 Write-Host "=== Building Porta.Agent.Service (ari.exe) ===" -ForegroundColor Cyan
 dotnet publish "$root\src\Porta.Agent.Service" -c Release -r win-x64 --self-contained -o "$root\publish\service" /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
