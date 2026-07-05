@@ -92,7 +92,15 @@ public sealed record GroundTruthLabel(
 public sealed record AgentLabelDiagnostics(
     long TotalLabels,
     long LabelsLast24h,
-    long LabelsLast7d);
+    long LabelsLast7d,
+    IReadOnlyList<AgentLabelTargetCount> Last7dByTarget);
+
+// Per-target rollup for the last 7 days. NetValue = SUM(label_value): positive means Ari's guesses
+// were mostly confirmed right, negative mostly wrong. Counts only — never label content.
+public sealed record AgentLabelTargetCount(
+    string Target,
+    long Count,
+    long NetValue);
 
 // Phase 1b — Step 3: recent cadence of the ACTIVE one-tap prompts (focus/distraction/overload
 // checks only), used by the governor's daily-cap and min-interval gates.

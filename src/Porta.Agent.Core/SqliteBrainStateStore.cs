@@ -2007,28 +2007,57 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         lock (_gate)
         {
             using var connection = DbOpen.OpenConnection(_connectionString);
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText =
-                """
-                SELECT
-                    COUNT(*) AS total,
-                    COALESCE(SUM(CASE WHEN created_at_utc >= $since1d THEN 1 ELSE 0 END), 0) AS last1d,
-                    COALESCE(SUM(CASE WHEN created_at_utc >= $since7d THEN 1 ELSE 0 END), 0) AS last7d
-                FROM ground_truth_labels;
-                """;
             DateTimeOffset now = DateTimeOffset.UtcNow;
-            cmd.Parameters.AddWithValue("$since1d", now.AddDays(-1).ToString("O"));
-            cmd.Parameters.AddWithValue("$since7d", now.AddDays(-7).ToString("O"));
-            using var reader = cmd.ExecuteReader();
-            if (reader.Read())
+            string since1d = now.AddDays(-1).ToString("O");
+            string since7d = now.AddDays(-7).ToString("O");
+
+            long total = 0;
+            long last1d = 0;
+            long last7d = 0;
+            using (var cmd = connection.CreateCommand())
             {
-                return new AgentLabelDiagnostics(
-                    TotalLabels: reader.GetInt64(0),
-                    LabelsLast24h: reader.GetInt64(1),
-                    LabelsLast7d: reader.GetInt64(2));
+                cmd.CommandText =
+                    """
+                    SELECT
+                        COUNT(*) AS total,
+                        COALESCE(SUM(CASE WHEN created_at_utc >= $since1d THEN 1 ELSE 0 END), 0) AS last1d,
+                        COALESCE(SUM(CASE WHEN created_at_utc >= $since7d THEN 1 ELSE 0 END), 0) AS last7d
+                    FROM ground_truth_labels;
+                    """;
+                cmd.Parameters.AddWithValue("$since1d", since1d);
+                cmd.Parameters.AddWithValue("$since7d", since7d);
+                using var reader = cmd.ExecuteReader();
+                if (reader.Read())
+                {
+                    total = reader.GetInt64(0);
+                    last1d = reader.GetInt64(1);
+                    last7d = reader.GetInt64(2);
+                }
             }
 
-            return new AgentLabelDiagnostics(0, 0, 0);
+            var byTarget = new List<AgentLabelTargetCount>();
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText =
+                    """
+                    SELECT label_target, COUNT(*) AS cnt, COALESCE(SUM(label_value), 0) AS net
+                    FROM ground_truth_labels
+                    WHERE created_at_utc >= $since7d
+                    GROUP BY label_target
+                    ORDER BY cnt DESC;
+                    """;
+                cmd.Parameters.AddWithValue("$since7d", since7d);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    byTarget.Add(new AgentLabelTargetCount(
+                        Target: reader.IsDBNull(0) ? string.Empty : reader.GetString(0),
+                        Count: reader.GetInt64(1),
+                        NetValue: reader.GetInt64(2)));
+                }
+            }
+
+            return new AgentLabelDiagnostics(total, last1d, last7d, byTarget);
         }
     }
 

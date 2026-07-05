@@ -272,6 +272,7 @@ public sealed class LocalApiRouteStartupSmokeTests
         public string ExportBundle() => throw new NotSupportedException();
         public AgentLabelPromptDecision GetLabelPromptDecision(bool meetingInProgress) => throw new NotSupportedException();
         public bool RecordFocusLabel(AgentFocusLabelRequest request) => throw new NotSupportedException();
+        public AgentLabelDiagnostics GetLabelDiagnostics() => throw new NotSupportedException();
     }
 
     private sealed class SmokeIdentityLinkStore : ILocalIdentityLinkStore

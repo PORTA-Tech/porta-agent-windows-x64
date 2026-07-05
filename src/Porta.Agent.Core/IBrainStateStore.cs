@@ -36,6 +36,7 @@ public interface IBrainStateStore
     // Phase 1b: durable ground-truth labels (see ground_truth_labels).
     void RecordGroundTruthLabel(GroundTruthLabel label);
     AgentLabelPromptCadence ReadLabelPromptCadence();
+    AgentLabelDiagnostics ReadLabelDiagnostics();
     AgentStorageInfo ReadStorageInfo();
     AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);
     AgentDistractionSummary ReadCurrentDistractionSummary();

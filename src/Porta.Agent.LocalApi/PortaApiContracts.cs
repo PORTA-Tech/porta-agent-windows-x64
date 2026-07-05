@@ -879,6 +879,19 @@ public sealed record LocalApiFocusLabelRequest(
     [property: JsonPropertyName("answer")] string? Answer,
     [property: JsonPropertyName("response_latency_ms")] int ResponseLatencyMs);
 
+// Phase 1b — Step 4: local readout of accumulated ground-truth labels (counts only, no content).
+public sealed record LocalApiLabelDiagnosticsResponse(
+    long TotalLabels,
+    long LabelsToday,
+    long LabelsThisWeek,
+    IReadOnlyList<LocalApiLabelTargetCount> ByTarget,
+    DateTimeOffset TimestampUtc);
+
+public sealed record LocalApiLabelTargetCount(
+    string Target,
+    long Count,
+    long NetValue);
+
 public sealed record LocalApiExportResponse(
     bool Success,
     string BundlePath,

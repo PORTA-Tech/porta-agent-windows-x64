@@ -244,6 +244,20 @@ public static class LocalApiEndpointMapping
             }
         });
 
+        // Phase 1b — Step 4: local readout of accumulated ground-truth labels (counts only).
+        api.MapGet("/labels/diagnostics", (IAgentCoreController controller) =>
+        {
+            AgentLabelDiagnostics d = controller.GetLabelDiagnostics();
+            return new LocalApiLabelDiagnosticsResponse(
+                TotalLabels: d.TotalLabels,
+                LabelsToday: d.LabelsLast24h,
+                LabelsThisWeek: d.LabelsLast7d,
+                ByTarget: d.Last7dByTarget
+                    .Select(t => new LocalApiLabelTargetCount(t.Target, t.Count, t.NetValue))
+                    .ToList(),
+                TimestampUtc: DateTimeOffset.UtcNow);
+        });
+
         api.MapPost("/input/signals", (IAgentCoreController controller, LocalApiInputSignalsRequest? request) =>
         {
             if (request is null || (request.SchemaVer is not 1 and not 2))

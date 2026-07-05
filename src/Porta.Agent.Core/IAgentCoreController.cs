@@ -42,4 +42,7 @@ public interface IAgentCoreController
     // Phase 1b — Step 3b: sampled ground-truth prompts.
     AgentLabelPromptDecision GetLabelPromptDecision(bool meetingInProgress);
     bool RecordFocusLabel(AgentFocusLabelRequest request);
+
+    // Phase 1b — Step 4: local readout of accumulated ground-truth labels (counts only, no content).
+    AgentLabelDiagnostics GetLabelDiagnostics();
 }

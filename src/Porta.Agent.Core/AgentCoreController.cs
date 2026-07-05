@@ -1460,6 +1460,8 @@ public sealed class AgentCoreController : IAgentCoreController
 
     // Phase 1b — Step 3b: gather the live inputs and ask the (pure) governor whether a sampled
     // one-tap prompt is warranted right now, and which question. Read-only; changes nothing.
+    public AgentLabelDiagnostics GetLabelDiagnostics() => _stateStore.ReadLabelDiagnostics();
+
     public AgentLabelPromptDecision GetLabelPromptDecision(bool meetingInProgress)
     {
         AgentServiceStatusSnapshot status = GetStatus();

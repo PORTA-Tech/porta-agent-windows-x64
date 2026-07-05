@@ -58,6 +58,31 @@ public sealed class GroundTruthLabelsActiveCaptureTests
         });
     }
 
+    [Fact]
+    public void GetLabelDiagnostics_ReportsCountsAndNetValueByTarget()
+    {
+        RunWithController((controller, _) =>
+        {
+            // focus: one "right" (+1) and one "wrong" (-1) -> count 2, net 0
+            Assert.True(controller.RecordFocusLabel(new AgentFocusLabelRequest("focus_state", "focused_now", "yes", 0)));
+            Assert.True(controller.RecordFocusLabel(new AgentFocusLabelRequest("focus_state", "focused_now", "no", 0)));
+            // overload: one "right" (+1) -> count 1, net 1
+            Assert.True(controller.RecordFocusLabel(new AgentFocusLabelRequest("overload", "overload_now", "yes", 0)));
+
+            AgentLabelDiagnostics d = controller.GetLabelDiagnostics();
+            Assert.Equal(3, d.TotalLabels);
+            Assert.Equal(3, d.LabelsLast24h);
+
+            AgentLabelTargetCount focus = d.Last7dByTarget.Single(t => t.Target == "focus_state");
+            Assert.Equal(2, focus.Count);
+            Assert.Equal(0, focus.NetValue);
+
+            AgentLabelTargetCount overload = d.Last7dByTarget.Single(t => t.Target == "overload");
+            Assert.Equal(1, overload.Count);
+            Assert.Equal(1, overload.NetValue);
+        });
+    }
+
     private static (string Target, int Value, string Source, string Response, string InterventionId) ReadLatestLabel(string dbPath)
     {
         using var conn = new SqliteConnection($"Data Source={dbPath}");
