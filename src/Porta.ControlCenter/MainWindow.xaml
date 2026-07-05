@@ -2246,6 +2246,12 @@
                                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Last error" Foreground="{DynamicResource PortaTextSecondaryBrush}" FontSize="12" />
                                         <TextBlock x:Name="HealthLastErrorValue" Grid.Row="3" Grid.Column="1" Text="None" FontSize="12" TextWrapping="Wrap" />
                                     </Grid>
+                                    <TextBlock x:Name="LabelDiagnosticsValue"
+                                               Text="Ground-truth labels: not available yet"
+                                               FontSize="12"
+                                               Margin="0,10,0,0"
+                                               TextWrapping="Wrap"
+                                               Foreground="{DynamicResource PortaTextBodyBrush}" />
                                     <!-- Hidden: named elements written by C# but not shown -->
                                     <StackPanel Visibility="Collapsed">
                                         <TextBlock x:Name="HealthEngineStatusValue" Text="Not available" />

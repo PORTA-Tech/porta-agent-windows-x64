@@ -192,6 +192,26 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    // Phase 1b — Step 4: local readout of accumulated ground-truth labels (counts only).
+    public async Task<LocalApiLabelDiagnosticsResponse?> GetLabelDiagnosticsAsync(CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            return await _httpClient.GetFromJsonAsync<LocalApiLabelDiagnosticsResponse>(
+                "/v1/labels/diagnostics", token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     // Phase 1b — Step 3c: ground-truth label prompt (widget pill).
     public async Task<LocalApiLabelPromptDueResponse?> GetLabelPromptDueAsync(
         bool meetingInProgress = false,

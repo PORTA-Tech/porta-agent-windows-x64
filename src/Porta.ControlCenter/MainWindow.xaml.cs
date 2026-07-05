@@ -73,6 +73,7 @@ public partial class MainWindow : Window
     private LocalApiTimelineResponse? _twoWeekTimeline;   // 14 days, 300s buckets — same as week for consistent episode counts
     private LocalApiSettingsResponse? _effectiveSettings;
     private LocalApiRetentionResponse? _retention;
+    private LocalApiLabelDiagnosticsResponse? _labelDiagnostics;
     private bool _suppressSettingsEvents;
     private LocalApiEventResponse? _selectedIntervention;
     private DateTimeOffset _lastSlowRefreshUtc = DateTimeOffset.MinValue;
@@ -448,6 +449,39 @@ public partial class MainWindow : Window
         }
     }
 
+    // Phase 1b — Step 4: local readout so you can watch ground-truth labels accumulate.
+    private void UpdateLabelDiagnosticsText()
+    {
+        if (LabelDiagnosticsValue == null)
+        {
+            return;
+        }
+
+        LocalApiLabelDiagnosticsResponse? d = _labelDiagnostics;
+        if (d == null)
+        {
+            LabelDiagnosticsValue.Text = "Ground-truth labels: not available yet";
+            return;
+        }
+
+        string byTarget = d.ByTarget.Count == 0
+            ? "none yet today"
+            : string.Join(", ", d.ByTarget.Select(t =>
+                $"{FormatLabelTarget(t.Target)} {t.Count} ({(t.NetValue >= 0 ? "+" : string.Empty)}{t.NetValue})"));
+
+        LabelDiagnosticsValue.Text =
+            $"Ground-truth labels: {d.LabelsToday} today, {d.LabelsThisWeek} this week  ·  {byTarget}";
+    }
+
+    private static string FormatLabelTarget(string target) => target switch
+    {
+        "focus_state" => "focus",
+        "distraction" => "distraction",
+        "overload" => "overload",
+        "break_need" => "break",
+        _ => string.IsNullOrWhiteSpace(target) ? "other" : target,
+    };
+
     private async Task RefreshDiagnosticsCoreAsync(bool forceSlowRefresh = false)
     {
         LocalApiEndpointSettings? endpoint = LocalApiRuntimeSettingsStore.LoadEndpoint();
@@ -562,6 +596,12 @@ public partial class MainWindow : Window
             if (freshRetention != null)
             {
                 _retention = freshRetention;
+            }
+
+            var freshLabels = await _apiClient.GetLabelDiagnosticsAsync().ConfigureAwait(true);
+            if (freshLabels != null)
+            {
+                _labelDiagnostics = freshLabels;
             }
             if (ShouldRefreshAllTimeTimeline(forceSlowRefresh))
             {
@@ -690,6 +730,7 @@ public partial class MainWindow : Window
 
         PopulateOverview(nowTruth, _latestLiveSession, inputSummary, _recentEvents, previousSnapshot);
         PopulateInputs(inputSummary, _retention, truthSnapshot, _latestStatus, _effectiveSettings);
+        UpdateLabelDiagnosticsText();
         PopulateInterventions(_allRecentEvents, _effectiveSettings);
         PopulateSettings(_effectiveSettings);
         PopulateStates(truthSnapshot, _latestLiveSession);
