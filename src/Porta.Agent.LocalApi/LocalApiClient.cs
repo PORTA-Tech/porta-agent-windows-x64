@@ -235,6 +235,27 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    // Phase 1c — signup nudge: ask the core whether an unlinked device is due to be nudged to sign in.
+    public async Task<LocalApiSignupNudgeDueResponse?> GetSignupNudgeDueAsync(
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            return await _httpClient.GetFromJsonAsync<LocalApiSignupNudgeDueResponse>(
+                "/v1/nudges/signup-due", token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<LocalApiAckResponse?> RecordFocusLabelAsync(
         LocalApiFocusLabelRequest request,
         CancellationToken token = default)

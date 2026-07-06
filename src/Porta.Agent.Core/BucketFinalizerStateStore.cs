@@ -69,6 +69,8 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
     public void ResolvePromptAnswered(string labelTarget, DateTimeOffset answeredAtUtc)
         => _inner.ResolvePromptAnswered(labelTarget, answeredAtUtc);
     public AgentLabelPromptCadence ReadLabelPromptCadence() => _inner.ReadLabelPromptCadence();
+    public AgentSignupNudgeContext ReadSignupNudgeContext() => _inner.ReadSignupNudgeContext();
+    public void RecordSignupNudgeShown(DateTimeOffset shownAtUtc) => _inner.RecordSignupNudgeShown(shownAtUtc);
     public AgentLabelDiagnostics ReadLabelDiagnostics() => _inner.ReadLabelDiagnostics();
 
     public AgentStorageInfo ReadStorageInfo() => _inner.ReadStorageInfo();

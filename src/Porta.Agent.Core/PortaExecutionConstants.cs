@@ -271,6 +271,16 @@ public static class PortaExecutionConstants
         public const string ContractVersion = "v1";
     }
 
+    // Phase 1c — signup nudge: gently push an UNLINKED device to sign in once it has enough data to
+    // feel worth saving. Deliberately rare and self-limiting: at most one nudge a week, and it stops
+    // entirely after a few tries so a user who declines is never harassed.
+    public static class SignupNudge
+    {
+        public const int MinDaysOfData = 2;          // don't nudge until there's something worth keeping
+        public const int MinDaysBetweenNudges = 7;   // weekly cap
+        public const int MaxLifetimeNudges = 4;      // soft lifetime cap — then stop for good
+    }
+
     public static class DeepWorkDetection
     {
         public const int SustainedAttentionSeconds = 600;

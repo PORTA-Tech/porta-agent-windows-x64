@@ -39,6 +39,9 @@ public interface IBrainStateStore
     void RecordPromptShown(string labelTarget, string promptKind, DateTimeOffset shownAtUtc);
     void ResolvePromptAnswered(string labelTarget, DateTimeOffset answeredAtUtc);
     AgentLabelPromptCadence ReadLabelPromptCadence();
+    // Phase 1c — signup nudge cadence (days of data + caps) and recording a shown nudge.
+    AgentSignupNudgeContext ReadSignupNudgeContext();
+    void RecordSignupNudgeShown(DateTimeOffset shownAtUtc);
     AgentLabelDiagnostics ReadLabelDiagnostics();
     AgentStorageInfo ReadStorageInfo();
     AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);

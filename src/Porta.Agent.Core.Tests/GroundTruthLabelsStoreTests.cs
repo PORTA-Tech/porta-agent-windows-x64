@@ -128,6 +128,33 @@ public sealed class GroundTruthLabelsStoreTests
     }
 
     [Fact]
+    public void SignupNudge_FreshStore_HasNoDataAndNoNudges()
+    {
+        RunWithTempDb(store =>
+        {
+            AgentSignupNudgeContext ctx = store.ReadSignupNudgeContext();
+            Assert.Equal(0, ctx.DaysOfData);
+            Assert.Equal(0, ctx.NudgesShownTotal);
+            Assert.Null(ctx.LastNudgeAtUtc);
+        });
+    }
+
+    [Fact]
+    public void SignupNudge_RecordShown_IncrementsCountAndStampsTime()
+    {
+        RunWithTempDb(store =>
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            store.RecordSignupNudgeShown(now);
+            store.RecordSignupNudgeShown(now.AddMinutes(1));
+
+            AgentSignupNudgeContext ctx = store.ReadSignupNudgeContext();
+            Assert.Equal(2, ctx.NudgesShownTotal);
+            Assert.NotNull(ctx.LastNudgeAtUtc);
+        });
+    }
+
+    [Fact]
     public void ReadLabelPromptCadence_IgnoresPromptsOlderThan24h()
     {
         RunWithTempDb(store =>

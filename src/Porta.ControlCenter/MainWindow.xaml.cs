@@ -288,6 +288,9 @@ public partial class MainWindow : Window
             case ControlCenterActivationTarget.Health:
                 section = UiSection.Diagnostics;
                 return true;
+            case ControlCenterActivationTarget.Account:
+                section = UiSection.Account;
+                return true;
             default:
                 section = UiSection.Overview;
                 return false;

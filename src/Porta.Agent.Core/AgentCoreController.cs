@@ -1462,6 +1462,32 @@ public sealed class AgentCoreController : IAgentCoreController
     // one-tap prompt is warranted right now, and which question. Read-only; changes nothing.
     public AgentLabelDiagnostics GetLabelDiagnostics() => _stateStore.ReadLabelDiagnostics();
 
+    // Phase 1c: decide whether an unlinked device should be nudged to sign in right now. Read-mostly —
+    // the only side effect is recording a shown nudge so the weekly + lifetime caps engage.
+    public AgentSignupNudgeDecision GetSignupNudgeDecision(bool isLinked)
+    {
+        AgentServiceStatusSnapshot status = GetStatus();
+        AgentSignupNudgeContext ctx = _stateStore.ReadSignupNudgeContext();
+
+        var input = new Analysis.SignupNudgeGovernorInput(
+            NowUtc: DateTimeOffset.UtcNow,
+            IsLinked: isLinked,
+            DaysOfData: ctx.DaysOfData,
+            Paused: status.Paused,
+            ConsentActive: status.ConsentActive,
+            NudgesShownTotal: ctx.NudgesShownTotal,
+            LastNudgeAtUtc: ctx.LastNudgeAtUtc);
+
+        Analysis.SignupNudgeDecision decision = Analysis.SignupNudgeGovernor.Decide(input);
+
+        if (decision.ShouldNudge)
+        {
+            _stateStore.RecordSignupNudgeShown(DateTimeOffset.UtcNow);
+        }
+
+        return new AgentSignupNudgeDecision(decision.ShouldNudge, decision.ReasonCode);
+    }
+
     public AgentLabelPromptDecision GetLabelPromptDecision(bool meetingInProgress)
     {
         AgentServiceStatusSnapshot status = GetStatus();

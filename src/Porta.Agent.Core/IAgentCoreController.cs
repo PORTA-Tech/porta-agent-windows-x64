@@ -45,4 +45,7 @@ public interface IAgentCoreController
 
     // Phase 1b — Step 4: local readout of accumulated ground-truth labels (counts only, no content).
     AgentLabelDiagnostics GetLabelDiagnostics();
+
+    // Phase 1c: decide whether an unlinked device should be nudged to sign in.
+    AgentSignupNudgeDecision GetSignupNudgeDecision(bool isLinked);
 }

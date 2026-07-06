@@ -258,6 +258,19 @@ public static class LocalApiEndpointMapping
                 TimestampUtc: DateTimeOffset.UtcNow);
         });
 
+        // Phase 1c — signup nudge: is this UNLINKED device due to be nudged to sign in right now?
+        // Link status comes from the local identity store; the governor + caps live in the core.
+        api.MapGet("/nudges/signup-due", (IAgentCoreController controller, ILocalIdentityLinkStore identityLinkStore) =>
+        {
+            LocalIdentityLinkSnapshot link = identityLinkStore.GetCurrent();
+            bool isLinked = !string.IsNullOrWhiteSpace(link.AccountId);
+            AgentSignupNudgeDecision decision = controller.GetSignupNudgeDecision(isLinked);
+            return new LocalApiSignupNudgeDueResponse(
+                ShouldNudge: decision.ShouldNudge,
+                ReasonCode: decision.ReasonCode,
+                TimestampUtc: DateTimeOffset.UtcNow);
+        });
+
         api.MapPost("/input/signals", (IAgentCoreController controller, LocalApiInputSignalsRequest? request) =>
         {
             if (request is null || (request.SchemaVer is not 1 and not 2))

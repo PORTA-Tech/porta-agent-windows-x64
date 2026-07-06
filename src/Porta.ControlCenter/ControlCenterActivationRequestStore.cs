@@ -11,7 +11,8 @@ internal enum ControlCenterActivationTarget
     Actions,
     Tracking,
     Settings,
-    Health
+    Health,
+    Account
 }
 
 internal static class ControlCenterActivationRequestStore
@@ -124,6 +125,7 @@ internal static class ControlCenterActivationRequestStore
             "tracking" or "inputs" => ControlCenterActivationTarget.Tracking,
             "controls" or "settings" => ControlCenterActivationTarget.Settings,
             "health" or "system" or "diagnostics" => ControlCenterActivationTarget.Health,
+            "account" or "signin" or "sign-in" => ControlCenterActivationTarget.Account,
             _ => ControlCenterActivationTarget.Default
         };
     }

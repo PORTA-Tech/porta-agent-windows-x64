@@ -807,6 +807,14 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
                 break;
 
+            case UserDesktopWidgetAction.OpenAccount:
+                if (!TryOpenControlCenter("account"))
+                {
+                    _ = TryShow("Tracking limited", "Control Center is not available on this device.", out _);
+                }
+
+                break;
+
             case UserDesktopWidgetAction.OpenHealth:
                 if (!TryOpenControlCenter("system"))
                 {

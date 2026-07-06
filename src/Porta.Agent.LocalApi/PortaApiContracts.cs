@@ -872,6 +872,12 @@ public sealed record LocalApiLabelPromptDueResponse(
     string ReasonCode,
     DateTimeOffset TimestampUtc);
 
+// Phase 1c — signup nudge: whether an unlinked device is due to be nudged to sign in.
+public sealed record LocalApiSignupNudgeDueResponse(
+    [property: JsonPropertyName("should_nudge")] bool ShouldNudge,
+    [property: JsonPropertyName("reason_code")] string ReasonCode,
+    [property: JsonPropertyName("timestamp_utc")] DateTimeOffset TimestampUtc);
+
 public sealed record LocalApiFocusLabelRequest(
     [property: JsonPropertyName("schema_ver")] int SchemaVer,
     [property: JsonPropertyName("label_target")] string? LabelTarget,

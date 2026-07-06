@@ -2187,6 +2187,108 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
     }
 
+    private const string SignupNudgeStateKey = "signup_nudge_state";
+
+    // Phase 1c — signup nudge cadence: how many whole days of local data exist (from the earliest
+    // state bucket) plus the persisted nudge caps (how many shown, and when last). Read-only.
+    public AgentSignupNudgeContext ReadSignupNudgeContext()
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+
+            int daysOfData = 0;
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = "SELECT MIN(timestamp_utc) FROM state_buckets;";
+                object? scalar = cmd.ExecuteScalar();
+                if (scalar != null && scalar != DBNull.Value)
+                {
+                    string raw = Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+                    if (DateTimeOffset.TryParse(
+                            raw,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.RoundtripKind,
+                            out DateTimeOffset firstUtc))
+                    {
+                        daysOfData = Math.Max(0, (int)Math.Floor((DateTimeOffset.UtcNow - firstUtc).TotalDays));
+                    }
+                }
+            }
+
+            (int count, DateTimeOffset? lastAt) = ReadSignupNudgeStateLocked(connection);
+            return new AgentSignupNudgeContext(daysOfData, count, lastAt);
+        }
+    }
+
+    // Phase 1c — record that a signup nudge was shown: bumps the lifetime count and stamps the time,
+    // so the governor's weekly + lifetime caps engage. Persisted in runtime_state (survives restart).
+    public void RecordSignupNudgeShown(DateTimeOffset shownAtUtc)
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            (int count, _) = ReadSignupNudgeStateLocked(connection);
+            count += 1;
+
+            string valueJson = $"{{\"count\":{count},\"lastAtUtc\":\"{shownAtUtc:O}\"}}";
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                INSERT INTO runtime_state (key, value_json, updated_utc)
+                VALUES ($key, $value_json, $updated_utc)
+                ON CONFLICT(key) DO UPDATE SET
+                    value_json = excluded.value_json,
+                    updated_utc = excluded.updated_utc;
+                """;
+            cmd.Parameters.AddWithValue("$key", SignupNudgeStateKey);
+            cmd.Parameters.AddWithValue("$value_json", valueJson);
+            cmd.Parameters.AddWithValue("$updated_utc", shownAtUtc.ToString("O"));
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private static (int Count, DateTimeOffset? LastAtUtc) ReadSignupNudgeStateLocked(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT value_json FROM runtime_state WHERE key = $key LIMIT 1;";
+        cmd.Parameters.AddWithValue("$key", SignupNudgeStateKey);
+        object? scalar = cmd.ExecuteScalar();
+        if (scalar == null || scalar == DBNull.Value)
+        {
+            return (0, null);
+        }
+
+        string json = Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+        int count = 0;
+        DateTimeOffset? lastAt = null;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            System.Text.Json.JsonElement root = doc.RootElement;
+            if (root.TryGetProperty("count", out System.Text.Json.JsonElement c) && c.TryGetInt32(out int parsedCount))
+            {
+                count = Math.Max(0, parsedCount);
+            }
+
+            if (root.TryGetProperty("lastAtUtc", out System.Text.Json.JsonElement l)
+                && l.ValueKind == System.Text.Json.JsonValueKind.String
+                && DateTimeOffset.TryParse(
+                    l.GetString(),
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind,
+                    out DateTimeOffset parsedLast))
+            {
+                lastAt = parsedLast;
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+        }
+
+        return (count, lastAt);
+    }
+
     public bool AcknowledgeIntervention(AgentInterventionAck ack)
     {
         ArgumentNullException.ThrowIfNull(ack);

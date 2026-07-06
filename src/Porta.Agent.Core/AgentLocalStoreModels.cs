@@ -122,6 +122,17 @@ public sealed record AgentLabelPromptDecision(
     string PromptKind,
     string ReasonCode);
 
+// Phase 1c — signup nudge cadence: how many days of local data exist, and the nudge caps state.
+public sealed record AgentSignupNudgeContext(
+    int DaysOfData,
+    int NudgesShownTotal,
+    DateTimeOffset? LastNudgeAtUtc);
+
+// Phase 1c — public projection of the signup-nudge governor's decision, returned by the signup-due endpoint.
+public sealed record AgentSignupNudgeDecision(
+    bool ShouldNudge,
+    string ReasonCode);
+
 // Phase 1b — Step 3b: a widget one-tap answer to record as a label.
 public sealed record AgentFocusLabelRequest(
     string LabelTarget,   // focus_state | distraction | overload

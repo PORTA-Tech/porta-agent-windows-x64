@@ -126,6 +126,8 @@ internal sealed class UserDesktopWidgetWindow : Window
     private string? _lastStateTakeoverKey;
     private UserDesktopWidgetLabelPrompt? _labelPrompt;
     private string? _resolvedLabelPromptId;
+    private UserDesktopWidgetSignupNudge? _signupNudge;
+    private string? _resolvedSignupNudgeId;
 
     public UserDesktopWidgetWindow(
         Action<UserDesktopWidgetAction> actionRequested,
@@ -730,6 +732,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _resumeButton.IsEnabled = state.CanResume;
         UpdateStateTakeover(state);
         UpdateLabelPrompt(state);
+        UpdateSignupNudge(state);
         RefreshInlineMessage();
         ApplyModeChrome(state.Mode, state.ShowLimitedBadge);
         UpdateWindowHeight();
@@ -1989,6 +1992,21 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        if (_signupNudge != null
+            && !string.Equals(_signupNudge.NudgeId, _resolvedSignupNudgeId, StringComparison.Ordinal))
+        {
+            RenderInlineMessage(
+                title: string.Empty,
+                body: _signupNudge.Body,
+                footer: string.Empty,
+                severity: UserDesktopWidgetMessageSeverity.Info,
+                primaryAction: UserDesktopWidgetAction.SignupNudgeAccept,
+                primaryLabel: _signupNudge.PrimaryLabel,
+                secondaryAction: UserDesktopWidgetAction.SignupNudgeDismiss,
+                secondaryLabel: _signupNudge.SecondaryLabel);
+            return;
+        }
+
         RenderSummarySurface();
     }
 
@@ -1997,6 +2015,16 @@ internal sealed class UserDesktopWidgetWindow : Window
         _labelPrompt = state.LabelPrompt;
         if (_labelPrompt != null
             && !string.Equals(_labelPrompt.PromptId, _resolvedLabelPromptId, StringComparison.Ordinal))
+        {
+            Expand();
+        }
+    }
+
+    private void UpdateSignupNudge(UserDesktopWidgetState state)
+    {
+        _signupNudge = state.SignupNudge;
+        if (_signupNudge != null
+            && !string.Equals(_signupNudge.NudgeId, _resolvedSignupNudgeId, StringComparison.Ordinal))
         {
             Expand();
         }
@@ -2287,7 +2315,34 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        if (action is UserDesktopWidgetAction.SignupNudgeAccept
+            or UserDesktopWidgetAction.SignupNudgeDismiss)
+        {
+            ResolveSignupNudge(action);
+            return;
+        }
+
         _actionRequested(action);
+    }
+
+    private void ResolveSignupNudge(UserDesktopWidgetAction action)
+    {
+        UserDesktopWidgetSignupNudge? nudge = _signupNudge;
+        if (nudge == null)
+        {
+            return;
+        }
+
+        // Suppress re-showing this exact nudge while the host still holds it (until its backstop).
+        _resolvedSignupNudgeId = nudge.NudgeId;
+        if (action == UserDesktopWidgetAction.SignupNudgeAccept)
+        {
+            // Open the Control Center at the sign-in screen (where linking actually happens).
+            _actionRequested(UserDesktopWidgetAction.OpenAccount);
+        }
+
+        RefreshInlineMessage();
+        UpdateWindowHeight();
     }
 
     private void ResolveLabelPrompt(UserDesktopWidgetAction action)
@@ -2352,7 +2407,8 @@ internal sealed class UserDesktopWidgetWindow : Window
             && !_suspendAutoCollapseUntilPointerLeaves
             && _activePrompt == null
             && _currentState?.CriticalState == null
-            && !IsLabelPromptActive();
+            && !IsLabelPromptActive()
+            && !IsSignupNudgeActive();
     }
 
     // A one-tap label question (focus/distraction/overload) needs an answer, so — like active prompts
@@ -2362,6 +2418,12 @@ internal sealed class UserDesktopWidgetWindow : Window
     private bool IsLabelPromptActive()
         => _labelPrompt != null
             && !string.Equals(_labelPrompt.PromptId, _resolvedLabelPromptId, StringComparison.Ordinal);
+
+    // The signup nudge has tap targets ("Sign in" / "Not now"), so it pins the widget open until the
+    // user resolves it or the host's display window clears it — same reasoning as the label prompt.
+    private bool IsSignupNudgeActive()
+        => _signupNudge != null
+            && !string.Equals(_signupNudge.NudgeId, _resolvedSignupNudgeId, StringComparison.Ordinal);
 
     private static bool IsInteractiveElement(DependencyObject child)
     {

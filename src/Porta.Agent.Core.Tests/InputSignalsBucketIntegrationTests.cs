@@ -221,6 +221,8 @@ public sealed class InputSignalsBucketIntegrationTests
         public void RecordPromptShown(string labelTarget, string promptKind, DateTimeOffset shownAtUtc) { }
         public void ResolvePromptAnswered(string labelTarget, DateTimeOffset answeredAtUtc) { }
         public AgentLabelPromptCadence ReadLabelPromptCadence() => new(0, null);
+        public AgentSignupNudgeContext ReadSignupNudgeContext() => new(0, 0, null);
+        public void RecordSignupNudgeShown(DateTimeOffset shownAtUtc) { }
         public AgentLabelDiagnostics ReadLabelDiagnostics() => new(0, 0, 0, System.Array.Empty<AgentLabelTargetCount>());
         public AgentBrainSnapshot? ReadLatestSnapshot() => null;
         public AgentLatestStateDetails? ReadLatestStateDetails() => null;

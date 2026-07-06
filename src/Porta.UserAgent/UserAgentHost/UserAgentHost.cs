@@ -27,6 +27,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private static readonly TimeSpan AriContextRefreshInterval = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan LabelPromptCheckInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan LabelPromptDisplayWindow = TimeSpan.FromSeconds(30);
+    // Phase 1c — signup nudge: rare by design (weekly-capped), so check occasionally and keep it up
+    // a little longer than the label pill (it's a conversion moment, not a quick tap).
+    private static readonly TimeSpan SignupNudgeCheckInterval = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan SignupNudgeDisplayWindow = TimeSpan.FromSeconds(90);
     private readonly ILogger<UserAgentHost> _logger;
     private readonly IUserAgentSessionContextStore _sessionContextStore;
     private readonly UserAgentStartupMetadata _startupMetadata;
@@ -65,6 +69,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private DateTimeOffset _lastLabelPromptCheckUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _labelPromptShownUtc = DateTimeOffset.MinValue;
     private UserDesktopWidgetLabelPrompt? _activeLabelPrompt;
+    private DateTimeOffset _lastSignupNudgeCheckUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _signupNudgeShownUtc = DateTimeOffset.MinValue;
+    private UserDesktopWidgetSignupNudge? _activeSignupNudge;
     private bool _widgetFallbackLogged;
     private bool _hooksInstalled;
     private bool _keyboardCaptureAvailable;
@@ -344,6 +351,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             MapTrayMode(signals.Mode),
             signals.TooltipText));
         await RefreshLabelPromptAsync(nowUtc, token).ConfigureAwait(false);
+        await RefreshSignupNudgeAsync(nowUtc, token).ConfigureAwait(false);
         UpdateWidgetState(UserDesktopWidgetStateBuilder.Build(
             status,
             snapshot,
@@ -354,7 +362,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             widgetDetails.Timeline,
             widgetDetails.Settings,
             _localApiClient.LastStatusHttpCode,
-            nowUtc) with { LabelPrompt = _activeLabelPrompt });
+            nowUtc) with { LabelPrompt = _activeLabelPrompt, SignupNudge = _activeSignupNudge });
 
         UserCommunicationToast? recentEventToast = UserCommunicationRouter.ResolveRecentEventToast(
             recentEvents,
@@ -1282,6 +1290,42 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         {
             _activeLabelPrompt = MapLabelPrompt(due);
             _labelPromptShownUtc = nowUtc;
+        }
+    }
+
+    // Phase 1c — poll whether an unlinked device is due for a signup nudge, and hold it for the display
+    // window. The core enforces the weekly + lifetime caps, so this just shows what it's told to.
+    private async Task RefreshSignupNudgeAsync(DateTimeOffset nowUtc, CancellationToken token)
+    {
+        if (_activeSignupNudge is not null)
+        {
+            if ((nowUtc - _signupNudgeShownUtc) >= SignupNudgeDisplayWindow)
+            {
+                _activeSignupNudge = null;
+                _lastSignupNudgeCheckUtc = nowUtc;
+            }
+
+            return;
+        }
+
+        if ((nowUtc - _lastSignupNudgeCheckUtc) < SignupNudgeCheckInterval)
+        {
+            return;
+        }
+
+        _lastSignupNudgeCheckUtc = nowUtc;
+
+        LocalApiSignupNudgeDueResponse? due = await _localApiClient
+            .GetSignupNudgeDueAsync(token)
+            .ConfigureAwait(false);
+        if (due is { ShouldNudge: true })
+        {
+            _activeSignupNudge = new UserDesktopWidgetSignupNudge(
+                NudgeId: Guid.NewGuid().ToString("N"),
+                Body: "You've tracked 2 days of focus. Sign in to keep it. Takes 30 seconds.",
+                PrimaryLabel: "Sign in",
+                SecondaryLabel: "Not now");
+            _signupNudgeShownUtc = nowUtc;
         }
     }
 

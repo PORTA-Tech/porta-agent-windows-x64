@@ -27,7 +27,11 @@ internal enum UserDesktopWidgetAction
     ResetPosition,
     LabelAnswerPositive,
     LabelAnswerNegative,
-    LabelDismiss
+    LabelDismiss,
+    // Phase 1c — signup nudge: open the Control Center at the sign-in screen, or dismiss the nudge.
+    OpenAccount,
+    SignupNudgeAccept,
+    SignupNudgeDismiss
 }
 
 internal enum UserDesktopWidgetMessageSeverity
@@ -67,7 +71,9 @@ internal sealed record UserDesktopWidgetState(
     // Reserved false for genuine unavailability or action-required states.
     bool ShowLimitedBadge = false,
     // Phase 1b — Step 3c: ground-truth label prompt to render as a one-tap pill (null = none).
-    UserDesktopWidgetLabelPrompt? LabelPrompt = null);
+    UserDesktopWidgetLabelPrompt? LabelPrompt = null,
+    // Phase 1c: signup nudge to render as a two-button toast (null = none).
+    UserDesktopWidgetSignupNudge? SignupNudge = null);
 
 // Phase 1b — Step 3c: one-tap ground-truth prompt shown in the widget pill.
 internal sealed record UserDesktopWidgetLabelPrompt(
@@ -86,3 +92,10 @@ internal sealed record UserDesktopWidgetLabelAnswer(
     string PromptKind,
     string Answer,
     bool IsDismiss);
+
+// Phase 1c: signup nudge shown as a two-button toast in the widget ("Sign in" / "Not now").
+internal sealed record UserDesktopWidgetSignupNudge(
+    string NudgeId,         // unique per nudge instance (suppresses re-show after resolve)
+    string Body,            // "You've tracked 2 days of focus. Sign in to keep it. Takes 30 seconds."
+    string PrimaryLabel,    // "Sign in"
+    string SecondaryLabel); // "Not now"
