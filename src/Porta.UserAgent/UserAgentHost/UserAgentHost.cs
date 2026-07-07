@@ -1283,6 +1283,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         _lastLabelPromptCheckUtc = nowUtc;
 
+        // Meeting suppression is decided server-side from the live foreground app (the service
+        // owns that truth); this flag is advisory-only.
         LocalApiLabelPromptDueResponse? due = await _localApiClient
             .GetLabelPromptDueAsync(meetingInProgress: false, token)
             .ConfigureAwait(false);

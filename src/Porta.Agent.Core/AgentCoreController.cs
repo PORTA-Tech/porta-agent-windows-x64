@@ -150,6 +150,21 @@ public sealed class AgentCoreController : IAgentCoreController
         FocusStartedAtUtc: null,
         Freshness: "stale",
         DegradedReason: "live_session_missing");
+
+    // Phase 1b v2 — label moment tracker: derives "activity resumed", "away segment just ended",
+    // and "pressure crossed the threshold" moments for the label-prompt governor. All fields are
+    // guarded by _gate and can only ever influence WHETHER a one-tap question is asked — never
+    // nudges, pressure, or actuation.
+    private DateTimeOffset? _labelPrevInputEventUtc;          // last input event we have processed
+    private DateTimeOffset? _labelActivityResumeUtc;          // start of the current active span
+    private DateTimeOffset? _labelAwayReturnUtc;              // when the last away segment ended (null = consumed/none)
+    private double _labelLastAwayMinutes;                     // length of that away segment
+    private double _labelPriorActiveMinutesAtAwayReturn;      // active span length before that away
+    private double _labelLastPressureSample = -1;             // previous pressure sample (for crossing detection)
+    private DateTimeOffset? _labelOverloadCrossingUtc;        // latched pressure-threshold crossing (null = consumed/none)
+    private string _labelLastPromptKind = string.Empty;       // trigger context of the last shown prompt,
+    private double _labelLastPromptSecondsSinceResume = -1;   //   stamped onto the answering label
+    private DateTimeOffset? _labelLastPromptAtUtc;
     private AgentLatestStateDetails? _lastLatestStateDetails;
     private AgentNotificationSuppressionStatus _lastNotificationSuppressionStatus = DefaultNotificationSuppressionStatus;
     private AgentBrightnessActionStatus _lastBrightnessActionStatus = DefaultBrightnessActionStatus;
@@ -912,8 +927,51 @@ public sealed class AgentCoreController : IAgentCoreController
                 FocusStartedAtUtc: focusStartedAtUtc,
                 Freshness: "fresh",
                 DegradedReason: null);
+            UpdateLabelMomentTrackerLocked(lastInputEventUtc);
           }
       }
+
+    // Phase 1b v2 — moment tracking off the live input stream. Packets arrive every couple of
+    // seconds; LastInputEventUtc only advances when the user actually does something, so a gap
+    // between consecutive DISTINCT input timestamps is exactly an away segment.
+    private void UpdateLabelMomentTrackerLocked(DateTimeOffset? lastInputEventUtc)
+    {
+        if (lastInputEventUtc is not DateTimeOffset lastInput)
+        {
+            return;
+        }
+
+        if (_labelPrevInputEventUtc is not DateTimeOffset prevInput)
+        {
+            // First observed input since service start: begin an active span. Deliberately NOT an
+            // away-return event — a fresh boot/login must never trigger the away-return question.
+            _labelPrevInputEventUtc = lastInput;
+            _labelActivityResumeUtc = lastInput;
+            return;
+        }
+
+        if (lastInput <= prevInput)
+        {
+            return; // no new input since the last packet
+        }
+
+        double gapMinutes = (lastInput - prevInput).TotalMinutes;
+        if (gapMinutes >= PortaExecutionConstants.LabelCapture.AwayMinMinutes)
+        {
+            // An away segment just ended. Record it for the governor's away-return window and
+            // start a new active span (which also resets the warm-up gate).
+            _labelPriorActiveMinutesAtAwayReturn = _labelActivityResumeUtc is DateTimeOffset resume
+                ? Math.Max(0d, (prevInput - resume).TotalMinutes)
+                : 0d;
+            _labelLastAwayMinutes = gapMinutes;
+            _labelAwayReturnUtc = lastInput;
+            _labelActivityResumeUtc = lastInput;
+            // A pressure crossing latched before the away is stale evidence — drop it.
+            _labelOverloadCrossingUtc = null;
+        }
+
+        _labelPrevInputEventUtc = lastInput;
+    }
 
     public AgentTimelineData GetTimeline(
         DateTimeOffset fromUtc,
@@ -1493,19 +1551,71 @@ public sealed class AgentCoreController : IAgentCoreController
         AgentServiceStatusSnapshot status = GetStatus();
         AgentBrainSnapshot snapshot = GetCurrentSnapshot();
         AgentLabelPromptCadence cadence = _stateStore.ReadLabelPromptCadence();
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+
+        // v2 moment inputs — gathered under _gate from the live session state + moment tracker.
+        double secondsSinceResume;
+        double secondsSinceLastInput;
+        bool overloadCrossingLatched;
+        bool awayReturnActive;
+        double awayReturnAwayMinutes;
+        double awayReturnPriorActiveMinutes;
+        bool meetingNow;
+        lock (_gate)
+        {
+            // Pressure-crossing latch: detect a rise through the threshold between successive polls,
+            // and expire stale latches. Poll cadence (widget: ~60s) is the sampling rate.
+            double pressure = status.PressureLevel;
+            if (_labelLastPressureSample >= 0
+                && _labelLastPressureSample < PortaExecutionConstants.LabelCapture.OverloadCheckPressureMin
+                && pressure >= PortaExecutionConstants.LabelCapture.OverloadCheckPressureMin)
+            {
+                _labelOverloadCrossingUtc = nowUtc;
+            }
+
+            _labelLastPressureSample = pressure;
+            if (_labelOverloadCrossingUtc is DateTimeOffset crossing
+                && (nowUtc - crossing).TotalMinutes > PortaExecutionConstants.LabelCapture.OverloadLatchValidMinutes)
+            {
+                _labelOverloadCrossingUtc = null;
+            }
+
+            secondsSinceResume = _labelActivityResumeUtc is DateTimeOffset resume
+                ? Math.Max(0d, (nowUtc - resume).TotalSeconds)
+                : -1d;
+            secondsSinceLastInput = _lastLiveSessionState.LastInputEventUtc is DateTimeOffset lastInput
+                ? Math.Max(0d, (nowUtc - lastInput.ToUniversalTime()).TotalSeconds)
+                : -1d;
+            overloadCrossingLatched = _labelOverloadCrossingUtc is not null;
+            awayReturnActive = _labelAwayReturnUtc is DateTimeOffset awayReturn
+                && (nowUtc - awayReturn).TotalMinutes <= PortaExecutionConstants.LabelCapture.AwayReturnPromptWindowMinutes;
+            awayReturnAwayMinutes = _labelLastAwayMinutes;
+            awayReturnPriorActiveMinutes = _labelPriorActiveMinutesAtAwayReturn;
+
+            // Meeting truth lives server-side (live foreground app), not in the widget: the caller's
+            // flag is advisory-only and was historically hardcoded false.
+            meetingNow = Porta.Agent.Common.Analysis.AppCategoryClassifier.IsMeetingApp(_lastLiveSessionState.FocusAppHash);
+        }
 
         var input = new Analysis.LabelPromptGovernorInput(
-            NowUtc: DateTimeOffset.UtcNow,
+            NowUtc: nowUtc,
             Confidence: status.PressureConfidence,
             PressureLevel: status.PressureLevel,
             CalibrationStage: status.CalibrationStage ?? string.Empty,
             DominantState: snapshot.DominantStateName ?? string.Empty,
             SuggestionsEnabled: status.ConsentActive,
             Paused: status.Paused,
-            MeetingInProgress: meetingInProgress,
+            MeetingInProgress: meetingInProgress || meetingNow,
             ActivePromptsLast24h: cadence.ActivePromptsLast24h,
             LastActivePromptAtUtc: cadence.LastActivePromptAtUtc,
-            UnansweredPromptsLast24h: cadence.UnansweredPromptsLast24h);
+            UnansweredPromptsLast24h: cadence.UnansweredPromptsLast24h,
+            SecondsSinceActivityResume: secondsSinceResume,
+            SustainedAttentionSec: snapshot.SustainedAttentionDurationSec,
+            SecondsSinceLastInput: secondsSinceLastInput,
+            OverloadCrossingLatched: overloadCrossingLatched,
+            AwayReturnActive: awayReturnActive,
+            AwayReturnAwayMinutes: awayReturnAwayMinutes,
+            AwayReturnPriorActiveMinutes: awayReturnPriorActiveMinutes);
 
         Analysis.LabelPromptDecision decision = Analysis.LabelPromptGovernor.Decide(input);
 
@@ -1514,7 +1624,25 @@ public sealed class AgentCoreController : IAgentCoreController
         // only answered ones) and drives the progressive back-off when the user keeps ignoring them.
         if (decision.ShouldPrompt)
         {
-            _stateStore.RecordPromptShown(decision.LabelTarget, decision.PromptKind, DateTimeOffset.UtcNow);
+            _stateStore.RecordPromptShown(decision.LabelTarget, decision.PromptKind, nowUtc);
+            lock (_gate)
+            {
+                // Consume one-shot triggers so the same moment can't fire twice.
+                if (decision.LabelTarget == "overload")
+                {
+                    _labelOverloadCrossingUtc = null;
+                }
+
+                if (decision.PromptKind == "away_return")
+                {
+                    _labelAwayReturnUtc = null;
+                }
+
+                // Stash the trigger context so the answering label can be stamped with it.
+                _labelLastPromptKind = decision.PromptKind;
+                _labelLastPromptSecondsSinceResume = secondsSinceResume;
+                _labelLastPromptAtUtc = nowUtc;
+            }
         }
 
         return new AgentLabelPromptDecision(
@@ -1553,7 +1681,8 @@ public sealed class AgentCoreController : IAgentCoreController
             LabelValue: value,
             ResponseLatencyMs: Math.Max(-1, request.ResponseLatencyMs),
             InterventionId: string.Empty,
-            FeaturesJson: string.IsNullOrWhiteSpace(status.LatestContributorsJson) ? "{}" : status.LatestContributorsJson,
+            FeaturesJson: StampLabelMomentContext(
+                string.IsNullOrWhiteSpace(status.LatestContributorsJson) ? "{}" : status.LatestContributorsJson),
             PressureLevel: status.PressureLevel,
             OverloadLikelihood: status.OverloadLikelihood,
             Confidence: status.PressureConfidence,
@@ -1568,6 +1697,46 @@ public sealed class AgentCoreController : IAgentCoreController
         // back-off streak so an engaged user isn't penalised by the progressive cooldown.
         _stateStore.ResolvePromptAnswered(label.LabelTarget, DateTimeOffset.UtcNow);
         return true;
+    }
+
+    // Phase 1b v2 — stamp the moment context (what triggered the prompt, how long since activity
+    // resumed) into the label's feature snapshot, so training can weight or filter labels by
+    // moment quality — and so we can audit that prompts stopped landing at session start.
+    // Best-effort: any parse problem returns the original JSON untouched.
+    private string StampLabelMomentContext(string featuresJson)
+    {
+        string promptKind;
+        double secondsSinceResume;
+        lock (_gate)
+        {
+            // Only stamp when the answer plausibly belongs to the last shown prompt (one prompt is
+            // active at a time; widget display window + answering latency stay well under this).
+            if (_labelLastPromptAtUtc is not DateTimeOffset shownAt
+                || (DateTimeOffset.UtcNow - shownAt).TotalMinutes > 10d)
+            {
+                return featuresJson;
+            }
+
+            promptKind = _labelLastPromptKind;
+            secondsSinceResume = _labelLastPromptSecondsSinceResume;
+        }
+
+        try
+        {
+            System.Text.Json.Nodes.JsonNode? node = System.Text.Json.Nodes.JsonNode.Parse(featuresJson);
+            if (node is not System.Text.Json.Nodes.JsonObject obj)
+            {
+                return featuresJson;
+            }
+
+            obj["prompt_trigger"] = promptKind;
+            obj["seconds_since_resume"] = Math.Round(secondsSinceResume, 1);
+            return obj.ToJsonString();
+        }
+        catch (Exception)
+        {
+            return featuresJson;
+        }
     }
 
     public void AcknowledgeIntervention(AgentInterventionAck ack)

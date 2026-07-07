@@ -268,6 +268,20 @@ public static class PortaExecutionConstants
         public const double ConfidenceInformativeMax = 0.80;
         // Pressure at/above this (while focused) makes an "overload" check the most useful question.
         public const double OverloadCheckPressureMin = 0.50;
+
+        // --- Moment selection (v2) ---
+        // Prompts must land at informative moments, never at session start. "Were you focused just
+        // now?" minutes after login labels an away/boot window — a garbage training example.
+        public const int WarmupMinutesAfterResume = 10;        // no "just now" question until this much time since activity resumed
+        public const int AwayMinMinutes = 5;                   // an input gap >= this counts as an away segment
+        public const int AwayReturnMaxMinutes = 120;           // longer gaps (lunch, overnight) are obviously real breaks — ask nothing
+        public const int AwayReturnPromptWindowMinutes = 3;    // ask about an away segment only right after the return
+        public const int AwayReturnMinPriorActiveMinutes = 10; // the away must have interrupted a real session (kills login prompts)
+        public const int FocusCheckMinSustainedSec = 600;      // focus question only after a sustained work session...
+        public const int FocusLullMinSeconds = 8;              // ...and during a natural input lull (not mid-typing,
+        public const int FocusLullMaxSeconds = 180;            //    not after the user has already wandered off)
+        public const int OverloadLatchValidMinutes = 20;       // a pressure crossing stays promptable this long
+
         public const string ContractVersion = "v1";
     }
 

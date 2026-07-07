@@ -210,3 +210,44 @@ Target outcome (measured-volume based): passive ~2/day + sampled ~3–8/day ⇒ 
 ## 10. Safety summary
 
 Additive only. The 14-day raw prune (machine protection) is unchanged. The pressure model, nudge logic, and actuation are untouched. Labels are tiny, local, privacy-equivalent to existing `state_buckets`, and opt-out-able. The worst realistic failure is **no labels captured** — never a freeze, crash, or behavioral regression.
+
+---
+
+## 11. v2 — Moment selection (shipped 2026-07-07)
+
+### What v1 got wrong (observed on the live fleet)
+
+§6 promised "boundary-only" prompting, but the boundary gating was never implemented. The widget polled `prompt-due` on a flat 60s timer and the governor's only gates were caps, cooldown, calibration stage, and the confidence band. Three consequences, all confirmed in code:
+
+1. **Every prompt landed right after login.** Overnight the 90-min cooldown expired and the daily cap reset, so the first eligible poll tick of the day — minutes after boot — always fired. "Were you focused just now?" at that moment labels an away/boot window: a garbage training example, and an annoying one.
+2. **The distraction question could never fire.** `ChooseTarget` required `DominantState` to be a distraction state, but the v2 anchor engine never emits those states (the dead off-task gate — see Phase 2f). Structurally unreachable for every user.
+3. **The overload question almost never fired.** It required pressure ≥ 0.50 at the exact polling instant (prompts fired at low-pressure login moments), and genuinely high-pressure moments often push confidence outside the 0.35–0.80 informative band — which suppressed the prompt precisely when it mattered. `focus_state` was the permanent fallback winner.
+
+Bonus bug: the widget called `prompt-due` with `meetingInProgress: false` hardcoded, so meeting suppression was dead on the active-prompt path.
+
+### What v2 does instead
+
+The governor stays pure; it gains **moment inputs** and each question now waits for *its* moment (priority top to bottom):
+
+| Question | Trigger (the moment) | Band? | Warm-up? |
+|---|---|---|---|
+| Distraction — "Working, or taking a break?" (`away_return`) | Return from an away segment of 5–120 min that interrupted ≥10 min of real activity; asked within 3 min of the return | exempt | exempt (asks about the *past* segment) |
+| Overload — "Are you feeling overwhelmed?" (`overload_now`) | Pressure **crossed** the 0.50 threshold between polls (latched up to 20 min, consumed on ask, dropped if an away starts) | exempt | required |
+| Distraction — "on task now?" (`on_task_now`) | Live distraction `DominantState` (rare until 2f lands; kept so it lights up then) | in band | required |
+| Focus — "Were you focused just now?" (`focused_now`) | ≥10 min sustained attention AND a natural input lull (8–180s since last input) | in band | required |
+
+**Warm-up gate**: no "just now" question until 10 min of activity since the last resume — this alone kills the login prompt. Unknown resume time = not warmed up (safe default). Caps, 90-min cooldown, progressive back-off, pause/consent/cold-start suppression: all unchanged from v1.
+
+**Moment tracking** (controller, fed by the live input stream): away segments are detected as gaps ≥5 min between consecutive *distinct* input timestamps; a fresh service start deliberately produces no away-return event, so boot/login can never trigger the away question. A login/overnight gap also fails the ≤120 min and ≥10-min-prior-activity guards — three independent reasons the morning prompt is dead.
+
+**Meeting fix**: suppression is now computed server-side from the live foreground app (`AppCategoryClassifier.IsMeetingApp(FocusAppHash)`); the widget's flag is advisory-only.
+
+**Label stamping**: answered labels get `prompt_trigger` + `seconds_since_resume` merged into `features_json`, so Phase 6 training can weight/filter by moment quality — and so we can audit that prompts stopped landing at session start.
+
+### Files touched
+
+`PortaExecutionConstants.cs` (LabelCapture moment tunables) · `Analysis/LabelPromptGovernor.cs` (v2 rework) · `AgentCoreController.cs` (moment tracker, crossing latch, meeting truth, stamping) · `UserAgentHost.cs` (comment only) · `LabelPromptGovernorTests.cs` (30 tests). No schema change, no contract change, no widget UI change. Full suite: **507 passed / 0 failed** (2026-07-07).
+
+### Interim honesty note
+
+Until 2f/2d land, the away-return "Working, or taking a break?" labels teach the **away classification**, not true off-task detection — that's the consent-safe ceiling today, and still useful training data. The state-based distraction trigger is wired and will start firing the day 2f makes those states reachable.
