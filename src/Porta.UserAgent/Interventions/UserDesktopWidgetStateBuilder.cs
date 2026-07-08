@@ -88,7 +88,54 @@ internal static class UserDesktopWidgetStateBuilder
             CanPause: status?.ServiceRunning == true && status.ConsentActive && !paused,
             CanResume: paused,
             CriticalState: criticalState,
-            ShowLimitedBadge: routineDegraded);
+            ShowLimitedBadge: routineDegraded,
+            PulseIntensity: ComputePulseIntensity(snapshot, liveSession, now),
+            PulseFrozen: paused || actionRequired || staleOrPending);
+    }
+
+    // Phase 2a — the pulse line's 0..1 work-intensity input. HEIGHT is the primary channel on
+    // the widget, so this blend is what makes hard typing / fast scrolling / rapid window
+    // switching read as tall spikes. Uses only signals the widget already receives: the
+    // smoothed bucket primitives (typing/scroll/switch) refreshed between buckets by the live
+    // keyboard/mouse booleans.
+    private static double ComputePulseIntensity(
+        LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiLiveSessionStateResponse? liveSession,
+        DateTimeOffset now)
+    {
+        double typing = Clamp01(snapshot?.SmoothedTypingBurstIntensity ?? 0d);
+        double scroll = Clamp01(snapshot?.SmoothedScrollVelocityIndex ?? 0d);
+        double switching = Clamp01(snapshot?.SmoothedFocusSwitchRate ?? 0d);
+
+        // Typing dominates, scrolling second, window switching third — matches how "working
+        // hard" actually looks. Clamped so the blend can saturate at 1 under combined load.
+        double blended = Math.Clamp(0.55d * typing + 0.35d * scroll + 0.30d * switching, 0d, 1d);
+
+        bool liveFresh = liveSession?.UpdatedAtUtc is DateTimeOffset updated
+            && (now - updated.ToUniversalTime()) <= TimeSpan.FromSeconds(10);
+        if (liveFresh && (liveSession!.KeyboardActive || liveSession.MouseActive))
+        {
+            // Input is happening RIGHT NOW: guarantee visible life immediately, even before
+            // the smoothed bucket signals catch up.
+            blended = Math.Max(blended, 0.30d);
+        }
+        else if (liveFresh && liveSession!.IdleSeconds >= 20d)
+        {
+            // Input stopped: settle toward calm faster than the smoothed signals decay.
+            blended *= 0.35d;
+        }
+
+        return Math.Clamp(blended, 0d, 1d);
+    }
+
+    private static double Clamp01(double value)
+    {
+        if (!double.IsFinite(value))
+        {
+            return 0d;
+        }
+
+        return Math.Clamp(value, 0d, 1d);
     }
 
     private static string BuildTitle(UserDesktopWidgetMode mode, LocalApiStatusResponse? status)

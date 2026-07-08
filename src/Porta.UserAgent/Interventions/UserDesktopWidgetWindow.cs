@@ -15,6 +15,7 @@ using System.Windows.Media.Effects;
 using System.Runtime.CompilerServices;
 using System.Windows.Threading;
 using FormsCursor = System.Windows.Forms.Cursor;
+using Porta.Agent.Common.Analysis;
 
 internal sealed class UserDesktopWidgetWindow : Window
 {
@@ -47,6 +48,22 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly DispatcherTimer _reexpandTimer;
     private readonly DispatcherTimer _collapseTimer;
     private readonly DispatcherTimer _menuDismissTimer;
+
+    // ── Phase 2a: pulse line (EKG-style "alive" strip) ────────────────────────
+    // Additive only: colour comes from the SAME state mapping the dot/label already
+    // use; rhythm encodes the mode; frozen = zero motion ("not watching").
+    private const int PulseSampleCount = 56;
+    private const double PulseStripHeight = 12d;
+    private static readonly TimeSpan PulseTickInterval = TimeSpan.FromMilliseconds(150);
+    private readonly DispatcherTimer _pulseTimer;
+    private readonly double[] _pulseSamples = new double[PulseSampleCount];
+    private readonly PulseWaveformGenerator _pulseGenerator = new();
+    private PulseRhythm _pulseRhythm = PulseRhythm.Regular;
+    private double _pulseIntensity;
+    private bool _pulseFrozenRendered;
+    private System.Windows.Shapes.Polyline _pulseLine = null!;
+    private Canvas _pulseCanvas = null!;
+    private Border _pulseStrip = null!;
     private bool _menuDismissButtonWasDown;
     private string _lastSizeLogSignature = string.Empty;
     private readonly Border _rootBorder;
@@ -212,6 +229,13 @@ internal sealed class UserDesktopWidgetWindow : Window
         // is open (started in Opened, stopped in Closed) — zero cost otherwise.
         _menuDismissTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _menuDismissTimer.Tick += (_, _) => DismissMenuOnOutsideClick();
+
+        // Phase 2a — pulse line render tick. Cheap by design: all work is skipped while the
+        // widget is collapsed, hidden, or frozen; otherwise it is one ~56-point Polyline
+        // update at ~6.7 fps.
+        _pulseTimer = new DispatcherTimer { Interval = PulseTickInterval };
+        _pulseTimer.Tick += (_, _) => PulseTimerTick();
+        _pulseTimer.Start();
 
         _rootBorder = new Border
         {
@@ -453,12 +477,38 @@ internal sealed class UserDesktopWidgetWindow : Window
         Grid.SetColumn(stat1Stack, 0); Grid.SetColumn(stat2Stack, 1);
         statsGrid.Children.Add(stat1Stack); statsGrid.Children.Add(stat2Stack);
 
+        // ── Phase 2a: pulse strip — the EKG line, between the state row and the bar ──
+        _pulseLine = new System.Windows.Shapes.Polyline
+        {
+            Stroke = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
+            StrokeThickness = 1.3,
+            StrokeLineJoin = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round
+        };
+        _pulseCanvas = new Canvas
+        {
+            Height = PulseStripHeight,
+            ClipToBounds = true,
+            Background = Brushes.Transparent
+        };
+        _pulseCanvas.Children.Add(_pulseLine);
+        _pulseStrip = new Border
+        {
+            Height = PulseStripHeight,
+            Margin = new Thickness(0, 1, 0, 2),
+            Background = Brushes.Transparent,
+            Child = _pulseCanvas
+        };
+        _pulseCanvas.SizeChanged += (_, _) => RenderPulseLine();
+
         var newMetricsStack = new StackPanel
         {
             Orientation = Orientation.Vertical,
             Margin = new Thickness(0, 0, 0, 0)   // bodyGrid margin already provides top/bottom padding
         };
         newMetricsStack.Children.Add(stateLabelRow);
+        newMetricsStack.Children.Add(_pulseStrip);
         newMetricsStack.Children.Add(progressBarTrackLocal);
         newMetricsStack.Children.Add(statsGrid);
 
@@ -909,6 +959,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     {
         SetWindowLifecycleState(WindowLifecycleClosed);
         RefreshSurfaceVisibilityHealth();
+        _pulseTimer.Stop();
         base.OnClosed(e);
     }
 
@@ -1058,6 +1109,100 @@ internal sealed class UserDesktopWidgetWindow : Window
             pressurePct >= 0.80d ? Color.FromRgb(0xEF, 0x44, 0x44) :
             pressurePct >= 0.65d ? Color.FromRgb(0xF5, 0x9E, 0x0B) :
             neutralValueColor);
+
+        // ── Phase 2a: pulse line — same colour as the state dot/label, rhythm from the
+        // mode, intensity from the state. The render tick does the rest.
+        _pulseLine.Stroke = colourBrush;
+        _pulseIntensity = state.PulseIntensity;
+        _pulseRhythm = ResolvePulseRhythm(state, stateName);
+    }
+
+    // Phase 2a — mode → rhythm signature. Regular for focus/deep work, arrhythmic for
+    // distraction, fast+tremor for overload, near-flatline for away, frozen for
+    // paused/limited/stale (a dead line means "not watching").
+    private static PulseRhythm ResolvePulseRhythm(UserDesktopWidgetState state, string stateName)
+    {
+        if (state.PulseFrozen
+            || state.Mode is UserDesktopWidgetMode.Paused or UserDesktopWidgetMode.Limited)
+        {
+            return PulseRhythm.Frozen;
+        }
+
+        if (state.Mode is UserDesktopWidgetMode.Overload)
+        {
+            return PulseRhythm.Tremor;
+        }
+
+        if (state.Mode is UserDesktopWidgetMode.Distraction)
+        {
+            return PulseRhythm.Irregular;
+        }
+
+        if (string.Equals(stateName, "AWAY", StringComparison.Ordinal))
+        {
+            return PulseRhythm.Flatline;
+        }
+
+        return PulseRhythm.Regular;
+    }
+
+    // Phase 2a — advance the waveform one tick and redraw. Skips ALL work when the strip
+    // cannot be seen (collapsed / hidden / closing). Frozen renders one flat baseline and
+    // snaps the dot to full opacity, then does nothing until the state thaws. Also honors
+    // the Windows animation preference as the reduced-motion signal.
+    private void PulseTimerTick()
+    {
+        // No state yet = nothing to show: the line stays still until Ari is actually
+        // watching (first ApplyState), keeping "motion means live data" strictly true.
+        if (!CanAcceptUiActions || _collapsed || !IsVisible || _currentState == null)
+        {
+            return;
+        }
+
+        if (_pulseRhythm == PulseRhythm.Frozen || !SystemParameters.ClientAreaAnimation)
+        {
+            if (!_pulseFrozenRendered)
+            {
+                Array.Clear(_pulseSamples, 0, _pulseSamples.Length);
+                RenderPulseLine();
+                _stateDot.Opacity = 1d;
+                _pulseFrozenRendered = true;
+            }
+
+            return;
+        }
+
+        _pulseFrozenRendered = false;
+        double sample = _pulseGenerator.Advance(PulseTickInterval.TotalSeconds, _pulseRhythm, _pulseIntensity);
+        Array.Copy(_pulseSamples, 1, _pulseSamples, 0, _pulseSamples.Length - 1);
+        _pulseSamples[^1] = sample;
+        RenderPulseLine();
+
+        // The state dot breathes with the beat — opacity only, never layout.
+        _stateDot.Opacity = 0.55d + 0.45d * Math.Clamp(sample, 0d, 1d);
+    }
+
+    // Phase 2a — draw the sample ring buffer as a polyline across the strip width.
+    private void RenderPulseLine()
+    {
+        double width = _pulseCanvas.ActualWidth;
+        if (width <= 0d)
+        {
+            width = Math.Max(60d, ExpandedWidth - 30d);
+        }
+
+        double midY = PulseStripHeight * 0.64d;
+        double gain = PulseStripHeight * 0.50d;
+        double stepX = width / (PulseSampleCount - 1);
+        var points = new PointCollection(PulseSampleCount);
+        for (int i = 0; i < PulseSampleCount; i++)
+        {
+            double y = midY - (_pulseSamples[i] * gain);
+            points.Add(new Point(i * stepX, Math.Clamp(y, 0.6d, PulseStripHeight - 0.6d)));
+        }
+
+        points.Freeze();
+        _pulseLine.Points = points;
     }
 
     /// <summary>Updates progress bar fill width from stored percentage whenever the track is sized.</summary>

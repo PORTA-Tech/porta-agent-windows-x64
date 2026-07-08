@@ -73,7 +73,13 @@ internal sealed record UserDesktopWidgetState(
     // Phase 1b — Step 3c: ground-truth label prompt to render as a one-tap pill (null = none).
     UserDesktopWidgetLabelPrompt? LabelPrompt = null,
     // Phase 1c: signup nudge to render as a two-button toast (null = none).
-    UserDesktopWidgetSignupNudge? SignupNudge = null);
+    UserDesktopWidgetSignupNudge? SignupNudge = null,
+    // Phase 2a — pulse line: 0..1 work intensity (spike HEIGHT is the primary channel; beat
+    // rate secondary), blended from typing/scroll/switch signals + live input activity.
+    double PulseIntensity = 0,
+    // Phase 2a — true when the line must freeze entirely (paused / limited / stale).
+    // A dead line means "not watching"; the pulse never fakes life.
+    bool PulseFrozen = false);
 
 // Phase 1b — Step 3c: one-tap ground-truth prompt shown in the widget pill.
 internal sealed record UserDesktopWidgetLabelPrompt(
