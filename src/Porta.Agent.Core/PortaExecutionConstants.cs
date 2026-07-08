@@ -295,6 +295,17 @@ public static class PortaExecutionConstants
         public const int MaxLifetimeNudges = 4;      // soft lifetime cap — then stop for good
     }
 
+    // Phase 2c — reminders: a plain alarm clock attached to the widget. Time-based ONLY (no
+    // calendar, no AI, no activity triggers) — the free precursor to the Phase 5 calendar feature.
+    public static class Reminders
+    {
+        public const int MaxPending = 20;            // keeps the "next pill" logic simple
+        public const int SnoozeMinutes = 10;         // the +10m button; repeatable without limit
+        public const int PillWindowMinutes = 60;     // countdown pill appears at T-60
+        public const int DoneRetentionDays = 30;     // done/dismissed rows cleaned up after this
+        public const int MaxTitleLength = 80;
+    }
+
     public static class DeepWorkDetection
     {
         public const int SustainedAttentionSeconds = 600;

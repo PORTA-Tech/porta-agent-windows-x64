@@ -256,6 +256,70 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    // ── Phase 2c: reminders ─────────────────────────────────────────────────────
+    public async Task<LocalApiNextReminderResponse?> GetNextReminderAsync(CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            return await _httpClient.GetFromJsonAsync<LocalApiNextReminderResponse>(
+                "/v1/reminders/next", token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LocalApiReminderCreateResponse?> CreateReminderAsync(
+        LocalApiReminderCreateRequest request,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/reminders", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiReminderCreateResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LocalApiAckResponse?> AckReminderAsync(
+        LocalApiReminderAckRequest request,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/reminders/ack", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiAckResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<LocalApiAckResponse?> RecordFocusLabelAsync(
         LocalApiFocusLabelRequest request,
         CancellationToken token = default)

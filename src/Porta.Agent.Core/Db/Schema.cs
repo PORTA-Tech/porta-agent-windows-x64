@@ -513,6 +513,35 @@ internal static class Schema
         cmd.ExecuteNonQuery();
     }
 
+    internal static void ApplyRemindersV22(SqliteConnection connection)
+    {
+        // Phase 2c — user reminders ("standup in 20m"). Lives in the SERVICE so reminders
+        // survive user-agent restarts, widget crashes, and agent updates. Rows are tiny and
+        // user-authored; text never leaves the device. done/dismissed rows are cleaned up
+        // after 30 days by ReadNextReminder's piggyback cleanup (NOT the 14-day raw prune,
+        // so a reminder set 3 weeks out still fires). Wiped on local-data reset (privacy).
+        //
+        // state: pending (waiting) | fired (due, awaiting user ack) | done | dismissed.
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS reminders (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                title           TEXT    NOT NULL,
+                due_at_utc      TEXT    NOT NULL,
+                created_at_utc  TEXT    NOT NULL,
+                state           TEXT    NOT NULL DEFAULT 'pending',
+                snooze_count    INTEGER NOT NULL DEFAULT 0,
+                fired_at_utc    TEXT    NOT NULL DEFAULT '',
+                schema_ver      INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_reminders_state_due
+                ON reminders(state, due_at_utc);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
     internal static void ApplyContractSchemaV3(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

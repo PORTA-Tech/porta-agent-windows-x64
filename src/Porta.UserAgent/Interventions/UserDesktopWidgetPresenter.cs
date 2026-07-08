@@ -145,6 +145,14 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         EnsureWidgetThreadStarted(forceRestart: true);
     }
 
+    // Phase 2c — reminders must reach the user even when the widget surface is hidden or
+    // unhealthy (unlike courtesy toasts, which IsHidden silently swallows). This goes straight
+    // to the system NotifyIcon balloon.
+    internal bool IsWidgetHiddenByUser => _visibilityStore.IsHidden();
+
+    internal bool TryShowSystemNotification(string title, string message)
+        => _fallbackRenderer.TryShow(title, message, out _);
+
     public bool TryShow(string title, string message, out string errorCode)
     {
         if (!_rollout.SupportsWidgetSurface)
@@ -459,7 +467,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         {
             SetWidgetHealthStateOnWidgetThread(WidgetHealthStarting);
             UserAgentFileLog.Info("desktop_widget_window_initializing");
-            var window = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore, OnLabelAnswerRequested);
+            var window = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore, OnLabelAnswerRequested, OnReminderCommandRequested);
             window.Closed += OnWidgetWindowClosed;
 
             lock (_widgetLifecycleGate)
@@ -887,6 +895,41 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             case UserDesktopWidgetAction.ResetPosition:
                 TryDispatchToWidget(window => window.ResetToDefaultPosition(), out _);
                 break;
+        }
+    }
+
+    // Phase 2c — reminder commands (create from quick-add; done/snooze from the fired card).
+    // The widget already updated locally; this is the durable round-trip to the service.
+    private async void OnReminderCommandRequested(UserDesktopWidgetReminderCommand command)
+    {
+        try
+        {
+            if (string.Equals(command.Kind, "create", StringComparison.Ordinal))
+            {
+                LocalApiReminderCreateResponse? response = await _actionClient.CreateReminderAsync(
+                    new LocalApiReminderCreateRequest(
+                        SchemaVer: 1,
+                        Title: command.Title,
+                        DueAtUtc: command.DueAtUtc)).ConfigureAwait(false);
+                UserAgentFileLog.Info(response is { Success: true, Reminder: not null }
+                    ? $"reminder_created id={response.Reminder.Id} due={response.Reminder.DueAtUtc:O}"
+                    : $"reminder_create_failed reason={response?.Reason ?? "no_response"}");
+                if (response is { Success: false, Reason: "cap_reached" })
+                {
+                    _ = TryShow("Ari", "Reminder limit reached — finish or dismiss a few first.", out _);
+                }
+
+                return;
+            }
+
+            await _actionClient.AckReminderAsync(new LocalApiReminderAckRequest(
+                SchemaVer: 1,
+                Id: command.Id,
+                Action: command.Kind)).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error($"reminder_command_failed kind={command.Kind}", ex);
         }
     }
 

@@ -258,6 +258,51 @@ public static class LocalApiEndpointMapping
                 TimestampUtc: DateTimeOffset.UtcNow);
         });
 
+        // Phase 2c — reminders. Polling /reminders/next IS the reminder clock: the store
+        // lazily transitions pending→fired on each read, so no background timer exists.
+        api.MapGet("/reminders/next", (IAgentCoreController controller) =>
+        {
+            AgentReminder? next = controller.GetNextReminder();
+            return new LocalApiNextReminderResponse(
+                Next: ToApiReminder(next),
+                TimestampUtc: DateTimeOffset.UtcNow);
+        });
+
+        api.MapPost("/reminders", (IAgentCoreController controller, LocalApiReminderCreateRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiReminderCreateResponse(
+                    Success: false, Reason: "invalid_payload_or_schema", Reminder: null,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            AgentReminder? created = controller.CreateReminder(request.Title ?? string.Empty, request.DueAtUtc);
+            return created is null
+                ? Results.Json(new LocalApiReminderCreateResponse(
+                    Success: false, Reason: "cap_reached", Reminder: null,
+                    TimestampUtc: DateTimeOffset.UtcNow))
+                : Results.Json(new LocalApiReminderCreateResponse(
+                    Success: true, Reason: null, Reminder: ToApiReminder(created),
+                    TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
+        api.MapPost("/reminders/ack", (IAgentCoreController controller, LocalApiReminderAckRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false, Message: "invalid_payload_or_schema", TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            bool acknowledged = controller.AcknowledgeReminder(request.Id, request.Action ?? string.Empty);
+            return acknowledged
+                ? Results.Json(new LocalApiAckResponse(
+                    Success: true, Message: "ok", TimestampUtc: DateTimeOffset.UtcNow))
+                : Results.BadRequest(new LocalApiAckResponse(
+                    Success: false, Message: "unknown_reminder_or_action", TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
         // Phase 1c — signup nudge: is this UNLINKED device due to be nudged to sign in right now?
         // Link status comes from the local identity store; the governor + caps live in the core.
         api.MapGet("/nudges/signup-due", (IAgentCoreController controller, ILocalIdentityLinkStore identityLinkStore) =>
@@ -847,5 +892,18 @@ public static class LocalApiEndpointMapping
             snapshot.LinkStatus,
             snapshot.LinkedAtUtc,
             snapshot.UpdatedAtUtc);
+    }
+
+    // Phase 2c — reminders.
+    private static LocalApiReminder? ToApiReminder(AgentReminder? reminder)
+    {
+        return reminder is null
+            ? null
+            : new LocalApiReminder(
+                Id: reminder.Id,
+                Title: reminder.Title,
+                DueAtUtc: reminder.DueAtUtc,
+                State: reminder.State,
+                SnoozeCount: reminder.SnoozeCount);
     }
 }

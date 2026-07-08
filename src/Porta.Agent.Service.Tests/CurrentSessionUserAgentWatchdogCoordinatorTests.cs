@@ -237,6 +237,9 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         public bool RecordFocusLabel(Porta.Agent.Core.AgentFocusLabelRequest request) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentLabelDiagnostics GetLabelDiagnostics() => throw new NotSupportedException();
         public Porta.Agent.Core.AgentSignupNudgeDecision GetSignupNudgeDecision(bool isLinked) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentReminder? CreateReminder(string title, DateTimeOffset dueAtUtc) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentReminder? GetNextReminder() => throw new NotSupportedException();
+        public bool AcknowledgeReminder(long id, string action) => throw new NotSupportedException();
     }
 
     private sealed class FakeRuntime : ICurrentSessionUserAgentRuntime

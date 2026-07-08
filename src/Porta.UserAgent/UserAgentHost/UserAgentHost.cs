@@ -72,6 +72,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private DateTimeOffset _lastSignupNudgeCheckUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _signupNudgeShownUtc = DateTimeOffset.MinValue;
     private UserDesktopWidgetSignupNudge? _activeSignupNudge;
+    // Phase 2c — reminders: polled next reminder + the last one escalated to a system balloon.
+    private static readonly TimeSpan ReminderCheckInterval = TimeSpan.FromSeconds(10);
+    private DateTimeOffset _lastReminderCheckUtc = DateTimeOffset.MinValue;
+    private LocalApiReminder? _nextReminder;
+    private long _lastSystemNotifiedReminderId = -1;
     private bool _widgetFallbackLogged;
     private bool _hooksInstalled;
     private bool _keyboardCaptureAvailable;
@@ -352,6 +357,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             signals.TooltipText));
         await RefreshLabelPromptAsync(nowUtc, token).ConfigureAwait(false);
         await RefreshSignupNudgeAsync(nowUtc, token).ConfigureAwait(false);
+        await RefreshReminderAsync(nowUtc, token).ConfigureAwait(false);
         UpdateWidgetState(UserDesktopWidgetStateBuilder.Build(
             status,
             snapshot,
@@ -362,7 +368,12 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             widgetDetails.Timeline,
             widgetDetails.Settings,
             _localApiClient.LastStatusHttpCode,
-            nowUtc) with { LabelPrompt = _activeLabelPrompt, SignupNudge = _activeSignupNudge });
+            nowUtc) with
+            {
+                LabelPrompt = _activeLabelPrompt,
+                SignupNudge = _activeSignupNudge,
+                NextReminder = MapNextReminder()
+            });
 
         UserCommunicationToast? recentEventToast = UserCommunicationRouter.ResolveRecentEventToast(
             recentEvents,
@@ -1293,6 +1304,48 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             _activeLabelPrompt = MapLabelPrompt(due);
             _labelPromptShownUtc = nowUtc;
         }
+    }
+
+    // Phase 2c — poll the next reminder. Polling IS the reminder clock: the store lazily fires
+    // due reminders on each read, so no background timer exists anywhere. Also the escalation
+    // fallback: a user-set alarm must reach the user even when the widget surface is hidden or
+    // unhealthy, so those cases get a system NotifyIcon balloon (once per reminder id).
+    private async Task RefreshReminderAsync(DateTimeOffset nowUtc, CancellationToken token)
+    {
+        if ((nowUtc - _lastReminderCheckUtc) < ReminderCheckInterval)
+        {
+            return;
+        }
+
+        _lastReminderCheckUtc = nowUtc;
+        LocalApiNextReminderResponse? response = await _localApiClient
+            .GetNextReminderAsync(token)
+            .ConfigureAwait(false);
+        if (response is null)
+        {
+            return;
+        }
+
+        _nextReminder = response.Next;
+        if (_nextReminder is { State: "fired" } fired
+            && fired.Id != _lastSystemNotifiedReminderId
+            && (_toastRenderer.IsWidgetHiddenByUser || !_toastRenderer.IsWidgetHealthyForSessionHeartbeat))
+        {
+            _lastSystemNotifiedReminderId = fired.Id;
+            _ = _toastRenderer.TryShowSystemNotification("Reminder", fired.Title);
+        }
+    }
+
+    private UserDesktopWidgetReminderInfo? MapNextReminder()
+    {
+        return _nextReminder is null
+            ? null
+            : new UserDesktopWidgetReminderInfo(
+                Id: _nextReminder.Id,
+                Title: _nextReminder.Title,
+                DueAtUtc: _nextReminder.DueAtUtc,
+                State: _nextReminder.State,
+                SnoozeCount: _nextReminder.SnoozeCount);
     }
 
     // Phase 1c — poll whether an unlinked device is due for a signup nudge, and hold it for the display

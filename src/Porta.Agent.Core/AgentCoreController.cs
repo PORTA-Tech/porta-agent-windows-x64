@@ -1739,6 +1739,27 @@ public sealed class AgentCoreController : IAgentCoreController
         }
     }
 
+    // ── Phase 2c: reminders ─────────────────────────────────────────────────────
+    // Thin pass-throughs to the store (which owns the clock semantics). Validation here:
+    // a due time in the past is clamped to one minute out, so a slow round-trip or a
+    // parsed "at" time racing midnight can never create an instantly-fired reminder.
+    public AgentReminder? CreateReminder(string title, DateTimeOffset dueAtUtc)
+    {
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        DateTimeOffset due = dueAtUtc.ToUniversalTime();
+        if (due <= nowUtc)
+        {
+            due = nowUtc.AddMinutes(1);
+        }
+
+        return _stateStore.CreateReminder(title, due, nowUtc);
+    }
+
+    public AgentReminder? GetNextReminder() => _stateStore.ReadNextReminder(DateTimeOffset.UtcNow);
+
+    public bool AcknowledgeReminder(long id, string action)
+        => _stateStore.AcknowledgeReminder(id, action, DateTimeOffset.UtcNow);
+
     public void AcknowledgeIntervention(AgentInterventionAck ack)
     {
         if (ack is null)

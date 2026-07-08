@@ -57,6 +57,9 @@ public sealed class LocalApiRouteStartupSmokeTests
         builder.Services.AddPortaLocalApi();
         builder.Services.AddSingleton<IAgentCoreController>(new SmokeAgentCoreController());
         builder.Services.AddSingleton<ILocalIdentityLinkStore>(new SmokeIdentityLinkStore());
+        // /session/ari-context binds IAriContextProvider from DI; without a registration the
+        // route builder infers it as a GET body and the whole endpoint tree fails to start.
+        builder.Services.AddSingleton<IAriContextProvider>(new SmokeAriContextProvider());
 
         WebApplication app = builder.Build();
         app.MapPortaLocalApi(new LocalApiRuntimeSettings(
@@ -274,6 +277,14 @@ public sealed class LocalApiRouteStartupSmokeTests
         public bool RecordFocusLabel(AgentFocusLabelRequest request) => throw new NotSupportedException();
         public AgentLabelDiagnostics GetLabelDiagnostics() => throw new NotSupportedException();
         public AgentSignupNudgeDecision GetSignupNudgeDecision(bool isLinked) => throw new NotSupportedException();
+        public AgentReminder? CreateReminder(string title, DateTimeOffset dueAtUtc) => throw new NotSupportedException();
+        public AgentReminder? GetNextReminder() => throw new NotSupportedException();
+        public bool AcknowledgeReminder(long id, string action) => throw new NotSupportedException();
+    }
+
+    private sealed class SmokeAriContextProvider : IAriContextProvider
+    {
+        public LocalApiAriContextResponse GetContext() => new(null, null, null, null, null);
     }
 
     private sealed class SmokeIdentityLinkStore : ILocalIdentityLinkStore

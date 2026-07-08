@@ -95,7 +95,11 @@ internal static class Migrations
         new(
             Version: 21,
             Name: "prompt_events_v21",
-            Apply: Schema.ApplyPromptEventsV21)
+            Apply: Schema.ApplyPromptEventsV21),
+        new(
+            Version: 22,
+            Name: "reminders_v22",
+            Apply: Schema.ApplyRemindersV22)
     ];
 
     internal static void Migrate(SqliteConnection connection)

@@ -755,6 +755,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     DELETE FROM brain_snapshots;
                     DELETE FROM ground_truth_labels;
                     DELETE FROM prompt_events;
+                    DELETE FROM reminders;
                     DELETE FROM sqlite_sequence;
                     """;
                 cmd.ExecuteNonQuery();
@@ -1942,6 +1943,178 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 TryRollback(tx);
                 throw;
             }
+        }
+    }
+
+    // ── Phase 2c: reminders ─────────────────────────────────────────────────────────────
+    // Service-side so reminders survive user-agent restarts, widget crashes, and updates.
+    // NOT part of the 14-day PruneIfNeeded (a reminder set 3 weeks out must still fire);
+    // done/dismissed rows are cleaned up after 30 days by ReadNextReminder's piggyback
+    // cleanup, and the whole table is wiped by the full local-data reset.
+
+    /// <summary>Creates a reminder. Returns null when the pending cap is reached.</summary>
+    public AgentReminder? CreateReminder(string title, DateTimeOffset dueAtUtc, DateTimeOffset nowUtc)
+    {
+        string cleanTitle = (title ?? string.Empty).Trim();
+        if (cleanTitle.Length == 0)
+        {
+            cleanTitle = "Reminder";
+        }
+
+        if (cleanTitle.Length > PortaExecutionConstants.Reminders.MaxTitleLength)
+        {
+            cleanTitle = cleanTitle[..PortaExecutionConstants.Reminders.MaxTitleLength];
+        }
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+
+            using var countCmd = connection.CreateCommand();
+            countCmd.Transaction = tx;
+            countCmd.CommandText = "SELECT COUNT(*) FROM reminders WHERE state IN ('pending','fired');";
+            long pending = Convert.ToInt64(countCmd.ExecuteScalar());
+            if (pending >= PortaExecutionConstants.Reminders.MaxPending)
+            {
+                tx.Commit();
+                return null;
+            }
+
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText =
+                """
+                INSERT INTO reminders (title, due_at_utc, created_at_utc, state, snooze_count, fired_at_utc)
+                VALUES ($title, $due, $created, 'pending', 0, '');
+                SELECT last_insert_rowid();
+                """;
+            cmd.Parameters.AddWithValue("$title", cleanTitle);
+            cmd.Parameters.AddWithValue("$due", dueAtUtc.ToUniversalTime().ToString("O"));
+            cmd.Parameters.AddWithValue("$created", nowUtc.ToUniversalTime().ToString("O"));
+            long id = Convert.ToInt64(cmd.ExecuteScalar());
+            tx.Commit();
+
+            return new AgentReminder(
+                Id: id,
+                Title: cleanTitle,
+                DueAtUtc: dueAtUtc.ToUniversalTime(),
+                CreatedAtUtc: nowUtc.ToUniversalTime(),
+                State: "pending",
+                SnoozeCount: 0,
+                FiredAtUtc: null);
+        }
+    }
+
+    /// <summary>
+    /// Returns the reminder the widget should show: the earliest FIRED (due, unacknowledged)
+    /// one if any, else the earliest PENDING one. Also performs the lazy state transition
+    /// (pending past due → fired) and the 30-day cleanup of done/dismissed rows — polling
+    /// this method IS the reminder clock; no background timer needed.
+    /// </summary>
+    public AgentReminder? ReadNextReminder(DateTimeOffset nowUtc)
+    {
+        string nowRaw = nowUtc.ToUniversalTime().ToString("O");
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+
+            using var fireCmd = connection.CreateCommand();
+            fireCmd.Transaction = tx;
+            fireCmd.CommandText =
+                """
+                UPDATE reminders SET state = 'fired', fired_at_utc = $now
+                WHERE state = 'pending' AND due_at_utc <= $now;
+
+                DELETE FROM reminders
+                WHERE state IN ('done','dismissed') AND created_at_utc < $cleanupCutoff;
+                """;
+            fireCmd.Parameters.AddWithValue("$now", nowRaw);
+            fireCmd.Parameters.AddWithValue(
+                "$cleanupCutoff",
+                nowUtc.AddDays(-PortaExecutionConstants.Reminders.DoneRetentionDays).ToUniversalTime().ToString("O"));
+            fireCmd.ExecuteNonQuery();
+
+            using var readCmd = connection.CreateCommand();
+            readCmd.Transaction = tx;
+            readCmd.CommandText =
+                """
+                SELECT id, title, due_at_utc, created_at_utc, state, snooze_count, fired_at_utc
+                FROM reminders
+                WHERE state IN ('fired','pending')
+                ORDER BY CASE state WHEN 'fired' THEN 0 ELSE 1 END, due_at_utc ASC
+                LIMIT 1;
+                """;
+            AgentReminder? next = null;
+            using (SqliteDataReader reader = readCmd.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    string firedRaw = reader.GetString(6);
+                    next = new AgentReminder(
+                        Id: reader.GetInt64(0),
+                        Title: reader.GetString(1),
+                        DueAtUtc: DateTimeOffset.Parse(reader.GetString(2)),
+                        CreatedAtUtc: DateTimeOffset.Parse(reader.GetString(3)),
+                        State: reader.GetString(4),
+                        SnoozeCount: reader.GetInt32(5),
+                        FiredAtUtc: string.IsNullOrEmpty(firedRaw) ? null : DateTimeOffset.Parse(firedRaw));
+                }
+            }
+
+            tx.Commit();
+            return next;
+        }
+    }
+
+    /// <summary>
+    /// Acts on a reminder: done | dismiss | snooze (+SnoozeMinutes, repeatable).
+    /// Returns false when the id is unknown or already closed.
+    /// </summary>
+    public bool AcknowledgeReminder(long id, string action, DateTimeOffset nowUtc)
+    {
+        string normalized = (action ?? string.Empty).Trim().ToLowerInvariant();
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            switch (normalized)
+            {
+                case "done":
+                case "dismiss":
+                    cmd.CommandText =
+                        """
+                        UPDATE reminders SET state = $state
+                        WHERE id = $id AND state IN ('pending','fired');
+                        """;
+                    cmd.Parameters.AddWithValue("$state", normalized == "done" ? "done" : "dismissed");
+                    break;
+                case "snooze":
+                    cmd.CommandText =
+                        """
+                        UPDATE reminders
+                        SET state = 'pending',
+                            due_at_utc = $due,
+                            snooze_count = snooze_count + 1,
+                            fired_at_utc = ''
+                        WHERE id = $id AND state IN ('pending','fired');
+                        """;
+                    cmd.Parameters.AddWithValue(
+                        "$due",
+                        nowUtc.AddMinutes(PortaExecutionConstants.Reminders.SnoozeMinutes).ToUniversalTime().ToString("O"));
+                    break;
+                default:
+                    tx.Commit();
+                    return false;
+            }
+
+            cmd.Parameters.AddWithValue("$id", id);
+            int rows = cmd.ExecuteNonQuery();
+            tx.Commit();
+            return rows > 0;
         }
     }
 

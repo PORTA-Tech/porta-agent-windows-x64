@@ -48,4 +48,10 @@ public interface IAgentCoreController
 
     // Phase 1c: decide whether an unlinked device should be nudged to sign in.
     AgentSignupNudgeDecision GetSignupNudgeDecision(bool isLinked);
+
+    // Phase 2c — reminders: create (null = pending cap reached), read the next one to show,
+    // and act on it (done | dismiss | snooze).
+    AgentReminder? CreateReminder(string title, DateTimeOffset dueAtUtc);
+    AgentReminder? GetNextReminder();
+    bool AcknowledgeReminder(long id, string action);
 }

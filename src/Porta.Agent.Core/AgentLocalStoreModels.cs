@@ -377,3 +377,13 @@ public sealed record AgentSettingsRecord(
     bool TemporaryAppRestrictionEnabled,
     DateTimeOffset? BaselineRecalibrationStartedUtc,
     DateTimeOffset? BaselineRecalibrationUntilUtc);
+
+// Phase 2c — a user reminder. state: pending | fired (due, awaiting ack) | done | dismissed.
+public sealed record AgentReminder(
+    long Id,
+    string Title,
+    DateTimeOffset DueAtUtc,
+    DateTimeOffset CreatedAtUtc,
+    string State,
+    int SnoozeCount,
+    DateTimeOffset? FiredAtUtc);

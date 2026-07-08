@@ -898,6 +898,34 @@ public sealed record LocalApiLabelTargetCount(
     long Count,
     long NetValue);
 
+// Phase 2c — reminders (a plain, time-based alarm attached to the widget).
+public sealed record LocalApiReminder(
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("due_at_utc")] DateTimeOffset DueAtUtc,
+    [property: JsonPropertyName("state")] string State,        // pending | fired
+    [property: JsonPropertyName("snooze_count")] int SnoozeCount);
+
+public sealed record LocalApiReminderCreateRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("title")] string? Title,
+    [property: JsonPropertyName("due_at_utc")] DateTimeOffset DueAtUtc);
+
+public sealed record LocalApiReminderAckRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("action")] string? Action);    // done | dismiss | snooze
+
+public sealed record LocalApiReminderCreateResponse(
+    bool Success,
+    string? Reason,                                             // cap_reached when full
+    LocalApiReminder? Reminder,
+    DateTimeOffset TimestampUtc);
+
+public sealed record LocalApiNextReminderResponse(
+    LocalApiReminder? Next,
+    DateTimeOffset TimestampUtc);
+
 public sealed record LocalApiExportResponse(
     bool Success,
     string BundlePath,

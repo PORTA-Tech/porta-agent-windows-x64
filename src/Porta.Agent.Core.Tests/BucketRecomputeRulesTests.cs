@@ -165,6 +165,9 @@ public sealed class BucketRecomputeRulesTests
         public AgentSignupNudgeContext ReadSignupNudgeContext() => new(0, 0, null);
         public void RecordSignupNudgeShown(DateTimeOffset shownAtUtc) { }
         public AgentLabelDiagnostics ReadLabelDiagnostics() => new(0, 0, 0, System.Array.Empty<AgentLabelTargetCount>());
+        public AgentReminder? CreateReminder(string title, DateTimeOffset dueAtUtc, DateTimeOffset nowUtc) => null;
+        public AgentReminder? ReadNextReminder(DateTimeOffset nowUtc) => null;
+        public bool AcknowledgeReminder(long id, string action, DateTimeOffset nowUtc) => false;
         public AgentBrainSnapshot? ReadLatestSnapshot() => null;
         public AgentLatestStateDetails? ReadLatestStateDetails() => null;
         public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus()

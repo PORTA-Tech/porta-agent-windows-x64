@@ -16,6 +16,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Threading;
 using FormsCursor = System.Windows.Forms.Cursor;
 using Porta.Agent.Common.Analysis;
+using Porta.Agent.Core;
 
 internal sealed class UserDesktopWidgetWindow : Window
 {
@@ -35,7 +36,9 @@ internal sealed class UserDesktopWidgetWindow : Window
     private static readonly TimeSpan AttentionDuration = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan StateTakeoverDuration = TimeSpan.FromSeconds(18);
     private static readonly TimeSpan ReexpandPollInterval = TimeSpan.FromMilliseconds(180);
-    private static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(420);
+    // 900ms (was 420): the hover-dodge stays, but the old delay collapsed the widget before
+    // a normal mouse travel could reach the small interior controls (+ button, menu).
+    private static readonly TimeSpan CollapseDelay = TimeSpan.FromMilliseconds(900);
     private static readonly TimeSpan ReexpandDelay = TimeSpan.FromMilliseconds(1200);
 
     private readonly Action<UserDesktopWidgetAction> _actionRequested;
@@ -67,6 +70,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private System.Windows.Shapes.Polyline _pulseLine = null!;
     private Canvas _pulseCanvas = null!;
     private Border _pulseStrip = null!;
+    private DateTimeOffset _lastHeightHealUtc = DateTimeOffset.MinValue; // shrink-bug watchdog damping
     private bool _menuDismissButtonWasDown;
     private string _lastSizeLogSignature = string.Empty;
     private readonly Border _rootBorder;
@@ -149,16 +153,30 @@ internal sealed class UserDesktopWidgetWindow : Window
     private UserDesktopWidgetSignupNudge? _signupNudge;
     private string? _resolvedSignupNudgeId;
 
+    // ── Phase 2c: reminders ────────────────────────────────────────────────
+    private readonly Action<UserDesktopWidgetReminderCommand>? _reminderCommandRequested;
+    private UserDesktopWidgetReminderInfo? _nextReminder;
+    private long _resolvedReminderId = -1;      // fired reminder already acted on locally
+    private long _chimedReminderId = -1;        // fired reminder that already played its sound
+    private Border _reminderPillRow = null!;
+    private TextBlock _reminderPillText = null!;
+    private StackPanel _quickAddPanel = null!;
+    private TextBox _quickAddBox = null!;
+    private TextBlock _quickAddPreview = null!;
+    private bool _quickAddOpen;
+
     public UserDesktopWidgetWindow(
         Action<UserDesktopWidgetAction> actionRequested,
         Action<UserInterventionPromptResponse> promptResponseRequested,
         UserDesktopWidgetPlacementStore placementStore,
-        Action<UserDesktopWidgetLabelAnswer>? labelAnswerRequested = null)
+        Action<UserDesktopWidgetLabelAnswer>? labelAnswerRequested = null,
+        Action<UserDesktopWidgetReminderCommand>? reminderCommandRequested = null)
     {
         _actionRequested = actionRequested;
         _promptResponseRequested = promptResponseRequested;
         _placementStore = placementStore;
         _labelAnswerRequested = labelAnswerRequested;
+        _reminderCommandRequested = reminderCommandRequested;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
         AllowsTransparency = true;
@@ -476,10 +494,185 @@ internal sealed class UserDesktopWidgetWindow : Window
         var statsGrid = new Grid();
         statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var stat1Stack = new StackPanel(); stat1Stack.Children.Add(_stat1Label); stat1Stack.Children.Add(_stat1Value);
         var stat2Stack = new StackPanel(); stat2Stack.Children.Add(_stat2Label); stat2Stack.Children.Add(_stat2Value);
         Grid.SetColumn(stat1Stack, 0); Grid.SetColumn(stat2Stack, 1);
         statsGrid.Children.Add(stat1Stack); statsGrid.Children.Add(stat2Stack);
+
+        // ── Phase 2c: "+" (add reminder) — third column of the stats row ──
+        var addReminderButton = new Button
+        {
+            // TextBlock content + centered alignments + a 1px optical lift: a raw "+" string
+            // sits on the text baseline and reads visibly low inside the 16px circle.
+            Content = new TextBlock
+            {
+                Text = "+",
+                FontSize = 11,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, -1, 0, 0)
+            },
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Width = 16, Height = 16,
+            Padding = new Thickness(0),
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Background = Brushes.Transparent,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand,
+            Focusable = false,
+            FocusVisualStyle = null,
+            ToolTip = "Add reminder",
+            Template = CreateFlatButtonTemplate(
+                cornerRadius: new CornerRadius(8),
+                hoverBackground: Color.FromRgb(34, 42, 51),
+                hoverBorder: Color.FromRgb(73, 88, 105),
+                pressedBackground: Color.FromRgb(24, 31, 39),
+                pressedBorder: Color.FromRgb(84, 101, 120))
+        };
+        addReminderButton.Click += (_, _) =>
+        {
+            _collapseTimer.Stop();
+            _suspendAutoCollapseUntilPointerLeaves = true;
+            ToggleReminderQuickAdd();
+        };
+        // Reaching for the + means the user wants to interact — stop the hover-dodge the
+        // moment the pointer touches it (HandlePointerLeave re-arms the dodge on exit).
+        addReminderButton.MouseEnter += (_, _) =>
+        {
+            _collapseTimer.Stop();
+            _suspendAutoCollapseUntilPointerLeaves = true;
+        };
+        Grid.SetColumn(addReminderButton, 2);
+        statsGrid.Children.Add(addReminderButton);
+
+        // ── Phase 2c: reminder pill — next upcoming reminder, countdown at T-60 ──
+        _reminderPillText = new TextBlock
+        {
+            FontSize = 8.5,
+            Foreground = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _reminderPillRow = new Border
+        {
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x4A, 0x3E, 0x22)),
+            BorderThickness = new Thickness(1),
+            // Small radius, NOT a fully-rounded oval — ovals are explicitly banned from this
+            // widget's design language.
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(6, 1, 6, 1),
+            Margin = new Thickness(0, 0, 0, 3),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Visibility = Visibility.Collapsed,
+            Child = _reminderPillText
+        };
+
+        // ── Phase 2c: quick-add — one line, natural time, live preview ──
+        _quickAddBox = new TextBox
+        {
+            FontSize = 10,
+            Background = new SolidColorBrush(Color.FromRgb(0x0F, 0x11, 0x14)),
+            Foreground = new SolidColorBrush(Color.FromRgb(0xED, 0xEF, 0xF3)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x41, 0x50)),
+            BorderThickness = new Thickness(1),
+            CaretBrush = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
+            Padding = new Thickness(4, 2, 4, 2)
+        };
+        _quickAddBox.TextChanged += (_, _) => RefreshQuickAddPreview();
+        _quickAddBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                ConfirmReminderQuickAdd();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                CloseReminderQuickAdd();
+                e.Handled = true;
+            }
+        };
+        // Clicking anywhere OUTSIDE the widget closes the quick-add and restores NOACTIVATE.
+        // Deliberately deferred + re-checked: focus churns transiently while the menu popup
+        // tears down right after "Add reminder", and closing on that churn made the panel
+        // vanish the instant it opened.
+        _quickAddBox.LostKeyboardFocus += (_, _) =>
+        {
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
+            {
+                if (_quickAddOpen && !IsKeyboardFocusWithin && !_quickAddBox.IsKeyboardFocused)
+                {
+                    CloseReminderQuickAdd();
+                }
+            });
+        };
+        _quickAddPreview = new TextBlock
+        {
+            FontSize = 8,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
+            Margin = new Thickness(1, 2, 0, 0)
+        };
+        // Explicit Set / Cancel buttons — users must never need to guess that Enter applies.
+        var quickAddSet = new Button
+        {
+            Content = "Set",
+            FontSize = 9,
+            Padding = new Thickness(10, 2, 10, 2),
+            Margin = new Thickness(0, 3, 4, 0),
+            Background = new SolidColorBrush(Color.FromRgb(0x13, 0x2B, 0x22)),
+            Foreground = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x4D, 0x3B)),
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand,
+            Focusable = false,
+            FocusVisualStyle = null,
+            Template = CreateFlatButtonTemplate(
+                cornerRadius: new CornerRadius(4),
+                hoverBackground: Color.FromRgb(0x1A, 0x3A, 0x2E),
+                hoverBorder: Color.FromRgb(0x2A, 0x66, 0x4F),
+                pressedBackground: Color.FromRgb(0x10, 0x24, 0x1D),
+                pressedBorder: Color.FromRgb(0x1E, 0x4D, 0x3B))
+        };
+        quickAddSet.Click += (_, _) => ConfirmReminderQuickAdd();
+        var quickAddCancel = new Button
+        {
+            Content = "Cancel",
+            FontSize = 9,
+            Padding = new Thickness(10, 2, 10, 2),
+            Margin = new Thickness(0, 3, 0, 0),
+            Background = Brushes.Transparent,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand,
+            Focusable = false,
+            FocusVisualStyle = null,
+            Template = CreateFlatButtonTemplate(
+                cornerRadius: new CornerRadius(4),
+                hoverBackground: Color.FromRgb(34, 42, 51),
+                hoverBorder: Color.FromRgb(73, 88, 105),
+                pressedBackground: Color.FromRgb(24, 31, 39),
+                pressedBorder: Color.FromRgb(84, 101, 120))
+        };
+        quickAddCancel.Click += (_, _) => CloseReminderQuickAdd();
+        var quickAddButtons = new StackPanel { Orientation = Orientation.Horizontal };
+        quickAddButtons.Children.Add(quickAddSet);
+        quickAddButtons.Children.Add(quickAddCancel);
+
+        _quickAddPanel = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            Margin = new Thickness(0, 3, 0, 0),
+            Visibility = Visibility.Collapsed
+        };
+        _quickAddPanel.Children.Add(_quickAddBox);
+        _quickAddPanel.Children.Add(_quickAddPreview);
+        _quickAddPanel.Children.Add(quickAddButtons);
 
         // ── Phase 2a: pulse strip — the EKG line, between the state row and the bar ──
         _pulseLine = new System.Windows.Shapes.Polyline
@@ -516,7 +709,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         // code paths (ApplyProgressBarWidth etc.) still compile, but it is NOT in the layout.
         newMetricsStack.Children.Add(stateLabelRow);
         newMetricsStack.Children.Add(_pulseStrip);
+        newMetricsStack.Children.Add(_reminderPillRow);
         newMetricsStack.Children.Add(statsGrid);
+        newMetricsStack.Children.Add(_quickAddPanel);
 
         Grid.SetColumn(newMetricsStack, 0);
         _metricsPanel.Children.Add(newMetricsStack);
@@ -599,6 +794,14 @@ internal sealed class UserDesktopWidgetWindow : Window
             Padding = new Thickness(0),
             Margin = new Thickness(0, 1, 0, 0),
             Visibility = Visibility.Collapsed
+        };
+        // Reaching for a card's buttons (Done / +10m / Yes / No) must never race the hover-
+        // dodge: pointer over the card suspends auto-collapse until it leaves the widget.
+        // Dragging and manual collapse stay available — nothing is pinned.
+        _messageCard.MouseEnter += (_, _) =>
+        {
+            _collapseTimer.Stop();
+            _suspendAutoCollapseUntilPointerLeaves = true;
         };
         StackPanel messageStack = new();
         _messageCard.Child = messageStack;
@@ -728,6 +931,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         popupStack.Children.Add(CreateMenuButton("History", UserDesktopWidgetAction.OpenHistory));
         popupStack.Children.Add(CreateMenuButton("Actions", UserDesktopWidgetAction.OpenActions));
         popupStack.Children.Add(CreateMenuButton("Tracking", UserDesktopWidgetAction.OpenTracking));
+        popupStack.Children.Add(CreateMenuButton("Add reminder", UserDesktopWidgetAction.ReminderOpenQuickAdd));
         popupStack.Children.Add(CreateMenuButton("Settings", UserDesktopWidgetAction.OpenSettings));
         popupStack.Children.Add(CreateMenuSeparator());
         popupStack.Children.Add(CreateMenuSectionLabel("Quick actions"));
@@ -789,7 +993,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         UpdateStateTakeover(state);
         UpdateLabelPrompt(state);
         UpdateSignupNudge(state);
+        UpdateReminder(state);
         RefreshInlineMessage();
+        RefreshReminderPill();
         ApplyModeChrome(state.Mode, state.ShowLimitedBadge);
         UpdateWindowHeight();
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, UpdateWindowHeight);
@@ -1165,6 +1371,19 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        // Shrink-bug watchdog: if the expanded window somehow ends up shorter than the
+        // resting summary height (the historical oscillation bug), re-measure and recover
+        // within ~a second. UpdateWindowHeight's clamp makes the re-measure safe.
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        if (ActualHeight > 0d
+            && ActualHeight < DefaultSummaryHeight - 1d
+            && (nowUtc - _lastHeightHealUtc) > TimeSpan.FromMilliseconds(900))
+        {
+            _lastHeightHealUtc = nowUtc;
+            LogSizeEvent($"height_watchdog_heal actual={ActualHeight:F0}");
+            UpdateWindowHeight();
+        }
+
         // NOTE: deliberately NOT gated on SystemParameters.ClientAreaAnimation — on machines
         // with Windows visual effects trimmed (common on performance-tuned laptops) that flag
         // is false while every other widget animation still runs, and it silently turned the
@@ -1476,6 +1695,14 @@ internal sealed class UserDesktopWidgetWindow : Window
             // Suspend until the pointer actually leaves — HandlePointerLeave resets this.
             _collapseTimer.Stop();
             _suspendAutoCollapseUntilPointerLeaves = true;
+
+            // Phase 2c — quick-add is window-local: never reaches the presenter.
+            if (action == UserDesktopWidgetAction.ReminderOpenQuickAdd)
+            {
+                OpenReminderQuickAdd();
+                return;
+            }
+
             _actionRequested(action);
         };
 
@@ -1920,6 +2147,17 @@ internal sealed class UserDesktopWidgetWindow : Window
         double measured = _rootBorder.DesiredSize.Height;
         LogSizeEvent($"measure result={measured:F1}");
         double targetHeight = Math.Ceiling(Math.Max(BaseHeight, measured));
+
+        // ── The "shrinks to a strip" bug, fixed as an INVARIANT ────────────────────────
+        // For a long time a raced/stale measure (visibility flips + width/height animations
+        // + timer-driven collapse/expand cycling) could return only the header row's height
+        // while the full summary was visible, and the window then animated down to a ~22px
+        // pill and STAYED there. Rather than keep chasing every race, enforce the invariant:
+        // an EXPANDED widget with a state can never legitimately be shorter than the resting
+        // summary height. Anything smaller is by definition a bad measurement — clamp it.
+        // (Message cards measure TALLER than this, so they are unaffected. The pulse-tick
+        // watchdog re-measures if window geometry and content ever disagree at runtime.)
+        targetHeight = Math.Max(targetHeight, DefaultSummaryHeight);
         AnimateWindowHeight(targetHeight);
     }
 
@@ -2172,6 +2410,22 @@ internal sealed class UserDesktopWidgetWindow : Window
                 tertiaryAction: _stateTakeoverMessage.TertiaryAction,
                 tertiaryLabel: _stateTakeoverMessage.TertiaryLabel,
                 suppressLabel: _stateTakeoverMessage.SuppressLabel);
+            return;
+        }
+
+        // Phase 2c — a FIRED reminder outranks sampling prompts: the user explicitly asked
+        // for this moment. Same compact card surface as the label prompt.
+        if (_nextReminder is { State: "fired" } fired && fired.Id != _resolvedReminderId)
+        {
+            RenderInlineMessage(
+                title: string.Empty,
+                body: $"⏰ {fired.Title}",
+                footer: fired.SnoozeCount > 0 ? $"snoozed ×{fired.SnoozeCount}" : string.Empty,
+                severity: UserDesktopWidgetMessageSeverity.Warning,
+                primaryAction: UserDesktopWidgetAction.ReminderDone,
+                primaryLabel: "Done",
+                secondaryAction: UserDesktopWidgetAction.ReminderSnooze,
+                secondaryLabel: "+10m");
             return;
         }
 
@@ -2524,7 +2778,201 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        if (action is UserDesktopWidgetAction.ReminderDone
+            or UserDesktopWidgetAction.ReminderSnooze)
+        {
+            ResolveReminder(action);
+            return;
+        }
+
         _actionRequested(action);
+    }
+
+    // ── Phase 2c: reminder behaviors ────────────────────────────────────────────
+
+    private void UpdateReminder(UserDesktopWidgetState state)
+    {
+        _nextReminder = state.NextReminder;
+        if (_nextReminder is { State: "fired" } fired && fired.Id != _resolvedReminderId)
+        {
+            Expand();
+
+            // Ring ONCE per fired reminder — an alarm the user can't hear isn't an alarm.
+            // The user may be near the machine but not looking at it (short away). System
+            // sound respects the OS volume/mute, so meetings with muted audio stay quiet.
+            if (fired.Id != _chimedReminderId)
+            {
+                _chimedReminderId = fired.Id;
+                try
+                {
+                    System.Media.SystemSounds.Exclamation.Play();
+                }
+                catch (Exception)
+                {
+                    // Sound is best-effort; the visual card is the source of truth.
+                }
+            }
+        }
+    }
+
+    private void ResolveReminder(UserDesktopWidgetAction action)
+    {
+        UserDesktopWidgetReminderInfo? reminder = _nextReminder;
+        if (reminder == null)
+        {
+            return;
+        }
+
+        // Suppress re-showing this reminder locally while the ack round-trips.
+        _resolvedReminderId = reminder.Id;
+        _reminderCommandRequested?.Invoke(new UserDesktopWidgetReminderCommand(
+            Kind: action == UserDesktopWidgetAction.ReminderDone ? "done" : "snooze",
+            Id: reminder.Id,
+            Title: reminder.Title,
+            DueAtUtc: reminder.DueAtUtc));
+        RefreshInlineMessage();
+        UpdateWindowHeight();
+    }
+
+    // Pill: show the NEXT pending reminder once it is inside the T-60 window. Refreshed on
+    // every state push (~4s) — minute-level countdown needs nothing faster.
+    private void RefreshReminderPill()
+    {
+        UserDesktopWidgetReminderInfo? reminder = _nextReminder;
+        bool show = reminder is { State: "pending" }
+            && !_quickAddOpen
+            && (reminder.DueAtUtc - DateTimeOffset.UtcNow).TotalMinutes
+                <= PortaExecutionConstants.Reminders.PillWindowMinutes;
+        if (!show)
+        {
+            if (_reminderPillRow.Visibility != Visibility.Collapsed)
+            {
+                _reminderPillRow.Visibility = Visibility.Collapsed;
+                UpdateWindowHeight();
+            }
+
+            return;
+        }
+
+        double minutesLeft = Math.Max(0d, (reminder!.DueAtUtc - DateTimeOffset.UtcNow).TotalMinutes);
+        string countdown = minutesLeft < 1d
+            ? "now"
+            : minutesLeft >= 60d
+                ? $"in {(int)(minutesLeft / 60d)}h {(int)(minutesLeft % 60d)}m"
+                : $"in {(int)Math.Ceiling(minutesLeft)}m";
+        _reminderPillText.Text = $"⏰ {reminder.Title} · {countdown}";
+        if (_reminderPillRow.Visibility != Visibility.Visible)
+        {
+            _reminderPillRow.Visibility = Visibility.Visible;
+            UpdateWindowHeight();
+        }
+    }
+
+    private void ToggleReminderQuickAdd()
+    {
+        if (_quickAddOpen)
+        {
+            CloseReminderQuickAdd();
+        }
+        else
+        {
+            OpenReminderQuickAdd();
+        }
+    }
+
+    private void OpenReminderQuickAdd()
+    {
+        Expand();
+        _quickAddOpen = true;
+        _quickAddBox.Text = string.Empty;
+        RefreshQuickAddPreview();
+        _quickAddPanel.Visibility = Visibility.Visible;
+        RefreshReminderPill();
+        UpdateWindowHeight();
+
+        // The widget is WS_EX_NOACTIVATE (it must never steal focus in normal operation), but
+        // the quick-add box needs real keyboard focus. Temporarily allow activation — and
+        // because the opening click did NOT activate us (that's what NOACTIVATE means), a
+        // plain Activate() is refused by the foreground rules; SetForegroundWindow works here
+        // since our process just received the user's click. Focus is set after the activation
+        // settles (Input priority), otherwise WPF grants it before the HWND is foreground.
+        SetNoActivateStyle(enabled: false);
+        IntPtr hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+        {
+            _ = NativeSetForegroundWindow(hwnd);
+        }
+
+        Activate();
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () =>
+        {
+            if (_quickAddOpen)
+            {
+                Keyboard.Focus(_quickAddBox);
+            }
+        });
+    }
+
+    [DllImport("user32.dll", EntryPoint = "SetForegroundWindow")]
+    private static extern bool NativeSetForegroundWindow(IntPtr hWnd);
+
+    private void CloseReminderQuickAdd()
+    {
+        if (!_quickAddOpen)
+        {
+            return; // already closed (Enter/Esc path runs before the focus-loss event)
+        }
+
+        _quickAddOpen = false;
+        _quickAddPanel.Visibility = Visibility.Collapsed;
+        SetNoActivateStyle(enabled: true);
+        RefreshReminderPill();
+        UpdateWindowHeight();
+    }
+
+    private void ConfirmReminderQuickAdd()
+    {
+        Porta.Agent.Common.ReminderParseResult parsed =
+            Porta.Agent.Common.ReminderTimeParser.Parse(_quickAddBox.Text, DateTimeOffset.Now);
+        _reminderCommandRequested?.Invoke(new UserDesktopWidgetReminderCommand(
+            Kind: "create",
+            Id: 0,
+            Title: parsed.Title,
+            DueAtUtc: parsed.DueAt.ToUniversalTime()));
+
+        // Optimistic: show the pill IMMEDIATELY. Waiting for the next host poll read as
+        // "nothing happened". The real row (with its id) replaces this on the next push;
+        // if creation failed the poll clears it and the cap toast explains why.
+        _nextReminder = new UserDesktopWidgetReminderInfo(
+            Id: -1,
+            Title: parsed.Title,
+            DueAtUtc: parsed.DueAt.ToUniversalTime(),
+            State: "pending",
+            SnoozeCount: 0);
+        CloseReminderQuickAdd();
+        RefreshReminderPill();
+    }
+
+    private void RefreshQuickAddPreview()
+    {
+        Porta.Agent.Common.ReminderParseResult parsed =
+            Porta.Agent.Common.ReminderTimeParser.Parse(_quickAddBox.Text, DateTimeOffset.Now);
+        _quickAddPreview.Text = $"{parsed.Title} — {parsed.PreviewLabel} · Enter to set, Esc to cancel";
+    }
+
+    private void SetNoActivateStyle(bool enabled)
+    {
+        IntPtr hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        long style = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GwlExStyle).ToInt64();
+        style = enabled
+            ? style | NativeMethods.WsExNoActivate
+            : style & ~NativeMethods.WsExNoActivate;
+        _ = NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GwlExStyle, new IntPtr(style));
     }
 
     private void ResolveSignupNudge(UserDesktopWidgetAction action)
@@ -2610,8 +3058,17 @@ internal sealed class UserDesktopWidgetWindow : Window
             && _activePrompt == null
             && _currentState?.CriticalState == null
             && !IsLabelPromptActive()
-            && !IsSignupNudgeActive();
+            && !IsSignupNudgeActive()
+            // Phase 2c: typing a reminder pins the widget open. A FIRED reminder deliberately
+            // does NOT pin — it stays until acted on anyway, and pinning froze all widget
+            // movement, which reads as "the notification blocks everything".
+            && !_quickAddOpen;
     }
+
+    // Phase 2c — a fired reminder needs an answer (Done / +10m), so it pins the widget open
+    // exactly like label prompts and critical cards.
+    private bool IsFiredReminderActive()
+        => _nextReminder is { State: "fired" } fired && fired.Id != _resolvedReminderId;
 
     // A one-tap label question (focus/distraction/overload) needs an answer, so — like active prompts
     // and critical cards — it must pin the widget open until the user taps or it resolves. Without this

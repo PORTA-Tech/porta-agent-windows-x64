@@ -43,6 +43,10 @@ public interface IBrainStateStore
     AgentSignupNudgeContext ReadSignupNudgeContext();
     void RecordSignupNudgeShown(DateTimeOffset shownAtUtc);
     AgentLabelDiagnostics ReadLabelDiagnostics();
+    // Phase 2c — reminders (service-side so they survive user-agent restarts).
+    AgentReminder? CreateReminder(string title, DateTimeOffset dueAtUtc, DateTimeOffset nowUtc);
+    AgentReminder? ReadNextReminder(DateTimeOffset nowUtc);
+    bool AcknowledgeReminder(long id, string action, DateTimeOffset nowUtc);
     AgentStorageInfo ReadStorageInfo();
     AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);
     AgentDistractionSummary ReadCurrentDistractionSummary();

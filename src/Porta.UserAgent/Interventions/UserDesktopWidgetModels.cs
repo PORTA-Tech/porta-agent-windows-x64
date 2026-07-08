@@ -31,7 +31,12 @@ internal enum UserDesktopWidgetAction
     // Phase 1c — signup nudge: open the Control Center at the sign-in screen, or dismiss the nudge.
     OpenAccount,
     SignupNudgeAccept,
-    SignupNudgeDismiss
+    SignupNudgeDismiss,
+    // Phase 2c — reminders: act on a fired reminder, or open the quick-add input
+    // (window-local; never reaches the presenter).
+    ReminderDone,
+    ReminderSnooze,
+    ReminderOpenQuickAdd
 }
 
 internal enum UserDesktopWidgetMessageSeverity
@@ -79,7 +84,25 @@ internal sealed record UserDesktopWidgetState(
     double PulseIntensity = 0,
     // Phase 2a — true when the line must freeze entirely (paused / limited / stale).
     // A dead line means "not watching"; the pulse never fakes life.
-    bool PulseFrozen = false);
+    bool PulseFrozen = false,
+    // Phase 2c — the next reminder to surface (pill at T-60, toast when fired). Null = none.
+    UserDesktopWidgetReminderInfo? NextReminder = null);
+
+// Phase 2c — the next reminder as the widget renders it. State: pending | fired.
+internal sealed record UserDesktopWidgetReminderInfo(
+    long Id,
+    string Title,
+    DateTimeOffset DueAtUtc,
+    string State,
+    int SnoozeCount);
+
+// Phase 2c — a reminder command flowing widget → presenter → local API.
+// Kind: create (Title + DueAtUtc used) | done | snooze (Id used).
+internal sealed record UserDesktopWidgetReminderCommand(
+    string Kind,
+    long Id,
+    string Title,
+    DateTimeOffset DueAtUtc);
 
 // Phase 1b — Step 3c: one-tap ground-truth prompt shown in the widget pill.
 internal sealed record UserDesktopWidgetLabelPrompt(
