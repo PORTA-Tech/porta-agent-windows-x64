@@ -53,13 +53,16 @@ internal sealed class UserDesktopWidgetWindow : Window
     // Additive only: colour comes from the SAME state mapping the dot/label already
     // use; rhythm encodes the mode; frozen = zero motion ("not watching").
     private const int PulseSampleCount = 56;
-    private const double PulseStripHeight = 12d;
+    private const double PulseStripHeight = 10d;
     private static readonly TimeSpan PulseTickInterval = TimeSpan.FromMilliseconds(150);
     private readonly DispatcherTimer _pulseTimer;
     private readonly double[] _pulseSamples = new double[PulseSampleCount];
     private readonly PulseWaveformGenerator _pulseGenerator = new();
     private PulseRhythm _pulseRhythm = PulseRhythm.Regular;
-    private double _pulseIntensity;
+    private double _pulseIntensity;          // slow, state-provided fallback only
+    private double _pulseLiveIntensity;      // real-time input-driven intensity (primary)
+    private uint _pulsePrevInputTick;
+    private bool _pulseLiveInputBroken;      // GetLastInputInfo failed → fall back to state
     private bool _pulseFrozenRendered;
     private System.Windows.Shapes.Polyline _pulseLine = null!;
     private Canvas _pulseCanvas = null!;
@@ -236,6 +239,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _pulseTimer = new DispatcherTimer { Interval = PulseTickInterval };
         _pulseTimer.Tick += (_, _) => PulseTimerTick();
         _pulseTimer.Start();
+        UserAgentFileLog.Info("pulse_strip_active build=2a-v3-live-input");
 
         _rootBorder = new Border
         {
@@ -507,9 +511,11 @@ internal sealed class UserDesktopWidgetWindow : Window
             Orientation = Orientation.Vertical,
             Margin = new Thickness(0, 0, 0, 0)   // bodyGrid margin already provides top/bottom padding
         };
+        // Phase 2a: the pulse line REPLACES the old 2px progress bar (design review: two
+        // horizontal lines read as clutter). The bar's elements stay as fields so existing
+        // code paths (ApplyProgressBarWidth etc.) still compile, but it is NOT in the layout.
         newMetricsStack.Children.Add(stateLabelRow);
         newMetricsStack.Children.Add(_pulseStrip);
-        newMetricsStack.Children.Add(progressBarTrackLocal);
         newMetricsStack.Children.Add(statsGrid);
 
         Grid.SetColumn(newMetricsStack, 0);
@@ -1159,7 +1165,11 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
-        if (_pulseRhythm == PulseRhythm.Frozen || !SystemParameters.ClientAreaAnimation)
+        // NOTE: deliberately NOT gated on SystemParameters.ClientAreaAnimation — on machines
+        // with Windows visual effects trimmed (common on performance-tuned laptops) that flag
+        // is false while every other widget animation still runs, and it silently turned the
+        // pulse into a permanent flat line during testing.
+        if (_pulseRhythm == PulseRhythm.Frozen)
         {
             if (!_pulseFrozenRendered)
             {
@@ -1173,7 +1183,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
 
         _pulseFrozenRendered = false;
-        double sample = _pulseGenerator.Advance(PulseTickInterval.TotalSeconds, _pulseRhythm, _pulseIntensity);
+        double sample = _pulseGenerator.Advance(PulseTickInterval.TotalSeconds, _pulseRhythm, ResolveLiveIntensity());
         Array.Copy(_pulseSamples, 1, _pulseSamples, 0, _pulseSamples.Length - 1);
         _pulseSamples[^1] = sample;
         RenderPulseLine();
@@ -1181,6 +1191,53 @@ internal sealed class UserDesktopWidgetWindow : Window
         // The state dot breathes with the beat — opacity only, never layout.
         _stateDot.Opacity = 0.55d + 0.45d * Math.Clamp(sample, 0d, 1d);
     }
+
+    // Phase 2a — REAL-TIME intensity, sampled every tick from the system's last-input time
+    // (GetLastInputInfo). The analysis pipeline's smoothed signals lag by design (buckets +
+    // smoothing + a 4s state refresh) which made the line feel dead; the pulse must react the
+    // moment the user's hands move. Fast attack (~0.5s to full on sustained input), gentle
+    // release (~2.5s back to calm). Falls back to the state-provided intensity if the API is
+    // unavailable. Reads TIMING only — no keys, no content, same privacy class as the
+    // existing idle tracking.
+    private double ResolveLiveIntensity()
+    {
+        if (_pulseLiveInputBroken)
+        {
+            return _pulseIntensity;
+        }
+
+        try
+        {
+            var info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
+            if (!NativeGetLastInputInfo(ref info))
+            {
+                _pulseLiveInputBroken = true;
+                return _pulseIntensity;
+            }
+
+            bool inputSinceLastTick = info.dwTime != _pulsePrevInputTick;
+            _pulsePrevInputTick = info.dwTime;
+            double target = inputSinceLastTick ? 1d : 0d;
+            double alpha = inputSinceLastTick ? 0.40d : 0.055d;
+            _pulseLiveIntensity += (target - _pulseLiveIntensity) * alpha;
+            return Math.Clamp(_pulseLiveIntensity, 0d, 1d);
+        }
+        catch (Exception)
+        {
+            _pulseLiveInputBroken = true;
+            return _pulseIntensity;
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LASTINPUTINFO
+    {
+        public uint cbSize;
+        public uint dwTime;
+    }
+
+    [DllImport("user32.dll", EntryPoint = "GetLastInputInfo")]
+    private static extern bool NativeGetLastInputInfo(ref LASTINPUTINFO plii);
 
     // Phase 2a — draw the sample ring buffer as a polyline across the strip width.
     private void RenderPulseLine()

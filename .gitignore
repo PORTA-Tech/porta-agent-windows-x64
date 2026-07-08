@@ -15,3 +15,7 @@ soak-*.csv
 
 # Release artifacts (MSIs go to GitHub Releases, not the repo)
 artifacts/publish/
+
+_widget-out/
+rebuild-widget.cmd
+_debug-*

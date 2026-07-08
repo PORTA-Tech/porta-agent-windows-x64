@@ -90,7 +90,11 @@ internal static class UserDesktopWidgetStateBuilder
             CriticalState: criticalState,
             ShowLimitedBadge: routineDegraded,
             PulseIntensity: ComputePulseIntensity(snapshot, liveSession, now),
-            PulseFrozen: paused || actionRequired || staleOrPending);
+            // Frozen ONLY for paused / action-required. Routine staleness must NOT freeze the
+            // line: the pulse is driven by real-time input (GetLastInputInfo in the window),
+            // which stays truthful even while the analysis pipeline catches up — and freshness
+            // flapping would otherwise kill the "alive" feel exactly when the user is active.
+            PulseFrozen: paused || actionRequired);
     }
 
     // Phase 2a — the pulse line's 0..1 work-intensity input. HEIGHT is the primary channel on
