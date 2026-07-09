@@ -295,6 +295,13 @@ public static class PortaExecutionConstants
         public const int MaxLifetimeNudges = 4;      // soft lifetime cap — then stop for good
     }
 
+    // Phase 2b — meeting measurement: idle while a meeting app is foreground counts as
+    // attentive-in-meeting, up to this cap (a machine left on Zoom overnight is NOT a meeting).
+    public static class MeetingMeasurement
+    {
+        public const double MaxStillSeconds = 7200d; // 2h of stillness before meeting → away
+    }
+
     // Phase 2c — reminders: a plain alarm clock attached to the widget. Time-based ONLY (no
     // calendar, no AI, no activity triggers) — the free precursor to the Phase 5 calendar feature.
     public static class Reminders

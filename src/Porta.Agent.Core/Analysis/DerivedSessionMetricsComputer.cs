@@ -68,7 +68,8 @@ internal static class DerivedSessionMetricsComputer
         SqliteTransaction tx,
         InputBucketRow bucket,
         PrimitiveComputationResult primitive,
-        BaselineGatingResult gating)
+        BaselineGatingResult gating,
+        bool meetingInProgress = false)
     {
         ArgumentNullException.ThrowIfNull(connection);
         ArgumentNullException.ThrowIfNull(tx);
@@ -93,7 +94,7 @@ internal static class DerivedSessionMetricsComputer
             idleChannelMissing,
             continuity.State,
             continuity.IdlePauseSeconds);
-        AttentionSegmentDecision attentionSegment = EvaluateAttentionSegment(bucket, evidence, continuity, previous);
+        AttentionSegmentDecision attentionSegment = EvaluateAttentionSegment(bucket, evidence, continuity, previous, meetingInProgress);
         EpisodeReason focusEpisodeReason = ResolveFocusEpisodeReason(continuity, attentionSegment);
         return new DerivedSessionMetricsResult(
             SustainedAttentionDurationSec: ClampNonNegativeFinite(continuity.TaskContinuitySeconds),
@@ -696,7 +697,8 @@ internal static class DerivedSessionMetricsComputer
         InputBucketRow bucket,
         ChannelEvidence evidence,
         TaskContinuityDecision continuity,
-        DerivedSessionRuntimeState previous)
+        DerivedSessionRuntimeState previous,
+        bool meetingInProgress = false)
     {
         double mult = GetTimeOfDayMultiplier();
 
@@ -880,14 +882,25 @@ internal static class DerivedSessionMetricsComputer
             double awaySeconds = Math.Max(
                 continuity.IdlePauseSeconds,
                 bucket.TrueBreakSeconds > 0d ? bucket.TrueBreakSeconds : Time.bucketSeconds);
+
+            // Phase 2b — meeting measurement: low input while a meeting app is foreground is
+            // ATTENTIVE-IN-MEETING, not away. Without mic/camera (which would break consent)
+            // "listening" and "stepped away" are indistinguishable — this is the disclosed,
+            // consent-safe ceiling. Capped so a machine parked on Zoom for hours becomes away.
+            bool attentiveInMeeting = meetingInProgress
+                && continuity.IdlePauseSeconds < PortaExecutionConstants.MeetingMeasurement.MaxStillSeconds
+                && bucket.TrueBreakSeconds < PortaExecutionConstants.MeetingMeasurement.MaxStillSeconds;
+
             // Away: carry session interaction seconds but preserve unfocused flag
             return new AttentionSegmentDecision(
-                Kind: AttentionSegmentKinds.Away,
+                Kind: attentiveInMeeting ? AttentionSegmentKinds.InMeeting : AttentionSegmentKinds.Away,
                 SegmentSeconds: ClampNonNegativeFinite(awaySeconds),
                 DistractionEpisodeActive: false,
                 DistractionEpisodeSeconds: 0d,
-                ReasonCode: "away",
-                ReasonText: $"Away for {FormatEpisodeDuration(awaySeconds)}.",
+                ReasonCode: attentiveInMeeting ? "in_meeting" : "away",
+                ReasonText: attentiveInMeeting
+                    ? $"In a meeting ({FormatEpisodeDuration(awaySeconds)})."
+                    : $"Away for {FormatEpisodeDuration(awaySeconds)}.",
                 NewEwmaSwitchRate: previous.EwmaSwitchRate,
                 NewMicroBurstAccumulatedSeconds: 0d,
                 NewRecentDominantHashesJson: previous.RecentDominantHashes,

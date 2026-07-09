@@ -129,6 +129,24 @@ internal sealed class AgentService : IHostedService, IDisposable
         catch (Exception ex)
         {
             Console.WriteLine($"Local API host failed to start: {ex.GetType().Name} {ex.Message}");
+            // SAFEGUARD: this catch used to swallow the local-API start failure into a Console the
+            // Windows service has no terminal for, leaving ari.exe alive but NOT listening, with no
+            // trace of why. That exact silent failure (a schema-guard mismatch) cost a full day of
+            // debugging on 2026-07-09. Persist the full exception so a dead listener is never
+            // invisible again.
+            try
+            {
+                string diagPath = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "PortaAgent",
+                    "local-api-start-error.log");
+                System.IO.File.AppendAllText(
+                    diagPath,
+                    $"[{DateTimeOffset.UtcNow:O}] local_api_start_failed: {ex}\n\n");
+            }
+            catch
+            {
+            }
         }
     }
 

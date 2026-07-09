@@ -8,7 +8,7 @@ namespace Porta.Agent.Core.Db;
 
 internal static class Migrations
 {
-    private const int LatestSchemaVersion = 21;
+    private const int LatestSchemaVersion = 22;
 
     private static readonly MigrationStep[] OrderedSteps =
     [

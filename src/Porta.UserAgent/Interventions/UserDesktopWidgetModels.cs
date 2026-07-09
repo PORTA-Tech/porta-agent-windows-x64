@@ -7,7 +7,9 @@ internal enum UserDesktopWidgetMode
     Overload,
     Distraction,
     Limited,
-    Paused
+    Paused,
+    // Phase 2b — attentive-in-meeting: meeting app foreground, measured (not away).
+    InMeeting
 }
 
 internal enum UserDesktopWidgetAction

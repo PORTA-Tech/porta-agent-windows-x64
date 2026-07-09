@@ -72,6 +72,15 @@ internal static class UserDesktopWidgetStateBuilder
                     _ => UserDesktopWidgetMode.Monitoring
                 };
 
+        // Phase 2b — attentive-in-meeting: when the latest bucket's attention segment says
+        // in_meeting, show it instead of Monitoring/DeepWork. Overload/Distraction/Paused/
+        // Limited still outrank it (they carry action or health information).
+        if (mode is UserDesktopWidgetMode.Monitoring or UserDesktopWidgetMode.DeepWork
+            && string.Equals(snapshot?.attention_segment_kind, "in_meeting", StringComparison.Ordinal))
+        {
+            mode = UserDesktopWidgetMode.InMeeting;
+        }
+
         // Live session state is only for immediate "what is happening now" activity facts.
         // The visible duration comes from the durable focus episode and should not
         // bounce with foreground-app changes.

@@ -157,7 +157,9 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly Action<UserDesktopWidgetReminderCommand>? _reminderCommandRequested;
     private UserDesktopWidgetReminderInfo? _nextReminder;
     private long _resolvedReminderId = -1;      // fired reminder already acted on locally
-    private long _chimedReminderId = -1;        // fired reminder that already played its sound
+    private long _chimedReminderId = -1;        // fired reminder currently in the ring cycle
+    private int _reminderRingCount;             // rings played for it (max 5)
+    private DateTimeOffset _lastReminderRingUtc = DateTimeOffset.MinValue;
     private Border _reminderPillRow = null!;
     private TextBlock _reminderPillText = null!;
     private StackPanel _quickAddPanel = null!;
@@ -1259,6 +1261,14 @@ internal sealed class UserDesktopWidgetWindow : Window
             episodeDuration = string.Empty;
             episodeSeconds  = 0d;
         }
+        else if (state.Mode is UserDesktopWidgetMode.InMeeting)
+        {
+            // Phase 2b — teal: calm, engaged. Meeting time is measured, not excluded.
+            stateColour     = Color.FromRgb(0x14, 0xB8, 0xA6);
+            stateName       = "IN MEETING";
+            episodeDuration = string.Empty;
+            episodeSeconds  = 0d;
+        }
         else
         {
             string focusVal = state.SecondaryMetric.Value;
@@ -1348,6 +1358,12 @@ internal sealed class UserDesktopWidgetWindow : Window
         if (state.Mode is UserDesktopWidgetMode.Distraction)
         {
             return PulseRhythm.Irregular;
+        }
+
+        if (state.Mode is UserDesktopWidgetMode.InMeeting)
+        {
+            // Calm, slow, regular — engaged but hands-off. Low live intensity keeps it gentle.
+            return PulseRhythm.Regular;
         }
 
         if (string.Equals(stateName, "AWAY", StringComparison.Ordinal))
@@ -2797,12 +2813,45 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             Expand();
 
-            // Ring ONCE per fired reminder — an alarm the user can't hear isn't an alarm.
-            // The user may be near the machine but not looking at it (short away). System
-            // sound respects the OS volume/mute, so meetings with muted audio stay quiet.
+            // Ring like an ALARM, not a ping: audible immediately, and re-rings every 60s
+            // while unacknowledged (max 5) so a user away from the screen still catches it.
+            // Uses a synthesized tone (Beep API) — Windows 11 sound schemes silently mute
+            // many system event sounds, which made SystemSounds unreliable here. Master
+            // volume/mute still applies, so muted machines stay respectful.
             if (fired.Id != _chimedReminderId)
             {
                 _chimedReminderId = fired.Id;
+                _reminderRingCount = 0;
+                _lastReminderRingUtc = DateTimeOffset.MinValue;
+            }
+
+            if (_reminderRingCount < 5
+                && (DateTimeOffset.UtcNow - _lastReminderRingUtc).TotalSeconds >= 60d)
+            {
+                _reminderRingCount++;
+                _lastReminderRingUtc = DateTimeOffset.UtcNow;
+                PlayReminderRing();
+            }
+        }
+    }
+
+    private static void PlayReminderRing()
+    {
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                // Two quick bursts of three rising beeps — unmistakably an alarm.
+                for (int burst = 0; burst < 2; burst++)
+                {
+                    Console.Beep(880, 160);
+                    Console.Beep(988, 160);
+                    Console.Beep(1175, 220);
+                    Thread.Sleep(180);
+                }
+            }
+            catch (Exception)
+            {
                 try
                 {
                     System.Media.SystemSounds.Exclamation.Play();
@@ -2812,7 +2861,7 @@ internal sealed class UserDesktopWidgetWindow : Window
                     // Sound is best-effort; the visual card is the source of truth.
                 }
             }
-        }
+        });
     }
 
     private void ResolveReminder(UserDesktopWidgetAction action)

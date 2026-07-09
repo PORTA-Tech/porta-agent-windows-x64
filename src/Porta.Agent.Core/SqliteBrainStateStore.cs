@@ -307,12 +307,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     gating,
                     mapped.QualityScore,
                     mapped.Partial == 1);
+                // Phase 2b — meeting truth for this bucket, computed ONCE: feeds both the
+                // attention-segment attribution (idle in meeting = attentive) and the break
+                // shield below.
+                bool meetingInProgress = Porta.Agent.Common.Analysis.AppCategoryClassifier.IsMeetingApp(mapped.DominantAppHash);
                 DerivedSessionMetricsResult derivedSession = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
                     connection,
                     tx,
                     mapped,
                     primitive,
-                    gating);
+                    gating,
+                    meetingInProgress);
                 OverloadInferenceResult overloadInference = OverloadInferenceComputer.ComputeForFinalizedBucket(
                     gatedSnapshot,
                     mapped,
@@ -379,7 +384,6 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     overloadStabilization,
                     overloadInference,
                     policy.BreakPolicy);
-                bool meetingInProgress = Porta.Agent.Common.Analysis.AppCategoryClassifier.IsMeetingApp(mapped.DominantAppHash);
                 BreakSuggestionDecision breakSuggestionDecision = BreakSuggestionPolicy.ShouldTriggerBreak(
                     gating,
                     overloadStabilization,

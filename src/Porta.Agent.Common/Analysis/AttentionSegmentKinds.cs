@@ -20,6 +20,9 @@ public static class AttentionSegmentKinds
     public const string Focus            = "focus";
     public const string Away             = "away";
     public const string ContextExcursion = "context_excursion";
+    // Phase 2b — meeting app foreground with low input: attentive-in-meeting, never away
+    // or distraction. Consent-safe ceiling: "meeting" means meeting app foreground.
+    public const string InMeeting        = "in_meeting";
 
     // ── Distraction kinds: original ("Block F") set ─────────────────────────
     public const string OffTaskDistraction        = "off_task_distraction";
@@ -60,9 +63,9 @@ public static class AttentionSegmentKinds
         BadSessionStart,
     };
 
-    /// <summary>Every attention-segment kind the agent can emit (distraction + focus/away/excursion).</summary>
+    /// <summary>Every attention-segment kind the agent can emit (distraction + focus/away/excursion/meeting).</summary>
     public static readonly IReadOnlyList<string> AllKinds =
-        new[] { Focus, Away, ContextExcursion }.Concat(AllDistractionKinds).ToArray();
+        new[] { Focus, Away, ContextExcursion, InMeeting }.Concat(AllDistractionKinds).ToArray();
 
     private static readonly HashSet<string> DistractionSet = new(AllDistractionKinds, StringComparer.Ordinal);
     private static readonly HashSet<string> KnownSet = new(AllKinds, StringComparer.Ordinal);
