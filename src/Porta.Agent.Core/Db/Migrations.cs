@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using System.Globalization;
+using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -8,7 +9,15 @@ namespace Porta.Agent.Core.Db;
 
 internal static class Migrations
 {
-    private const int LatestSchemaVersion = 22;
+    // DERIVED from the migration list — never hand-maintain this again. On 2026-07-09 it was a
+    // hardcoded 21 while reminders_v22 was already in OrderedSteps below; once a DB reached v22 the
+    // guard in Migrate() rejected it, the service's local-API listener died silently, and every
+    // agent showed AWAY. Deriving it makes that drift impossible: the supported version is always
+    // exactly the newest migration.
+    internal static int LatestSchemaVersion => OrderedSteps.Max(step => step.Version);
+
+    // Exposed (internal) only so the migration-numbering consistency test can assert the list is sane.
+    internal static int[] OrderedStepVersions => Array.ConvertAll(OrderedSteps, step => step.Version);
 
     private static readonly MigrationStep[] OrderedSteps =
     [
