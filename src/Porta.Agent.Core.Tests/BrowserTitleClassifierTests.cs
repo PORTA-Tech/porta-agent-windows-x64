@@ -75,4 +75,56 @@ public sealed class BrowserTitleClassifierTests
     {
         Assert.Equal(expected, BrowserTitleClassifier.IsBrowserExe(exe));
     }
+
+    // ── 2e: title → domain → web precedence ────────────────────────────────
+
+    [Fact]
+    public void Classify_CuratedTitleRule_BeatsResolvedDomain()
+    {
+        // A branded title always wins over the address-bar domain and keeps its real category.
+        (string token, AppCategory category) =
+            BrowserTitleClassifier.Classify("Fix bug · owner/repo · GitHub - Google Chrome", domainToken: "ycombinator");
+        Assert.Equal("github", token);
+        Assert.Equal(AppCategory.Development, category);
+    }
+
+    [Theory]
+    [InlineData(null, "ycombinator", "ycombinator")]
+    [InlineData("", "nytimes", "nytimes")]
+    [InlineData("Quarterly review draft", "stackexchange", "stackexchange")]
+    [InlineData("Untitled page", "123movies", "123movies")]
+    public void Classify_UnbrandedTitle_FallsBackToDomainToken_AsUnknown(
+        string? title, string domainToken, string expectedToken)
+    {
+        // No curated title match: use the resolved domain, category Unknown until 2d fills it in.
+        (string token, AppCategory category) = BrowserTitleClassifier.Classify(title, domainToken);
+        Assert.Equal(expectedToken, token);
+        Assert.Equal(AppCategory.Unknown, category);
+    }
+
+    [Fact]
+    public void Classify_NoTitleAndNoDomain_IsWeb()
+    {
+        (string token, AppCategory category) = BrowserTitleClassifier.Classify(title: null, domainToken: null);
+        Assert.Equal(BrowserTitleClassifier.UnknownSiteToken, token);
+        Assert.Equal(AppCategory.Unknown, category);
+    }
+
+    [Theory]
+    [InlineData("https://news.ycombinator.com/item?id=123")] // a full URL
+    [InlineData("ycombinator.com")]                          // suffix/dot not stripped
+    [InlineData("ycombinator/item")]                         // path fragment
+    [InlineData("ycombinator?id=123")]                       // query
+    [InlineData("ycombinator#section")]                      // fragment
+    [InlineData("news ycombinator")]                         // whitespace
+    [InlineData("user:pass@host")]                           // credentials / colon
+    public void Classify_MalformedDomainToken_NeverLeaks_CollapsesToWeb(string dirtyDomain)
+    {
+        // Hard privacy guarantee: even if the resolver ever handed us something URL-shaped, no
+        // '/', '?', '#', ':', '.', or whitespace may survive into the identity — it becomes "web".
+        (string token, AppCategory category) =
+            BrowserTitleClassifier.Classify(title: null, domainToken: dirtyDomain);
+        Assert.Equal(BrowserTitleClassifier.UnknownSiteToken, token);
+        Assert.Equal(AppCategory.Unknown, category);
+    }
 }

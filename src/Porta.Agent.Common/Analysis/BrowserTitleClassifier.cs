@@ -312,4 +312,55 @@ public static class BrowserTitleClassifier
 
         return (UnknownSiteToken, AppCategory.Unknown);
     }
+
+    /// <summary>
+    /// 2e precedence. A curated TITLE rule wins (it carries a real category). Otherwise, if a
+    /// coarse DOMAIN token was resolved from the address bar (via UIA in
+    /// <c>BrowserDomainResolver</c>), use it with category <see cref="AppCategory.Unknown"/> —
+    /// 2d fills the real category later. Otherwise fall back to "web"/Unknown.
+    ///
+    /// PRIVACY: <paramref name="domainToken"/> must already be a bare registrable-domain label
+    /// (no scheme, host, path, query, or fragment). This method does NO URL parsing — but it
+    /// defensively drops any token that isn't a plain lowercase [a-z0-9-] label, so a stray URL
+    /// fragment can never survive into the identity even if the resolver misbehaves.
+    /// </summary>
+    public static (string SiteToken, AppCategory Category) Classify(string? title, string? domainToken)
+    {
+        (string titleToken, AppCategory titleCategory) = ClassifyTitle(title);
+        if (!string.Equals(titleToken, UnknownSiteToken, StringComparison.Ordinal))
+        {
+            return (titleToken, titleCategory);
+        }
+
+        string? domain = NormalizeDomainToken(domainToken);
+        return domain is null
+            ? (UnknownSiteToken, AppCategory.Unknown)
+            : (domain, AppCategory.Unknown);
+    }
+
+    /// <summary>
+    /// Defensive privacy guard for a resolved domain token. Returns a bare lowercase [a-z0-9-]
+    /// label, or <c>null</c> if the input is empty or contains ANYTHING else ('/', '?', '#', ':',
+    /// '.', whitespace, or any path/query fragment). Null means "fall back to web" — a URL
+    /// fragment must never be able to reach the identity hash.
+    /// </summary>
+    private static string? NormalizeDomainToken(string? domainToken)
+    {
+        if (string.IsNullOrWhiteSpace(domainToken))
+        {
+            return null;
+        }
+
+        string trimmed = domainToken.Trim().ToLowerInvariant();
+        foreach (char c in trimmed)
+        {
+            bool isPlainLabelChar = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+            if (!isPlainLabelChar)
+            {
+                return null;
+            }
+        }
+
+        return trimmed;
+    }
 }
