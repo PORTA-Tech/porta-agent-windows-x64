@@ -30,7 +30,16 @@ internal static class FocusAppLabelMapReader
                 return new Dictionary<string, T>(StringComparer.Ordinal);
             }
 
-            string json = File.ReadAllText(path);
+            // Share ReadWrite + Delete so this read never blocks the user-agent's atomic replace
+            // of the file (File.ReadAllText's default FileShare.Read would make the writer's
+            // File.Move throw — the root cause of the stale label map and orphaned .tmp files).
+            string json;
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var streamReader = new StreamReader(stream))
+            {
+                json = streamReader.ReadToEnd();
+            }
+
             Dictionary<string, T>? map = JsonSerializer.Deserialize<Dictionary<string, T>>(json);
             return map ?? new Dictionary<string, T>(StringComparer.Ordinal);
         }
