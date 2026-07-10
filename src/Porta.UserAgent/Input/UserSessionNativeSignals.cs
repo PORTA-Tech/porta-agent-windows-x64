@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Windows.Automation;
 using Porta.Agent.Common.Analysis;
 using Porta.Agent.Common.Privacy;
 using Porta.Agent.Core.Security;
@@ -115,10 +116,24 @@ internal static class UserSessionNativeSignals
             // only the hashed identity and the category enum leave this method.
             // Honor the user's privacy setting: when title reading is disabled, no title is
             // read at all and the browser stays in the neutral Unknown category.
-            string? title = PrivacySettingsStore.ReadBrowserTitlesEnabled()
-                ? TryReadForegroundTitle(hwnd)
-                : null;
+            bool browserTitlesEnabled = PrivacySettingsStore.ReadBrowserTitlesEnabled();
+            string? title = browserTitlesEnabled ? TryReadForegroundTitle(hwnd) : null;
             (string siteToken, AppCategory siteCategory) = BrowserTitleClassifier.ClassifyTitle(title);
+
+            // 2e: when the curated title rules don't recognize the page (siteToken == "web"), fall
+            // back to the address bar — read via UI Automation and resolved to ONLY the coarse
+            // registrable-domain token — so unbranded pages become their domain (e.g. "ycombinator")
+            // instead of collapsing to "web". Same ReadBrowserTitlesEnabled consent gate (a bare
+            // domain is LESS data than the title we already read). The raw URL is used transiently
+            // and is never stored or returned; only the coarse token folds into the identity below.
+            // Cached per page so UIA runs on navigation, not every tick; failure/timeout is silent.
+            if (browserTitlesEnabled
+                && string.Equals(siteToken, BrowserTitleClassifier.UnknownSiteToken, StringComparison.Ordinal))
+            {
+                string? domainToken = TryResolveForegroundDomainToken(processId, hwnd, title);
+                (siteToken, siteCategory) = BrowserTitleClassifier.Classify(title, domainToken);
+            }
+
             string siteHash = HashIdentifier($"{exeIdentifier}|site:{siteToken}");
             AppCategoryClassifier.RegisterHashCategory(siteHash, siteCategory);
             // Retain the coarse site token ("youtube", "github", or "web" if unrecognized) as the
@@ -170,6 +185,107 @@ internal static class UserSessionNativeSignals
             Console.Error.WriteLine(
                 $"foreground_app_hash_failed error={ex.GetType().Name}:{ex.Message}");
         }
+    }
+
+    // ── 2e: browser address-bar domain resolution (UI Automation) ───────────────────────
+    // Only reached when the curated title rules leave a browser page as "web". Reads the address
+    // bar via UIA, extracts ONLY the coarse registrable-domain token, and caches it per page so
+    // UIA runs on navigation rather than every tick. Every failure/timeout falls back to null
+    // (title-only) — this can never break capture, and the raw URL never leaves the read.
+    private static readonly ConcurrentDictionary<uint, DomainCacheEntry> BrowserDomainCache = new();
+    private static readonly TimeSpan DomainCacheTtl = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan UiaReadTimeout = TimeSpan.FromMilliseconds(50);
+
+    private readonly record struct DomainCacheEntry(string? Title, string? Token, long ExpiresTicks);
+
+    private static string? TryResolveForegroundDomainToken(uint processId, IntPtr hwnd, string? title)
+    {
+        try
+        {
+            long nowTicks = DateTimeOffset.UtcNow.UtcTicks;
+            if (BrowserDomainCache.TryGetValue(processId, out DomainCacheEntry cached)
+                && nowTicks <= cached.ExpiresTicks
+                && string.Equals(cached.Title, title, StringComparison.Ordinal))
+            {
+                // Same page (title unchanged) and still fresh -> reuse, don't hit UIA every tick.
+                return cached.Token;
+            }
+
+            string? token = ReadDomainViaUiaBounded(hwnd);
+            BrowserDomainCache[processId] = new DomainCacheEntry(
+                title, token, DateTimeOffset.UtcNow.Add(DomainCacheTtl).UtcTicks);
+            return token;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // Hard-bounds the UIA read to UiaReadTimeout on a dedicated background thread. UIA tree walks
+    // can block; if it doesn't return in time we abandon it (the thread finishes and is discarded)
+    // and fall back to title-only. Mirrors the input-desktop probe's bounded-thread pattern below.
+    private static string? ReadDomainViaUiaBounded(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        string? result = null;
+        var reader = new Thread(() =>
+        {
+            try
+            {
+                result = ReadDomainViaUiaCore(hwnd);
+            }
+            catch
+            {
+                result = null;
+            }
+        })
+        {
+            IsBackground = true,
+            Name = "porta-uia-domain-read",
+        };
+
+        reader.Start();
+        return reader.Join(UiaReadTimeout) ? result : null;
+    }
+
+    private static string? ReadDomainViaUiaCore(IntPtr hwnd)
+    {
+        AutomationElement? root = AutomationElement.FromHandle(hwnd);
+        if (root is null)
+        {
+            return null;
+        }
+
+        // The omnibox/address bar is an Edit control whose value is the current URL. Chrome, Edge,
+        // Firefox, Brave, Opera, and Vivaldi all expose it this way. Read each Edit's value, hand it
+        // to the pure resolver (which strips everything but the registrable-domain label), and take
+        // the first that yields a real token. The raw value is discarded here — only the token leaves.
+        var editCondition = new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit);
+        AutomationElementCollection edits = root.FindAll(TreeScope.Descendants, editCondition);
+        foreach (AutomationElement? edit in edits)
+        {
+            if (edit is null)
+            {
+                continue;
+            }
+
+            if (edit.TryGetCurrentPattern(ValuePattern.Pattern, out object patternObj)
+                && patternObj is ValuePattern valuePattern)
+            {
+                string? token = BrowserDomainResolver.ExtractDomainToken(valuePattern.Current.Value);
+                if (token is not null)
+                {
+                    return token;
+                }
+            }
+        }
+
+        return null;
     }
 
     // ── A2: input-desktop re-attach fallback ────────────────────────────────────────────
