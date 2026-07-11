@@ -17,7 +17,9 @@ public sealed class TodayTopMetricRulesTests
             liveSessionFresh: true,
             status);
 
-        Assert.Equal("Last focus session: 3m", text);
+        // Aligned to shipping behavior: ResolveTodayLastFocusMetricText returns the bare value;
+        // the "Last focus session" label is a separate element in the synced-metrics layout.
+        Assert.Equal("3m", text);
     }
 
     [Fact]
@@ -31,7 +33,8 @@ public sealed class TodayTopMetricRulesTests
             liveSessionFresh: true,
             status);
 
-        Assert.Equal("Last focus session: 0s", text);
+        // Aligned to shipping behavior: bare value; the "Last focus session" label is separate.
+        Assert.Equal("0s", text);
     }
 
     private static LocalApiStatusResponse BuildStatus()

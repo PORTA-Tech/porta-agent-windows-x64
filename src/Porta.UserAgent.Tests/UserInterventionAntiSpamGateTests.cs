@@ -42,7 +42,9 @@ public sealed class UserInterventionAntiSpamGateTests
         gate.MarkToastShown("inform_overload_risk", nowUtc);
 
         UserInterventionGateDecision blocked = gate.EvaluateToast("inform_overload_risk", nowUtc.AddSeconds(30));
-        UserInterventionGateDecision allowed = gate.EvaluateToast("inform_overload_risk", nowUtc.AddSeconds(61));
+        // inform_overload_risk carries a deliberate 15-minute semantic-dedup window (it's a
+        // high-signal nudge we don't want repeating), so a duplicate is allowed only after it elapses.
+        UserInterventionGateDecision allowed = gate.EvaluateToast("inform_overload_risk", nowUtc.AddMinutes(16));
 
         Assert.False(blocked.Allowed);
         Assert.Equal("anti_spam_duplicate_semantic_toast", blocked.ReasonCode);

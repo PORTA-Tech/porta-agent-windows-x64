@@ -87,12 +87,19 @@ internal static class UserSessionNativeSignals
 
                 if (!isBrowser)
                 {
+                    string exeLabel = ExtractExeName(exeIdentifier);
                     AppCategory category = AppCategoryClassifier.ClassifyStableIdentifier(exeIdentifier);
+                    if (category == AppCategory.Unknown)
+                    {
+                        // 2d: local curated rules didn't recognize this exe — fill its category from
+                        // the server overlay by its coarse token if the fleet has categorized it.
+                        category = AppCategoryClassifier.OverlayCategoryForToken(exeLabel);
+                    }
                     string hash = HashIdentifier(exeIdentifier);
                     AppCategoryClassifier.RegisterHashCategory(hash, category);
                     // Retain a coarse human label for this hash (e.g. "code", "chrome", "slack")
                     // so the digest/console can show real app names. Coarse only; no raw path/title.
-                    AppCategoryClassifier.RegisterHashLabel(hash, ExtractExeName(exeIdentifier));
+                    AppCategoryClassifier.RegisterHashLabel(hash, exeLabel);
                     // Meeting shield: flag dedicated meeting apps (Zoom/Teams/Webex) so break
                     // nudges hold while they are foreground. Coarse — no audio/mic signal.
                     if (AppCategoryClassifier.IsMeetingIdentifier(exeIdentifier))
@@ -134,6 +141,13 @@ internal static class UserSessionNativeSignals
                 (siteToken, siteCategory) = BrowserTitleClassifier.Classify(title, domainToken);
             }
 
+            // 2d: unrecognized site (curated title rules and the 2e domain fallback both Unknown) —
+            // fill its category from the server overlay by its coarse site token if the fleet has
+            // categorized it. Curated/2e results always win; this only fills a remaining Unknown.
+            if (siteCategory == AppCategory.Unknown)
+            {
+                siteCategory = AppCategoryClassifier.OverlayCategoryForToken(siteToken);
+            }
             string siteHash = HashIdentifier($"{exeIdentifier}|site:{siteToken}");
             AppCategoryClassifier.RegisterHashCategory(siteHash, siteCategory);
             // Retain the coarse site token ("youtube", "github", or "web" if unrecognized) as the

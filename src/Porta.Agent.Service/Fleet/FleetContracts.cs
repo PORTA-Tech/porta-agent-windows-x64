@@ -268,3 +268,14 @@ internal sealed record UserContextPayload(
     [property: JsonPropertyName("strongWindowStart")] int? StrongWindowStart,
     [property: JsonPropertyName("strongWindowEnd")] int? StrongWindowEnd,
     [property: JsonPropertyName("daysOfData")] int DaysOfData);
+
+// 2d: ask the control plane to categorize coarse tokens the local curated rules left Unknown.
+internal sealed record AppCategoryResolveRequestPayload(
+    [property: JsonPropertyName("agentId")] string AgentId,
+    [property: JsonPropertyName("tokens")] IReadOnlyList<string> Tokens);
+
+// 2d: control-plane response — token → category name for already-resolved tokens; the rest are
+// queued server-side and reported back in `pending` (we simply retry them on the next sync).
+internal sealed record AppCategoryResolveResultPayload(
+    [property: JsonPropertyName("mappings")] Dictionary<string, string>? Mappings,
+    [property: JsonPropertyName("pending")] List<string>? Pending);

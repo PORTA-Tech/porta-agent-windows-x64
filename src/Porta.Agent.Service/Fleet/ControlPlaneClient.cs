@@ -222,6 +222,23 @@ internal sealed class ControlPlaneClient : IDisposable
         }
     }
 
+    public async Task<AppCategoryResolveResultPayload?> ResolveAppCategoriesAsync(
+        string agentId,
+        IReadOnlyList<string> tokens,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(tokens);
+        if (string.IsNullOrWhiteSpace(agentId) || tokens.Count == 0)
+        {
+            return null;
+        }
+
+        return await PostForResultAsync<AppCategoryResolveRequestPayload, AppCategoryResolveResultPayload>(
+            "api/agent/categories/resolve",
+            new AppCategoryResolveRequestPayload(agentId, tokens),
+            token).ConfigureAwait(false);
+    }
+
     public async Task<WindowsReleaseManifestPayload?> GetLatestWindowsReleaseAsync(CancellationToken token)
     {
         if (_httpClient is null)

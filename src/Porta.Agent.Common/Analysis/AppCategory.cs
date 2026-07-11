@@ -39,6 +39,14 @@ public static class AppCategoryClassifier
     private static readonly ConcurrentDictionary<string, byte> MeetingHashRegistry =
         new(StringComparer.Ordinal);
 
+    // 2d: server-resolved coarse-token → category overlay. Filled from category-overlay.v1.json,
+    // which the service writes after the control plane (curated seed + Claude Haiku) categorizes
+    // tokens the local curated rules below could not. Consulted ONLY when local classification
+    // returns Unknown, so curated local rules always win and this purely fills the gaps — an
+    // unrecognized app ("obsidian", "linear") gets a real category instead of collapsing to Unknown.
+    private static readonly ConcurrentDictionary<string, AppCategory> ServerCategoryOverlay =
+        new(StringComparer.Ordinal);
+
     // Exe base names (lowercase, no extension) of dedicated meeting apps.
     private static readonly HashSet<string> MeetingExeNames = new(StringComparer.Ordinal)
     {
@@ -286,6 +294,37 @@ public static class AppCategoryClassifier
     /// </summary>
     public static bool IsFocusPositive(AppCategory category)
         => category == AppCategory.Development || category == AppCategory.Productivity;
+
+    /// <summary>
+    /// 2d: replaces the server category overlay (coarse token → category). Coarse tokens only —
+    /// the same lowercase labels persisted for each hash ("obsidian", "linear", a site token).
+    /// Unknown values are ignored. Called by the user-agent whenever it reads a fresh overlay file.
+    /// </summary>
+    public static void ApplyServerCategoryOverlay(IReadOnlyDictionary<string, AppCategory>? map)
+    {
+        ServerCategoryOverlay.Clear();
+        if (map == null)
+            return;
+        foreach (KeyValuePair<string, AppCategory> entry in map)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Key) || entry.Value == AppCategory.Unknown)
+                continue;
+            ServerCategoryOverlay[entry.Key.Trim().ToLowerInvariant()] = entry.Value;
+        }
+    }
+
+    /// <summary>
+    /// 2d: server-provided category for a coarse token, or Unknown if none. Consulted only to fill
+    /// gaps where the local curated rules returned Unknown, so curated local rules keep priority.
+    /// </summary>
+    public static AppCategory OverlayCategoryForToken(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return AppCategory.Unknown;
+        return ServerCategoryOverlay.TryGetValue(token.Trim().ToLowerInvariant(), out AppCategory cat)
+            ? cat
+            : AppCategory.Unknown;
+    }
 
     private static string ExtractClassifiableName(string stableIdentifier)
     {

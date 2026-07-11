@@ -14,6 +14,9 @@ internal sealed class ControlPlaneReporter : BackgroundService
     private const int SummaryIntervalSeconds = 10;
     private const int ActionPollIntervalSeconds = 5;
     private const int ActionBatchSize = 100;
+    // 2d: how often to resolve locally-Unknown app tokens through the control plane. Slow — the
+    // set of unknown apps changes rarely and the answers are cached server-side.
+    private const int CategorySyncIntervalSeconds = 300;
     private static readonly TimeSpan ConnectivityFreshnessWindow = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan FailureLogInterval = TimeSpan.FromMinutes(1);
 
@@ -26,6 +29,7 @@ internal sealed class ControlPlaneReporter : BackgroundService
     private DateTimeOffset? _lastSummaryFailureLogUtc;
     private DateTimeOffset? _lastActionFailureLogUtc;
     private DateTimeOffset? _lastLoopFailureLogUtc;
+    private DateTimeOffset _nextCategorySyncDueUtc = DateTimeOffset.MinValue;
 
     public ControlPlaneReporter(
         IAgentCoreController controller,
@@ -87,6 +91,14 @@ internal sealed class ControlPlaneReporter : BackgroundService
                 if (actionPublishResult.AnySent)
                 {
                     state = state with { LastActionSuccessUtc = DateTimeOffset.UtcNow };
+                }
+
+                // 2d: on a slow cadence, resolve locally-Unknown app tokens through the control
+                // plane and refresh the overlay the user-agent reads. Best-effort inside RunOnceAsync.
+                if (nowUtc >= _nextCategorySyncDueUtc)
+                {
+                    await AppCategoryOverlaySync.RunOnceAsync(_client, identityLink.DeviceId, stoppingToken).ConfigureAwait(false);
+                    _nextCategorySyncDueUtc = nowUtc.AddSeconds(CategorySyncIntervalSeconds);
                 }
 
                 _stateStore.Save(state);

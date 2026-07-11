@@ -580,6 +580,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         }
 
         SampleAmbientSignals(windowEndUtc);
+        // 2d: refresh the server category overlay (cheap no-op unless the file changed) so newly
+        // fleet-categorized tokens start counting toward the right category. Fills Unknowns only.
+        AppCategoryOverlayStore.RefreshIfChanged();
         // Persist the coarse hash → label map so the service/core can name apps/sites in the
         // digest and console. Best-effort, coarse labels only; never touches capture.
         FocusAppLabelStore.Persist();
