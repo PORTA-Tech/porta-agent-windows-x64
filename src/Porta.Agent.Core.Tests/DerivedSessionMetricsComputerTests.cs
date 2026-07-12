@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Porta.Agent.Common.Analysis;
 using Porta.Agent.Core.Analysis;
 using Porta.Agent.Core.Buckets;
 
@@ -529,6 +530,160 @@ public sealed class DerivedSessionMetricsComputerTests
         Assert.Equal("Steady focus episode.", result.AttentionSegmentReasonText);
         Assert.Equal("keep", result.ContinuityState);
         Assert.Equal(125d, result.TaskContinuitySeconds, precision: 6);
+    }
+
+    // ── 2f: category-aware off-task detection ────────────────────────────────
+    [Fact]
+    public void ComputeForFinalizedBucket_2f_NonWorkOffAnchorPastThreshold_FiresOffTask()
+    {
+        AppCategoryClassifier.RegisterHashCategory("hash_2f_youtube", AppCategory.Entertainment);
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 300d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityState: "keep",
+            continuityScore: 1d,
+            continuityCandidateAnchorAppHash: "hash_2f_youtube",
+            continuityCandidateAnchorAccumulatedSeconds: 100d,
+            continuityAnchorLockedSeconds: 100d,
+            continuitySessionActiveInteractionSeconds: 300d);
+
+        InputBucketRow row = BuildStableRow() with { DominantAppHash = "hash_2f_youtube" };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection, tx, row, BuildPrimitive(focusAvailable: true), BaselineGatingResult.Warm);
+
+        // Anchor locked on work, sustained interaction on a non-work app (YouTube) off the anchor
+        // past the 90s off-task threshold (and before the 240s migration) -> off-task fires.
+        Assert.Equal("outside_focus_context", result.AttentionSegmentReasonCode);
+        Assert.True(result.DistractionEpisodeActive);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_2f_WorkOffAnchorPastThreshold_NeverOffTask()
+    {
+        AppCategoryClassifier.RegisterHashCategory("hash_2f_docs", AppCategory.Productivity);
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 300d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityState: "keep",
+            continuityScore: 1d,
+            continuityCandidateAnchorAppHash: "hash_2f_docs",
+            continuityCandidateAnchorAccumulatedSeconds: 100d,
+            continuityAnchorLockedSeconds: 100d,
+            continuitySessionActiveInteractionSeconds: 300d);
+
+        InputBucketRow row = BuildStableRow() with { DominantAppHash = "hash_2f_docs" };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection, tx, row, BuildPrimitive(focusAvailable: true), BaselineGatingResult.Warm);
+
+        // A work-category app off the anchor is a legit focus shift, never off-task.
+        Assert.NotEqual("outside_focus_context", result.AttentionSegmentReasonCode);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_2f_UnknownOffAnchor_StaysNeutral_ShipsDark()
+    {
+        // No category registered -> Unknown. 2f is conservative: Unknown stays neutral, so the
+        // feature ships dark until 2d fills categories across the fleet.
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 300d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "app_hash_work",
+            saLastUpdateBucketSeq: 0,
+            continuityState: "keep",
+            continuityScore: 1d,
+            continuityCandidateAnchorAppHash: "hash_2f_mystery",
+            continuityCandidateAnchorAccumulatedSeconds: 100d,
+            continuityAnchorLockedSeconds: 100d,
+            continuitySessionActiveInteractionSeconds: 300d);
+
+        InputBucketRow row = BuildStableRow() with { DominantAppHash = "hash_2f_mystery" };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection, tx, row, BuildPrimitive(focusAvailable: true), BaselineGatingResult.Warm);
+
+        Assert.NotEqual("outside_focus_context", result.AttentionSegmentReasonCode);
+    }
+
+    // ── 2g: return_loop only for known non-work ping-pong ─────────────────────
+    // Seed the ping-pong ring one hop short of firing (2 of 3 cycles, alternating editor<->video with
+    // shallow ~5s dwell) with the anchor sitting on the current app so the bucket reaches the
+    // steady-focus pattern block. The final hop completes the 3rd cycle.
+    [Fact]
+    public void ComputeForFinalizedBucket_2g_EditorYouTubePingPong_FlagsReturnLoop()
+    {
+        AppCategoryClassifier.RegisterHashCategory("hash_2g_editor", AppCategory.Development);
+        AppCategoryClassifier.RegisterHashCategory("hash_2g_video", AppCategory.Entertainment);
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 60d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "hash_2g_video",
+            saLastUpdateBucketSeq: 0,
+            continuityState: "keep",
+            continuityScore: 1d,
+            continuitySessionActiveInteractionSeconds: 60d,
+            continuityPingPongRecentHashesJson: "[[\"hash_2g_editor\",50],[\"hash_2g_video\",55],[\"hash_2g_editor\",60]]",
+            continuityPingPongCycleCount: 2,
+            continuityPingPongWindowStartSeconds: 50d);
+
+        InputBucketRow row = BuildStableRow() with { DominantAppHash = "hash_2g_video" };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection, tx, row, BuildPrimitive(focusAvailable: true), BaselineGatingResult.Warm);
+
+        // A work<->non-work ping-pong with shallow dwell is a real return loop.
+        Assert.Equal("return_loop_distraction", result.AttentionSegmentReasonCode);
+    }
+
+    [Fact]
+    public void ComputeForFinalizedBucket_2g_UnknownPingPong_DoesNotFlag()
+    {
+        // Identical ping-pong shape, but both apps are Unknown (unregistered). 2g requires at least
+        // one KNOWN non-work side, so the cycle does NOT increment and the loop is not flagged —
+        // the old false-positive machine is closed.
+        using var connection = OpenInMemoryDb();
+        using SqliteTransaction tx = connection.BeginTransaction();
+        InsertDerivedSessionState(
+            connection,
+            tx,
+            sustainedAttentionDurationSec: 60d,
+            idleFragmentationIndex: 0.1d,
+            saContextAppHash: "hash_2g_mysteryB",
+            saLastUpdateBucketSeq: 0,
+            continuityState: "keep",
+            continuityScore: 1d,
+            continuitySessionActiveInteractionSeconds: 60d,
+            continuityPingPongRecentHashesJson: "[[\"hash_2g_mysteryA\",50],[\"hash_2g_mysteryB\",55],[\"hash_2g_mysteryA\",60]]",
+            continuityPingPongCycleCount: 2,
+            continuityPingPongWindowStartSeconds: 50d);
+
+        InputBucketRow row = BuildStableRow() with { DominantAppHash = "hash_2g_mysteryB" };
+
+        DerivedSessionMetricsResult result = DerivedSessionMetricsComputer.ComputeForFinalizedBucket(
+            connection, tx, row, BuildPrimitive(focusAvailable: true), BaselineGatingResult.Warm);
+
+        Assert.NotEqual("return_loop_distraction", result.AttentionSegmentReasonCode);
     }
 
     [Fact]
@@ -1097,7 +1252,14 @@ public sealed class DerivedSessionMetricsComputerTests
         string continuityState = "reset",
         double continuityScore = 0d,
         double continuityInstabilitySeconds = 0d,
-        double focusEpisodeCandidateSeconds = 0d)
+        double focusEpisodeCandidateSeconds = 0d,
+        string continuityCandidateAnchorAppHash = "",
+        double continuityCandidateAnchorAccumulatedSeconds = 0d,
+        double continuityAnchorLockedSeconds = 0d,
+        double continuitySessionActiveInteractionSeconds = 0d,
+        string continuityPingPongRecentHashesJson = "",
+        long continuityPingPongCycleCount = 0,
+        double continuityPingPongWindowStartSeconds = 0d)
     {
         string valueJson = JsonSerializer.Serialize(new
         {
@@ -1123,7 +1285,14 @@ public sealed class DerivedSessionMetricsComputerTests
             sustained_attention_duration_sec = sustainedAttentionDurationSec,
             idle_fragmentation_index = idleFragmentationIndex,
             dominant_app_hash = saContextAppHash,
-            bucket_seq = saLastUpdateBucketSeq
+            bucket_seq = saLastUpdateBucketSeq,
+            candidate_anchor_app_hash = continuityCandidateAnchorAppHash,
+            candidate_anchor_accumulated_seconds = continuityCandidateAnchorAccumulatedSeconds,
+            anchor_locked_seconds = continuityAnchorLockedSeconds,
+            session_active_interaction_seconds = continuitySessionActiveInteractionSeconds,
+            ping_pong_recent_hashes_json = continuityPingPongRecentHashesJson,
+            ping_pong_cycle_count = continuityPingPongCycleCount,
+            ping_pong_window_start_seconds = continuityPingPongWindowStartSeconds
         });
         InsertRawRuntimeState(connection, tx, PortaExecutionConstants.DerivedSessionMetrics.RuntimeStateKey, valueJson);
     }

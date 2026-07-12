@@ -923,14 +923,68 @@ internal static class DerivedSessionMetricsComputer
                 NewSessionStartChecked: previous.SessionStartChecked);
         }
 
+        // ── 2f: category-aware off-task ("you left work for something else") ──────
+        // Revives the off-task gate that used to hang off the rarely-produced context_excursion
+        // reason code (below) and therefore never fired. Gate instead on the anchor engine's own
+        // signals — anchor locked, interaction live, and the user dwelling OFF the anchor on a
+        // known non-work app (Entertainment / Social / Gaming) past the off-task threshold.
+        // Dev/Productivity candidates are never off-task (a legit focus shift lets the anchor
+        // migrate untouched); Unknown/Communication stay neutral, so this ships dark until 2d
+        // fills categories across the fleet. Off-task can therefore only fire in the window
+        // between leaving the anchor and the anchor migrating — exactly right for non-work apps,
+        // which shouldn't become the anchor of a work session in under a few minutes.
+        if (continuity.AnchorLockedSeconds > 0d
+            && evidence.AnyInteractionActive
+            && !string.IsNullOrWhiteSpace(continuity.CandidateAnchorAppHash))
+        {
+            AppCategory candidateCategory = AppCategoryClassifier.GetCategoryForHash(continuity.CandidateAnchorAppHash);
+            bool candidateNonWork = candidateCategory == AppCategory.Entertainment
+                || candidateCategory == AppCategory.SocialMedia
+                || candidateCategory == AppCategory.Gaming;
+            if (candidateNonWork
+                && continuity.CandidateAnchorAccumulatedSeconds >= PortaExecutionConstants.DistractionEpisodes.OffTaskDistractionStartSeconds)
+            {
+                double offTaskSeconds = Math.Max(continuity.CandidateAnchorAccumulatedSeconds, Time.bucketSeconds);
+                return new AttentionSegmentDecision(
+                    Kind: AttentionSegmentKinds.OffTaskDistraction,
+                    SegmentSeconds: ClampNonNegativeFinite(offTaskSeconds),
+                    DistractionEpisodeActive: true,
+                    DistractionEpisodeSeconds: ClampNonNegativeFinite(offTaskSeconds),
+                    ReasonCode: "outside_focus_context",
+                    ReasonText: $"Stayed outside focus context for {FormatEpisodeDuration(offTaskSeconds)}.",
+                    NewEwmaSwitchRate: previous.EwmaSwitchRate,
+                    NewMicroBurstAccumulatedSeconds: previous.MicroBurstAccumulatedSeconds,
+                    NewRecentDominantHashesJson: previous.RecentDominantHashes,
+                    NewPingPongCycleCount: previous.PingPongCycleCount,
+                    NewPingPongWindowStartSeconds: previous.PingPongWindowStartSeconds,
+                    NewSessionActiveInteractionSeconds: previous.SessionActiveInteractionSeconds,
+                    NewUnfocusedSessionFired: previous.UnfocusedSessionFired,
+                    NewEwmaAverageDwellSeconds: previous.EwmaAverageDwellSeconds,
+                    NewShallowDwellAccumulatedSeconds: previous.ShallowDwellAccumulatedSeconds,
+                    NewWindowsOffAnchorSeconds: previous.WindowsOffAnchorSeconds,
+                    NewWindowsOffAnchorBucketsBack: previous.WindowsOffAnchorBucketsBack,
+                    NewSocialMediaAccumulatedSeconds: socialMediaAcc,
+                    NewGamingLauncherAccumulatedSeconds: gamingLauncherAcc,
+                    NewGamingActiveAccumulatedSeconds: gamingActiveAcc,
+                    NewSocialMediaReturnCount: socialMediaReturnCount,
+                    NewSocialMediaWindowStartSeconds: socialMediaWindowStart,
+                    NewSocialMediaLastDominantCategory: socialMediaLastCategory,
+                    NewFocusCategoryAbsentSeconds: previous.FocusCategoryAbsentSeconds,
+                    NewSessionStartDistractionSeconds: previous.SessionStartDistractionSeconds,
+                    NewSessionStartChecked: previous.SessionStartChecked);
+            }
+        }
+
         bool contextExcursion = string.Equals(reasonCode, "context_excursion", StringComparison.Ordinal)
             || string.Equals(reasonCode, "context_excursion_decay", StringComparison.Ordinal)
             || string.Equals(reasonCode, "context_shift_reset", StringComparison.Ordinal);
         if (contextExcursion)
         {
             double segmentSeconds = Math.Max(continuity.ContextSwitchSeconds, Time.bucketSeconds);
-            bool offTaskDistraction = evidence.AnyInteractionActive
-                && continuity.ContextSwitchSeconds >= PortaExecutionConstants.DistractionEpisodes.OffTaskDistractionStartSeconds;
+            // 2f: off-task escalation now lives in the category-aware gate above. This legacy
+            // trigger ignored category and hung off the context_excursion reason code (unreachable
+            // in practice); keep this branch as the neutral context_excursion state only.
+            bool offTaskDistraction = false;
             return new AttentionSegmentDecision(
                 Kind: offTaskDistraction ? AttentionSegmentKinds.OffTaskDistraction : AttentionSegmentKinds.ContextExcursion,
                 SegmentSeconds: ClampNonNegativeFinite(segmentSeconds),
@@ -1099,11 +1153,15 @@ internal static class DerivedSessionMetricsComputer
                 bool alternates = true;
                 for (int i = 1; i < ring.Count; i++)
                     if (string.Equals(ring[i].Hash, ring[i - 1].Hash, StringComparison.Ordinal)) { alternates = false; break; }
-                // Editor <-> browser cycling while working is normal, not ping-pong distraction:
-                // suppress when either side of the loop is a focus-positive (Dev/Productivity) app.
-                bool eitherFocusPositive = distinct.Any(h =>
-                    AppCategoryClassifier.IsFocusPositive(AppCategoryClassifier.GetCategoryForHash(h)));
-                if (alternates && !eitherFocusPositive)
+                // 2g: a ping-pong is only a distraction when at least one side is a KNOWN non-work
+                // app (Entertainment / Social / Gaming). work<->work stays focus, and unknown<->unknown
+                // is no longer flagged (that was the false-positive machine); editor<->YouTube still is.
+                bool eitherKnownNonWork = distinct.Any(h =>
+                {
+                    AppCategory c = AppCategoryClassifier.GetCategoryForHash(h);
+                    return c == AppCategory.Entertainment || c == AppCategory.SocialMedia || c == AppCategory.Gaming;
+                });
+                if (alternates && eitherKnownNonWork)
                 {
                     double totalTime = ring[^1].T - ring[0].T;
                     double avgDwell = totalTime / Math.Max(ring.Count - 1, 1);
