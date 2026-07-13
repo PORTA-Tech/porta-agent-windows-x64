@@ -1604,6 +1604,22 @@
                                         </Grid>
                                     </StackPanel>
                                 </Border>
+                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="DESKTOP WIDGET" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                                <TextBlock Text="Show desktop widget" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
+                                                <TextBlock Text="Turning this off hides the widget permanently. The widget's own hide button only hides it until tomorrow." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <CheckBox x:Name="DesktopWidgetVisibleToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="DesktopWidgetVisibleToggle_Click" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                             <StackPanel x:Name="SettingsSectionFeatures" Visibility="Collapsed">
                                 <TextBlock Text="Features" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />

@@ -1038,7 +1038,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         popupStack.Children.Add(_resumeButton);
         popupStack.Children.Add(CreateMenuSeparator());
         popupStack.Children.Add(CreateMenuButton("Reset position", UserDesktopWidgetAction.ResetPosition));
-        _hideWidgetButton = CreateMenuButton("Hide widget", UserDesktopWidgetAction.HideWidget);
+        // "until tomorrow" is the contract (Workstream 3) — the button must say it, so
+        // hiding never reads as "gone forever" and the morning return never feels like a bug.
+        _hideWidgetButton = CreateMenuButton("Hide until tomorrow", UserDesktopWidgetAction.HideWidget);
         popupStack.Children.Add(_hideWidgetButton);
 
         _rootBorder.Child = shellGrid;

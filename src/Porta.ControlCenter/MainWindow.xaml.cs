@@ -185,6 +185,7 @@ public partial class MainWindow : Window
         SidebarDateText.Text = DateTime.Now.ToString("ddd d MMM", System.Globalization.CultureInfo.InvariantCulture);
         _isLightTheme = AppearancePreferenceStore.LoadIsLightTheme();
         AppearanceLightModeToggle.IsChecked = _isLightTheme;
+        DesktopWidgetVisibleToggle.IsChecked = DesktopWidgetPreferenceStore.LoadIsWidgetEnabled();
         BrowserTitleReadingToggle.IsChecked = Porta.Agent.Common.Privacy.PrivacySettingsStore.ReadBrowserTitlesEnabled();
         if (_isLightTheme)
         {
@@ -1075,6 +1076,14 @@ public partial class MainWindow : Window
     {
         Porta.Agent.Common.Privacy.PrivacySettingsStore.Save(
             new Porta.Agent.Common.Privacy.PrivacySettings(BrowserTitleReadingToggle.IsChecked == true));
+    }
+
+    // Workstream 3 — the ONLY permanent widget hide. The widget's own hide button hides
+    // until tomorrow; this toggle writes/clears the disabled flag the user agent's
+    // visibility store checks first. Takes effect within one maintenance tick (~2s).
+    private void DesktopWidgetVisibleToggle_Click(object sender, RoutedEventArgs e)
+    {
+        DesktopWidgetPreferenceStore.SaveWidgetEnabled(DesktopWidgetVisibleToggle.IsChecked == true);
     }
 
     private void ApplyTheme(bool isLight)

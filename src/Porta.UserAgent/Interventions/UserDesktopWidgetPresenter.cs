@@ -42,6 +42,9 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     // path at all, so this throttle is completely inert for them.
     private static readonly TimeSpan MaintenanceRestartBackoff = TimeSpan.FromSeconds(60);
     private DateTimeOffset _lastMaintenanceRestartUtc = DateTimeOffset.MinValue;
+    // Workstream 3 — last hidden state this presenter acted on. Null until first observed,
+    // so a normal start never fires the "widget is back" affordance.
+    private bool? _lastHiddenObserved;
     private bool _disposed;
 
     public UserDesktopWidgetPresenter(UserDesktopWidgetRollout? rollout = null)
@@ -96,8 +99,43 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         }
     }
 
+    // Workstream 3 — the store's answer is time-based ("hidden until the next 5:00 local"),
+    // so visibility must be RE-ASKED, not cached. Called from the 2s maintenance tick and
+    // from session unlock/logon: crossing the morning boundary or reopening the laptop on a
+    // later day brings a hidden widget back without any user action.
+    internal void ReevaluateVisibility()
+    {
+        if (_disposed || !_rollout.SupportsWidgetSurface)
+        {
+            return;
+        }
+
+        bool hidden = _visibilityStore.IsHidden();
+        bool? previous = _lastHiddenObserved;
+        _lastHiddenObserved = hidden;
+        if (previous is null || previous == hidden)
+        {
+            return;
+        }
+
+        if (hidden)
+        {
+            _ = TryDispatchToWidget(static window => window.HideWidget(), out _);
+            return;
+        }
+
+        // Boundary return (the widget itself has no un-hide affordance, so a hidden→visible
+        // transition here is always the daily comeback, never a user click). Quiet, one-time:
+        // a new day starts, the widget is simply present again.
+        _ = TryDispatchToWidget(static window => window.ShowWidgetIfHidden(), out _);
+        _ = TryShow("Ari", "New day — the widget is back. Hide it again anytime from its menu.", out _);
+        UserAgentFileLog.Info("desktop_widget_daily_return");
+    }
+
     internal void MaintainWidgetSurface()
     {
+        ReevaluateVisibility();
+
         if (_disposed || !_rollout.SupportsWidgetSurface || _visibilityStore.IsHidden())
         {
             return;
@@ -832,8 +870,12 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 break;
 
             case UserDesktopWidgetAction.HideWidget:
+                // Hide means hide for TODAY (Workstream 3): back at the next 5:00 local.
+                // Permanent hide lives only in Control Center → Settings.
                 _visibilityStore.Hide();
+                _lastHiddenObserved = true;
                 _ = TryDispatchToWidget(static window => window.HideWidget(), out _);
+                _ = TryShowSystemNotification("Ari", "Widget hidden until tomorrow morning. Turn it off for good in Settings.");
                 break;
 
             case UserDesktopWidgetAction.RetryCritical:

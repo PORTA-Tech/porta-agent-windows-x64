@@ -1207,6 +1207,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         }
 
         ArmCaptureSelfTest(e.Reason.ToString());
+
+        // Workstream 3: "closed the laptop yesterday, opened it today" — re-ask widget
+        // visibility immediately on unlock instead of waiting for the next maintenance
+        // tick. Same-day unlocks are a no-op (the store still reports hidden).
+        _toastRenderer.ReevaluateVisibility();
     }
 
     private void ShowCaptureSelfTestFailureToast(CaptureSelfTestDecision decision)
