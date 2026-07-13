@@ -165,6 +165,14 @@ internal sealed class UserDesktopWidgetWindow : Window
     private StackPanel _quickAddPanel = null!;
     private TextBox _quickAddBox = null!;
     private TextBlock _quickAddPreview = null!;
+    private Button _quickAddSetButton = null!;
+    // Workstream 2 — the time picker. All time logic lives in the pure compose state;
+    // the window only renders snapshots and forwards taps.
+    private readonly Porta.Agent.Common.ReminderComposeState _composeState = new();
+    private readonly List<Button> _quickAddChips = new();
+    private Button _quickAddClockToggle = null!;
+    private TextBox _quickAddClockBox = null!;
+    private bool _quickAddClockMode;
     private bool _quickAddOpen;
 
     public UserDesktopWidgetWindow(
@@ -585,7 +593,11 @@ internal sealed class UserDesktopWidgetWindow : Window
             CaretBrush = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
             Padding = new Thickness(4, 2, 4, 2)
         };
-        _quickAddBox.TextChanged += (_, _) => RefreshQuickAddPreview();
+        _quickAddBox.TextChanged += (_, _) =>
+        {
+            _composeState.SetText(_quickAddBox.Text, DateTimeOffset.Now);
+            RefreshQuickAddPreview();
+        };
         _quickAddBox.KeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter)
@@ -619,6 +631,85 @@ internal sealed class UserDesktopWidgetWindow : Window
             Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
             Margin = new Thickness(1, 2, 0, 0)
         };
+
+        // ── Workstream 2: time picker — chips, ±15m stepper, clock toggle ──
+        // Typing a time still works; the picker guarantees a time can ALWAYS be chosen
+        // explicitly, and confirm stays blocked until one is visible in the preview.
+        var pickerRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 3, 0, 0)
+        };
+        string[] chipLabels = { "10m", "30m", "1h", "2h" };
+        for (int i = 0; i < chipLabels.Length; i++)
+        {
+            int chipMinutes = Porta.Agent.Common.ReminderComposeState.ChipMinutes[i];
+            Button chip = CreateQuickAddPickerButton(chipLabels[i]);
+            chip.Click += (_, _) =>
+            {
+                _composeState.SelectChip(chipMinutes);
+                RefreshQuickAddPreview();
+            };
+            _quickAddChips.Add(chip);
+            pickerRow.Children.Add(chip);
+        }
+
+        Button stepDown = CreateQuickAddPickerButton("−15");
+        stepDown.Margin = new Thickness(6, 0, 2, 0);
+        stepDown.Click += (_, _) =>
+        {
+            _composeState.Step(-Porta.Agent.Common.ReminderComposeState.StepMinutesDelta, DateTimeOffset.Now);
+            RefreshQuickAddPreview();
+        };
+        pickerRow.Children.Add(stepDown);
+        Button stepUp = CreateQuickAddPickerButton("+15");
+        stepUp.Click += (_, _) =>
+        {
+            _composeState.Step(Porta.Agent.Common.ReminderComposeState.StepMinutesDelta, DateTimeOffset.Now);
+            RefreshQuickAddPreview();
+        };
+        pickerRow.Children.Add(stepUp);
+
+        _quickAddClockToggle = CreateQuickAddPickerButton("🕐");
+        _quickAddClockToggle.Margin = new Thickness(6, 0, 2, 0);
+        _quickAddClockToggle.Click += (_, _) => ToggleQuickAddClockMode();
+        pickerRow.Children.Add(_quickAddClockToggle);
+        _quickAddClockBox = new TextBox
+        {
+            FontSize = 10,
+            Width = 44,
+            Background = new SolidColorBrush(Color.FromRgb(0x0F, 0x11, 0x14)),
+            Foreground = new SolidColorBrush(Color.FromRgb(0xED, 0xEF, 0xF3)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x41, 0x50)),
+            BorderThickness = new Thickness(1),
+            CaretBrush = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
+            Padding = new Thickness(4, 1, 4, 1),
+            Visibility = Visibility.Collapsed
+        };
+        _quickAddClockBox.TextChanged += (_, _) =>
+        {
+            if (TryParseClockEntry(_quickAddClockBox.Text, out int hour, out int minute))
+            {
+                _composeState.SetExactTime(hour, minute);
+            }
+
+            RefreshQuickAddPreview();
+        };
+        _quickAddClockBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                ConfirmReminderQuickAdd();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                CloseReminderQuickAdd();
+                e.Handled = true;
+            }
+        };
+        pickerRow.Children.Add(_quickAddClockBox);
+
         // Explicit Set / Cancel buttons — users must never need to guess that Enter applies.
         var quickAddSet = new Button
         {
@@ -641,6 +732,7 @@ internal sealed class UserDesktopWidgetWindow : Window
                 pressedBorder: Color.FromRgb(0x1E, 0x4D, 0x3B))
         };
         quickAddSet.Click += (_, _) => ConfirmReminderQuickAdd();
+        _quickAddSetButton = quickAddSet;
         var quickAddCancel = new Button
         {
             Content = "Cancel",
@@ -673,6 +765,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             Visibility = Visibility.Collapsed
         };
         _quickAddPanel.Children.Add(_quickAddBox);
+        _quickAddPanel.Children.Add(pickerRow);
         _quickAddPanel.Children.Add(_quickAddPreview);
         _quickAddPanel.Children.Add(quickAddButtons);
 
@@ -1723,6 +1816,32 @@ internal sealed class UserDesktopWidgetWindow : Window
         };
 
         return button;
+    }
+
+    // Workstream 2 — small flat buttons for the quick-add time picker (chips, stepper,
+    // clock toggle). Same design language as Set/Cancel, just tighter.
+    private static Button CreateQuickAddPickerButton(string content)
+    {
+        return new Button
+        {
+            Content = content,
+            FontSize = 9,
+            Padding = new Thickness(6, 1, 6, 1),
+            Margin = new Thickness(0, 0, 2, 0),
+            Background = Brushes.Transparent,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand,
+            Focusable = false,
+            FocusVisualStyle = null,
+            Template = CreateFlatButtonTemplate(
+                cornerRadius: new CornerRadius(4),
+                hoverBackground: Color.FromRgb(34, 42, 51),
+                hoverBorder: Color.FromRgb(73, 88, 105),
+                pressedBackground: Color.FromRgb(24, 31, 39),
+                pressedBorder: Color.FromRgb(84, 101, 120))
+        };
     }
 
     private static ControlTemplate CreateFlatButtonTemplate(
@@ -2933,7 +3052,11 @@ internal sealed class UserDesktopWidgetWindow : Window
     {
         Expand();
         _quickAddOpen = true;
+        _composeState.Reset();
         _quickAddBox.Text = string.Empty;
+        _quickAddClockMode = false;
+        _quickAddClockBox.Text = string.Empty;
+        _quickAddClockBox.Visibility = Visibility.Collapsed;
         RefreshQuickAddPreview();
         _quickAddPanel.Visibility = Visibility.Visible;
         RefreshReminderPill();
@@ -2981,21 +3104,29 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void ConfirmReminderQuickAdd()
     {
-        Porta.Agent.Common.ReminderParseResult parsed =
-            Porta.Agent.Common.ReminderTimeParser.Parse(_quickAddBox.Text, DateTimeOffset.Now);
+        // Workstream 2 invariant: a reminder is only ever scheduled with a time the user
+        // has explicitly seen in the preview. No recognized time and no picker selection
+        // → confirm is a no-op (the preview already shows "Pick a time" in warning state).
+        Porta.Agent.Common.ReminderComposeSnapshot snap = _composeState.Snapshot(DateTimeOffset.Now);
+        if (!snap.CanConfirm || snap.DueAt is not { } dueAt)
+        {
+            RefreshQuickAddPreview();
+            return;
+        }
+
         _reminderCommandRequested?.Invoke(new UserDesktopWidgetReminderCommand(
             Kind: "create",
             Id: 0,
-            Title: parsed.Title,
-            DueAtUtc: parsed.DueAt.ToUniversalTime()));
+            Title: snap.Title,
+            DueAtUtc: dueAt.ToUniversalTime()));
 
         // Optimistic: show the pill IMMEDIATELY. Waiting for the next host poll read as
         // "nothing happened". The real row (with its id) replaces this on the next push;
         // if creation failed the poll clears it and the cap toast explains why.
         _nextReminder = new UserDesktopWidgetReminderInfo(
             Id: -1,
-            Title: parsed.Title,
-            DueAtUtc: parsed.DueAt.ToUniversalTime(),
+            Title: snap.Title,
+            DueAtUtc: dueAt.ToUniversalTime(),
             State: "pending",
             SnoozeCount: 0);
         CloseReminderQuickAdd();
@@ -3004,9 +3135,71 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void RefreshQuickAddPreview()
     {
-        Porta.Agent.Common.ReminderParseResult parsed =
-            Porta.Agent.Common.ReminderTimeParser.Parse(_quickAddBox.Text, DateTimeOffset.Now);
-        _quickAddPreview.Text = $"{parsed.Title} — {parsed.PreviewLabel} · Enter to set, Esc to cancel";
+        Porta.Agent.Common.ReminderComposeSnapshot snap = _composeState.Snapshot(DateTimeOffset.Now);
+
+        // The preview is the single source of truth for what will be scheduled.
+        _quickAddPreview.Text = snap.CanConfirm
+            ? $"{snap.Title} — {snap.PreviewLabel}"
+            : $"{snap.Title} — {snap.PreviewLabel} (chips below, or type \"in 20m\")";
+        _quickAddPreview.Foreground = new SolidColorBrush(snap.CanConfirm
+            ? Color.FromRgb(0x94, 0xA3, 0xB8)
+            : Color.FromRgb(0xE0, 0xA8, 0x3A));
+
+        _quickAddSetButton.IsEnabled = snap.CanConfirm;
+        _quickAddSetButton.Opacity = snap.CanConfirm ? 1.0 : 0.45;
+
+        for (int i = 0; i < _quickAddChips.Count; i++)
+        {
+            bool selected = snap.SelectedDurationMinutes == Porta.Agent.Common.ReminderComposeState.ChipMinutes[i];
+            _quickAddChips[i].Foreground = new SolidColorBrush(selected
+                ? Color.FromRgb(0x16, 0xC7, 0x84)
+                : Color.FromRgb(0x94, 0xA3, 0xB8));
+            _quickAddChips[i].BorderBrush = new SolidColorBrush(selected
+                ? Color.FromRgb(0x1E, 0x4D, 0x3B)
+                : Color.FromRgb(0x25, 0x25, 0x35));
+        }
+    }
+
+    private void ToggleQuickAddClockMode()
+    {
+        _quickAddClockMode = !_quickAddClockMode;
+        _quickAddClockBox.Visibility = _quickAddClockMode ? Visibility.Visible : Visibility.Collapsed;
+        if (_quickAddClockMode)
+        {
+            if (_quickAddClockBox.Text.Length == 0)
+            {
+                // Seed with the next round quarter-hour so the user edits a valid value
+                // instead of typing from scratch.
+                DateTimeOffset seed = DateTimeOffset.Now.AddMinutes(15);
+                int rounded = (seed.Minute / 15) * 15;
+                _quickAddClockBox.Text = $"{seed.Hour:00}:{rounded:00}";
+            }
+
+            Keyboard.Focus(_quickAddClockBox);
+            _quickAddClockBox.SelectAll();
+        }
+
+        RefreshQuickAddPreview();
+        UpdateWindowHeight();
+    }
+
+    // Strict HH:mm (24h). The parser's looser grammars stay in the typed line; this box is
+    // the explicit exact-time affordance, so ambiguity is not accepted here.
+    private static bool TryParseClockEntry(string? raw, out int hour, out int minute)
+    {
+        hour = 0;
+        minute = 0;
+        string text = (raw ?? string.Empty).Trim();
+        int colon = text.IndexOf(':');
+        if (colon <= 0 || colon == text.Length - 1)
+        {
+            return false;
+        }
+
+        return int.TryParse(text[..colon], out hour)
+            && int.TryParse(text[(colon + 1)..], out minute)
+            && hour is >= 0 and <= 23
+            && minute is >= 0 and <= 59;
     }
 
     private void SetNoActivateStyle(bool enabled)

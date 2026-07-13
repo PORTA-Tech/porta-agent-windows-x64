@@ -41,6 +41,23 @@ public sealed class RemindersStoreTests
         });
     }
 
+    // Workstream 2 — a reminder must NEVER ring before its due time: reads right up to
+    // (and including one tick before) due_at_utc leave it pending; at due it fires. Late
+    // by up to one poll interval is fine, early is a bug.
+    [Fact]
+    public void NeverFiresBeforeDueTime()
+    {
+        RunWithStore((store, _) =>
+        {
+            DateTimeOffset due = Now.AddHours(2);
+            store.CreateReminder("in 2 hours", due, Now);
+
+            Assert.Equal("pending", store.ReadNextReminder(Now)!.State);
+            Assert.Equal("pending", store.ReadNextReminder(due.AddSeconds(-1))!.State);
+            Assert.Equal("fired", store.ReadNextReminder(due)!.State);
+        });
+    }
+
     [Fact]
     public void FiredBeatsEarlierPending()
     {

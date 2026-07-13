@@ -103,6 +103,71 @@ public sealed class ReminderTimeParserTests
         Assert.Equal(new DateTimeOffset(2026, 07, 08, 9, 0, 0, Now.Offset), r.DueAt);
     }
 
+    // ── Workstream 2: expanded grammar — bare durations, word forms, combined h+m ──
+
+    [Theory]
+    [InlineData("standup 20m", 20, "Standup")]
+    [InlineData("ship build 1h", 60, "Ship build")]
+    [InlineData("review 90min", 90, "Review")]
+    [InlineData("deep work 2 hours", 120, "Deep work")]
+    [InlineData("in 2 hours deep work", 120, "Deep work")]
+    public void BareAndWordDurations_Parse(string input, int minutes, string title)
+    {
+        ReminderParseResult r = ReminderTimeParser.Parse(input, Now);
+        Assert.True(r.TimeRecognized);
+        Assert.Equal(ReminderTimeKind.Duration, r.Kind);
+        Assert.Equal(minutes, r.DurationMinutes);
+        Assert.Equal(title, r.Title);
+        Assert.Equal(Now.AddMinutes(minutes), r.DueAt);
+    }
+
+    [Theory]
+    [InlineData("call mom an hour", 60)]
+    [InlineData("call mom in an hour", 60)]
+    [InlineData("call mom one hour", 60)]
+    [InlineData("stretch half an hour", 30)]
+    [InlineData("stretch in half an hour", 30)]
+    [InlineData("stretch half hour", 30)]
+    public void WordHourForms_Parse(string input, int minutes)
+    {
+        ReminderParseResult r = ReminderTimeParser.Parse(input, Now);
+        Assert.True(r.TimeRecognized);
+        Assert.Equal(minutes, r.DurationMinutes);
+        Assert.Equal(Now.AddMinutes(minutes), r.DueAt);
+    }
+
+    [Theory]
+    [InlineData("focus 1h30", 90)]
+    [InlineData("focus in 1h30", 90)]
+    [InlineData("focus 1h30m", 90)]
+    [InlineData("focus 2h30", 150)]
+    [InlineData("focus in 1 hour 30", 90)]
+    [InlineData("focus 2 hours 15", 135)]
+    public void CombinedHoursMinutes_Parse(string input, int minutes)
+    {
+        ReminderParseResult r = ReminderTimeParser.Parse(input, Now);
+        Assert.True(r.TimeRecognized);
+        Assert.Equal(ReminderTimeKind.Duration, r.Kind);
+        Assert.Equal(minutes, r.DurationMinutes);
+        Assert.Equal("Focus", r.Title);
+    }
+
+    [Fact]
+    public void CombinedHoursMinutes_PreviewIsCompact()
+    {
+        Assert.Equal("in 1h30m", ReminderTimeParser.Parse("focus 1h30", Now).PreviewLabel);
+        Assert.Equal("in 1h30m", ReminderTimeParser.Parse("review 90min", Now).PreviewLabel);
+        Assert.Equal("in 2h", ReminderTimeParser.Parse("ship in 2 hours", Now).PreviewLabel);
+    }
+
+    [Fact]
+    public void ClockForms_ReportClockKind()
+    {
+        Assert.Equal(ReminderTimeKind.Clock, ReminderTimeParser.Parse("ship at 16:30", Now).Kind);
+        Assert.Equal(ReminderTimeKind.Clock, ReminderTimeParser.Parse("ship tomorrow 9am", Now).Kind);
+        Assert.Equal(ReminderTimeKind.None, ReminderTimeParser.Parse("banana", Now).Kind);
+    }
+
     [Fact]
     public void Garbage_FallsBackToDefault()
     {
