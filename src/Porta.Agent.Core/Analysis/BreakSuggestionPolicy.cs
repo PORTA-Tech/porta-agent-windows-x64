@@ -28,7 +28,13 @@ internal readonly record struct BreakSuggestionDecision(
     double EffectiveFocusSeconds,
     int EffectiveFocusWindowSeconds,
     string DeliveryBoundaryKind,
-    bool HighPressure);
+    bool HighPressure,
+    // Workstream 1 diagnostics: which gate mode ran ("personal_p80" | "cold_start_absolute")
+    // and which specific trigger opened the need gate ("overload_active" |
+    // "pressure_above_personal" | "overload_likelihood" | "long_focus" | ""). The reason
+    // feeds the user-facing "why" copy — a nudge must always explain itself.
+    string NeedGateMode = "",
+    string NeedGateReason = "");
 
 internal static class BreakSuggestionPolicy
 {
@@ -40,8 +46,12 @@ internal static class BreakSuggestionPolicy
         BreakFocusWindowSnapshot focusWindow,
         Func<BreakPolicyCooldownSnapshot> resolveCooldown,
         RuntimeBreakPolicySettings? policy = null,
-        bool meetingInProgress = false)
+        bool meetingInProgress = false,
+        BreakPersonalizationSnapshot? personalization = null)
     {
+        // Workstream 1 — default to cold start when no personalization is supplied (old
+        // call sites and tests): the absolute constants apply exactly as before.
+        BreakPersonalizationSnapshot personal = personalization ?? BreakPersonalizationSnapshot.ColdStart;
         // Meeting shield (lite): never interrupt with a break nudge while a real-time meeting
         // app (Zoom/Teams/Webex/Google Meet) is foreground. Interrupting a call reads as the
         // product getting in the way. Coarse by design — no audio/mic signal is captured.
@@ -105,16 +115,28 @@ internal static class BreakSuggestionPolicy
             ? settings.LongBreakEffectiveFocusSecondsHighPressure
             : settings.LongBreakEffectiveFocusSecondsLowPressure;
 
-        // State-driven gate (Launch 2.3 — "follow the state, don't nag the clock").
-        // A SHORT break is only warranted when the state shows a genuine, elevated need:
-        // overload is active, or pressure / overload likelihood has risen into the need band.
-        // A fresh, energized user who has simply been focused a while is NOT interrupted —
-        // ignored nudges only train the user to dismiss every nudge. A LONG break stays
-        // justified by genuinely prolonged focus on its own (the "you've been at it a long
-        // time, that's normal" case), so deep, sustained work still eventually earns a rest.
-        bool breakNeedState = overloadStabilization.OverloadActive
-            || overloadInference.PressureLevel >= PortaExecutionConstants.BreakPolicy.BreakNeedPressureLevel
-            || overloadInference.OverloadLikelihood >= PortaExecutionConstants.BreakPolicy.BreakNeedOverloadLikelihood;
+        // State-driven gate (Launch 2.3 — "follow the state, don't nag the clock"), now
+        // PERSONAL (Workstream 1). A SHORT break is only warranted when the state shows a
+        // genuine, elevated need: overload is active, or pressure has risen above the
+        // user's OWN p80 (falling back to the absolute constant only during cold start),
+        // or overload likelihood has entered the need band. A fresh, energized user who
+        // has simply been focused a while is NOT interrupted — ignored nudges only train
+        // the user to dismiss every nudge. A LONG break stays justified by genuinely
+        // prolonged focus on its own (the "you've been at it a long time, that's normal"
+        // case), so deep, sustained work still eventually earns a rest.
+        double needPressureThreshold = personal.PersonalPressureThreshold
+            ?? PortaExecutionConstants.BreakPolicy.BreakNeedPressureLevel;
+        string needGateMode = personal.PersonalPressureThreshold is null
+            ? "cold_start_absolute"
+            : "personal_p80";
+        string needGateReason = overloadStabilization.OverloadActive
+            ? "overload_active"
+            : overloadInference.PressureLevel >= needPressureThreshold
+                ? "pressure_above_personal"
+                : overloadInference.OverloadLikelihood >= PortaExecutionConstants.BreakPolicy.BreakNeedOverloadLikelihood
+                    ? "overload_likelihood"
+                    : string.Empty;
+        bool breakNeedState = needGateReason.Length > 0;
 
         string action;
         string breakKind;
@@ -129,6 +151,7 @@ internal static class BreakSuggestionPolicy
             breakKind = PortaBreakSemantics.LongBreakKind;
             windowSeconds = settings.LongBreakWindowSeconds;
             effectiveFocusSeconds = Math.Max(0d, focusWindow.LongBreakWindowEffectiveFocusSeconds);
+            needGateReason = "long_focus";
         }
         else if (Math.Max(0d, focusWindow.ShortBreakWindowEffectiveFocusSeconds) >= shortBreakThresholdSeconds)
         {
@@ -141,7 +164,21 @@ internal static class BreakSuggestionPolicy
                     "state_not_warranting_break",
                     effectiveFocusSeconds: Math.Max(0d, focusWindow.ShortBreakWindowEffectiveFocusSeconds),
                     effectiveFocusWindowSeconds: 0,
-                    highPressure: highPressure);
+                    highPressure: highPressure,
+                    needGateMode: needGateMode);
+            }
+
+            if (personal.PressureDeclining)
+            {
+                // Rising-trend requirement (Workstream 1.2): pressure is falling — the user
+                // is settling in on their own. Interrupting now would be the nag we just
+                // removed. Long breaks are unaffected (prolonged focus is its own reason).
+                return Fail(
+                    "pressure_declining",
+                    effectiveFocusSeconds: Math.Max(0d, focusWindow.ShortBreakWindowEffectiveFocusSeconds),
+                    effectiveFocusWindowSeconds: 0,
+                    highPressure: highPressure,
+                    needGateMode: needGateMode);
             }
 
             action = PortaBreakSemantics.ShortBreakKind;
@@ -191,7 +228,8 @@ internal static class BreakSuggestionPolicy
                 effectiveFocusSeconds: effectiveFocusSeconds,
                 effectiveFocusWindowSeconds: windowSeconds,
                 deliveryBoundaryKind: resolvedBoundaryKind,
-                highPressure: highPressure);
+                highPressure: highPressure,
+                needGateMode: needGateMode);
         }
 
         return new BreakSuggestionDecision(
@@ -204,7 +242,9 @@ internal static class BreakSuggestionPolicy
             EffectiveFocusSeconds: effectiveFocusSeconds,
             EffectiveFocusWindowSeconds: windowSeconds,
             DeliveryBoundaryKind: NormalizeBoundaryKind(resolvedBoundaryKind),
-            HighPressure: highPressure);
+            HighPressure: highPressure,
+            NeedGateMode: needGateMode,
+            NeedGateReason: needGateReason);
     }
 
     private static BreakSuggestionDecision Fail(
@@ -216,7 +256,8 @@ internal static class BreakSuggestionPolicy
         double effectiveFocusSeconds = 0d,
         int effectiveFocusWindowSeconds = 0,
         string deliveryBoundaryKind = "",
-        bool highPressure = false)
+        bool highPressure = false,
+        string needGateMode = "")
     {
         return new BreakSuggestionDecision(
             ShouldEmit: false,
@@ -228,7 +269,8 @@ internal static class BreakSuggestionPolicy
             EffectiveFocusSeconds: Math.Max(0d, effectiveFocusSeconds),
             EffectiveFocusWindowSeconds: Math.Max(0, effectiveFocusWindowSeconds),
             DeliveryBoundaryKind: NormalizeBoundaryKind(deliveryBoundaryKind),
-            HighPressure: highPressure);
+            HighPressure: highPressure,
+            NeedGateMode: needGateMode);
     }
 
     private static string NormalizeBoundaryKind(string value)

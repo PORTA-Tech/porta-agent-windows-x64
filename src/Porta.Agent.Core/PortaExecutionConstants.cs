@@ -253,6 +253,32 @@ public static class PortaExecutionConstants
                                                           // Protects deep flow, where boundaries are suppressed.
         public const string RuntimeStateKey = "break_policy:cooldown";
         public const string ContractVersion = "v2";
+
+        // ── Workstream 1: personal pressure baseline ──
+        // "Elevated" means elevated relative to THIS user's own distribution, not an absolute
+        // value. The only constants here are the rules (percentile, window, resets) — locked
+        // with Yadin; the threshold itself is always computed from the user's recorded data.
+        public const int PersonalBaselinePercentile = 80;
+        public const int PersonalBaselineDays = 7;
+        public const int PersonalBaselineMinDays = 3;       // cold start below this: absolute constant
+        // 360 active 5s buckets = 30 min of real activity — below that a percentile is noise.
+        public const int PersonalBaselineMinSamples = 360;
+        public const int PersonalBaselineCacheSeconds = 3600; // recompute at most hourly
+        public const string PersonalBaselineRuntimeStateKey = "personal_pressure_p80_v1";
+
+        // Rising-trend requirement: a short break needs pressure to be NOT declining —
+        // mean of the last 10 min >= 95% of the mean of the 10 min before it. Falling
+        // pressure = the user is settling in; leave them alone even above p80.
+        public const int TrendWindowSeconds = 600;
+        public const double TrendToleranceRatio = 0.95;
+
+        // ── Workstream 1: acceptance-aware backoff ──
+        // Each dismissed/skipped break doubles the cooldown: 30m → 1h → 2h → cap 4h.
+        // Resets: accepted break, natural long idle (user rested on their own), every
+        // morning (first activity after 5:00 local). Snooze is deliberately neutral —
+        // "later" is engagement, not refusal.
+        public const int BackoffCooldownCapSeconds = 4 * 3600;
+        public const string BackoffRuntimeStateKey = "break_backoff_v1";
     }
 
     // Phase 1b — Step 3: sampling caps for the active one-tap ground-truth prompts

@@ -384,6 +384,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     overloadStabilization,
                     overloadInference,
                     policy.BreakPolicy);
+                // Workstream 1: personal p80 gate + trend, and the acceptance-backoff streak
+                // (with its morning / natural-rest resets) — both computed from THIS user's data.
+                BreakPersonalizationSnapshot breakPersonalization = ResolveBreakPersonalization(
+                    connection, tx, finalizeTsMs);
+                int breakDismissStreak = UpdateBreakBackoffForBucket(
+                    connection, tx, finalizeTsMs, derivedSession);
                 BreakSuggestionDecision breakSuggestionDecision = BreakSuggestionPolicy.ShouldTriggerBreak(
                     gating,
                     overloadStabilization,
@@ -392,7 +398,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     breakFocusWindow,
                     resolveCooldown: () => ReadBreakPolicyCooldownSnapshot(connection, tx, finalizeTsMs),
                     policy.BreakPolicy,
-                    meetingInProgress: meetingInProgress);
+                    meetingInProgress: meetingInProgress,
+                    personalization: breakPersonalization);
                 AgentBrainSnapshot inferredSnapshot = ApplyOverloadInference(gatedSnapshot, overloadInference);
                 PrimitiveBucketWriteModel primitiveRow = BuildPrimitiveBucketRow(mapped, primitive, robust);
                 StateBucketWriteModel stateRow = BuildStateBucketRow(
@@ -447,7 +454,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     overloadInference,
                     overloadStabilization,
                     breakSuggestionDecision,
-                    policyEnvelope);
+                    policyEnvelope,
+                    breakPersonalization,
+                    breakDismissStreak);
                 PersistBreakPolicyRuntimeState(
                     connection,
                     tx,
@@ -455,7 +464,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     breakSuggestionDecision,
                     breakInserted,
                     breakFocusWindow,
-                    policyEnvelope);
+                    policyEnvelope,
+                    breakDismissStreak);
                 TryInsertAutomaticInterventionEvent(connection, tx, inferredSnapshot);
                 UpsertRuntimeStateForSnapshot(
                     connection,
@@ -2627,6 +2637,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         targetRow.CommandType,
                         ack with { Result = normalizedResult },
                         _runtimePolicyProvider.GetEnvelope());
+                    ApplyBreakBackoffAckSideEffects(
+                        connection,
+                        tx,
+                        targetRow.Action,
+                        normalizedResult,
+                        ack.AppliedAtUtc,
+                        (_runtimePolicyProvider.GetEnvelope()?.Settings.BreakPolicy
+                            ?? DefaultBreakPolicySettings()).CooldownSeconds);
                     InsertInterventionLifecycleEvent(
                         connection,
                         tx,
@@ -5689,7 +5707,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         OverloadInferenceResult overloadInference,
         OverloadStabilizationResult overloadStabilization,
         BreakSuggestionDecision decision,
-        RuntimePolicyEnvelope? policyEnvelope = null)
+        RuntimePolicyEnvelope? policyEnvelope = null,
+        BreakPersonalizationSnapshot? personalization = null,
+        int dismissStreak = 0)
     {
         if (!decision.ShouldEmit)
         {
@@ -5711,7 +5731,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             overloadStabilization,
             decision,
             breakPolicy,
-            policyVersion);
+            policyVersion,
+            personalization,
+            dismissStreak);
         DateTimeOffset finalizeTimestampUtc = DateTimeOffset.FromUnixTimeMilliseconds(
             Time.bucketStartEnd(inputBucket.BucketSeq).endUtcMs);
         var ev = new AgentControlEvent(
@@ -5763,7 +5785,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         OverloadStabilizationResult overloadStabilization,
         BreakSuggestionDecision decision,
         RuntimeBreakPolicySettings? policy = null,
-        string policyVersion = "local-default")
+        string policyVersion = "local-default",
+        BreakPersonalizationSnapshot? personalization = null,
+        int dismissStreak = 0)
     {
         RuntimeBreakPolicySettings settings = policy ?? DefaultBreakPolicySettings();
         return JsonSerializer.Serialize(new
@@ -5788,7 +5812,18 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 action = decision.Action,
                 break_kind = decision.BreakKind,
                 delivery_boundary = string.IsNullOrWhiteSpace(decision.DeliveryBoundaryKind) ? "none" : decision.DeliveryBoundaryKind,
-                cooldown_expired = decision.CooldownChecked && decision.Cooldown.CooldownExpired
+                cooldown_expired = decision.CooldownChecked && decision.Cooldown.CooldownExpired,
+                // Workstream 1 — the personal gate, spelled out so any nudge can be audited:
+                // which mode gated it, against what threshold, and the backoff in effect.
+                need_gate_mode = string.IsNullOrWhiteSpace(decision.NeedGateMode)
+                    ? (personalization?.NeedGateMode ?? "cold_start_absolute")
+                    : decision.NeedGateMode,
+                need_gate_reason = decision.NeedGateReason,
+                personal_pressure_threshold = personalization?.PersonalPressureThreshold,
+                pressure_declining = personalization?.PressureDeclining ?? false,
+                dismiss_streak = dismissStreak,
+                cooldown_effective_s = BreakBackoffPolicy.EffectiveCooldownSeconds(dismissStreak, settings.CooldownSeconds),
+                overload_on_dwell_ms = overloadStabilization.RuntimeState.OnDwellMs
             },
             thresholds = new
             {
@@ -6365,7 +6400,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         BreakSuggestionDecision decision,
         bool breakInserted,
         BreakFocusWindowSnapshot focusWindow,
-        RuntimePolicyEnvelope? policyEnvelope = null)
+        RuntimePolicyEnvelope? policyEnvelope = null,
+        int dismissStreak = 0)
     {
         RuntimeBreakPolicySettings breakPolicy = policyEnvelope?.Settings.BreakPolicy
             ?? DefaultBreakPolicySettings();
@@ -6377,7 +6413,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         long breakDueSinceUtcMs = 0;
         if (decision.ShouldEmit && breakInserted)
         {
-            cooldownEndTsMs = checked(nowUtcMs + (breakPolicy.CooldownSeconds * 1000L));
+            // Workstream 1.3: the cooldown written at fire time already honors the
+            // dismissal streak (30m → 1h → 2h → 4h). A dismissal afterwards pushes it
+            // out again from the dismissal moment (ApplyBreakBackoffAckSideEffects).
+            cooldownEndTsMs = checked(nowUtcMs
+                + (BreakBackoffPolicy.EffectiveCooldownSeconds(dismissStreak, breakPolicy.CooldownSeconds) * 1000L));
             lastFiredTsMs = nowUtcMs;
             lastAction = decision.Action;
         }
@@ -6461,6 +6501,334 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             PortaExecutionConstants.BreakPolicy.RuntimeStateKey,
             valueJson,
             Time.toIsoUtcMsString(nowUtcMs));
+    }
+
+    // ── Workstream 1: personal pressure baseline + rising-trend + acceptance backoff ──
+
+    /// <summary>
+    /// Builds the personalization inputs for one break decision: the user's own p80
+    /// pressure threshold (or cold start when under 3 days of data) and whether pressure
+    /// is currently declining. Cached hourly; the percentile never runs per bucket.
+    /// </summary>
+    private static BreakPersonalizationSnapshot ResolveBreakPersonalization(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long nowUtcMs)
+    {
+        PersonalPressureBaselineResult baseline = ResolvePersonalPressureBaseline(connection, tx, nowUtcMs);
+        bool declining = ResolvePressureDeclining(connection, tx, nowUtcMs);
+        return baseline.Ready
+            ? new BreakPersonalizationSnapshot(baseline.P80, declining, "personal_p80")
+            : new BreakPersonalizationSnapshot(null, declining, "cold_start_absolute");
+    }
+
+    private static PersonalPressureBaselineResult ResolvePersonalPressureBaseline(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long nowUtcMs)
+    {
+        // Hourly cache in runtime_state — the 7-day percentile scan must not run per bucket.
+        string? cachedJson = ReadRuntimeStateValue(
+            connection, tx, PortaExecutionConstants.BreakPolicy.PersonalBaselineRuntimeStateKey);
+        if (!string.IsNullOrWhiteSpace(cachedJson))
+        {
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(cachedJson);
+                JsonElement root = doc.RootElement;
+                long computedAtMs = ReadInt64Property(root, "computed_at_utc_ms");
+                if (computedAtMs > 0
+                    && nowUtcMs - computedAtMs < PortaExecutionConstants.BreakPolicy.PersonalBaselineCacheSeconds * 1000L
+                    && root.TryGetProperty("p80", out JsonElement p80El)
+                    && p80El.TryGetDouble(out double cachedP80))
+                {
+                    return new PersonalPressureBaselineResult(
+                        cachedP80,
+                        (int)ReadInt64Property(root, "sample_count"),
+                        (int)ReadInt64Property(root, "days_of_data"));
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        long cutoffMs = nowUtcMs - (PortaExecutionConstants.BreakPolicy.PersonalBaselineDays * 86_400_000L);
+        var readings = new List<double>(4096);
+        var days = new HashSet<string>(StringComparer.Ordinal);
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            // Active buckets only: reuse the pipeline's own idle/away classification
+            // (attention_segment_kind == 'away' is the idle marker at segment level).
+            // pressure_level has always been written into contributors_json, so this
+            // works on pre-update history from day one.
+            cmd.CommandText =
+                """
+                SELECT
+                    substr(timestamp_utc, 1, 10),
+                    CAST(json_extract(contributors_json, '$.pressure_level') AS REAL)
+                FROM state_buckets
+                WHERE timestamp_utc >= $cutoff
+                  AND LOWER(COALESCE(json_extract(state_flags_json, '$.attention_segment_kind'), 'focus')) <> 'away'
+                  AND json_extract(contributors_json, '$.pressure_level') IS NOT NULL
+                """;
+            cmd.Parameters.AddWithValue("$cutoff", Time.toIsoUtcMsString(cutoffMs));
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                if (!reader.IsDBNull(1))
+                {
+                    days.Add(reader.GetString(0));
+                    readings.Add(reader.GetDouble(1));
+                }
+            }
+        }
+
+        PersonalPressureBaselineResult result = PersonalPressureBaseline.Compute(readings, days.Count);
+        UpsertRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.BreakPolicy.PersonalBaselineRuntimeStateKey,
+            JsonSerializer.Serialize(new
+            {
+                schema_ver = 1,
+                p80 = result.P80,
+                sample_count = result.SampleCount,
+                days_of_data = result.DaysOfData,
+                computed_at_utc_ms = nowUtcMs
+            }),
+            Time.toIsoUtcMsString(nowUtcMs));
+        return result;
+    }
+
+    /// <summary>
+    /// Rising-trend requirement (1.2): mean pressure over the last 10 min vs the 10 min
+    /// before it. Declining (recent &lt; 95% of prior) means the user is settling in — a
+    /// short break would interrupt, not relieve. Sparse windows never suppress.
+    /// </summary>
+    private static bool ResolvePressureDeclining(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long nowUtcMs)
+    {
+        long windowMs = PortaExecutionConstants.BreakPolicy.TrendWindowSeconds * 1000L;
+        (double recentMean, int recentCount) = ReadMeanPressure(connection, tx, nowUtcMs - windowMs, nowUtcMs);
+        (double priorMean, int priorCount) = ReadMeanPressure(connection, tx, nowUtcMs - (2 * windowMs), nowUtcMs - windowMs);
+
+        // Under half a minute of samples on either side there is no trend to speak of.
+        const int minSamples = 6;
+        if (recentCount < minSamples || priorCount < minSamples || priorMean <= 0d)
+        {
+            return false;
+        }
+
+        return recentMean < priorMean * PortaExecutionConstants.BreakPolicy.TrendToleranceRatio;
+    }
+
+    private static (double Mean, int Count) ReadMeanPressure(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long fromUtcMs,
+        long toUtcMs)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            SELECT
+                AVG(CAST(json_extract(contributors_json, '$.pressure_level') AS REAL)),
+                COUNT(*)
+            FROM state_buckets
+            WHERE timestamp_utc >= $from
+              AND timestamp_utc < $to
+              AND json_extract(contributors_json, '$.pressure_level') IS NOT NULL
+            """;
+        cmd.Parameters.AddWithValue("$from", Time.toIsoUtcMsString(fromUtcMs));
+        cmd.Parameters.AddWithValue("$to", Time.toIsoUtcMsString(toUtcMs));
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        if (!reader.Read() || reader.IsDBNull(0))
+        {
+            return (0d, 0);
+        }
+
+        return (reader.GetDouble(0), reader.GetInt32(1));
+    }
+
+    private static (int DismissStreak, string BackoffDay) ReadBreakBackoffState(
+        SqliteConnection connection,
+        SqliteTransaction tx)
+    {
+        string? json = ReadRuntimeStateValue(connection, tx, PortaExecutionConstants.BreakPolicy.BackoffRuntimeStateKey);
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return (0, string.Empty);
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            JsonElement root = doc.RootElement;
+            int streak = (int)Math.Clamp(ReadInt64Property(root, "dismiss_streak"), 0, 16);
+            string day = ReadStringProperty(root, "backoff_day");
+            return (streak, day);
+        }
+        catch
+        {
+            return (0, string.Empty);
+        }
+    }
+
+    private static void WriteBreakBackoffState(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        int dismissStreak,
+        string backoffDay,
+        string changeReason,
+        long nowUtcMs)
+    {
+        UpsertRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.BreakPolicy.BackoffRuntimeStateKey,
+            JsonSerializer.Serialize(new
+            {
+                schema_ver = 1,
+                dismiss_streak = Math.Clamp(dismissStreak, 0, 16),
+                backoff_day = backoffDay ?? string.Empty,
+                last_change_reason = changeReason,
+                updated_utc_ms = nowUtcMs
+            }),
+            Time.toIsoUtcMsString(nowUtcMs));
+    }
+
+    /// <summary>
+    /// Per-bucket backoff maintenance: morning reset (first finalized bucket after 5:00
+    /// local starts a new day — yesterday's refusals never carry over) and natural-rest
+    /// reset (the user took a real pause on their own; the debt is paid). Returns the
+    /// streak in effect for this bucket's break decision.
+    /// </summary>
+    internal static int UpdateBreakBackoffForBucket(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long nowUtcMs,
+        DerivedSessionMetricsResult derivedSession)
+    {
+        (int streak, string day) = ReadBreakBackoffState(connection, tx);
+        string currentDay = BreakBackoffPolicy.ResolveBackoffDay(
+            DateTimeOffset.FromUnixTimeMilliseconds(nowUtcMs).ToLocalTime());
+        if (!string.Equals(day, currentDay, StringComparison.Ordinal))
+        {
+            WriteBreakBackoffState(connection, tx, 0, currentDay, "morning_reset", nowUtcMs);
+            return 0;
+        }
+
+        bool naturalRest = derivedSession.SaIdlePauseSeconds >= PortaExecutionConstants.DerivedSessionMetrics.IdleResetSeconds
+            || string.Equals(derivedSession.SaFreezeReason, "long_break", StringComparison.Ordinal);
+        if (naturalRest && streak > 0)
+        {
+            WriteBreakBackoffState(connection, tx, 0, currentDay, "natural_rest", nowUtcMs);
+            return 0;
+        }
+
+        return streak;
+    }
+
+    /// <summary>
+    /// Outcome wiring (1.3): a dismissed/skipped break increments the streak AND pushes
+    /// the cooldown out from the moment of dismissal; an accepted or completed break
+    /// resets it. Snooze is neutral — "later" is engagement, not refusal. An unanswered
+    /// nudge produces no ack today, so "ignored" has no hook yet; dismiss/skip covers
+    /// the practical case.
+    /// </summary>
+    internal static void ApplyBreakBackoffAckSideEffects(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        string action,
+        string normalizedResult,
+        DateTimeOffset appliedAtUtc,
+        int baseCooldownSeconds)
+    {
+        if (!PortaBreakSemantics.IsBreakSuggestionAction(action))
+        {
+            return;
+        }
+
+        long ackUtcMs = appliedAtUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+        string day = BreakBackoffPolicy.ResolveBackoffDay(appliedAtUtc.ToLocalTime());
+        (int streak, string _) = ReadBreakBackoffState(connection, tx);
+        switch (normalizedResult)
+        {
+            case "accepted":
+            case "overlay_completed":
+                if (streak != 0)
+                {
+                    WriteBreakBackoffState(connection, tx, 0, day, "break_accepted", ackUtcMs);
+                }
+
+                break;
+            case "dismissed":
+            case "skipped":
+                int nextStreak = Math.Min(streak + 1, 16);
+                WriteBreakBackoffState(connection, tx, nextStreak, day, "break_dismissed", ackUtcMs);
+                ExtendBreakCooldownAfterDismissal(connection, tx, ackUtcMs, nextStreak, baseCooldownSeconds);
+                break;
+        }
+    }
+
+    // After a dismissal the next ask must be effectiveCooldown(streak) away from the
+    // DISMISSAL, not from when the nudge fired — otherwise the fire-time 30m window
+    // would let the next nudge arrive almost immediately after an annoyed "skip".
+    private static void ExtendBreakCooldownAfterDismissal(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        long ackUtcMs,
+        int dismissStreak,
+        int baseCooldownSeconds)
+    {
+        long newEndMs = ackUtcMs
+            + (BreakBackoffPolicy.EffectiveCooldownSeconds(dismissStreak, baseCooldownSeconds) * 1000L);
+        string? json = ReadRuntimeStateValue(connection, tx, PortaExecutionConstants.BreakPolicy.RuntimeStateKey);
+        string updatedJson;
+        try
+        {
+            System.Text.Json.Nodes.JsonNode? node = string.IsNullOrWhiteSpace(json)
+                ? null
+                : System.Text.Json.Nodes.JsonNode.Parse(json);
+            System.Text.Json.Nodes.JsonObject obj = node as System.Text.Json.Nodes.JsonObject
+                ?? new System.Text.Json.Nodes.JsonObject
+                {
+                    ["schema_ver"] = 1,
+                    ["contract_ver"] = PortaExecutionConstants.BreakPolicy.ContractVersion
+                };
+            long existingEndMs = 0;
+            if (obj.TryGetPropertyValue("break_cooldown_until_utc_ms", out System.Text.Json.Nodes.JsonNode? endNode)
+                && endNode is not null)
+            {
+                _ = long.TryParse(endNode.ToString(), out existingEndMs);
+            }
+
+            obj["break_cooldown_until_utc_ms"] = Math.Max(existingEndMs, newEndMs);
+            obj["cooldown_end_ts_ms"] = Math.Max(existingEndMs, newEndMs);
+            updatedJson = obj.ToJsonString();
+        }
+        catch
+        {
+            updatedJson = JsonSerializer.Serialize(new
+            {
+                schema_ver = 1,
+                contract_ver = PortaExecutionConstants.BreakPolicy.ContractVersion,
+                break_cooldown_until_utc_ms = newEndMs,
+                cooldown_end_ts_ms = newEndMs
+            });
+        }
+
+        UpsertRuntimeStateValue(
+            connection,
+            tx,
+            PortaExecutionConstants.BreakPolicy.RuntimeStateKey,
+            updatedJson,
+            Time.toIsoUtcMsString(ackUtcMs));
     }
 
     internal static BreakFocusWindowSnapshot ReadBreakFocusWindowSnapshot(
@@ -7544,6 +7912,12 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     {
         return action switch
         {
+            // Workstream 1.4 — canonical break kinds explain their ACTUAL trigger, built
+            // from the decision's recorded inputs (never generic copy).
+            PortaBreakSemantics.ShortBreakKind
+                => ComposeBreakPromptMessage(controlEvent, PortaBreakSemantics.ShortBreakKind),
+            PortaBreakSemantics.LongBreakKind
+                => ComposeBreakPromptMessage(controlEvent, PortaBreakSemantics.LongBreakKind),
             "break_suggestion"
                 => "Ari sees a long work run and rising strain. Ready for a long break now? Choose Skip or Snooze if now is not a good time, or turn off this tip.",
             "focus_lock_in_suggestion"
@@ -7588,6 +7962,56 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 => controlEvent.WhatChanged!,
             _ => "Ari recorded a new state change."
         };
+    }
+
+    // Workstream 1.4 — reason line from the decision's own why-json, then the ask. The
+    // reason text itself is pure (BreakReasonText) so the exact copy is unit-testable.
+    internal static string ComposeBreakPromptMessage(AgentControlEvent controlEvent, string breakKind)
+    {
+        string needGateReason = string.Empty;
+        double overloadOnDwellMs = 0d;
+        double effectiveFocusSeconds = 0d;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(controlEvent.WhyJsonOverride))
+            {
+                using JsonDocument doc = JsonDocument.Parse(controlEvent.WhyJsonOverride);
+                if (doc.RootElement.TryGetProperty("reasons", out JsonElement reasons)
+                    && reasons.ValueKind == JsonValueKind.Object)
+                {
+                    if (reasons.TryGetProperty("need_gate_reason", out JsonElement reasonEl)
+                        && reasonEl.ValueKind == JsonValueKind.String)
+                    {
+                        needGateReason = reasonEl.GetString() ?? string.Empty;
+                    }
+
+                    if (reasons.TryGetProperty("overload_on_dwell_ms", out JsonElement dwellEl)
+                        && dwellEl.TryGetDouble(out double dwell))
+                    {
+                        overloadOnDwellMs = dwell;
+                    }
+
+                    if (reasons.TryGetProperty("effective_focus_s", out JsonElement focusEl)
+                        && focusEl.TryGetDouble(out double focus))
+                    {
+                        effectiveFocusSeconds = focus;
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        string reason = Porta.Agent.Common.BreakReasonText.For(
+            needGateReason,
+            breakKind,
+            overloadForMinutes: overloadOnDwellMs / 60_000d,
+            effectiveFocusHours: effectiveFocusSeconds / 3600d);
+        string ask = string.Equals(breakKind, PortaBreakSemantics.LongBreakKind, StringComparison.Ordinal)
+            ? "Ready for a longer break now?"
+            : "Take a short break now?";
+        return $"{reason} {ask} Choose Skip or Snooze if now is not a good time.";
     }
 
     private static string NormalizeExecutionResult(string result)
