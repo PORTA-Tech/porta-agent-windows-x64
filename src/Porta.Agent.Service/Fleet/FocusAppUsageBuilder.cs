@@ -19,6 +19,16 @@ internal static class FocusAppUsageBuilder
     /// <summary>Maximum number of apps reported.</summary>
     public const int MaxApps = 8;
 
+    /// <summary>
+    /// Workstream 5 — the residual honesty rule. Browser pages that neither the curated
+    /// title rules nor the 2e address-bar fallback could recognize all pool into one
+    /// identity labeled with <see cref="Porta.Agent.Common.Analysis.BrowserTitleClassifier.UnknownSiteToken"/>
+    /// ("web") — verified on real fleet label maps, where that single pooled row can rank
+    /// high in "where your time went". "web" is meaningless to users; the residue renders
+    /// as this honest label instead, and never as a guessed site or category.
+    /// </summary>
+    public const string ResidualBrowsingLabel = "Other browsing";
+
     public static IReadOnlyList<FocusAppUsagePayload> BuildTopApps(
         IReadOnlyDictionary<string, double> dwellByHash,
         IReadOnlyDictionary<string, string> labelByHash,
@@ -31,6 +41,11 @@ internal static class FocusAppUsageBuilder
             if (!labelByHash.TryGetValue(entry.Key, out string? label) || string.IsNullOrWhiteSpace(label))
             {
                 continue;
+            }
+
+            if (string.Equals(label, Porta.Agent.Common.Analysis.BrowserTitleClassifier.UnknownSiteToken, StringComparison.OrdinalIgnoreCase))
+            {
+                label = ResidualBrowsingLabel;
             }
 
             byLabel[label] = byLabel.TryGetValue(label, out double existing) ? existing + entry.Value : entry.Value;
