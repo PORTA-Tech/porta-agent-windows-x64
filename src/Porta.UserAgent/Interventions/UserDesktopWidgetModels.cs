@@ -88,7 +88,9 @@ internal sealed record UserDesktopWidgetState(
     // A dead line means "not watching"; the pulse never fakes life.
     bool PulseFrozen = false,
     // Phase 2c — the next reminder to surface (pill at T-60, toast when fired). Null = none.
-    UserDesktopWidgetReminderInfo? NextReminder = null);
+    UserDesktopWidgetReminderInfo? NextReminder = null,
+    // Workstream 4 — today's timed tasks (plan vs. reality). Null/empty = section hidden.
+    IReadOnlyList<UserDesktopWidgetTaskInfo>? Tasks = null);
 
 // Phase 2c — the next reminder as the widget renders it. State: pending | fired.
 internal sealed record UserDesktopWidgetReminderInfo(
@@ -105,6 +107,25 @@ internal sealed record UserDesktopWidgetReminderCommand(
     long Id,
     string Title,
     DateTimeOffset DueAtUtc);
+
+// Workstream 4 — a task as the widget renders it. State: pending | active | done | abandoned.
+internal sealed record UserDesktopWidgetTaskInfo(
+    long Id,
+    string Title,
+    int PlannedSeconds,
+    string State,
+    double ActiveSeconds,
+    double FocusedSeconds,
+    double OfftaskSeconds,
+    int ExtendedSeconds);
+
+// Workstream 4 — a task command flowing widget → presenter → local API.
+// Kind: create (Title + PlannedSeconds used) | start | done | abandon | extend (Id used).
+internal sealed record UserDesktopWidgetTaskCommand(
+    string Kind,
+    long Id,
+    string Title,
+    int PlannedSeconds);
 
 // Phase 1b — Step 3c: one-tap ground-truth prompt shown in the widget pill.
 internal sealed record UserDesktopWidgetLabelPrompt(

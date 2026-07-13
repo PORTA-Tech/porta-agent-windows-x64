@@ -505,7 +505,7 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         {
             SetWidgetHealthStateOnWidgetThread(WidgetHealthStarting);
             UserAgentFileLog.Info("desktop_widget_window_initializing");
-            var window = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore, OnLabelAnswerRequested, OnReminderCommandRequested);
+            var window = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore, OnLabelAnswerRequested, OnReminderCommandRequested, OnTaskCommandRequested);
             window.Closed += OnWidgetWindowClosed;
 
             lock (_widgetLifecycleGate)
@@ -972,6 +972,56 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         catch (Exception ex)
         {
             UserAgentFileLog.Error($"reminder_command_failed kind={command.Kind}", ex);
+        }
+    }
+
+    // Workstream 4 — task commands from the widget's Today section. On completion the
+    // honest plan-vs-reality line is shown once: measured numbers, no judgment adjectives.
+    private async void OnTaskCommandRequested(UserDesktopWidgetTaskCommand command)
+    {
+        try
+        {
+            if (string.Equals(command.Kind, "create", StringComparison.Ordinal))
+            {
+                LocalApiTaskCreateResponse? created = await _actionClient.CreateTaskAsync(
+                    new LocalApiTaskCreateRequest(
+                        SchemaVer: 1,
+                        Title: command.Title,
+                        PlannedSeconds: command.PlannedSeconds)).ConfigureAwait(false);
+                UserAgentFileLog.Info(created is { Success: true, Task: not null }
+                    ? $"task_created id={created.Task.Id} planned_s={created.Task.PlannedSeconds}"
+                    : $"task_create_failed reason={created?.Reason ?? "no_response"}");
+                if (created is { Success: false })
+                {
+                    _ = TryShow("Ari", "Task limit reached — finish or abandon a few first.", out _);
+                }
+
+                return;
+            }
+
+            LocalApiTaskActResponse? response = await _actionClient.ActOnTaskAsync(new LocalApiTaskActRequest(
+                SchemaVer: 1,
+                Id: command.Id,
+                Action: command.Kind)).ConfigureAwait(false);
+            UserAgentFileLog.Info(response is { Success: true }
+                ? $"task_{command.Kind} id={command.Id}"
+                : $"task_act_failed kind={command.Kind} id={command.Id}");
+
+            if (string.Equals(command.Kind, "done", StringComparison.Ordinal)
+                && response is { Success: true, Task: { } finished })
+            {
+                int tookMinutes = (int)Math.Round(finished.ActiveSeconds / 60d);
+                int offtaskMinutes = (int)Math.Round(finished.OfftaskSeconds / 60d);
+                string line =
+                    $"{finished.Title}: planned {Porta.Agent.Common.ReminderTimeParser.FormatDuration(finished.PlannedSeconds / 60)}"
+                    + $" · took {Porta.Agent.Common.ReminderTimeParser.FormatDuration(tookMinutes)}"
+                    + (offtaskMinutes > 0 ? $" · {offtaskMinutes}m off-task." : ".");
+                _ = TryShow("Ari", line, out _);
+            }
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error($"task_command_failed kind={command.Kind}", ex);
         }
     }
 

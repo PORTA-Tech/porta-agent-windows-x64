@@ -77,6 +77,12 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
     public AgentReminder? ReadNextReminder(DateTimeOffset nowUtc) => _inner.ReadNextReminder(nowUtc);
     public bool AcknowledgeReminder(long id, string action, DateTimeOffset nowUtc)
         => _inner.AcknowledgeReminder(id, action, nowUtc);
+    public AgentTask? CreateTask(string title, int plannedSeconds, DateTimeOffset nowUtc)
+        => _inner.CreateTask(title, plannedSeconds, nowUtc);
+    public IReadOnlyList<AgentTask> ReadTasks(DateTimeOffset dayStartUtc, DateTimeOffset nowUtc)
+        => _inner.ReadTasks(dayStartUtc, nowUtc);
+    public AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc)
+        => _inner.ActOnTask(id, action, nowUtc);
 
     public AgentStorageInfo ReadStorageInfo() => _inner.ReadStorageInfo();
     public AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null) => _inner.ReadTodaySummary(dateUtc);

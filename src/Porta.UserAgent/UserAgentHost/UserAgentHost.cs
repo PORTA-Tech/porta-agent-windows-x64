@@ -3,6 +3,7 @@ namespace Porta.UserAgent;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
+using Porta.Agent.Common.Analysis;
 using Porta.Agent.Common.UserAgent;
 using Porta.Agent.Core;
 using Porta.Agent.Core.Outputs;
@@ -77,6 +78,12 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private DateTimeOffset _lastReminderCheckUtc = DateTimeOffset.MinValue;
     private LocalApiReminder? _nextReminder;
     private long _lastSystemNotifiedReminderId = -1;
+    // Workstream 4 — today's timed tasks: same poll cadence as reminders. The expiry
+    // nudge fires ONCE per (task, budget) — extending resets the budget and re-arms it.
+    private static readonly TimeSpan TasksCheckInterval = TimeSpan.FromSeconds(10);
+    private DateTimeOffset _lastTasksCheckUtc = DateTimeOffset.MinValue;
+    private IReadOnlyList<LocalApiTask> _todayTasks = Array.Empty<LocalApiTask>();
+    private readonly HashSet<string> _taskExpiryToastedKeys = new(StringComparer.Ordinal);
     private bool _widgetFallbackLogged;
     private bool _hooksInstalled;
     private bool _keyboardCaptureAvailable;
@@ -358,6 +365,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         await RefreshLabelPromptAsync(nowUtc, token).ConfigureAwait(false);
         await RefreshSignupNudgeAsync(nowUtc, token).ConfigureAwait(false);
         await RefreshReminderAsync(nowUtc, token).ConfigureAwait(false);
+        await RefreshTasksAsync(nowUtc, snapshot, token).ConfigureAwait(false);
         UpdateWidgetState(UserDesktopWidgetStateBuilder.Build(
             status,
             snapshot,
@@ -372,7 +380,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             {
                 LabelPrompt = _activeLabelPrompt,
                 SignupNudge = _activeSignupNudge,
-                NextReminder = MapNextReminder()
+                NextReminder = MapNextReminder(),
+                Tasks = MapTodayTasks()
             });
 
         UserCommunicationToast? recentEventToast = UserCommunicationRouter.ResolveRecentEventToast(
@@ -1354,6 +1363,99 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 DueAtUtc: _nextReminder.DueAtUtc,
                 State: _nextReminder.State,
                 SnoozeCount: _nextReminder.SnoozeCount);
+    }
+
+    // Workstream 4 — poll today's tasks and surface the planned-time expiry ONCE per
+    // (task id, planned+extended budget). Respects the meeting shield: while the snapshot
+    // says in_meeting the toast is deferred (not consumed), so it lands after the call.
+    private async Task RefreshTasksAsync(
+        DateTimeOffset nowUtc,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        CancellationToken token)
+    {
+        if ((nowUtc - _lastTasksCheckUtc) < TasksCheckInterval)
+        {
+            return;
+        }
+
+        _lastTasksCheckUtc = nowUtc;
+        LocalApiTasksTodayResponse? response = await _localApiClient
+            .GetTasksTodayAsync(token)
+            .ConfigureAwait(false);
+        if (response is null)
+        {
+            return;
+        }
+
+        _todayTasks = response.Tasks ?? Array.Empty<LocalApiTask>();
+
+        foreach (LocalApiTask task in _todayTasks)
+        {
+            int budgetSeconds = task.PlannedSeconds + task.ExtendedSeconds;
+            if (!string.Equals(task.State, "active", StringComparison.Ordinal)
+                || task.ActiveSeconds < budgetSeconds)
+            {
+                continue;
+            }
+
+            string key = $"{task.Id}:{budgetSeconds}";
+            if (_taskExpiryToastedKeys.Contains(key) || IsMeetingForeground(snapshot))
+            {
+                continue;
+            }
+
+            _taskExpiryToastedKeys.Add(key);
+            _ = _toastRenderer.TryShow(
+                "Ari",
+                $"Time's up on \"{task.Title}\" — mark it done, add 15 minutes, or switch, from the widget.",
+                out _);
+            UserAgentFileLog.Info($"task_expiry_notified id={task.Id} budget_s={budgetSeconds}");
+        }
+    }
+
+    private static bool IsMeetingForeground(LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        try
+        {
+            string? flags = snapshot?.StateFlagsJson;
+            if (string.IsNullOrWhiteSpace(flags))
+            {
+                return false;
+            }
+
+            using var doc = System.Text.Json.JsonDocument.Parse(flags);
+            return doc.RootElement.TryGetProperty("attention_segment_kind", out System.Text.Json.JsonElement kind)
+                && kind.ValueKind == System.Text.Json.JsonValueKind.String
+                && string.Equals(kind.GetString(), AttentionSegmentKinds.InMeeting, StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private IReadOnlyList<UserDesktopWidgetTaskInfo> MapTodayTasks()
+    {
+        if (_todayTasks.Count == 0)
+        {
+            return Array.Empty<UserDesktopWidgetTaskInfo>();
+        }
+
+        var mapped = new List<UserDesktopWidgetTaskInfo>(_todayTasks.Count);
+        foreach (LocalApiTask task in _todayTasks)
+        {
+            mapped.Add(new UserDesktopWidgetTaskInfo(
+                Id: task.Id,
+                Title: task.Title,
+                PlannedSeconds: task.PlannedSeconds,
+                State: task.State,
+                ActiveSeconds: task.ActiveSeconds,
+                FocusedSeconds: task.FocusedSeconds,
+                OfftaskSeconds: task.OfftaskSeconds,
+                ExtendedSeconds: task.ExtendedSeconds));
+        }
+
+        return mapped;
     }
 
     // Phase 1c — poll whether an unlinked device is due for a signup nudge, and hold it for the display

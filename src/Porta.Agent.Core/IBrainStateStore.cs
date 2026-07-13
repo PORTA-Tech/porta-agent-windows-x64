@@ -47,6 +47,10 @@ public interface IBrainStateStore
     AgentReminder? CreateReminder(string title, DateTimeOffset dueAtUtc, DateTimeOffset nowUtc);
     AgentReminder? ReadNextReminder(DateTimeOffset nowUtc);
     bool AcknowledgeReminder(long id, string action, DateTimeOffset nowUtc);
+    // Workstream 4 — timed tasks (plan vs. reality), service-side like reminders.
+    AgentTask? CreateTask(string title, int plannedSeconds, DateTimeOffset nowUtc);
+    IReadOnlyList<AgentTask> ReadTasks(DateTimeOffset dayStartUtc, DateTimeOffset nowUtc);
+    AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc);
     AgentStorageInfo ReadStorageInfo();
     AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);
     AgentDistractionSummary ReadCurrentDistractionSummary();

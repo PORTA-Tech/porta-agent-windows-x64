@@ -926,6 +926,45 @@ public sealed record LocalApiNextReminderResponse(
     LocalApiReminder? Next,
     DateTimeOffset TimestampUtc);
 
+// Workstream 4 — timed tasks (plan vs. reality).
+public sealed record LocalApiTask(
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("planned_seconds")] int PlannedSeconds,
+    [property: JsonPropertyName("state")] string State,          // pending | active | done | abandoned
+    [property: JsonPropertyName("active_seconds")] double ActiveSeconds,
+    [property: JsonPropertyName("focused_seconds")] double FocusedSeconds,
+    [property: JsonPropertyName("offtask_seconds")] double OfftaskSeconds,
+    [property: JsonPropertyName("extended_seconds")] int ExtendedSeconds,
+    [property: JsonPropertyName("created_at_utc")] DateTimeOffset CreatedAtUtc,
+    [property: JsonPropertyName("started_at_utc")] DateTimeOffset? StartedAtUtc,
+    [property: JsonPropertyName("ended_at_utc")] DateTimeOffset? EndedAtUtc);
+
+public sealed record LocalApiTaskCreateRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("title")] string? Title,
+    [property: JsonPropertyName("planned_seconds")] int PlannedSeconds);
+
+public sealed record LocalApiTaskCreateResponse(
+    bool Success,
+    string? Reason,                                              // cap_reached / invalid_payload_or_schema
+    LocalApiTask? Task,
+    DateTimeOffset TimestampUtc);
+
+public sealed record LocalApiTaskActRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("action")] string? Action);     // start | done | abandon | extend
+
+public sealed record LocalApiTaskActResponse(
+    bool Success,
+    LocalApiTask? Task,
+    DateTimeOffset TimestampUtc);
+
+public sealed record LocalApiTasksTodayResponse(
+    IReadOnlyList<LocalApiTask> Tasks,
+    DateTimeOffset TimestampUtc);
+
 public sealed record LocalApiExportResponse(
     bool Success,
     string BundlePath,

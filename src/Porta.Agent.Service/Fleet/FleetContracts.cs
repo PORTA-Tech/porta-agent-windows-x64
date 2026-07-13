@@ -185,7 +185,18 @@ internal sealed record DailyDigestReportPayload(
     // Callers that know certain metrics are unreliable declare them here so the
     // email builder can render "no data" instead of fabricated numbers.
     [property: JsonPropertyName("missingFields")] IReadOnlyList<string>? MissingFields = null,
-    [property: JsonPropertyName("topApps")] IReadOnlyList<FocusAppUsagePayload>? TopApps = null);
+    [property: JsonPropertyName("topApps")] IReadOnlyList<FocusAppUsagePayload>? TopApps = null,
+    // Workstream 4 — plan vs. reality: today's closed (done/abandoned) timed tasks, exactly
+    // the measured numbers. Empty/null → the email's tasks section is omitted entirely.
+    [property: JsonPropertyName("tasks")] IReadOnlyList<DigestTaskPayload>? Tasks = null);
+
+// Workstream 4 — one closed task in the digest payload.
+internal sealed record DigestTaskPayload(
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("plannedSeconds")] int PlannedSeconds,
+    [property: JsonPropertyName("actualSeconds")] double ActualSeconds,
+    [property: JsonPropertyName("offtaskSeconds")] double OfftaskSeconds,
+    [property: JsonPropertyName("state")] string State);
 
 /// <summary>
 /// Lightweight periodic stats payload POSTed to /api/agent/daily-stats every 2 hours.

@@ -240,6 +240,9 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         public Porta.Agent.Core.AgentReminder? CreateReminder(string title, DateTimeOffset dueAtUtc) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentReminder? GetNextReminder() => throw new NotSupportedException();
         public bool AcknowledgeReminder(long id, string action) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentTask? CreateTask(string title, int plannedSeconds) => throw new NotSupportedException();
+        public IReadOnlyList<Porta.Agent.Core.AgentTask> GetTodayTasks() => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentTask? ActOnTask(long id, string action) => throw new NotSupportedException();
     }
 
     private sealed class FakeRuntime : ICurrentSessionUserAgentRuntime

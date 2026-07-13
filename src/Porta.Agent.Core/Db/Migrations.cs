@@ -108,7 +108,11 @@ internal static class Migrations
         new(
             Version: 22,
             Name: "reminders_v22",
-            Apply: Schema.ApplyRemindersV22)
+            Apply: Schema.ApplyRemindersV22),
+        new(
+            Version: 23,
+            Name: "tasks_v23",
+            Apply: Schema.ApplyTasksV23)
     ];
 
     internal static void Migrate(SqliteConnection connection)

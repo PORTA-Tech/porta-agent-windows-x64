@@ -303,6 +303,52 @@ public static class LocalApiEndpointMapping
                     Success: false, Message: "unknown_reminder_or_action", TimestampUtc: DateTimeOffset.UtcNow));
         });
 
+        // Workstream 4 — timed tasks (plan vs. reality). Same auth/contract patterns as
+        // reminders; attribution happens in the bucket pipeline, these endpoints only
+        // manage lifecycle and read the measured numbers.
+        api.MapGet("/tasks/today", (IAgentCoreController controller) =>
+        {
+            IReadOnlyList<AgentTask> tasks = controller.GetTodayTasks();
+            return new LocalApiTasksTodayResponse(
+                Tasks: tasks.Select(ToApiTask).ToList()!,
+                TimestampUtc: DateTimeOffset.UtcNow);
+        });
+
+        api.MapPost("/tasks", (IAgentCoreController controller, LocalApiTaskCreateRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiTaskCreateResponse(
+                    Success: false, Reason: "invalid_payload_or_schema", Task: null,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            AgentTask? created = controller.CreateTask(request.Title ?? string.Empty, request.PlannedSeconds);
+            return created is null
+                ? Results.Json(new LocalApiTaskCreateResponse(
+                    Success: false, Reason: "cap_reached_or_invalid", Task: null,
+                    TimestampUtc: DateTimeOffset.UtcNow))
+                : Results.Json(new LocalApiTaskCreateResponse(
+                    Success: true, Reason: null, Task: ToApiTask(created),
+                    TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
+        api.MapPost("/tasks/act", (IAgentCoreController controller, LocalApiTaskActRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiTaskActResponse(
+                    Success: false, Task: null, TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            AgentTask? updated = controller.ActOnTask(request.Id, request.Action ?? string.Empty);
+            return updated is null
+                ? Results.BadRequest(new LocalApiTaskActResponse(
+                    Success: false, Task: null, TimestampUtc: DateTimeOffset.UtcNow))
+                : Results.Json(new LocalApiTaskActResponse(
+                    Success: true, Task: ToApiTask(updated), TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
         // Phase 1c — signup nudge: is this UNLINKED device due to be nudged to sign in right now?
         // Link status comes from the local identity store; the governor + caps live in the core.
         api.MapGet("/nudges/signup-due", (IAgentCoreController controller, ILocalIdentityLinkStore identityLinkStore) =>
@@ -905,5 +951,24 @@ public static class LocalApiEndpointMapping
                 DueAtUtc: reminder.DueAtUtc,
                 State: reminder.State,
                 SnoozeCount: reminder.SnoozeCount);
+    }
+
+    // Workstream 4 — timed tasks.
+    private static LocalApiTask? ToApiTask(AgentTask? task)
+    {
+        return task is null
+            ? null
+            : new LocalApiTask(
+                Id: task.Id,
+                Title: task.Title,
+                PlannedSeconds: task.PlannedSeconds,
+                State: task.State,
+                ActiveSeconds: task.ActiveSeconds,
+                FocusedSeconds: task.FocusedSeconds,
+                OfftaskSeconds: task.OfftaskSeconds,
+                ExtendedSeconds: task.ExtendedSeconds,
+                CreatedAtUtc: task.CreatedAtUtc,
+                StartedAtUtc: task.StartedAtUtc,
+                EndedAtUtc: task.EndedAtUtc);
     }
 }

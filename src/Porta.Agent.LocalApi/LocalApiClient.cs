@@ -320,6 +320,70 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    // ── Workstream 4: timed tasks ───────────────────────────────────────────────
+    public async Task<LocalApiTasksTodayResponse?> GetTasksTodayAsync(CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            return await _httpClient.GetFromJsonAsync<LocalApiTasksTodayResponse>(
+                "/v1/tasks/today", token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LocalApiTaskCreateResponse?> CreateTaskAsync(
+        LocalApiTaskCreateRequest request,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/tasks", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiTaskCreateResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LocalApiTaskActResponse?> ActOnTaskAsync(
+        LocalApiTaskActRequest request,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/tasks/act", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiTaskActResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<LocalApiAckResponse?> RecordFocusLabelAsync(
         LocalApiFocusLabelRequest request,
         CancellationToken token = default)

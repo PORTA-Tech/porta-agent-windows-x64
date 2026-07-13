@@ -54,4 +54,10 @@ public interface IAgentCoreController
     AgentReminder? CreateReminder(string title, DateTimeOffset dueAtUtc);
     AgentReminder? GetNextReminder();
     bool AcknowledgeReminder(long id, string action);
+
+    // Workstream 4 — timed tasks: create (null = cap reached / invalid), read today's list,
+    // and act on one (start | done | abandon | extend).
+    AgentTask? CreateTask(string title, int plannedSeconds);
+    IReadOnlyList<AgentTask> GetTodayTasks();
+    AgentTask? ActOnTask(long id, string action);
 }

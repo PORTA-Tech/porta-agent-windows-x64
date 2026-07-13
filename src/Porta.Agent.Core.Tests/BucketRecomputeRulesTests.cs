@@ -168,6 +168,9 @@ public sealed class BucketRecomputeRulesTests
         public AgentReminder? CreateReminder(string title, DateTimeOffset dueAtUtc, DateTimeOffset nowUtc) => null;
         public AgentReminder? ReadNextReminder(DateTimeOffset nowUtc) => null;
         public bool AcknowledgeReminder(long id, string action, DateTimeOffset nowUtc) => false;
+        public AgentTask? CreateTask(string title, int plannedSeconds, DateTimeOffset nowUtc) => null;
+        public IReadOnlyList<AgentTask> ReadTasks(DateTimeOffset dayStartUtc, DateTimeOffset nowUtc) => System.Array.Empty<AgentTask>();
+        public AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc) => null;
         public AgentBrainSnapshot? ReadLatestSnapshot() => null;
         public AgentLatestStateDetails? ReadLatestStateDetails() => null;
         public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus()

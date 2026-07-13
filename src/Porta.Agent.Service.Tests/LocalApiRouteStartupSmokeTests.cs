@@ -280,6 +280,9 @@ public sealed class LocalApiRouteStartupSmokeTests
         public AgentReminder? CreateReminder(string title, DateTimeOffset dueAtUtc) => throw new NotSupportedException();
         public AgentReminder? GetNextReminder() => throw new NotSupportedException();
         public bool AcknowledgeReminder(long id, string action) => throw new NotSupportedException();
+        public AgentTask? CreateTask(string title, int plannedSeconds) => throw new NotSupportedException();
+        public IReadOnlyList<AgentTask> GetTodayTasks() => throw new NotSupportedException();
+        public AgentTask? ActOnTask(long id, string action) => throw new NotSupportedException();
     }
 
     private sealed class SmokeAriContextProvider : IAriContextProvider

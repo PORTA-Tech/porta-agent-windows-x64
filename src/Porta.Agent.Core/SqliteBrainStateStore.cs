@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Porta.Agent.Common;
+using Porta.Agent.Common.Analysis;
 using Porta.Agent.Core.Analysis;
 using Porta.Agent.Core.Buckets;
 using Porta.Agent.Core.Db;
@@ -466,6 +467,13 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     breakFocusWindow,
                     policyEnvelope,
                     breakDismissStreak);
+                // Workstream 4: land this bucket's seconds on the active task (if any),
+                // split by the pipeline's own attention classification.
+                AttributeBucketToActiveTask(
+                    connection,
+                    tx,
+                    Time.bucketSeconds,
+                    derivedSession.AttentionSegmentKind);
                 TryInsertAutomaticInterventionEvent(connection, tx, inferredSnapshot);
                 UpsertRuntimeStateForSnapshot(
                     connection,
@@ -770,6 +778,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     DELETE FROM ground_truth_labels;
                     DELETE FROM prompt_events;
                     DELETE FROM reminders;
+                    DELETE FROM tasks;
                     DELETE FROM sqlite_sequence;
                     """;
                 cmd.ExecuteNonQuery();
@@ -2130,6 +2139,248 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             tx.Commit();
             return rows > 0;
         }
+    }
+
+    // ── Workstream 4: timed tasks (plan vs. reality) ──
+
+    private const int MaxOpenTasks = 20;
+    private const int TaskDoneRetentionDays = 30;
+    public const int TaskExtendSeconds = 900;
+
+    public AgentTask? CreateTask(string title, int plannedSeconds, DateTimeOffset nowUtc)
+    {
+        string cleanTitle = (title ?? string.Empty).Trim();
+        if (cleanTitle.Length == 0 || plannedSeconds < 60 || plannedSeconds > 8 * 3600)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+
+            using (var countCmd = connection.CreateCommand())
+            {
+                countCmd.Transaction = tx;
+                countCmd.CommandText = "SELECT COUNT(*) FROM tasks WHERE state IN ('pending','active');";
+                long open = (long)(countCmd.ExecuteScalar() ?? 0L);
+                if (open >= MaxOpenTasks)
+                {
+                    tx.Commit();
+                    return null;
+                }
+            }
+
+            long id;
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText =
+                    """
+                    INSERT INTO tasks (created_at_utc, title, planned_seconds, state, order_index)
+                    VALUES ($created, $title, $planned, 'pending',
+                        (SELECT COALESCE(MAX(order_index), 0) + 1 FROM tasks));
+                    SELECT last_insert_rowid();
+                    """;
+                cmd.Parameters.AddWithValue("$created", nowUtc.ToUniversalTime().ToString("O"));
+                cmd.Parameters.AddWithValue("$title", cleanTitle);
+                cmd.Parameters.AddWithValue("$planned", plannedSeconds);
+                id = (long)(cmd.ExecuteScalar() ?? 0L);
+            }
+
+            AgentTask? created = ReadTaskRow(connection, tx, id);
+            tx.Commit();
+            return created;
+        }
+    }
+
+    /// <summary>
+    /// Today's list: everything still open plus tasks closed since <paramref name="dayStartUtc"/>.
+    /// Piggybacks the 30-day cleanup of closed rows, mirroring the reminders pattern.
+    /// </summary>
+    public IReadOnlyList<AgentTask> ReadTasks(DateTimeOffset dayStartUtc, DateTimeOffset nowUtc)
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+
+            using (var cleanup = connection.CreateCommand())
+            {
+                cleanup.Transaction = tx;
+                cleanup.CommandText =
+                    """
+                    DELETE FROM tasks
+                    WHERE state IN ('done','abandoned') AND created_at_utc < $cutoff;
+                    """;
+                cleanup.Parameters.AddWithValue(
+                    "$cutoff", nowUtc.AddDays(-TaskDoneRetentionDays).ToUniversalTime().ToString("O"));
+                cleanup.ExecuteNonQuery();
+            }
+
+            var tasks = new List<AgentTask>();
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText =
+                    $"""
+                    SELECT {TaskColumns}
+                    FROM tasks
+                    WHERE state IN ('pending','active')
+                       OR (state IN ('done','abandoned') AND ended_at_utc >= $dayStart)
+                    ORDER BY CASE state WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
+                             order_index ASC, id ASC;
+                    """;
+                cmd.Parameters.AddWithValue("$dayStart", dayStartUtc.ToUniversalTime().ToString("O"));
+                using SqliteDataReader reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    tasks.Add(MapTaskRow(reader));
+                }
+            }
+
+            tx.Commit();
+            return tasks;
+        }
+    }
+
+    /// <summary>
+    /// Acts on a task: start | done | abandon | extend. Start enforces the one-active
+    /// invariant HERE (not in the UI): any currently active task returns to pending with
+    /// its accumulated reality intact — starting task B while A runs is a switch, not an
+    /// error. Returns the updated task, or null for unknown id / illegal transition.
+    /// </summary>
+    public AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc)
+    {
+        string verb = (action ?? string.Empty).Trim().ToLowerInvariant();
+        string nowRaw = nowUtc.ToUniversalTime().ToString("O");
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            switch (verb)
+            {
+                case "start":
+                    using (var pause = connection.CreateCommand())
+                    {
+                        pause.Transaction = tx;
+                        pause.CommandText =
+                            "UPDATE tasks SET state = 'pending' WHERE state = 'active' AND id <> $id;";
+                        pause.Parameters.AddWithValue("$id", id);
+                        pause.ExecuteNonQuery();
+                    }
+
+                    cmd.CommandText =
+                        """
+                        UPDATE tasks
+                        SET state = 'active',
+                            started_at_utc = CASE WHEN started_at_utc = '' THEN $now ELSE started_at_utc END
+                        WHERE id = $id AND state = 'pending';
+                        """;
+                    break;
+                case "done":
+                case "abandon":
+                    cmd.CommandText =
+                        """
+                        UPDATE tasks SET state = $state, ended_at_utc = $now
+                        WHERE id = $id AND state IN ('pending','active');
+                        """;
+                    cmd.Parameters.AddWithValue("$state", verb == "done" ? "done" : "abandoned");
+                    break;
+                case "extend":
+                    cmd.CommandText =
+                        $"""
+                        UPDATE tasks SET extended_seconds = extended_seconds + {TaskExtendSeconds}
+                        WHERE id = $id AND state = 'active';
+                        """;
+                    break;
+                default:
+                    tx.Commit();
+                    return null;
+            }
+
+            cmd.Parameters.AddWithValue("$id", id);
+            if (cmd.CommandText.Contains("$now", StringComparison.Ordinal))
+            {
+                cmd.Parameters.AddWithValue("$now", nowRaw);
+            }
+
+            int rows = cmd.ExecuteNonQuery();
+            AgentTask? updated = rows > 0 ? ReadTaskRow(connection, tx, id) : null;
+            tx.Commit();
+            return updated;
+        }
+    }
+
+    private const string TaskColumns =
+        "id, title, planned_seconds, state, order_index, created_at_utc, started_at_utc, " +
+        "ended_at_utc, active_seconds, focused_seconds, offtask_seconds, extended_seconds";
+
+    private static AgentTask? ReadTaskRow(SqliteConnection connection, SqliteTransaction tx, long id)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = $"SELECT {TaskColumns} FROM tasks WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$id", id);
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        return reader.Read() ? MapTaskRow(reader) : null;
+    }
+
+    private static AgentTask MapTaskRow(SqliteDataReader reader)
+    {
+        string started = reader.GetString(6);
+        string ended = reader.GetString(7);
+        return new AgentTask(
+            Id: reader.GetInt64(0),
+            Title: reader.GetString(1),
+            PlannedSeconds: reader.GetInt32(2),
+            State: reader.GetString(3),
+            OrderIndex: reader.GetInt32(4),
+            CreatedAtUtc: DateTimeOffset.Parse(reader.GetString(5)),
+            StartedAtUtc: string.IsNullOrEmpty(started) ? null : DateTimeOffset.Parse(started),
+            EndedAtUtc: string.IsNullOrEmpty(ended) ? null : DateTimeOffset.Parse(ended),
+            ActiveSeconds: reader.GetDouble(8),
+            FocusedSeconds: reader.GetDouble(9),
+            OfftaskSeconds: reader.GetDouble(10),
+            ExtendedSeconds: reader.GetInt32(11));
+    }
+
+    /// <summary>
+    /// Attribution (4.2): each finalized bucket's seconds land on the active task using the
+    /// pipeline's OWN attention classification — no new inference. Away contributes nothing
+    /// (the countdown pauses with the user); distraction kinds count as off-task; everything
+    /// else (focus, meeting, context excursion) counts as focused. One row update per 5s
+    /// bucket, only while a task is active.
+    /// </summary>
+    internal static void AttributeBucketToActiveTask(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        double bucketSeconds,
+        string? attentionSegmentKind)
+    {
+        if (bucketSeconds <= 0d || AttentionSegmentKinds.IsAway(attentionSegmentKind))
+        {
+            return;
+        }
+
+        bool offtask = AttentionSegmentKinds.IsDistraction(attentionSegmentKind);
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            UPDATE tasks
+            SET active_seconds = active_seconds + $seconds,
+                focused_seconds = focused_seconds + $focused,
+                offtask_seconds = offtask_seconds + $offtask
+            WHERE state = 'active';
+            """;
+        cmd.Parameters.AddWithValue("$seconds", bucketSeconds);
+        cmd.Parameters.AddWithValue("$focused", offtask ? 0d : bucketSeconds);
+        cmd.Parameters.AddWithValue("$offtask", offtask ? bucketSeconds : 0d);
+        cmd.ExecuteNonQuery();
     }
 
     // Phase 1b: append a durable ground-truth label. Deliberately does NOT call PruneIfNeeded —

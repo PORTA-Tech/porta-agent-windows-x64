@@ -542,6 +542,43 @@ internal static class Schema
         cmd.ExecuteNonQuery();
     }
 
+    internal static void ApplyTasksV23(SqliteConnection connection)
+    {
+        // Workstream 4 — timed tasks ("plan vs. reality"). NOT a to-do app: each task holds
+        // the user's plan (title + planned duration) against measured reality (focused /
+        // off-task seconds attributed from the bucket pipeline while the task is active).
+        // Lives in the SERVICE like reminders so tasks survive user-agent restarts. Titles
+        // are user-authored and never leave the device except in the digest payload the
+        // user explicitly receives. Wiped on local-data reset (privacy).
+        //
+        // state: pending | active (at most ONE — enforced in the store) | done | abandoned.
+        // active_seconds: attended wall time while active (away buckets contribute nothing),
+        // drives the countdown and expiry; focused/offtask split it by bucket classification.
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at_utc    TEXT    NOT NULL,
+                title             TEXT    NOT NULL,
+                planned_seconds   INTEGER NOT NULL,
+                state             TEXT    NOT NULL DEFAULT 'pending',
+                order_index       INTEGER NOT NULL DEFAULT 0,
+                started_at_utc    TEXT    NOT NULL DEFAULT '',
+                ended_at_utc      TEXT    NOT NULL DEFAULT '',
+                active_seconds    REAL    NOT NULL DEFAULT 0,
+                focused_seconds   REAL    NOT NULL DEFAULT 0,
+                offtask_seconds   REAL    NOT NULL DEFAULT 0,
+                extended_seconds  INTEGER NOT NULL DEFAULT 0,
+                schema_ver        INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_tasks_state_created
+                ON tasks(state, created_at_utc);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
     internal static void ApplyContractSchemaV3(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

@@ -173,6 +173,17 @@ internal sealed class UserDesktopWidgetWindow : Window
     private Button _quickAddClockToggle = null!;
     private TextBox _quickAddClockBox = null!;
     private bool _quickAddClockMode;
+    // Workstream 4 — the "Today" timed-task section.
+    private readonly Action<UserDesktopWidgetTaskCommand>? _taskCommandRequested;
+    private IReadOnlyList<UserDesktopWidgetTaskInfo> _tasks = Array.Empty<UserDesktopWidgetTaskInfo>();
+    private StackPanel _tasksSection = null!;
+    private StackPanel _tasksRows = null!;
+    private StackPanel _taskAddPanel = null!;
+    private TextBox _taskTitleBox = null!;
+    private TextBlock _taskAddPreview = null!;
+    private readonly List<Button> _taskChips = new();
+    private int _taskDurationMinutes = 30;
+    private bool _taskAddOpen;
     private bool _quickAddOpen;
 
     public UserDesktopWidgetWindow(
@@ -180,13 +191,15 @@ internal sealed class UserDesktopWidgetWindow : Window
         Action<UserInterventionPromptResponse> promptResponseRequested,
         UserDesktopWidgetPlacementStore placementStore,
         Action<UserDesktopWidgetLabelAnswer>? labelAnswerRequested = null,
-        Action<UserDesktopWidgetReminderCommand>? reminderCommandRequested = null)
+        Action<UserDesktopWidgetReminderCommand>? reminderCommandRequested = null,
+        Action<UserDesktopWidgetTaskCommand>? taskCommandRequested = null)
     {
         _actionRequested = actionRequested;
         _promptResponseRequested = promptResponseRequested;
         _placementStore = placementStore;
         _labelAnswerRequested = labelAnswerRequested;
         _reminderCommandRequested = reminderCommandRequested;
+        _taskCommandRequested = taskCommandRequested;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
         AllowsTransparency = true;
@@ -807,6 +820,8 @@ internal sealed class UserDesktopWidgetWindow : Window
         newMetricsStack.Children.Add(_reminderPillRow);
         newMetricsStack.Children.Add(statsGrid);
         newMetricsStack.Children.Add(_quickAddPanel);
+        BuildTasksSection();
+        newMetricsStack.Children.Add(_tasksSection);
 
         Grid.SetColumn(newMetricsStack, 0);
         _metricsPanel.Children.Add(newMetricsStack);
@@ -1091,6 +1106,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         UpdateLabelPrompt(state);
         UpdateSignupNudge(state);
         UpdateReminder(state);
+        UpdateTasks(state);
         RefreshInlineMessage();
         RefreshReminderPill();
         ApplyModeChrome(state.Mode, state.ShowLimitedBadge);
@@ -3183,6 +3199,338 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         RefreshQuickAddPreview();
         UpdateWindowHeight();
+    }
+
+    // ── Workstream 4: the "Today" timed-task section — plan vs. reality ─────────
+    // Not a to-do app: rows show the plan (title + duration) against measured reality
+    // (countdown + live off-task minutes from the 4s poll). Max 5 rows, order = creation.
+
+    private void BuildTasksSection()
+    {
+        var header = new StackPanel { Orientation = Orientation.Horizontal };
+        var headerText = new TextBlock
+        {
+            Text = "TODAY",
+            FontSize = 8,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(1, 0, 6, 0)
+        };
+        Button addToggle = CreateQuickAddPickerButton("+ task");
+        addToggle.Click += (_, _) => ToggleTaskAdd();
+        header.Children.Add(headerText);
+        header.Children.Add(addToggle);
+
+        _tasksRows = new StackPanel { Orientation = Orientation.Vertical };
+
+        // Add-task compose: title + the SAME duration chips/stepper language as the
+        // reminder picker (Workstream 2) — durations are never typed blind here either.
+        _taskTitleBox = new TextBox
+        {
+            FontSize = 10,
+            Background = new SolidColorBrush(Color.FromRgb(0x0F, 0x11, 0x14)),
+            Foreground = new SolidColorBrush(Color.FromRgb(0xED, 0xEF, 0xF3)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x41, 0x50)),
+            BorderThickness = new Thickness(1),
+            CaretBrush = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
+            Padding = new Thickness(4, 2, 4, 2)
+        };
+        _taskTitleBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                ConfirmTaskAdd();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                CloseTaskAdd();
+                e.Handled = true;
+            }
+        };
+
+        var chipRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 0) };
+        string[] chipLabels = { "10m", "30m", "1h", "2h" };
+        for (int i = 0; i < chipLabels.Length; i++)
+        {
+            int chipMinutes = Porta.Agent.Common.ReminderComposeState.ChipMinutes[i];
+            Button chip = CreateQuickAddPickerButton(chipLabels[i]);
+            chip.Click += (_, _) =>
+            {
+                _taskDurationMinutes = chipMinutes;
+                RefreshTaskAddPreview();
+            };
+            _taskChips.Add(chip);
+            chipRow.Children.Add(chip);
+        }
+
+        Button stepDown = CreateQuickAddPickerButton("−15");
+        stepDown.Margin = new Thickness(6, 0, 2, 0);
+        stepDown.Click += (_, _) =>
+        {
+            _taskDurationMinutes = Math.Max(5, _taskDurationMinutes - 15);
+            RefreshTaskAddPreview();
+        };
+        chipRow.Children.Add(stepDown);
+        Button stepUp = CreateQuickAddPickerButton("+15");
+        stepUp.Click += (_, _) =>
+        {
+            _taskDurationMinutes += 15;
+            RefreshTaskAddPreview();
+        };
+        chipRow.Children.Add(stepUp);
+
+        _taskAddPreview = new TextBlock
+        {
+            FontSize = 8,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
+            Margin = new Thickness(1, 2, 0, 0)
+        };
+        Button addButton = CreateQuickAddPickerButton("Add");
+        addButton.Margin = new Thickness(0, 3, 2, 0);
+        addButton.Click += (_, _) => ConfirmTaskAdd();
+        Button cancelButton = CreateQuickAddPickerButton("Cancel");
+        cancelButton.Margin = new Thickness(0, 3, 0, 0);
+        cancelButton.Click += (_, _) => CloseTaskAdd();
+        var buttonsRow = new StackPanel { Orientation = Orientation.Horizontal };
+        buttonsRow.Children.Add(addButton);
+        buttonsRow.Children.Add(cancelButton);
+
+        _taskAddPanel = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            Margin = new Thickness(0, 2, 0, 0),
+            Visibility = Visibility.Collapsed
+        };
+        _taskAddPanel.Children.Add(_taskTitleBox);
+        _taskAddPanel.Children.Add(chipRow);
+        _taskAddPanel.Children.Add(_taskAddPreview);
+        _taskAddPanel.Children.Add(buttonsRow);
+
+        _tasksSection = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        _tasksSection.Children.Add(header);
+        _tasksSection.Children.Add(_tasksRows);
+        _tasksSection.Children.Add(_taskAddPanel);
+    }
+
+    private void UpdateTasks(UserDesktopWidgetState state)
+    {
+        _tasks = state.Tasks ?? Array.Empty<UserDesktopWidgetTaskInfo>();
+        RenderTaskRows();
+    }
+
+    private void RenderTaskRows()
+    {
+        _tasksRows.Children.Clear();
+        int shown = 0;
+        foreach (UserDesktopWidgetTaskInfo task in _tasks)
+        {
+            if (shown >= 5)
+            {
+                break;
+            }
+
+            _tasksRows.Children.Add(BuildTaskRow(task));
+            shown++;
+        }
+
+        // Collapsed by default when empty: the header (with "+ task") only appears once
+        // the user has tasks OR opened the compose — an empty section must not add noise.
+        _tasksSection.Visibility = shown > 0 || _taskAddOpen || _quickAddOpen
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        UpdateWindowHeight();
+    }
+
+    private UIElement BuildTaskRow(UserDesktopWidgetTaskInfo task)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(1, 1, 0, 1) };
+        bool closed = task.State is "done" or "abandoned";
+        var title = new TextBlock
+        {
+            FontSize = 9,
+            MaxWidth = 96,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = new SolidColorBrush(closed
+                ? Color.FromRgb(0x64, 0x74, 0x8B)
+                : Color.FromRgb(0xED, 0xEF, 0xF3)),
+            Text = task.State switch
+            {
+                "done" => $"✓ {task.Title}",
+                "abandoned" => $"✕ {task.Title}",
+                _ => task.Title
+            }
+        };
+        var detail = new TextBlock
+        {
+            FontSize = 8,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(5, 0, 4, 0),
+            Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
+            Text = BuildTaskDetailText(task)
+        };
+        row.Children.Add(title);
+        row.Children.Add(detail);
+
+        switch (task.State)
+        {
+            case "pending":
+            {
+                Button start = CreateQuickAddPickerButton("▶");
+                start.Click += (_, _) => SendTaskCommand("start", task);
+                row.Children.Add(start);
+                break;
+            }
+
+            case "active":
+            {
+                Button done = CreateQuickAddPickerButton("✓");
+                done.Click += (_, _) => SendTaskCommand("done", task);
+                Button extend = CreateQuickAddPickerButton("+15");
+                extend.Click += (_, _) => SendTaskCommand("extend", task);
+                Button abandon = CreateQuickAddPickerButton("✕");
+                abandon.Click += (_, _) => SendTaskCommand("abandon", task);
+                row.Children.Add(done);
+                row.Children.Add(extend);
+                row.Children.Add(abandon);
+                break;
+            }
+        }
+
+        return row;
+    }
+
+    // The honest line. Active: countdown + live off-task. Done: plan vs. reality,
+    // no judgment adjectives.
+    private static string BuildTaskDetailText(UserDesktopWidgetTaskInfo task)
+    {
+        int budgetSeconds = task.PlannedSeconds + task.ExtendedSeconds;
+        switch (task.State)
+        {
+            case "pending":
+                return FormatTaskDuration(task.PlannedSeconds);
+            case "active":
+            {
+                double remaining = budgetSeconds - task.ActiveSeconds;
+                string clock = remaining >= 0
+                    ? $"{FormatTaskDuration((int)Math.Ceiling(remaining))} left"
+                    : $"{FormatTaskDuration((int)Math.Ceiling(-remaining))} over";
+                int offtaskMinutes = (int)Math.Round(task.OfftaskSeconds / 60d);
+                return offtaskMinutes > 0 ? $"{clock} · {offtaskMinutes}m off-task" : clock;
+            }
+
+            case "done":
+            case "abandoned":
+            {
+                string line = $"planned {FormatTaskDuration(task.PlannedSeconds)} · took {FormatTaskDuration((int)Math.Round(task.ActiveSeconds))}";
+                int offtaskMinutes = (int)Math.Round(task.OfftaskSeconds / 60d);
+                return offtaskMinutes > 0 ? $"{line} · {offtaskMinutes}m off-task" : line;
+            }
+
+            default:
+                return string.Empty;
+        }
+    }
+
+    private static string FormatTaskDuration(int totalSeconds)
+        => Porta.Agent.Common.ReminderTimeParser.FormatDuration(Math.Max(0, totalSeconds) / 60);
+
+    private void SendTaskCommand(string kind, UserDesktopWidgetTaskInfo task)
+    {
+        _taskCommandRequested?.Invoke(new UserDesktopWidgetTaskCommand(
+            Kind: kind,
+            Id: task.Id,
+            Title: task.Title,
+            PlannedSeconds: task.PlannedSeconds));
+    }
+
+    private void ToggleTaskAdd()
+    {
+        if (_taskAddOpen)
+        {
+            CloseTaskAdd();
+            return;
+        }
+
+        Expand();
+        _taskAddOpen = true;
+        _taskTitleBox.Text = string.Empty;
+        _taskDurationMinutes = 30;
+        RefreshTaskAddPreview();
+        _taskAddPanel.Visibility = Visibility.Visible;
+        _tasksSection.Visibility = Visibility.Visible;
+        UpdateWindowHeight();
+
+        // Same NOACTIVATE dance as the reminder quick-add: the box needs real focus.
+        SetNoActivateStyle(enabled: false);
+        IntPtr hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+        {
+            _ = NativeSetForegroundWindow(hwnd);
+        }
+
+        Activate();
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () =>
+        {
+            if (_taskAddOpen)
+            {
+                Keyboard.Focus(_taskTitleBox);
+            }
+        });
+    }
+
+    private void CloseTaskAdd()
+    {
+        if (!_taskAddOpen)
+        {
+            return;
+        }
+
+        _taskAddOpen = false;
+        _taskAddPanel.Visibility = Visibility.Collapsed;
+        SetNoActivateStyle(enabled: true);
+        RenderTaskRows();
+    }
+
+    private void ConfirmTaskAdd()
+    {
+        string title = _taskTitleBox.Text.Trim();
+        if (title.Length == 0)
+        {
+            RefreshTaskAddPreview();
+            return;
+        }
+
+        _taskCommandRequested?.Invoke(new UserDesktopWidgetTaskCommand(
+            Kind: "create",
+            Id: 0,
+            Title: title,
+            PlannedSeconds: _taskDurationMinutes * 60));
+        CloseTaskAdd();
+    }
+
+    private void RefreshTaskAddPreview()
+    {
+        string title = _taskTitleBox.Text.Trim();
+        _taskAddPreview.Text = title.Length == 0
+            ? $"Type a task · {Porta.Agent.Common.ReminderTimeParser.FormatDuration(_taskDurationMinutes)} planned"
+            : $"{title} · {Porta.Agent.Common.ReminderTimeParser.FormatDuration(_taskDurationMinutes)} planned";
+        for (int i = 0; i < _taskChips.Count; i++)
+        {
+            bool selected = _taskDurationMinutes == Porta.Agent.Common.ReminderComposeState.ChipMinutes[i];
+            _taskChips[i].Foreground = new SolidColorBrush(selected
+                ? Color.FromRgb(0x16, 0xC7, 0x84)
+                : Color.FromRgb(0x94, 0xA3, 0xB8));
+            _taskChips[i].BorderBrush = new SolidColorBrush(selected
+                ? Color.FromRgb(0x1E, 0x4D, 0x3B)
+                : Color.FromRgb(0x25, 0x25, 0x35));
+        }
     }
 
     // Strict HH:mm (24h). The parser's looser grammars stay in the typed line; this box is

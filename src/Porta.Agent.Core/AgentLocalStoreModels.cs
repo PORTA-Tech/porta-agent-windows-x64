@@ -387,3 +387,21 @@ public sealed record AgentReminder(
     string State,
     int SnoozeCount,
     DateTimeOffset? FiredAtUtc);
+
+// Workstream 4 — a timed task: the user's plan (title + planned duration) held against
+// measured reality. state: pending | active (at most one) | done | abandoned.
+// ActiveSeconds = attended time while active (away contributes nothing); Focused/Offtask
+// split it using the bucket pipeline's own attention classification — no new inference.
+public sealed record AgentTask(
+    long Id,
+    string Title,
+    int PlannedSeconds,
+    string State,
+    int OrderIndex,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? StartedAtUtc,
+    DateTimeOffset? EndedAtUtc,
+    double ActiveSeconds,
+    double FocusedSeconds,
+    double OfftaskSeconds,
+    int ExtendedSeconds);

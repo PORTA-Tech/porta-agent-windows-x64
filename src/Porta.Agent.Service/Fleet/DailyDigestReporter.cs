@@ -187,7 +187,8 @@ internal sealed class DailyDigestReporter : BackgroundService
                 // (grow/decay per bucket), not daily totals — declare them missing so
                 // the email renders "no data" instead of a misleading number.
                 MissingFields: new[] { "gaming", "socialMedia" },
-                TopApps: topApps);
+                TopApps: topApps,
+                Tasks: BuildTaskPayloads());
 
             bool sent = await _client.PostDailyDigestAsync(payload, token).ConfigureAwait(false);
             if (sent)
@@ -209,6 +210,28 @@ internal sealed class DailyDigestReporter : BackgroundService
             Console.WriteLine($"Daily digest error: {ex.GetType().Name} {ex.Message}");
         }
     }
+    // Workstream 4 — plan vs. reality: today's CLOSED tasks only, exactly the measured
+    // numbers. An empty day yields an empty list and the email omits the section.
+    private IReadOnlyList<DigestTaskPayload> BuildTaskPayloads()
+    {
+        try
+        {
+            return _controller.GetTodayTasks()
+                .Where(static t => t.State is "done" or "abandoned")
+                .Select(static t => new DigestTaskPayload(
+                    Title: t.Title,
+                    PlannedSeconds: t.PlannedSeconds,
+                    ActualSeconds: t.ActiveSeconds,
+                    OfftaskSeconds: t.OfftaskSeconds,
+                    State: t.State))
+                .ToList();
+        }
+        catch
+        {
+            return Array.Empty<DigestTaskPayload>();
+        }
+    }
+
     private static Dictionary<AppCategory, double> BuildCategorySeconds(
         IReadOnlyDictionary<string, double> dwellByHash,
         IReadOnlyDictionary<string, int> categoryByHash)

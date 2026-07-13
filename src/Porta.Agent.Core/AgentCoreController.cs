@@ -1760,6 +1760,21 @@ public sealed class AgentCoreController : IAgentCoreController
     public bool AcknowledgeReminder(long id, string action)
         => _stateStore.AcknowledgeReminder(id, action, DateTimeOffset.UtcNow);
 
+    // Workstream 4 — timed tasks. "Today" starts at local midnight: closed tasks from
+    // earlier days drop off the widget list while open ones always show.
+    public AgentTask? CreateTask(string title, int plannedSeconds)
+        => _stateStore.CreateTask(title, plannedSeconds, DateTimeOffset.UtcNow);
+
+    public IReadOnlyList<AgentTask> GetTodayTasks()
+    {
+        DateTimeOffset nowLocal = DateTimeOffset.Now;
+        var dayStartLocal = new DateTimeOffset(nowLocal.Date, nowLocal.Offset);
+        return _stateStore.ReadTasks(dayStartLocal.ToUniversalTime(), DateTimeOffset.UtcNow);
+    }
+
+    public AgentTask? ActOnTask(long id, string action)
+        => _stateStore.ActOnTask(id, action, DateTimeOffset.UtcNow);
+
     public void AcknowledgeIntervention(AgentInterventionAck ack)
     {
         if (ack is null)
