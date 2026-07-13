@@ -857,7 +857,15 @@ public sealed record LocalApiInputSignalsRequest(
     [property: JsonPropertyName("notification_toasts_enabled")] bool? NotificationToastsEnabled = null,
     [property: JsonPropertyName("heartbeat_sequence")] long? HeartbeatSequence = null,
     [property: JsonPropertyName("heartbeat_updated_at_utc")] DateTimeOffset? HeartbeatUpdatedAtUtc = null,
-    [property: JsonPropertyName("heartbeat_capture_context")] string? HeartbeatCaptureContext = null);
+    [property: JsonPropertyName("heartbeat_capture_context")] string? HeartbeatCaptureContext = null,
+    // Category bridge (v1.2.112): metadata for the SAME hash carried in focus_app_hash,
+    // resolved from the UserAgent's populated registries. The service's AppCategoryClassifier
+    // registries are per-process and were permanently empty — every category-aware rule in the
+    // brain (2f off-task gate, 2g suppression, 2b meeting shield) ran dark. Optional + additive:
+    // an old client omitting these keeps exactly the old behavior (Unknown / not meeting).
+    [property: JsonPropertyName("focus_app_category")] int FocusAppCategory = 0,
+    [property: JsonPropertyName("focus_app_is_meeting")] bool FocusAppIsMeeting = false,
+    [property: JsonPropertyName("focus_app_label")] string? FocusAppLabel = null);
 
 public sealed record LocalApiAckResponse(
     bool Success,

@@ -1055,6 +1055,34 @@ public sealed class AgentCoreController : IAgentCoreController
         {
             throw new ArgumentException("invalid_focus_app_hash", nameof(packet.FocusAppHash));
         }
+
+        // Category bridge (v1.2.112): register the UserAgent-resolved category/label/meeting
+        // metadata for this hash into THIS process's classifier registries, BEFORE the bucket
+        // pipeline can evaluate the hash. The registries are static and per-process; without
+        // this the service brain saw every app as Unknown and the category-aware rules
+        // (2f off-task, 2g return-loop, 2b meeting shield) never fired. Idempotent and sticky;
+        // re-registering on every request also self-heals after a service restart. Undefined
+        // category values are ignored, never thrown on.
+        if (!string.IsNullOrWhiteSpace(focusAppHash))
+        {
+            if (packet.FocusAppCategory != 0
+                && Enum.IsDefined(typeof(Porta.Agent.Common.Analysis.AppCategory), packet.FocusAppCategory))
+            {
+                Porta.Agent.Common.Analysis.AppCategoryClassifier.RegisterHashCategory(
+                    focusAppHash, (Porta.Agent.Common.Analysis.AppCategory)packet.FocusAppCategory);
+            }
+
+            if (!string.IsNullOrWhiteSpace(packet.FocusAppLabel))
+            {
+                Porta.Agent.Common.Analysis.AppCategoryClassifier.RegisterHashLabel(
+                    focusAppHash, packet.FocusAppLabel);
+            }
+
+            if (packet.FocusAppIsMeeting)
+            {
+                Porta.Agent.Common.Analysis.AppCategoryClassifier.RegisterHashMeeting(focusAppHash);
+            }
+        }
         int keyboardKeydownCount = ClampNonNegativeInt(packet.KeyboardKeydownCount, 200);
         int keyboardBackspaceCount = ClampNonNegativeInt(packet.KeyboardBackspaceCount, 200);
         int mouseWheelDelta = ClampFiniteInt(packet.MouseWheelDelta, -2000, 2000);

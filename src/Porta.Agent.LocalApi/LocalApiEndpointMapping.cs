@@ -445,7 +445,10 @@ public static class LocalApiEndpointMapping
                     NotificationToastsEnabled: request.NotificationToastsEnabled,
                     HeartbeatSequence: request.HeartbeatSequence,
                     HeartbeatUpdatedAtUtc: request.HeartbeatUpdatedAtUtc,
-                    HeartbeatCaptureContext: request.HeartbeatCaptureContext));
+                    HeartbeatCaptureContext: request.HeartbeatCaptureContext,
+                    FocusAppCategory: request.FocusAppCategory,
+                    FocusAppIsMeeting: request.FocusAppIsMeeting,
+                    FocusAppLabel: request.FocusAppLabel));
 
                 return Results.Ok(new LocalApiAckResponse(
                     Success: true,

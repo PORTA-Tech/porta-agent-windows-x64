@@ -132,8 +132,10 @@ internal sealed class DailyDigestReporter : BackgroundService
             // "Where your time went" + real per-category time, from per-app dwell joined to the
             // coarse label/category maps the user-agent persists.
             IReadOnlyDictionary<string, double> dwellByHash = _controller.GetFocusAppDwellSeconds(startOfDayUtc, nowUtc);
-            IReadOnlyDictionary<string, int> categoryByHash = FocusAppLabelMapReader.ReadCategories();
-            IReadOnlyList<FocusAppUsagePayload> topApps = FocusAppUsageBuilder.BuildTopApps(dwellByHash, FocusAppLabelMapReader.ReadLabels(), categoryByHash);
+            // B4 (v1.2.112): file map merged with the live bridged registries, so stale files
+            // can no longer starve the digest of names/categories.
+            IReadOnlyDictionary<string, int> categoryByHash = FocusAppLabelMapReader.ReadCategoriesMergedWithLive();
+            IReadOnlyList<FocusAppUsagePayload> topApps = FocusAppUsageBuilder.BuildTopApps(dwellByHash, FocusAppLabelMapReader.ReadLabelsMergedWithLive(), categoryByHash);
 
             // Real category seconds replace the old state-based proxies (entertainment=distraction,
             // development=focus-strength) when we actually have category data for this machine.

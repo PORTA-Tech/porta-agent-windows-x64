@@ -326,6 +326,20 @@ public static class AppCategoryClassifier
             : AppCategory.Unknown;
     }
 
+    /// <summary>
+    /// TEST SEAM — clears all four per-process registries. The registries are static, so
+    /// they leak between tests; the category-bridge tests must start from the exact state
+    /// a freshly started SERVICE process has (empty), because that emptiness was the bug.
+    /// Never called by product code.
+    /// </summary>
+    public static void ResetForTests()
+    {
+        HashRegistry.Clear();
+        HashLabelRegistry.Clear();
+        MeetingHashRegistry.Clear();
+        ServerCategoryOverlay.Clear();
+    }
+
     private static string ExtractClassifiableName(string stableIdentifier)
     {
         if (stableIdentifier.StartsWith("exe:", StringComparison.Ordinal))

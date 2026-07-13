@@ -240,7 +240,12 @@ internal sealed record DailyStatsReportPayload(
     [property: JsonPropertyName("promptsShownToday")] int PromptsShownToday = 0,
     [property: JsonPropertyName("promptsAnsweredToday")] int PromptsAnsweredToday = 0,
     [property: JsonPropertyName("promptsShownThisWeek")] int PromptsShownThisWeek = 0,
-    [property: JsonPropertyName("promptsAnsweredThisWeek")] int PromptsAnsweredThisWeek = 0);
+    [property: JsonPropertyName("promptsAnsweredThisWeek")] int PromptsAnsweredThisWeek = 0,
+    // B3 (v1.2.112) — label-persistence health from the user agent's heartbeat: consecutive
+    // shared-file write failures (0 = healthy) + last exception type. Lets the ops console
+    // show "label persistence failing" per machine instead of the failure staying invisible.
+    [property: JsonPropertyName("labelPersistFailureCount")] long LabelPersistFailureCount = 0,
+    [property: JsonPropertyName("labelPersistLastError")] string? LabelPersistLastError = null);
 
 internal sealed record LabelTargetCountPayload(
     [property: JsonPropertyName("target")] string Target,

@@ -608,6 +608,18 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         UserAgentSessionContextSnapshot heartbeatSnapshot = PublishSessionContext();
 
+        // Category bridge (v1.2.112): the service process's classifier registries are empty —
+        // categories/labels/meeting flags are only ever learned HERE, in the user session.
+        // Ship the metadata for the exact hash this request carries so the service can
+        // register it before the bucket pipeline evaluates that hash. Coarse values only.
+        string? sentFocusAppHash = focus.DominantAppHash ?? fallbackFocusAppHash;
+        Porta.Agent.Common.Analysis.AppCategory sentFocusAppCategory =
+            Porta.Agent.Common.Analysis.AppCategoryClassifier.GetCategoryForHash(sentFocusAppHash ?? string.Empty);
+        bool sentFocusAppIsMeeting =
+            Porta.Agent.Common.Analysis.AppCategoryClassifier.IsMeetingApp(sentFocusAppHash);
+        string? sentFocusAppLabel =
+            Porta.Agent.Common.Analysis.AppCategoryClassifier.GetLabelForHash(sentFocusAppHash);
+
         var request = new LocalApiInputSignalsRequest(
             SchemaVer: 2,
             AgentInstanceId: _agentInstanceId,
@@ -619,7 +631,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             MouseWheelDelta: snapshot.MouseWheelDelta,
             MouseMoveDx: snapshot.MouseMoveDx,
             MouseMoveDy: snapshot.MouseMoveDy,
-            FocusAppHash: focus.DominantAppHash ?? fallbackFocusAppHash,
+            FocusAppHash: sentFocusAppHash,
             IdleSeconds: fallbackIdleSeconds,
             LastInputEventUtc: snapshot.LastInputEventUtc,
             KeyboardIkiMeanMs: keyboard.IkiMeanMs,
@@ -652,7 +664,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             NotificationToastsEnabled: notificationToastsEnabled,
             HeartbeatSequence: heartbeatSnapshot.HeartbeatSequence,
             HeartbeatUpdatedAtUtc: heartbeatSnapshot.UpdatedAtUtc,
-            HeartbeatCaptureContext: heartbeatSnapshot.CaptureContext);
+            HeartbeatCaptureContext: heartbeatSnapshot.CaptureContext,
+            FocusAppCategory: (int)sentFocusAppCategory,
+            FocusAppIsMeeting: sentFocusAppIsMeeting,
+            FocusAppLabel: sentFocusAppLabel);
 
         if (!_localApiClient.IsConfigured)
         {
@@ -808,7 +823,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             CaptureSelfTestState: selfTest.State,
             CaptureSelfTestErrorCode: selfTest.ErrorCode,
             CaptureSelfTestRemediationCount: selfTest.RemediationCount,
-            CaptureFailureCode: effectiveCaptureFailureCode);
+            CaptureFailureCode: effectiveCaptureFailureCode,
+            LabelPersistFailureCount: Input.FocusAppLabelStore.ReadPersistFailureCount(),
+            LabelPersistLastError: Input.FocusAppLabelStore.ReadLastPersistErrorType());
 
         try
         {

@@ -28,7 +28,12 @@ public sealed record UserAgentSessionContextSnapshot(
     string? CaptureSelfTestState = null,
     string? CaptureSelfTestErrorCode = null,
     int? CaptureSelfTestRemediationCount = null,
-    string? CaptureFailureCode = null);
+    string? CaptureFailureCode = null,
+    // B3 (v1.2.112) — label-persistence health: consecutive shared-file write failures in
+    // the user agent (0 = healthy) + last exception type. Read by the service for fleet
+    // visibility so a machine silently failing to persist labels is finally visible.
+    long? LabelPersistFailureCount = null,
+    string? LabelPersistLastError = null);
 
 public interface IUserAgentSessionContextStore
 {

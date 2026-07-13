@@ -19,6 +19,50 @@ internal static class FocusAppLabelMapReader
     public static IReadOnlyDictionary<string, int> ReadCategories()
         => ReadMap<int>("focus-app-categories.v1.json");
 
+    // B4 (v1.2.112) — file map first (survives service restarts), then fill any hash the
+    // file is missing from this process's live classifier registries (populated by the
+    // category bridge). If a machine's files go stale again, the digest and console still
+    // get names and categories instead of bare hashes and "web".
+    public static IReadOnlyDictionary<string, string> ReadLabelsMergedWithLive()
+    {
+        var merged = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (KeyValuePair<string, string> entry in ReadLabels())
+        {
+            merged[entry.Key] = entry.Value;
+        }
+
+        foreach (KeyValuePair<string, string> entry in
+            Porta.Agent.Common.Analysis.AppCategoryClassifier.SnapshotHashLabels())
+        {
+            if (!merged.ContainsKey(entry.Key))
+            {
+                merged[entry.Key] = entry.Value;
+            }
+        }
+
+        return merged;
+    }
+
+    public static IReadOnlyDictionary<string, int> ReadCategoriesMergedWithLive()
+    {
+        var merged = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (KeyValuePair<string, int> entry in ReadCategories())
+        {
+            merged[entry.Key] = entry.Value;
+        }
+
+        foreach (KeyValuePair<string, int> entry in
+            Porta.Agent.Common.Analysis.AppCategoryClassifier.SnapshotHashCategories())
+        {
+            if (!merged.ContainsKey(entry.Key))
+            {
+                merged[entry.Key] = entry.Value;
+            }
+        }
+
+        return merged;
+    }
+
     private static IReadOnlyDictionary<string, T> ReadMap<T>(string fileName)
     {
         try

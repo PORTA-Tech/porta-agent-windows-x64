@@ -47,6 +47,10 @@ internal sealed class DailyStatsReporter : BackgroundService
         {
             await Task.Delay(TimeSpan.FromSeconds(PollIntervalSeconds), stoppingToken).ConfigureAwait(false);
 
+            // Category bridge (v1.2.112): hourly registry re-seed piggybacks this loop.
+            // Internally throttled to once per hour; cheap no-op in between.
+            CategoryRegistrySeeder.SeedFromFiles();
+
             if (!_client.IsEnabled)
             {
                 continue;
@@ -117,8 +121,12 @@ internal sealed class DailyStatsReporter : BackgroundService
             System.Collections.Generic.IReadOnlyList<FocusAppUsagePayload> topApps =
                 FocusAppUsageBuilder.BuildTopApps(
                     _controller.GetFocusAppDwellSeconds(startOfDayUtc, nowUtc),
-                    FocusAppLabelMapReader.ReadLabels(),
-                    FocusAppLabelMapReader.ReadCategories());
+                    FocusAppLabelMapReader.ReadLabelsMergedWithLive(),
+                    FocusAppLabelMapReader.ReadCategoriesMergedWithLive());
+
+            // B3: label-persistence health from the user agent's heartbeat file.
+            Porta.Agent.Common.UserAgent.UserAgentSessionContextSnapshot? sessionContext =
+                TryReadSessionContext();
 
             DateTimeOffset dubaiNow = nowUtc.ToOffset(TimeSpan.FromMinutes(DubaiOffsetMinutes));
             string dateLocal = dubaiNow.ToString("yyyy-MM-dd");
@@ -158,7 +166,9 @@ internal sealed class DailyStatsReporter : BackgroundService
                 PromptsShownToday: (int)labels.PromptsShownLast24h,
                 PromptsAnsweredToday: (int)labels.PromptsAnsweredLast24h,
                 PromptsShownThisWeek: (int)labels.PromptsShownLast7d,
-                PromptsAnsweredThisWeek: (int)labels.PromptsAnsweredLast7d);
+                PromptsAnsweredThisWeek: (int)labels.PromptsAnsweredLast7d,
+                LabelPersistFailureCount: sessionContext?.LabelPersistFailureCount ?? 0,
+                LabelPersistLastError: sessionContext?.LabelPersistLastError);
 
             bool sent = await _client.PostDailyStatsAsync(payload, token).ConfigureAwait(false);
             if (!sent)
@@ -173,6 +183,19 @@ internal sealed class DailyStatsReporter : BackgroundService
         catch (Exception ex)
         {
             Console.WriteLine($"Daily stats reporter error: {ex.GetType().Name} {ex.Message}");
+        }
+    }
+
+    // B3: best-effort read of the user agent's heartbeat file for health counters.
+    private static Porta.Agent.Common.UserAgent.UserAgentSessionContextSnapshot? TryReadSessionContext()
+    {
+        try
+        {
+            return new Porta.Agent.Common.UserAgent.UserAgentSessionContextStore().ReadCurrent();
+        }
+        catch
+        {
+            return null;
         }
     }
 

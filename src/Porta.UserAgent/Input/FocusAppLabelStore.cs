@@ -23,18 +23,41 @@ internal static class FocusAppLabelStore
     public const string LabelsFileName = "focus-app-labels.v1.json";
     public const string CategoriesFileName = "focus-app-categories.v1.json";
 
+    // B3 (v1.2.112) — persistence must stay best-effort but can no longer fail SILENTLY:
+    // the Jul 9–13 label freeze on Yadin's machine was invisible until a user noticed
+    // "web" rows in the digest. Counters follow the ReadForegroundUnavailableCount()
+    // pattern: consecutive failures + last exception type, throttled stderr line, and
+    // surfaced through the session-context heartbeat so the ops console can see
+    // "label persistence failing" per machine.
+    private const int PersistFailureLogEvery = 50;
+    private static long _consecutivePersistFailures;
+    private static string _lastPersistErrorType = string.Empty;
+
+    /// <summary>Consecutive Persist() write failures; resets to 0 on any success.</summary>
+    public static long ReadPersistFailureCount()
+        => System.Threading.Interlocked.Read(ref _consecutivePersistFailures);
+
+    /// <summary>Exception type of the most recent persist failure (empty when healthy).</summary>
+    public static string ReadLastPersistErrorType()
+        => _lastPersistErrorType;
+
     /// <summary>Writes the current hash → label and hash → category snapshots. Safe to call every flush.</summary>
     public static void Persist()
     {
-        WriteMap(LabelsFileName, AppCategoryClassifier.SnapshotHashLabels());
-        WriteMap(CategoriesFileName, AppCategoryClassifier.SnapshotHashCategories());
+        bool labelsOk = WriteMap(LabelsFileName, AppCategoryClassifier.SnapshotHashLabels());
+        bool categoriesOk = WriteMap(CategoriesFileName, AppCategoryClassifier.SnapshotHashCategories());
+        if (labelsOk && categoriesOk)
+        {
+            System.Threading.Interlocked.Exchange(ref _consecutivePersistFailures, 0);
+            _lastPersistErrorType = string.Empty;
+        }
     }
 
-    private static void WriteMap<T>(string fileName, IReadOnlyDictionary<string, T> map)
+    private static bool WriteMap<T>(string fileName, IReadOnlyDictionary<string, T> map)
     {
         if (map.Count == 0)
         {
-            return;
+            return true; // nothing to write is not a failure
         }
 
         string tempPath = string.Empty;
@@ -62,10 +85,22 @@ internal static class FocusAppLabelStore
             {
                 File.WriteAllText(path, json);
             }
+
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
             // Best-effort only — never let map persistence interfere with capture/flush.
+            // But COUNT it: silent failure here starved the digest/console of names for days.
+            long failures = System.Threading.Interlocked.Increment(ref _consecutivePersistFailures);
+            _lastPersistErrorType = ex.GetType().Name;
+            if (failures == 1 || failures % PersistFailureLogEvery == 0)
+            {
+                Console.Error.WriteLine(
+                    $"focus_app_label_persist_failed file={fileName} error={ex.GetType().Name} consecutive={failures}");
+            }
+
+            return false;
         }
         finally
         {

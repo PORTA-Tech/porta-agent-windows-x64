@@ -73,6 +73,10 @@ internal sealed class AgentService : IHostedService, IDisposable
                 sp.GetRequiredService<IBrainStateStore>(),
                 runtimePolicyProvider: sp.GetRequiredService<IRuntimePolicyProvider>());
             controller.SetLocalApiAuthState(settings.LocalApiAuthReady, settings.LocalApiAuthError);
+            // Category bridge (v1.2.112): pre-warm this process's classifier registries from
+            // the persisted label/category files so hashes stored in old buckets have their
+            // categories right after a restart, before they re-arrive via ingest. Best-effort.
+            Fleet.CategoryRegistrySeeder.SeedFromFiles(force: true);
             return controller;
         });
         services.AddHostedService<AgentBrainWorker>();
@@ -104,6 +108,10 @@ internal sealed class AgentService : IHostedService, IDisposable
         {
             return;
         }
+
+        // v1.2.112 (B2): heal the shared-folder ACL before anything else touches it.
+        // Best-effort, idempotent, never blocks start.
+        SharedDataAclHealer.EnsureSharedFolderWritable();
 
         try
         {

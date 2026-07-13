@@ -44,4 +44,12 @@ public sealed record InputSignalsPacket(
     bool? NotificationToastsEnabled = null,
     long? HeartbeatSequence = null,
     DateTimeOffset? HeartbeatUpdatedAtUtc = null,
-    string? HeartbeatCaptureContext = null);
+    string? HeartbeatCaptureContext = null,
+    // Category bridge (v1.2.112): metadata for the SAME hash in FocusAppHash, resolved by
+    // the UserAgent (the only process whose classifier registries are populated). Registered
+    // into the service-process AppCategoryClassifier on ingest, BEFORE bucket processing, so
+    // the brain's category-aware rules (2f/2g/2b) finally receive the input they were built
+    // for. 0 / false / null = old wire format, old behavior.
+    int FocusAppCategory = 0,
+    bool FocusAppIsMeeting = false,
+    string? FocusAppLabel = null);

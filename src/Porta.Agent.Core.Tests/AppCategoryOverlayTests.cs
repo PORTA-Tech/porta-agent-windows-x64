@@ -8,6 +8,7 @@ namespace Porta.Agent.Core.Tests;
 /// and never overrides a curated result. These cover the overlay's public surface on
 /// AppCategoryClassifier.
 /// </summary>
+[Collection(AppCategoryRegistryCollection.Name)]
 public sealed class AppCategoryOverlayTests
 {
     [Fact]

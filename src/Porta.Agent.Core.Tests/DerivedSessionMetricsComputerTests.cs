@@ -6,6 +6,7 @@ using Porta.Agent.Core.Buckets;
 
 namespace Porta.Agent.Core.Tests;
 
+[Collection(AppCategoryRegistryCollection.Name)]
 public sealed class DerivedSessionMetricsComputerTests
 {
     [Fact]

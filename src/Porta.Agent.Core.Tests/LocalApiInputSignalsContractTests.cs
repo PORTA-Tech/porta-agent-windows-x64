@@ -49,7 +49,10 @@ public sealed class LocalApiInputSignalsContractTests
             MicroIdleSeconds: 4.5d,
             BreakSecondsWithinWindow: 0d,
             ShortIdleBoundaryObserved: true,
-            NotificationToastsEnabled: true);
+            NotificationToastsEnabled: true,
+            FocusAppCategory: 1,
+            FocusAppIsMeeting: false,
+            FocusAppLabel: "youtube");
 
         using JsonDocument json = JsonDocument.Parse(JsonSerializer.Serialize(request));
         string[] propertyNames = json.RootElement
@@ -63,8 +66,15 @@ public sealed class LocalApiInputSignalsContractTests
                 "agent_instance_id",
                 "break_seconds_within_window",
                 "focus_active_app_count",
+                // Category bridge (v1.2.112) — privacy-reviewed additions: a coarse
+                // AppCategory enum int, a meeting boolean, and the coarse label token
+                // ("youtube", "code") already persisted to the shared label map. No raw
+                // titles, URLs, or exe paths cross the wire.
+                "focus_app_category",
                 "focus_app_entropy",
                 "focus_app_hash",
+                "focus_app_is_meeting",
+                "focus_app_label",
                 "focus_observation_count",
                 "focus_switch_count",
                 "heartbeat_capture_context",
