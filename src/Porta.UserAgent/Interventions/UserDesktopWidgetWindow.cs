@@ -184,6 +184,10 @@ internal sealed class UserDesktopWidgetWindow : Window
     private TextBlock _taskAddPreview = null!;
     private readonly List<Button> _taskChips = new();
     private int _taskDurationMinutes = 30;
+    // v1.2.114: while false, a duration token typed in the task title ("2h of learning")
+    // drives the planned duration. A chip/stepper tap flips it true so an explicit pick
+    // always wins and title edits stop overriding it. Reset each time the composer opens.
+    private bool _taskDurationUserPicked;
     private bool _taskAddOpen;
     private bool _quickAddOpen;
 
@@ -618,6 +622,36 @@ internal sealed class UserDesktopWidgetWindow : Window
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center
         };
+        // v1.2.114: the pill now carries a ✕ so an upcoming reminder can be CANCELLED — there
+        // was no cancel affordance anywhere for a scheduled reminder. Sends "dismiss" (already
+        // supported end-to-end: widget → presenter → core sets state='dismissed').
+        var reminderPillDismiss = new Button
+        {
+            Content = new TextBlock
+            {
+                Text = "✕",
+                FontSize = 8.5,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)),
+                VerticalAlignment = VerticalAlignment.Center
+            },
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Padding = new Thickness(0),
+            Margin = new Thickness(6, 0, 0, 0),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            ToolTip = "Cancel reminder"
+        };
+        reminderPillDismiss.Template = CreateFlatButtonTemplate(
+            cornerRadius: new CornerRadius(3),
+            hoverBackground: Color.FromRgb(0x4A, 0x3E, 0x22),
+            hoverBorder: Color.FromRgb(0x6A, 0x54, 0x2A),
+            pressedBackground: Color.FromRgb(0x3A, 0x30, 0x1A),
+            pressedBorder: Color.FromRgb(0x6A, 0x54, 0x2A));
+        reminderPillDismiss.Click += (_, _) => DismissUpcomingReminder();
+        var reminderPillContent = new StackPanel { Orientation = Orientation.Horizontal };
+        reminderPillContent.Children.Add(_reminderPillText);
+        reminderPillContent.Children.Add(reminderPillDismiss);
         _reminderPillRow = new Border
         {
             BorderBrush = new SolidColorBrush(Color.FromRgb(0x4A, 0x3E, 0x22)),
@@ -629,7 +663,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             Margin = new Thickness(0, 0, 0, 3),
             HorizontalAlignment = HorizontalAlignment.Left,
             Visibility = Visibility.Collapsed,
-            Child = _reminderPillText
+            Child = reminderPillContent
         };
 
         // ── Phase 2c: quick-add — one line, natural time, live preview ──
@@ -2244,8 +2278,12 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     private void AnimateWindowWidth(double targetWidth, [CallerMemberName] string caller = "")
     {
-        LogSizeEvent($"anim_width target={targetWidth:F0} caller={caller}");
-        BeginAnimation(WidthProperty, new DoubleAnimation(targetWidth, TransitionDuration)
+        // Same From-less animation defect as AnimateWindowHeight (see its comment). Width
+        // hasn't been observed to wedge, but pinning From to the real ActualWidth closes the
+        // identical latent trap so a diverged Width DP can never make this a no-op either.
+        double current = ActualWidth > 0d ? ActualWidth : Width;
+        LogSizeEvent($"anim_width from={current:F0} target={targetWidth:F0} caller={caller}");
+        BeginAnimation(WidthProperty, new DoubleAnimation(current, targetWidth, TransitionDuration)
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         });
@@ -2261,8 +2299,21 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
-        LogSizeEvent($"anim_height target={targetHeight:F0} caller={caller}");
-        BeginAnimation(HeightProperty, new DoubleAnimation(targetHeight, TransitionDuration)
+        LogSizeEvent($"anim_height from={current:F0} target={targetHeight:F0} caller={caller}");
+
+        // ── THE strip-bug root cause (found from widget-size.log evidence, v1.2.114) ──
+        // For years the widget could wedge as a ~24px strip and every heal fired but did
+        // NOTHING. The log showed the smoking gun: ah=24 (real on-screen strip) while the
+        // Height DP read 118, and the heal animated for 13s straight with ah stuck at 24.
+        // Cause: `new DoubleAnimation(target, duration)` has NO From, so WPF animates from
+        // the Height property's CURRENT value. Once Height (118) diverges from the real
+        // rendered ActualHeight (24) — which happens after a resize that doesn't round-trip
+        // through this method — the animation runs 118→118, a no-op, and the wedged window
+        // never moves. Every one of the 10 prior "fixes" added more heal *triggers*, but they
+        // all routed through this same impotent animation. The fix: pin From to `current`
+        // (the real ActualHeight). Now the heal animates 24→118 for real and the strip can
+        // never survive more than one ~2s heal cycle, regardless of what wedged it.
+        BeginAnimation(HeightProperty, new DoubleAnimation(current, targetHeight, TransitionDuration)
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         });
@@ -3152,6 +3203,28 @@ internal sealed class UserDesktopWidgetWindow : Window
         UpdateWindowHeight();
     }
 
+    // v1.2.114: cancel the upcoming reminder shown in the pill. "dismiss" is the same action
+    // the core already understands (state -> 'dismissed'); we mark it resolved locally and
+    // hide the pill immediately so the ✕ feels instant, then let the next state push confirm.
+    private void DismissUpcomingReminder()
+    {
+        UserDesktopWidgetReminderInfo? reminder = _nextReminder;
+        if (reminder == null)
+        {
+            return;
+        }
+
+        _resolvedReminderId = reminder.Id;
+        _reminderCommandRequested?.Invoke(new UserDesktopWidgetReminderCommand(
+            Kind: "dismiss",
+            Id: reminder.Id,
+            Title: reminder.Title,
+            DueAtUtc: reminder.DueAtUtc));
+        _reminderPillRow.Visibility = Visibility.Collapsed;
+        RefreshInlineMessage();
+        UpdateWindowHeight();
+    }
+
     // Pill: show the NEXT pending reminder once it is inside the T-60 window. Refreshed on
     // every state push (~4s) — minute-level countdown needs nothing faster.
     private void RefreshReminderPill()
@@ -3159,6 +3232,8 @@ internal sealed class UserDesktopWidgetWindow : Window
         UserDesktopWidgetReminderInfo? reminder = _nextReminder;
         bool show = reminder is { State: "pending" }
             && !_quickAddOpen
+            // Don't re-show a reminder the user just cancelled while the dismiss round-trips.
+            && reminder.Id != _resolvedReminderId
             && (reminder.DueAtUtc - DateTimeOffset.UtcNow).TotalMinutes
                 <= PortaExecutionConstants.Reminders.PillWindowMinutes;
         if (!show)
@@ -3381,6 +3456,21 @@ internal sealed class UserDesktopWidgetWindow : Window
                 e.Handled = true;
             }
         };
+        // v1.2.114: derive planned duration from the title as the user types ("2h of
+        // learning" → 2h planned), unless they've explicitly picked via chip/stepper. The
+        // token stays in the title. No token → fall back to the 30m default, so the preview
+        // always matches what's typed.
+        _taskTitleBox.TextChanged += (_, _) =>
+        {
+            if (!_taskDurationUserPicked)
+            {
+                _taskDurationMinutes = TryParseTaskDurationMinutes(_taskTitleBox.Text, out int parsed)
+                    ? parsed
+                    : 30;
+            }
+
+            RefreshTaskAddPreview();
+        };
 
         var chipRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 0) };
         string[] chipLabels = { "10m", "30m", "1h", "2h" };
@@ -3391,6 +3481,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             chip.Click += (_, _) =>
             {
                 _taskDurationMinutes = chipMinutes;
+                _taskDurationUserPicked = true;
                 RefreshTaskAddPreview();
             };
             _taskChips.Add(chip);
@@ -3402,6 +3493,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         stepDown.Click += (_, _) =>
         {
             _taskDurationMinutes = Math.Max(5, _taskDurationMinutes - 15);
+            _taskDurationUserPicked = true;
             RefreshTaskAddPreview();
         };
         chipRow.Children.Add(stepDown);
@@ -3409,6 +3501,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         stepUp.Click += (_, _) =>
         {
             _taskDurationMinutes += 15;
+            _taskDurationUserPicked = true;
             RefreshTaskAddPreview();
         };
         chipRow.Children.Add(stepUp);
@@ -3516,7 +3609,14 @@ internal sealed class UserDesktopWidgetWindow : Window
             {
                 Button start = CreateQuickAddPickerButton("▶");
                 start.Click += (_, _) => SendTaskCommand("start", task);
+                // v1.2.114: a pending task could be started but never CANCELLED — there was
+                // no way to remove one you created by mistake (e.g. a mistyped "2h of
+                // learning"). Add the same ✕ abandon the active state already has; the
+                // backend accepts "abandon" from pending too.
+                Button cancel = CreateQuickAddPickerButton("✕");
+                cancel.Click += (_, _) => SendTaskCommand("abandon", task);
                 row.Children.Add(start);
+                row.Children.Add(cancel);
                 break;
             }
 
@@ -3594,6 +3694,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _taskAddOpen = true;
         _taskTitleBox.Text = string.Empty;
         _taskDurationMinutes = 30;
+        _taskDurationUserPicked = false;
         RefreshTaskAddPreview();
         _taskAddPanel.Visibility = Visibility.Visible;
         _tasksSection.Visibility = Visibility.Visible;
@@ -3663,6 +3764,56 @@ internal sealed class UserDesktopWidgetWindow : Window
                 ? Color.FromRgb(0x1E, 0x4D, 0x3B)
                 : Color.FromRgb(0x25, 0x25, 0x35));
         }
+    }
+
+    // v1.2.114: pull a planned duration out of a task title. Accepts the forms a user would
+    // naturally type — "2h", "1.5h", "1h30m", "1h30", "45m", "90 min" — matched anywhere in
+    // the string, so "2h of learning" and "learn spanish 45m" both work. The token is left in
+    // the title untouched. Returns false when there is no duration (caller keeps the default).
+    internal static bool TryParseTaskDurationMinutes(string? title, out int minutes)
+    {
+        minutes = 0;
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        string text = title.ToLowerInvariant();
+        int total;
+
+        // Hours (optionally fractional) with an optional trailing minutes chunk. The
+        // (?![a-z]) after the hour unit keeps "2handball" from reading as 2 hours while still
+        // allowing the digit that follows in "1h30m".
+        var hours = System.Text.RegularExpressions.Regex.Match(
+            text,
+            @"(?<h>\d+(?:\.\d+)?)\s*(?:hours|hour|hrs|hr|h)(?![a-z])(?:\s*(?<m>\d{1,2})\s*(?:minutes|minute|mins|min|m)?(?![a-z]))?");
+        if (hours.Success)
+        {
+            double h = double.Parse(hours.Groups["h"].Value, System.Globalization.CultureInfo.InvariantCulture);
+            int m = hours.Groups["m"].Success ? int.Parse(hours.Groups["m"].Value) : 0;
+            total = (int)Math.Round(h * 60) + m;
+        }
+        else
+        {
+            var mins = System.Text.RegularExpressions.Regex.Match(
+                text,
+                @"(?<m>\d+)\s*(?:minutes|minute|mins|min|m)(?![a-z])");
+            if (!mins.Success)
+            {
+                return false;
+            }
+
+            total = int.Parse(mins.Groups["m"].Value);
+        }
+
+        // Below the stepper floor is almost surely not a real duration; above 12h is a typo.
+        if (total < 5)
+        {
+            return false;
+        }
+
+        minutes = Math.Min(total, 12 * 60);
+        return true;
     }
 
     // Strict HH:mm (24h). The parser's looser grammars stay in the typed line; this box is
@@ -3786,7 +3937,12 @@ internal sealed class UserDesktopWidgetWindow : Window
             // Phase 2c: typing a reminder pins the widget open. A FIRED reminder deliberately
             // does NOT pin — it stays until acted on anyway, and pinning froze all widget
             // movement, which reads as "the notification blocks everything".
-            && !_quickAddOpen;
+            && !_quickAddOpen
+            // v1.2.114: the TASK composer must pin the widget open too. Without this the
+            // auto-collapse timer fired mid-typing and the compose panel vanished — the
+            // "widget keeps collapsing while I add a task" bug. (_quickAddOpen already
+            // covered reminders; _taskAddOpen was missed.)
+            && !_taskAddOpen;
     }
 
     // Phase 2c — a fired reminder needs an answer (Done / +10m), so it pins the widget open
