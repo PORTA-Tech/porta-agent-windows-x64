@@ -73,6 +73,7 @@ internal sealed class UserDesktopWidgetWindow : Window
     private DateTimeOffset _lastHeightHealUtc = DateTimeOffset.MinValue; // shrink-bug watchdog damping
     private bool _menuDismissButtonWasDown;
     private string _lastSizeLogSignature = string.Empty;
+    private readonly WidgetSizeLogRateLimiter _sizeLogRateLimiter = new();
     private readonly Border _rootBorder;
     private readonly StackPanel _expandedStack;
     private readonly Grid _headerRow;
@@ -218,6 +219,19 @@ internal sealed class UserDesktopWidgetWindow : Window
         {
             _attentionTimer.Stop();
             SetAttentionVisible(false);
+        };
+
+        // v1.2.113 (2.2) — hover always rescues the wedged strip: users instinctively
+        // mouse over a broken widget. Window-level handler (child hit-testing may itself
+        // be part of the bug). Heals ONLY the wedged-expanded state — never expands the
+        // deliberately-collapsed pill (that would change designed behavior).
+        MouseEnter += (_, _) =>
+        {
+            if (!_collapsed && ActualHeight > 0d && ActualHeight < DefaultSummaryHeight - 1d)
+            {
+                LogSizeEvent("hover_heal");
+                UpdateWindowHeight();
+            }
         };
 
         _stateTakeoverTimer = new DispatcherTimer { Interval = StateTakeoverDuration };
@@ -526,22 +540,28 @@ internal sealed class UserDesktopWidgetWindow : Window
         // ── Phase 2c: "+" (add reminder) — third column of the stats row ──
         var addReminderButton = new Button
         {
-            // TextBlock content + centered alignments + a 1px optical lift: a raw "+" string
-            // sits on the text baseline and reads visibly low inside the 16px circle.
-            Content = new TextBlock
+            // 1.3: a DRAWN plus, not a text "+". Font baseline metrics make a text plus sit
+            // low inside the 16px circle no matter the margin nudge; a Path is pixel-perfect
+            // at any DPI. (System.Windows.Shapes.Path fully qualified — System.IO.Path is
+            // imported in this file.)
+            Content = new System.Windows.Shapes.Path
             {
-                Text = "+",
-                FontSize = 11,
-                TextAlignment = TextAlignment.Center,
+                Data = Geometry.Parse("M 3,0 L 3,6 M 0,3 L 6,3"),
+                Stroke = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
+                StrokeThickness = 1.2,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                Width = 6, Height = 6,
+                Stretch = Stretch.None,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, -1, 0, 0)
+                SnapsToDevicePixels = false
             },
             HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center,
             Width = 16, Height = 16,
             Padding = new Thickness(0),
-            VerticalAlignment = VerticalAlignment.Bottom,
+            HorizontalAlignment = HorizontalAlignment.Center,
             Background = Brushes.Transparent,
             Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
             BorderBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
@@ -570,8 +590,25 @@ internal sealed class UserDesktopWidgetWindow : Window
             _collapseTimer.Stop();
             _suspendAutoCollapseUntilPointerLeaves = true;
         };
-        Grid.SetColumn(addReminderButton, 2);
-        statsGrid.Children.Add(addReminderButton);
+        // 1.2: the + gets the same label treatment as WORK and PRESSURE — an invisible
+        // hover-only tooltip is not discoverable. The row reads WORK · PRESSURE · REMINDER.
+        var addReminderLabel = new TextBlock
+        {
+            Text = "REMINDER",
+            FontSize = 8,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 1)
+        };
+        var addReminderStack = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(8, 0, 0, 0)
+        };
+        addReminderStack.Children.Add(addReminderLabel);
+        addReminderStack.Children.Add(addReminderButton);
+        Grid.SetColumn(addReminderStack, 2);
+        statsGrid.Children.Add(addReminderStack);
 
         // ── Phase 2c: reminder pill — next upcoming reminder, countdown at T-60 ──
         _reminderPillText = new TextBlock
@@ -648,16 +685,21 @@ internal sealed class UserDesktopWidgetWindow : Window
         // ── Workstream 2: time picker — chips, ±15m stepper, clock toggle ──
         // Typing a time still works; the picker guarantees a time can ALWAYS be chosen
         // explicitly, and confirm stays blocked until one is visible in the preview.
-        var pickerRow = new StackPanel
+        // WrapPanel (1.1): a horizontal StackPanel pushed the stepper/clock off the
+        // widget's right edge, unreachable. Wrapping to a second row keeps every control
+        // inside the 200px surface; uniform (·,3,2,0) child margins keep wrapped rows
+        // evenly spaced whichever control starts the second row.
+        var pickerRow = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 3, 0, 0)
+            Margin = new Thickness(0, 0, 0, 0)
         };
         string[] chipLabels = { "10m", "30m", "1h", "2h" };
         for (int i = 0; i < chipLabels.Length; i++)
         {
             int chipMinutes = Porta.Agent.Common.ReminderComposeState.ChipMinutes[i];
             Button chip = CreateQuickAddPickerButton(chipLabels[i]);
+            chip.Margin = new Thickness(0, 3, 2, 0);
             chip.Click += (_, _) =>
             {
                 _composeState.SelectChip(chipMinutes);
@@ -668,7 +710,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
 
         Button stepDown = CreateQuickAddPickerButton("−15");
-        stepDown.Margin = new Thickness(6, 0, 2, 0);
+        stepDown.Margin = new Thickness(2, 3, 2, 0);
         stepDown.Click += (_, _) =>
         {
             _composeState.Step(-Porta.Agent.Common.ReminderComposeState.StepMinutesDelta, DateTimeOffset.Now);
@@ -676,6 +718,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         };
         pickerRow.Children.Add(stepDown);
         Button stepUp = CreateQuickAddPickerButton("+15");
+        stepUp.Margin = new Thickness(2, 3, 2, 0);
         stepUp.Click += (_, _) =>
         {
             _composeState.Step(Porta.Agent.Common.ReminderComposeState.StepMinutesDelta, DateTimeOffset.Now);
@@ -684,13 +727,14 @@ internal sealed class UserDesktopWidgetWindow : Window
         pickerRow.Children.Add(stepUp);
 
         _quickAddClockToggle = CreateQuickAddPickerButton("🕐");
-        _quickAddClockToggle.Margin = new Thickness(6, 0, 2, 0);
+        _quickAddClockToggle.Margin = new Thickness(2, 3, 2, 0);
         _quickAddClockToggle.Click += (_, _) => ToggleQuickAddClockMode();
         pickerRow.Children.Add(_quickAddClockToggle);
         _quickAddClockBox = new TextBox
         {
             FontSize = 10,
             Width = 44,
+            Margin = new Thickness(2, 3, 0, 0),
             Background = new SolidColorBrush(Color.FromRgb(0x0F, 0x11, 0x14)),
             Foreground = new SolidColorBrush(Color.FromRgb(0xED, 0xEF, 0xF3)),
             BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x41, 0x50)),
@@ -1208,6 +1252,69 @@ internal sealed class UserDesktopWidgetWindow : Window
     public void AllowCloseForShutdown()
     {
         _allowClose = true;
+    }
+
+    /// <summary>
+    /// v1.2.113 (2.1) — guaranteed strip recovery, cause-independent. The old watchdog
+    /// lived inside PulseTimerTick, AFTER an early-return on
+    /// (!CanAcceptUiActions || _collapsed || !IsVisible || _currentState == null) — so a
+    /// stuck state with the pulse stopped or a collapsed-flag desync never healed. This
+    /// runs from the presenter's ~2s health loop, which always runs. Both heal actions
+    /// are the system's own existing transitions, only re-triggered; no strip can now
+    /// survive longer than ~2 seconds regardless of which timer or path wedged.
+    /// </summary>
+    // TEST SEAM — the wedge condition reads the live ActualHeight, which unit tests cannot
+    // force on a real hwnd without a message pump. Null in production.
+    internal double? HealHeightOverrideForTests;
+
+    public void HealSurfaceGeometryIfWedged()
+    {
+        if (!CanAcceptUiActions)
+        {
+            return;
+        }
+
+        if (_dragInProgress)
+        {
+            return; // never fight a drag
+        }
+
+        if (!IsVisible)
+        {
+            return;
+        }
+
+        double surfaceHeight = HealHeightOverrideForTests ?? ActualHeight;
+        if (!_collapsed)
+        {
+            // Wedged-expanded: shorter than the resting summary height with no pill showing.
+            if (surfaceHeight > 0d && surfaceHeight < DefaultSummaryHeight - 1d)
+            {
+                LogSizeEvent($"presenter_heal actual={surfaceHeight:F0}");
+                UpdateWindowHeight();
+            }
+
+            return;
+        }
+
+        // Desync case: logically collapsed but the summary content is what's on screen —
+        // the deliberate pill state is legitimate, this mixed state is not. NOTE: a bare
+        // Collapse() here is a guaranteed no-op (ShouldAutoCollapseSummary requires
+        // !_collapsed — the unit test caught the plan's original version). Reconcile the
+        // flag to the visual truth first (the screen IS expanded), then re-run the
+        // deliberate collapse through its own entry point and policy gate.
+        if (_expandedStack.Visibility == Visibility.Visible)
+        {
+            LogSizeEvent("presenter_heal_desync collapsed_but_summary_visible");
+            _collapsed = false;
+            Collapse();
+            if (!_collapsed)
+            {
+                // Collapse policy declined (prompt pinning the widget open, etc.) — we are
+                // now a legitimately expanded surface; make sure its geometry is right too.
+                UpdateWindowHeight();
+            }
+        }
     }
 
     internal bool CanAcceptUiActions => Volatile.Read(ref _windowLifecycleState) == WindowLifecycleOpen;
@@ -2061,13 +2168,16 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
     }
 
-    private void Collapse()
+    private void Collapse([System.Runtime.CompilerServices.CallerMemberName] string caller = "")
     {
         if (!ShouldAutoCollapseSummary())
         {
             return;
         }
 
+        // 2.3: every _collapsed transition is evidence — the strip bug's key open question
+        // is whether the stuck state is logically collapsed or expanded, and who did it.
+        LogSizeEvent($"collapse_transition from={caller}");
         _collapsed = true;
         _collapseTimer.Stop();
         _reexpandNotBeforeUtc = DateTimeOffset.UtcNow.Add(ReexpandDelay);
@@ -2084,13 +2194,14 @@ internal sealed class UserDesktopWidgetWindow : Window
         _reexpandTimer.Start();
     }
 
-    private void Expand()
+    private void Expand([System.Runtime.CompilerServices.CallerMemberName] string caller = "")
     {
         if (!_collapsed || !CanAcceptUiActions)
         {
             return;
         }
 
+        LogSizeEvent($"expand_transition from={caller}");
         _collapsed = false;
         // _headerDragSurface stays Collapsed — drag handle was the stray dash; root border handles dragging
         _collapsedPill.Visibility = Visibility.Collapsed;
@@ -2159,20 +2270,35 @@ internal sealed class UserDesktopWidgetWindow : Window
     }
 
     /// <summary>
-    /// TEMP DIAGNOSTIC for the strip bug: records every size decision with full
-    /// context. Disabled — on machines where the widget surface oscillates it floods the
-    /// log tail every few seconds and buries the capture diagnostics we actually need to
-    /// read remotely. Kept as a no-op so call sites still compile.
+    /// Strip-bug evidence collector, RE-ARMED (v1.2.113, 2.3). Ten fixes were made blind
+    /// because this was a no-op — it had flooded the shared agent log. The flooding is
+    /// fixed instead of the logging: a DEDICATED rolling file
+    /// (%LocalAppData%\PortaAgent\widget-size.log, 1 MB cap), the existing signature
+    /// dedup, and a hard 5-lines/second cap with dropped-line accounting. The next strip
+    /// occurrence leaves the exact sequence (caller, geometry, state flags, DPI) that
+    /// finally names the root cause.
     /// </summary>
-    private void LogSizeEvent(string detail)
+    private void LogSizeEvent(
+        string detail,
+        [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
     {
-        _ = detail;
-        return;
         try
         {
+            double dpiScale = 0d;
+            try
+            {
+                dpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            }
+            catch
+            {
+                // DPI unavailable before the visual is connected — log 0, never throw.
+            }
+
             string signature =
-                $"{detail} aw={ActualWidth:F0} ah={ActualHeight:F0} w={Width:F0} h={Height:F0}"
-                + $" collapsed={_collapsed} menu={_menuOpen} stateNull={_currentState == null}"
+                $"{detail} caller={caller} aw={ActualWidth:F0} ah={ActualHeight:F0} w={Width:F0} h={Height:F0}"
+                + $" left={Left:F0} top={Top:F0} dpi={dpiScale:F2}"
+                + $" collapsed={_collapsed} menu={_menuOpen} drag={_dragInProgress} visible={IsVisible}"
+                + $" stateNull={_currentState == null}"
                 + $" metrics={_metricsPanel.Visibility} stack={_expandedStack.Visibility}"
                 + $" body={_bodyGrid.Visibility} msg={_messageCard.Visibility}";
             if (string.Equals(signature, _lastSizeLogSignature, StringComparison.Ordinal))
@@ -2181,7 +2307,13 @@ internal sealed class UserDesktopWidgetWindow : Window
             }
 
             _lastSizeLogSignature = signature;
-            UserAgentFileLog.Info($"widget_size {signature}");
+            if (!_sizeLogRateLimiter.TryAcquire(DateTimeOffset.UtcNow, out long dropped))
+            {
+                return;
+            }
+
+            string droppedNote = dropped > 0 ? $" dropped={dropped}" : string.Empty;
+            WidgetSizeLog.Append($"{DateTimeOffset.UtcNow:O} {signature}{droppedNote}");
         }
         catch
         {

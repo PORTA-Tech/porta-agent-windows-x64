@@ -10,8 +10,35 @@ using Porta.UserAgent.Interventions;
 
 namespace Porta.UserAgent.Tests;
 
-public sealed class UserDesktopWidgetWindowTests
+public sealed class UserDesktopWidgetWindowTests : IDisposable
 {
+    // v1.2.113: LogSizeEvent is no longer a no-op — Collapse/Expand/measure/anim all write
+    // real evidence lines now. Redirect the whole class's diagnostics to a throwaway file so
+    // no test pollutes the real %LocalAppData%\PortaAgent\widget-size.log. Per-instance (xUnit
+    // news the class up per test); the heal scenarios save/restore around their own override.
+    private readonly string _sizeLogRedirect =
+        Path.Combine(Path.GetTempPath(), $"widget-size-classtest-{Guid.NewGuid():N}.log");
+
+    public UserDesktopWidgetWindowTests()
+    {
+        WidgetSizeLog.PathOverride = _sizeLogRedirect;
+    }
+
+    public void Dispose()
+    {
+        WidgetSizeLog.PathOverride = null;
+        try
+        {
+            if (File.Exists(_sizeLogRedirect))
+            {
+                File.Delete(_sizeLogRedirect);
+            }
+        }
+        catch
+        {
+        }
+    }
+
     [Fact]
     public void ApplyState_KeepsDefaultSurfaceToThreeCompactMetrics()
     {
@@ -669,6 +696,122 @@ public sealed class UserDesktopWidgetWindowTests
         });
     }
 
+    // ── v1.2.113 (2.4): HealSurfaceGeometryIfWedged guard logic ──
+    // Observable seam: the strip-bug evidence log — each branch writes its own marker.
+
+    [Fact]
+    public void Heal_WedgedExpanded_HealsAndLogsPresenterHeal()
+    {
+        RunHealScenario((window, _) =>
+        {
+            // Simulate the wedge via the test seam: a real hwnd will not resize without a
+            // message pump, and the live stuck state is precisely "ActualHeight reads as a
+            // strip while expanded".
+            window.HealHeightOverrideForTests = 30d;
+
+            window.HealSurfaceGeometryIfWedged();
+        },
+        assertLog: log => Assert.Contains("presenter_heal", log, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Heal_DeliberateCollapsedPill_DoesNotHeal()
+    {
+        RunHealScenario((window, setField) =>
+        {
+            // A legitimate pill: logically collapsed AND the summary content hidden.
+            // Even at strip height the heal must not touch it.
+            setField("_collapsed", true);
+            GetPrivateField<StackPanel>(window, "_expandedStack").Visibility = Visibility.Collapsed;
+            window.HealHeightOverrideForTests = 24d;
+
+            window.HealSurfaceGeometryIfWedged();
+        },
+        assertLog: log =>
+        {
+            Assert.DoesNotContain("presenter_heal", log, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void Heal_CollapsedDesyncWithSummaryVisible_ForcesRealCollapse()
+    {
+        RunHealScenario((window, setField) =>
+        {
+            // The suspected stuck state: _collapsed says pill, screen says summary.
+            setField("_collapsed", true);
+            GetPrivateField<StackPanel>(window, "_expandedStack").Visibility = Visibility.Visible;
+
+            window.HealSurfaceGeometryIfWedged();
+
+            // Collapse re-ran: state and visuals re-converged on the pill.
+            Assert.Equal(Visibility.Visible, GetPrivateField<Border>(window, "_collapsedPill").Visibility);
+            Assert.Equal(Visibility.Collapsed, GetPrivateField<StackPanel>(window, "_expandedStack").Visibility);
+        },
+        assertLog: log => Assert.Contains("presenter_heal_desync", log, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Heal_DragInProgress_NeverFightsTheDrag()
+    {
+        RunHealScenario((window, setField) =>
+        {
+            setField("_dragInProgress", true);
+            window.HealHeightOverrideForTests = 30d;
+
+            window.HealSurfaceGeometryIfWedged();
+        },
+        assertLog: log => Assert.DoesNotContain("presenter_heal", log, StringComparison.Ordinal));
+    }
+
+    private static void RunHealScenario(
+        Action<UserDesktopWidgetWindow, Action<string, object>> act,
+        Action<string> assertLog)
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            string logPath = Path.Combine(tempDirectory.Path, "widget-size-test.log");
+            string? previousOverride = WidgetSizeLog.PathOverride;
+            WidgetSizeLog.PathOverride = logPath;
+            try
+            {
+                var window = new UserDesktopWidgetWindow(
+                    _ => { },
+                    _ => { },
+                    new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+                window.ApplyState(BuildSummaryState());
+                window.Show();
+
+                void SetField(string name, object value)
+                {
+                    FieldInfo field = typeof(UserDesktopWidgetWindow).GetField(
+                        name, BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?? throw new InvalidOperationException($"field {name} not found");
+                    field.SetValue(window, value);
+                }
+
+                // ApplyState + Show already spend the 5-lines/second budget; give the
+                // scenario a fresh limiter so its own evidence lines are never the ones
+                // dropped (in production the wedge is minutes away from startup noise).
+                SetField("_sizeLogRateLimiter", new WidgetSizeLogRateLimiter());
+                SetField("_lastSizeLogSignature", string.Empty);
+
+                act(window, SetField);
+
+                string log = File.Exists(logPath) ? File.ReadAllText(logPath) : string.Empty;
+                assertLog(log);
+
+                window.AllowCloseForShutdown();
+                window.Close();
+            }
+            finally
+            {
+                WidgetSizeLog.PathOverride = previousOverride;
+            }
+        });
+    }
+
     private static UserDesktopWidgetState BuildCriticalState(string message)
     {
         return new UserDesktopWidgetState(
@@ -733,7 +876,23 @@ public sealed class UserDesktopWidgetWindowTests
     {
         MethodInfo method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException($"Missing method '{methodName}'.");
-        method.Invoke(target, null);
+
+        // Some production methods now carry optional [CallerMemberName] parameters (v1.2.113:
+        // Collapse/Expand log the transition caller). Reflection's Invoke does NOT apply C#
+        // default values, so a bare null-args call throws Parameter count mismatch. Supply the
+        // declared default for each optional parameter so the call reflects a real invocation.
+        ParameterInfo[] parameters = method.GetParameters();
+        object?[]? arguments = null;
+        if (parameters.Length > 0)
+        {
+            arguments = new object?[parameters.Length];
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                arguments[i] = parameters[i].HasDefaultValue ? parameters[i].DefaultValue : Type.Missing;
+            }
+        }
+
+        method.Invoke(target, arguments);
     }
 
     private static void InvokePrivateMethod(object target, string methodName, params object?[] arguments)

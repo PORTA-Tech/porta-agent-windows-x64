@@ -146,6 +146,12 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
         if (!needsRestart && !isStarting)
         {
+            // v1.2.113 (2.1) — strip-bug heal from the loop that ALWAYS runs. The in-window
+            // watchdog sits behind PulseTimerTick's early-returns and provably missed the
+            // stuck state; this one has no such gate. The window method carries its own
+            // guards (collapsed pill, drag, hidden).
+            _ = TryDispatchToWidget(static window => window.HealSurfaceGeometryIfWedged(), out _);
+
             // Periodically re-assert HWND_TOPMOST so apps like Electron/CEF can't bury the widget.
             _topmostNudgeCounter++;
             if (_topmostNudgeCounter >= 5)
