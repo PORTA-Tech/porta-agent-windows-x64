@@ -182,8 +182,11 @@ internal sealed class UserDesktopWidgetWindow : Window
     private StackPanel _taskAddPanel = null!;
     private TextBox _taskTitleBox = null!;
     private TextBlock _taskAddPreview = null!;
+    private Button _taskAddButton = null!;
     private readonly List<Button> _taskChips = new();
-    private int _taskDurationMinutes = 30;
+    // A1: 0 means "no duration resolved yet". A task can only be added once a duration is
+    // recognized in the title or picked via chip/stepper — no silent 30m default any more.
+    private int _taskDurationMinutes;
     // v1.2.114: while false, a duration token typed in the task title ("2h of learning")
     // drives the planned duration. A chip/stepper tap flips it true so an explicit pick
     // always wins and title edits stop overriding it. Reset each time the composer opens.
@@ -3456,17 +3459,17 @@ internal sealed class UserDesktopWidgetWindow : Window
                 e.Handled = true;
             }
         };
-        // v1.2.114: derive planned duration from the title as the user types ("2h of
+        // v1.2.114 / A1: derive planned duration from the title as the user types ("2h of
         // learning" → 2h planned), unless they've explicitly picked via chip/stepper. The
-        // token stays in the title. No token → fall back to the 30m default, so the preview
-        // always matches what's typed.
+        // token stays in the title. No recognized duration → 0 (unset): Add stays blocked
+        // until a duration is chosen, rather than silently defaulting to 30m.
         _taskTitleBox.TextChanged += (_, _) =>
         {
             if (!_taskDurationUserPicked)
             {
                 _taskDurationMinutes = TryParseTaskDurationMinutes(_taskTitleBox.Text, out int parsed)
                     ? parsed
-                    : 30;
+                    : 0;
             }
 
             RefreshTaskAddPreview();
@@ -3515,6 +3518,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         Button addButton = CreateQuickAddPickerButton("Add");
         addButton.Margin = new Thickness(0, 3, 2, 0);
         addButton.Click += (_, _) => ConfirmTaskAdd();
+        _taskAddButton = addButton;
         Button cancelButton = CreateQuickAddPickerButton("Cancel");
         cancelButton.Margin = new Thickness(0, 3, 0, 0);
         cancelButton.Click += (_, _) => CloseTaskAdd();
@@ -3693,7 +3697,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         Expand();
         _taskAddOpen = true;
         _taskTitleBox.Text = string.Empty;
-        _taskDurationMinutes = 30;
+        _taskDurationMinutes = 0;
         _taskDurationUserPicked = false;
         RefreshTaskAddPreview();
         _taskAddPanel.Visibility = Visibility.Visible;
@@ -3734,7 +3738,10 @@ internal sealed class UserDesktopWidgetWindow : Window
     private void ConfirmTaskAdd()
     {
         string title = _taskTitleBox.Text.Trim();
-        if (title.Length == 0)
+        // A1: never create a task without a user-resolved duration. An unrecognized/blank
+        // duration keeps Add blocked (mirrors the reminder confirm gate) instead of silently
+        // scheduling 30m.
+        if (!CanConfirmTask(title, _taskDurationMinutes))
         {
             RefreshTaskAddPreview();
             return;
@@ -3748,15 +3755,32 @@ internal sealed class UserDesktopWidgetWindow : Window
         CloseTaskAdd();
     }
 
+    // A1: a task is addable only with a non-empty title AND a resolved duration (> 0).
+    // Pure + testable — the same predicate gates ConfirmTaskAdd and the Add button state.
+    internal static bool CanConfirmTask(string? title, int durationMinutes)
+        => !string.IsNullOrWhiteSpace(title) && durationMinutes > 0;
+
     private void RefreshTaskAddPreview()
     {
         string title = _taskTitleBox.Text.Trim();
+        bool canAdd = CanConfirmTask(title, _taskDurationMinutes);
         _taskAddPreview.Text = title.Length == 0
-            ? $"Type a task · {Porta.Agent.Common.ReminderTimeParser.FormatDuration(_taskDurationMinutes)} planned"
-            : $"{title} · {Porta.Agent.Common.ReminderTimeParser.FormatDuration(_taskDurationMinutes)} planned";
+            ? "Type a task…"
+            : _taskDurationMinutes > 0
+                ? $"{title} · {Porta.Agent.Common.ReminderTimeParser.FormatDuration(_taskDurationMinutes)} planned"
+                : $"{title} · pick a duration";
+        _taskAddPreview.Foreground = new SolidColorBrush(canAdd
+            ? Color.FromRgb(0x94, 0xA3, 0xB8)
+            : Color.FromRgb(0xF5, 0x9E, 0x0B));
+
+        // Gate the Add button exactly like the reminder confirm button (IsEnabled + dim).
+        _taskAddButton.IsEnabled = canAdd;
+        _taskAddButton.Opacity = canAdd ? 1.0 : 0.45;
+
         for (int i = 0; i < _taskChips.Count; i++)
         {
-            bool selected = _taskDurationMinutes == Porta.Agent.Common.ReminderComposeState.ChipMinutes[i];
+            bool selected = _taskDurationMinutes > 0
+                && _taskDurationMinutes == Porta.Agent.Common.ReminderComposeState.ChipMinutes[i];
             _taskChips[i].Foreground = new SolidColorBrush(selected
                 ? Color.FromRgb(0x16, 0xC7, 0x84)
                 : Color.FromRgb(0x94, 0xA3, 0xB8));
@@ -3766,10 +3790,13 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
     }
 
-    // v1.2.114: pull a planned duration out of a task title. Accepts the forms a user would
-    // naturally type — "2h", "1.5h", "1h30m", "1h30", "45m", "90 min" — matched anywhere in
-    // the string, so "2h of learning" and "learn spanish 45m" both work. The token is left in
-    // the title untouched. Returns false when there is no duration (caller keeps the default).
+    // A1: pull a planned duration out of a task title by routing through the SAME grammar the
+    // reminder quick-add uses (ReminderTimeParser), so "2 mins"→2, "1m"→1, "90 min"→90,
+    // "1h30"→90, "2h of learning"→120 all resolve identically to reminders — no separate,
+    // subtly-different parser and (critically) no floor that silently swallowed small values
+    // like "2 mins" into a 30m default. Only DURATION expressions count; a clock time ("at
+    // 5pm") or no time yields false so the caller leaves the duration unset and blocks Add.
+    // The token is NOT stripped from the title (task names keep what the user typed).
     internal static bool TryParseTaskDurationMinutes(string? title, out int minutes)
     {
         minutes = 0;
@@ -3778,41 +3805,14 @@ internal sealed class UserDesktopWidgetWindow : Window
             return false;
         }
 
-        string text = title.ToLowerInvariant();
-        int total;
-
-        // Hours (optionally fractional) with an optional trailing minutes chunk. The
-        // (?![a-z]) after the hour unit keeps "2handball" from reading as 2 hours while still
-        // allowing the digit that follows in "1h30m".
-        var hours = System.Text.RegularExpressions.Regex.Match(
-            text,
-            @"(?<h>\d+(?:\.\d+)?)\s*(?:hours|hour|hrs|hr|h)(?![a-z])(?:\s*(?<m>\d{1,2})\s*(?:minutes|minute|mins|min|m)?(?![a-z]))?");
-        if (hours.Success)
-        {
-            double h = double.Parse(hours.Groups["h"].Value, System.Globalization.CultureInfo.InvariantCulture);
-            int m = hours.Groups["m"].Success ? int.Parse(hours.Groups["m"].Value) : 0;
-            total = (int)Math.Round(h * 60) + m;
-        }
-        else
-        {
-            var mins = System.Text.RegularExpressions.Regex.Match(
-                text,
-                @"(?<m>\d+)\s*(?:minutes|minute|mins|min|m)(?![a-z])");
-            if (!mins.Success)
-            {
-                return false;
-            }
-
-            total = int.Parse(mins.Groups["m"].Value);
-        }
-
-        // Below the stepper floor is almost surely not a real duration; above 12h is a typo.
-        if (total < 5)
+        Porta.Agent.Common.ReminderParseResult parsed =
+            Porta.Agent.Common.ReminderTimeParser.Parse(title, DateTimeOffset.Now);
+        if (parsed.Kind != Porta.Agent.Common.ReminderTimeKind.Duration || parsed.DurationMinutes <= 0)
         {
             return false;
         }
 
-        minutes = Math.Min(total, 12 * 60);
+        minutes = parsed.DurationMinutes;
         return true;
     }
 
