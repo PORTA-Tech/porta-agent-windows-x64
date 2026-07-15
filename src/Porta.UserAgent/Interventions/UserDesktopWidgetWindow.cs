@@ -3684,6 +3684,56 @@ internal sealed class UserDesktopWidgetWindow : Window
             Id: task.Id,
             Title: task.Title,
             PlannedSeconds: task.PlannedSeconds));
+
+        // A2: the action succeeds server-side but tasks are only re-polled every 10s, so the
+        // row showed NO change and users clicked again — the second click then failed as an
+        // illegal transition ("play does nothing"; confirmed from task_act_failed in the log).
+        // Reflect the transition immediately (▶ becomes the active controls, so the stale
+        // control can't be clicked again). The 10s poll remains authoritative and reconciles.
+        _tasks = ComputeOptimisticTaskState(kind, task.Id, _tasks);
+        RenderTaskRows();
+    }
+
+    // Pure optimistic next-state for a task action, mirroring the store's transitions:
+    // start → active (and any other active task pauses to pending, the one-active invariant);
+    // done/abandon → terminal; extend → +15m of budget. Unknown/illegal kinds leave the list
+    // untouched. Kept pure + static so the transition is unit-tested without a live window.
+    internal const int TaskExtendSeconds = 900; // mirrors SqliteBrainStateStore.TaskExtendSeconds
+
+    internal static IReadOnlyList<UserDesktopWidgetTaskInfo> ComputeOptimisticTaskState(
+        string kind, long taskId, IReadOnlyList<UserDesktopWidgetTaskInfo> tasks)
+    {
+        if (tasks.Count == 0)
+        {
+            return tasks;
+        }
+
+        var next = new List<UserDesktopWidgetTaskInfo>(tasks.Count);
+        foreach (UserDesktopWidgetTaskInfo t in tasks)
+        {
+            if (t.Id == taskId)
+            {
+                next.Add(kind switch
+                {
+                    "start" => t with { State = "active" },
+                    "done" => t with { State = "done" },
+                    "abandon" => t with { State = "abandoned" },
+                    "extend" => t with { ExtendedSeconds = t.ExtendedSeconds + TaskExtendSeconds },
+                    _ => t
+                });
+            }
+            else if (string.Equals(kind, "start", StringComparison.Ordinal)
+                && string.Equals(t.State, "active", StringComparison.Ordinal))
+            {
+                next.Add(t with { State = "pending" });
+            }
+            else
+            {
+                next.Add(t);
+            }
+        }
+
+        return next;
     }
 
     private void ToggleTaskAdd()
