@@ -3542,6 +3542,15 @@ internal sealed class UserDesktopWidgetWindow : Window
             Orientation = Orientation.Vertical,
             Margin = new Thickness(0, 4, 0, 0)
         };
+        // A3: hovering the task area means the user wants to click a task's ▶/✓/✕ — the
+        // hover-dodge (auto-collapse to the pill) must NOT fire and snatch the surface away
+        // mid-interaction. Same treatment the reminder "+" already gets; HandlePointerLeave
+        // re-arms the dodge once the pointer leaves the whole widget.
+        _tasksSection.MouseEnter += (_, _) =>
+        {
+            _collapseTimer.Stop();
+            _suspendAutoCollapseUntilPointerLeaves = true;
+        };
         _tasksSection.Children.Add(header);
         _tasksSection.Children.Add(_tasksRows);
         _tasksSection.Children.Add(_taskAddPanel);
