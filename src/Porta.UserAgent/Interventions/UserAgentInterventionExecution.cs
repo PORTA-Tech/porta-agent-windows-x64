@@ -596,6 +596,20 @@ internal sealed class UserAgentInterventionExecutor
                 persisted ? null : "tip_snooze_persist_failed",
                 promptSession.Prompt);
         }
+        else if (response.Kind == UserInterventionPromptResponseKind.SkippedForToday)
+        {
+            // C1: "Skip today" on the break overlay mutes the break class until the next 5:00
+            // local (B2), so no further break prompts interrupt today. Acked to the core as a
+            // normal skip; the daily mute is a local UserAgent addition.
+            _muteStore.MuteForToday(BreakMuteClass, nowUtc.ToLocalTime());
+            ack = BuildAck(
+                promptSession!.Intervention,
+                promptSession.SessionId,
+                promptSession.AgentInstanceId,
+                result,
+                errorCode: response.ErrorCode,
+                promptSession.Prompt);
+        }
         else
         {
             ack = BuildAck(
@@ -862,6 +876,8 @@ internal sealed class UserAgentInterventionExecutor
             UserInterventionPromptResponseKind.OverlayStarted => "overlay_started",
             UserInterventionPromptResponseKind.Accepted => "accepted",
             UserInterventionPromptResponseKind.Skipped => "skipped",
+            UserInterventionPromptResponseKind.SkippedForToday => "skipped", // C1: core sees a skip
+
             UserInterventionPromptResponseKind.Dismissed => "dismissed",
             UserInterventionPromptResponseKind.Snoozed => "snoozed",
             UserInterventionPromptResponseKind.SuppressedByPreference => "suppressed_by_preference",
@@ -891,9 +907,10 @@ internal sealed class UserAgentInterventionExecutor
 
     private static DateTimeOffset ResolvePromptSnoozeUntilUtc(string? action, DateTimeOffset nowUtc)
     {
-        // Breaks snooze for 30 min so the user can finish a focused session.
+        // C1: breaks snooze for 15 min (the "Snooze 15m" button) so the user can finish a short
+        // stretch of work without the prompt seizing the screen again too soon.
         TimeSpan duration = PortaBreakSemantics.IsBreakSuggestionAction(action)
-            ? TimeSpan.FromMinutes(30)
+            ? TimeSpan.FromMinutes(15)
             : (action ?? string.Empty).Trim().ToLowerInvariant() == "focus_lock_in_suggestion"
                 ? TimeSpan.FromMinutes(15)
                 : TimeSpan.FromMinutes(12);
@@ -990,6 +1007,7 @@ internal sealed class UserAgentInterventionExecutor
         {
             return kind is
                 UserInterventionPromptResponseKind.Skipped
+                or UserInterventionPromptResponseKind.SkippedForToday
                 or UserInterventionPromptResponseKind.Dismissed
                 or UserInterventionPromptResponseKind.Snoozed
                 or UserInterventionPromptResponseKind.SuppressedByPreference

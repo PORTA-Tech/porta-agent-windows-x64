@@ -334,6 +334,17 @@ internal sealed class UserBreakOverlayPresenter : IUserBreakOverlayPresenter
                     UserInterventionPromptResponseKind.Skipped));
                 break;
 
+            case UserBreakOverlayAction.SkipToday:
+                // C1: dismiss AND report SkippedForToday so the executor mutes the break class
+                // for the rest of the day (B2). Acked to the core as a normal skip.
+                _activePrompt = null;
+                _window?.HideOverlay();
+                promptState.OnResponse(new UserInterventionPromptResponse(
+                    promptState.Prompt.InterventionId,
+                    promptState.Prompt.TipKey,
+                    UserInterventionPromptResponseKind.SkippedForToday));
+                break;
+
             case UserBreakOverlayAction.Snooze:
                 _activePrompt = null;
                 _window?.HideOverlay();

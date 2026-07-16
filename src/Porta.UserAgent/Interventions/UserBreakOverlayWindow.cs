@@ -11,7 +11,10 @@ internal enum UserBreakOverlayAction
     Dismiss,
     Snooze,
     Suppress,
-    EmergencyExit
+    EmergencyExit,
+    // C1: "Skip today" — dismiss AND mute the break class until the next 5:00 local (B2 store),
+    // so no further break prompts interrupt today. Distinct from Dismiss (a one-time skip).
+    SkipToday
 }
 
 internal sealed class UserBreakOverlayWindow : Window
@@ -127,8 +130,10 @@ internal sealed class UserBreakOverlayWindow : Window
         _acceptButton.Click += (_, _) => _actionRequested(UserBreakOverlayAction.Accept);
         actions.Children.Add(_acceptButton);
 
+        // C1: the secondary action is now "Skip today" (dismiss + mute the break class for the
+        // day), replacing the one-time "Skip". The field name is retained to limit churn.
         _dismissButton = CreateSecondaryButton();
-        _dismissButton.Click += (_, _) => _actionRequested(UserBreakOverlayAction.Dismiss);
+        _dismissButton.Click += (_, _) => _actionRequested(UserBreakOverlayAction.SkipToday);
         actions.Children.Add(_dismissButton);
 
         _snoozeButton = CreateSecondaryButton();
@@ -170,11 +175,13 @@ internal sealed class UserBreakOverlayWindow : Window
             : prompt.Message.Trim();
         _countdownText.Visibility = Visibility.Collapsed;
         _countdownText.Text = string.Empty;
-        _footerText.Text = "Take break starts the countdown and holds this screen. Skip dismisses now. Snooze reminds you in 30 minutes.";
-        ConfigureButton(_acceptButton, prompt.AcceptLabel, visible: true);
-        ConfigureButton(_dismissButton, prompt.DismissLabel, visible: true);
-        ConfigureButton(_snoozeButton, prompt.SnoozeLabel, visible: true);
-        ConfigureButton(_suppressButton, prompt.SuppressLabel, visible: !string.IsNullOrWhiteSpace(prompt.SuppressLabel));
+        // C1 (LOCKED design): exactly three actions — Take break / Snooze 15m / Skip today.
+        // Fixed labels: the overlay owns this locked presentation regardless of prompt copy.
+        _footerText.Text = "Take break starts the countdown and holds this screen. Snooze reminds you in 15 minutes. Skip today silences breaks until tomorrow.";
+        ConfigureButton(_acceptButton, "Take break", visible: true);
+        ConfigureButton(_dismissButton, "Skip today", visible: true);
+        ConfigureButton(_snoozeButton, "Snooze 15m", visible: true);
+        ConfigureButton(_suppressButton, string.Empty, visible: false);
         ConfigureButton(_emergencyExitButton, string.Empty, visible: false);
         _cardBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(65, 88, 112));
         _cardBorder.Background = new SolidColorBrush(Color.FromRgb(18, 26, 35));

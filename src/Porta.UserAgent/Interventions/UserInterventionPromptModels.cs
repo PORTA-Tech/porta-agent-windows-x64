@@ -10,7 +10,11 @@ internal enum UserInterventionPromptResponseKind
     SuppressedByPreference,
     OverlayRecovered,
     OverlayCompleted,
-    OverlayAborted
+    OverlayAborted,
+    // C1: user chose "Skip today" on the break overlay — a skip that also mutes the break class
+    // for the rest of the day (via the B2 mute store, handled in the executor). Acked to the
+    // core as a normal skip; the daily mute is a local UserAgent addition.
+    SkippedForToday
 }
 
 internal sealed record UserInterventionPrompt(

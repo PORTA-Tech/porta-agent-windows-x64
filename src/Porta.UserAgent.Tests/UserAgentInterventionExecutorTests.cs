@@ -576,6 +576,50 @@ public sealed class UserAgentInterventionExecutorTests
         Assert.Contains("limiting distracting apps", presenter.LastMessage, StringComparison.Ordinal);
     }
 
+    // ── Workstream C1 — break "Skip today" mutes the break class ──
+
+    [Fact]
+    public void BreakOverlay_SkippedForToday_MutesBreakClassAndAcksSkipped()
+    {
+        var presenter = new FakePresenter { PromptShowResult = true };
+        string mutePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"mute-{Guid.NewGuid():N}.json");
+        var muteStore = new UserNotificationMuteStore(mutePath);
+        var executor = new UserAgentInterventionExecutor(
+            presenter,
+            new FakePresentationGate { Available = true },
+            new FakeNotificationController(),
+            new FakeNotificationSnapshotStore(),
+            new InMemoryPreferenceStore(),
+            antiSpamGate: new UserInterventionAntiSpamGate(),
+            muteStore: muteStore);
+        try
+        {
+            LocalApiInterventionPendingResponse intervention = BuildPending(
+                "intv-break",
+                "short_break",
+                "show_break_overlay",
+                """{"title":"Ari","message":"Take a short break?","tip_key":"short_break"}""");
+
+            executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+            Assert.False(executor.IsClassMutedForToday(UserAgentInterventionExecutor.BreakMuteClass));
+
+            presenter.CompletePrompt(UserInterventionPromptResponseKind.SkippedForToday);
+
+            // "Skip today" muted breaks for the rest of the day...
+            Assert.True(executor.IsClassMutedForToday(UserAgentInterventionExecutor.BreakMuteClass));
+            // ...and the core still sees a normal skip.
+            Assert.True(executor.TryDequeueCompletedAck(out LocalApiInterventionAckRequest ack));
+            Assert.Equal("skipped", ack.Result);
+        }
+        finally
+        {
+            if (System.IO.File.Exists(mutePath))
+            {
+                System.IO.File.Delete(mutePath);
+            }
+        }
+    }
+
     // ── Workstream B1 — the single gated door for host interrupt toasts ──
 
     [Fact]
