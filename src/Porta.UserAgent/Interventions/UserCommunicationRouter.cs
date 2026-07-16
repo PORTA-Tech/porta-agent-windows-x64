@@ -38,6 +38,26 @@ internal static class UserCommunicationRouter
         "notification_restore_failed"
     };
 
+    // ── Workstream B1 — behavioral toast classification (LOCKED with Yadin) ──
+    // Only the recovery nudge and the one-time first-win are INTERRUPTS (route through the
+    // anti-spam gate to a popup). Everything else TryBuildAriToast can emit — pressure,
+    // milestones, long-session, weak-hour, session-wrap — is NON-interrupt: widget status +
+    // activity log, never a popup, and must never reach UserInterventionToastRenderer.
+    public static bool IsInterruptToast(string? toastKey)
+    {
+        string key = (toastKey ?? string.Empty).Trim().ToLowerInvariant();
+        return key is "ari:recovery" or "ari:first_focus";
+    }
+
+    // The gate key for an interrupt Ari toast. The one-time first-win uses "ari:first_win"
+    // per the locked table; the recovery nudge (and the overload-recovery host message) share
+    // "ari:recovery".
+    public static string ResolveAriGateKey(string? toastKey)
+    {
+        string key = (toastKey ?? string.Empty).Trim().ToLowerInvariant();
+        return key == "ari:first_focus" ? "ari:first_win" : "ari:recovery";
+    }
+
     public static UserCommunicationToast? ResolveRecentEventToast(
         IReadOnlyList<LocalApiEventResponse> recentEvents,
         DateTimeOffset nowUtc,

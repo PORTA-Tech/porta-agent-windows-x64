@@ -57,7 +57,6 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private DateTimeOffset _windowStartUtc = DateTimeOffset.UtcNow;
     private DateTimeOffset _lastLiveSignalPublishUtc = DateTimeOffset.MinValue;
     private long _lastRecoveryEventId;
-    private long _lastCommunicationEventId;
     private UserInterventionToastRenderer.UserTrayVisualState? _lastTrayState;
     private UserDesktopWidgetState? _lastWidgetState;
     private IReadOnlyList<LocalApiEventResponse> _recentEvents = [];
@@ -384,19 +383,6 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 Tasks = MapTodayTasks()
             });
 
-        UserCommunicationToast? recentEventToast = UserCommunicationRouter.ResolveRecentEventToast(
-            recentEvents,
-            nowUtc,
-            _lastCommunicationEventId);
-        if (recentEventToast != null)
-        {
-            if (TryShowCommunicationToast(recentEventToast))
-            {
-                _lastCommunicationEventId = recentEventToast.EventId;
-                return;
-            }
-        }
-
         // Refresh Ari context from local API every 30 min
         if ((nowUtc - _lastAriContextRefreshUtc) >= AriContextRefreshInterval)
         {
@@ -424,9 +410,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
             UserCommunicationToast? ariToast = UserCommunicationRouter.TryBuildAriToast(
                 snapshot, _sessionState, _ariContext, nowUtc);
-            if (ariToast is not null && TryShowCommunicationToast(ariToast))
+            if (ariToast is not null)
             {
-                _sessionState.RecordToastShown(nowUtc);
+                RouteBehavioralToast(ariToast, nowUtc);
             }
         }
 
@@ -436,18 +422,37 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         }
 
         _lastRecoveryEventId = signals.RecoveryEventId;
-        if (!UserSessionNativeSignals.IsInterventionPresentationAvailable(out _))
+
+        // B1: the overload-recovery message is an interrupt of the ari:recovery class — route
+        // it through the anti-spam gate like every other interrupt, never straight to the
+        // renderer. (Presentation availability is checked inside the gated path.)
+        _interventionExecutor.TryShowGatedInterruptToast(
+            "ari:recovery",
+            "PORTA",
+            signals.RecoveryMessage,
+            nowUtc,
+            out _);
+    }
+
+    // Workstream B1 — behavioral-toast routing (LOCKED classification). Interrupt classes
+    // (recovery, one-time first-win) go through the anti-spam gate; every other behavioral
+    // message is demoted to the activity log and NEVER reaches the toast renderer. The widget
+    // already surfaces live focus state, so nothing is lost. TryBuildAriToast maintains its own
+    // cadence bookkeeping, so no extra RecordToastShown here.
+    private void RouteBehavioralToast(UserCommunicationToast ariToast, DateTimeOffset nowUtc)
+    {
+        if (UserCommunicationRouter.IsInterruptToast(ariToast.Key))
         {
+            _interventionExecutor.TryShowGatedInterruptToast(
+                UserCommunicationRouter.ResolveAriGateKey(ariToast.Key),
+                ariToast.Title,
+                ariToast.Message,
+                nowUtc,
+                out _);
             return;
         }
 
-        if (!_toastRenderer.TryShow("PORTA", signals.RecoveryMessage, out string errorCode))
-        {
-            _logger.LogDebug(
-                "Failed to present overload recovery message for event {EventId}. Error={ErrorCode}",
-                signals.RecoveryEventId,
-                errorCode);
-        }
+        UserAgentFileLog.Info($"activity_behavioral key={ariToast.Key} message={ariToast.Message}");
     }
 
     /// <summary>
@@ -501,12 +506,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 display = $"{parsed.Major}.{parsed.Minor}.{parsed.Build}";
             }
 
-            if (_toastRenderer.TryShow("Ari", $"Ari updated to {display} ✓", out _))
-            {
-                UserAgentFileLog.Info($"agent_update_toast_shown version={_binaryVersion}");
-                TryWriteAcknowledgedVersion(path, _binaryVersion);
-            }
-            // On failure: leave the file untouched so the next start retries once more.
+            // B1 (LOCKED classification): the update confirmation is NOT an interrupt — it goes
+            // to the activity log as one quiet status, never a popup. Record the acknowledged
+            // version so it is logged exactly once per version.
+            UserAgentFileLog.Info($"activity_agent_updated version={_binaryVersion} display={display}");
+            TryWriteAcknowledgedVersion(path, _binaryVersion);
         }
         catch (OperationCanceledException)
         {
@@ -1259,31 +1263,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 => "Ari is not receiving live keyboard or mouse activity yet. If activity stays stuck at zero, sign out and back in."
         };
 
-        if (!_toastRenderer.TryShow("PORTA", message, out string errorCode))
-        {
-            _logger.LogDebug(
-                "Failed to present capture self-test warning toast. Error={ErrorCode}",
-                errorCode);
-        }
-    }
-
-    private bool TryShowCommunicationToast(UserCommunicationToast communication)
-    {
-        if (!UserSessionNativeSignals.IsInterventionPresentationAvailable(out _))
-        {
-            return false;
-        }
-
-        if (_toastRenderer.TryShow(communication.Title, communication.Message, out string errorCode))
-        {
-            return true;
-        }
-
-        _logger.LogDebug(
-            "Failed to present Ari communication toast {CommunicationKey}. Error={ErrorCode}",
-            communication.Key,
-            errorCode);
-        return false;
+        // B1 (LOCKED classification): capture self-test failure is a degraded-state signal,
+        // NOT an interrupt. It surfaces on the widget (the capture-degraded state is already
+        // fed into the widget state) and the Health panel; here we only record it to the
+        // activity log. It must never become a popup toast.
+        UserAgentFileLog.Info($"activity_capture_self_test_warning code={decision.FailureCode} message={message}");
     }
 
     private void UpdateTrayState(UserInterventionToastRenderer.UserTrayVisualState state)
@@ -1422,9 +1406,14 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             }
 
             _taskExpiryToastedKeys.Add(key);
-            _ = _toastRenderer.TryShow(
+            // B1: task-expiry is an interrupt — route through the anti-spam gate like every
+            // other interrupt. The per-(id,budget) key above already enforces once-per-expiry
+            // and once-per-extension (budget includes extended_seconds).
+            _ = _interventionExecutor.TryShowGatedInterruptToast(
+                "task:expiry",
                 "Ari",
                 $"Time's up on \"{task.Title}\" — mark it done, add 15 minutes, or switch, from the widget.",
+                nowUtc,
                 out _);
             UserAgentFileLog.Info($"task_expiry_notified id={task.Id} budget_s={budgetSeconds}");
         }

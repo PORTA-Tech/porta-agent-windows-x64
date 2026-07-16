@@ -550,6 +550,53 @@ public sealed class UserAgentInterventionExecutorTests
         Assert.Equal(1, presenter.ShowCalls);
     }
 
+    // ── Workstream B1 — the single gated door for host interrupt toasts ──
+
+    [Fact]
+    public void TryShowGatedInterruptToast_Allowed_ShowsThenDedupsThroughTheGate()
+    {
+        var presenter = new FakePresenter { ShowResult = true };
+        var executor = CreateExecutor(
+            presenter,
+            new FakePresentationGate { Available = true },
+            new FakeNotificationController(),
+            new FakeNotificationSnapshotStore(),
+            new InMemoryPreferenceStore());
+        DateTimeOffset now = DateTimeOffset.Parse("2026-03-08T12:00:00Z");
+
+        bool shown = executor.TryShowGatedInterruptToast("ari:recovery", "Ari", "You were close.", now, out string reason);
+
+        Assert.True(shown);
+        Assert.Equal(string.Empty, reason);
+        Assert.Equal(1, presenter.ShowCalls);
+        Assert.Equal("You were close.", presenter.LastMessage);
+
+        // Marked-shown → the immediate duplicate is blocked BY THE GATE and never re-renders.
+        bool again = executor.TryShowGatedInterruptToast("ari:recovery", "Ari", "You were close.", now, out string reason2);
+        Assert.False(again);
+        Assert.Equal("anti_spam_duplicate_semantic_toast", reason2);
+        Assert.Equal(1, presenter.ShowCalls);
+    }
+
+    [Fact]
+    public void TryShowGatedInterruptToast_PresentationUnavailable_NeverReachesRenderer()
+    {
+        var presenter = new FakePresenter { ShowResult = true };
+        var executor = CreateExecutor(
+            presenter,
+            new FakePresentationGate { Available = false, ErrorCode = "session_unavailable" },
+            new FakeNotificationController(),
+            new FakeNotificationSnapshotStore(),
+            new InMemoryPreferenceStore());
+
+        bool shown = executor.TryShowGatedInterruptToast(
+            "task:expiry", "Ari", "Time's up.", DateTimeOffset.Parse("2026-03-08T12:00:00Z"), out string reason);
+
+        Assert.False(shown);
+        Assert.Equal("session_unavailable", reason);
+        Assert.Equal(0, presenter.ShowCalls);
+    }
+
     private static UserAgentInterventionExecutor CreateExecutor(
         FakePresenter presenter,
         FakePresentationGate gate,

@@ -73,6 +73,47 @@ internal sealed class UserAgentInterventionExecutor
         _antiSpamGate.ObserveWidgetState(state);
     }
 
+    /// <summary>
+    /// Workstream B1 — the SINGLE gated door for host-originated INTERRUPT toasts
+    /// (ari:recovery, ari:first_win, task:expiry). Identical anti-spam contract to
+    /// intervention toasts: critical-state suppression, semantic dedup and family budgets via
+    /// <see cref="UserInterventionAntiSpamGate"/>, then the same presentation-availability
+    /// check and renderer. Host code must call THIS for every interrupt rather than the
+    /// renderer directly, so no interrupt ever reaches the toast surface outside the gate.
+    /// Returns true only when the toast was actually shown; <paramref name="reason"/> carries
+    /// the gate reason code or render error otherwise.
+    /// </summary>
+    public bool TryShowGatedInterruptToast(
+        string gateKey,
+        string title,
+        string message,
+        DateTimeOffset nowUtc,
+        out string reason)
+    {
+        reason = string.Empty;
+        UserInterventionGateDecision decision = _antiSpamGate.EvaluateToast(gateKey, nowUtc);
+        if (!decision.Allowed)
+        {
+            reason = decision.ReasonCode;
+            return false;
+        }
+
+        if (!_presentationGate.IsPresentationAvailable(out string sessionError))
+        {
+            reason = sessionError;
+            return false;
+        }
+
+        if (!_presenter.TryShow(title, message, out string renderError))
+        {
+            reason = renderError;
+            return false;
+        }
+
+        _antiSpamGate.MarkToastShown(gateKey, nowUtc);
+        return true;
+    }
+
     public LocalApiInterventionAckRequest? ExecuteOrReplay(
         LocalApiInterventionPendingResponse intervention,
         string sessionId,
