@@ -171,6 +171,10 @@ public sealed class BucketRecomputeRulesTests
         public AgentTask? CreateTask(string title, int plannedSeconds, DateTimeOffset nowUtc) => null;
         public IReadOnlyList<AgentTask> ReadTasks(DateTimeOffset dayStartUtc, DateTimeOffset nowUtc) => System.Array.Empty<AgentTask>();
         public AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc) => null;
+        public AgentDailyGoal? UpsertMorningGoal(string localDate, string goalText, string trackingPref, DateTimeOffset nowUtc) => null;
+        public AgentDailyGoal? GetDailyGoal(string localDate) => null;
+        public AgentDailyGoal? RecordMiddayGoalAnswer(string localDate, string answer, DateTimeOffset nowUtc) => null;
+        public AgentDailyGoal? RecordEndOfDayPlan(string localDate, string planTomorrow, DateTimeOffset nowUtc) => null;
         public AgentBrainSnapshot? ReadLatestSnapshot() => null;
         public AgentLatestStateDetails? ReadLatestStateDetails() => null;
         public AgentNotificationSuppressionStatus ReadNotificationSuppressionStatus()

@@ -1803,6 +1803,24 @@ public sealed class AgentCoreController : IAgentCoreController
     public AgentTask? ActOnTask(long id, string action)
         => _stateStore.ActOnTask(id, action, DateTimeOffset.UtcNow);
 
+    // Workstream D — conversational check-in goals. The "goal day" is the 5:00-local-boundary
+    // day (a check-in at 02:00 still belongs to yesterday), matching the widget-hide / mute
+    // boundary so the whole day lines up.
+    internal static string GoalDay(DateTimeOffset nowLocal)
+        => (nowLocal.Hour < 5 ? nowLocal.AddDays(-1) : nowLocal).ToString("yyyy-MM-dd");
+
+    public AgentDailyGoal? SetMorningGoal(string goalText, string trackingPref)
+        => _stateStore.UpsertMorningGoal(GoalDay(DateTimeOffset.Now), goalText, trackingPref, DateTimeOffset.UtcNow);
+
+    public AgentDailyGoal? GetTodayGoal()
+        => _stateStore.GetDailyGoal(GoalDay(DateTimeOffset.Now));
+
+    public AgentDailyGoal? RecordMiddayAnswer(string answer)
+        => _stateStore.RecordMiddayGoalAnswer(GoalDay(DateTimeOffset.Now), answer, DateTimeOffset.UtcNow);
+
+    public AgentDailyGoal? RecordEndOfDay(string planTomorrow)
+        => _stateStore.RecordEndOfDayPlan(GoalDay(DateTimeOffset.Now), planTomorrow, DateTimeOffset.UtcNow);
+
     public void AcknowledgeIntervention(AgentInterventionAck ack)
     {
         if (ack is null)

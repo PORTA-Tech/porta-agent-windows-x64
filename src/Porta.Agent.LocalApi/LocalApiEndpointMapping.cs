@@ -349,6 +349,44 @@ public static class LocalApiEndpointMapping
                     Success: true, Task: ToApiTask(updated), TimestampUtc: DateTimeOffset.UtcNow));
         });
 
+        // Workstream D — conversational check-in goals (goal-day resolved at the 5:00 boundary
+        // in the controller). All four return the current goal row.
+        api.MapGet("/goals/today", (IAgentCoreController controller) =>
+            new LocalApiDailyGoalResponse(Success: true, Goal: ToApiGoal(controller.GetTodayGoal()), TimestampUtc: DateTimeOffset.UtcNow));
+
+        api.MapPost("/goals/morning", (IAgentCoreController controller, LocalApiGoalMorningRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiDailyGoalResponse(false, null, DateTimeOffset.UtcNow));
+            }
+
+            AgentDailyGoal? goal = controller.SetMorningGoal(request.GoalText ?? string.Empty, request.TrackingPref ?? string.Empty);
+            return Results.Json(new LocalApiDailyGoalResponse(goal is not null, ToApiGoal(goal), DateTimeOffset.UtcNow));
+        });
+
+        api.MapPost("/goals/midday", (IAgentCoreController controller, LocalApiGoalMiddayRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiDailyGoalResponse(false, null, DateTimeOffset.UtcNow));
+            }
+
+            AgentDailyGoal? goal = controller.RecordMiddayAnswer(request.Answer ?? string.Empty);
+            return Results.Json(new LocalApiDailyGoalResponse(goal is not null, ToApiGoal(goal), DateTimeOffset.UtcNow));
+        });
+
+        api.MapPost("/goals/eod", (IAgentCoreController controller, LocalApiGoalEndOfDayRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiDailyGoalResponse(false, null, DateTimeOffset.UtcNow));
+            }
+
+            AgentDailyGoal? goal = controller.RecordEndOfDay(request.PlanTomorrow ?? string.Empty);
+            return Results.Json(new LocalApiDailyGoalResponse(goal is not null, ToApiGoal(goal), DateTimeOffset.UtcNow));
+        });
+
         // Phase 1c — signup nudge: is this UNLINKED device due to be nudged to sign in right now?
         // Link status comes from the local identity store; the governor + caps live in the core.
         api.MapGet("/nudges/signup-due", (IAgentCoreController controller, ILocalIdentityLinkStore identityLinkStore) =>
@@ -973,5 +1011,20 @@ public static class LocalApiEndpointMapping
                 CreatedAtUtc: task.CreatedAtUtc,
                 StartedAtUtc: task.StartedAtUtc,
                 EndedAtUtc: task.EndedAtUtc);
+    }
+
+    private static LocalApiDailyGoal? ToApiGoal(AgentDailyGoal? goal)
+    {
+        return goal is null
+            ? null
+            : new LocalApiDailyGoal(
+                LocalDate: goal.LocalDate,
+                GoalText: goal.GoalText,
+                TrackingPref: goal.TrackingPref,
+                MiddayAnswer: goal.MiddayAnswer,
+                PlanTomorrow: goal.PlanTomorrow,
+                CreatedAtUtc: goal.CreatedAtUtc,
+                MiddayAtUtc: goal.MiddayAtUtc,
+                EndOfDayAtUtc: goal.EndOfDayAtUtc);
     }
 }

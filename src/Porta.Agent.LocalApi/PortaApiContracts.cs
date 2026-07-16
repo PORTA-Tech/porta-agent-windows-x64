@@ -973,6 +973,35 @@ public sealed record LocalApiTasksTodayResponse(
     IReadOnlyList<LocalApiTask> Tasks,
     DateTimeOffset TimestampUtc);
 
+// Workstream D — conversational check-in goals.
+public sealed record LocalApiDailyGoal(
+    [property: JsonPropertyName("local_date")] string LocalDate,
+    [property: JsonPropertyName("goal_text")] string GoalText,
+    [property: JsonPropertyName("tracking_pref")] string TrackingPref,
+    [property: JsonPropertyName("midday_answer")] string MiddayAnswer,        // yes | partly | not_yet | ""
+    [property: JsonPropertyName("plan_tomorrow")] string PlanTomorrow,
+    [property: JsonPropertyName("created_at_utc")] DateTimeOffset CreatedAtUtc,
+    [property: JsonPropertyName("midday_at_utc")] DateTimeOffset? MiddayAtUtc,
+    [property: JsonPropertyName("eod_at_utc")] DateTimeOffset? EndOfDayAtUtc);
+
+public sealed record LocalApiGoalMorningRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("goal_text")] string? GoalText,
+    [property: JsonPropertyName("tracking_pref")] string? TrackingPref);      // remind_me | keep_on_track | just_track
+
+public sealed record LocalApiGoalMiddayRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("answer")] string? Answer);                   // yes | partly | not_yet
+
+public sealed record LocalApiGoalEndOfDayRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("plan_tomorrow")] string? PlanTomorrow);
+
+public sealed record LocalApiDailyGoalResponse(
+    bool Success,
+    LocalApiDailyGoal? Goal,
+    DateTimeOffset TimestampUtc);
+
 public sealed record LocalApiExportResponse(
     bool Success,
     string BundlePath,

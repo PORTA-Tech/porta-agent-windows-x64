@@ -60,4 +60,10 @@ public interface IAgentCoreController
     AgentTask? CreateTask(string title, int plannedSeconds);
     IReadOnlyList<AgentTask> GetTodayTasks();
     AgentTask? ActOnTask(long id, string action);
+
+    // Workstream D — conversational check-in goals (goal-day resolved at the 5:00 boundary).
+    AgentDailyGoal? SetMorningGoal(string goalText, string trackingPref);
+    AgentDailyGoal? GetTodayGoal();
+    AgentDailyGoal? RecordMiddayAnswer(string answer);
+    AgentDailyGoal? RecordEndOfDay(string planTomorrow);
 }

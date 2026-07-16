@@ -97,6 +97,17 @@ public sealed class DailyGoalsStoreTests
         });
     }
 
+    [Theory]
+    [InlineData(2026, 7, 16, 14, 0, "2026-07-16")] // afternoon → today
+    [InlineData(2026, 7, 16, 23, 30, "2026-07-16")] // late night → still today
+    [InlineData(2026, 7, 16, 4, 59, "2026-07-15")] // before 5am → yesterday's goal-day
+    [InlineData(2026, 7, 16, 5, 0, "2026-07-16")] // 5am → today
+    public void GoalDay_UsesTheFiveAmBoundary(int year, int month, int day, int hour, int minute, string expected)
+    {
+        var now = new DateTimeOffset(year, month, day, hour, minute, 0, TimeSpan.FromHours(4));
+        Assert.Equal(expected, AgentCoreController.GoalDay(now));
+    }
+
     private static void RunWithStore(Action<SqliteBrainStateStore, string> body)
     {
         string dir = Path.Combine(Path.GetTempPath(), "porta-goal-tests", Guid.NewGuid().ToString("N"));

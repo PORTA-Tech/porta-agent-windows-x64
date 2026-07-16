@@ -51,6 +51,12 @@ public interface IBrainStateStore
     AgentTask? CreateTask(string title, int plannedSeconds, DateTimeOffset nowUtc);
     IReadOnlyList<AgentTask> ReadTasks(DateTimeOffset dayStartUtc, DateTimeOffset nowUtc);
     AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc);
+
+    // Workstream D — conversational check-in goals.
+    AgentDailyGoal? UpsertMorningGoal(string localDate, string goalText, string trackingPref, DateTimeOffset nowUtc);
+    AgentDailyGoal? GetDailyGoal(string localDate);
+    AgentDailyGoal? RecordMiddayGoalAnswer(string localDate, string answer, DateTimeOffset nowUtc);
+    AgentDailyGoal? RecordEndOfDayPlan(string localDate, string planTomorrow, DateTimeOffset nowUtc);
     AgentStorageInfo ReadStorageInfo();
     AgentTodaySummary ReadTodaySummary(DateOnly? dateUtc = null);
     AgentDistractionSummary ReadCurrentDistractionSummary();

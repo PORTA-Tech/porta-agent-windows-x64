@@ -384,6 +384,55 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    // ── Workstream D — conversational check-in goals ──
+
+    public async Task<LocalApiDailyGoalResponse?> GetTodayGoalAsync(CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            return await _httpClient.GetFromJsonAsync<LocalApiDailyGoalResponse>("/v1/goals/today", token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public Task<LocalApiDailyGoalResponse?> SetMorningGoalAsync(LocalApiGoalMorningRequest request, CancellationToken token = default)
+        => PostGoalAsync("/v1/goals/morning", request, token);
+
+    public Task<LocalApiDailyGoalResponse?> RecordMiddayAnswerAsync(LocalApiGoalMiddayRequest request, CancellationToken token = default)
+        => PostGoalAsync("/v1/goals/midday", request, token);
+
+    public Task<LocalApiDailyGoalResponse?> RecordEndOfDayAsync(LocalApiGoalEndOfDayRequest request, CancellationToken token = default)
+        => PostGoalAsync("/v1/goals/eod", request, token);
+
+    private async Task<LocalApiDailyGoalResponse?> PostGoalAsync(string path, object request, CancellationToken token)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync(path, content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiDailyGoalResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<LocalApiAckResponse?> RecordFocusLabelAsync(
         LocalApiFocusLabelRequest request,
         CancellationToken token = default)
