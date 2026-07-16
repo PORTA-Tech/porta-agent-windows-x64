@@ -112,7 +112,11 @@ internal static class Migrations
         new(
             Version: 23,
             Name: "tasks_v23",
-            Apply: Schema.ApplyTasksV23)
+            Apply: Schema.ApplyTasksV23),
+        new(
+            Version: 24,
+            Name: "daily_goals_v24",
+            Apply: Schema.ApplyDailyGoalsV24)
     ];
 
     internal static void Migrate(SqliteConnection connection)

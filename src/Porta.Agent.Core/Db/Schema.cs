@@ -579,6 +579,35 @@ internal static class Schema
         cmd.ExecuteNonQuery();
     }
 
+    // Workstream D — conversational check-ins. One row per local "goal day" (the 5:00-boundary
+    // day, keyed by local_date): the morning stated goal + tracking preference, the midday
+    // answer (yes/partly/not_yet), and the end-of-day marker + tomorrow's plan. Lives in the
+    // SERVICE like tasks/reminders so it survives user-agent restarts; user-authored, wiped on
+    // local-data reset (privacy). The goal + midday answer double as Phase-1b ground-truth labels.
+    internal static void ApplyDailyGoalsV24(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS daily_goals (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                local_date     TEXT    NOT NULL,
+                created_at_utc TEXT    NOT NULL,
+                goal_text      TEXT    NOT NULL DEFAULT '',
+                tracking_pref  TEXT    NOT NULL DEFAULT '',
+                midday_answer  TEXT    NOT NULL DEFAULT '',
+                midday_at_utc  TEXT    NOT NULL DEFAULT '',
+                eod_at_utc     TEXT    NOT NULL DEFAULT '',
+                plan_tomorrow  TEXT    NOT NULL DEFAULT '',
+                schema_ver     INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_goals_local_date
+                ON daily_goals(local_date);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
     internal static void ApplyContractSchemaV3(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

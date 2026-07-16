@@ -405,3 +405,17 @@ public sealed record AgentTask(
     double FocusedSeconds,
     double OfftaskSeconds,
     int ExtendedSeconds);
+
+// Workstream D — the day's conversational check-in state. One row per local "goal day"
+// (LocalDate = the 5:00-boundary day, "yyyy-MM-dd"). GoalText/TrackingPref set by the morning
+// check-in; MiddayAnswer (yes|partly|not_yet) by midday; PlanTomorrow/EndOfDayAtUtc by EOD.
+public sealed record AgentDailyGoal(
+    long Id,
+    string LocalDate,
+    string GoalText,
+    string TrackingPref,
+    string MiddayAnswer,
+    string PlanTomorrow,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? MiddayAtUtc,
+    DateTimeOffset? EndOfDayAtUtc);

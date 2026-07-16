@@ -779,6 +779,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     DELETE FROM prompt_events;
                     DELETE FROM reminders;
                     DELETE FROM tasks;
+                    DELETE FROM daily_goals;
                     DELETE FROM sqlite_sequence;
                     """;
                 cmd.ExecuteNonQuery();
@@ -2381,6 +2382,175 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         cmd.Parameters.AddWithValue("$focused", offtask ? 0d : bucketSeconds);
         cmd.Parameters.AddWithValue("$offtask", offtask ? bucketSeconds : 0d);
         cmd.ExecuteNonQuery();
+    }
+
+    // ── Workstream D: conversational check-in goals (one row per local goal-day) ──
+
+    private const string DailyGoalColumns =
+        "id, local_date, goal_text, tracking_pref, midday_answer, midday_at_utc, eod_at_utc, plan_tomorrow, created_at_utc";
+
+    /// <summary>Morning check-in: create or update today's goal + tracking preference. Leaves any
+    /// midday/EOD state on an existing row untouched.</summary>
+    public AgentDailyGoal? UpsertMorningGoal(string localDate, string goalText, string trackingPref, DateTimeOffset nowUtc)
+    {
+        string date = (localDate ?? string.Empty).Trim();
+        if (date.Length == 0)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText =
+                    """
+                    INSERT INTO daily_goals (local_date, created_at_utc, goal_text, tracking_pref)
+                    VALUES ($date, $now, $goal, $pref)
+                    ON CONFLICT(local_date) DO UPDATE SET
+                        goal_text = $goal,
+                        tracking_pref = $pref;
+                    """;
+                cmd.Parameters.AddWithValue("$date", date);
+                cmd.Parameters.AddWithValue("$now", nowUtc.ToUniversalTime().ToString("O"));
+                cmd.Parameters.AddWithValue("$goal", (goalText ?? string.Empty).Trim());
+                cmd.Parameters.AddWithValue("$pref", (trackingPref ?? string.Empty).Trim());
+                cmd.ExecuteNonQuery();
+            }
+
+            AgentDailyGoal? goal = ReadDailyGoalRow(connection, tx, date);
+            tx.Commit();
+            return goal;
+        }
+    }
+
+    public AgentDailyGoal? GetDailyGoal(string localDate)
+    {
+        string date = (localDate ?? string.Empty).Trim();
+        if (date.Length == 0)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            AgentDailyGoal? goal = ReadDailyGoalRow(connection, tx, date);
+            tx.Commit();
+            return goal;
+        }
+    }
+
+    /// <summary>Midday check-in: record the yes|partly|not_yet answer. Returns null if there is no
+    /// goal row for the day or the answer is not recognized.</summary>
+    public AgentDailyGoal? RecordMiddayGoalAnswer(string localDate, string answer, DateTimeOffset nowUtc)
+    {
+        string date = (localDate ?? string.Empty).Trim();
+        string normalized = NormalizeMiddayAnswer(answer);
+        if (date.Length == 0 || normalized.Length == 0)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            int rows;
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText =
+                    "UPDATE daily_goals SET midday_answer = $ans, midday_at_utc = $now WHERE local_date = $date;";
+                cmd.Parameters.AddWithValue("$ans", normalized);
+                cmd.Parameters.AddWithValue("$now", nowUtc.ToUniversalTime().ToString("O"));
+                cmd.Parameters.AddWithValue("$date", date);
+                rows = cmd.ExecuteNonQuery();
+            }
+
+            AgentDailyGoal? goal = rows > 0 ? ReadDailyGoalRow(connection, tx, date) : null;
+            tx.Commit();
+            return goal;
+        }
+    }
+
+    /// <summary>End-of-day check-in: mark EOD reached and save tomorrow's one-line plan. Creates the
+    /// day's row if the user never set a morning goal.</summary>
+    public AgentDailyGoal? RecordEndOfDayPlan(string localDate, string planTomorrow, DateTimeOffset nowUtc)
+    {
+        string date = (localDate ?? string.Empty).Trim();
+        if (date.Length == 0)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText =
+                    """
+                    INSERT INTO daily_goals (local_date, created_at_utc, eod_at_utc, plan_tomorrow)
+                    VALUES ($date, $now, $now, $plan)
+                    ON CONFLICT(local_date) DO UPDATE SET
+                        eod_at_utc = $now,
+                        plan_tomorrow = $plan;
+                    """;
+                cmd.Parameters.AddWithValue("$date", date);
+                cmd.Parameters.AddWithValue("$now", nowUtc.ToUniversalTime().ToString("O"));
+                cmd.Parameters.AddWithValue("$plan", (planTomorrow ?? string.Empty).Trim());
+                cmd.ExecuteNonQuery();
+            }
+
+            AgentDailyGoal? goal = ReadDailyGoalRow(connection, tx, date);
+            tx.Commit();
+            return goal;
+        }
+    }
+
+    internal static string NormalizeMiddayAnswer(string? answer)
+    {
+        return (answer ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "yes" => "yes",
+            "partly" => "partly",
+            "not_yet" or "not yet" or "notyet" => "not_yet",
+            _ => string.Empty
+        };
+    }
+
+    private static AgentDailyGoal? ReadDailyGoalRow(SqliteConnection connection, SqliteTransaction tx, string localDate)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = $"SELECT {DailyGoalColumns} FROM daily_goals WHERE local_date = $date;";
+        cmd.Parameters.AddWithValue("$date", localDate);
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        return reader.Read() ? MapDailyGoalRow(reader) : null;
+    }
+
+    private static AgentDailyGoal MapDailyGoalRow(SqliteDataReader reader)
+    {
+        static DateTimeOffset? ParseUtc(string raw) =>
+            string.IsNullOrWhiteSpace(raw) || !DateTimeOffset.TryParse(raw, out DateTimeOffset value) ? null : value;
+
+        return new AgentDailyGoal(
+            Id: reader.GetInt64(0),
+            LocalDate: reader.GetString(1),
+            GoalText: reader.GetString(2),
+            TrackingPref: reader.GetString(3),
+            MiddayAnswer: reader.GetString(4),
+            MiddayAtUtc: ParseUtc(reader.GetString(5)),
+            EndOfDayAtUtc: ParseUtc(reader.GetString(6)),
+            PlanTomorrow: reader.GetString(7),
+            CreatedAtUtc: ParseUtc(reader.GetString(8)) ?? DateTimeOffset.MinValue);
     }
 
     // Phase 1b: append a durable ground-truth label. Deliberately does NOT call PruneIfNeeded —
