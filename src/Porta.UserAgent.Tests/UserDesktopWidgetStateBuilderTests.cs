@@ -145,8 +145,11 @@ public sealed class UserDesktopWidgetStateBuilderTests
     }
 
     [Fact]
-    public void Build_UsesCriticalStateForRecentNotificationFailure()
+    public void Build_DoesNotTakeOverForRecentNotificationFailure()
     {
+        // Per Notification_Inventory.md section G, a runtime notification failure is
+        // informational — it lives in recent events / Health / activity log and must NOT
+        // seize the widget with a critical takeover. The widget stays in its normal mode.
         DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-29T12:00:00Z");
         LocalApiStatusResponse status = BuildStatus();
         LocalApiCurrentSnapshotResponse snapshot = BuildSnapshot(
@@ -179,13 +182,10 @@ public sealed class UserDesktopWidgetStateBuilderTests
             settings: null,
             nowUtc: nowUtc);
 
-        Assert.Equal(UserDesktopWidgetMode.Limited, state.Mode);
-        Assert.NotNull(state.CriticalState);
-        Assert.Equal("Notifications need attention", state.CriticalState!.Title);
-        Assert.Equal(UserDesktopWidgetAction.OpenSettings, state.CriticalState.PrimaryAction);
-        Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.CriticalState.SecondaryAction);
-        Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.CriticalState.TertiaryAction);
-        Assert.Contains("restore windows notification settings", state.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual(UserDesktopWidgetMode.Limited, state.Mode);
+        Assert.Null(state.CriticalState);
+        Assert.NotEqual(UserDesktopWidgetMessageSeverity.Critical, state.MessageSeverity);
+        Assert.DoesNotContain("restore windows notification settings", state.StatusText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -687,7 +687,7 @@ public sealed class UserDesktopWidgetStateBuilderTests
     }
 
     [Fact]
-    public void Build_UsesRecentCriticalEventEvenWhenLiveSessionIsFresh()
+    public void Build_DoesNotTakeOverForRecentNotificationFailureEvenWhenLiveSessionIsFresh()
     {
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
         LocalApiStatusResponse status = BuildStatus();
@@ -733,9 +733,12 @@ public sealed class UserDesktopWidgetStateBuilderTests
             recentEvents: [recentFailure],
             nowUtc: nowUtc);
 
-        Assert.NotNull(state.CriticalState);
-        Assert.Equal("Notifications need attention", state.CriticalState!.Title);
-        Assert.Contains("restore windows notification settings", state.StatusText, StringComparison.OrdinalIgnoreCase);
+        // The notification failure is informational (recent events / Health / activity log),
+        // so it never seizes the widget. With a fresh live session the widget keeps showing
+        // live activity rather than a critical takeover message.
+        Assert.Null(state.CriticalState);
+        Assert.NotEqual(UserDesktopWidgetMode.Limited, state.Mode);
+        Assert.DoesNotContain("restore windows notification settings", state.StatusText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

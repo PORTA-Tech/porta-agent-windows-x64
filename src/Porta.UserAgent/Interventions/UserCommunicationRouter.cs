@@ -18,19 +18,10 @@ internal sealed record UserCommunicationToast(
 internal static class UserCommunicationRouter
 {
     private static readonly TimeSpan RecentEventWindow = TimeSpan.FromMinutes(3);
-    private static readonly TimeSpan CriticalEventWindow = TimeSpan.FromMinutes(15);
     private static readonly HashSet<string> DirectToastDeliveredActions = new(StringComparer.Ordinal)
     {
         "deep_work_notifications_restored",
         "overload_brightness_restored",
-        "brightness_unsupported",
-        "brightness_control_failed",
-        "notification_snapshot_failed",
-        "notification_suppress_failed",
-        "notification_restore_failed"
-    };
-    private static readonly HashSet<string> PersistentCriticalEventActions = new(StringComparer.Ordinal)
-    {
         "brightness_unsupported",
         "brightness_control_failed",
         "notification_snapshot_failed",
@@ -206,6 +197,12 @@ internal static class UserCommunicationRouter
         int? statusHttpCode = null)
     {
         _ = snapshot;
+        // recentEvents/nowUtc are retained for signature stability. Per Notification_Inventory.md
+        // section G, runtime-failure/degraded events (brightness_*/notification_*) are informational:
+        // they surface via recent events / Health / activity log, never as a critical widget takeover.
+        // Only the blocking, must-act states below produce a critical card.
+        _ = recentEvents;
+        _ = nowUtc;
         if (status == null)
         {
             if (statusHttpCode is 401 or 403)
@@ -274,7 +271,7 @@ internal static class UserCommunicationRouter
                 secondaryLabel: "Settings");
         }
 
-        return ResolveCriticalEventState(recentEvents ?? [], nowUtc);
+        return null;
     }
 
     /// <summary>
@@ -457,117 +454,6 @@ internal static class UserCommunicationRouter
         return string.IsNullOrWhiteSpace(action)
             ? string.Empty
             : action.Trim().ToLowerInvariant();
-    }
-
-    private static UserDesktopWidgetCriticalState? ResolveCriticalEventState(
-        IReadOnlyList<LocalApiEventResponse> recentEvents,
-        DateTimeOffset nowUtc)
-    {
-        bool notificationsRecovered = false;
-        bool brightnessRecovered = false;
-
-        foreach (LocalApiEventResponse recentEvent in recentEvents.OrderByDescending(static evt => evt.TsUtc))
-        {
-            if ((nowUtc - recentEvent.TsUtc) > CriticalEventWindow)
-            {
-                continue;
-            }
-
-            string action = NormalizeAction(recentEvent.Action);
-            if (action == "deep_work_notifications_restored")
-            {
-                notificationsRecovered = true;
-                continue;
-            }
-
-            if (action == "overload_brightness_restored")
-            {
-                brightnessRecovered = true;
-                continue;
-            }
-
-            if (!PersistentCriticalEventActions.Contains(action))
-            {
-                continue;
-            }
-
-            if (notificationsRecovered
-                && action is "notification_snapshot_failed" or "notification_suppress_failed" or "notification_restore_failed")
-            {
-                continue;
-            }
-
-            if (brightnessRecovered
-                && action is "brightness_unsupported" or "brightness_control_failed")
-            {
-                continue;
-            }
-
-            return BuildCriticalStateForEvent(action);
-        }
-
-        return null;
-    }
-
-    private static UserDesktopWidgetCriticalState BuildCriticalStateForEvent(string action)
-    {
-        return action switch
-        {
-            "notification_restore_failed" => BuildCriticalState(
-                title: "Notifications need attention",
-                message: "Ari could not restore Windows notification settings cleanly. Open Settings to verify banners, or inspect System before continuing.",
-                primaryAction: UserDesktopWidgetAction.OpenSettings,
-                primaryLabel: "Open Settings",
-                secondaryAction: UserDesktopWidgetAction.OpenHealth,
-                secondaryLabel: "Open System",
-                tertiaryAction: UserDesktopWidgetAction.RetryCritical,
-                tertiaryLabel: "Retry"),
-            "notification_suppress_failed" => BuildCriticalState(
-                title: "Notifications stayed on",
-                message: "Ari could not mute Windows notification banners for deep work. Open Settings to adjust them manually, or inspect System for the failure.",
-                primaryAction: UserDesktopWidgetAction.OpenSettings,
-                primaryLabel: "Open Settings",
-                secondaryAction: UserDesktopWidgetAction.OpenHealth,
-                secondaryLabel: "Open System",
-                tertiaryAction: UserDesktopWidgetAction.RetryCritical,
-                tertiaryLabel: "Retry"),
-            "notification_snapshot_failed" => BuildCriticalState(
-                title: "Notification state unavailable",
-                message: "Ari could not read the current Windows notification state. Open System to inspect the runtime, or retry the connection.",
-                primaryAction: UserDesktopWidgetAction.OpenHealth,
-                primaryLabel: "Open System",
-                secondaryAction: UserDesktopWidgetAction.RetryCritical,
-                secondaryLabel: "Retry",
-                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
-                tertiaryLabel: "Settings"),
-            "brightness_control_failed" => BuildCriticalState(
-                title: "Brightness control failed",
-                message: "Ari could not adjust screen brightness automatically. Open System to inspect the failure, or retry the device check.",
-                primaryAction: UserDesktopWidgetAction.OpenHealth,
-                primaryLabel: "Open System",
-                secondaryAction: UserDesktopWidgetAction.RetryCritical,
-                secondaryLabel: "Retry",
-                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
-                tertiaryLabel: "Settings"),
-            "brightness_unsupported" => BuildCriticalState(
-                title: "Brightness control unavailable",
-                message: "This device does not expose the controls Ari needs for automatic brightness changes. Open Settings or System for details.",
-                primaryAction: UserDesktopWidgetAction.OpenSettings,
-                primaryLabel: "Open Settings",
-                secondaryAction: UserDesktopWidgetAction.OpenHealth,
-                secondaryLabel: "Open System",
-                tertiaryAction: UserDesktopWidgetAction.RetryCritical,
-                tertiaryLabel: "Retry"),
-            _ => BuildCriticalState(
-                title: "Tracking limited",
-                message: "Ari hit a runtime issue that needs attention. Open System for details or retry the connection.",
-                primaryAction: UserDesktopWidgetAction.OpenHealth,
-                primaryLabel: "Open System",
-                secondaryAction: UserDesktopWidgetAction.RetryCritical,
-                secondaryLabel: "Retry",
-                tertiaryAction: UserDesktopWidgetAction.OpenSettings,
-                tertiaryLabel: "Settings")
-        };
     }
 
     private static UserDesktopWidgetCriticalState BuildCriticalState(

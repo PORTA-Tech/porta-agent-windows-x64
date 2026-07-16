@@ -184,14 +184,22 @@ public sealed class UserCommunicationRouterTests
         Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.SecondaryAction);
     }
 
-    [Fact]
-    public void ResolveCriticalWidgetState_UsesRecentNotificationFailure()
+    [Theory]
+    [InlineData("brightness_unsupported")]
+    [InlineData("brightness_control_failed")]
+    [InlineData("notification_snapshot_failed")]
+    [InlineData("notification_suppress_failed")]
+    [InlineData("notification_restore_failed")]
+    public void ResolveCriticalWidgetState_DoesNotPromoteRuntimeFailureEventIntoCriticalTakeover(string action)
     {
+        // Per Notification_Inventory.md section G, these runtime-failure/degraded events are
+        // informational — they surface via recent events / Health / activity log, not as a
+        // high-salience critical widget card. Only blocking, must-act states stay critical.
         DateTimeOffset nowUtc = DateTimeOffset.Parse("2026-03-27T10:00:00Z");
         LocalApiStatusResponse status = BuildStatus();
         LocalApiEventResponse failure = BuildEvent(
             id: 90,
-            action: "notification_restore_failed",
+            action: action,
             tsUtc: nowUtc.AddMinutes(-5));
 
         UserDesktopWidgetCriticalState? state = UserCommunicationRouter.ResolveCriticalWidgetState(
@@ -200,11 +208,7 @@ public sealed class UserCommunicationRouterTests
             recentEvents: [failure],
             nowUtc: nowUtc);
 
-        Assert.NotNull(state);
-        Assert.Equal("Notifications need attention", state!.Title);
-        Assert.Equal(UserDesktopWidgetAction.OpenSettings, state.PrimaryAction);
-        Assert.Equal(UserDesktopWidgetAction.OpenHealth, state.SecondaryAction);
-        Assert.Equal(UserDesktopWidgetAction.RetryCritical, state.TertiaryAction);
+        Assert.Null(state);
     }
 
     [Fact]
