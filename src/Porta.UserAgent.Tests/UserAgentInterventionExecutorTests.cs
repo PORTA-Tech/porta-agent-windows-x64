@@ -197,9 +197,9 @@ public sealed class UserAgentInterventionExecutorTests
         Assert.NotNull(ack);
         Assert.Equal("applied", ack.Result);
         Assert.Null(ack.ErrorCode);
-        Assert.Equal(1, presenter.ShowCalls);
-        Assert.Equal("Ari", presenter.LastTitle);
-        Assert.Contains("Overload is rising", presenter.LastMessage, StringComparison.Ordinal);
+        // B3: inform_overload_risk is demoted off the interrupt path — the effect is applied and
+        // the widget state carries it, but it must never pop a toast.
+        Assert.Equal(0, presenter.ShowCalls);
     }
 
     [Fact]
@@ -400,7 +400,7 @@ public sealed class UserAgentInterventionExecutorTests
     }
 
     [Fact]
-    public void ExecuteOrReplay_DeepWorkStart_ShowsSuccessToastWithoutChangingAck()
+    public void ExecuteOrReplay_DeepWorkStart_AppliesWithoutPopup()
     {
         var presenter = new FakePresenter { ShowResult = true };
         var gate = new FakePresentationGate { Available = true };
@@ -417,9 +417,9 @@ public sealed class UserAgentInterventionExecutorTests
         LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
         Assert.NotNull(ack);
-        Assert.Equal("verified", ack.Result);
-        Assert.Equal(1, presenter.ShowCalls);
-        Assert.Contains("muted Windows notification banners", presenter.LastMessage, StringComparison.Ordinal);
+        Assert.Equal("verified", ack.Result); // the suppress effect still applies + verifies
+        // B3: the "notifications suppressed" confirmation is a widget/activity-log item, not a popup.
+        Assert.Equal(0, presenter.ShowCalls);
     }
 
     [Fact]
@@ -450,7 +450,7 @@ public sealed class UserAgentInterventionExecutorTests
     }
 
     [Fact]
-    public void ExecuteOrReplay_DeepWorkExit_ShowsSuccessToastWithoutChangingAck()
+    public void ExecuteOrReplay_DeepWorkExit_AppliesWithoutPopup()
     {
         var presenter = new FakePresenter { ShowResult = true };
         var gate = new FakePresentationGate { Available = true };
@@ -470,9 +470,9 @@ public sealed class UserAgentInterventionExecutorTests
         LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
 
         Assert.NotNull(ack);
-        Assert.Equal("verified", ack.Result);
-        Assert.Equal(1, presenter.ShowCalls);
-        Assert.Contains("restored Windows notification banners", presenter.LastMessage, StringComparison.Ordinal);
+        Assert.Equal("verified", ack.Result); // the restore effect still applies + verifies
+        // B3 (inventory H): "notifications restored" stays an activity-log item, never a popup.
+        Assert.Equal(0, presenter.ShowCalls);
     }
 
     [Fact]
@@ -547,7 +547,33 @@ public sealed class UserAgentInterventionExecutorTests
         Assert.NotNull(second);
         Assert.Equal("applied", first.Result);
         Assert.Equal(first.AppliedAtUtc, second.AppliedAtUtc);
+        // B3: inform_overload_risk is demoted — no popup on either the first execution or the replay.
+        Assert.Equal(0, presenter.ShowCalls);
+    }
+
+    [Fact]
+    public void ExecuteOrReplay_AppRestrictionStatusToast_StillInterrupts()
+    {
+        var presenter = new FakePresenter { ShowResult = true };
+        var executor = CreateExecutor(
+            presenter,
+            new FakePresentationGate { Available = true },
+            new FakeNotificationController(),
+            new FakeNotificationSnapshotStore(),
+            new InMemoryPreferenceStore());
+        LocalApiInterventionPendingResponse intervention = BuildPending(
+            "intv-restrict",
+            "temporary_app_restriction_enabled",
+            "show_status_toast",
+            """{"title":"Ari","message":"Overload stayed high — limiting distracting apps."}""");
+
+        LocalApiInterventionAckRequest? ack = executor.ExecuteOrReplay(intervention, "session-1", "agent-1");
+
+        Assert.NotNull(ack);
+        Assert.Equal("applied", ack.Result);
+        // B3: app-restriction is the ONE status-toast action that still earns an interrupt.
         Assert.Equal(1, presenter.ShowCalls);
+        Assert.Contains("limiting distracting apps", presenter.LastMessage, StringComparison.Ordinal);
     }
 
     // ── Workstream B1 — the single gated door for host interrupt toasts ──

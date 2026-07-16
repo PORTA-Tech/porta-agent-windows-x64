@@ -308,6 +308,19 @@ internal sealed class UserAgentInterventionExecutor
             : null;
     }
 
+    // B3 (LOCKED disposition, Notification_Inventory.md): of all the status-toast actions, only
+    // the app-restriction one still earns an interrupt (breaks use the prompt path; check-ins are
+    // Workstream D). Inform-only, guidance-mode, system-change and the ~15 runtime-failure states
+    // are NOT popups — the widget state already reflects them and Health/activity log carries the
+    // detail. Demoting them off the interrupt path is what kills the "useless/repetitive" feel.
+    private static readonly HashSet<string> InterruptToastActions = new(StringComparer.Ordinal)
+    {
+        "temporary_app_restriction_enabled",
+    };
+
+    private static string NormalizeToastAction(string? action)
+        => string.IsNullOrWhiteSpace(action) ? string.Empty : action.Trim().ToLowerInvariant();
+
     private LocalApiInterventionAckRequest BuildToastAck(
         LocalApiInterventionPendingResponse intervention,
         string sessionId,
@@ -317,6 +330,14 @@ internal sealed class UserAgentInterventionExecutor
         if (!TryParseToastPayload(intervention.PayloadJson, out string title, out string message, out string errorCode))
         {
             return BuildAck(intervention, sessionId, agentInstanceId, result: "failed", errorCode);
+        }
+
+        if (!InterruptToastActions.Contains(NormalizeToastAction(intervention.Action)))
+        {
+            // Not an interrupt: apply the effect (it is already carried by widget state /
+            // Health), record one activity-log line, and never show a popup.
+            Porta.UserAgent.UserAgentFileLog.Info($"activity_status_demoted action={NormalizeToastAction(intervention.Action)}");
+            return BuildAck(intervention, sessionId, agentInstanceId, result: "applied", errorCode: null);
         }
 
         UserInterventionGateDecision antiSpamDecision = _antiSpamGate.EvaluateToast(intervention.Action, nowUtc);
@@ -477,6 +498,13 @@ internal sealed class UserAgentInterventionExecutor
         }
 
         if (!TryParseToastPayload(intervention.PayloadJson, out string title, out string message, out _))
+        {
+            return;
+        }
+
+        // B3: system-change ("suppressed"/"reduced") and restore confirmations are widget-state /
+        // activity-log items, never popups. Only interrupt actions may show an optional toast.
+        if (!InterruptToastActions.Contains(NormalizeToastAction(intervention.Action)))
         {
             return;
         }
