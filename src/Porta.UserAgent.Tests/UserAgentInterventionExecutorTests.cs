@@ -597,6 +597,41 @@ public sealed class UserAgentInterventionExecutorTests
         Assert.Equal(0, presenter.ShowCalls);
     }
 
+    [Fact]
+    public void TryShowGatedInterruptToast_ClassMutedForToday_SuppressedBeforeGateAndRenderer()
+    {
+        var presenter = new FakePresenter { ShowResult = true };
+        string mutePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"mute-{Guid.NewGuid():N}.json");
+        var muteStore = new UserNotificationMuteStore(mutePath);
+        var executor = new UserAgentInterventionExecutor(
+            presenter,
+            new FakePresentationGate { Available = true },
+            new FakeNotificationController(),
+            new FakeNotificationSnapshotStore(),
+            new InMemoryPreferenceStore(),
+            antiSpamGate: new UserInterventionAntiSpamGate(),
+            muteStore: muteStore);
+        try
+        {
+            executor.MuteClassForToday("ari:recovery"); // e.g. user skipped recovery nudges today
+
+            bool shown = executor.TryShowGatedInterruptToast(
+                "ari:recovery", "Ari", "You were close.", DateTimeOffset.UtcNow, out string reason);
+
+            Assert.False(shown);
+            Assert.Equal("muted_for_today", reason);
+            Assert.Equal(0, presenter.ShowCalls);
+            Assert.True(executor.IsClassMutedForToday("ari:recovery"));
+        }
+        finally
+        {
+            if (System.IO.File.Exists(mutePath))
+            {
+                System.IO.File.Delete(mutePath);
+            }
+        }
+    }
+
     private static UserAgentInterventionExecutor CreateExecutor(
         FakePresenter presenter,
         FakePresentationGate gate,

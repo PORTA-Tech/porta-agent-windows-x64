@@ -43,6 +43,7 @@ internal sealed class UserAgentInterventionExecutor
     private readonly IUserAgentNotificationSnapshotStore _notificationSnapshotStore;
     private readonly IUserInterventionPreferenceStore _preferenceStore;
     private readonly UserInterventionAntiSpamGate _antiSpamGate;
+    private readonly UserNotificationMuteStore _muteStore;
     private readonly Func<DateTimeOffset> _utcNowProvider;
     private readonly object _gate = new();
     private readonly Dictionary<string, LocalApiInterventionAckRequest> _terminalAckCache = new(StringComparer.Ordinal);
@@ -57,7 +58,8 @@ internal sealed class UserAgentInterventionExecutor
         IUserAgentNotificationSnapshotStore notificationSnapshotStore,
         IUserInterventionPreferenceStore preferenceStore,
         UserInterventionAntiSpamGate? antiSpamGate = null,
-        Func<DateTimeOffset>? utcNowProvider = null)
+        Func<DateTimeOffset>? utcNowProvider = null,
+        UserNotificationMuteStore? muteStore = null)
     {
         _presenter = presenter;
         _presentationGate = presentationGate;
@@ -65,8 +67,19 @@ internal sealed class UserAgentInterventionExecutor
         _notificationSnapshotStore = notificationSnapshotStore;
         _preferenceStore = preferenceStore;
         _antiSpamGate = antiSpamGate ?? new UserInterventionAntiSpamGate();
+        _muteStore = muteStore ?? new UserNotificationMuteStore();
         _utcNowProvider = utcNowProvider ?? (() => DateTimeOffset.UtcNow);
     }
+
+    /// <summary>Break-prompt mute class (Workstream B2). The "Skip today" break button mutes
+    /// this so no further break prompts interrupt until the next 5:00 local.</summary>
+    public const string BreakMuteClass = "break";
+
+    /// <summary>Workstream B2 — mute a notification class until the next 5:00 local. Used by the
+    /// break "Skip today" button (class <see cref="BreakMuteClass"/>) and any class-level mute.</summary>
+    public void MuteClassForToday(string classKey) => _muteStore.MuteForToday(classKey);
+
+    public bool IsClassMutedForToday(string classKey) => _muteStore.IsMutedForToday(classKey);
 
     public void ObserveWidgetState(UserDesktopWidgetState state)
     {
@@ -91,6 +104,15 @@ internal sealed class UserAgentInterventionExecutor
         out string reason)
     {
         reason = string.Empty;
+
+        // B2: a class muted for today (e.g. the user skipped recovery nudges) is silenced until
+        // the next 5:00 local — checked before the anti-spam gate.
+        if (_muteStore.IsMutedForToday(gateKey, nowUtc.ToLocalTime()))
+        {
+            reason = "muted_for_today";
+            return false;
+        }
+
         UserInterventionGateDecision decision = _antiSpamGate.EvaluateToast(gateKey, nowUtc);
         if (!decision.Allowed)
         {
@@ -211,6 +233,14 @@ internal sealed class UserAgentInterventionExecutor
         if (_antiSpamGate.IsCriticalStateVisible())
         {
             return BuildAck(intervention, sessionId, agentInstanceId, result: "snoozed", errorCode: "anti_spam_critical_state", prompt);
+        }
+
+        // B2: the break "Skip today" button mutes the break class until the next 5:00 local, so
+        // no further break prompts interrupt today.
+        if (PortaBreakSemantics.IsBreakSuggestionAction(intervention.Action)
+            && _muteStore.IsMutedForToday(BreakMuteClass, nowUtc.ToLocalTime()))
+        {
+            return BuildAck(intervention, sessionId, agentInstanceId, result: "snoozed", errorCode: "muted_for_today", prompt);
         }
 
         ActivePromptState? activePrompt = null;
