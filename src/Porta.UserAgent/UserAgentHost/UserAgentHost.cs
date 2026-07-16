@@ -40,6 +40,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private readonly UserSessionWindowsNotificationController _notificationController = new();
     private readonly UserAgentNotificationSnapshotStore _notificationSnapshotStore = new();
     private readonly UserInterventionPreferenceStore _interventionPreferenceStore = new();
+    // Workstream D — the always-on-top check-in card lives on its own STA thread (like the break
+    // overlay) so it fires even when the widget is hidden. Owned here; passed into the executor's
+    // gated check-in door and disposed on shutdown.
+    private readonly UserCheckInCardPresenter _checkInCardPresenter = new();
     private readonly UserAgentInterventionExecutor _interventionExecutor;
     private readonly UserSessionSignalAggregator _signalAggregator = new();
     private readonly object _liveSignalGate = new();
@@ -83,6 +87,12 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private DateTimeOffset _lastTasksCheckUtc = DateTimeOffset.MinValue;
     private IReadOnlyList<LocalApiTask> _todayTasks = Array.Empty<LocalApiTask>();
     private readonly HashSet<string> _taskExpiryToastedKeys = new(StringComparer.Ordinal);
+    // Workstream D — conversational check-ins. Polled infrequently (the scheduler + per-day mute
+    // do the real once-per-day gating); a cold-start grace keeps a morning card from popping while
+    // the agent is still settling right after launch.
+    private static readonly TimeSpan CheckInCheckInterval = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan CheckInColdStartGrace = TimeSpan.FromSeconds(90);
+    private DateTimeOffset _lastCheckInCheckUtc = DateTimeOffset.MinValue;
     private bool _widgetFallbackLogged;
     private bool _hooksInstalled;
     private bool _keyboardCaptureAvailable;
@@ -125,7 +135,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             new UserSessionPresentationGate(),
             _notificationController,
             _notificationSnapshotStore,
-            _interventionPreferenceStore);
+            _interventionPreferenceStore,
+            checkInCardPresenter: _checkInCardPresenter);
         // Hook fires immediately but is bypassed by Windows for elevated-integrity
         // foreground apps. We track the last hook-tick so the poller can suppress
         // duplicates when the hook IS working and take over when it goes silent.
@@ -309,6 +320,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         _keyboardPoller.Dispose();
         _mouseHook.Dispose();
         _toastRenderer.Dispose();
+        _checkInCardPresenter.Dispose();
         _localApiClient.Dispose();
         base.Dispose();
     }
@@ -365,6 +377,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         await RefreshSignupNudgeAsync(nowUtc, token).ConfigureAwait(false);
         await RefreshReminderAsync(nowUtc, token).ConfigureAwait(false);
         await RefreshTasksAsync(nowUtc, snapshot, token).ConfigureAwait(false);
+        await RefreshCheckInAsync(nowUtc, snapshot, liveSession, token).ConfigureAwait(false);
         UpdateWidgetState(UserDesktopWidgetStateBuilder.Build(
             status,
             snapshot,
@@ -1462,6 +1475,162 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         }
 
         return mapped;
+    }
+
+    // Workstream D — conversational check-ins. Reads the day's goal row, asks the pure scheduler
+    // which check-in (if any) is due, and — when one is — routes it through the executor's gated
+    // check-in door (per-day mute, critical-state suppression, presentation check) to the
+    // always-on-top card. The per-day mute is BOTH the "already offered today" gate the scheduler
+    // reads and the once-shown lock the door sets, so each check-in fires exactly once per day.
+    private async Task RefreshCheckInAsync(
+        DateTimeOffset nowUtc,
+        LocalApiCurrentSnapshotResponse? snapshot,
+        LocalApiLiveSessionStateResponse? liveSession,
+        CancellationToken token)
+    {
+        if ((nowUtc - _lastCheckInCheckUtc) < CheckInCheckInterval)
+        {
+            return;
+        }
+
+        _lastCheckInCheckUtc = nowUtc;
+
+        // Cold-start suppression: don't greet the moment the agent launches — let capture settle.
+        if ((nowUtc - _sessionStartedUtc) < CheckInColdStartGrace)
+        {
+            return;
+        }
+
+        // Don't seize the screen mid-meeting (the same shield the task-expiry nudge honors).
+        if (IsMeetingForeground(snapshot))
+        {
+            return;
+        }
+
+        LocalApiDailyGoalResponse? goalResponse = await _localApiClient
+            .GetTodayGoalAsync(token)
+            .ConfigureAwait(false);
+        // Null = the core isn't reachable yet. Skip rather than risk a spurious morning card.
+        if (goalResponse is null)
+        {
+            return;
+        }
+
+        LocalApiDailyGoal? goal = goalResponse.Goal;
+        DateTimeOffset nowLocal = nowUtc.ToLocalTime();
+        DailyGoalSnapshot goalSnapshot = UserCheckInCoordinator.BuildSnapshot(goal);
+
+        UserCheckInKind? due = UserCheckInScheduler.DecideCheckIn(
+            nowLocal,
+            goalSnapshot,
+            kind => _interventionExecutor.IsClassMutedForToday(UserCheckInScheduler.MuteClassFor(kind)));
+        if (due is not UserCheckInKind kind)
+        {
+            return;
+        }
+
+        LocalTodaySummaryMetrics metrics = LocalTodaySummaryMetricsBuilder.Build(
+            _widgetDetailTimeline, snapshot, liveSession, nowUtc);
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(kind, goal, metrics);
+
+        bool shown = _interventionExecutor.TryShowGatedCheckIn(
+            UserCheckInScheduler.MuteClassFor(kind),
+            prompt,
+            OnCheckInResponse,
+            nowUtc,
+            out string reason);
+        UserAgentFileLog.Info(shown
+            ? $"checkin_offered kind={kind}"
+            : $"checkin_suppressed kind={kind} reason={reason}");
+    }
+
+    // Runs on the check-in card's STA thread when the user answers or dismisses. Hand the durable
+    // write-back off the UI thread so the card closes instantly and the HTTP round-trip can't block
+    // the dispatcher.
+    private void OnCheckInResponse(UserCheckInResponse response)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await HandleCheckInResponseAsync(response).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                UserAgentFileLog.Error($"checkin_response_failed kind={response.Kind}", ex);
+            }
+        });
+    }
+
+    // Workstream D — persist the reply through the LocalApi client (the core records it and, for
+    // morning/midday, writes the Phase-1b ground-truth label) and echo a short confirmation.
+    private async Task HandleCheckInResponseAsync(UserCheckInResponse response)
+    {
+        if (response.Dismissed)
+        {
+            UserAgentFileLog.Info($"checkin_dismissed kind={response.Kind}");
+            return;
+        }
+
+        switch (response.Kind)
+        {
+            case UserCheckInKind.Morning:
+            {
+                string goal = (response.TextReply ?? string.Empty).Trim();
+                if (goal.Length == 0)
+                {
+                    UserAgentFileLog.Info("checkin_morning_empty_goal");
+                    return;
+                }
+
+                LocalApiDailyGoalResponse? result = await _localApiClient
+                    .SetMorningGoalAsync(new LocalApiGoalMorningRequest(
+                        SchemaVer: 1,
+                        GoalText: goal,
+                        TrackingPref: response.Choice))
+                    .ConfigureAwait(false);
+                UserAgentFileLog.Info($"checkin_morning_recorded ok={result?.Success == true} pref={response.Choice}");
+                _checkInCardPresenter.ShowConfirmation(UserCheckInKind.Morning, "Locked in. I'll help you protect it today.");
+                break;
+            }
+
+            case UserCheckInKind.Midday:
+            {
+                string answer = (response.Choice ?? string.Empty).Trim();
+                if (answer.Length == 0)
+                {
+                    return;
+                }
+
+                LocalApiDailyGoalResponse? result = await _localApiClient
+                    .RecordMiddayAnswerAsync(new LocalApiGoalMiddayRequest(SchemaVer: 1, Answer: answer))
+                    .ConfigureAwait(false);
+                UserAgentFileLog.Info($"checkin_midday_recorded ok={result?.Success == true} answer={answer}");
+                string followUp = answer switch
+                {
+                    "partly" => "Good — want me to keep it front of mind?",
+                    "not_yet" => "No stress. One quiet nudge in an hour?",
+                    _ => "Nice — keep the momentum."
+                };
+                _checkInCardPresenter.ShowConfirmation(UserCheckInKind.Midday, followUp);
+                break;
+            }
+
+            case UserCheckInKind.EndOfDay:
+            {
+                string plan = (response.TextReply ?? string.Empty).Trim();
+                LocalApiDailyGoalResponse? result = await _localApiClient
+                    .RecordEndOfDayAsync(new LocalApiGoalEndOfDayRequest(SchemaVer: 1, PlanTomorrow: plan))
+                    .ConfigureAwait(false);
+                UserAgentFileLog.Info($"checkin_eod_recorded ok={result?.Success == true} has_plan={plan.Length > 0}");
+                if (plan.Length > 0)
+                {
+                    _checkInCardPresenter.ShowConfirmation(UserCheckInKind.EndOfDay, "Saved for tomorrow. Rest well.");
+                }
+
+                break;
+            }
+        }
     }
 
     // Phase 1c — poll whether an unlinked device is due for a signup nudge, and hold it for the display

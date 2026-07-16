@@ -1810,13 +1810,85 @@ public sealed class AgentCoreController : IAgentCoreController
         => (nowLocal.Hour < 5 ? nowLocal.AddDays(-1) : nowLocal).ToString("yyyy-MM-dd");
 
     public AgentDailyGoal? SetMorningGoal(string goalText, string trackingPref)
-        => _stateStore.UpsertMorningGoal(GoalDay(DateTimeOffset.Now), goalText, trackingPref, DateTimeOffset.UtcNow);
+    {
+        AgentDailyGoal? goal = _stateStore.UpsertMorningGoal(
+            GoalDay(DateTimeOffset.Now), goalText, trackingPref, DateTimeOffset.UtcNow);
+
+        // D4 — the stated morning goal is a Phase-1b ground-truth label, generated for free by the
+        // check-in loop. Recorded here in the controller so it lands regardless of which caller
+        // drove the check-in. Neutral value: a stated goal, not a right/wrong confirmation.
+        if (goal is not null && !string.IsNullOrWhiteSpace(goalText))
+        {
+            RecordGoalGroundTruthLabel(
+                source: "morning_goal",
+                promptKind: "morning_goal",
+                responseKind: string.IsNullOrWhiteSpace(trackingPref) ? "stated" : trackingPref.Trim().ToLowerInvariant(),
+                target: "daily_goal",
+                value: 0);
+        }
+
+        return goal;
+    }
 
     public AgentDailyGoal? GetTodayGoal()
         => _stateStore.GetDailyGoal(GoalDay(DateTimeOffset.Now));
 
     public AgentDailyGoal? RecordMiddayAnswer(string answer)
-        => _stateStore.RecordMiddayGoalAnswer(GoalDay(DateTimeOffset.Now), answer, DateTimeOffset.UtcNow);
+    {
+        AgentDailyGoal? goal = _stateStore.RecordMiddayGoalAnswer(
+            GoalDay(DateTimeOffset.Now), answer, DateTimeOffset.UtcNow);
+
+        // D4 — the yes/partly/not_yet midday answer is a Phase-1b ground-truth label: did Ari's day
+        // help the user get to what mattered? yes = +1, not_yet = -1, partly = neutral.
+        string normalized = (answer ?? string.Empty).Trim().ToLowerInvariant();
+        if (goal is not null && normalized is "yes" or "partly" or "not_yet")
+        {
+            RecordGoalGroundTruthLabel(
+                source: "midday_check",
+                promptKind: "midday_progress",
+                responseKind: normalized,
+                target: "goal_progress",
+                value: normalized switch { "yes" => 1, "not_yet" => -1, _ => 0 });
+        }
+
+        return goal;
+    }
+
+    // D4 — record a conversational check-in answer as a durable ground-truth label. The morning-goal
+    // and midday-progress labels are exactly the Phase-1b ground truth the charging plan needs,
+    // captured for free from the check-in loop. Context fields mirror RecordFocusLabel.
+    private void RecordGoalGroundTruthLabel(
+        string source,
+        string promptKind,
+        string responseKind,
+        string target,
+        int value)
+    {
+        AgentServiceStatusSnapshot status = GetStatus();
+        AgentBrainSnapshot snapshot = GetCurrentSnapshot();
+
+        var label = new GroundTruthLabel(
+            CreatedAtUtc: DateTimeOffset.UtcNow,
+            BucketSeq: -1,
+            BucketTimestampUtc: status.LastUpdatedUtc.ToString("O"),
+            LabelSource: source,
+            PromptKind: promptKind,
+            ResponseKind: responseKind,
+            LabelTarget: target,
+            LabelValue: value,
+            ResponseLatencyMs: -1,
+            InterventionId: string.Empty,
+            FeaturesJson: string.IsNullOrWhiteSpace(status.LatestContributorsJson) ? "{}" : status.LatestContributorsJson,
+            PressureLevel: status.PressureLevel,
+            OverloadLikelihood: status.OverloadLikelihood,
+            Confidence: status.PressureConfidence,
+            DominantState: snapshot.DominantStateName ?? string.Empty,
+            CalibrationStage: status.CalibrationStage ?? string.Empty,
+            TrustTier: status.TrustTier ?? string.Empty,
+            SchemaVer: 1);
+
+        _stateStore.RecordGroundTruthLabel(label);
+    }
 
     public AgentDailyGoal? RecordEndOfDay(string planTomorrow)
         => _stateStore.RecordEndOfDayPlan(GoalDay(DateTimeOffset.Now), planTomorrow, DateTimeOffset.UtcNow);

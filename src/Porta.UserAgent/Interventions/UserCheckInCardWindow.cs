@@ -29,6 +29,9 @@ internal sealed class UserCheckInCardWindow : Window
     private readonly StackPanel _bodyStack;   // mode-specific content is rebuilt here each ShowPrompt
     private UserCheckInKind _kind;
     private bool _responded;
+    // Confirmation mode: the card is echoing an acknowledgement (no further reply expected), so the
+    // ✕ / Escape just hides rather than raising another dismissed response.
+    private bool _confirmationMode;
 
     public UserCheckInCardWindow(Action<UserCheckInResponse> onResponse)
     {
@@ -72,7 +75,7 @@ internal sealed class UserCheckInCardWindow : Window
         headerRow.Children.Add(_eyebrow);
 
         Button dismiss = MakeTextButton("✕", MutedFg);
-        dismiss.Click += (_, _) => Respond(UserCheckInResponse.DismissedFor(_kind));
+        dismiss.Click += (_, _) => DismissClicked();
         Grid.SetColumn(dismiss, 1);
         headerRow.Children.Add(dismiss);
         stack.Children.Add(headerRow);
@@ -106,16 +109,28 @@ internal sealed class UserCheckInCardWindow : Window
         {
             if (e.Key == Key.Escape)
             {
-                Respond(UserCheckInResponse.DismissedFor(_kind));
+                DismissClicked();
                 e.Handled = true;
             }
         };
+    }
+
+    private void DismissClicked()
+    {
+        if (_confirmationMode)
+        {
+            Hide();
+            return;
+        }
+
+        Respond(UserCheckInResponse.DismissedFor(_kind));
     }
 
     public void ShowPrompt(UserCheckInPrompt prompt)
     {
         _kind = prompt.Kind;
         _responded = false;
+        _confirmationMode = false;
         _eyebrow.Text = prompt.Kind switch
         {
             UserCheckInKind.Morning => "Good morning",
@@ -147,6 +162,28 @@ internal sealed class UserCheckInCardWindow : Window
         PositionBottomRight();
         Topmost = true;
         Activate();
+    }
+
+    // Echoes a short acknowledgement on the same card after the user answered (morning "locked in",
+    // midday follow-up, EOD "saved"). No inputs, no reply — the presenter auto-hides it shortly. This
+    // keeps the whole check-in conversation on the always-on-top card instead of a separate toast.
+    public void ShowConfirmation(UserCheckInKind kind, string message)
+    {
+        _kind = kind;
+        _responded = true;        // the exchange is over; the ✕ now just hides
+        _confirmationMode = true;
+        _eyebrow.Text = "Ari";
+        _title.Text = message;
+        _message.Text = string.Empty;
+        _bodyStack.Children.Clear();
+
+        if (!IsVisible)
+        {
+            Show();
+        }
+
+        PositionBottomRight();
+        Topmost = true;
     }
 
     private void BuildMorning()

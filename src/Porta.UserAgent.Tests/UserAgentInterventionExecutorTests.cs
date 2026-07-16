@@ -702,6 +702,114 @@ public sealed class UserAgentInterventionExecutorTests
         }
     }
 
+    // ── Workstream D — the gated door for a conversational check-in card ──
+
+    [Fact]
+    public void TryShowGatedCheckIn_Allowed_ShowsThenMutesForTodayAndDedupsThroughTheGate()
+    {
+        var card = new FakeCheckInCardPresenter { ShowResult = true };
+        string mutePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"mute-{Guid.NewGuid():N}.json");
+        var muteStore = new UserNotificationMuteStore(mutePath);
+        var executor = new UserAgentInterventionExecutor(
+            new FakePresenter { ShowResult = true },
+            new FakePresentationGate { Available = true },
+            new FakeNotificationController(),
+            new FakeNotificationSnapshotStore(),
+            new InMemoryPreferenceStore(),
+            antiSpamGate: new UserInterventionAntiSpamGate(),
+            muteStore: muteStore,
+            checkInCardPresenter: card);
+        try
+        {
+            var prompt = new UserCheckInPrompt(UserCheckInKind.Morning, "Morning", "What's the one thing?");
+            string gateKey = UserCheckInScheduler.MuteClassFor(UserCheckInKind.Morning);
+            // Real now so the per-day mute the door writes aligns with IsClassMutedForToday()'s
+            // real-clock read (production always passes the live nowUtc here).
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+
+            bool shown = executor.TryShowGatedCheckIn(gateKey, prompt, _ => { }, now, out string reason);
+
+            Assert.True(shown);
+            Assert.Equal(string.Empty, reason);
+            Assert.Equal(1, card.ShowCalls);
+            // Showing it muted the class for today, so the scheduler now sees it as offered...
+            Assert.True(executor.IsClassMutedForToday(gateKey));
+
+            // ...and a second attempt the same day is suppressed BEFORE the card.
+            bool again = executor.TryShowGatedCheckIn(gateKey, prompt, _ => { }, now.AddMinutes(5), out string reason2);
+            Assert.False(again);
+            Assert.Equal("muted_for_today", reason2);
+            Assert.Equal(1, card.ShowCalls);
+        }
+        finally
+        {
+            if (System.IO.File.Exists(mutePath))
+            {
+                System.IO.File.Delete(mutePath);
+            }
+        }
+    }
+
+    [Fact]
+    public void TryShowGatedCheckIn_PresentationUnavailable_NeverReachesCardAndDoesNotMute()
+    {
+        var card = new FakeCheckInCardPresenter { ShowResult = true };
+        string mutePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"mute-{Guid.NewGuid():N}.json");
+        var muteStore = new UserNotificationMuteStore(mutePath);
+        var executor = new UserAgentInterventionExecutor(
+            new FakePresenter { ShowResult = true },
+            new FakePresentationGate { Available = false, ErrorCode = "session_unavailable" },
+            new FakeNotificationController(),
+            new FakeNotificationSnapshotStore(),
+            new InMemoryPreferenceStore(),
+            antiSpamGate: new UserInterventionAntiSpamGate(),
+            muteStore: muteStore,
+            checkInCardPresenter: card);
+        try
+        {
+            var prompt = new UserCheckInPrompt(UserCheckInKind.Midday, "How's it going?", "Did you get to it?");
+            string gateKey = UserCheckInScheduler.MuteClassFor(UserCheckInKind.Midday);
+
+            bool shown = executor.TryShowGatedCheckIn(
+                gateKey, prompt, _ => { }, DateTimeOffset.Parse("2026-03-08T13:00:00Z"), out string reason);
+
+            Assert.False(shown);
+            Assert.Equal("session_unavailable", reason);
+            Assert.Equal(0, card.ShowCalls);
+            // A card that never showed must NOT be muted — it should retry when the session returns.
+            Assert.False(executor.IsClassMutedForToday(gateKey));
+        }
+        finally
+        {
+            if (System.IO.File.Exists(mutePath))
+            {
+                System.IO.File.Delete(mutePath);
+            }
+        }
+    }
+
+    [Fact]
+    public void TryShowGatedCheckIn_NoPresenterConfigured_ReportsUnavailable()
+    {
+        var executor = CreateExecutor(
+            new FakePresenter { ShowResult = true },
+            new FakePresentationGate { Available = true },
+            new FakeNotificationController(),
+            new FakeNotificationSnapshotStore(),
+            new InMemoryPreferenceStore());
+
+        var prompt = new UserCheckInPrompt(UserCheckInKind.EndOfDay, "Wrapping up", "Plan tomorrow?");
+        bool shown = executor.TryShowGatedCheckIn(
+            UserCheckInScheduler.MuteClassFor(UserCheckInKind.EndOfDay),
+            prompt,
+            _ => { },
+            DateTimeOffset.Parse("2026-03-08T19:00:00Z"),
+            out string reason);
+
+        Assert.False(shown);
+        Assert.Equal("checkin_presenter_unavailable", reason);
+    }
+
     private static UserAgentInterventionExecutor CreateExecutor(
         FakePresenter presenter,
         FakePresentationGate gate,
@@ -797,6 +905,28 @@ public sealed class UserAgentInterventionExecutorTests
                 InterventionId: LastPrompt!.InterventionId,
                 TipKey: LastPrompt.TipKey,
                 Kind: kind));
+        }
+    }
+
+    private sealed class FakeCheckInCardPresenter : IUserCheckInCardPresenter
+    {
+        public bool ShowResult { get; init; }
+        public string ErrorCode { get; init; } = string.Empty;
+        public int ShowCalls { get; private set; }
+        public UserCheckInPrompt? LastPrompt { get; private set; }
+        public Action<UserCheckInResponse>? ResponseHandler { get; private set; }
+
+        public bool TryShow(UserCheckInPrompt prompt, Action<UserCheckInResponse> onResponse, out string errorCode)
+        {
+            LastPrompt = prompt;
+            ResponseHandler = onResponse;
+            ShowCalls++;
+            errorCode = ShowResult ? string.Empty : ErrorCode;
+            return ShowResult;
+        }
+
+        public void Dispose()
+        {
         }
     }
 

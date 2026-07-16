@@ -44,6 +44,7 @@ internal sealed class UserAgentInterventionExecutor
     private readonly IUserInterventionPreferenceStore _preferenceStore;
     private readonly UserInterventionAntiSpamGate _antiSpamGate;
     private readonly UserNotificationMuteStore _muteStore;
+    private readonly IUserCheckInCardPresenter? _checkInCardPresenter;
     private readonly Func<DateTimeOffset> _utcNowProvider;
     private readonly object _gate = new();
     private readonly Dictionary<string, LocalApiInterventionAckRequest> _terminalAckCache = new(StringComparer.Ordinal);
@@ -59,7 +60,8 @@ internal sealed class UserAgentInterventionExecutor
         IUserInterventionPreferenceStore preferenceStore,
         UserInterventionAntiSpamGate? antiSpamGate = null,
         Func<DateTimeOffset>? utcNowProvider = null,
-        UserNotificationMuteStore? muteStore = null)
+        UserNotificationMuteStore? muteStore = null,
+        IUserCheckInCardPresenter? checkInCardPresenter = null)
     {
         _presenter = presenter;
         _presentationGate = presentationGate;
@@ -68,6 +70,7 @@ internal sealed class UserAgentInterventionExecutor
         _preferenceStore = preferenceStore;
         _antiSpamGate = antiSpamGate ?? new UserInterventionAntiSpamGate();
         _muteStore = muteStore ?? new UserNotificationMuteStore();
+        _checkInCardPresenter = checkInCardPresenter;
         _utcNowProvider = utcNowProvider ?? (() => DateTimeOffset.UtcNow);
     }
 
@@ -133,6 +136,62 @@ internal sealed class UserAgentInterventionExecutor
         }
 
         _antiSpamGate.MarkToastShown(gateKey, nowUtc);
+        return true;
+    }
+
+    /// <summary>
+    /// Workstream D — the gated door for a conversational check-in card (morning / midday /
+    /// end-of-day). Same interrupt contract as <see cref="TryShowGatedInterruptToast"/>: the
+    /// per-day mute (which also serves as the scheduler's "already offered today" gate), the
+    /// anti-spam gate's critical-state suppression and semantic dedup, then the session
+    /// presentation check — before the always-on-top check-in card. On a successful show the
+    /// class is BOTH marked shown and muted-for-today, so a check-in fires exactly once per day
+    /// and the next tick's scheduler sees it as already offered. Returns true only when the card
+    /// actually reached the screen; <paramref name="reason"/> carries the gate/render reason
+    /// otherwise, so the coordinator never mutes a check-in that never showed.
+    /// </summary>
+    public bool TryShowGatedCheckIn(
+        string gateKey,
+        UserCheckInPrompt prompt,
+        Action<UserCheckInResponse> onResponse,
+        DateTimeOffset nowUtc,
+        out string reason)
+    {
+        reason = string.Empty;
+
+        if (_checkInCardPresenter is null)
+        {
+            reason = "checkin_presenter_unavailable";
+            return false;
+        }
+
+        if (_muteStore.IsMutedForToday(gateKey, nowUtc.ToLocalTime()))
+        {
+            reason = "muted_for_today";
+            return false;
+        }
+
+        UserInterventionGateDecision decision = _antiSpamGate.EvaluateToast(gateKey, nowUtc);
+        if (!decision.Allowed)
+        {
+            reason = decision.ReasonCode;
+            return false;
+        }
+
+        if (!_presentationGate.IsPresentationAvailable(out string sessionError))
+        {
+            reason = sessionError;
+            return false;
+        }
+
+        if (!_checkInCardPresenter.TryShow(prompt, onResponse, out string renderError))
+        {
+            reason = renderError;
+            return false;
+        }
+
+        _antiSpamGate.MarkToastShown(gateKey, nowUtc);
+        _muteStore.MuteForToday(gateKey, nowUtc.ToLocalTime());
         return true;
     }
 
