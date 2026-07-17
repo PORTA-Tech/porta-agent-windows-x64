@@ -60,6 +60,54 @@ public static class AppCategoryClassifier
         "zoom", "teams", "googlemeet", "webex"
     };
 
+    /// <summary>
+    /// A1 — non-user Windows shell/system surfaces that can hold the FOREGROUND window but are
+    /// never user work. The lock screen (LockApp) is the important one: it becomes foreground the
+    /// moment the machine locks, so without this it is captured as an "app" and its dwell inflates
+    /// both "where your time went" ("LockApp 25m") and the tracked/focus totals. Time on these is
+    /// away/idle, not app usage.
+    /// </summary>
+    private static readonly HashSet<string> SystemShellExeNames = new(StringComparer.Ordinal)
+    {
+        "lockapp",                  // lock screen
+        "logonui",                  // sign-in / logon UI
+        "shellexperiencehost",      // action centre, task view, other shell surfaces
+        "searchhost",               // Start-menu search box
+        "searchapp",                // Start-menu search (older builds)
+        "startmenuexperiencehost",  // Start menu
+        "windows.internal.composableshell.experiences.textinput.inputapp", // touch keyboard
+        "textinputhost",            // touch keyboard / IME (newer builds)
+        "applicationframehost",     // UWP frame stub — never the real app
+        "systemsettings",           // Settings shell surface
+        "sihost",                   // shell infrastructure host
+        "dwm",                      // desktop window manager
+        "idle",                     // "Idle" pseudo-process
+    };
+
+    /// <summary>
+    /// A1 — true if the stable identifier ("exe:..." / "process:...") is a non-user shell/system
+    /// surface (lock screen, logon UI, Start menu…) rather than a real application. Callers treat
+    /// these as "no foreground app" so the time counts as away, not work.
+    /// </summary>
+    public static bool IsSystemShellIdentifier(string? stableIdentifier)
+    {
+        if (string.IsNullOrWhiteSpace(stableIdentifier))
+        {
+            return false;
+        }
+
+        string name = ExtractClassifiableName(stableIdentifier);
+        return !string.IsNullOrEmpty(name) && SystemShellExeNames.Contains(name);
+    }
+
+    /// <summary>
+    /// A1 — true if a coarse LABEL (as persisted in the hash → label map, e.g. "lockapp") is a
+    /// non-user shell surface. The render-side guard: historical rows already stored under a shell
+    /// label must not appear in "where your time went" even though the capture fix stops new ones.
+    /// </summary>
+    public static bool IsSystemShellLabel(string? label)
+        => !string.IsNullOrWhiteSpace(label) && SystemShellExeNames.Contains(label.Trim().ToLowerInvariant());
+
     /// <summary>True if the stable identifier ("exe:..." / "process:...") is a dedicated meeting app.</summary>
     public static bool IsMeetingIdentifier(string stableIdentifier)
     {

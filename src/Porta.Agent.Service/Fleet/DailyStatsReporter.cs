@@ -100,14 +100,12 @@ internal sealed class DailyStatsReporter : BackgroundService
 
             DigestTimelineAggregation agg = DigestTimelineAggregator.Aggregate(timeline);
 
-            // Break compliance from interventions
-            int breaksSuggested = 0;
-            int breaksTaken = 0;
-            foreach (LocalApiEventResponse intervention in timeline.Interventions)
-            {
-                if (IsBreakSuggestionEvent(intervention.Action)) breaksSuggested++;
-                if (IsBreakTakenEvent(intervention.Action)) breaksTaken++;
-            }
+            // A3 — break compliance, counted from the real acceptance record (the lifecycle
+            // "break_accepted" reason) and deduped per intervention. Shared with DailyDigestReporter
+            // so the daily-stats upload and the agent digest can never disagree.
+            BreakCompliance breaks = BreakComplianceCounter.Count(timeline.Interventions);
+            int breaksSuggested = breaks.Suggested;
+            int breaksTaken = breaks.Taken;
 
             // Distraction social media loops from current session
             AgentDistractionSummary distraction = _controller.GetCurrentDistractionSummary();
@@ -197,22 +195,6 @@ internal sealed class DailyStatsReporter : BackgroundService
         {
             return null;
         }
-    }
-
-    private static bool IsBreakSuggestionEvent(string? action)
-    {
-        if (string.IsNullOrWhiteSpace(action)) return false;
-        return action.Contains("break", StringComparison.OrdinalIgnoreCase)
-            && (action.Contains("suggest", StringComparison.OrdinalIgnoreCase)
-                || action.Contains("short", StringComparison.OrdinalIgnoreCase)
-                || action.Contains("long", StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool IsBreakTakenEvent(string? action)
-    {
-        if (string.IsNullOrWhiteSpace(action)) return false;
-        return action.Contains("break", StringComparison.OrdinalIgnoreCase)
-            && action.Contains("ack", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveMachineId()

@@ -82,6 +82,19 @@ internal static class UserSessionNativeSignals
             else
             {
                 exeIdentifier = ResolveStableAppIdentifier(processId);
+
+                // A1: the lock screen (LockApp) and the other non-user shell surfaces become the
+                // FOREGROUND process when the machine locks or the Start menu opens. That is not
+                // work. Report "no foreground app" so the time lands in away/idle instead of being
+                // captured as app dwell — which previously showed up as "LockApp 25m" in the digest
+                // and inflated the tracked/focus totals. Deliberately NOT RecordForegroundUnavailable:
+                // a locked screen is a legitimate away state, not a capture failure. Returning before
+                // the cache write also keeps shell processes out of the identity cache entirely.
+                if (AppCategoryClassifier.IsSystemShellIdentifier(exeIdentifier))
+                {
+                    return null;
+                }
+
                 bool isBrowser = BrowserTitleClassifier.IsBrowserExe(ExtractExeName(exeIdentifier));
                 long expiresAt = DateTimeOffset.UtcNow.Add(CacheTtl).UtcTicks;
 

@@ -50,6 +50,34 @@ public sealed class BrowserTitleClassifierTests
         Assert.Equal(AppCategory.Unknown, category);
     }
 
+    // A2 — x.com brands its titles only with a trailing " / X". Before this, all X time fell to
+    // "web" → pooled into "Other browsing" and never counted as a distraction. It resolves to the
+    // "twitter" token so x.com and twitter.com aggregate as the one platform they are.
+    [Theory]
+    [InlineData("Home / X")]
+    [InlineData("(3) Home / X")]
+    [InlineData("Elon Musk (@elonmusk) / X")]
+    [InlineData("X")]
+    public void ClassifyTitle_XDotCom_IsRecognizedAsSocialMedia(string title)
+    {
+        (string token, AppCategory category) = BrowserTitleClassifier.ClassifyTitle(title);
+        Assert.Equal("twitter", token);
+        Assert.Equal(AppCategory.SocialMedia, category);
+    }
+
+    // The exact false-match the end-anchor exists to prevent: a title merely ENDING in "/ xml"
+    // (or containing a stray "x") must never be mistaken for X.
+    [Theory]
+    [InlineData("Parsing config / xml")]
+    [InlineData("Excel tips / xlsx")]
+    [InlineData("Some blog about x - Google Chrome")]
+    public void ClassifyTitle_XLookalikes_StayNeutralUnknown(string title)
+    {
+        (string token, AppCategory category) = BrowserTitleClassifier.ClassifyTitle(title);
+        Assert.Equal(BrowserTitleClassifier.UnknownSiteToken, token);
+        Assert.Equal(AppCategory.Unknown, category);
+    }
+
     [Fact]
     public void ClassifyTitle_PlatformBeatsTopicMentionedInTitle()
     {

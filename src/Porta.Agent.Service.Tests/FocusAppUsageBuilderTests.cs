@@ -53,6 +53,32 @@ public sealed class FocusAppUsageBuilderTests
         Assert.Equal("spotify", apps[1].Label);
     }
 
+    // A1 — the lock screen is away time, never an app. The capture fix stops new LockApp dwell
+    // being recorded at all; this render-side guard keeps rows ALREADY stored under a shell label
+    // out of "where your time went" on machines whose history predates that fix.
+    [Fact]
+    public void BuildTopApps_ExcludesLockScreenAndShellSurfaces()
+    {
+        var dwell = new Dictionary<string, double>
+        {
+            ["hash-code"] = 3600d,
+            ["hash-lock"] = 1500d,   // 25m locked — the reported "LockApp 25m" row
+            ["hash-start"] = 300d,
+        };
+        var labels = new Dictionary<string, string>
+        {
+            ["hash-code"] = "code",
+            ["hash-lock"] = "lockapp",
+            ["hash-start"] = "startmenuexperiencehost",
+        };
+
+        IReadOnlyList<FocusAppUsagePayload> apps = FocusAppUsageBuilder.BuildTopApps(dwell, labels);
+
+        FocusAppUsagePayload only = Assert.Single(apps);
+        Assert.Equal("code", only.Label);
+        Assert.DoesNotContain(apps, a => string.Equals(a.Label, "lockapp", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact]
     public void BuildTopApps_MergesResidualDwellAcrossBrowsers()
     {

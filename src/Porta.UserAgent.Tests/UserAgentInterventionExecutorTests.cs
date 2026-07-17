@@ -825,8 +825,17 @@ public sealed class UserAgentInterventionExecutorTests
             snapshotStore,
             preferenceStore,
             antiSpamGate: new UserInterventionAntiSpamGate(),
-            utcNowProvider: utcNowProvider);
+            utcNowProvider: utcNowProvider,
+            // Hermetic mute store. Without this the executor falls back to the DEFAULT
+            // UserNotificationMuteStore path — the real signed-in user's live
+            // user-agent.notification-mute.v1.json — so a developer who had pressed "Skip today"
+            // on a break made every break-prompt test here fail with "muted_for_today". Tests must
+            // never read or write real user state.
+            muteStore: new UserNotificationMuteStore(NewTempMutePath()));
     }
+
+    private static string NewTempMutePath()
+        => System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"porta-test-mute-{Guid.NewGuid():N}.json");
 
     private static LocalApiInterventionPendingResponse BuildPending(
         string interventionId,

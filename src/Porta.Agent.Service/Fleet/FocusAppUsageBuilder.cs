@@ -43,6 +43,15 @@ internal static class FocusAppUsageBuilder
                 continue;
             }
 
+            // A1 — the lock screen and other non-user shell surfaces are away time, never an app.
+            // The capture fix (UserSessionNativeSignals) stops new dwell being recorded for them;
+            // this guard keeps rows ALREADY stored under a shell label (e.g. "lockapp") out of
+            // "where your time went" on machines whose history predates that fix.
+            if (Porta.Agent.Common.Analysis.AppCategoryClassifier.IsSystemShellLabel(label))
+            {
+                continue;
+            }
+
             if (string.Equals(label, Porta.Agent.Common.Analysis.BrowserTitleClassifier.UnknownSiteToken, StringComparison.OrdinalIgnoreCase))
             {
                 label = ResidualBrowsingLabel;

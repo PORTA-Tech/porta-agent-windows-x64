@@ -113,14 +113,12 @@ internal sealed class DailyDigestReporter : BackgroundService
             // Phase 3 distraction breakdown from current session
             AgentDistractionSummary distraction = _controller.GetCurrentDistractionSummary();
 
-            // Break compliance from interventions
-            int breaksSuggested = 0;
-            int breaksTaken = 0;
-            foreach (LocalApiEventResponse intervention in timeline.Interventions)
-            {
-                if (IsBreakSuggestionEvent(intervention.Action)) breaksSuggested++;
-                if (IsBreakTakenEvent(intervention.Action)) breaksTaken++;
-            }
+            // A3 — break compliance, counted from the real acceptance record (the lifecycle
+            // "break_accepted" reason) and deduped per intervention. Shared with DailyStatsReporter
+            // so the agent digest and the server-fallback digest can never disagree.
+            BreakCompliance breaks = BreakComplianceCounter.Count(timeline.Interventions);
+            int breaksSuggested = breaks.Suggested;
+            int breaksTaken = breaks.Taken;
 
             // Timezone offset: Dubai is UTC+4 (+240 minutes)
             const int dubaiOffsetMinutes = 240;
@@ -251,30 +249,6 @@ internal sealed class DailyDigestReporter : BackgroundService
         }
 
         return totals;
-    }
-
-    private static bool IsBreakSuggestionEvent(string? action)
-    {
-        if (string.IsNullOrWhiteSpace(action))
-        {
-            return false;
-        }
-
-        return action.Contains("break", StringComparison.OrdinalIgnoreCase)
-            && (action.Contains("suggest", StringComparison.OrdinalIgnoreCase)
-                || action.Contains("short", StringComparison.OrdinalIgnoreCase)
-                || action.Contains("long", StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool IsBreakTakenEvent(string? action)
-    {
-        if (string.IsNullOrWhiteSpace(action))
-        {
-            return false;
-        }
-
-        return action.Contains("break", StringComparison.OrdinalIgnoreCase)
-            && action.Contains("ack", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveMachineId()

@@ -100,8 +100,10 @@ public static class BrowserTitleClassifier
         ("epic games",      "epicgames",    AppCategory.GamingLauncher),
 
         // ── Social media ────────────────────────────────────────────────
-        // NB: x.com titles are often just "… / X" — too short/ambiguous to match safely by
-        // substring (would false-match "… / xml" etc.), so X is left to fall back to neutral.
+        // NB: x.com brands its titles ONLY with a trailing " / X" ("Home / X"), which is too short
+        // to match safely by substring (it would false-match "… / xml"). It is handled by an
+        // END-anchored check in ClassifyTitle instead — see XTitleSuffix — so X still resolves to
+        // the twitter token instead of pooling into "Other browsing".
         ("twitter",         "twitter",      AppCategory.SocialMedia),
         ("instagram",       "instagram",    AppCategory.SocialMedia),
         ("facebook",        "facebook",     AppCategory.SocialMedia),
@@ -310,8 +312,21 @@ public static class BrowserTitleClassifier
             }
         }
 
+        // A2 — X (formerly Twitter). Checked LAST, so every curated platform rule wins first, and
+        // anchored to the END of the title so only X's real marker matches ("Home / X",
+        // "(3) Elon Musk (@elonmusk) / X") and a title merely ending in "… / xml" cannot.
+        // Deliberately reuses the "twitter" token so x.com and twitter.com — the same platform —
+        // aggregate into one row and one distraction total instead of splitting.
+        if (lower.EndsWith(XTitleSuffix, StringComparison.Ordinal) || lower == "x")
+        {
+            return ("twitter", AppCategory.SocialMedia);
+        }
+
         return (UnknownSiteToken, AppCategory.Unknown);
     }
+
+    /// <summary>The only reliable brand marker in an x.com window title (see ClassifyTitle).</summary>
+    private const string XTitleSuffix = " / x";
 
     /// <summary>
     /// 2e precedence. A curated TITLE rule wins (it carries a real category). Otherwise, if a
