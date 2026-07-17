@@ -118,6 +118,10 @@ internal sealed class DailyDigestReporter : BackgroundService
             // Phase 3 distraction breakdown from current session
             AgentDistractionSummary distraction = _controller.GetCurrentDistractionSummary();
 
+            // C1 — the day's stated goal + midday answer (Workstream D). Null when the user never
+            // set one; the email then omits the Goal section entirely.
+            AgentDailyGoal? todayGoal = _controller.GetTodayGoal();
+
             // A3 — break compliance, counted from the real acceptance record (the lifecycle
             // "break_accepted" reason) and deduped per intervention. Shared with DailyStatsReporter
             // so the agent digest and the server-fallback digest can never disagree.
@@ -193,7 +197,11 @@ internal sealed class DailyDigestReporter : BackgroundService
                 // the email renders "no data" instead of a misleading number.
                 MissingFields: new[] { "gaming", "socialMedia" },
                 TopApps: topApps,
-                Tasks: BuildTaskPayloads());
+                Tasks: BuildTaskPayloads(),
+                // C1 — lead the digest with goal vs reality. Null when no goal was set today, so
+                // the email omits the section rather than showing an empty one.
+                Goal: todayGoal?.GoalText,
+                MiddayAnswer: todayGoal?.MiddayAnswer);
 
             bool sent = await _client.PostDailyDigestAsync(payload, token).ConfigureAwait(false);
             if (sent)

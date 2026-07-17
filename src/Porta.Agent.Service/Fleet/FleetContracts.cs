@@ -188,7 +188,12 @@ internal sealed record DailyDigestReportPayload(
     [property: JsonPropertyName("topApps")] IReadOnlyList<FocusAppUsagePayload>? TopApps = null,
     // Workstream 4 — plan vs. reality: today's closed (done/abandoned) timed tasks, exactly
     // the measured numbers. Empty/null → the email's tasks section is omitted entirely.
-    [property: JsonPropertyName("tasks")] IReadOnlyList<DigestTaskPayload>? Tasks = null);
+    [property: JsonPropertyName("tasks")] IReadOnlyList<DigestTaskPayload>? Tasks = null,
+    // Digest C1 — the day's stated goal + the midday yes/partly/not_yet answer (Workstream D).
+    // The digest leads with goal-vs-reality; null/empty → the Goal section is omitted entirely
+    // (a user who never set a goal must never see an empty or invented one).
+    [property: JsonPropertyName("goal")] string? Goal = null,
+    [property: JsonPropertyName("middayAnswer")] string? MiddayAnswer = null);
 
 // Workstream 4 — one closed task in the digest payload.
 internal sealed record DigestTaskPayload(
@@ -245,7 +250,13 @@ internal sealed record DailyStatsReportPayload(
     // shared-file write failures (0 = healthy) + last exception type. Lets the ops console
     // show "label persistence failing" per machine instead of the failure staying invisible.
     [property: JsonPropertyName("labelPersistFailureCount")] long LabelPersistFailureCount = 0,
-    [property: JsonPropertyName("labelPersistLastError")] string? LabelPersistLastError = null);
+    [property: JsonPropertyName("labelPersistLastError")] string? LabelPersistLastError = null,
+    // Digest C1 — the day's stated goal + the midday yes/partly/not_yet answer (Workstream D).
+    // Carried on the 2-hourly stats upload because daily_goals is an AGENT-LOCAL table: without
+    // this the server-cron fallback digest (built from daily_stats) has no way to lead with the
+    // goal, which is the digest's headline section.
+    [property: JsonPropertyName("goal")] string? Goal = null,
+    [property: JsonPropertyName("middayAnswer")] string? MiddayAnswer = null);
 
 internal sealed record LabelTargetCountPayload(
     [property: JsonPropertyName("target")] string Target,

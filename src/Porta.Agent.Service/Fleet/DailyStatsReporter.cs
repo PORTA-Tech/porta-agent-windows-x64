@@ -113,6 +113,10 @@ internal sealed class DailyStatsReporter : BackgroundService
             // Phase 1b — Step 4c: privacy-safe ground-truth label engagement (counts only, never content).
             AgentLabelDiagnostics labels = _controller.GetLabelDiagnostics();
 
+            // Digest C1 — the day's stated goal + midday answer (Workstream D), uploaded so the
+            // server-fallback digest can lead with it. Null when the user set no goal today.
+            AgentDailyGoal? todayGoal = _controller.GetTodayGoal();
+
             // Coarse per-app foreground time for the day, joined to human labels — same ranking
             // the digest uses. Lets the console show "where the day went" per machine and gives
             // the server-fallback digest real app names.
@@ -166,7 +170,12 @@ internal sealed class DailyStatsReporter : BackgroundService
                 PromptsShownThisWeek: (int)labels.PromptsShownLast7d,
                 PromptsAnsweredThisWeek: (int)labels.PromptsAnsweredLast7d,
                 LabelPersistFailureCount: sessionContext?.LabelPersistFailureCount ?? 0,
-                LabelPersistLastError: sessionContext?.LabelPersistLastError);
+                LabelPersistLastError: sessionContext?.LabelPersistLastError,
+                // Digest C1 — carry the day's goal + midday answer up with the stats. daily_goals is
+                // an agent-local table, so this 2-hourly upload is the ONLY way the server-cron
+                // fallback digest (built from daily_stats) can lead with the goal.
+                Goal: todayGoal?.GoalText,
+                MiddayAnswer: todayGoal?.MiddayAnswer);
 
             bool sent = await _client.PostDailyStatsAsync(payload, token).ConfigureAwait(false);
             if (!sent)
