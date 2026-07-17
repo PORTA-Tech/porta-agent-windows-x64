@@ -29,17 +29,22 @@ internal sealed class DailyDigestReporter : BackgroundService
     private readonly IAgentCoreController _controller;
     private readonly ControlPlaneClient _client;
     private readonly ILocalIdentityLinkStore _identityLinkStore;
+    private readonly DailyDigestStateStore _stateStore;
+    // B1: seeded from the durable store on start so a restart after 19:30 UTC does not re-send.
     private DateOnly? _lastSentDate;
     private DateTimeOffset? _lastFailureLogUtc;
 
     public DailyDigestReporter(
         IAgentCoreController controller,
         ControlPlaneClient client,
-        ILocalIdentityLinkStore identityLinkStore)
+        ILocalIdentityLinkStore identityLinkStore,
+        DailyDigestStateStore? stateStore = null)
     {
         _controller = controller;
         _client = client;
         _identityLinkStore = identityLinkStore;
+        _stateStore = stateStore ?? new DailyDigestStateStore();
+        _lastSentDate = _stateStore.LoadLastSentDate();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -194,6 +199,8 @@ internal sealed class DailyDigestReporter : BackgroundService
             if (sent)
             {
                 _lastSentDate = todayUtc;
+                // B1: persist it so a restart later tonight doesn't POST a second digest.
+                _stateStore.SaveLastSentDate(todayUtc);
                 Console.WriteLine($"Daily digest sent for {dateLocal}.");
             }
             else
