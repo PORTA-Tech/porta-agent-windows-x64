@@ -130,8 +130,11 @@ internal sealed class DailyStatsReporter : BackgroundService
             Porta.Agent.Common.UserAgent.UserAgentSessionContextSnapshot? sessionContext =
                 TryReadSessionContext();
 
-            DateTimeOffset dubaiNow = nowUtc.ToOffset(TimeSpan.FromMinutes(DubaiOffsetMinutes));
-            string dateLocal = dubaiNow.ToString("yyyy-MM-dd");
+            // Part 4 — stamp the UTC date of the data window (the timeline above runs over the
+            // UTC day), not "Dubai now": pushes between 20:00 and 23:59 UTC are past midnight in
+            // Dubai and used to write today's numbers onto TOMORROW's daily_stats row, which the
+            // server-cron fallback digest then read as the wrong day.
+            string dateLocal = todayUtc.ToString("yyyy-MM-dd");
             string machineId = ResolveMachineId();
 
             DailyStatsReportPayload payload = new(

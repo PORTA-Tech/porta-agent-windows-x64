@@ -91,6 +91,25 @@ internal sealed class DailyDigestReporter : BackgroundService
     {
         try
         {
+            // Part 4 — re-anchor the clock at send time. The loop's nowUtc can be STALE when the
+            // machine sleeps between the gate check and this call resuming: the confirmed failure
+            // mode was a digest built at ~00:05 Dubai that actually POSTed at 10:50 the next
+            // morning, sending a morning email stamped with the wrong day and poisoning the
+            // account+date dedup key for that evening's real digest. If the fresh clock is no
+            // longer inside the send window on the SAME UTC day the gate approved, drop this
+            // attempt — the next evening's window will send normally.
+            DateTimeOffset sendUtc = DateTimeOffset.UtcNow;
+            bool sameUtcDay = DateOnly.FromDateTime(sendUtc.UtcDateTime) == todayUtc;
+            bool insideWindow = sendUtc.Hour > DigestHourUtc
+                || (sendUtc.Hour == DigestHourUtc && sendUtc.Minute >= DigestMinuteUtc);
+            if (!sameUtcDay || !insideWindow)
+            {
+                Console.WriteLine($"Daily digest skipped: send-time drift (gate={nowUtc:O}, now={sendUtc:O}).");
+                return;
+            }
+
+            nowUtc = sendUtc;
+
             // Pull today's full timeline (midnight to now UTC)
             DateTimeOffset startOfDayUtc = new(todayUtc.Year, todayUtc.Month, todayUtc.Day, 0, 0, 0, TimeSpan.Zero);
             AgentTimelineData timelineData = _controller.GetTimeline(startOfDayUtc, nowUtc, 60);
@@ -131,8 +150,11 @@ internal sealed class DailyDigestReporter : BackgroundService
 
             // Timezone offset: Dubai is UTC+4 (+240 minutes)
             const int dubaiOffsetMinutes = 240;
-            DateTimeOffset dubaiNow = nowUtc.ToOffset(TimeSpan.FromMinutes(dubaiOffsetMinutes));
-            string dateLocal = dubaiNow.ToString("yyyy-MM-dd");
+            // Part 4 — the date stamp is the UTC date of the DATA WINDOW (todayUtc), not "Dubai
+            // now". At the normal 23:30-Dubai send they coincide; on a late send past midnight
+            // Dubai (20:00+ UTC) "Dubai now" is already TOMORROW, and stamping tomorrow's date on
+            // today's digest is exactly what made the next evening's digest skip as "already sent".
+            string dateLocal = todayUtc.ToString("yyyy-MM-dd");
 
             string machineId = ResolveMachineId();
 
