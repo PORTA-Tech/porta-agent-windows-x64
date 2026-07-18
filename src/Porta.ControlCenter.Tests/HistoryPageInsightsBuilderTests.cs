@@ -16,7 +16,7 @@ public sealed class HistoryPageInsightsBuilderTests
             BucketSeconds: 300,
             Snapshots:
             [
-                BuildSnapshot(baseUtc, focusStrength: 0.90d, sustainedAttentionSeconds: 900d, attentionSegmentKind: LocalAttentionSegmentAnalytics.FocusSegmentKind),
+                BuildSnapshot(baseUtc, focusStrength: 0.90d, sustainedAttentionSeconds: 900d, attentionSegmentKind: LocalAttentionSegmentAnalytics.FocusSegmentKind, focusEpisodeSeconds: 900d),
                 BuildSnapshot(baseUtc.AddMinutes(5), focusStrength: 0.30d, sustainedAttentionSeconds: 240d, attentionSegmentKind: LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind, distractionEpisodeActive: true, distractionEpisodeSeconds: 300d, attentionSegmentReasonText: "Stayed outside focus context for 5m."),
                 BuildSnapshot(baseUtc.AddMinutes(10), focusStrength: 0.20d, sustainedAttentionSeconds: 120d, attentionSegmentKind: LocalAttentionSegmentAnalytics.AwaySegmentKind, attentionSegmentReasonText: "Away for 5m.", focusEpisodeReasonText: "Long break ended the focus episode after 5m away.")
             ],
@@ -29,7 +29,9 @@ public sealed class HistoryPageInsightsBuilderTests
         HistoryPageInsights insights = HistoryPageInsightsBuilder.Build(timeline);
 
         Assert.True(insights.HasTimeline);
-        Assert.Equal(420d, insights.FocusedSeconds, precision: 3);
+        // Focused is focus-episode time (one active-episode bucket = 300s), not the
+        // strength-weighted 420s.
+        Assert.Equal(300d, insights.FocusedSeconds, precision: 3);
         Assert.Equal(300d, insights.DistractionSeconds, precision: 3);
         Assert.Equal(300d, insights.AwaySeconds, precision: 3);
         Assert.Equal(0d, insights.ContextExcursionSeconds, precision: 3);
@@ -66,7 +68,8 @@ public sealed class HistoryPageInsightsBuilderTests
         bool distractionEpisodeActive = false,
         double distractionEpisodeSeconds = 0d,
         string? attentionSegmentReasonText = null,
-        string? focusEpisodeReasonText = null)
+        string? focusEpisodeReasonText = null,
+        double focusEpisodeSeconds = 0d)
     {
         return new LocalApiCurrentSnapshotResponse(
             TimestampUtc: timestampUtc,
@@ -115,6 +118,7 @@ public sealed class HistoryPageInsightsBuilderTests
             RuntimeStateRefreshError: null,
             AnalyzedStateAvailable: true,
             ModelSource: "analyzed_state",
+            FocusEpisodeSeconds: focusEpisodeSeconds,
             AttentionSegmentKind: attentionSegmentKind,
             AttentionSegmentSeconds: attentionSegmentKind == LocalAttentionSegmentAnalytics.FocusSegmentKind ? 0d : 300d,
             DistractionEpisodeActive: distractionEpisodeActive,

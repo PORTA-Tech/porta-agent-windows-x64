@@ -43,15 +43,15 @@ internal static class HistoryPageInsightsBuilder
         }
 
         double bucketSeconds = Math.Max(1d, timeline.BucketSeconds);
-        double focusedSeconds = 0d;
+        // Focused = focus-episode time (same definition as the episode list and every other
+        // surface); the strength-weighted sum is only a quality signal, never shown as time.
+        double focusedSeconds = LocalFocusEpisodeMetrics.ComputeEpisodeFocusSeconds(snapshots, bucketSeconds);
         double distractionSeconds = 0d;
         double awaySeconds = 0d;
         double contextExcursionSeconds = 0d;
         double trackedSeconds = 0d;
         foreach (LocalApiCurrentSnapshotResponse snapshot in snapshots)
         {
-            double focusStrength = Math.Clamp(snapshot.FocusStrength, 0d, 1d);
-            focusedSeconds += bucketSeconds * focusStrength;
             trackedSeconds += bucketSeconds;
             if (LocalAttentionSegmentAnalytics.IsDistractionEpisode(snapshot))
             {

@@ -2,7 +2,10 @@ namespace Porta.Agent.LocalApi;
 
 public sealed record LocalTodaySummaryMetrics(
     bool HasProcessedTimeline,
+    // Focus-episode time — the one "focused" number every surface shows. The strength-weighted
+    // sum is intentionally not exposed as time; its only surviving form is FocusQualityPercent.
     double FocusedTodaySeconds,
+    double FocusQualityPercent,
     double DistractionTodaySeconds,
     double AwayTodaySeconds,
     double ContextExcursionTodaySeconds,
@@ -26,6 +29,7 @@ public static class LocalTodaySummaryMetricsBuilder
             return new LocalTodaySummaryMetrics(
                 HasProcessedTimeline: false,
                 FocusedTodaySeconds: 0d,
+                FocusQualityPercent: 0d,
                 DistractionTodaySeconds: 0d,
                 AwayTodaySeconds: 0d,
                 ContextExcursionTodaySeconds: 0d,
@@ -35,7 +39,7 @@ public static class LocalTodaySummaryMetricsBuilder
         }
 
         double bucketSeconds = Math.Max(1d, timeline.BucketSeconds);
-        double focusedTodaySeconds = 0d;
+        double weightedFocusSeconds = 0d;
         double distractionTodaySeconds = 0d;
         double awayTodaySeconds = 0d;
         double contextExcursionTodaySeconds = 0d;
@@ -43,7 +47,7 @@ public static class LocalTodaySummaryMetricsBuilder
         foreach (LocalApiCurrentSnapshotResponse candidate in snapshots)
         {
             double focusStrength = Math.Clamp(candidate.FocusStrength, 0d, 1d);
-            focusedTodaySeconds += bucketSeconds * focusStrength;
+            weightedFocusSeconds += bucketSeconds * focusStrength;
             trackedTodaySeconds += bucketSeconds;
 
             if (LocalAttentionSegmentAnalytics.IsDistractionEpisode(candidate))
@@ -66,10 +70,12 @@ public static class LocalTodaySummaryMetricsBuilder
             snapshot,
             liveSession,
             nowUtc ?? DateTimeOffset.UtcNow);
+        double episodeFocusSeconds = LocalFocusEpisodeMetrics.ComputeEpisodeFocusSeconds(snapshots, bucketSeconds);
 
         return new LocalTodaySummaryMetrics(
             HasProcessedTimeline: true,
-            FocusedTodaySeconds: focusedTodaySeconds,
+            FocusedTodaySeconds: episodeFocusSeconds,
+            FocusQualityPercent: LocalFocusEpisodeMetrics.ComputeFocusQualityPercent(weightedFocusSeconds, episodeFocusSeconds),
             DistractionTodaySeconds: distractionTodaySeconds,
             AwayTodaySeconds: awayTodaySeconds,
             ContextExcursionTodaySeconds: contextExcursionTodaySeconds,

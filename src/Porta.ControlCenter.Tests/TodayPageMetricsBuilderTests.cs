@@ -16,7 +16,7 @@ public sealed class TodayPageMetricsBuilderTests
             BucketSeconds: 300,
             Snapshots:
             [
-                BuildSnapshot(baseUtc, focusStrength: 0.80d, sustainedAttentionSeconds: 900d, attentionSegmentKind: LocalAttentionSegmentAnalytics.FocusSegmentKind),
+                BuildSnapshot(baseUtc, focusStrength: 0.80d, sustainedAttentionSeconds: 900d, attentionSegmentKind: LocalAttentionSegmentAnalytics.FocusSegmentKind, focusEpisodeSeconds: 900d),
                 BuildSnapshot(baseUtc.AddMinutes(5), focusStrength: 0.40d, sustainedAttentionSeconds: 300d, attentionSegmentKind: LocalAttentionSegmentAnalytics.OffTaskDistractionSegmentKind, distractionEpisodeActive: true, distractionEpisodeSeconds: 300d),
                 BuildSnapshot(baseUtc.AddMinutes(10), focusStrength: 0.20d, sustainedAttentionSeconds: 120d, attentionSegmentKind: LocalAttentionSegmentAnalytics.FragmentationDistractionSegmentKind, distractionEpisodeActive: true, distractionEpisodeSeconds: 300d)
             ],
@@ -25,7 +25,9 @@ public sealed class TodayPageMetricsBuilderTests
         TodayPageMetrics metrics = TodayPageMetricsBuilder.Build(timeline);
 
         Assert.True(metrics.HasProcessedTimeline);
-        Assert.Equal(420d, metrics.FocusedTodaySeconds, precision: 3);
+        // Focused is focus-episode time: one active-episode bucket at baseUtc → 300s.
+        // The strength-weighted sum (420s) must no longer surface as focused time.
+        Assert.Equal(300d, metrics.FocusedTodaySeconds, precision: 3);
         Assert.Equal(600d, metrics.DistractionTodaySeconds, precision: 3);
         Assert.Equal(900d, metrics.TrackedTodaySeconds, precision: 3);
         Assert.Equal(900d, metrics.DisplayedTrackedTodaySeconds, precision: 3);
@@ -94,7 +96,8 @@ public sealed class TodayPageMetricsBuilderTests
         double sustainedAttentionSeconds,
         string attentionSegmentKind = LocalAttentionSegmentAnalytics.FocusSegmentKind,
         bool distractionEpisodeActive = false,
-        double distractionEpisodeSeconds = 0d)
+        double distractionEpisodeSeconds = 0d,
+        double focusEpisodeSeconds = 0d)
     {
         return new LocalApiCurrentSnapshotResponse(
             TimestampUtc: timestampUtc,
@@ -143,6 +146,7 @@ public sealed class TodayPageMetricsBuilderTests
             RuntimeStateRefreshError: null,
             AnalyzedStateAvailable: true,
             ModelSource: "analyzed_state",
+            FocusEpisodeSeconds: focusEpisodeSeconds,
             AttentionSegmentKind: attentionSegmentKind,
             AttentionSegmentSeconds: attentionSegmentKind == LocalAttentionSegmentAnalytics.FocusSegmentKind ? 0d : 300d,
             DistractionEpisodeActive: distractionEpisodeActive,

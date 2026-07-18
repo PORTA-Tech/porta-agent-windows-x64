@@ -21,12 +21,10 @@ internal static class DigestTimelineAggregator
 
         double bucketSec = Math.Max(1d, timeline.BucketSeconds);
         double trackedSeconds = 0d;
-        double focusSeconds = 0d;
+        double weightedFocusSeconds = 0d;
         double distractionSeconds = 0d;
         double awaySeconds = 0d;
         double contextExcursionSeconds = 0d;
-        double focusStrengthSum = 0d;
-        int focusedBuckets = 0;
         double currentStreakSec = 0d;
         double longestStreakSec = 0d;
         int overloadEpisodeCount = 0;
@@ -57,7 +55,7 @@ internal static class DigestTimelineAggregator
         {
             trackedSeconds += bucketSec;
             double strength = Math.Clamp(s.FocusStrength, 0d, 1d);
-            focusSeconds += bucketSec * strength;
+            weightedFocusSeconds += bucketSec * strength;
 
             string kind = s.AttentionSegmentKind ?? string.Empty;
             bool isDistraction = LocalAttentionSegmentAnalytics.IsDistractionEpisode(s);
@@ -82,8 +80,6 @@ internal static class DigestTimelineAggregator
             }
             else
             {
-                focusStrengthSum += strength;
-                focusedBuckets++;
                 if (strength >= 0.65d)
                 {
                     developmentSeconds += bucketSec * strength;
@@ -179,7 +175,11 @@ internal static class DigestTimelineAggregator
             preLongestDistractionFocusSeconds = preFocusForCurrentBlock;
         }
 
-        double focusQualityScore = focusedBuckets > 0 ? focusStrengthSum / focusedBuckets : 0d;
+        // One focus number everywhere: FocusSeconds is focus-episode time (the number the
+        // Control Center shows); the strength-weighted sum survives only as the quality score.
+        double episodeFocusSeconds = LocalFocusEpisodeMetrics.ComputeEpisodeFocusSeconds(snapshots, bucketSec);
+        double focusQualityScore =
+            LocalFocusEpisodeMetrics.ComputeFocusQualityPercent(weightedFocusSeconds, episodeFocusSeconds) / 100d;
         double avgDistractionEpisodeDurationSeconds = fragmentationEpisodeCount > 0
             ? distractionSeconds / fragmentationEpisodeCount
             : 0d;
@@ -200,7 +200,7 @@ internal static class DigestTimelineAggregator
 
         return new DigestTimelineAggregation(
             TrackedSeconds: trackedSeconds,
-            FocusSeconds: focusSeconds,
+            FocusSeconds: episodeFocusSeconds,
             FocusQualityScore: focusQualityScore,
             DistractionSeconds: distractionSeconds,
             AwaySeconds: awaySeconds,

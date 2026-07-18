@@ -86,6 +86,7 @@ public sealed class UserCheckInCoordinatorTests
         var metrics = new LocalTodaySummaryMetrics(
             HasProcessedTimeline: false,
             FocusedTodaySeconds: 0,
+            FocusQualityPercent: 0,
             DistractionTodaySeconds: 0,
             AwayTodaySeconds: 0,
             ContextExcursionTodaySeconds: 0,
@@ -101,7 +102,8 @@ public sealed class UserCheckInCoordinatorTests
     {
         var metrics = new LocalTodaySummaryMetrics(
             HasProcessedTimeline: true,
-            FocusedTodaySeconds: 2 * 3600 + 30 * 60,   // 2h30m
+            FocusedTodaySeconds: 2 * 3600 + 30 * 60,   // 2h30m of focus-episode time
+            FocusQualityPercent: 53,
             DistractionTodaySeconds: 20 * 60,           // 20m
             AwayTodaySeconds: 45 * 60,                   // 45m
             ContextExcursionTodaySeconds: 0,
@@ -112,8 +114,28 @@ public sealed class UserCheckInCoordinatorTests
         string line = UserCheckInCoordinator.BuildReportLine(metrics);
 
         Assert.Contains("2h30m focused", line, StringComparison.Ordinal);
+        Assert.Contains("53% focus quality", line, StringComparison.Ordinal);
         Assert.Contains("20m off-track", line, StringComparison.Ordinal);
         Assert.Contains("45m away", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildReportLine_ZeroQuality_OmitsTheQualitySegment()
+    {
+        var metrics = new LocalTodaySummaryMetrics(
+            HasProcessedTimeline: true,
+            FocusedTodaySeconds: 0,
+            FocusQualityPercent: 0,
+            DistractionTodaySeconds: 10 * 60,
+            AwayTodaySeconds: 0,
+            ContextExcursionTodaySeconds: 0,
+            TrackedTodaySeconds: 3600,
+            DisplayedTrackedTodaySeconds: 3600,
+            MostDistractedHourLabel: "Not available");
+
+        string line = UserCheckInCoordinator.BuildReportLine(metrics);
+
+        Assert.DoesNotContain("focus quality", line, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -142,6 +164,7 @@ public sealed class UserCheckInCoordinatorTests
         var metrics = new LocalTodaySummaryMetrics(
             HasProcessedTimeline: true,
             FocusedTodaySeconds: 3600,
+            FocusQualityPercent: 80,
             DistractionTodaySeconds: 0,
             AwayTodaySeconds: 0,
             ContextExcursionTodaySeconds: 0,
@@ -160,6 +183,7 @@ public sealed class UserCheckInCoordinatorTests
     private static LocalTodaySummaryMetrics EmptyMetrics() => new(
         HasProcessedTimeline: false,
         FocusedTodaySeconds: 0,
+        FocusQualityPercent: 0,
         DistractionTodaySeconds: 0,
         AwayTodaySeconds: 0,
         ContextExcursionTodaySeconds: 0,

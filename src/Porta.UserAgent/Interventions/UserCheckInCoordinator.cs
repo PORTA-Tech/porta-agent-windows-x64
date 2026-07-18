@@ -78,8 +78,13 @@ internal static class UserCheckInCoordinator
         string focused = ReminderTimeParser.FormatDuration((int)Math.Round(metrics.FocusedTodaySeconds / 60d));
         int offTrackMin = (int)Math.Round(metrics.DistractionTodaySeconds / 60d);
         int awayMin = (int)Math.Round(metrics.AwayTodaySeconds / 60d);
+        int qualityPct = (int)Math.Round(metrics.FocusQualityPercent);
 
         string line = $"So far: {focused} focused";
+        if (metrics.FocusedTodaySeconds > 0d && qualityPct > 0)
+        {
+            line += $" · {qualityPct}% focus quality";
+        }
         if (offTrackMin > 0)
         {
             line += $" · {offTrackMin}m off-track";
