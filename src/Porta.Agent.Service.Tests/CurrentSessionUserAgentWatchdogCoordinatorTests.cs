@@ -247,6 +247,7 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         public Porta.Agent.Core.AgentDailyGoal? GetTodayGoal() => throw new NotSupportedException();
         public Porta.Agent.Core.AgentDailyGoal? RecordMiddayAnswer(string answer) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentDailyGoal? RecordEndOfDay(string planTomorrow) => throw new NotSupportedException();
+        public string? GetCarriedOverPlan() => null;
     }
 
     private sealed class FakeRuntime : ICurrentSessionUserAgentRuntime

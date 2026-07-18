@@ -1833,6 +1833,31 @@ public sealed class AgentCoreController : IAgentCoreController
     public AgentDailyGoal? GetTodayGoal()
         => _stateStore.GetDailyGoal(GoalDay(DateTimeOffset.Now));
 
+    // Part 3 — memory. The EOD check-in writes plan_tomorrow onto TODAY's goal row; until now
+    // nothing ever read it back, so the night plan evaporated by morning. The morning check-in
+    // calls this to carry it forward: yesterday's plan seeds today's goal ask, but only while
+    // today has no stated goal of its own.
+    public string? GetCarriedOverPlan()
+    {
+        DateTimeOffset nowLocal = DateTimeOffset.Now;
+        AgentDailyGoal? today = _stateStore.GetDailyGoal(GoalDay(nowLocal));
+        AgentDailyGoal? yesterday = _stateStore.GetDailyGoal(GoalDay(nowLocal.AddDays(-1)));
+        return ResolveCarriedOverPlan(today, yesterday);
+    }
+
+    // Pure so the carry-forward rule is unit-testable without a controller: surface yesterday's
+    // plan_tomorrow only when today has no goal_text yet.
+    internal static string? ResolveCarriedOverPlan(AgentDailyGoal? today, AgentDailyGoal? yesterday)
+    {
+        if (!string.IsNullOrWhiteSpace(today?.GoalText))
+        {
+            return null;
+        }
+
+        string plan = (yesterday?.PlanTomorrow ?? string.Empty).Trim();
+        return plan.Length > 0 ? plan : null;
+    }
+
     public AgentDailyGoal? RecordMiddayAnswer(string answer)
     {
         AgentDailyGoal? goal = _stateStore.RecordMiddayGoalAnswer(

@@ -66,4 +66,8 @@ public interface IAgentCoreController
     AgentDailyGoal? GetTodayGoal();
     AgentDailyGoal? RecordMiddayAnswer(string answer);
     AgentDailyGoal? RecordEndOfDay(string planTomorrow);
+
+    // Part 3 — yesterday's plan_tomorrow, surfaced only while today has no stated goal, so the
+    // morning check-in can open with it instead of a blank ask.
+    string? GetCarriedOverPlan();
 }

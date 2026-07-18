@@ -146,7 +146,31 @@ public sealed class UserCheckInCoordinatorTests
 
         Assert.Equal(UserCheckInKind.Morning, prompt.Kind);
         Assert.Equal(string.Empty, prompt.ReportLine);
+        Assert.Equal(string.Empty, prompt.PrefillGoalText);
         Assert.False(string.IsNullOrWhiteSpace(prompt.Message));
+    }
+
+    // Part 3 — memory: last night's plan opens the morning card (confirm/edit), not a blank ask.
+    [Fact]
+    public void BuildPrompt_Morning_WithCarriedPlan_OpensWithLastNightsPlan()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Morning, goal: null, EmptyMetrics(), carriedPlan: "Finish the report");
+
+        Assert.Equal(UserCheckInKind.Morning, prompt.Kind);
+        Assert.Contains("Last night you planned", prompt.Message, StringComparison.Ordinal);
+        Assert.Contains("Finish the report", prompt.Message, StringComparison.Ordinal);
+        Assert.Equal("Finish the report", prompt.PrefillGoalText);
+    }
+
+    [Fact]
+    public void BuildPrompt_Morning_WhitespaceCarriedPlan_FallsBackToFreshAsk()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Morning, goal: null, EmptyMetrics(), carriedPlan: "   ");
+
+        Assert.DoesNotContain("Last night you planned", prompt.Message, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, prompt.PrefillGoalText);
     }
 
     [Fact]

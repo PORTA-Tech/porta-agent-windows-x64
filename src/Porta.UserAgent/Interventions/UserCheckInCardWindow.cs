@@ -144,7 +144,7 @@ internal sealed class UserCheckInCardWindow : Window
         switch (prompt.Kind)
         {
             case UserCheckInKind.Morning:
-                BuildMorning();
+                BuildMorning(prompt);
                 break;
             case UserCheckInKind.Midday:
                 BuildMidday(prompt);
@@ -186,9 +186,16 @@ internal sealed class UserCheckInCardWindow : Window
         Topmost = true;
     }
 
-    private void BuildMorning()
+    private void BuildMorning(UserCheckInPrompt prompt)
     {
         TextBox goalBox = MakeInputBox("What do you want to get done today?");
+        // Part 3 — last night's plan pre-fills the box so confirming it is a single click/Enter.
+        if (!string.IsNullOrWhiteSpace(prompt.PrefillGoalText))
+        {
+            goalBox.Text = prompt.PrefillGoalText.Trim();
+            goalBox.CaretIndex = goalBox.Text.Length;
+        }
+
         _bodyStack.Children.Add(goalBox);
 
         string chosenPref = UserCheckInChoices.MorningTracking[0].Value;

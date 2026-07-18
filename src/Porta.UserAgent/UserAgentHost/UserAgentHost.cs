@@ -1531,7 +1531,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         LocalTodaySummaryMetrics metrics = LocalTodaySummaryMetricsBuilder.Build(
             _widgetDetailTimeline, snapshot, liveSession, nowUtc);
-        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(kind, goal, metrics);
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            kind, goal, metrics, goalResponse.CarriedPlanTomorrow);
 
         bool shown = _interventionExecutor.TryShowGatedCheckIn(
             UserCheckInScheduler.MuteClassFor(kind),

@@ -108,6 +108,52 @@ public sealed class DailyGoalsStoreTests
         Assert.Equal(expected, AgentCoreController.GoalDay(now));
     }
 
+    // ── Part 3 — memory: plan_tomorrow on day N carries into the morning of day N+1 ──
+
+    [Fact]
+    public void CarryOver_PlanOnDayN_SurfacesOnMorningOfDayN1()
+    {
+        RunWithStore((store, _) =>
+        {
+            // Night of day N: the EOD check-in records tomorrow's plan.
+            store.RecordEndOfDayPlan(Date, "start with the API contract", Now.AddHours(10));
+
+            // Morning of day N+1: no goal row yet for the new day.
+            AgentDailyGoal? today = store.GetDailyGoal("2026-07-17");
+            AgentDailyGoal? yesterday = store.GetDailyGoal(Date);
+
+            Assert.Equal(
+                "start with the API contract",
+                AgentCoreController.ResolveCarriedOverPlan(today, yesterday));
+        });
+    }
+
+    [Fact]
+    public void CarryOver_SuppressedOnceTodayHasItsOwnGoal()
+    {
+        RunWithStore((store, _) =>
+        {
+            store.RecordEndOfDayPlan(Date, "old plan", Now.AddHours(10));
+            store.UpsertMorningGoal("2026-07-17", "a fresh goal", "keep_on_track", Now.AddDays(1));
+
+            AgentDailyGoal? today = store.GetDailyGoal("2026-07-17");
+            AgentDailyGoal? yesterday = store.GetDailyGoal(Date);
+
+            Assert.Null(AgentCoreController.ResolveCarriedOverPlan(today, yesterday));
+        });
+    }
+
+    [Fact]
+    public void CarryOver_NothingWithoutAPlan_OrWithoutYesterdayRow()
+    {
+        Assert.Null(AgentCoreController.ResolveCarriedOverPlan(today: null, yesterday: null));
+
+        var emptyPlan = new AgentDailyGoal(
+            Id: 1, LocalDate: Date, GoalText: "", TrackingPref: "", MiddayAnswer: "",
+            MiddayAtUtc: null, EndOfDayAtUtc: Now, PlanTomorrow: "   ", CreatedAtUtc: Now);
+        Assert.Null(AgentCoreController.ResolveCarriedOverPlan(today: null, yesterday: emptyPlan));
+    }
+
     private static void RunWithStore(Action<SqliteBrainStateStore, string> body)
     {
         string dir = Path.Combine(Path.GetTempPath(), "porta-goal-tests", Guid.NewGuid().ToString("N"));

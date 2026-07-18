@@ -1000,7 +1000,10 @@ public sealed record LocalApiGoalEndOfDayRequest(
 public sealed record LocalApiDailyGoalResponse(
     bool Success,
     LocalApiDailyGoal? Goal,
-    DateTimeOffset TimestampUtc);
+    DateTimeOffset TimestampUtc,
+    // Part 3 — yesterday's plan_tomorrow, present only on goals/today while today has no stated
+    // goal, so the morning check-in opens with it instead of a blank ask.
+    [property: JsonPropertyName("carried_plan_tomorrow")] string? CarriedPlanTomorrow = null);
 
 public sealed record LocalApiExportResponse(
     bool Success,

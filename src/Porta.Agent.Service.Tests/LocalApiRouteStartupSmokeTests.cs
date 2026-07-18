@@ -287,6 +287,7 @@ public sealed class LocalApiRouteStartupSmokeTests
         public AgentDailyGoal? GetTodayGoal() => throw new NotSupportedException();
         public AgentDailyGoal? RecordMiddayAnswer(string answer) => throw new NotSupportedException();
         public AgentDailyGoal? RecordEndOfDay(string planTomorrow) => throw new NotSupportedException();
+        public string? GetCarriedOverPlan() => null;
     }
 
     private sealed class SmokeAriContextProvider : IAriContextProvider

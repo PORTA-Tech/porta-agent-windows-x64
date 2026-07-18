@@ -36,11 +36,21 @@ internal static class UserCheckInCoordinator
     public static UserCheckInPrompt BuildPrompt(
         UserCheckInKind kind,
         LocalApiDailyGoal? goal,
-        LocalTodaySummaryMetrics metrics)
+        LocalTodaySummaryMetrics metrics,
+        string? carriedPlan = null)
     {
         string goalText = (goal?.GoalText ?? string.Empty).Trim();
+        string plan = (carriedPlan ?? string.Empty).Trim();
         return kind switch
         {
+            // Part 3 — memory: when last night's plan carried over, open with it (confirm/edit)
+            // instead of a blank ask. The plan pre-fills the goal box so confirming is one click.
+            UserCheckInKind.Morning when plan.Length > 0 => new UserCheckInPrompt(
+                Kind: UserCheckInKind.Morning,
+                Title: "Still the goal for today?",
+                Message: $"Last night you planned: “{plan}”. Confirm it or change it below.",
+                PrefillGoalText: plan),
+
             UserCheckInKind.Morning => new UserCheckInPrompt(
                 Kind: UserCheckInKind.Morning,
                 Title: "What's the one thing today?",

@@ -352,7 +352,11 @@ public static class LocalApiEndpointMapping
         // Workstream D — conversational check-in goals (goal-day resolved at the 5:00 boundary
         // in the controller). All four return the current goal row.
         api.MapGet("/goals/today", (IAgentCoreController controller) =>
-            new LocalApiDailyGoalResponse(Success: true, Goal: ToApiGoal(controller.GetTodayGoal()), TimestampUtc: DateTimeOffset.UtcNow));
+            new LocalApiDailyGoalResponse(
+                Success: true,
+                Goal: ToApiGoal(controller.GetTodayGoal()),
+                TimestampUtc: DateTimeOffset.UtcNow,
+                CarriedPlanTomorrow: controller.GetCarriedOverPlan()));
 
         api.MapPost("/goals/morning", (IAgentCoreController controller, LocalApiGoalMorningRequest? request) =>
         {
