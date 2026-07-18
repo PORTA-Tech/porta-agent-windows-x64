@@ -19,6 +19,8 @@ internal sealed class UserCheckInCardPresenter : IUserCheckInCardPresenter
 {
     private static readonly TimeSpan ThreadReadyTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan ConfirmationDisplay = TimeSpan.FromSeconds(4.5);
+    // A confirmation carrying an action button needs long enough to read AND click.
+    private static readonly TimeSpan ConfirmationWithActionDisplay = TimeSpan.FromSeconds(12);
 
     private readonly object _gate = new();
     private readonly TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -92,7 +94,9 @@ internal sealed class UserCheckInCardPresenter : IUserCheckInCardPresenter
 
     // Echoes a short acknowledgement on the card after the user replied, then auto-hides it. Best
     // effort: if the surface isn't ready this is simply skipped (the write-back already succeeded).
-    public void ShowConfirmation(UserCheckInKind kind, string message)
+    // Part 5c — an optional single action button ("has power") rides along; the card shows longer
+    // so there is time to click it.
+    public void ShowConfirmation(UserCheckInKind kind, string message, string? actionLabel = null, Action? onAction = null)
     {
         if (_disposed || string.IsNullOrWhiteSpace(message))
         {
@@ -110,14 +114,16 @@ internal sealed class UserCheckInCardPresenter : IUserCheckInCardPresenter
             return;
         }
 
+        bool hasAction = !string.IsNullOrWhiteSpace(actionLabel) && onAction != null;
         try
         {
             dispatcher.BeginInvoke(new Action(() =>
             {
                 EnsureWindowOnCurrentDispatcher();
-                _window?.ShowConfirmation(kind, message);
+                _window?.ShowConfirmation(kind, message, actionLabel, onAction);
                 _confirmationTimer ??= CreateConfirmationTimer();
                 _confirmationTimer.Stop();
+                _confirmationTimer.Interval = hasAction ? ConfirmationWithActionDisplay : ConfirmationDisplay;
                 _confirmationTimer.Start();
             }), DispatcherPriority.Send);
         }

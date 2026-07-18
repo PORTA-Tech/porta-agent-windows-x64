@@ -1531,8 +1531,21 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         LocalTodaySummaryMetrics metrics = LocalTodaySummaryMetricsBuilder.Build(
             _widgetDetailTimeline, snapshot, liveSession, nowUtc);
+
+        // Part 5 — the gate above has already decided to SPEAK; now (and only now) fetch the
+        // LLM-written line for the moment. Hard budget, then the honest template takes over —
+        // a narrative problem may delay this card a few seconds but can never block it.
+        string narrativeKind = kind switch
+        {
+            UserCheckInKind.Morning => "morning",
+            UserCheckInKind.Midday => "midday",
+            _ => "eod"
+        };
+        string? narrativeLine = await TryGetNarrativeLineAsync(narrativeKind, userText: null, token).ConfigureAwait(false);
+        UserAgentFileLog.Info($"checkin_narrative kind={narrativeKind} used={narrativeLine != null}");
+
         UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
-            kind, goal, metrics, goalResponse.CarriedPlanTomorrow);
+            kind, goal, metrics, goalResponse.CarriedPlanTomorrow, narrativeLine);
 
         bool shown = _interventionExecutor.TryShowGatedCheckIn(
             UserCheckInScheduler.MuteClassFor(kind),
@@ -1591,7 +1604,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                         TrackingPref: response.Choice))
                     .ConfigureAwait(false);
                 UserAgentFileLog.Info($"checkin_morning_recorded ok={result?.Success == true} pref={response.Choice}");
-                _checkInCardPresenter.ShowConfirmation(UserCheckInKind.Morning, "Locked in. I'll help you protect it today.");
+
+                // Part 5b — the text box feeds the LLM: Ari's confirmation responds to the goal
+                // the user actually typed. Fail-soft to the short honest template.
+                string? morningReply = await TryGetNarrativeLineAsync("reply_morning", goal, CancellationToken.None).ConfigureAwait(false);
+                _checkInCardPresenter.ShowConfirmation(
+                    UserCheckInKind.Morning,
+                    morningReply ?? "Locked in. I'll help you protect it today.");
                 break;
             }
 
@@ -1607,13 +1626,48 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                     .RecordMiddayAnswerAsync(new LocalApiGoalMiddayRequest(SchemaVer: 1, Answer: answer))
                     .ConfigureAwait(false);
                 UserAgentFileLog.Info($"checkin_midday_recorded ok={result?.Success == true} answer={answer}");
-                string followUp = answer switch
+
+                string? middayReply = await TryGetNarrativeLineAsync("reply_midday", answer, CancellationToken.None).ConfigureAwait(false);
+                string followUp = middayReply ?? answer switch
                 {
                     "partly" => "Good — want me to keep it front of mind?",
                     "not_yet" => "No stress. One quiet nudge in an hour?",
                     _ => "Nice — keep the momentum."
                 };
-                _checkInCardPresenter.ShowConfirmation(UserCheckInKind.Midday, followUp);
+
+                // Part 5c — "has power": when the goal isn't landing yet, the card offers ONE
+                // action wired to an existing capability — a real reminder in an hour.
+                if (answer is "partly" or "not_yet")
+                {
+                    string goalText = (result?.Goal?.GoalText ?? string.Empty).Trim();
+                    string reminderTitle = goalText.Length > 0 ? $"Back to: {goalText}" : "Back to today's goal";
+                    _checkInCardPresenter.ShowConfirmation(
+                        UserCheckInKind.Midday,
+                        followUp,
+                        actionLabel: "Remind me in 1h",
+                        onAction: () => _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                LocalApiReminderCreateResponse? reminder = await _localApiClient
+                                    .CreateReminderAsync(new LocalApiReminderCreateRequest(
+                                        SchemaVer: 1,
+                                        Title: reminderTitle,
+                                        DueAtUtc: DateTimeOffset.UtcNow.AddHours(1)))
+                                    .ConfigureAwait(false);
+                                UserAgentFileLog.Info($"checkin_midday_reminder ok={reminder?.Success == true}");
+                            }
+                            catch (Exception ex)
+                            {
+                                UserAgentFileLog.Error("checkin_midday_reminder_failed", ex);
+                            }
+                        }));
+                }
+                else
+                {
+                    _checkInCardPresenter.ShowConfirmation(UserCheckInKind.Midday, followUp);
+                }
+
                 break;
             }
 
@@ -1626,11 +1680,35 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 UserAgentFileLog.Info($"checkin_eod_recorded ok={result?.Success == true} has_plan={plan.Length > 0}");
                 if (plan.Length > 0)
                 {
-                    _checkInCardPresenter.ShowConfirmation(UserCheckInKind.EndOfDay, "Saved for tomorrow. Rest well.");
+                    string? eodReply = await TryGetNarrativeLineAsync("reply_eod", plan, CancellationToken.None).ConfigureAwait(false);
+                    _checkInCardPresenter.ShowConfirmation(
+                        UserCheckInKind.EndOfDay,
+                        eodReply ?? "Saved for tomorrow. Rest well.");
                 }
 
                 break;
             }
+        }
+    }
+
+    // Part 5 — one narrative line from the local API (which forwards to the control plane where
+    // the LLM + key live). Null on ANY failure inside the hard budget; callers fall back to their
+    // honest template, so this can delay a line slightly but never lose a moment.
+    private async Task<string?> TryGetNarrativeLineAsync(string kind, string? userText, CancellationToken token)
+    {
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            LocalApiNarrativeResponse? response = await _localApiClient
+                .GetNarrativeAsync(new LocalApiNarrativeRequest(SchemaVer: 1, Kind: kind, UserText: userText), cts.Token)
+                .ConfigureAwait(false);
+            string? line = response?.Line?.Trim();
+            return string.IsNullOrWhiteSpace(line) ? null : line;
+        }
+        catch
+        {
+            return null;
         }
     }
 

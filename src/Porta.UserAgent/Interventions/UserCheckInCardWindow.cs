@@ -167,7 +167,7 @@ internal sealed class UserCheckInCardWindow : Window
     // Echoes a short acknowledgement on the same card after the user answered (morning "locked in",
     // midday follow-up, EOD "saved"). No inputs, no reply — the presenter auto-hides it shortly. This
     // keeps the whole check-in conversation on the always-on-top card instead of a separate toast.
-    public void ShowConfirmation(UserCheckInKind kind, string message)
+    public void ShowConfirmation(UserCheckInKind kind, string message, string? actionLabel = null, Action? onAction = null)
     {
         _kind = kind;
         _responded = true;        // the exchange is over; the ✕ now just hides
@@ -176,6 +176,27 @@ internal sealed class UserCheckInCardWindow : Window
         _title.Text = message;
         _message.Text = string.Empty;
         _bodyStack.Children.Clear();
+
+        // Part 5c — "has power": the confirmation can carry ONE action wired to an existing
+        // capability (e.g. a reminder). One button, one action, then the card hides.
+        if (!string.IsNullOrWhiteSpace(actionLabel) && onAction != null)
+        {
+            Button action = MakeChip(actionLabel);
+            action.Margin = new Thickness(0, 10, 0, 0);
+            action.Click += (_, _) =>
+            {
+                try
+                {
+                    onAction();
+                }
+                catch
+                {
+                }
+
+                Hide();
+            };
+            _bodyStack.Children.Add(action);
+        }
 
         if (!IsVisible)
         {
@@ -263,6 +284,20 @@ internal sealed class UserCheckInCardWindow : Window
 
     private void BuildEndOfDay(UserCheckInPrompt prompt)
     {
+        // The measured day summary renders as its own block (mirrors midday) so it stays visible
+        // whether the message above it is the template or the LLM line.
+        if (!string.IsNullOrWhiteSpace(prompt.ReportLine))
+        {
+            _bodyStack.Children.Add(new TextBlock
+            {
+                FontSize = 12,
+                Foreground = new SolidColorBrush(MutedFg),
+                TextWrapping = TextWrapping.Wrap,
+                Text = prompt.ReportLine,
+                Margin = new Thickness(0, 0, 0, 10)
+            });
+        }
+
         TextBox planBox = MakeInputBox("Plan tomorrow — one line");
         _bodyStack.Children.Add(planBox);
 

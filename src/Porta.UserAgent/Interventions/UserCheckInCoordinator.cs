@@ -33,14 +33,19 @@ internal static class UserCheckInCoordinator
 
     // Builds the card frame for the due kind. Reuses the already-aggregated day metrics (never a
     // recompute of capture) for the midday/EOD report line; the morning card asks a fresh question.
+    // Part 5 — narrativeLine is the LLM-written copy for this moment (already gated: the caller
+    // decided to SPEAK before fetching it). Empty/null = fail-soft to the short honest templates
+    // below, which are specific to the moment and the goal — never a generic filler line.
     public static UserCheckInPrompt BuildPrompt(
         UserCheckInKind kind,
         LocalApiDailyGoal? goal,
         LocalTodaySummaryMetrics metrics,
-        string? carriedPlan = null)
+        string? carriedPlan = null,
+        string? narrativeLine = null)
     {
         string goalText = (goal?.GoalText ?? string.Empty).Trim();
         string plan = (carriedPlan ?? string.Empty).Trim();
+        string line = (narrativeLine ?? string.Empty).Trim();
         return kind switch
         {
             // Part 3 — memory: when last night's plan carried over, open with it (confirm/edit)
@@ -48,29 +53,35 @@ internal static class UserCheckInCoordinator
             UserCheckInKind.Morning when plan.Length > 0 => new UserCheckInPrompt(
                 Kind: UserCheckInKind.Morning,
                 Title: "Still the goal for today?",
-                Message: $"Last night you planned: “{plan}”. Confirm it or change it below.",
+                Message: line.Length > 0 ? line : $"Last night you planned: “{plan}”. Confirm it or change it below.",
                 PrefillGoalText: plan),
 
             UserCheckInKind.Morning => new UserCheckInPrompt(
                 Kind: UserCheckInKind.Morning,
                 Title: "What's the one thing today?",
-                Message: "Name today's focus and I'll help you protect it."),
+                Message: line.Length > 0 ? line : "Name today's focus and I'll help you protect it."),
 
             UserCheckInKind.Midday => new UserCheckInPrompt(
                 Kind: UserCheckInKind.Midday,
                 Title: "How's it going?",
-                Message: goalText.Length > 0
-                    ? $"This morning you said: “{goalText}”. Did you get to it?"
-                    : "Did you get to what mattered so far?",
+                Message: line.Length > 0
+                    ? line
+                    : goalText.Length > 0
+                        ? $"This morning you said: “{goalText}”. Did you get to it?"
+                        : "Did you get to what mattered so far?",
                 GoalText: goalText,
                 ReportLine: BuildReportLine(metrics)),
 
+            // The card renders ReportLine as its own block (same as midday), so the message
+            // stays reflection copy and the measured numbers are never displaced by the LLM.
             _ => new UserCheckInPrompt(
                 Kind: UserCheckInKind.EndOfDay,
                 Title: "Wrapping up",
-                Message: goalText.Length > 0
-                    ? $"Today's goal was: “{goalText}”. {BuildReportLine(metrics)}".TrimEnd()
-                    : BuildReportLine(metrics),
+                Message: line.Length > 0
+                    ? line
+                    : goalText.Length > 0
+                        ? $"Today's goal was: “{goalText}”."
+                        : "Wrapping up the day.",
                 GoalText: goalText,
                 ReportLine: BuildReportLine(metrics)),
         };

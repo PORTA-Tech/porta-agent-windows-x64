@@ -173,6 +173,62 @@ public sealed class UserCheckInCoordinatorTests
         Assert.Equal(string.Empty, prompt.PrefillGoalText);
     }
 
+    // Part 5 — the LLM line becomes the card message; everything else (title, prefill, report
+    // numbers) stays exactly as the template card would show it.
+    [Fact]
+    public void BuildPrompt_WithNarrativeLine_UsesItAsTheMessage()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Midday, goal: null, EmptyMetrics(),
+            narrativeLine: "You said the API was the day — protect the next hour for it.");
+
+        Assert.Equal("You said the API was the day — protect the next hour for it.", prompt.Message);
+        Assert.Equal("How's it going?", prompt.Title);
+    }
+
+    [Fact]
+    public void BuildPrompt_MorningWithCarriedPlanAndNarrative_KeepsThePrefill()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Morning, goal: null, EmptyMetrics(),
+            carriedPlan: "Finish the report",
+            narrativeLine: "Last night you set tomorrow up — still the move?");
+
+        Assert.Equal("Last night you set tomorrow up — still the move?", prompt.Message);
+        Assert.Equal("Finish the report", prompt.PrefillGoalText);
+    }
+
+    // Fail-soft: a blank narrative means the honest per-moment template, never a generic line.
+    [Fact]
+    public void BuildPrompt_BlankNarrative_FallsBackToTheHonestTemplate()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Morning, goal: null, EmptyMetrics(), narrativeLine: "   ");
+
+        Assert.Equal("Name today's focus and I'll help you protect it.", prompt.Message);
+    }
+
+    [Fact]
+    public void BuildPrompt_EndOfDay_MessageStaysReflection_ReportRidesSeparately()
+    {
+        var metrics = new LocalTodaySummaryMetrics(
+            HasProcessedTimeline: true,
+            FocusedTodaySeconds: 3600,
+            FocusQualityPercent: 70,
+            DistractionTodaySeconds: 0,
+            AwayTodaySeconds: 0,
+            ContextExcursionTodaySeconds: 0,
+            TrackedTodaySeconds: 3600,
+            DisplayedTrackedTodaySeconds: 3600,
+            MostDistractedHourLabel: "Not available");
+
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.EndOfDay, goal: null, metrics, narrativeLine: "Solid close — the afternoon carried the day.");
+
+        Assert.Equal("Solid close — the afternoon carried the day.", prompt.Message);
+        Assert.Contains("focused", prompt.ReportLine, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void BuildPrompt_Midday_EchoesTheGoalAndCarriesTheReport()
     {
