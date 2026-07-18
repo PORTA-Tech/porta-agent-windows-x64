@@ -1031,3 +1031,26 @@ public interface IAriContextProvider
 {
     LocalApiAriContextResponse GetContext();
 }
+
+// Part 5 — live check-in copy. The user agent asks the local API for one narrative line per
+// high-value moment; the service forwards to the control plane (where the LLM + key live) and
+// fails soft to null so the card can render its honest template instead. Kind is one of:
+// morning | midday | eod | reply_morning | reply_midday | reply_eod.
+public sealed record LocalApiNarrativeRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("kind")] string? Kind,
+    [property: JsonPropertyName("user_text")] string? UserText = null);
+
+public sealed record LocalApiNarrativeResponse(
+    bool Success,
+    [property: JsonPropertyName("line")] string? Line,
+    DateTimeOffset TimestampUtc);
+
+/// <summary>
+/// Served by the agent service (which owns the control-plane channel). Null = use the template;
+/// implementations must never throw and must respect the caller's cancellation budget.
+/// </summary>
+public interface INarrativeGateway
+{
+    Task<string?> GetNarrativeLineAsync(string kind, string? userText, CancellationToken token);
+}

@@ -115,6 +115,41 @@ internal sealed class ControlPlaneClient : IDisposable
         }
     }
 
+    // Part 5 — one narrative line per high-value moment. Null on any failure or an empty line;
+    // the caller falls back to its template. The caller supplies the timeout budget via token.
+    public async Task<string?> PostNarrativeAsync(NarrativeRequestPayload payload, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+
+        if (_httpClient is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(
+                "api/agent/narrative",
+                payload,
+                JsonOptions,
+                token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            NarrativeResponsePayload? parsed = await response.Content
+                .ReadFromJsonAsync<NarrativeResponsePayload>(cancellationToken: token)
+                .ConfigureAwait(false);
+            string? line = parsed?.Line?.Trim();
+            return string.IsNullOrWhiteSpace(line) ? null : line;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<bool> PostDailyDigestAsync(DailyDigestReportPayload payload, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(payload);

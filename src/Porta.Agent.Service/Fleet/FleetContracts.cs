@@ -145,6 +145,34 @@ internal sealed record FocusAppUsagePayload(
     // apps/sites (entertainment/social/gaming = distracting) without re-deriving categories server-side.
     [property: JsonPropertyName("category")] int Category = 0);
 
+// Part 5 — live narrative line request (POST api/agent/narrative). Situation carries the same
+// metadata classes the digest already uploads: goal/plan text, numbers, coarse app labels — no
+// content beyond what the user typed into the check-in card itself.
+internal sealed record NarrativeSituationPayload(
+    [property: JsonPropertyName("goalToday")] string? GoalToday,
+    [property: JsonPropertyName("carriedPlan")] string? CarriedPlan,
+    [property: JsonPropertyName("middayAnswer")] string? MiddayAnswer,
+    [property: JsonPropertyName("trackedSeconds")] double TrackedSeconds,
+    [property: JsonPropertyName("focusSeconds")] double FocusSeconds,
+    [property: JsonPropertyName("focusQualityPct")] double FocusQualityPct,
+    [property: JsonPropertyName("distractionSeconds")] double DistractionSeconds,
+    [property: JsonPropertyName("awaySeconds")] double AwaySeconds,
+    [property: JsonPropertyName("longestStreakSeconds")] double LongestStreakSeconds,
+    [property: JsonPropertyName("topApps")] IReadOnlyList<FocusAppUsagePayload>? TopApps,
+    [property: JsonPropertyName("localTimeHHmm")] string? LocalTimeHHmm,
+    [property: JsonPropertyName("userText")] string? UserText);
+
+internal sealed record NarrativeRequestPayload(
+    [property: JsonPropertyName("accountId")] string AccountId,
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("machineId")] string MachineId,
+    [property: JsonPropertyName("dateLocal")] string DateLocal,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("situation")] NarrativeSituationPayload Situation);
+
+internal sealed record NarrativeResponsePayload(
+    [property: JsonPropertyName("line")] string? Line);
+
 internal sealed record DailyDigestReportPayload(
     [property: JsonPropertyName("accountId")] string? AccountId,
     [property: JsonPropertyName("deviceId")] string DeviceId,

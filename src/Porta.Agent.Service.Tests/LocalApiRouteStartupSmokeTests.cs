@@ -60,6 +60,9 @@ public sealed class LocalApiRouteStartupSmokeTests
         // /session/ari-context binds IAriContextProvider from DI; without a registration the
         // route builder infers it as a GET body and the whole endpoint tree fails to start.
         builder.Services.AddSingleton<IAriContextProvider>(new SmokeAriContextProvider());
+        // /narrative binds INarrativeGateway the same way — an unregistered interface parameter
+        // would break the endpoint tree at startup.
+        builder.Services.AddSingleton<INarrativeGateway>(new SmokeNarrativeGateway());
 
         WebApplication app = builder.Build();
         app.MapPortaLocalApi(new LocalApiRuntimeSettings(
@@ -293,6 +296,12 @@ public sealed class LocalApiRouteStartupSmokeTests
     private sealed class SmokeAriContextProvider : IAriContextProvider
     {
         public LocalApiAriContextResponse GetContext() => new(null, null, null, null, null);
+    }
+
+    private sealed class SmokeNarrativeGateway : INarrativeGateway
+    {
+        public Task<string?> GetNarrativeLineAsync(string kind, string? userText, CancellationToken token) =>
+            Task.FromResult<string?>(null);
     }
 
     private sealed class SmokeIdentityLinkStore : ILocalIdentityLinkStore

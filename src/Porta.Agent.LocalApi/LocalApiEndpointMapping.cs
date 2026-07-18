@@ -380,6 +380,20 @@ public static class LocalApiEndpointMapping
             return Results.Json(new LocalApiDailyGoalResponse(goal is not null, ToApiGoal(goal), DateTimeOffset.UtcNow));
         });
 
+        // Part 5 — one narrative line per high-value moment. The gate has already decided to
+        // speak before this is called; a null line means "use the template". Fail-soft: this
+        // endpoint never blocks a card beyond the caller's own timeout budget.
+        api.MapPost("/narrative", async (INarrativeGateway narrative, LocalApiNarrativeRequest? request, CancellationToken token) =>
+        {
+            if (request is null || request.SchemaVer != 1 || string.IsNullOrWhiteSpace(request.Kind))
+            {
+                return Results.BadRequest(new LocalApiNarrativeResponse(false, null, DateTimeOffset.UtcNow));
+            }
+
+            string? line = await narrative.GetNarrativeLineAsync(request.Kind.Trim(), request.UserText, token).ConfigureAwait(false);
+            return Results.Json(new LocalApiNarrativeResponse(true, line, DateTimeOffset.UtcNow));
+        });
+
         api.MapPost("/goals/eod", (IAgentCoreController controller, LocalApiGoalEndOfDayRequest? request) =>
         {
             if (request is null || request.SchemaVer != 1)

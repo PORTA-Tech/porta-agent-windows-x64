@@ -89,6 +89,9 @@ internal sealed class AgentService : IHostedService, IDisposable
                 sp.GetRequiredService<IAgentCoreController>()));
         services.AddHostedService<CurrentSessionUserAgentWatchdog>();
         services.AddSingleton<ControlPlaneClient>();
+        // Part 5 — /v1/narrative: the user agent's card asks here; this forwards to the control
+        // plane where the LLM + key live. Fail-soft to null (template) at every layer.
+        services.AddSingleton<INarrativeGateway, NarrativeGateway>();
         services.AddSingleton<AriContextCache>();
         services.AddSingleton<IAriContextProvider>(sp => sp.GetRequiredService<AriContextCache>());
         services.AddSingleton<ControlPlaneReporterStateStore>();

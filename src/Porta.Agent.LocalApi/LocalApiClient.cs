@@ -413,6 +413,30 @@ public sealed class LocalApiClient : IDisposable
     public Task<LocalApiDailyGoalResponse?> RecordEndOfDayAsync(LocalApiGoalEndOfDayRequest request, CancellationToken token = default)
         => PostGoalAsync("/v1/goals/eod", request, token);
 
+    // Part 5 — one narrative line per high-value moment. Null on any failure; the caller renders
+    // its honest template instead, so this can never delay a card past the caller's own budget.
+    public async Task<LocalApiNarrativeResponse?> GetNarrativeAsync(
+        LocalApiNarrativeRequest request,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/narrative", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiNarrativeResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private async Task<LocalApiDailyGoalResponse?> PostGoalAsync(string path, object request, CancellationToken token)
     {
         if (!HasRuntimeSettings())
