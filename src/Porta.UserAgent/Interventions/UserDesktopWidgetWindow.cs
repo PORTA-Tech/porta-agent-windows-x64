@@ -1428,7 +1428,32 @@ internal sealed class UserDesktopWidgetWindow : Window
     {
         SetWindowLifecycleState(WindowLifecycleClosed);
         RefreshSurfaceVisibilityHealth();
+        // Fleet §1 (USER-handle leak, PEACH20/AYMENE): a dead window with ANY DispatcherTimer
+        // still running stays rooted by the dispatcher forever — its whole visual tree, hook
+        // delegate, and native resources ride along, and every widget recreate stacks another
+        // one. Stop ALL timers here (only _pulseTimer was stopped before), and unhook WndProc.
         _pulseTimer.Stop();
+        _attentionTimer.Stop();
+        _promptTimer.Stop();
+        _stateTakeoverTimer.Stop();
+        _reexpandTimer.Stop();
+        _collapseTimer.Stop();
+        _menuDismissTimer.Stop();
+        if (_hwndSource is { IsDisposed: false } source)
+        {
+            try
+            {
+                // The HwndSource is WPF's own (FromHwnd on our handle) — the framework disposes
+                // it with the window; we only remove the hook we added so its delegate list
+                // cannot keep this instance reachable.
+                source.RemoveHook(WndProc);
+            }
+            catch
+            {
+            }
+        }
+
+        _hwndSource = null;
         base.OnClosed(e);
     }
 

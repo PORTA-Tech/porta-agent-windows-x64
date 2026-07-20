@@ -100,6 +100,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private bool _localApiUnavailableLogged;
     private int _heartbeatWriteFailureCount;
     private int _consecutiveSignalDeliveryFailures;
+    // Fleet §1a — throttle for the periodic gui_resources log line.
+    private static readonly TimeSpan GuiResourceLogInterval = TimeSpan.FromMinutes(5);
+    private DateTimeOffset _lastGuiResourceLogUtc = DateTimeOffset.MinValue;
     private string? _captureFailureCode;
     private long _lastCaptureLoopTickUtcTicks;
     private long _captureLoopFailureStreak;
@@ -822,6 +825,16 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         int heartbeatWriteFailureCount = _heartbeatWriteFailureCount;
         CaptureSelfTestHeartbeatProjection selfTest = _captureSelfTest.GetHeartbeatProjection();
         DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+
+        // Fleet §1a — periodic USER/GDI handle counts. A monotonic climb here is the widget
+        // handle leak that killed capture on PEACH20/AYMENE (~10k per-process ceiling); a flat
+        // line is the proof of the fix. One log line every 5 minutes, piggybacked on the
+        // heartbeat so it costs nothing extra.
+        if ((nowUtc - _lastGuiResourceLogUtc) >= GuiResourceLogInterval)
+        {
+            _lastGuiResourceLogUtc = nowUtc;
+            UserAgentFileLog.Info($"gui_resources {Interventions.GuiResourceMeter.Describe()} pid={Environment.ProcessId}");
+        }
         long heartbeatSequence = Interlocked.Increment(ref _heartbeatSequence);
         string? effectiveCaptureFailureCode = ResolveHeartbeatCaptureFailureCode(nowUtc);
         UserAgentSessionContextSnapshot snapshot = new(

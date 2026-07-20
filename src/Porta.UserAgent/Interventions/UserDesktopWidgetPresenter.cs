@@ -42,6 +42,17 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     // path at all, so this throttle is completely inert for them.
     private static readonly TimeSpan MaintenanceRestartBackoff = TimeSpan.FromSeconds(60);
     private DateTimeOffset _lastMaintenanceRestartUtc = DateTimeOffset.MinValue;
+    // Fleet §1c — consecutive-failure backoff shared by EVERY widget (re)start path. The
+    // maintenance throttle above only guards the 2s health tick; the dominant relaunch path on
+    // the crash-looping machines was TryDispatchToWidget → EnsureWidgetThreadStarted, which ran
+    // on every ~2s state push with NO backoff — thousands of window/thread cycles per hour,
+    // each leaking USER handles until the ~10k ceiling killed capture (PEACH20, AYMENE).
+    // First start is never delayed; the delay doubles per consecutive failure and any healthy
+    // start resets it, so working machines are untouched.
+    private static readonly TimeSpan StartFailureBackoffBase = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan StartFailureBackoffMax = TimeSpan.FromMinutes(10);
+    private int _consecutiveStartFailures;
+    private DateTimeOffset _nextStartAllowedUtc = DateTimeOffset.MinValue;
     // Workstream 3 — last hidden state this presenter acted on. Null until first observed,
     // so a normal start never fires the "widget is back" affordance.
     private bool? _lastHiddenObserved;
@@ -379,6 +390,72 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         return new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
+    // §1c — one failure = one growing delay before the NEXT start attempt, whatever path asks.
+    private void RegisterWidgetStartFailure(string site)
+    {
+        int failures = Interlocked.Increment(ref _consecutiveStartFailures);
+        double multiplier = Math.Pow(2d, Math.Min(failures - 1, 6)); // caps the exponent, then the clamp below caps the time
+        TimeSpan delay = TimeSpan.FromTicks(Math.Min(
+            (long)(StartFailureBackoffBase.Ticks * multiplier),
+            StartFailureBackoffMax.Ticks));
+        _nextStartAllowedUtc = DateTimeOffset.UtcNow + delay;
+        UserAgentFileLog.Info(
+            $"desktop_widget_restart_backoff site={site} consecutive_failures={failures} next_attempt_in_s={(int)delay.TotalSeconds} {GuiResourceMeter.Describe()}");
+    }
+
+    private void ResetWidgetStartBackoff()
+    {
+        if (Interlocked.Exchange(ref _consecutiveStartFailures, 0) != 0)
+        {
+            UserAgentFileLog.Info($"desktop_widget_restart_backoff_reset {GuiResourceMeter.Describe()}");
+        }
+
+        _nextStartAllowedUtc = DateTimeOffset.MinValue;
+    }
+
+    private bool IsStartBackoffActive() => DateTimeOffset.UtcNow < _nextStartAllowedUtc;
+
+    // §1b — a window we are about to replace must be CLOSED, not orphaned: its ctor-started
+    // pulse timer (and, once shown, the rest of its timers) would otherwise keep the dead
+    // window rooted on the live dispatcher forever — the per-recreate USER-handle leak.
+    private static void CloseReplacedWindow(UserDesktopWidgetWindow window, string reason)
+    {
+        try
+        {
+            Dispatcher dispatcher = window.Dispatcher;
+            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+                return; // its thread is dying; the OS reclaims the thread's windows
+            }
+
+            void CloseNow()
+            {
+                try
+                {
+                    window.AllowCloseForShutdown();
+                    window.Close();
+                }
+                catch
+                {
+                }
+            }
+
+            if (dispatcher.CheckAccess())
+            {
+                CloseNow();
+            }
+            else
+            {
+                dispatcher.BeginInvoke(new Action(CloseNow));
+            }
+
+            UserAgentFileLog.Info($"desktop_widget_orphan_closed reason={reason}");
+        }
+        catch
+        {
+        }
+    }
+
     private bool WaitForWidgetReady()
     {
         return _widgetReady.Task.Wait(WidgetReadyTimeout);
@@ -398,6 +475,12 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private bool TryRecoverWindowOnExistingDispatcher()
     {
         if (_disposed || !_rollout.SupportsWidgetSurface)
+        {
+            return false;
+        }
+
+        // §1c — recovery recreates the window too; it honors the same failure backoff.
+        if (IsStartBackoffActive())
         {
             return false;
         }
@@ -432,7 +515,8 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         }
         catch (Exception ex)
         {
-            UserAgentFileLog.Error("widget_recovery_dispatch_failed", ex);
+            UserAgentFileLog.Error($"widget_recovery_dispatch_failed {GuiResourceMeter.Describe()}", ex);
+            RegisterWidgetStartFailure("recovery_dispatch");
             _widgetReady.TrySetResult(false);
             return false;
         }
@@ -465,6 +549,8 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 }
             }
 
+            // §1b — close it on ITS dispatcher instead of orphaning it with running timers.
+            CloseReplacedWindow(currentWindow, "dispatcher_mismatch");
             currentWindow = null;
         }
 
@@ -496,21 +582,52 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
                     bool ready = _visibilityStore.IsHidden() || currentWindow.IsSurfaceVisibleForHeartbeat;
                     SetWidgetHealthStateOnWidgetThread(ready ? WidgetHealthReady : WidgetHealthUnavailable);
+                    if (ready)
+                    {
+                        ResetWidgetStartBackoff();
+                    }
+
                     _widgetReady.TrySetResult(ready);
                     return;
                 }
                 catch (Exception ex)
                 {
                     SetWidgetHealthStateOnWidgetThread(WidgetHealthUnavailable);
-                    UserAgentFileLog.Error("widget_window_reuse_failed", ex);
+                    UserAgentFileLog.Error($"widget_window_reuse_failed {GuiResourceMeter.Describe()}", ex);
+                    // §1b — the broken window would be replaced below; close it so its timers die.
+                    lock (_widgetLifecycleGate)
+                    {
+                        if (ReferenceEquals(_widgetWindow, currentWindow))
+                        {
+                            _widgetWindow = null;
+                        }
+                    }
+
+                    CloseReplacedWindow(currentWindow, "reuse_failed");
+                    currentWindow = null;
                 }
             }
+        }
+
+        // §1b — a constructed-but-never-loaded leftover (its Show() threw last time) still has a
+        // running ctor pulse timer; close it before creating its replacement.
+        if (currentWindow is not null && !currentWindow.IsLoaded)
+        {
+            lock (_widgetLifecycleGate)
+            {
+                if (ReferenceEquals(_widgetWindow, currentWindow))
+                {
+                    _widgetWindow = null;
+                }
+            }
+
+            CloseReplacedWindow(currentWindow, "never_loaded");
         }
 
         try
         {
             SetWidgetHealthStateOnWidgetThread(WidgetHealthStarting);
-            UserAgentFileLog.Info("desktop_widget_window_initializing");
+            UserAgentFileLog.Info($"desktop_widget_window_initializing {GuiResourceMeter.Describe()}");
             var window = new UserDesktopWidgetWindow(OnWidgetActionRequested, OnPromptResponseRequested, _placementStore, OnLabelAnswerRequested, OnReminderCommandRequested, OnTaskCommandRequested);
             window.Closed += OnWidgetWindowClosed;
 
@@ -539,13 +656,44 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
             bool ready = startHidden || window.IsSurfaceVisibleForHeartbeat;
             SetWidgetHealthStateOnWidgetThread(ready ? WidgetHealthReady : WidgetHealthUnavailable);
-            UserAgentFileLog.Info("desktop_widget_window_shown");
+            UserAgentFileLog.Info($"desktop_widget_window_shown {GuiResourceMeter.Describe()}");
+            if (ready)
+            {
+                ResetWidgetStartBackoff();
+            }
+
             _widgetReady.TrySetResult(ready);
         }
         catch (Exception ex)
         {
             SetWidgetHealthStateOnWidgetThread(WidgetHealthUnavailable);
-            UserAgentFileLog.Error("widget_window_show_failed", ex);
+            // §1a — the handle counts at the moment of failure separate the initial trigger
+            // (counts normal → DPI/GPU/locale/display problem) from exhaustion (counts ~10k).
+            UserAgentFileLog.Error($"widget_window_show_failed {GuiResourceMeter.Describe()}", ex);
+            RegisterWidgetStartFailure("window_show");
+
+            // §1b — the half-created window must not outlive the failure: its ctor already
+            // started the pulse timer, and the next attempt would otherwise stack a new window
+            // on top of it. Close it before shutting the dispatcher down.
+            UserDesktopWidgetWindow? failedWindow;
+            lock (_widgetLifecycleGate)
+            {
+                failedWindow = _widgetWindow;
+                _widgetWindow = null;
+            }
+
+            if (failedWindow is not null)
+            {
+                try
+                {
+                    failedWindow.AllowCloseForShutdown();
+                    failedWindow.Close();
+                }
+                catch
+                {
+                }
+            }
+
             _widgetReady.TrySetResult(false);
             try
             {
@@ -633,6 +781,13 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             return;
         }
 
+        // §1c — after a start failure, EVERY caller (2s state pushes included) waits out the
+        // backoff. Healthy widgets never set it; the operational checks below still short-circuit.
+        if (IsStartBackoffActive())
+        {
+            return;
+        }
+
         if (forceRestart && TryRecoverWindowOnExistingDispatcher())
         {
             return;
@@ -711,7 +866,8 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         catch (Exception ex)
         {
             SetWidgetHealthStateOnWidgetThread(WidgetHealthUnavailable);
-            UserAgentFileLog.Error("widget_thread_failed", ex);
+            UserAgentFileLog.Error($"widget_thread_failed {GuiResourceMeter.Describe()}", ex);
+            RegisterWidgetStartFailure("thread_crash");
             _widgetReady.TrySetResult(false);
         }
         finally
