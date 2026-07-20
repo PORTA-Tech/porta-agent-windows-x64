@@ -37,6 +37,13 @@ internal sealed class CurrentSessionUserAgentWatchdogCoordinator
 {
     private static readonly TimeSpan EnsureThrottle = TimeSpan.FromSeconds(5);
     private const int MaxVersionMismatchRestarts = 3;
+    // Fleet §2 — relaunch backoff. A UserAgent that keeps dying (heartbeat-write loop, crash on
+    // start) used to be relaunched on every 5s poll indefinitely; each relaunch recreates the
+    // widget window and feeds the §1 USER-handle leak. Consecutive launch attempts without a
+    // healthy heartbeat in between now back off exponentially (10s → 5min cap). Any healthy
+    // evaluation (KeepExisting) resets, so normal session switches still relaunch immediately.
+    private static readonly TimeSpan LaunchBackoffBase = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan LaunchBackoffMax = TimeSpan.FromMinutes(5);
     private readonly object _gate = new();
     private readonly ICurrentSessionUserAgentRuntime _runtime;
     private readonly ILogger _logger;
@@ -44,6 +51,8 @@ internal sealed class CurrentSessionUserAgentWatchdogCoordinator
     private DateTimeOffset _lastEnsureUtc = DateTimeOffset.MinValue;
     private string? _lastLoggedDecisionSignature;
     private int _versionMismatchRestartCount;
+    private int _consecutiveLaunchAttempts;
+    private DateTimeOffset _nextLaunchAllowedUtc = DateTimeOffset.MinValue;
 
     public CurrentSessionUserAgentWatchdogCoordinator(
         ICurrentSessionUserAgentRuntime runtime,
@@ -94,11 +103,20 @@ internal sealed class CurrentSessionUserAgentWatchdogCoordinator
             if (decision.Action == CurrentSessionUserAgentAction.KeepExisting)
             {
                 _versionMismatchRestartCount = 0;
+                _consecutiveLaunchAttempts = 0;
+                _nextLaunchAllowedUtc = DateTimeOffset.MinValue;
                 return;
             }
 
             if (decision.Action == CurrentSessionUserAgentAction.WaitForHeartbeat)
             {
+                return;
+            }
+
+            // Fleet §2 — consecutive relaunches without a healthy heartbeat wait out the backoff.
+            if (nowUtc < _nextLaunchAllowedUtc)
+            {
+                LogPassiveStateIfChanged(force, "launch_backoff");
                 return;
             }
 
@@ -141,6 +159,15 @@ internal sealed class CurrentSessionUserAgentWatchdogCoordinator
                     currentSessionId);
                 return;
             }
+
+            // Fleet §2 — count the attempt BEFORE its outcome is known: a launch that "succeeds"
+            // but dies immediately (the churn case) must still grow the delay. Only a healthy
+            // heartbeat (KeepExisting above) resets it.
+            _consecutiveLaunchAttempts++;
+            double backoffMultiplier = Math.Pow(2d, Math.Min(_consecutiveLaunchAttempts - 1, 6));
+            _nextLaunchAllowedUtc = nowUtc + TimeSpan.FromTicks(Math.Min(
+                (long)(LaunchBackoffBase.Ticks * backoffMultiplier),
+                LaunchBackoffMax.Ticks));
 
             string? launchFailureCode = _runtime.TryLaunchInSession(currentSessionId, decision.Reason, _logger);
             if (launchFailureCode is not null)
