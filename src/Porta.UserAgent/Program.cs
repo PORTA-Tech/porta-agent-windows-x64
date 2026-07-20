@@ -7,6 +7,17 @@ using Porta.UserAgent;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
+#if DEBUG
+// DEBUG-ONLY smoke harness (compiled out of Release). Renders each real check-in card variant on
+// demand so the fixed question label + away-aware EOD wrap can be eyeballed without the live
+// scheduler/timeline. See CheckInCardPreview.
+if (Array.Exists(args, static a => string.Equals(a, "--preview-checkins", StringComparison.OrdinalIgnoreCase)))
+{
+    Porta.UserAgent.Interventions.CheckInCardPreview.Run();
+    return;
+}
+#endif
+
 UserAgentStartupMetadata startupMetadata = UserAgentStartupMetadata.Parse(args);
 AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
 {
