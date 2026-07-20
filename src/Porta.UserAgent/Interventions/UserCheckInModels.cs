@@ -16,7 +16,11 @@ internal sealed record UserCheckInPrompt(
     string Message,
     string GoalText = "",       // midday/EOD: the goal the user stated in the morning
     string ReportLine = "",     // midday: the measured report (top apps + focused/off-track/away)
-    string PrefillGoalText = ""); // morning: last night's plan, pre-filled so confirm = one click
+    string PrefillGoalText = "", // morning: last night's plan, pre-filled so confirm = one click
+    // Part 2b — a fixed question label the card renders directly above its answer controls, so the
+    // Yes/Partly/Not-yet buttons and the EOD plan box always have a question attached even when the
+    // LLM line is odd or the narrative call failed. Empty = no controls (morning uses its own box).
+    string QuestionLabel = "");
 
 // The user's answer. TextReply carries the morning goal or the EOD plan; Choice carries the
 // morning tracking preference (remind_me|keep_on_track|just_track) or the midday answer

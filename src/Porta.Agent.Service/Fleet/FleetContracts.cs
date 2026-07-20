@@ -160,7 +160,11 @@ internal sealed record NarrativeSituationPayload(
     [property: JsonPropertyName("longestStreakSeconds")] double LongestStreakSeconds,
     [property: JsonPropertyName("topApps")] IReadOnlyList<FocusAppUsagePayload>? TopApps,
     [property: JsonPropertyName("localTimeHHmm")] string? LocalTimeHHmm,
-    [property: JsonPropertyName("userText")] string? UserText);
+    [property: JsonPropertyName("userText")] string? UserText,
+    // Part 1b — the EOD wrap's whole-day facts: midday was skipped (morning goal set, no midday
+    // answer) and there was a substantial away gap. Default false so non-EOD moments are unaffected.
+    [property: JsonPropertyName("middaySkipped")] bool MiddaySkipped = false,
+    [property: JsonPropertyName("awayGap")] bool AwayGap = false);
 
 internal sealed record NarrativeRequestPayload(
     [property: JsonPropertyName("accountId")] string AccountId,

@@ -93,6 +93,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private static readonly TimeSpan CheckInCheckInterval = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan CheckInColdStartGrace = TimeSpan.FromSeconds(90);
     private DateTimeOffset _lastCheckInCheckUtc = DateTimeOffset.MinValue;
+    // Part 1c — settle-in: when the user became continuously active (reset on idle/away). null = not
+    // currently in a known-active run. Updated every poll so the 3-min window is measured accurately.
+    private DateTimeOffset? _checkInActiveSinceUtc;
     private bool _widgetFallbackLogged;
     private bool _hooksInstalled;
     private bool _keyboardCaptureAvailable;
@@ -1501,6 +1504,14 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         LocalApiLiveSessionStateResponse? liveSession,
         CancellationToken token)
     {
+        // Part 1c — advance the settle-in tracker every poll (before the 2-min decision gate) so the
+        // continuous-active window is measured accurately. fresh+active starts/continues the run; a
+        // stale/idle/away signal resets it; an unavailable signal (null) leaves it untouched.
+        bool? activeNow = liveSession is { } ls
+            ? string.Equals(ls.freshness_state, "fresh", StringComparison.OrdinalIgnoreCase) && ls.UserActive && !ls.Idle
+            : null;
+        _checkInActiveSinceUtc = UserCheckInActivityGate.Advance(_checkInActiveSinceUtc, nowUtc, activeNow);
+
         if ((nowUtc - _lastCheckInCheckUtc) < CheckInCheckInterval)
         {
             return;
@@ -1531,7 +1542,19 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         LocalApiDailyGoal? goal = goalResponse.Goal;
         DateTimeOffset nowLocal = nowUtc.ToLocalTime();
-        DailyGoalSnapshot goalSnapshot = UserCheckInCoordinator.BuildSnapshot(goal);
+
+        // Part 1a/1b — build the day's metrics up front so the midday trigger is driven by REAL
+        // active work (tracked minus away) and the EOD wrap can see the away gap. Fail-soft: when the
+        // timeline hasn't processed yet, active-work is null and the scheduler falls back to the old
+        // wall-clock rule so midday can never become un-fireable.
+        LocalTodaySummaryMetrics metrics = LocalTodaySummaryMetricsBuilder.Build(
+            _widgetDetailTimeline, snapshot, liveSession, nowUtc);
+        TimeSpan? activeWorkSinceMorning = metrics.HasProcessedTimeline
+            ? TimeSpan.FromSeconds(Math.Max(0d, metrics.TrackedTodaySeconds - metrics.AwayTodaySeconds))
+            : null;
+        TimeSpan awayToday = TimeSpan.FromSeconds(Math.Max(0d, metrics.AwayTodaySeconds));
+
+        DailyGoalSnapshot goalSnapshot = UserCheckInCoordinator.BuildSnapshot(goal, activeWorkSinceMorning, awayToday);
 
         UserCheckInKind? due = UserCheckInScheduler.DecideCheckIn(
             nowLocal,
@@ -1542,8 +1565,14 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             return;
         }
 
-        LocalTodaySummaryMetrics metrics = LocalTodaySummaryMetricsBuilder.Build(
-            _widgetDetailTimeline, snapshot, liveSession, nowUtc);
+        // Part 1c — settle-in: never pop the instant the session resumes. Hold any due check-in until
+        // the user has been continuously active for SettleInDelay. Fail-soft: an unavailable activity
+        // signal does not block (see UserCheckInActivityGate.WithinSettleWindow).
+        if (UserCheckInActivityGate.WithinSettleWindow(_checkInActiveSinceUtc, nowUtc, UserCheckInActivityGate.SettleInDelay))
+        {
+            UserAgentFileLog.Info($"checkin_settle_hold kind={kind}");
+            return;
+        }
 
         // Part 5 — the gate above has already decided to SPEAK; now (and only now) fetch the
         // LLM-written line for the moment. Hard budget, then the honest template takes over —
@@ -1557,8 +1586,14 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         string? narrativeLine = await TryGetNarrativeLineAsync(narrativeKind, userText: null, token).ConfigureAwait(false);
         UserAgentFileLog.Info($"checkin_narrative kind={narrativeKind} used={narrativeLine != null}");
 
+        // Part 1b — when EOD is the single wrap after a skipped midday / away gap, surface those facts
+        // so even the templated fallback copy acknowledges the whole day rather than reading generic.
+        (bool middaySkipped, bool awayGap) = kind == UserCheckInKind.EndOfDay
+            ? UserCheckInScheduler.DescribeEndOfDay(goalSnapshot)
+            : (false, false);
+
         UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
-            kind, goal, metrics, goalResponse.CarriedPlanTomorrow, narrativeLine);
+            kind, goal, metrics, goalResponse.CarriedPlanTomorrow, narrativeLine, middaySkipped, awayGap);
 
         bool shown = _interventionExecutor.TryShowGatedCheckIn(
             UserCheckInScheduler.MuteClassFor(kind),

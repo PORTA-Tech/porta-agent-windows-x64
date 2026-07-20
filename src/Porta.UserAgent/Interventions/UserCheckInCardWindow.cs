@@ -270,6 +270,9 @@ internal sealed class UserCheckInCardWindow : Window
             });
         }
 
+        // Part 2b — a fixed question directly above the buttons, so they never dangle unanswered.
+        AddQuestionLabel(prompt.QuestionLabel);
+
         var chipRow = new StackPanel { Orientation = Orientation.Horizontal };
         foreach ((string value, string label) in UserCheckInChoices.MiddayAnswers)
         {
@@ -280,6 +283,26 @@ internal sealed class UserCheckInCardWindow : Window
         }
 
         _bodyStack.Children.Add(chipRow);
+    }
+
+    // Part 2b — renders the prompt's fixed question label above the answer controls. Skipped when the
+    // label is blank so nothing changes for kinds that don't carry one.
+    private void AddQuestionLabel(string questionLabel)
+    {
+        if (string.IsNullOrWhiteSpace(questionLabel))
+        {
+            return;
+        }
+
+        _bodyStack.Children.Add(new TextBlock
+        {
+            FontSize = 12.5,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(BodyFg),
+            TextWrapping = TextWrapping.Wrap,
+            Text = questionLabel.Trim(),
+            Margin = new Thickness(0, 0, 0, 8)
+        });
     }
 
     private void BuildEndOfDay(UserCheckInPrompt prompt)
@@ -297,6 +320,9 @@ internal sealed class UserCheckInCardWindow : Window
                 Margin = new Thickness(0, 0, 0, 10)
             });
         }
+
+        // Part 2b — a fixed question directly above the plan box, so it never dangles unanswered.
+        AddQuestionLabel(prompt.QuestionLabel);
 
         TextBox planBox = MakeInputBox("Plan tomorrow — one line");
         _bodyStack.Children.Add(planBox);

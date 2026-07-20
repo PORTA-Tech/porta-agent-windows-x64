@@ -12,7 +12,14 @@ internal static class UserCheckInCoordinator
     // Maps the day's goal row into the scheduler's snapshot. A null row = a fresh day with no goal
     // yet (morning is due). MorningRecorded keys off a non-empty goal_text so an end-of-day-only row
     // (recorded without a morning goal) still reads as "no morning goal stated".
-    public static DailyGoalSnapshot BuildSnapshot(LocalApiDailyGoal? goal)
+    // Part 1a/1b — activeWorkSinceMorning (tracked minus away today) and awayToday come from the
+    // day's aggregated metrics and drive the work-based midday trigger and the EOD away-gap framing.
+    // Both are optional so callers/tests without metrics stay on the wall-clock fallback (null active
+    // work) with no away gap.
+    public static DailyGoalSnapshot BuildSnapshot(
+        LocalApiDailyGoal? goal,
+        TimeSpan? activeWorkSinceMorning = null,
+        TimeSpan awayToday = default)
     {
         if (goal is null)
         {
@@ -20,7 +27,9 @@ internal static class UserCheckInCoordinator
                 MorningRecorded: false,
                 MiddayRecorded: false,
                 EndOfDayRecorded: false,
-                MorningAtLocal: null);
+                MorningAtLocal: null,
+                ActiveWorkSinceMorning: activeWorkSinceMorning,
+                AwayToday: awayToday);
         }
 
         bool morningRecorded = !string.IsNullOrWhiteSpace(goal.GoalText);
@@ -28,7 +37,9 @@ internal static class UserCheckInCoordinator
             MorningRecorded: morningRecorded,
             MiddayRecorded: !string.IsNullOrWhiteSpace(goal.MiddayAnswer),
             EndOfDayRecorded: goal.EndOfDayAtUtc.HasValue,
-            MorningAtLocal: morningRecorded ? goal.CreatedAtUtc.ToLocalTime() : null);
+            MorningAtLocal: morningRecorded ? goal.CreatedAtUtc.ToLocalTime() : null,
+            ActiveWorkSinceMorning: activeWorkSinceMorning,
+            AwayToday: awayToday);
     }
 
     // Builds the card frame for the due kind. Reuses the already-aggregated day metrics (never a
@@ -36,12 +47,17 @@ internal static class UserCheckInCoordinator
     // Part 5 — narrativeLine is the LLM-written copy for this moment (already gated: the caller
     // decided to SPEAK before fetching it). Empty/null = fail-soft to the short honest templates
     // below, which are specific to the moment and the goal — never a generic filler line.
+    // Part 1b — middaySkipped/awayGap let the EOD fallback copy acknowledge a skipped midday and an
+    // away gap (the away-aware wrap), instead of the generic "Today's goal was: …". They default off
+    // so morning/midday callers are unaffected.
     public static UserCheckInPrompt BuildPrompt(
         UserCheckInKind kind,
         LocalApiDailyGoal? goal,
         LocalTodaySummaryMetrics metrics,
         string? carriedPlan = null,
-        string? narrativeLine = null)
+        string? narrativeLine = null,
+        bool middaySkipped = false,
+        bool awayGap = false)
     {
         string goalText = (goal?.GoalText ?? string.Empty).Trim();
         string plan = (carriedPlan ?? string.Empty).Trim();
@@ -70,7 +86,9 @@ internal static class UserCheckInCoordinator
                         ? $"This morning you said: “{goalText}”. Did you get to it?"
                         : "Did you get to what mattered so far?",
                 GoalText: goalText,
-                ReportLine: BuildReportLine(metrics)),
+                ReportLine: BuildReportLine(metrics),
+                // Part 2b — the fixed question the Yes/Partly/Not-yet buttons answer, always present.
+                QuestionLabel: "Did you get to your goal?"),
 
             // The card renders ReportLine as its own block (same as midday), so the message
             // stays reflection copy and the measured numbers are never displaced by the LLM.
@@ -79,12 +97,27 @@ internal static class UserCheckInCoordinator
                 Title: "Wrapping up",
                 Message: line.Length > 0
                     ? line
-                    : goalText.Length > 0
-                        ? $"Today's goal was: “{goalText}”."
-                        : "Wrapping up the day.",
+                    : BuildEndOfDayTemplate(goalText, awayGap),
                 GoalText: goalText,
-                ReportLine: BuildReportLine(metrics)),
+                ReportLine: BuildReportLine(metrics),
+                // Part 2b — the fixed question the plan text box answers, always present.
+                QuestionLabel: "Plan for tomorrow?"),
         };
+    }
+
+    // Part 1b — the honest EOD fallback. When there was a substantial away gap, frame it as a
+    // whole-day wrap that acknowledges the time away rather than reading as a full work day. Only the
+    // away gap changes the wording; a skipped-but-present midday is left to the LLM line to nuance.
+    private static string BuildEndOfDayTemplate(string goalText, bool awayGap)
+    {
+        if (goalText.Length == 0)
+        {
+            return "Wrapping up the day.";
+        }
+
+        return awayGap
+            ? $"You were away for a stretch today — here's how the day landed against “{goalText}”."
+            : $"Today's goal was: “{goalText}”.";
     }
 
     // A short, honest focus summary from the day's aggregated timeline. Empty when there is no

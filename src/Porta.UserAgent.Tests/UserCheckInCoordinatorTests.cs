@@ -260,6 +260,102 @@ public sealed class UserCheckInCoordinatorTests
         Assert.Contains("focused", prompt.ReportLine, StringComparison.Ordinal);
     }
 
+    // ── Part 1a/1b — BuildSnapshot carries active-work + away through to the scheduler ─────────────
+
+    [Fact]
+    public void BuildSnapshot_CarriesActiveWorkAndAway()
+    {
+        var goal = GoalWithText("Ship the release");
+
+        DailyGoalSnapshot snapshot = UserCheckInCoordinator.BuildSnapshot(
+            goal,
+            activeWorkSinceMorning: TimeSpan.FromHours(2),
+            awayToday: TimeSpan.FromHours(3));
+
+        Assert.Equal(TimeSpan.FromHours(2), snapshot.ActiveWorkSinceMorning);
+        Assert.Equal(TimeSpan.FromHours(3), snapshot.AwayToday);
+    }
+
+    [Fact]
+    public void BuildSnapshot_DefaultsToWallClockFallback_WhenActiveWorkOmitted()
+    {
+        DailyGoalSnapshot snapshot = UserCheckInCoordinator.BuildSnapshot(GoalWithText("Ship it"));
+
+        Assert.Null(snapshot.ActiveWorkSinceMorning);   // → scheduler uses the wall-clock rule
+        Assert.Equal(TimeSpan.Zero, snapshot.AwayToday);
+    }
+
+    // ── Part 2b — the card ALWAYS carries a fixed question above its controls ──────────────────────
+
+    [Fact]
+    public void BuildPrompt_Midday_AlwaysCarriesTheFixedQuestionLabel_EvenWithNarrative()
+    {
+        UserCheckInPrompt withLlm = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Midday, goal: null, EmptyMetrics(),
+            narrativeLine: "You said the API was the day — did you get to it?");
+        UserCheckInPrompt withoutLlm = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Midday, goal: null, EmptyMetrics(), narrativeLine: "   ");
+
+        Assert.Equal("Did you get to your goal?", withLlm.QuestionLabel);
+        Assert.Equal("Did you get to your goal?", withoutLlm.QuestionLabel);
+    }
+
+    [Fact]
+    public void BuildPrompt_EndOfDay_AlwaysCarriesTheFixedQuestionLabel_EvenWithNarrative()
+    {
+        UserCheckInPrompt withLlm = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.EndOfDay, goal: null, EmptyMetrics(), narrativeLine: "Nice close.");
+        UserCheckInPrompt withoutLlm = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.EndOfDay, goal: null, EmptyMetrics(), narrativeLine: "");
+
+        Assert.Equal("Plan for tomorrow?", withLlm.QuestionLabel);
+        Assert.Equal("Plan for tomorrow?", withoutLlm.QuestionLabel);
+    }
+
+    [Fact]
+    public void BuildPrompt_Morning_HasNoFixedQuestionLabel()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Morning, goal: null, EmptyMetrics());
+
+        Assert.Equal(string.Empty, prompt.QuestionLabel);
+    }
+
+    // ── Part 1b — the EOD fallback copy is away-aware when there was a gap ─────────────────────────
+
+    [Fact]
+    public void BuildPrompt_EndOfDay_AwayGap_FallbackAcknowledgesTimeAway()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.EndOfDay, GoalWithText("Ship the release"), EmptyMetrics(),
+            narrativeLine: "   ", middaySkipped: true, awayGap: true);
+
+        Assert.Contains("away", prompt.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Ship the release", prompt.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Today's goal was", prompt.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildPrompt_EndOfDay_NoAwayGap_FallbackIsTheNormalWrap()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.EndOfDay, GoalWithText("Ship the release"), EmptyMetrics(),
+            narrativeLine: "   ", middaySkipped: false, awayGap: false);
+
+        Assert.Contains("Today's goal was", prompt.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("away", prompt.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static LocalApiDailyGoal GoalWithText(string goalText) => new(
+        LocalDate: "2026-03-08",
+        GoalText: goalText,
+        TrackingPref: "keep_on_track",
+        MiddayAnswer: "",
+        PlanTomorrow: "",
+        CreatedAtUtc: DateTimeOffset.Parse("2026-03-08T08:15:00Z"),
+        MiddayAtUtc: null,
+        EndOfDayAtUtc: null);
+
     private static LocalTodaySummaryMetrics EmptyMetrics() => new(
         HasProcessedTimeline: false,
         FocusedTodaySeconds: 0,

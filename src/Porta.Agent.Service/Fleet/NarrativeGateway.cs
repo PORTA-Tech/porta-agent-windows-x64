@@ -28,6 +28,10 @@ internal sealed class NarrativeGateway : INarrativeGateway
     // here keeps a slow control plane from ever holding a card open longer than that.
     private static readonly TimeSpan CallBudget = TimeSpan.FromSeconds(9);
 
+    // Part 1b — a ~2h away stretch marks the EOD wrap as away-aware (mirrors the user agent's
+    // UserCheckInScheduler.AwayGapThreshold, which lives in a different assembly).
+    private const double AwayGapThresholdSeconds = 2 * 3600d;
+
     private readonly IAgentCoreController _controller;
     private readonly ControlPlaneClient _client;
     private readonly ILocalIdentityLinkStore _identityLinkStore;
@@ -118,6 +122,14 @@ internal sealed class NarrativeGateway : INarrativeGateway
         // still belongs to yesterday's goal-day, and the server caches one line per moment per day.
         string dateLocal = (nowLocal.Hour < 5 ? nowLocal.AddDays(-1) : nowLocal).ToString("yyyy-MM-dd");
 
+        // Part 1b — the EOD wrap's whole-day facts, derived from the same goal row + away seconds this
+        // payload already carries (no new plumbing from the host needed). middaySkipped = a morning
+        // goal was set but no midday answer was ever recorded; awayGap = a substantial away stretch.
+        // Only the eod prompt uses these, but they are harmless to include on every kind.
+        bool middaySkipped = !string.IsNullOrWhiteSpace(goal?.GoalText)
+            && string.IsNullOrWhiteSpace(goal?.MiddayAnswer);
+        bool awayGap = agg.AwaySeconds >= AwayGapThresholdSeconds;
+
         var situation = new NarrativeSituationPayload(
             GoalToday: NullIfBlank(goal?.GoalText),
             CarriedPlan: NullIfBlank(carriedPlan),
@@ -130,7 +142,9 @@ internal sealed class NarrativeGateway : INarrativeGateway
             LongestStreakSeconds: agg.LongestFocusStreakSeconds,
             TopApps: topApps.Count > 0 ? topApps.Take(3).ToList() : null,
             LocalTimeHHmm: nowLocal.ToString("HH\\:mm"),
-            UserText: NullIfBlank(userText));
+            UserText: NullIfBlank(userText),
+            MiddaySkipped: middaySkipped,
+            AwayGap: awayGap);
 
         return new NarrativeRequestPayload(
             AccountId: identity.AccountId!,
