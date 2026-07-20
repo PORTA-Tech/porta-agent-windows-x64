@@ -9,7 +9,7 @@
                     UserAgent (the service watchdog relaunches it). For live-scheduler confirmation.
   -Action help    : print guidance.
 
-  Robust by design: touches only a JSON mute file and the UserAgent process — no sqlite3, no
+  Robust by design: touches only a JSON mute file and the UserAgent process - no sqlite3, no
   authenticated local-API calls, no clock changes (the runbook tells you when to set the clock).
 #>
 [CmdletBinding()]
@@ -31,7 +31,7 @@ function Invoke-Preview {
     if ($LASTEXITCODE -ne 0) { throw 'Debug build failed.' }
     if (-not (Test-Path $exe)) { throw "Preview exe not found at $exe" }
 
-    Write-Host 'Launching preview — four cards; answer or dismiss (X / Esc) each to advance.' -ForegroundColor Green
+    Write-Host 'Launching preview - four cards; answer or dismiss (X / Esc) each to advance.' -ForegroundColor Green
     Write-Host '  1 Morning   2 Midday   3 EOD (normal)   4 EOD (missed-midday + away wrap)' -ForegroundColor Green
     Write-Host '  Check A: fixed question label sits ABOVE the controls (cards 2 & 3 & 4).'
     Write-Host '  Check B: card 4 reads as the away-aware wrap, not "Today''s goal was ...".'
@@ -48,14 +48,14 @@ function Invoke-Reset {
         Write-Host "Cleared check-in mutes (backup: $backup)." -ForegroundColor Green
     }
     else {
-        Write-Host "No mute file present ($muteFile) — nothing to clear (already re-armed)." -ForegroundColor Yellow
+        Write-Host "No mute file present ($muteFile) - nothing to clear (already re-armed)." -ForegroundColor Yellow
     }
 
     # Restart the UserAgent; the service watchdog relaunches it within a few seconds.
     $procs = Get-Process -Name 'Porta.UserAgent' -ErrorAction SilentlyContinue
     if ($procs) {
         $procs | Stop-Process -Force
-        Write-Host 'Stopped Porta.UserAgent — the watchdog will relaunch it shortly.' -ForegroundColor Green
+        Write-Host 'Stopped Porta.UserAgent - the watchdog will relaunch it shortly.' -ForegroundColor Green
     }
     else {
         Write-Host 'Porta.UserAgent was not running; the watchdog should start it.' -ForegroundColor Yellow
