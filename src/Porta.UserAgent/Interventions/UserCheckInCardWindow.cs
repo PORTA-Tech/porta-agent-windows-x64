@@ -131,12 +131,9 @@ internal sealed class UserCheckInCardWindow : Window
         _kind = prompt.Kind;
         _responded = false;
         _confirmationMode = false;
-        _eyebrow.Text = prompt.Kind switch
-        {
-            UserCheckInKind.Morning => "Good morning",
-            UserCheckInKind.Midday => "Midday check-in",
-            _ => "End of day"
-        };
+        // Header reads "Ari" for every kind (matching confirmation mode) — the words
+        // morning/midday/end-of-day no longer appear on the card.
+        _eyebrow.Text = "Ari";
         _title.Text = prompt.Title;
         _message.Text = prompt.Message;
         _bodyStack.Children.Clear();
