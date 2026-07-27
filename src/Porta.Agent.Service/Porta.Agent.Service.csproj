@@ -24,6 +24,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+    <!-- DatabaseBackupWorker issues VACUUM INTO directly, so this is now a direct dependency
+         rather than only a transitive one through Porta.Agent.Core. Version pinned to match Core. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
   </ItemGroup>
 
 </Project>

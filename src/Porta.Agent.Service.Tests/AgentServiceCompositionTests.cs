@@ -53,5 +53,11 @@ public sealed class AgentServiceCompositionTests
             services,
             static descriptor => descriptor.ServiceType == typeof(IBackendConnectivityProbe)
                 && descriptor.ImplementationType == typeof(HttpBackendConnectivityProbe));
+        // Without this registration the nightly snapshot silently never runs — and the failure
+        // mode is invisible until someone needs a backup that was never taken.
+        Assert.Contains(
+            services,
+            static descriptor => descriptor.ServiceType == typeof(IHostedService)
+                && descriptor.ImplementationType == typeof(DatabaseBackupWorker));
     }
 }
