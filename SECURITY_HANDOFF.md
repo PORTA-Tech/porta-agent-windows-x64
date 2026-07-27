@@ -138,8 +138,6 @@ Be honest with the user that these are unexamined, not known-good:
 - `porta-operations-console` — the repo has never been opened
 - The widget, Control Center, and UserAgent processes
 - Local API (127.0.0.1) input validation
-- Whether `AgentUpdateWorker`'s code matches its documented SHA-256 contract (the doc comment
-  claims it; the code was never read)
 - Dependency vulnerabilities in either repo
 - Log redaction — there is a 71 MB `_debug-user-agent.log` in the agent repo root
 
@@ -232,3 +230,9 @@ not set that preference. Use `Get-Process | Stop-Process` instead.
 - Account IDs are UUIDs (`$1::uuid` casts throughout), so they are not enumerable.
 - The Anthropic API key has a **$5 hard spend cap** set in the Anthropic console. This is the real
   backstop on model spend and it is already in place.
+- **`AgentUpdateWorker` — read and verified 2026-07-27.** It does what its comment claims:
+  rejects a manifest with no `Sha256`; requires an `https` download URL; verifies the hash three
+  separate times (cached-file reuse, post-download, and again immediately before launch); opens the
+  MSI and checks its internal `ProductVersion` against the manifest; caps downloads at 500 MB.
+  `Sha256MatchesAsync` is a correct hex comparison. The update channel is sound — its only real
+  exposure is whoever controls the Render environment variables, which is why 4.1 is first.
