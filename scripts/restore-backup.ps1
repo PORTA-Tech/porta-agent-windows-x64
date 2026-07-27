@@ -95,10 +95,50 @@ if ($answer -cne 'YES') {
 }
 
 $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-if ($service -and $service.Status -ne 'Stopped') {
+
+# Stopping the service is NOT enough on its own, for two reasons install.ps1 already handles:
+#   1. SCM recovery would auto-restart ari.exe part-way through the swap.
+#   2. ari.exe (and the UserAgent/ControlCenter, which load the same DLLs) keep the database file
+#      open, so Move-Item fails with "file in use" — after the database has already been moved.
+$replaced = $null
+
+# Everything from here to the finally block runs with the service down and recovery disabled.
+# ANY failure in between — a locked file, a full disk, a typo — must still leave the machine with
+# a running agent. This script only ever runs when something has already gone wrong; it must not
+# be able to turn one problem into two.
+try {
+
+Write-Host 'Disabling service auto-restart...'
+& sc.exe failure $serviceName reset= 0 actions= none 2>$null | Out-Null
+
+if ($service) {
     Write-Host "Stopping $serviceName..."
-    Stop-Service -Name $serviceName -Force
-    (Get-Service -Name $serviceName).WaitForStatus('Stopped', '00:01:00')
+    & sc.exe stop $serviceName 2>$null | Out-Null
+    Start-Sleep -Seconds 5
+}
+
+# Stop-Process rather than taskkill: this script runs with $ErrorActionPreference = 'Stop', and
+# taskkill writes "process not found" to stderr, which PowerShell escalates into a TERMINATING
+# error. install.ps1 gets away with taskkill only because it does not set that preference.
+# Aborting here would leave the service stopped with recovery disabled — the worst possible
+# moment, since this script only runs when something has already gone wrong.
+Write-Host 'Closing any remaining Ari processes...'
+foreach ($processName in @('ari', 'Porta.UserAgent', 'Porta.ControlCenter')) {
+    Get-Process -Name $processName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Seconds 3
+
+# Verify the file really is free before touching anything. Better to abort here, with the database
+# untouched, than to fail half-way with it moved aside.
+if (Test-Path $dbPath) {
+    try {
+        $handle = [System.IO.File]::Open($dbPath, 'Open', 'ReadWrite', 'None')
+        $handle.Close()
+    }
+    catch {
+        # The finally block restarts the service; just report why we stopped.
+        throw 'The database is still locked by another process. Nothing was changed.'
+    }
 }
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -121,9 +161,24 @@ foreach ($sidecar in @("$dbPath-wal", "$dbPath-shm")) {
     }
 }
 
-if ($service) {
-    Write-Host "Starting $serviceName..."
-    Start-Service -Name $serviceName
+}
+finally {
+    # Runs on success AND on any failure above. Restoring the SCM policy and starting the service
+    # is not optional — a half-finished restore that also leaves the agent dead is far worse than
+    # a failed restore that leaves it running.
+    Write-Host 'Re-enabling service auto-restart...'
+    & sc.exe failure $serviceName reset= 60 actions= restart/15000/restart/15000/restart/15000 2>$null | Out-Null
+
+    if ($service) {
+        Write-Host "Starting $serviceName..."
+        Start-Service -Name $serviceName -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
+        $status = (Get-Service -Name $serviceName -ErrorAction SilentlyContinue).Status
+        Write-Host "Service: $status"
+        if ($status -ne 'Running') {
+            Write-Warning "$serviceName did not start. Start it manually: Start-Service $serviceName"
+        }
+    }
 }
 
 Write-Host "`nDone."
