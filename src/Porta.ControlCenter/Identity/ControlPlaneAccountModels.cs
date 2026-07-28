@@ -182,6 +182,41 @@ internal sealed record ControlPlaneDeviceLinkResult(
     [property: JsonPropertyName("linkState")] string LinkState,
     [property: JsonPropertyName("device")] ControlPlaneDeviceProfile Device);
 
+/// <summary>
+/// Why a device call did not succeed. These used to be collapsed into a single null,
+/// which made an expired session indistinguishable from the control plane being offline.
+/// </summary>
+internal enum ControlPlaneCallOutcome
+{
+    Success,
+
+    /// <summary>The control plane rejected the session (401). The user must sign in again.</summary>
+    Unauthorized,
+
+    /// <summary>Reached the control plane; it refused the request for some other reason.</summary>
+    Rejected,
+
+    /// <summary>Never got an answer -- offline, DNS, timeout, TLS. Nothing can be concluded.</summary>
+    Unreachable
+}
+
+internal sealed record ControlPlaneDeviceCallResult(
+    ControlPlaneCallOutcome Outcome,
+    ControlPlaneDeviceLinkResult? Result)
+{
+    internal static readonly ControlPlaneDeviceCallResult Unreachable =
+        new(ControlPlaneCallOutcome.Unreachable, null);
+
+    internal static readonly ControlPlaneDeviceCallResult Unauthorized =
+        new(ControlPlaneCallOutcome.Unauthorized, null);
+
+    /// <summary>True only when the call reached the control plane and it confirmed the change.</summary>
+    internal bool Ok => Outcome == ControlPlaneCallOutcome.Success && Result is { Ok: true };
+
+    /// <summary>True when the stored session is no longer accepted and must be replaced.</summary>
+    internal bool SessionRejected => Outcome == ControlPlaneCallOutcome.Unauthorized;
+}
+
 internal sealed record ControlPlaneWindowsReleaseManifest(
     [property: JsonPropertyName("platform")] string Platform,
     [property: JsonPropertyName("channel")] string Channel,

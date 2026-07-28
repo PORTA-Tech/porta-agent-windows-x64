@@ -182,12 +182,12 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         }
     }
 
-    public async Task<ControlPlaneDeviceLinkResult?> RevokeMyDeviceAsync(string accessToken, string deviceId, CancellationToken token = default)
+    public async Task<ControlPlaneDeviceCallResult> RevokeMyDeviceAsync(string accessToken, string deviceId, CancellationToken token = default)
     {
         return await PostSessionDeviceActionAsync(accessToken, deviceId, "revoke", token).ConfigureAwait(false);
     }
 
-    public async Task<ControlPlaneDeviceLinkResult?> UnlinkMyDeviceAsync(string accessToken, string deviceId, CancellationToken token = default)
+    public async Task<ControlPlaneDeviceCallResult> UnlinkMyDeviceAsync(string accessToken, string deviceId, CancellationToken token = default)
     {
         return await PostSessionDeviceActionAsync(accessToken, deviceId, "unlink", token).ConfigureAwait(false);
     }
@@ -211,7 +211,7 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         }
     }
 
-    public async Task<ControlPlaneDeviceLinkResult?> RegisterDeviceAsync(
+    public async Task<ControlPlaneDeviceCallResult> RegisterDeviceAsync(
         ControlPlaneDeviceRegistrationRequest payload,
         string? accessToken,
         CancellationToken token = default)
@@ -219,7 +219,7 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         return await PostDeviceIdentityAsync("api/device/register", payload, accessToken, token).ConfigureAwait(false);
     }
 
-    public async Task<ControlPlaneDeviceLinkResult?> LinkDeviceAsync(
+    public async Task<ControlPlaneDeviceCallResult> LinkDeviceAsync(
         ControlPlaneDeviceAccountLinkRequest payload,
         string? accessToken,
         CancellationToken token = default)
@@ -227,7 +227,7 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         return await PostDeviceIdentityAsync("api/device/link-account", payload, accessToken, token).ConfigureAwait(false);
     }
 
-    public async Task<ControlPlaneDeviceLinkResult?> UnlinkDeviceAsync(
+    public async Task<ControlPlaneDeviceCallResult> UnlinkDeviceAsync(
         ControlPlaneDeviceAccountUnlinkRequest payload,
         string? accessToken,
         CancellationToken token = default)
@@ -235,7 +235,7 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         return await PostDeviceIdentityAsync("api/device/unlink-account", payload, accessToken, token).ConfigureAwait(false);
     }
 
-    private async Task<ControlPlaneDeviceLinkResult?> PostDeviceIdentityAsync<TPayload>(
+    private async Task<ControlPlaneDeviceCallResult> PostDeviceIdentityAsync<TPayload>(
         string path,
         TPayload payload,
         string? accessToken,
@@ -245,20 +245,15 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         {
             using HttpRequestMessage request = CreateJsonRequest(HttpMethod.Post, path, payload, accessToken);
             using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                return null;
-            }
-
-            return await response.Content.ReadFromJsonAsync<ControlPlaneDeviceLinkResult>(JsonOptions, token).ConfigureAwait(false);
+            return await ReadDeviceCallResultAsync(response, token).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
         {
-            return null;
+            return ControlPlaneDeviceCallResult.Unreachable;
         }
     }
 
-    private async Task<ControlPlaneDeviceLinkResult?> PostSessionDeviceActionAsync(
+    private async Task<ControlPlaneDeviceCallResult> PostSessionDeviceActionAsync(
         string accessToken,
         string deviceId,
         string action,
@@ -266,7 +261,7 @@ internal sealed class ControlPlaneAccountClient : IDisposable
     {
         if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(deviceId))
         {
-            return null;
+            return new ControlPlaneDeviceCallResult(ControlPlaneCallOutcome.Rejected, null);
         }
 
         try
@@ -276,16 +271,44 @@ internal sealed class ControlPlaneAccountClient : IDisposable
                 $"v1/me/devices/{Uri.EscapeDataString(deviceId.Trim())}/{action}",
                 accessToken);
             using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                return null;
-            }
-
-            return await response.Content.ReadFromJsonAsync<ControlPlaneDeviceLinkResult>(JsonOptions, token).ConfigureAwait(false);
+            return await ReadDeviceCallResultAsync(response, token).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
         {
-            return null;
+            return ControlPlaneDeviceCallResult.Unreachable;
+        }
+    }
+
+    /// <summary>
+    /// Classifies a device-call response. A 401 must stay distinguishable from every other
+    /// failure: it is the only one the user can fix, by signing in again.
+    /// </summary>
+    internal static async Task<ControlPlaneDeviceCallResult> ReadDeviceCallResultAsync(
+        HttpResponseMessage response,
+        CancellationToken token)
+    {
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            return ControlPlaneDeviceCallResult.Unauthorized;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return new ControlPlaneDeviceCallResult(ControlPlaneCallOutcome.Rejected, null);
+        }
+
+        try
+        {
+            ControlPlaneDeviceLinkResult? payload = await response.Content
+                .ReadFromJsonAsync<ControlPlaneDeviceLinkResult>(JsonOptions, token)
+                .ConfigureAwait(false);
+            return payload == null
+                ? new ControlPlaneDeviceCallResult(ControlPlaneCallOutcome.Rejected, null)
+                : new ControlPlaneDeviceCallResult(ControlPlaneCallOutcome.Success, payload);
+        }
+        catch (Exception ex) when (ex is JsonException or HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            return new ControlPlaneDeviceCallResult(ControlPlaneCallOutcome.Rejected, null);
         }
     }
 

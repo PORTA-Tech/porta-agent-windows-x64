@@ -85,9 +85,9 @@ public partial class MainWindow
 
         if (_accountSession != null && shouldRefreshRemote)
         {
-            ControlPlaneDeviceLinkResult? deviceRegistration = await RegisterCurrentDeviceAsync().ConfigureAwait(true);
+            ControlPlaneDeviceCallResult deviceRegistration = await RegisterCurrentDeviceAsync().ConfigureAwait(true);
             string? remoteDeviceStatusMessage = null;
-            if (ShouldClearLocalIdentityLink(deviceRegistration))
+            if (ShouldClearLocalIdentityLink(deviceRegistration.Result))
             {
                 LocalApiIdentityLinkResponse? local = await _identityLinkCoordinator.ClearAsync().ConfigureAwait(true);
                 if (local != null)
@@ -95,7 +95,7 @@ public partial class MainWindow
                     _latestIdentityLink = local;
                 }
 
-                remoteDeviceStatusMessage = BuildRemoteDeviceStatusMessage(deviceRegistration!);
+                remoteDeviceStatusMessage = BuildRemoteDeviceStatusMessage(deviceRegistration.Result!);
             }
 
             ControlPlaneMeProfileView? me = await _controlPlaneAccountClient.GetMeAsync(_accountSession.AccessToken).ConfigureAwait(true);
@@ -134,11 +134,11 @@ public partial class MainWindow
         PopulateAccountSurface();
     }
 
-    private async Task<ControlPlaneDeviceLinkResult?> RegisterCurrentDeviceAsync()
+    private async Task<ControlPlaneDeviceCallResult> RegisterCurrentDeviceAsync()
     {
         if (_accountSession == null || _latestIdentityLink == null)
         {
-            return null;
+            return new ControlPlaneDeviceCallResult(ControlPlaneCallOutcome.Rejected, null);
         }
 
         string? linkedAccountId = IsIdentityLinkedToSignedInAccount(_latestIdentityLink) ? _latestIdentityLink!.AccountId : null;
@@ -251,7 +251,7 @@ public partial class MainWindow
             return false;
         }
 
-        ControlPlaneDeviceLinkResult? remote = await _controlPlaneAccountClient.LinkDeviceAsync(
+        ControlPlaneDeviceCallResult remote = await _controlPlaneAccountClient.LinkDeviceAsync(
             new ControlPlaneDeviceAccountLinkRequest(
                 DeviceId: _latestIdentityLink.DeviceId,
                 AccountId: _accountSession.AccountId,
@@ -260,11 +260,22 @@ public partial class MainWindow
                 LocalProofToken: null),
             _accountSession.AccessToken).ConfigureAwait(true);
 
-        if (remote == null || !remote.Ok)
+        if (!remote.Ok)
         {
+            // An expired sign-in is reported even when the caller asked to stay quiet:
+            // auto-link runs silently, and staying silent here is what made an expired
+            // session look like the feature was simply broken.
+            if (remote.SessionRejected)
+            {
+                HandleSessionRejected(DeviceLinkOperation.LinkCurrentDevice);
+                return false;
+            }
+
             if (updateStatusMessage)
             {
-                _accountStatusMessage = "Could not link this device to the selected workspace.";
+                _accountStatusMessage = DeviceLinkStatusCopy.BuildFailureMessage(
+                    DeviceLinkOperation.LinkCurrentDevice,
+                    remote.Outcome);
                 PopulateAccountSurface();
             }
 
@@ -277,7 +288,7 @@ public partial class MainWindow
 
         if (local == null)
         {
-            await _controlPlaneAccountClient.UnlinkDeviceAsync(
+            ControlPlaneDeviceCallResult rollback = await _controlPlaneAccountClient.UnlinkDeviceAsync(
                 new ControlPlaneDeviceAccountUnlinkRequest(
                     DeviceId: _latestIdentityLink.DeviceId,
                     AccountId: _accountSession.AccountId,
@@ -288,7 +299,11 @@ public partial class MainWindow
 
             if (updateStatusMessage)
             {
-                _accountStatusMessage = "Could not finish linking this PC to the selected workspace.";
+                // The rollback can fail too, and then the control plane still has this
+                // device linked while the PC does not. Say so rather than claim a clean stop.
+                _accountStatusMessage = rollback.Ok
+                    ? "Could not finish linking this PC to the selected workspace."
+                    : "Could not finish linking this PC, and it is still linked to the workspace on the server. Try again.";
                 PopulateAccountSurface();
             }
 
@@ -337,7 +352,7 @@ public partial class MainWindow
 
         if (_accountSession != null && IsIdentityLinked(_latestIdentityLink))
         {
-            await _controlPlaneAccountClient.UnlinkDeviceAsync(
+            ControlPlaneDeviceCallResult remote = await _controlPlaneAccountClient.UnlinkDeviceAsync(
                 new ControlPlaneDeviceAccountUnlinkRequest(
                     DeviceId: _latestIdentityLink.DeviceId,
                     AccountId: _latestIdentityLink.AccountId,
@@ -345,6 +360,28 @@ public partial class MainWindow
                     SessionToken: _accountSession.AccessToken,
                     LocalProofToken: null),
                 _accountSession.AccessToken).ConfigureAwait(true);
+
+            // This result used to be discarded. Clearing the local link after a failed
+            // remote unlink leaves the PC saying "unlinked" while the control plane still
+            // has the device linked, and nothing ever reconciles the two.
+            if (!remote.Ok)
+            {
+                if (remote.SessionRejected)
+                {
+                    HandleSessionRejected(DeviceLinkOperation.UnlinkCurrentDevice);
+                    return false;
+                }
+
+                if (updateStatusMessage)
+                {
+                    _accountStatusMessage = DeviceLinkStatusCopy.BuildFailureMessage(
+                        DeviceLinkOperation.UnlinkCurrentDevice,
+                        remote.Outcome);
+                    PopulateAccountSurface();
+                }
+
+                return false;
+            }
         }
 
         LocalApiIdentityLinkResponse? local = await _identityLinkCoordinator.ClearAsync().ConfigureAwait(true);
@@ -359,6 +396,28 @@ public partial class MainWindow
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// The control plane rejected the stored session. Drop it and tell the user to sign in
+    /// again -- this mirrors what the /v1/me refresh path already does, so an expired session
+    /// looks the same wherever it is discovered. Sessions last 30 days; everyone hits this.
+    /// </summary>
+    private void HandleSessionRejected(DeviceLinkOperation operation)
+    {
+        _accountSessionStore.Clear();
+        _accountSession = null;
+        _accountProfile = null;
+        _accountWorkspaceOptions.Clear();
+        _accountDeviceRows.Clear();
+        _lastAccountRefreshUtc = DateTimeOffset.MinValue;
+        _activeAccountSection = AccountSurfaceSection.Summary;
+        _accountStatusMessage = DeviceLinkStatusCopy.BuildFailureMessage(
+            operation,
+            ControlPlaneCallOutcome.Unauthorized);
+
+        RestoreRememberedSignInInputs(force: true);
+        PopulateAccountSurface();
     }
 
     private void PopulateAccountSurface()
@@ -1112,12 +1171,20 @@ public partial class MainWindow
             return false;
         }
 
-        ControlPlaneDeviceLinkResult? response = await _controlPlaneAccountClient
+        ControlPlaneDeviceCallResult response = await _controlPlaneAccountClient
             .UnlinkMyDeviceAsync(_accountSession.AccessToken, deviceId)
             .ConfigureAwait(true);
-        if (response == null || !response.Ok)
+        if (!response.Ok)
         {
-            _accountStatusMessage = "Could not unlink the selected device.";
+            if (response.SessionRejected)
+            {
+                HandleSessionRejected(DeviceLinkOperation.UnlinkManagedDevice);
+                return false;
+            }
+
+            _accountStatusMessage = DeviceLinkStatusCopy.BuildFailureMessage(
+                DeviceLinkOperation.UnlinkManagedDevice,
+                response.Outcome);
             return false;
         }
 
@@ -1143,12 +1210,20 @@ public partial class MainWindow
             return false;
         }
 
-        ControlPlaneDeviceLinkResult? response = await _controlPlaneAccountClient
+        ControlPlaneDeviceCallResult response = await _controlPlaneAccountClient
             .RevokeMyDeviceAsync(_accountSession.AccessToken, deviceId)
             .ConfigureAwait(true);
-        if (response == null || !response.Ok)
+        if (!response.Ok)
         {
-            _accountStatusMessage = "Could not revoke the selected device.";
+            if (response.SessionRejected)
+            {
+                HandleSessionRejected(DeviceLinkOperation.RevokeManagedDevice);
+                return false;
+            }
+
+            _accountStatusMessage = DeviceLinkStatusCopy.BuildFailureMessage(
+                DeviceLinkOperation.RevokeManagedDevice,
+                response.Outcome);
             return false;
         }
 
