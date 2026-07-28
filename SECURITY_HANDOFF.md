@@ -395,6 +395,16 @@ stderr becomes a *terminating* error. Use `Get-Process | Stop-Process` instead.
 - `SharedDataAclHealer` grants `BUILTIN\Users` **Modify** on `C:\ProgramData\PortaAgent\` with
   inheritance, then re-locks only `security\`. Anything else written there — including
   `core-state.db` — is deletable by any standard user. New folders must protect themselves.
+- **`Porta.Agent.Service/Fleet/ControlPlaneClient.cs` has two dead tokenless callers.**
+  `LinkDeviceAccountAsync` and `UnlinkDeviceAccountAsync` (~lines 213 and 224) post to
+  `api/device/link-account` / `unlink-account` through `PostForResultAsync`, which attaches **no
+  Authorization header**. Grepped 2026-07-28: **zero callers anywhere in either repo** — they are
+  dead code, which is the only reason closing those routes did not break the service. **Both routes
+  now require an account session.** If you wire either method up, pass an access token and send it
+  as `Bearer`, or you will get a silent 401 — `PostForResultAsync` collapses every non-2xx to
+  `null`, so it will look like the control plane is unreachable. The service runs as LocalSystem at
+  boot with no signed-in user, so it has no token to send: if the service genuinely needs to link a
+  device, that is a design question (device auth, Stage 3), not a header to add.
 
 **What can and cannot be verified from a session:**
 
