@@ -242,6 +242,42 @@ Unlinked devices are exempt by design and must not appear in the gate. The count
 `agent_machine_summary_anonymous_total` (audit metrics) tracks how much of the fleet is still
 reporting anonymously.
 
+**Stage 3 progress (2026-07-28, all pushed, nothing released to the fleet):**
+
+Built and tested:
+
+- `devices.device_secret_hash` + `device_secret_created_at_utc`; `deviceCredentialStore` stores
+  sha256 only and compares in constant time.
+- `POST /api/device/issue-credential` — account session, device must be linked to that account,
+  re-issue rotates.
+- `requireDeviceAuth` / `attachDeviceIdentity` middleware + `PORTA_DEVICE_AUTH_MODE` (default `log`).
+- `machine-summary` two-tier (above). **This is the only route the middleware is wired to so far.**
+- Agent: DPAPI credential storage in `C:\ProgramData\PORTA\secrets\device_credential.bin` (note:
+  that is the real secrets path — the plan document's `PortaAgent\security\` is stale);
+  `POST /v1/identity/device-credential` hand-off, which refuses a credential for a different
+  deviceId; `/identity/unlink` deletes the credential; `ControlPlaneClient` attaches both headers
+  when present; throttled `fleet_unauthorized` log line distinguishing missing from rejected.
+- Control Center obtains the credential automatically on link **and** on every account refresh when
+  the service reports none. The refresh path exists because the Control Center has no autostart
+  entry (`Product.wxs` gives it shortcuts only; only `Porta.UserAgent` autostarts), so anything
+  needing a deliberate unlink/relink would never reach most of the fleet.
+
+**Still open — do these next:**
+
+- `requireDeviceAuth` is **not** wired to `categories/resolve`, `machine-summary`'s siblings
+  (`action-events`, `daily-stats`, `narrative`, `daily-digest`) or `user-context`. Those routes are
+  still fully unauthenticated.
+- **`GET /api/agent/user-context` still has the account-match hole** — it takes an `accountId` from
+  the query string with no credential and returns the user's behavioural profile. Highest-value
+  item left.
+- Agent MSI not built. **Blocked deliberately** on Render 2FA (§4.1) — shipping a fleet-wide update
+  while the update manifest's only protection is a hash in the Render environment is the wrong order.
+
+`deviceId` is `Guid.NewGuid()` in `LocalIdentityLinkStore.cs`, persisted to
+`C:\ProgramData\PortaAgent\identity-link.v1.json` — a directory where `SharedDataAclHealer` grants
+`BUILTIN\Users` Modify. So any standard user can read it and delete it to mint a new one. Treat
+`deviceId` as an identifier, never a secret; the credential is the only proof.
+
 **What landed for link/unlink (2026-07-28):**
 
 A new `requireAccountSession` in `src/api/middleware/auth.ts` guards both routes. It is session-only
