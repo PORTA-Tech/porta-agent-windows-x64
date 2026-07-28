@@ -15,10 +15,22 @@ public static class Secrets
         byte[]? TokenBytes,
         string? ErrorCode);
 
+    public sealed record DeviceCredentialReadResult(
+        bool Success,
+        string? DeviceId,
+        string? DeviceSecret,
+        string? ErrorCode);
+
+    private sealed record DeviceCredentialDocument(
+        string DeviceId,
+        string DeviceSecret,
+        string StoredAtUtc);
+
     private const string RootDirectoryName = "PORTA";
     private const string SecretsDirectoryName = "secrets";
     private const string InstallSecretFileName = "install_secret.bin";
     private const string ApiTokenFileName = "api_token.bin";
+    private const string DeviceCredentialFileName = "device_credential.bin";
 
     private const string LegacyRootDirectoryName = "PortaAgent";
     private const string LegacySecretsFileName = "secrets.secure.json";
@@ -27,11 +39,14 @@ public static class Secrets
     private const DataProtectionScope ProtectionScope = DataProtectionScope.LocalMachine;
     private const string InstallSecretEntropyContext = "PORTA/install_secret/v1";
     private const string ApiTokenEntropyContext = "PORTA/api_token/v1";
+    private const string DeviceCredentialEntropyContext = "PORTA/device_credential/v1";
     private static readonly byte[] InstallSecretEntropy = Encoding.UTF8.GetBytes(InstallSecretEntropyContext);
     private static readonly byte[] ApiTokenEntropy = Encoding.UTF8.GetBytes(ApiTokenEntropyContext);
+    private static readonly byte[] DeviceCredentialEntropy = Encoding.UTF8.GetBytes(DeviceCredentialEntropyContext);
     private static readonly object Gate = new();
     private static byte[]? CachedInstallSecret;
     private static byte[]? CachedApiToken;
+    private static DeviceCredentialReadResult? CachedDeviceCredential;
 
     public static byte[] GetInstallSecret()
     {
@@ -119,6 +134,25 @@ public static class Secrets
         return Path.Combine(GetSecretsDirectoryPath(), ApiTokenFileName);
     }
 
+    /// <summary>
+    /// Resolves the credential path. The override exists so tests never touch the machine's
+    /// real secrets directory -- writing there would clobber the installed agent's credential.
+    /// Same convention as PORTA_IDENTITY_LINK_PATH in LocalIdentityLinkStore.
+    /// </summary>
+    public static string GetDeviceCredentialPath(string? pathOverride = null)
+    {
+        string? explicitPath = string.IsNullOrWhiteSpace(pathOverride)
+            ? Environment.GetEnvironmentVariable("PORTA_DEVICE_CREDENTIAL_PATH")
+            : pathOverride;
+
+        if (!string.IsNullOrWhiteSpace(explicitPath))
+        {
+            return Path.GetFullPath(explicitPath);
+        }
+
+        return Path.Combine(GetSecretsDirectoryPath(), DeviceCredentialFileName);
+    }
+
     private static byte[] ReadOrCreateSecretBytes(
         string secretName,
         string secretPath,
@@ -160,6 +194,149 @@ public static class Secrets
         }
 
         return ReadExistingSecretBytes(secretName, secretPath, entropy, readErrorCode, invalidLengthCode);
+    }
+
+    /// <summary>
+    /// The per-device fleet credential. Unlike the install secret and API token this is a
+    /// variable-length string issued by the control plane, and it is legitimately absent on a
+    /// device nobody has signed into -- so reads report "missing" rather than failing closed.
+    ///
+    /// It lives in the hardened secrets directory, NOT in C:\ProgramData\PortaAgent\, because
+    /// SharedDataAclHealer grants BUILTIN\Users Modify there with inheritance. The deviceId it
+    /// pairs with is readable by any standard user from identity-link.v1.json; only this secret
+    /// makes the pair proof of anything.
+    /// </summary>
+    public static bool TryWriteDeviceCredential(string deviceId, string deviceSecret, string? pathOverride = null)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(deviceSecret))
+        {
+            return false;
+        }
+
+        lock (Gate)
+        {
+            try
+            {
+                string path = GetDeviceCredentialPath(pathOverride);
+                EnsureCredentialDirectory(path, pathOverride);
+                string json = JsonSerializer.Serialize(new DeviceCredentialDocument(
+                    deviceId.Trim(),
+                    deviceSecret.Trim(),
+                    DateTimeOffset.UtcNow.ToString("O")));
+
+                byte[] protectedBytes = Protect(Encoding.UTF8.GetBytes(json), DeviceCredentialEntropy);
+                string tempPath = path + ".tmp";
+                File.WriteAllBytes(tempPath, protectedBytes);
+                File.Move(tempPath, path, overwrite: true);
+                TryHardenFileAcl(path);
+                if (pathOverride == null)
+                {
+                    CachedDeviceCredential = new DeviceCredentialReadResult(true, deviceId.Trim(), deviceSecret.Trim(), null);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"secrets_error code=DEVICE_CREDENTIAL_WRITE_FAILED secret=device_credential path={GetDeviceCredentialPath(pathOverride)} error={ex.GetType().Name}:{ex.Message}");
+                return false;
+            }
+        }
+    }
+
+    public static DeviceCredentialReadResult ReadDeviceCredential(string? pathOverride = null)
+    {
+        lock (Gate)
+        {
+            if (pathOverride == null && CachedDeviceCredential is { Success: true })
+            {
+                return CachedDeviceCredential;
+            }
+
+            string path = GetDeviceCredentialPath(pathOverride);
+            if (!File.Exists(path))
+            {
+                // Not an error: an unlinked device has no credential and never will until
+                // somebody signs in and links it.
+                return new DeviceCredentialReadResult(false, null, null, "DEVICE_CREDENTIAL_MISSING");
+            }
+
+            try
+            {
+                byte[] protectedBytes = File.ReadAllBytes(path);
+                byte[] plain = ProtectedData.Unprotect(protectedBytes, DeviceCredentialEntropy, ProtectionScope);
+                DeviceCredentialDocument? document = JsonSerializer.Deserialize<DeviceCredentialDocument>(
+                    Encoding.UTF8.GetString(plain));
+
+                if (document == null
+                    || string.IsNullOrWhiteSpace(document.DeviceId)
+                    || string.IsNullOrWhiteSpace(document.DeviceSecret))
+                {
+                    return new DeviceCredentialReadResult(false, null, null, "DEVICE_CREDENTIAL_INVALID");
+                }
+
+                var result = new DeviceCredentialReadResult(true, document.DeviceId, document.DeviceSecret, null);
+                if (pathOverride == null)
+                {
+                    CachedDeviceCredential = result;
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"secrets_error code=DEVICE_CREDENTIAL_READ_FAILED secret=device_credential path={path} error={ex.GetType().Name}:{ex.Message}");
+                return new DeviceCredentialReadResult(false, null, null, "DEVICE_CREDENTIAL_READ_FAILED");
+            }
+        }
+    }
+
+    /// <summary>Drops the cached credential so the next read picks up a rotated file.</summary>
+    public static void InvalidateDeviceCredentialCache()
+    {
+        lock (Gate)
+        {
+            CachedDeviceCredential = null;
+        }
+    }
+
+    public static bool TryDeleteDeviceCredential()
+    {
+        lock (Gate)
+        {
+            CachedDeviceCredential = null;
+            try
+            {
+                string path = GetDeviceCredentialPath();
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    private static void EnsureCredentialDirectory(string path, string? pathOverride)
+    {
+        if (pathOverride == null && Environment.GetEnvironmentVariable("PORTA_DEVICE_CREDENTIAL_PATH") == null)
+        {
+            EnsureSecretsDirectory();
+            return;
+        }
+
+        string? directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
     }
 
     private static void EnsureSecretsDirectory()
