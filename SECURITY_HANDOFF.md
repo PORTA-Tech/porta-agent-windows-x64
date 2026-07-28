@@ -163,8 +163,9 @@ These come from mistakes made today. The user caught them; the user should not h
    and annoying.
 5. **Be brief.** Long, structured answers were actively counterproductive here. Short paragraphs,
    plain words, no jargon unless it is explained.
-6. **Verify before claiming done.** Nothing in the agent repo can be built or run in a sandbox
-   (see section 6). "It compiles" is only true after the user says it does.
+6. **Verify before claiming done.** Check what you can actually run before assuming you cannot —
+   see section 6. `dotnet` IS available, so "it compiles" and "the tests pass" are claims you are
+   expected to have checked yourself, not to hand to the user.
 
 ---
 
@@ -208,9 +209,22 @@ not set that preference. Use `Get-Process | Stop-Process` instead.
   inheritance, then re-locks only the `security\` subfolder. Anything else written there — including
   `core-state.db` itself — is deletable by any standard user. New folders must protect themselves.
 
-**Sandbox limits (a chat agent cannot verify agent-repo work):**
+**What can and cannot be verified from a session (corrected 2026-07-28):**
 
-- No `dotnet`. C# cannot be compiled or tested.
+- **`dotnet` IS available** (8.0.417, `C:\Program Files\dotnet\dotnet.exe`). The agent repo builds
+  and `dotnet test src\Porta.Agent.Service.Tests` runs. An earlier version of this document said
+  otherwise; that was wrong and cost a session's worth of "the user will have to check this".
+  Build and test your own work before reporting it.
+- **PowerShell scripts can be parsed and exercised.** Parse-check with
+  `[System.Management.Automation.Language.Parser]::ParseFile`, and run a script end-to-end by
+  pointing `$env:ProgramData` at a temp tree so it never touches real data. Both found real bugs
+  on 2026-07-28 that review alone had missed.
+- **`.ps1` files must stay pure ASCII.** They have no BOM, so PowerShell 5.1 reads them in the
+  ANSI codepage and a stray em dash silently truncates a string literal — the script then fails
+  to parse. `.cs` files are fine and already use em dashes. Parse-check any `.ps1` you edit.
+- **Elevation is NOT available.** `Start-Process -Verb RunAs` is refused by the permission layer,
+  so anything needing Administrator — stopping/starting `AriAgent`, a real restore, `icacls` on a
+  protected folder — has to be run by the user. Reading service state and ACLs works unelevated.
 - Control-plane `npx vitest` fails — `node_modules` was installed on Windows and the Linux rollup
   binary is missing. `npx tsc --noEmit` does work, but ~67 pre-existing errors from
   `@porta/api-contracts` failing to resolve are environmental noise; filter for changed files.
