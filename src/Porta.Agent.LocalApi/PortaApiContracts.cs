@@ -761,6 +761,15 @@ public sealed record LocalApiSetIdentityLinkRequest(
     [property: JsonPropertyName("account_id")] string? AccountId,
     [property: JsonPropertyName("org_id")] string? OrgId);
 
+public sealed record LocalApiSetDeviceCredentialRequest(
+    [property: JsonPropertyName("device_id")] string? DeviceId,
+    [property: JsonPropertyName("device_secret")] string? DeviceSecret);
+
+public sealed record LocalApiDeviceCredentialStatusResponse(
+    [property: JsonPropertyName("present")] bool Present,
+    [property: JsonPropertyName("device_id")] string? DeviceId,
+    [property: JsonPropertyName("timestamp_utc")] DateTimeOffset TimestampUtc);
+
 public sealed record LocalApiRetentionResponse(
     int RetentionDays,
     long DatabaseBytes,

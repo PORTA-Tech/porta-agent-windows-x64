@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using Porta.Agent.Core.Security;
 
 namespace Porta.Agent.Service.Fleet;
 
@@ -18,6 +19,9 @@ internal sealed class ControlPlaneClient : IDisposable
     };
 
     private readonly HttpClient? _httpClient;
+    private static readonly TimeSpan UnauthorizedLogInterval = TimeSpan.FromMinutes(5);
+    private readonly object _unauthorizedLogGate = new();
+    private DateTimeOffset? _lastUnauthorizedLogUtc;
 
     public ControlPlaneClient()
     {
@@ -316,13 +320,16 @@ internal sealed class ControlPlaneClient : IDisposable
 
         try
         {
-            using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(
-                relativeUri,
-                request,
-                JsonOptions,
-                token).ConfigureAwait(false);
+            using var message = new HttpRequestMessage(HttpMethod.Post, relativeUri)
+            {
+                Content = JsonContent.Create(request, options: JsonOptions)
+            };
+            AttachDeviceCredential(message);
+
+            using HttpResponseMessage response = await _httpClient.SendAsync(message, token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
+                LogUnauthorizedThrottled(response, relativeUri);
                 return null;
             }
 
@@ -332,6 +339,54 @@ internal sealed class ControlPlaneClient : IDisposable
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Attaches the device credential when one exists. A device nobody has signed into has
+    /// none and never will, so its absence is normal and the call proceeds without headers --
+    /// the control plane accepts those as anonymous inventory.
+    /// </summary>
+    private static void AttachDeviceCredential(HttpRequestMessage message)
+    {
+        Secrets.DeviceCredentialReadResult credential = Secrets.ReadDeviceCredential();
+        if (!credential.Success
+            || string.IsNullOrWhiteSpace(credential.DeviceId)
+            || string.IsNullOrWhiteSpace(credential.DeviceSecret))
+        {
+            return;
+        }
+
+        message.Headers.TryAddWithoutValidation("X-Porta-Device-Id", credential.DeviceId);
+        message.Headers.TryAddWithoutValidation("X-Porta-Device-Secret", credential.DeviceSecret);
+    }
+
+    /// <summary>
+    /// A 401 is the one failure worth its own line. Everything else here collapses to null and
+    /// retries, so without this a credential-less or rotated-out agent would fail silently every
+    /// ten seconds forever and look identical to the control plane being unreachable.
+    /// </summary>
+    private void LogUnauthorizedThrottled(HttpResponseMessage response, string relativeUri)
+    {
+        if (response.StatusCode != System.Net.HttpStatusCode.Unauthorized)
+        {
+            return;
+        }
+
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        lock (_unauthorizedLogGate)
+        {
+            if (_lastUnauthorizedLogUtc.HasValue && (nowUtc - _lastUnauthorizedLogUtc.Value) < UnauthorizedLogInterval)
+            {
+                return;
+            }
+
+            _lastUnauthorizedLogUtc = nowUtc;
+        }
+
+        bool hasCredential = Secrets.ReadDeviceCredential().Success;
+        Console.Error.WriteLine(
+            $"fleet_unauthorized route={relativeUri} device_credential={(hasCredential ? "present_but_rejected" : "missing")} "
+            + "hint=sign in through Control Center to issue a device credential");
     }
 
     private static string? NormalizeHex(string? value)

@@ -822,7 +822,62 @@ public static class LocalApiEndpointMapping
         api.MapPost("/identity/unlink", (ILocalIdentityLinkStore identityLinkStore) =>
         {
             LocalIdentityLinkSnapshot snapshot = identityLinkStore.ClearLink();
+            Secrets.TryDeleteDeviceCredential();
             return Results.Ok(ToIdentityLinkResponse(snapshot));
+        });
+
+        // The Control Center receives the device credential from the control plane -- it is the
+        // only process holding a user session -- but the service owns the secrets directory.
+        // This is the hand-off. Loopback plus the local API token guard it like every other
+        // endpoint here; the secret never touches a user-writable location.
+        api.MapPost("/identity/device-credential", (
+            ILocalIdentityLinkStore identityLinkStore,
+            LocalApiSetDeviceCredentialRequest? request) =>
+        {
+            string? deviceId = NormalizeGuid(request?.DeviceId);
+            if (deviceId is null)
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_device_id",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            if (string.IsNullOrWhiteSpace(request?.DeviceSecret))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "invalid_device_secret",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            // A credential is only meaningful for the device this machine actually is. Accepting
+            // one for a different deviceId would let a signed-in user park another machine's
+            // credential here, and every fleet call would then claim to be that machine.
+            LocalIdentityLinkSnapshot snapshot = identityLinkStore.GetCurrent();
+            if (!string.Equals(snapshot.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(
+                    Success: false,
+                    Message: "device_id_mismatch",
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            bool stored = Secrets.TryWriteDeviceCredential(deviceId, request.DeviceSecret);
+            return stored
+                ? Results.Ok(new LocalApiAckResponse(true, "device_credential_stored", DateTimeOffset.UtcNow))
+                : Results.Json(
+                    new LocalApiAckResponse(false, "device_credential_write_failed", DateTimeOffset.UtcNow),
+                    statusCode: 500);
+        });
+
+        api.MapGet("/identity/device-credential/status", () =>
+        {
+            Secrets.DeviceCredentialReadResult credential = Secrets.ReadDeviceCredential();
+            return Results.Ok(new LocalApiDeviceCredentialStatusResponse(
+                Present: credential.Success,
+                DeviceId: credential.DeviceId,
+                TimestampUtc: DateTimeOffset.UtcNow));
         });
 
         api.MapPost("/control/pause", (IAgentCoreController controller, LocalApiPauseRequest? request) =>
