@@ -56,8 +56,12 @@ internal sealed class DatabaseBackupWorker : BackgroundService
     /// </summary>
     internal const long MaxFolderBytes = 8L * 1024 * 1024 * 1024;
 
-    /// <summary>Refuse to write a snapshot that would leave the volume under this much headroom.</summary>
-    private const long MinFreeDiskBytes = 2L * 1024 * 1024 * 1024;
+    /// <summary>
+    /// Override for the free-space rule, in bytes. Set it on a machine that needs an explicit
+    /// floor; leave it unset and the requirement is derived from the database being backed up.
+    /// See <see cref="HasHeadroom(long, long, long?)"/>.
+    /// </summary>
+    internal const string MinFreeBytesEnvVar = "PORTA_BACKUP_MIN_FREE_BYTES";
 
     private const string FilePrefix = "core-state-";
     private const string FileExtension = ".db";
@@ -113,35 +117,55 @@ internal sealed class DatabaseBackupWorker : BackgroundService
             string backupDirectory = GetBackupDirectory();
             Directory.CreateDirectory(backupDirectory);
             ProtectBackupFolder(backupDirectory);
-            CleanUpAbandonedTempFiles(backupDirectory);
 
-            IReadOnlyList<BackupCandidate> existing = ReadCandidates(backupDirectory);
-            DateTimeOffset nowLocal = DateTimeOffset.Now;
-            DateTimeOffset? newestLocal = existing.Count == 0
-                ? null
-                : existing.Max(candidate => candidate.TimestampUtc).ToLocalTime();
-
-            if (!IsDue(nowLocal, newestLocal, BackupHourLocal))
-            {
-                return;
-            }
-
-            if (!HasHeadroom(dbPath, backupDirectory))
-            {
-                _logger.LogWarning("Backup skipped: not enough free disk space.");
-                return;
-            }
-
-            string createdPath = CreateSnapshot(dbPath, backupDirectory, nowLocal);
-            _logger.LogInformation("Database backup written: {Path}", createdPath);
-
-            ApplyRetention(backupDirectory);
+            RunTickCore(dbPath, backupDirectory, DateTimeOffset.Now);
         }
         catch (Exception ex)
         {
             // Never rethrow: a backup bug must not be able to take down the service.
             _logger.LogWarning(ex, "Database backup tick failed.");
         }
+    }
+
+    /// <summary>
+    /// The body of one tick, against an explicit database, folder and clock. Split out of
+    /// <see cref="RunTick"/> so it can be tested without ProgramData or the live service database.
+    /// </summary>
+    internal void RunTickCore(string dbPath, string backupDirectory, DateTimeOffset nowLocal)
+    {
+        CleanUpAbandonedTempFiles(backupDirectory);
+
+        // Retention runs on EVERY tick, ahead of every early return below.
+        //
+        // It used to run only after a snapshot had been written successfully, which made a full
+        // disk unrecoverable on its own: the headroom check would skip the backup, skipping the
+        // backup would skip the pruning, and pruning was the only thing that could have freed the
+        // space the backup needed. The machine would warn every 15 minutes, forever, and never
+        // take another snapshot. Deleting expired copies must not depend on being able to write
+        // a new one.
+        ApplyRetention(backupDirectory, nowLocal.ToUniversalTime());
+
+        IReadOnlyList<BackupCandidate> existing = ReadCandidates(backupDirectory);
+        DateTimeOffset? newestLocal = existing.Count == 0
+            ? null
+            : existing.Max(candidate => candidate.TimestampUtc).ToLocalTime();
+
+        if (!IsDue(nowLocal, newestLocal, BackupHourLocal))
+        {
+            return;
+        }
+
+        if (!HasEnoughRoomFor(dbPath, backupDirectory))
+        {
+            return;
+        }
+
+        string createdPath = CreateSnapshot(dbPath, backupDirectory, nowLocal);
+        _logger.LogInformation("Database backup written: {Path}", createdPath);
+
+        // Again, now that a snapshot has been added: the ceiling is enforced against the folder as
+        // it stands, not as it stood before the write.
+        ApplyRetention(backupDirectory, nowLocal.ToUniversalTime());
     }
 
     // ---------------------------------------------------------------- scheduling
@@ -167,7 +191,8 @@ internal sealed class DatabaseBackupWorker : BackgroundService
 
     // ---------------------------------------------------------------- snapshot
 
-    private static string CreateSnapshot(string dbPath, string backupDirectory, DateTimeOffset nowLocal)
+    /// <summary>Writes one snapshot and returns its path. Exposed for tests.</summary>
+    internal static string CreateSnapshot(string dbPath, string backupDirectory, DateTimeOffset nowLocal)
     {
         string stamp = nowLocal.ToString(TimestampFormat, CultureInfo.InvariantCulture);
         string finalPath = Path.Combine(backupDirectory, $"{FilePrefix}{stamp}{FileExtension}");
@@ -194,8 +219,49 @@ internal sealed class DatabaseBackupWorker : BackgroundService
         return finalPath;
     }
 
-    private static bool HasHeadroom(string dbPath, string backupDirectory)
+    /// <summary>
+    /// Whether there is room to write a snapshot of <paramref name="dbBytes"/> and still have
+    /// somewhere to put the next one. Exposed for tests.
+    ///
+    /// Deliberately not a fixed constant. The value this replaces was a flat 2 GB floor that had
+    /// been invented rather than measured, and an invented floor fails in the worst direction: it
+    /// silently stops backing up a machine that has ample room, leaving nothing but a warning in a
+    /// log nobody reads.
+    ///
+    /// So the requirement is derived from the one quantity here that IS measured — the size of the
+    /// database about to be copied. After this snapshot is written the volume must still hold
+    /// another of the same size, which means tonight's backup is never the thing that fills the
+    /// disk and tomorrow's still has somewhere to go. A machine with a 640 MB database needs
+    /// 1.3 GB free; a machine with a 60 MB database needs 120 MB, instead of being told it needs
+    /// 2 GB it was never going to use.
+    ///
+    /// <paramref name="configuredMinFreeBytes"/> (from PORTA_BACKUP_MIN_FREE_BYTES) replaces the
+    /// derived requirement for anyone who needs an explicit floor.
+    /// </summary>
+    internal static bool HasHeadroom(long availableFreeBytes, long dbBytes, long? configuredMinFreeBytes)
     {
+        long requiredAfterWriting = configuredMinFreeBytes ?? dbBytes;
+        return availableFreeBytes - dbBytes >= requiredAfterWriting;
+    }
+
+    /// <summary>Reads PORTA_BACKUP_MIN_FREE_BYTES. Junk or absent means "derive it". Exposed for tests.</summary>
+    internal static long? ReadConfiguredMinFreeBytes()
+    {
+        string? raw = Environment.GetEnvironmentVariable(MinFreeBytesEnvVar);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        return long.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed) && parsed >= 0
+            ? parsed
+            : null;
+    }
+
+    private bool HasEnoughRoomFor(string dbPath, string backupDirectory)
+    {
+        long availableBytes;
+        long dbBytes;
         try
         {
             string? root = Path.GetPathRoot(backupDirectory);
@@ -204,22 +270,35 @@ internal sealed class DatabaseBackupWorker : BackgroundService
                 return true; // cannot tell — do not block the backup on a probe failure
             }
 
-            var drive = new DriveInfo(root);
-            long dbBytes = new FileInfo(dbPath).Length;
-            return drive.AvailableFreeSpace - dbBytes > MinFreeDiskBytes;
+            availableBytes = new DriveInfo(root).AvailableFreeSpace;
+            dbBytes = new FileInfo(dbPath).Length;
         }
         catch
         {
             return true;
         }
+
+        if (HasHeadroom(availableBytes, dbBytes, ReadConfiguredMinFreeBytes()))
+        {
+            return true;
+        }
+
+        // Log the numbers, not just the verdict. "Not enough free disk space" on its own is the
+        // kind of line that gets read for months without anyone learning what it wanted.
+        _logger.LogWarning(
+            "Backup skipped: {AvailableMb} MB free, need room for a {DbMb} MB snapshot plus {RequiredMb} MB after it.",
+            availableBytes / (1024 * 1024),
+            dbBytes / (1024 * 1024),
+            (ReadConfiguredMinFreeBytes() ?? dbBytes) / (1024 * 1024));
+        return false;
     }
 
     // ---------------------------------------------------------------- retention
 
-    private void ApplyRetention(string backupDirectory)
+    private void ApplyRetention(string backupDirectory, DateTimeOffset nowUtc)
     {
         IReadOnlyList<BackupCandidate> candidates = ReadCandidates(backupDirectory);
-        foreach (BackupCandidate doomed in SelectForDeletion(candidates, DateTimeOffset.UtcNow, RetentionDays, MaxFolderBytes))
+        foreach (BackupCandidate doomed in SelectForDeletion(candidates, nowUtc, RetentionDays, MaxFolderBytes))
         {
             try
             {
