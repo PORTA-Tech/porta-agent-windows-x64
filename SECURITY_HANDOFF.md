@@ -230,17 +230,47 @@ need to see during a rollout.
 no credential, so counting agent versions proves nothing. Before flipping
 `PORTA_DEVICE_AUTH_MODE=enforce`, this must return zero:
 
+Column names verified against the `CREATE TABLE devices` and the `ALTER TABLE` in
+`src/store/fleetPersistence.ts`. Note the inconsistency: the table's timestamps are `last_seen_at`,
+`first_seen_at` (no suffix) but the column added for this is `device_secret_created_at_utc` (with
+suffix). Getting `last_seen_at_utc` wrong is the easy mistake here.
+
 ```sql
-SELECT device_id, machine_name, last_seen_at
+-- Must return 0 before flipping PORTA_DEVICE_AUTH_MODE=enforce.
+SELECT count(*) AS blocking_devices
 FROM devices
 WHERE current_account_id IS NOT NULL
   AND device_secret_hash IS NULL
+  AND status <> 'revoked'
+  AND revoked_at IS NULL
   AND last_seen_at > now() - interval '7 days';
 ```
 
-Unlinked devices are exempt by design and must not appear in the gate. The counter
-`agent_machine_summary_anonymous_total` (audit metrics) tracks how much of the fleet is still
-reporting anonymously.
+```sql
+-- The same rows, listed, for when the count is not 0 and you need to know which machines.
+SELECT device_id,
+       machine_name,
+       agent_version,
+       current_account_id,
+       last_seen_at
+FROM devices
+WHERE current_account_id IS NOT NULL
+  AND device_secret_hash IS NULL
+  AND status <> 'revoked'
+  AND revoked_at IS NULL
+  AND last_seen_at > now() - interval '7 days'
+ORDER BY last_seen_at DESC;
+```
+
+Why each clause is there: `current_account_id IS NOT NULL` because unlinked devices can never hold
+a credential and are exempt by design; `device_secret_hash IS NULL` is the actual question;
+`status <> 'revoked'` and `revoked_at IS NULL` because a revoked device must not block the flip;
+the 7-day window because a laptop that has been off for a month should not either — widen it if
+you have seasonal users.
+
+The counter `agent_machine_summary_anonymous_total` (audit metrics) tracks how much of the fleet is
+still reporting anonymously, and `agent_device_account_mismatch_total` records every request that
+enforce mode *would* have refused. Both should approach zero before the flip.
 
 **Stage 3 progress (2026-07-28, all pushed, nothing released to the fleet):**
 
@@ -262,16 +292,25 @@ Built and tested:
   entry (`Product.wxs` gives it shortcuts only; only `Porta.UserAgent` autostarts), so anything
   needing a deliberate unlink/relink would never reach most of the fleet.
 
-**Still open — do these next:**
+- `requireDeviceAuth` now guards `categories/resolve`, `action-events`, `daily-stats`, `narrative`,
+  `daily-digest` and `user-context`, in **log mode** — uncredentialed calls are counted and let
+  through, so the deploy changed nothing for the live fleet.
+- `GET /api/agent/user-context` has the device↔account match. It took an `accountId` off the query
+  string with no credential and returned that person's first name, weak hour, average streak and
+  strong-window bounds. Counted in log mode, 403 in enforce.
 
-- `requireDeviceAuth` is **not** wired to `categories/resolve`, `machine-summary`'s siblings
-  (`action-events`, `daily-stats`, `narrative`, `daily-digest`) or `user-context`. Those routes are
-  still fully unauthenticated.
-- **`GET /api/agent/user-context` still has the account-match hole** — it takes an `accountId` from
-  the query string with no credential and returns the user's behavioural profile. Highest-value
-  item left.
+**Still open:**
+
+- **Nothing in the fleet holds a credential yet**, so until the agent ships, every device is on the
+  anonymous path. Consequence, analytics-only and verified: `machine_installed`,
+  `account_active_day` and `account_activated` are not written during the gap. Existing
+  device→account links are **not** erased. `account_active_day` and `maybeActivateAccount` feed
+  only `growthReadService` → `/v1/growth` (operator-only console dashboards); `maybeActivateAccount`
+  does not mutate `accounts.status`, and neither the digest nor the narrative builder reads active
+  days. No user experiences any of it.
 - Agent MSI not built. **Blocked deliberately** on Render 2FA (§4.1) — shipping a fleet-wide update
   while the update manifest's only protection is a hash in the Render environment is the wrong order.
+- The enforce flip itself (Render env var), gated on the query above.
 
 `deviceId` is `Guid.NewGuid()` in `LocalIdentityLinkStore.cs`, persisted to
 `C:\ProgramData\PortaAgent\identity-link.v1.json` — a directory where `SharedDataAclHealer` grants
