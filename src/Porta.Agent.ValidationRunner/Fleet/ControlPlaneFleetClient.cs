@@ -120,9 +120,14 @@ internal sealed class ControlPlaneFleetClient : IDisposable
         return await response.Content.ReadFromJsonAsync<DeviceLinkResultRow>(_jsonReadOptions, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<DeviceLinkResultRow?> LinkDeviceAsync(DeviceAccountLinkRequestRow payload, CancellationToken cancellationToken)
+    public async Task<DeviceLinkResultRow?> LinkDeviceAsync(
+        DeviceAccountLinkRequestRow payload,
+        string accessToken,
+        CancellationToken cancellationToken)
     {
-        using HttpResponseMessage response = await _httpClient.PostAsJsonAsync("api/device/link-account", payload, _jsonWriteOptions, cancellationToken).ConfigureAwait(false);
+        using HttpRequestMessage request = CreateSessionRequest(HttpMethod.Post, "api/device/link-account", accessToken);
+        request.Content = JsonContent.Create(payload, options: _jsonWriteOptions);
+        using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             return null;

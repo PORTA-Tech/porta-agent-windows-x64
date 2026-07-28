@@ -180,10 +180,8 @@ fleet out.
   Requiring auth on `/register` breaks boot-time registration on every machine.
 - **`GET /presence` is closed entirely, not device-auth'd.** It returns the whole fleet map and
   nothing in the agent repo calls it. Operator-only.
-- **`link-account` / `unlink-account` auth lands first, as its own commit.** All four Control Center
-  call sites already pass `_accountSession.AccessToken` and send `_accountSession.AccountId`.
-  `Porta.Agent.ValidationRunner/Fleet/ControlPlaneFleetClient.cs` calls it with no token and must be
-  fixed **in the same commit**.
+- ~~**`link-account` / `unlink-account` auth lands first, as its own commit.**~~ **DONE 2026-07-28** —
+  see "What landed for link/unlink" below.
 - **`heartbeat` and `telemetry` stay open.** They carry no user data and are memory-only. Accepted
   residual risk: an unauthenticated caller can pollute the in-memory presence map.
 
@@ -202,8 +200,37 @@ fleet out.
 | `GET /user-context` | device auth + account match |
 | `GET /presence` | operator only |
 | `POST /device/register` | open (inventory only, no secret) |
-| `POST /device/link-account` | operator session + account match |
-| `POST /device/unlink-account` | operator session + account match |
+| `POST /device/link-account` | operator session + account match — **DONE** |
+| `POST /device/unlink-account` | operator session + account match — **DONE** |
+
+**What landed for link/unlink (2026-07-28):**
+
+A new `requireAccountSession` in `src/api/middleware/auth.ts` guards both routes. It is session-only
+by design and deliberately does **not** fall back to the `x-operator-key` header branch that
+`requireAuthenticatedOperator` uses: that key is a shared secret baked into the operations-console
+bundle at build time and carries no account, so it cannot satisfy an account-ownership check.
+Nothing in the console calls these routes, so closing the header path costs nothing. There is a test
+asserting the operator key is rejected.
+
+Both middlewares now set `req.operatorAccountId = session.account_id`, which defuses trap 1 below
+for the rest of Stage 3.
+
+Measured, not assumed: control plane `npm run test` → **204 passing** (was 197; 7 tests added).
+Agent `dotnet test src\Porta.Agent.Service.Tests` → **92 passing**, full solution builds clean.
+
+Two things found while doing it that the earlier survey missed:
+
+1. `unlinkDeviceIdentity` skips its ownership check entirely when `accountId` is null
+   (`identityProfileService.ts:641` — `if (request.accountId && ...)`), and `accountId` is optional
+   on the wire. So omitting it was a way to unlink **any** device by guessing a device id. The
+   controller now substitutes the session's account before calling the service. There is a
+   regression test for exactly this.
+2. The **service** client `Porta.Agent.Service/Fleet/ControlPlaneClient.cs` also has
+   `LinkDeviceAccountAsync` / `UnlinkDeviceAccountAsync` (lines ~213, ~224) posting with no bearer
+   token. They are **dead code — grepped, zero callers anywhere in the repo** — so nothing broke.
+   They were left in place rather than deleted to keep this commit to one concern. If anyone wires
+   them up they will now get a 401; give them an access token at that point. The handoff's earlier
+   claim that `ControlPlaneFleetClient.cs` was the only unauthenticated caller was incomplete.
 
 **Highest-value single item:** `GET /api/agent/user-context` (`agentController.ts` ~line 988) takes
 an `accountId` from the query string with no credential and returns `firstName`, `weakHour`,
@@ -211,10 +238,11 @@ an `accountId` from the query string with no credential and returns `firstName`,
 
 **Two traps — each costs a debugging session if missed:**
 
-1. `requireAuthenticatedOperator` (`src/api/middleware/auth.ts:118`) sets
-   `req.operatorId = session.user_id` — **not** `account_id`, which it drops. Writing the
-   account-match against `operatorId` compares a user_id to an accountId and every legitimate link
-   fails. Attach `session.account_id` explicitly first.
+1. `requireAuthenticatedOperator` (`src/api/middleware/auth.ts`) sets
+   `req.operatorId = session.user_id` — **not** `account_id`. Writing the account-match against
+   `operatorId` compares a user_id to an accountId and every legitimate link fails. **Defused
+   2026-07-28:** both middlewares now also set `req.operatorAccountId`. Use that field; `operatorId`
+   still means user_id.
 2. Header attachment is **two clients, not one**. `ControlPlaneClient.cs` handles most routes
    including `categories/resolve` (line 272), but `Porta.Agent.Runtime/Transport/PortaClient.cs`
    posts `heartbeat` and `telemetry` through a separate `HttpClient`.

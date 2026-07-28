@@ -363,6 +363,7 @@ internal static class FleetValidationRunner
                     OrgId: orgId,
                     SessionToken: login.AccessToken,
                     LocalProofToken: null),
+                login.AccessToken,
                 CancellationToken.None).ConfigureAwait(false);
         DeviceLinkResultRow? syncedRegistration =
             await controlPlane.RegisterDeviceAsync(currentDeviceRegistration, CancellationToken.None).ConfigureAwait(false);
@@ -465,6 +466,7 @@ internal static class FleetValidationRunner
                     OrgId: orgId,
                     SessionToken: login.AccessToken,
                     LocalProofToken: null),
+                login.AccessToken,
                 CancellationToken.None).ConfigureAwait(false);
         DeviceLinkResultRow? syntheticRevoked =
             syntheticLinked is not null
