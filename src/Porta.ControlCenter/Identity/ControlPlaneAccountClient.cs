@@ -235,6 +235,44 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         return await PostDeviceIdentityAsync("api/device/unlink-account", payload, accessToken, token).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Asks the control plane for this device's credential. Requires the account session --
+    /// the control plane only issues one for a device already linked to that account, which is
+    /// why the Control Center is the only process that can do this.
+    /// </summary>
+    public async Task<ControlPlaneDeviceCredentialResponse?> IssueDeviceCredentialAsync(
+        string deviceId,
+        string accessToken,
+        CancellationToken token = default)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(accessToken))
+        {
+            return null;
+        }
+
+        try
+        {
+            using HttpRequestMessage request = CreateJsonRequest(
+                HttpMethod.Post,
+                "api/device/issue-credential",
+                new { deviceId = deviceId.Trim() },
+                accessToken);
+            using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content
+                .ReadFromJsonAsync<ControlPlaneDeviceCredentialResponse>(JsonOptions, token)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private async Task<ControlPlaneDeviceCallResult> PostDeviceIdentityAsync<TPayload>(
         string path,
         TPayload payload,

@@ -177,6 +177,12 @@ internal sealed record ControlPlaneDeviceAccountUnlinkRequest(
     [property: JsonPropertyName("sessionToken")] string? SessionToken,
     [property: JsonPropertyName("localProofToken")] string? LocalProofToken);
 
+internal sealed record ControlPlaneDeviceCredentialResponse(
+    [property: JsonPropertyName("ok")] bool Ok,
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("deviceSecret")] string DeviceSecret,
+    [property: JsonPropertyName("issuedAtUtc")] string? IssuedAtUtc);
+
 internal sealed record ControlPlaneDeviceLinkResult(
     [property: JsonPropertyName("ok")] bool Ok,
     [property: JsonPropertyName("linkState")] string LinkState,

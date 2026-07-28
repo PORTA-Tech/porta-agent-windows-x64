@@ -737,6 +737,59 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    public async Task<bool> SetDeviceCredentialAsync(
+        string deviceId,
+        string deviceSecret,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(deviceSecret))
+        {
+            return false;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            var request = new LocalApiSetDeviceCredentialRequest(deviceId.Trim(), deviceSecret.Trim());
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/identity/device-credential", content, token).ConfigureAwait(false);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<LocalApiDeviceCredentialStatusResponse?> GetDeviceCredentialStatusAsync(CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using HttpResponseMessage response = await _httpClient.GetAsync("/v1/identity/device-credential/status", token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<LocalApiDeviceCredentialStatusResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<LocalApiIdentityLinkResponse?> ClearIdentityLinkAsync(CancellationToken token = default)
     {
         if (!HasRuntimeSettings())

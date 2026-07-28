@@ -112,6 +112,11 @@ public partial class MainWindow
             {
                 _accountProfile = me;
                 SyncWorkspaceOptions();
+
+                // Devices linked before this shipped hold no credential. This is how they get
+                // one -- no unlink/relink dance, which would never reach most of the fleet.
+                await EnsureDeviceCredentialAsync().ConfigureAwait(true);
+
                 string? autoLinkedWorkspaceName = await TryAutoLinkCurrentDeviceAsync().ConfigureAwait(true);
                 if (!string.IsNullOrWhiteSpace(autoLinkedWorkspaceName))
                 {
@@ -312,6 +317,7 @@ public partial class MainWindow
 
         _latestIdentityLink = local;
         await RegisterCurrentDeviceAsync().ConfigureAwait(true);
+        await EnsureDeviceCredentialAsync().ConfigureAwait(true);
 
         if (updateStatusMessage)
         {
@@ -319,6 +325,50 @@ public partial class MainWindow
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Makes sure the service holds a device credential for this machine, issuing one if not.
+    ///
+    /// Runs on two paths: immediately after a link, and on every account refresh. The refresh
+    /// path is the one that matters for machines linked before device credentials existed --
+    /// there is no autostart for the Control Center, so anything requiring the user to
+    /// deliberately unlink and relink would never reach most of the fleet.
+    ///
+    /// Deliberately quiet: a failure here costs nothing a user can see. The device keeps
+    /// reporting as anonymous inventory and the next refresh tries again.
+    /// </summary>
+    private async Task EnsureDeviceCredentialAsync()
+    {
+        if (_accountSession == null || _latestIdentityLink == null)
+        {
+            return;
+        }
+
+        if (!IsIdentityLinkedToSignedInAccount(_latestIdentityLink))
+        {
+            return;
+        }
+
+        if (await _identityLinkCoordinator.HasDeviceCredentialAsync().ConfigureAwait(true))
+        {
+            return;
+        }
+
+        ControlPlaneDeviceCredentialResponse? issued = await _controlPlaneAccountClient
+            .IssueDeviceCredentialAsync(_latestIdentityLink.DeviceId, _accountSession.AccessToken)
+            .ConfigureAwait(true);
+
+        if (issued == null || !issued.Ok || string.IsNullOrWhiteSpace(issued.DeviceSecret))
+        {
+            return;
+        }
+
+        // Straight to the service, which owns the secrets directory. The plaintext is returned
+        // exactly once, so it is never written anywhere the Control Center controls.
+        await _identityLinkCoordinator
+            .StoreDeviceCredentialAsync(issued.DeviceId, issued.DeviceSecret)
+            .ConfigureAwait(true);
     }
 
     private async Task<string?> TryAutoLinkCurrentDeviceAsync()
