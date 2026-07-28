@@ -192,7 +192,7 @@ fleet out.
 | `POST /heartbeat` | open (bootstrap) |
 | `POST /telemetry` | open (bootstrap) |
 | `POST /categories/resolve` | device auth |
-| `POST /machine-summary` | device auth |
+| `POST /machine-summary` | **two-tier — see below** |
 | `POST /action-events` | device auth |
 | `POST /daily-stats` | device auth |
 | `POST /narrative` | device auth |
@@ -202,6 +202,45 @@ fleet out.
 | `POST /device/register` | open (inventory only, no secret) |
 | `POST /device/link-account` | operator session + account match — **DONE** |
 | `POST /device/unlink-account` | operator session + account match — **DONE** |
+
+**`machine-summary` is two-tier, and this is deliberate (decided 2026-07-28):**
+
+Without a valid device credential the report is accepted as **anonymous inventory only**: the
+caller-supplied `accountId` and `orgId` are discarded, `reconcileDeviceProfileFromTelemetry` runs
+with nulls, and no install event, no `account_active_day` and no account activation are written.
+Uptime samples still land, because they are machine-scoped presence. With a valid credential the
+full reconcile runs. A credential proves exactly one device, so it is also checked against the
+payload's `deviceId` — one device's secret cannot write another device's row.
+
+This route is **not** subject to `PORTA_DEVICE_AUTH_MODE`; the tiering is permanent.
+
+**Why this is a stronger rule than `heartbeat` and `telemetry`, which are simply open:** those two
+are memory-only — they populate the in-memory presence map and nothing else, so the worst an
+unauthenticated caller achieves is noise that dies with the process. `machine-summary` **persists**:
+it writes `devices`, `machine_summaries`, `growth_events` and `account_active_days`. An
+unauthenticated write here would outlive the process and would attach a real account to a row
+nobody proved they own. Hence: visible, but anonymous.
+
+Reason it is not simply closed: an unlinked device can never hold a credential (issuance requires a
+linked device), and `machine-summary` is the device-inventory feed. Closing it would make a machine
+that installed and was never signed into invisible in the console — which is exactly the machine you
+need to see during a rollout.
+
+**The enforce gate is a query, not an adoption count.** A device can be fully updated and still hold
+no credential, so counting agent versions proves nothing. Before flipping
+`PORTA_DEVICE_AUTH_MODE=enforce`, this must return zero:
+
+```sql
+SELECT device_id, machine_name, last_seen_at
+FROM devices
+WHERE current_account_id IS NOT NULL
+  AND device_secret_hash IS NULL
+  AND last_seen_at > now() - interval '7 days';
+```
+
+Unlinked devices are exempt by design and must not appear in the gate. The counter
+`agent_machine_summary_anonymous_total` (audit metrics) tracks how much of the fleet is still
+reporting anonymously.
 
 **What landed for link/unlink (2026-07-28):**
 
