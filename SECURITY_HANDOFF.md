@@ -365,7 +365,34 @@ an `accountId` from the query string with no credential and returns `firstName`,
 already behind operator auth and RBAC. The three `/api/*` hits were dead declarations in a generated
 OpenAPI types file. **Stage 3 cannot break it.**
 
-### 4.3 Rotate the hardcoded signing key
+### 4.3 Rotate the hardcoded signing key -- DONE 2026-07-30
+
+Rotated and verified. A new Ed25519 pair was generated, both
+`CONTROL_PLANE_SIGNING_PRIVATE_KEY_PEM` and `CONTROL_PLANE_SIGNING_PUBLIC_KEY_PEM` are set on
+Render, and the compiled-in fallbacks are gone from `policyGovernanceStore.ts` and
+`policyExecutionEngine.ts` (commit `6fdee29`). A missing key now throws instead of silently
+signing under a key in the repo.
+
+**Verified against the live service, not the code:** production was made to sign a fresh
+intervention command via `POST /v1/policy/evaluate`; the signature verifies under the new public
+key and fails under the old one, with the payload hash recomputed independently to confirm the
+signature covers it. Server-side replay reports `verified`, so both halves are in effect.
+Re-checked after the fallback-removal deploy: still signing, still new key.
+
+**Two traps this hit, worth keeping:**
+
+1. The first attempt set the Render variables using the *filenames* (`signer-private.pem`) as the
+   variable names. Nothing failed -- the code fell back to the compiled-in key and kept signing
+   happily. Only signing something and verifying it client-side caught it. A green deploy proves
+   nothing here.
+2. A malformed key throws; an absent one falls back silently. So "signing still works" is not
+   evidence the rotation landed -- you must check *which* key signed.
+
+**Consequence:** audit traces signed by the old key no longer verify. The trace format carries
+`key_id` but only one key is supported, so historical verification resets at the rotation. Scope
+multi-key verification separately if those traces matter.
+
+### 4.3a (superseded) Original notes on the hardcoded signing key
 
 Details in section 2. Not urgent — private repo, agents do not verify it — but real.
 
