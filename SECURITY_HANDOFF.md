@@ -438,9 +438,45 @@ These are unexamined, not known-good. Say so plainly if the user asks whether th
 
 - The widget, Control Center, and UserAgent processes
 - Local API (127.0.0.1) input validation
-- Dependency vulnerabilities in either repo
+- ~~Dependency vulnerabilities in either repo~~ — **scanned 2026-07-30, see 4.7**
 - Log redaction — there is a 71 MB `_debug-user-agent.log` in the agent repo root
 - `porta-operations-console` beyond its auth mechanism (now known: build-time operator key)
+
+### 4.7 Dependency vulnerabilities — scanned 2026-07-30
+
+**Control plane: nothing production-reachable.** `npm audit` reports 14, but only three survive
+`npm ls --omit=dev`, all in express's tree, and none apply: `body-parser` needs an *invalid* `limit`
+(we pass a valid `'1mb'` at `app.ts:88`), the `qs` advisory is in `qs.stringify` which we never call
+(express uses `parse`), and the `path-to-regexp` 0.1.12 ReDoS needs two params in one segment while
+every route separates them with `/` — probed empirically with a 60k-char input, ~0.1 ms, no
+backtracking. Everything else, including the one "critical", is vitest/vite tooling that never runs
+outside a dev machine.
+
+**Agent: one real finding, not reachable today.**
+
+`SQLitePCLRaw.lib.e_sqlite3` **2.1.6** — CVE-2025-6965 / GHSA-2m69-gcr7-jv3q, High (CVSS 7.2).
+SQLite below 3.50.2; memory corruption when aggregate terms exceed available columns. Present in
+every shipping project (Core, LocalApi, Runtime, Service, UserAgent, ControlCenter, VideoCapture)
+via `Microsoft.Data.Sqlite` 8.0.10, which pins it transitively.
+
+**Why it is not reachable:** the bug needs attacker-controlled SQL. All seven interpolated
+`CommandText` sites use compile-time constants (`tableName`, `indexName`, `column`, `definition` in
+`Db/Schema.cs`; `TaskColumns` / `DailyGoalColumns` in `SqliteBrainStateStore.cs`) with every value
+passed as a `$` parameter. **This stops being true the moment anyone builds a query from user
+input** — that is the change to catch in review.
+
+**Decision: fold the upgrade into the next release rather than cutting one for it.** Not urgent, but
+do not let it drift indefinitely.
+
+One correction for whoever picks this up: the GitHub advisory page says no patched NuGet version
+exists. That is stale. SQLitePCLRaw renumbered to track SQLite itself and `lib.e_sqlite3` now
+publishes 3.50.3 and 3.53.3, both at or past the fix. Upgrade paths were deliberately not compared
+here — do that when the release is being planned, and validate by building, not by reading version
+numbers.
+
+The two other .NET hits (`System.Net.Http` 4.3.0, `System.Text.RegularExpressions` 4.3.0) appear
+only in `*.Tests` projects and are the stale-reference kind that net8.0 resolves to the runtime's
+own implementations. Ignore them.
 
 ---
 
