@@ -442,6 +442,73 @@ These are unexamined, not known-good. Say so plainly if the user asks whether th
 - Log redaction — there is a 71 MB `_debug-user-agent.log` in the agent repo root
 - `porta-operations-console` beyond its auth mechanism (now known: build-time operator key)
 
+### 4.6a Remembered sign-in stores the PASSWORD, not a token — own item, not yet fixed
+
+`ControlPlaneRememberedSignInStore` persists the user's **password** to
+`%LOCALAPPDATA%\PortaAgent\control-center.remembered-signin.v1.json`, DPAPI `CurrentUser`-scoped
+(`UpdateRememberedSignIn(userId, password)` at `MainWindow.Account.cs:1344`, `PasswordEntropy`).
+
+This is a bigger problem than the credential-acquisition work it was found next to. A stored
+password is reusable everywhere that account is valid, cannot be scoped, cannot be revoked without
+a password change, and survives every session expiry. A stolen profile yields the account itself,
+not a 30-day session.
+
+Compounding it: the **session** token at `control-center.account-session.v1.json` is *not* reliably
+present — on the dev machine, signed in and linked, that file does not exist while the
+remembered-signin file from the same sign-in moment does. So the durable on-disk secret is the
+password, and the ephemeral one is the token. That is exactly backwards.
+
+**What it would take to replace with a refresh token:**
+
+1. Control plane: issue a refresh token at `/auth/login` alongside the access token. The
+   `auth_sessions` table already has the right shape (`token_hash`, `expires_at_utc`,
+   `revoked_at_utc`) — add a type discriminator and a longer TTL rather than a new table.
+2. Control plane: `POST /auth/refresh` exchanging a refresh token for a new access token, rotating
+   the refresh token on each use so a stolen one is single-use and its reuse is detectable.
+3. Agent: `ControlPlaneRememberedSignInStore` stores the refresh token instead of the password.
+   Keep DPAPI `CurrentUser`; the scope is right, the contents are not.
+4. Migration: delete any stored password on upgrade. Users re-authenticate once. Do not attempt to
+   silently convert a stored password into a token by logging in on the user's behalf.
+5. Fix the session-clearing bug first (below) or the refresh token inherits the same problem.
+
+Interacts with the Supabase migration: Stage 5 deletes the password path entirely, so if that is
+still happening, this may fold into it rather than landing separately. Decide before building.
+
+### 4.6b Automatic credential acquisition — decided 2026-07-31, not yet built
+
+Requiring a user to open the Control Center is a design flaw, not a rollout step. Agreed approach:
+
+- **B (the mechanism):** the control plane issues a device credential without a session, for a
+  device that is already linked and has none, one shot. This is the only option that works for a
+  dormant machine that comes back weeks later with nobody present. It narrows the bootstrap
+  decision in 4.2 — that was a deliberate re-decision, not an oversight.
+- **A (the fast path):** `Porta.UserAgent` autostarts via an HKLM Run key (`Product.wxs:121`) and
+  runs **as the user**, so unlike the service it can decrypt the `CurrentUser`-scoped session. It
+  already uses `LocalApiClient`. It can call `issue-credential` and hand off through the existing
+  `/v1/identity/device-credential` endpoint.
+- **Plus:** fix `GetMeAsync` clearing the stored session on *any* failure including a transient
+  network blip (`MainWindow.Account.cs:104`). Same bug class as the device calls fixed in `144e174`
+  — an error collapsed to `null` and treated as an authoritative "expired".
+
+**`install_secret` CANNOT serve as the `localProofToken`. Checked, do not revisit.**
+
+Two independent reasons:
+
+1. **The control plane has never seen it.** Grepped both repos: the install secret is never
+   transmitted and the control-plane source contains no reference to it. A proof token the verifier
+   cannot check is not a proof token — sending it would just be shipping another bearer secret.
+2. **Sending it would break the privacy model.** It is the HMAC key that pseudonymises identifiers
+   *before they are uploaded*: `FocusIdentityNormalizer.HashIdentifier` and
+   `BucketPrivacyContract.HashIdentifier` both key HMAC-SHA256 on it, and the result travels as
+   `focusAppIdentity` on the machine-summary payload (`FleetContracts.cs:73`,
+   `MachineSummaryMapper.cs:125`). App identifiers are low-entropy, so anyone holding that key can
+   brute-force the pseudonyms back to real app names — including retroactively, over data already
+   uploaded. Giving the server this key de-anonymises the corpus.
+
+If a `localProofToken` is wanted, it needs a secret the control plane can verify and that protects
+nothing else. The field is already threaded through all three device payloads and the agent always
+sends `null`; the control plane parses and discards it (`deviceIdentityController.ts:50/68`).
+
 ### 4.7 Dependency vulnerabilities — scanned 2026-07-30
 
 **Control plane: nothing production-reachable.** `npm audit` reports 14, but only three survive
