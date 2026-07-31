@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using Porta.Agent.Core.Security;
 
 namespace Porta.Agent.Service.Fleet;
 
@@ -207,10 +208,49 @@ internal sealed class ControlPlaneClient : IDisposable
         CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return await PostForResultAsync<DeviceRegistrationRequestPayload, DeviceLinkResultPayload>(
+        DeviceLinkResultPayload? result = await PostForResultAsync<DeviceRegistrationRequestPayload, DeviceLinkResultPayload>(
             "api/device/register",
             request,
             token).ConfigureAwait(false);
+
+        StoreBootstrappedCredential(result);
+        return result;
+    }
+
+    /// <summary>
+    /// Stores a credential the control plane bootstrapped during registration.
+    ///
+    /// This is the acquisition path for a machine nobody signs into interactively: the service
+    /// registers as LocalSystem at boot and on every reporting cycle, so a linked device that
+    /// somehow has no credential picks one up on its own, including after months dormant.
+    ///
+    /// The secret is returned exactly once. If the write fails it is gone, so the failure is
+    /// logged loudly rather than swallowed -- but it self-heals: the control plane only issues
+    /// when no credential exists, so the next registration issues a fresh one.
+    /// </summary>
+    private static void StoreBootstrappedCredential(DeviceLinkResultPayload? result)
+    {
+        if (result is null || string.IsNullOrWhiteSpace(result.DeviceSecret))
+        {
+            return;
+        }
+
+        string? deviceId = result.Device?.DeviceId;
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            return;
+        }
+
+        if (Secrets.TryWriteDeviceCredential(deviceId, result.DeviceSecret))
+        {
+            Secrets.InvalidateDeviceCredentialCache();
+            Console.Error.WriteLine($"device_credential_bootstrapped device={deviceId}");
+            return;
+        }
+
+        Console.Error.WriteLine(
+            $"device_credential_bootstrap_store_failed device={deviceId} "
+            + "detail=secret was issued but could not be stored; it will be re-issued on the next registration");
     }
 
     public async Task<DeviceLinkResultPayload?> LinkDeviceAccountAsync(

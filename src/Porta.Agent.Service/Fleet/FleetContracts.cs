@@ -134,7 +134,13 @@ internal sealed record DeviceProfilePayload(
 internal sealed record DeviceLinkResultPayload(
     [property: JsonPropertyName("ok")] bool Ok,
     [property: JsonPropertyName("linkState")] string LinkState,
-    [property: JsonPropertyName("device")] DeviceProfilePayload Device);
+    [property: JsonPropertyName("device")] DeviceProfilePayload Device,
+    /// <summary>
+    /// Present only on the one registration where the control plane bootstraps a credential for
+    /// an already-linked device that had none. Returned once and never again, so it must be
+    /// stored on receipt -- there is no way to ask for it a second time.
+    /// </summary>
+    [property: JsonPropertyName("deviceSecret")] string? DeviceSecret = null);
 
 /// <summary>One app/site's foreground time for the day — coarse label + seconds. Powers the
 /// "where your time went" section of the digest. Label is a coarse token only (e.g. "youtube").</summary>
