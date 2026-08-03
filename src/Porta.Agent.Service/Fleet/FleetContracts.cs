@@ -100,7 +100,14 @@ internal sealed record DeviceRegistrationRequestPayload(
     [property: JsonPropertyName("deviceCaptureConsentedAt")] string? DeviceCaptureConsentedAt,
     [property: JsonPropertyName("deviceCaptureTelemetryLevel")] string? DeviceCaptureTelemetryLevel,
     [property: JsonPropertyName("sessionToken")] string? SessionToken,
-    [property: JsonPropertyName("localProofToken")] string? LocalProofToken);
+    [property: JsonPropertyName("localProofToken")] string? LocalProofToken,
+    /// <summary>
+    /// Tells the control plane this build stores a credential handed back during registration.
+    /// Without it the control plane must not issue one: the secret is returned exactly once, so
+    /// giving it to a build that ignores the field burns the device's issuance and strands it.
+    /// Constant true from 1.2.124 -- the version gate is the fallback, this is the explicit signal.
+    /// </summary>
+    [property: JsonPropertyName("supportsCredentialStorage")] bool SupportsCredentialStorage = true);
 
 internal sealed record DeviceAccountLinkRequestPayload(
     [property: JsonPropertyName("deviceId")] string DeviceId,
