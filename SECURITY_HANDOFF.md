@@ -442,6 +442,36 @@ These are unexamined, not known-good. Say so plainly if the user asks whether th
 - Log redaction — there is a 71 MB `_debug-user-agent.log` in the agent repo root
 - `porta-operations-console` beyond its auth mechanism (now known: build-time operator key)
 
+### 4.2 Stage 3 — COMPLETE, enforce live 2026-08-04
+
+`PORTA_DEVICE_AUTH_MODE=enforce` is deployed. Verified against production, not from code:
+
+| probe | result |
+|---|---|
+| `GET /api/agent/user-context` uncredentialed | **401** `DEVICE_CREDENTIAL_REQUIRED` |
+| `categories/resolve`, `daily-stats`, `narrative`, `daily-digest`, `action-events` uncredentialed | **401** each |
+| real device credential + its own account | **200**, returns the profile |
+| real device credential + a different account | **403** `DEVICE_ACCOUNT_MISMATCH` |
+| tampered secret | **401** |
+| `machine-summary` uncredentialed | **400** on a bad body — still open, two-tier, correctly not mode-governed |
+
+The 403 is the hole that mattered: `user-context` used to hand a person's weak hour, streak length
+and strong-window bounds to anyone who knew an accountId. It is now closed both ways — no
+credential, and wrong credential.
+
+**The self-heal was proven end to end on AYMENE**, which had burned its issuance on 1.2.123. After
+`device_secret_hash` was cleared it re-bootstrapped at 07:19:17Z and was reporting credentialed by
+07:21:09Z — under two minutes, no reboot, nobody at the machine. Issuance log shows exactly two
+entries, both for that device, and none since. That is the path every dormant machine will take.
+
+Use `scripts/clear-device-credential.mjs <deviceId>` (porta-control-plane, needs `DATABASE_URL`) to
+recover any device whose plaintext is lost. Issue-once means there is no other way back.
+
+**Still true and worth knowing:** the credential is readable by any authenticated local user —
+`C:\ProgramData\PORTA\secrets` grants `Authenticated Users` Read, and DPAPI LocalMachine with a
+source-constant entropy means read is enough. Device auth closes the *remote* hole; it does not
+defend against someone with local access to that machine. Do not claim otherwise.
+
 ### 4.6a Remembered sign-in stores the PASSWORD, not a token — own item, not yet fixed
 
 `ControlPlaneRememberedSignInStore` persists the user's **password** to
