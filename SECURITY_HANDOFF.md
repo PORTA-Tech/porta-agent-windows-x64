@@ -19,7 +19,33 @@ than verified, it says so. Keep that convention when you update this document.
 ## 0. URGENT — nothing outstanding
 
 The default-credential hole is **closed, deployed, and verified live on 2026-07-28.** Details in
-section 2. There is no open emergency. Start at 4.1.
+section 2. There is no open emergency.
+
+**Agent 1.2.126 was RELEASED to the fleet on 2026-08-04.** It carries the 4.6a refresh-token work,
+the `GetMeAsync` fix and the SQLite CVE upgrade, and it is the build with the shared payload
+removed. The matching control-plane change was deployed and verified live *before* the agent
+shipped — that order was deliberate and matters (§4.6a).
+
+| | |
+|---|---|
+| version | **1.2.126** |
+| SHA-256 | `71F0649EFDFEBFB772D1D06BB696D6B984C4D2BA37BCB87F1733BFB574007D75` |
+| MSI | 3 files, 178,003,968 bytes |
+| agent commit | `c274516` |
+| control plane | `f84f339`, deployed |
+
+**The one thing NOT yet exercised end to end — do this before trusting the refresh path:**
+
+Sign out of the Control Center and sign back in with "Stay signed in on this PC" ticked, then
+confirm `%LOCALAPPDATA%\PortaAgent\control-center.remembered-signin.v2.json` exists and the `v1`
+file is gone. The install was verified on a session already valid to 3 Sept, so the *stored*
+session kept working — but that does not prove a refresh token was ever issued, stored or
+redeemed. Rotation, reuse-detection and the v1 password purge are covered by unit tests and by
+live probes against production, **not** by a real client completing the round trip. Until someone
+does that, treat "the agent stores a refresh token instead of a password" as tested-in-parts.
+
+Everything else from the 2026-08-04 stretch is done: 4.1, 4.2, 4.6a, 4.7, 4.9. Open work starts
+at 4.4.
 
 ---
 
@@ -278,7 +304,9 @@ The counter `agent_machine_summary_anonymous_total` (audit metrics) tracks how m
 still reporting anonymously, and `agent_device_account_mismatch_total` records every request that
 enforce mode *would* have refused. Both should approach zero before the flip.
 
-**Stage 3 progress (2026-07-28, all pushed, nothing released to the fleet):**
+**Stage 3 progress as it stood on 2026-07-28 — HISTORICAL, superseded.** Stage 3 is complete and
+enforce is live (see the 4.2 completion note below), and agent 1.2.126 shipped 2026-08-04. Kept
+because the reasoning is still useful; do not read the status claims here as current.
 
 Built and tested:
 
@@ -314,8 +342,10 @@ Built and tested:
   only `growthReadService` → `/v1/growth` (operator-only console dashboards); `maybeActivateAccount`
   does not mutate `accounts.status`, and neither the digest nor the narrative builder reads active
   days. No user experiences any of it.
-- ~~Agent MSI not built. **Blocked deliberately** on Render 2FA (§4.1)~~ — **block lifted
-  2026-08-04**, 2FA has been in force since 2026-07-31. See §4.1.
+- ~~Agent MSI not built. **Blocked deliberately** on Render 2FA (§4.1)~~ — **DONE. Agent 1.2.126
+  released 2026-08-04.** The 2FA block was lifted (in force since 2026-07-31, §4.1) and the MSI
+  was cut and shipped. Every device therefore now runs an agent that requests and stores a
+  refresh token.
 - The enforce flip itself (Render env var), gated on the query above.
 
 `deviceId` is `Guid.NewGuid()` in `LocalIdentityLinkStore.cs`, persisted to
@@ -478,16 +508,23 @@ recover any device whose plaintext is lost. Issue-once means there is no other w
 source-constant entropy means read is enough. Device auth closes the *remote* hole; it does not
 defend against someone with local access to that machine. Do not claim otherwise.
 
-### 4.6a Remembered sign-in stored the PASSWORD — DONE 2026-08-04, agent NOT released
+### 4.6a Remembered sign-in stored the PASSWORD — DONE and RELEASED 2026-08-04 (1.2.126)
 
-Built, tested and pushed in both repos. The control plane is **deployed and verified live**;
-the agent is committed but **not built into an MSI and not released to the fleet**.
+Shipped to the fleet in agent **1.2.126**. The control plane was deployed and verified live first;
+the agent followed.
 
 | repo | commit | what |
 |---|---|---|
-| porta-control-plane | `f84f339` | refresh tokens on `auth_sessions`, `POST /auth/refresh` |
+| porta-control-plane | `f84f339` | refresh tokens on `auth_sessions`, `POST /auth/refresh` — deployed |
 | porta-agent-windows-x64 | `d043c94` | v2 store holds a refresh token; v1 password file deleted; GetMeAsync fix |
 | porta-agent-windows-x64 | `777d8ce` | SQLitePCLRaw 2.1.12 (CVE-2025-6965) |
+| porta-agent-windows-x64 | `c274516` | v1.2.126, shared payload removed — **the released build** |
+
+**Not yet proven end to end: a real client completing the refresh round trip.** See §0. Unit tests
+cover rotation and reuse-detection, production probes cover the endpoint, and the install was
+verified — but on a session that had not expired, so nothing has yet demonstrated a refresh token
+being issued, stored in `control-center.remembered-signin.v2.json` and redeemed by an actual
+Control Center. Sign out and back in with "Stay signed in" ticked to close that gap.
 
 **Deploy order was deliberate and must be preserved if this is ever redone: server first.**
 The agent's refresh path 404s harmlessly against an old control plane, but shipping the agent
@@ -524,18 +561,21 @@ refresh instead of riding the chain for 90 days.
 
 **Two hazards that are not obvious:**
 
-1. **Rolling the control plane back past `f84f339` is a privilege escalation** once agents hold
-   refresh tokens. The rollback removes the `session_type !== 'access'` guard, and a refresh
-   token would then authenticate as a bearer token for its full 90 days. Harmless *today* —
-   refresh tokens are opt-in and no released agent requests one, so zero exist. It stops being
-   harmless the moment the agent ships.
+1. **Rolling the control plane back past `f84f339` is a privilege escalation. This is LIVE as of
+   1.2.126.** The rollback removes the `session_type !== 'access'` guard, and any refresh token
+   then authenticates as a bearer token for its full 90 days. This was harmless while no released
+   agent requested one; 1.2.126 shipped 2026-08-04 and agents now do. **Do not roll the control
+   plane back past `f84f339` without first revoking every refresh row** — an earlier version of
+   this note said the hazard was theoretical, and that is no longer true.
 2. **The SQLite fix needs a CLEAN rebuild.** An incremental build left the old 3.41.2
-   `e_sqlite3.dll` in `bin/` while `dotnet list package` already reported 2.1.12. `install.ps1`
-   copies from payload without building. **Verify the DLL in `installer\payload`, not `bin`, and
-   not the version number** — extract the version string from the binary itself.
+   `e_sqlite3.dll` in `bin/` while `dotnet list package` already reported 2.1.12, and
+   `install.ps1` copies from payload without building. **Verify by extracting the version string
+   from the binary, never from a package version.** Note the *target* changed in 1.2.126: there is
+   no loose `e_sqlite3.dll` in the payload any more (§4.9), so the check is against the SQLite
+   embedded in the three payload exes. `build-1296.ps1` does this and fails closed.
 
-**Still open on this item:** the agent MSI. **No longer blocked** — §4.1 (Render 2FA) was
-confirmed done 2026-08-04 and the MSI is free to be cut.
+**Released:** agent 1.2.126, 2026-08-04, SHA-256
+`71F0649EFDFEBFB772D1D06BB696D6B984C4D2BA37BCB87F1733BFB574007D75`.
 
 ### 4.6a (original writeup) Remembered sign-in stores the PASSWORD, not a token
 
@@ -632,7 +672,7 @@ via `Microsoft.Data.Sqlite` 8.0.10, which pins it transitively.
 passed as a `$` parameter. **This stops being true the moment anyone builds a query from user
 input** — that is the change to catch in review.
 
-**DONE 2026-08-04 (`777d8ce`), not yet released.** Pinned `SQLitePCLRaw.bundle_e_sqlite3` 2.1.12
+**DONE 2026-08-04 (`777d8ce`), RELEASED in agent 1.2.126.** Pinned `SQLitePCLRaw.bundle_e_sqlite3` 2.1.12
 directly in the three projects with a direct `Microsoft.Data.Sqlite` reference; that overrides
 the transitive 2.1.6 without moving off EF 8. Measured rather than inferred, because the version
 strings mislead: `lib.e_sqlite3` **2.1.11 ships SQLite 3.49.1** (still vulnerable) and **2.1.12
@@ -684,7 +724,7 @@ worse than none, because it silently excuses the next four failures too.
 
 ---
 
-## 4.9 The installer shipped 619 fossil files — removed 2026-08-04
+## 4.9 The installer shipped 619 fossil files — removed 2026-08-04, released in 1.2.126
 
 **The MSI went from 622 files to 3. If you are wondering why it shrank by ~70 MB, this is why.**
 
