@@ -9,28 +9,19 @@
     <AriExeSource Condition="'$(AriExeSource)' == ''">$(MSBuildProjectDirectory)\payload\ari.exe</AriExeSource>
     <UserAgentExeSource Condition="'$(UserAgentExeSource)' == ''">$(MSBuildProjectDirectory)\payload\Porta.UserAgent.exe</UserAgentExeSource>
     <ControlCenterExeSource Condition="'$(ControlCenterExeSource)' == ''">$(MSBuildProjectDirectory)\payload\Porta.ControlCenter.exe</ControlCenterExeSource>
-    <SharedPayloadSourceDir Condition="'$(SharedPayloadSourceDir)' == ''">$(MSBuildProjectDirectory)\payload\SharedFiles</SharedPayloadSourceDir>
-    <DefineConstants>ProductVersion=$(ProductVersion);UpgradeCode=$(UpgradeCode);AriBackendUrlDefault=$(AriBackendUrlDefault);AriExeSource=$(AriExeSource);UserAgentExeSource=$(UserAgentExeSource);ControlCenterExeSource=$(ControlCenterExeSource);SharedPayloadSourceDir=$(SharedPayloadSourceDir)</DefineConstants>
+    <DefineConstants>ProductVersion=$(ProductVersion);UpgradeCode=$(UpgradeCode);AriBackendUrlDefault=$(AriBackendUrlDefault);AriExeSource=$(AriExeSource);UserAgentExeSource=$(UserAgentExeSource);ControlCenterExeSource=$(ControlCenterExeSource)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="WixToolset.Heat" Version="4.0.5" />
     <PackageReference Include="WixToolset.Util.wixext" Version="4.0.5" />
   </ItemGroup>
 
-  <Target Name="EnsurePayloadHarvestDirectories" BeforeTargets="BeforeBuild">
-    <MakeDir Directories="$(SharedPayloadSourceDir)" />
-  </Target>
-
-  <ItemGroup>
-    <HarvestDirectory Include="$(SharedPayloadSourceDir)">
-      <ComponentGroupName>SharedPayloadComponentGroup</ComponentGroupName>
-      <DirectoryRefId>INSTALLFOLDER</DirectoryRefId>
-      <SuppressRootDirectory>true</SuppressRootDirectory>
-      <SuppressCom>true</SuppressCom>
-      <SuppressRegistry>true</SuppressRegistry>
-      <PreprocessorVariable>SharedPayloadSourceDir</PreprocessorVariable>
-    </HarvestDirectory>
-    <BindPath Include="$(SharedPayloadSourceDir)" />
-  </ItemGroup>
+  <!--
+    The HarvestDirectory for payload\SharedFiles was removed in 1.2.126, along with the
+    ComponentGroupRef in Product.wxs and the WixToolset.Heat package reference that only
+    existed to serve it. See the comment in Product.wxs for why: the directory had been a
+    fossil since single-file publish was adopted, and the three exes carry everything they
+    need. build-1296.ps1 asserts that publish still emits no loose files, so this cannot
+    regress silently if someone turns PublishSingleFile off.
+  -->
 </Project>

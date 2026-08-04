@@ -217,7 +217,17 @@
       <ComponentRef Id="PortaUriSchemeComponent" />
       <ComponentRef Id="ControlCenterShortcutComponent" />
       <ComponentRef Id="DesktopShortcutComponent" />
-      <ComponentGroupRef Id="SharedPayloadComponentGroup" />
+      <!--
+        SharedPayloadComponentGroup removed in 1.2.126. It harvested
+        installer\payload\SharedFiles, which had been a fossil since single-file publish
+        was adopted: ari.exe, Porta.UserAgent.exe and Porta.ControlCenter.exe are published
+        self-contained with native libraries embedded, so nothing needs to sit beside them.
+        The build script's copy step had produced nothing for a long time, and the ~617
+        stale files survived only because Copy-Item -Force never deletes what publish
+        stopped emitting. 1.2.124 shipped 622 files; this ships 3.
+        Verified by installing 1.2.125 with an empty payload: service Running, database
+        ready, local API responding, widget tracking, Control Center signed in.
+      -->
     </Feature>
   </Package>
 </Wix>
