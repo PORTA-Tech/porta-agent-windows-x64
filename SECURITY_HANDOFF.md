@@ -684,6 +684,75 @@ worse than none, because it silently excuses the next four failures too.
 
 ---
 
+## 4.9 The installer shipped 619 fossil files — removed 2026-08-04
+
+**The MSI went from 622 files to 3. If you are wondering why it shrank by ~70 MB, this is why.**
+
+`installer\payload\SharedFiles` was harvested wholesale into every MSI
+(`HarvestDirectory` → `SharedPayloadComponentGroup` → `ComponentGroupRef` in `Product.wxs`). That
+mechanism had been **dead since single-file publish was adopted**. The build step that fed it is:
+
+```powershell
+Get-ChildItem publish\service -Exclude "ari.exe","*.pdb" | Copy-Item -Dest SharedFiles -Force
+```
+
+`ari.exe`, `Porta.UserAgent.exe` and `Porta.ControlCenter.exe` are published
+`--self-contained /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true`, so
+publish emits **only the exe plus pdbs**. That copy has produced nothing for a long time. The ~617
+files sitting in `SharedFiles` were fossils from an older non-single-file era, surviving purely
+because `Copy-Item -Force` overwrites what it copies but never deletes what publish stopped
+emitting. File dates in there ranged from Aug 2023 to Dec 2025 — accreted across several eras.
+
+Among them: a `Porta.Agent.Runtime.exe` (framework-dependent, which the 400+ loose DLLs existed to
+serve) referenced **nowhere** in any `.cs`, `.wxs` or `.ps1`; and an `e_sqlite3.dll` at SQLite
+**3.41.2**, i.e. the CVE-2025-6965 version, installed to `C:\Program Files\Ari` on every machine in
+the fleet.
+
+**How this was found, because the method generalises:** a clean rebuild wiped `SharedFiles`, and
+the CVE gate then failed complaining the DLL was missing. The gate's own assumption was wrong — it
+was checking a loose file that only existed as a fossil — but the failure exposed the fossil. The
+shipping MSI's contents were then read directly out of its `File` table via the
+`WindowsInstaller.Installer` COM API, which is how "622 files" is a measurement and not an estimate.
+
+**Verified before removing anything.** 1.2.125 was built with an empty payload and installed on a
+real machine: service Running, database ready, local API responding, widget tracking, Control
+Center signed in with a valid session. Only then was the structure changed. Do not skip this if
+something similar comes up — nothing in source *proved* those files were unused, and the blast
+radius was the whole fleet.
+
+**Removed in 1.2.126 (`c274516`):** the `ComponentGroupRef` from `Product.wxs`; the
+`HarvestDirectory`, `BindPath`, `SharedPayloadSourceDir` property, its `DefineConstants` entry and
+the `EnsurePayloadHarvestDirectories` target from the wixproj; and the `WixToolset.Heat` package
+reference, which existed only to serve the harvest.
+
+**Three traps this produced, all worth keeping:**
+
+1. **An empty `SharedFiles` will not link.** `heat` emits no ComponentGroup for an empty directory,
+   so the unconditional `ComponentGroupRef` fails with `WIX0094`. 1.2.125 worked around it with a
+   marker file *deliberately*, so the install test would not also be testing an installer
+   restructure. If you ever repopulate the payload, that is the error you will hit first.
+2. **The build scripts reported the MSI hash from the wrong directory.** Every script up to and
+   including `build-1295.ps1` did
+   `Get-ChildItem installer\bin\Release\*.msi | Sort LastWriteTime -Descending | Select -First 1`,
+   but WiX writes to `installer\bin\x64\Release`. It only ever produced the right answer because
+   the two paths happen to be hardlinked. Break that link — a clean, a copy, a WiX upgrade — and
+   the script prints the SHA-256 of a **stale MSI**. While `requireSignature` is false (§4.1) that
+   hash is the fleet's only integrity check on auto-update, so publishing a wrong one is a
+   fleet-wide update failure. `build-1296.ps1` uses the exact output path, refuses to report a hash
+   from an MSI older than the build, and reads `ProductVersion` back out of the MSI, throwing on
+   mismatch.
+3. **Nothing now ships loose DLLs, so `PublishSingleFile` is load-bearing.** Turn it off and the
+   MSI silently omits hundreds of assemblies; the failure appears at runtime, nowhere near the
+   cause. `build-1296.ps1` throws if `publish\service` emits any loose file. Do not delete that
+   guard.
+
+**Backup:** the 1.2.124 payload set (625 files) is at `C:\Users\hp\porta-payload-backup-1.2.124`.
+It is redundant now that the empty payload is proven, and can be deleted. Note that the 1.2.124
+MSI itself was overwritten in `bin\Release` by a later build — to reconstruct it, build from commit
+`787e68a`.
+
+---
+
 ## 5. Working rules — read before writing code
 
 These come from real mistakes. The user caught them; the user should not have had to.
@@ -728,12 +797,20 @@ under parallel `npx vitest run` all pass under `npm run test`. Measured 2026-07-
 **Building and installing the agent (order matters):**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "build-1291.ps1"      # builds + fills installer\payload
+powershell -ExecutionPolicy Bypass -File "build-1296.ps1"      # builds + fills installer\payload
 powershell -ExecutionPolicy Bypass -File "scripts\install.ps1" # ONLY copies from payload
 ```
 
 `install.ps1` does not build. Running it alone reinstalls stale binaries — check the dates it
 prints. A new version means a new `build-<n>.ps1` plus a version bump in the csproj files.
+
+**Start from `build-1296.ps1`, not an older one.** Copying an older script forward reintroduces
+three things that were fixed in it — see 4.9. In particular every script before it reports the MSI
+hash from the wrong directory.
+
+**The MSI is written to `installer\bin\x64\Release\`, NOT `installer\bin\Release\`.** The two are
+usually hardlinked, which is the only reason the old glob ever worked. Never take the hash from
+`bin\Release` — see 4.9.
 
 **Touching `core-state.db` from a script** requires all three, in order — `Stop-Service` alone is
 not enough because `ari.exe` holds the file open and SCM recovery will relaunch it mid-operation:
