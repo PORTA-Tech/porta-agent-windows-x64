@@ -14,6 +14,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+    <!-- CVE-2025-6965. See the note in Porta.Agent.Core.csproj. Every project with a
+         direct Microsoft.Data.Sqlite reference needs this, or its own restore graph
+         resolves the vulnerable 2.1.6 back in. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
   </ItemGroup>
 
 </Project>

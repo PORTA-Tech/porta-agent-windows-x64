@@ -27,6 +27,8 @@
     <!-- DatabaseBackupWorker issues VACUUM INTO directly, so this is now a direct dependency
          rather than only a transitive one through Porta.Agent.Core. Version pinned to match Core. -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+    <!-- CVE-2025-6965. See the note in Porta.Agent.Core.csproj. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
   </ItemGroup>
 
 </Project>

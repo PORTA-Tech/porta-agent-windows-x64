@@ -13,6 +13,12 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+    <!-- CVE-2025-6965 / GHSA-2m69-gcr7-jv3q (High). Microsoft.Data.Sqlite 8.0.10 pins
+         SQLitePCLRaw 2.1.6, whose native e_sqlite3 is SQLite 3.42 — below the 3.50.2 fix.
+         This direct reference overrides the transitive pin without moving off EF 8.
+         Measured, not read off a release note: the e_sqlite3.dll in lib.e_sqlite3 2.1.12
+         reports 3.53.3, and 2.1.11 still reports 3.49.1, so 2.1.12 is the floor. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
