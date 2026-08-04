@@ -1974,7 +1974,7 @@
                                         <Border Style="{StaticResource RoundedInputChromeStyle}" Margin="0,0,0,4"><PasswordBox x:Name="AccountPasswordBox" Background="Transparent" BorderThickness="0" Padding="8,6" Foreground="#111827" /></Border>
                                         <TextBlock x:Name="AccountPasswordHelpText" Text="Use the password set for your workspace account." Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,10" TextWrapping="Wrap" FontSize="12" />
                                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                            <CheckBox x:Name="AccountRememberSignInCheckBox" Content="Remember on this PC" IsChecked="True" Foreground="{DynamicResource PortaTextPrimaryBrush}" VerticalAlignment="Center" />
+                                            <CheckBox x:Name="AccountRememberSignInCheckBox" Content="Stay signed in on this PC" IsChecked="True" Foreground="{DynamicResource PortaTextPrimaryBrush}" VerticalAlignment="Center" />
                                             <Button x:Name="AccountForgetRememberedSignInButton" Content="Forget saved sign-in" Margin="12,0,0,0" Padding="10,4" MinHeight="30" Click="AccountForgetRememberedSignInButton_Click" Visibility="Collapsed" />
                                         </StackPanel>
                                         <TextBlock x:Name="AccountRememberedSignInHelpText" Text="Keep this checked if you want PORTA to remember this email and password on this Windows account only." Foreground="{DynamicResource PortaTextBodyBrush}" Margin="0,0,0,10" TextWrapping="Wrap" FontSize="12" />

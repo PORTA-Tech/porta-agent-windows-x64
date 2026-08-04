@@ -4,7 +4,13 @@ namespace Porta.ControlCenter.Identity;
 
 internal sealed record ControlPlaneLoginRequest(
     [property: JsonPropertyName("user_id")] string UserId,
-    [property: JsonPropertyName("password")] string Password);
+    [property: JsonPropertyName("password")] string Password,
+    // Opt-in. Only "remember my sign-in" asks for one, because a refresh token is a
+    // long-lived credential and there is no reason to mint one nobody will store.
+    [property: JsonPropertyName("issue_refresh_token")] bool IssueRefreshToken = false);
+
+internal sealed record ControlPlaneRefreshRequest(
+    [property: JsonPropertyName("refresh_token")] string RefreshToken);
 
 internal sealed record ControlPlaneRegisterRequest(
     [property: JsonPropertyName("user_id")] string UserId,
@@ -25,7 +31,11 @@ internal sealed record ControlPlaneLoginResponse(
     [property: JsonPropertyName("token_type")] string TokenType,
     [property: JsonPropertyName("user")] ControlPlaneLoginUser User,
     [property: JsonPropertyName("session_expires_at_utc")] DateTimeOffset SessionExpiresAtUtc,
-    [property: JsonPropertyName("reauth_expires_at_utc")] DateTimeOffset ReauthExpiresAtUtc);
+    [property: JsonPropertyName("reauth_expires_at_utc")] DateTimeOffset ReauthExpiresAtUtc,
+    // Absent unless the request asked for one, and absent on a control plane that
+    // predates refresh tokens. Both cases mean "no durable credential" -- never a failure.
+    [property: JsonPropertyName("refresh_token")] string? RefreshToken = null,
+    [property: JsonPropertyName("refresh_expires_at_utc")] DateTimeOffset? RefreshExpiresAtUtc = null);
 
 internal sealed record ControlPlaneRegisterResponse(
     [property: JsonPropertyName("ok")] bool Ok,
@@ -221,6 +231,48 @@ internal sealed record ControlPlaneDeviceCallResult(
 
     /// <summary>True when the stored session is no longer accepted and must be replaced.</summary>
     internal bool SessionRejected => Outcome == ControlPlaneCallOutcome.Unauthorized;
+}
+
+/// <summary>
+/// Why a /v1/me call did not produce a profile. This used to be a bare null, which made
+/// "your session expired" indistinguishable from "the wifi dropped" -- and the caller
+/// treated both as authoritative and deleted the stored session. Same bug class as the
+/// device calls fixed in 144e174.
+/// </summary>
+internal sealed record ControlPlaneMeResult(
+    ControlPlaneCallOutcome Outcome,
+    ControlPlaneMeProfileView? Profile)
+{
+    internal static readonly ControlPlaneMeResult Unreachable =
+        new(ControlPlaneCallOutcome.Unreachable, null);
+
+    internal static readonly ControlPlaneMeResult Unauthorized =
+        new(ControlPlaneCallOutcome.Unauthorized, null);
+
+    internal bool Ok => Outcome == ControlPlaneCallOutcome.Success && Profile != null;
+
+    /// <summary>True only when the control plane actually refused the token.</summary>
+    internal bool SessionRejected => Outcome == ControlPlaneCallOutcome.Unauthorized;
+}
+
+/// <summary>
+/// The outcome of redeeming a stored refresh token. Unauthorized means the token is dead
+/// and must be forgotten; Unreachable means we learned nothing and must keep it.
+/// </summary>
+internal sealed record ControlPlaneRefreshResult(
+    ControlPlaneCallOutcome Outcome,
+    ControlPlaneLoginResponse? Response)
+{
+    internal static readonly ControlPlaneRefreshResult Unreachable =
+        new(ControlPlaneCallOutcome.Unreachable, null);
+
+    internal static readonly ControlPlaneRefreshResult Unauthorized =
+        new(ControlPlaneCallOutcome.Unauthorized, null);
+
+    internal bool Ok => Outcome == ControlPlaneCallOutcome.Success && Response != null;
+
+    /// <summary>The token will never work again. Delete it.</summary>
+    internal bool TokenRejected => Outcome == ControlPlaneCallOutcome.Unauthorized;
 }
 
 internal sealed record ControlPlaneWindowsReleaseManifest(

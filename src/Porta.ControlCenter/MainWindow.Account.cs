@@ -15,6 +15,10 @@ public partial class MainWindow
 {
     private static readonly TimeSpan AccountRefreshInterval = TimeSpan.FromSeconds(15);
 
+    // Redeeming a refresh token is a sign-in, not a poll. When the server is unreachable
+    // the attempt tells us nothing, so back off rather than retrying on every 15s tick.
+    private static readonly TimeSpan RefreshTokenRetryInterval = TimeSpan.FromMinutes(1);
+
     private readonly ControlPlaneAccountClient _controlPlaneAccountClient = new();
     private readonly ControlPlaneAccountSessionStore _accountSessionStore = new();
     private readonly ControlPlaneRememberedSignInStore _rememberedSignInStore = new();
@@ -27,6 +31,7 @@ public partial class MainWindow
     private ControlPlaneAuthAccessHelpResponse? _accountAccessHelp;
     private LocalApiIdentityLinkResponse? _latestIdentityLink;
     private DateTimeOffset _lastAccountRefreshUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastRefreshTokenAttemptUtc = DateTimeOffset.MinValue;
     private AccountSurfaceSection _activeAccountSection = AccountSurfaceSection.Summary;
     private string _accountStatusMessage = "Sign in to view your account, workspace, and devices.";
 
@@ -79,6 +84,14 @@ public partial class MainWindow
             }
         }
 
+        // Spend the stored refresh token before concluding anyone is signed out. This is
+        // what replaced the stored password: the sign-in survives an expired access token
+        // without the user typing anything, and without a reusable secret on disk.
+        if (_accountSession == null)
+        {
+            await TryRestoreSessionFromRefreshTokenAsync().ConfigureAwait(true);
+        }
+
         bool shouldRefreshRemote = force
             || _activeSection == UiSection.Account
             || (_accountSession != null && (DateTimeOffset.UtcNow - _lastAccountRefreshUtc) >= AccountRefreshInterval);
@@ -98,19 +111,18 @@ public partial class MainWindow
                 remoteDeviceStatusMessage = BuildRemoteDeviceStatusMessage(deviceRegistration.Result!);
             }
 
-            ControlPlaneMeProfileView? me = await _controlPlaneAccountClient.GetMeAsync(_accountSession.AccessToken).ConfigureAwait(true);
-            if (me == null)
+            ControlPlaneMeResult me = await _controlPlaneAccountClient.GetMeAsync(_accountSession.AccessToken).ConfigureAwait(true);
+
+            // Only a 401 proves the session is dead, and even then the refresh token may
+            // still be good -- that is the entire point of holding one.
+            if (me.SessionRejected && await TryRestoreSessionFromRefreshTokenAsync().ConfigureAwait(true))
             {
-                _accountSessionStore.Clear();
-                _accountSession = null;
-                _accountProfile = null;
-                _accountWorkspaceOptions.Clear();
-                _lastAccountRefreshUtc = DateTimeOffset.MinValue;
-                _accountStatusMessage = "Your sign-in expired. Sign in again to view your account.";
+                me = await _controlPlaneAccountClient.GetMeAsync(_accountSession!.AccessToken).ConfigureAwait(true);
             }
-            else
+
+            if (me.Ok)
             {
-                _accountProfile = me;
+                _accountProfile = me.Profile;
                 SyncWorkspaceOptions();
 
                 // Devices linked before this shipped hold no credential. This is how they get
@@ -120,10 +132,10 @@ public partial class MainWindow
                 string? autoLinkedWorkspaceName = await TryAutoLinkCurrentDeviceAsync().ConfigureAwait(true);
                 if (!string.IsNullOrWhiteSpace(autoLinkedWorkspaceName))
                 {
-                    ControlPlaneMeProfileView? refreshedMe = await _controlPlaneAccountClient.GetMeAsync(_accountSession.AccessToken).ConfigureAwait(true);
-                    if (refreshedMe != null)
+                    ControlPlaneMeResult refreshedMe = await _controlPlaneAccountClient.GetMeAsync(_accountSession.AccessToken).ConfigureAwait(true);
+                    if (refreshedMe.Ok)
                     {
-                        _accountProfile = refreshedMe;
+                        _accountProfile = refreshedMe.Profile;
                         SyncWorkspaceOptions();
                     }
                 }
@@ -134,9 +146,95 @@ public partial class MainWindow
                         ? $"Signed in. This PC is now linked to {autoLinkedWorkspaceName}."
                         : "Signed in. Use the menu to open account, workspace, devices, or privacy.");
             }
+            else if (me.SessionRejected)
+            {
+                _accountSessionStore.Clear();
+                _accountSession = null;
+                _accountProfile = null;
+                _accountWorkspaceOptions.Clear();
+                _lastAccountRefreshUtc = DateTimeOffset.MinValue;
+                _accountStatusMessage = "Your sign-in expired. Sign in again to view your account.";
+            }
+            else
+            {
+                // Offline, timed out, or the server erred. None of that says anything about
+                // whether the session is still valid, so keep it and say so. Deleting it
+                // here is the bug this replaced: a dropped connection signed the user out.
+                _accountStatusMessage = _accountProfile != null
+                    ? "Could not reach the account server. Showing the last known account details."
+                    : "Could not reach the account server. Your sign-in is still saved on this PC.";
+            }
         }
 
         PopulateAccountSurface();
+    }
+
+    /// <summary>
+    /// Redeems the stored refresh token for a fresh session. Returns true only when a new
+    /// session is in place.
+    ///
+    /// The control plane rotates the token on every redemption, so the new one must be
+    /// stored immediately; presenting the old one again is what trips reuse detection and
+    /// revokes the whole chain. A rejection means the token is spent, revoked or expired
+    /// and is deleted. Anything else leaves it alone -- an unreachable server is not
+    /// evidence that a token is bad.
+    /// </summary>
+    private async Task<bool> TryRestoreSessionFromRefreshTokenAsync()
+    {
+        if (_rememberedSignIn == null || string.IsNullOrWhiteSpace(_rememberedSignIn.RefreshToken))
+        {
+            return false;
+        }
+
+        if ((DateTimeOffset.UtcNow - _lastRefreshTokenAttemptUtc) < RefreshTokenRetryInterval)
+        {
+            return false;
+        }
+
+        _lastRefreshTokenAttemptUtc = DateTimeOffset.UtcNow;
+
+        ControlPlaneRefreshResult result = await _controlPlaneAccountClient
+            .RefreshSessionAsync(_rememberedSignIn.RefreshToken)
+            .ConfigureAwait(true);
+
+        if (!result.Ok || result.Response == null)
+        {
+            if (result.TokenRejected)
+            {
+                _rememberedSignInStore.Clear();
+                _rememberedSignIn = null;
+                RestoreRememberedSignInInputs(force: true);
+            }
+
+            return false;
+        }
+
+        ApplySignedInSession(result.Response);
+        return true;
+    }
+
+    /// <summary>
+    /// Stores a session from a login or refresh response, including the rotated refresh
+    /// token when one came back.
+    /// </summary>
+    private void ApplySignedInSession(ControlPlaneLoginResponse response)
+    {
+        _accountSession = new ControlPlaneSessionState(
+            response.AccessToken,
+            response.User.AccountId,
+            response.User.UserId,
+            response.User.Role,
+            response.User.AuthProvider,
+            response.SessionExpiresAtUtc,
+            response.ReauthExpiresAtUtc,
+            DateTimeOffset.UtcNow);
+        _accountSessionStore.Save(_accountSession);
+
+        if (!string.IsNullOrWhiteSpace(response.RefreshToken))
+        {
+            _rememberedSignInStore.Save(response.User.UserId, response.RefreshToken!, response.RefreshExpiresAtUtc);
+            _rememberedSignIn = _rememberedSignInStore.Load();
+        }
     }
 
     private async Task<ControlPlaneDeviceCallResult> RegisterCurrentDeviceAsync()
@@ -755,16 +853,16 @@ public partial class MainWindow
         if (signedIn)
         {
             return _rememberedSignIn != null
-                ? "Your sign-in is saved only for this Windows account on this PC."
-                : "You can save your sign-in on this PC so the form is ready next time.";
+                ? "You will stay signed in on this Windows account. Your password is not stored."
+                : "You can stay signed in on this PC next time.";
         }
 
         if (_rememberedSignIn == null)
         {
-            return "Keep this checked if you want PORTA to remember this email and password on this Windows account only.";
+            return "Keep this checked to stay signed in on this Windows account. PORTA stores a revocable sign-in token, never your password.";
         }
 
-        return $"Saved on this PC for {_rememberedSignIn.UserId}. Click Sign in to reuse it, or forget it below.";
+        return $"Staying signed in as {_rememberedSignIn.UserId}. Sign out or forget it below to remove it from this PC.";
     }
 
     private void RestoreRememberedSignInInputs(bool force)
@@ -787,24 +885,13 @@ public partial class MainWindow
             AccountUserIdTextBox.Text = _rememberedSignIn.UserId;
         }
 
-        if (force || !AccountPasswordBox.IsKeyboardFocusWithin)
+        // The password box is never pre-filled any more -- there is no stored password to
+        // fill it with. A remembered sign-in now restores the session directly; the form
+        // is only the fallback for when the refresh token is gone.
+        if (force)
         {
-            AccountPasswordBox.Password = _rememberedSignIn.Password;
+            AccountPasswordBox.Password = string.Empty;
         }
-    }
-
-    private void UpdateRememberedSignIn(string userId, string password)
-    {
-        if (AccountRememberSignInCheckBox.IsChecked == true)
-        {
-            _rememberedSignInStore.Save(userId, password);
-        }
-        else
-        {
-            _rememberedSignInStore.Clear();
-        }
-
-        _rememberedSignIn = _rememberedSignInStore.Load();
     }
 
     private void ShowAccountSection(AccountSurfaceSection section)
@@ -1197,11 +1284,6 @@ public partial class MainWindow
 
     private string BuildSignedOutStatusMessage()
     {
-        if (_rememberedSignIn != null)
-        {
-            return "Signed out. Your saved sign-in is still ready on this PC.";
-        }
-
         return _latestIdentityLink != null && IsIdentityLinked(_latestIdentityLink)
             ? "Signed out. This PC still remembers its workspace link until you change it."
             : "Signed out. Sign in again to view or change account access on this PC.";
@@ -1323,25 +1405,30 @@ public partial class MainWindow
 
     private async Task<bool> TrySignInAsync(string userId, string password)
     {
-        ControlPlaneLoginResult result = await _controlPlaneAccountClient.LoginAsync(userId, password).ConfigureAwait(true);
+        // Only ask for a refresh token when the user asked to be remembered. Unchecked,
+        // the sign-in leaves nothing durable on this PC at all.
+        bool rememberSignIn = AccountRememberSignInCheckBox.IsChecked == true;
+
+        ControlPlaneLoginResult result = await _controlPlaneAccountClient
+            .LoginAsync(userId, password, rememberSignIn)
+            .ConfigureAwait(true);
         if (!result.Ok || result.Response == null)
         {
             _accountStatusMessage = result.Message ?? "Sign-in failed.";
             return false;
         }
 
-        ControlPlaneLoginResponse response = result.Response;
-        _accountSession = new ControlPlaneSessionState(
-            response.AccessToken,
-            response.User.AccountId,
-            response.User.UserId,
-            response.User.Role,
-            response.User.AuthProvider,
-            response.SessionExpiresAtUtc,
-            response.ReauthExpiresAtUtc,
-            DateTimeOffset.UtcNow);
-        _accountSessionStore.Save(_accountSession);
-        UpdateRememberedSignIn(userId, password);
+        if (!rememberSignIn)
+        {
+            // Forget whatever the last "remember me" left behind.
+            _rememberedSignInStore.Clear();
+            _rememberedSignIn = null;
+        }
+
+        ApplySignedInSession(result.Response);
+        _lastRefreshTokenAttemptUtc = DateTimeOffset.MinValue;
+
+        // The password is never written anywhere, and it does not linger in the box.
         AccountPasswordBox.Password = string.Empty;
         _activeAccountSection = AccountSurfaceSection.Summary;
 
@@ -1568,6 +1655,12 @@ private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
                 await _controlPlaneAccountClient.LogoutAsync(_accountSession.AccessToken).ConfigureAwait(true);
             }
 
+            // Signing out revokes the refresh chain on the control plane, so the stored
+            // token is already dead. Keeping it would only offer the user a sign-in that
+            // cannot work -- and would restore the session on the next refresh tick.
+            _rememberedSignInStore.Clear();
+            _rememberedSignIn = null;
+
             _accountSessionStore.Clear();
             _accountSession = null;
             _accountProfile = null;
@@ -1655,8 +1748,11 @@ private void AccountSectionMenuButton_Click(object sender, RoutedEventArgs e)
 
     private void AccountForgetRememberedSignInButton_Click(object sender, RoutedEventArgs e)
     {
+        // Local only. The token stays valid on the control plane until it expires or the
+        // user signs out; forgetting it here just stops this PC from using it.
         _rememberedSignInStore.Clear();
         _rememberedSignIn = null;
+        _lastRefreshTokenAttemptUtc = DateTimeOffset.MinValue;
         AccountUserIdTextBox.Text = string.Empty;
         AccountPasswordBox.Password = string.Empty;
         AccountRememberSignInCheckBox.IsChecked = false;

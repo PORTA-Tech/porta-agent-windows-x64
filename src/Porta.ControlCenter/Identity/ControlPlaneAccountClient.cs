@@ -40,7 +40,11 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         }
     }
 
-    public async Task<ControlPlaneLoginResult> LoginAsync(string userId, string password, CancellationToken token = default)
+    public async Task<ControlPlaneLoginResult> LoginAsync(
+        string userId,
+        string password,
+        bool issueRefreshToken = false,
+        CancellationToken token = default)
     {
         if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(password))
         {
@@ -52,7 +56,7 @@ internal sealed class ControlPlaneAccountClient : IDisposable
             using HttpRequestMessage request = CreateJsonRequest(
                 HttpMethod.Post,
                 "auth/login",
-                new ControlPlaneLoginRequest(userId.Trim(), password),
+                new ControlPlaneLoginRequest(userId.Trim(), password, issueRefreshToken),
                 accessToken: null);
             using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
@@ -107,27 +111,124 @@ internal sealed class ControlPlaneAccountClient : IDisposable
         }
     }
 
-    public async Task<ControlPlaneMeProfileView?> GetMeAsync(string accessToken, CancellationToken token = default)
+    /// <summary>
+    /// Reads the signed-in profile. A 401 is the only answer that proves the session is
+    /// dead -- every other failure (offline, DNS, timeout, 500) leaves the session's
+    /// validity unknown, and the caller must not treat "unknown" as "expired".
+    /// </summary>
+    public async Task<ControlPlaneMeResult> GetMeAsync(string accessToken, CancellationToken token = default)
     {
         if (string.IsNullOrWhiteSpace(accessToken))
         {
-            return null;
+            return ControlPlaneMeResult.Unauthorized;
         }
 
         try
         {
             using HttpRequestMessage request = CreateRequest(HttpMethod.Get, "v1/me", accessToken);
             using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                return null;
-            }
-
-            return await response.Content.ReadFromJsonAsync<ControlPlaneMeProfileView>(JsonOptions, token).ConfigureAwait(false);
+            return await ReadMeResultAsync(response, token).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
         {
-            return null;
+            return ControlPlaneMeResult.Unreachable;
+        }
+    }
+
+    /// <summary>
+    /// Classifies a /v1/me response. Only 401 may produce Unauthorized: that is the single
+    /// outcome the caller acts on by deleting the stored session.
+    /// </summary>
+    internal static async Task<ControlPlaneMeResult> ReadMeResultAsync(
+        HttpResponseMessage response,
+        CancellationToken token)
+    {
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            return ControlPlaneMeResult.Unauthorized;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return new ControlPlaneMeResult(ControlPlaneCallOutcome.Rejected, null);
+        }
+
+        try
+        {
+            ControlPlaneMeProfileView? profile = await response.Content
+                .ReadFromJsonAsync<ControlPlaneMeProfileView>(JsonOptions, token)
+                .ConfigureAwait(false);
+            return profile == null
+                ? new ControlPlaneMeResult(ControlPlaneCallOutcome.Rejected, null)
+                : new ControlPlaneMeResult(ControlPlaneCallOutcome.Success, profile);
+        }
+        catch (Exception ex) when (ex is JsonException or HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            return new ControlPlaneMeResult(ControlPlaneCallOutcome.Rejected, null);
+        }
+    }
+
+    /// <summary>
+    /// Exchanges the stored refresh token for a new session. The control plane rotates the
+    /// refresh token on every redemption, so the response's token must replace the stored
+    /// one -- reusing the old one is what trips reuse detection and revokes everything.
+    /// </summary>
+    public async Task<ControlPlaneRefreshResult> RefreshSessionAsync(string refreshToken, CancellationToken token = default)
+    {
+        if (string.IsNullOrWhiteSpace(refreshToken))
+        {
+            return ControlPlaneRefreshResult.Unauthorized;
+        }
+
+        try
+        {
+            using HttpRequestMessage request = CreateJsonRequest(
+                HttpMethod.Post,
+                "auth/refresh",
+                new ControlPlaneRefreshRequest(refreshToken),
+                accessToken: null);
+            using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
+            return await ReadRefreshResultAsync(response, token).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            return ControlPlaneRefreshResult.Unreachable;
+        }
+    }
+
+    /// <summary>
+    /// Classifies an /auth/refresh response. A 404 is deliberately NOT final: it is what a
+    /// control plane that predates this endpoint returns, and discarding the token on that
+    /// answer would sign the user out for the server's sake rather than their own.
+    /// </summary>
+    internal static async Task<ControlPlaneRefreshResult> ReadRefreshResultAsync(
+        HttpResponseMessage response,
+        CancellationToken token)
+    {
+        // 401 means the token is spent, revoked or expired. 400 means we sent nothing
+        // usable. Both are final for this token; neither is worth retrying.
+        if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.BadRequest)
+        {
+            return ControlPlaneRefreshResult.Unauthorized;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return new ControlPlaneRefreshResult(ControlPlaneCallOutcome.Rejected, null);
+        }
+
+        try
+        {
+            ControlPlaneLoginResponse? payload = await response.Content
+                .ReadFromJsonAsync<ControlPlaneLoginResponse>(JsonOptions, token)
+                .ConfigureAwait(false);
+            return payload == null
+                ? new ControlPlaneRefreshResult(ControlPlaneCallOutcome.Rejected, null)
+                : new ControlPlaneRefreshResult(ControlPlaneCallOutcome.Success, payload);
+        }
+        catch (Exception ex) when (ex is JsonException or HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            return new ControlPlaneRefreshResult(ControlPlaneCallOutcome.Rejected, null);
         }
     }
 

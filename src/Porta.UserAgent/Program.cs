@@ -33,6 +33,16 @@ using System.Diagnostics.Process currentProcess = System.Diagnostics.Process.Get
 UserAgentFileLog.Info(
     $"startup_requested source={startupMetadata.Source} launch_reason={startupMetadata.EffectiveLaunchReason} pid={currentProcess.Id} session={Math.Max(0, currentProcess.SessionId)} args={startupMetadata.RawArgsText}");
 
+// The Control Center used to store the user's password on disk for "remember my
+// sign-in". Purging it here rather than only in the Control Center is deliberate: the
+// Control Center has no autostart entry, so on most machines nobody would ever open it
+// and the password would sit there indefinitely. This process autostarts and runs as the
+// user, so it can reach the CurrentUser-scoped file on the next sign-in.
+if (Porta.Agent.Common.Identity.LegacyRememberedSignInPurge.PurgeStoredPassword())
+{
+    UserAgentFileLog.Info("legacy_remembered_signin_password_purged");
+}
+
 TryRegisterForApplicationRestart();
 
 using SingleInstanceLease instanceLease = SingleInstanceLease.TryAcquire(
