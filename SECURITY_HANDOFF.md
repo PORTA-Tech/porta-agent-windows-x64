@@ -152,14 +152,20 @@ Queued as 4.3 below. It cannot ship alone — see that section.
 
 ## 4. What is left, in order
 
-### 4.1 Turn on 2FA for the Render account — the user's job, minutes
+### 4.1 2FA on the Render account — DONE, in force since 2026-07-31
 
-`requireSignature` defaults to **false** in the auto-update path (no code-signing certificate yet).
-The fleet's protection is the SHA-256 in the Render environment variables. Anyone who can edit those
-can point the manifest at any MSI, which installs as SYSTEM on every machine. Render is also the
-only place the operator key and database URL live. It is the highest-value credential in the project.
+**2FA is enabled on both Render and the Google account behind it** (confirmed by the user
+2026-08-04, in force since 2026-07-31). **This no longer gates anything — in particular the agent
+MSI is NOT blocked on it.** Earlier sections of this document deliberately held the MSI back
+pending this; that block is lifted. Do not reintroduce it, and do not remind the user again.
 
-This is not a code task. Remind the user once; do not nag.
+Why it mattered, kept because the underlying exposure has not changed: `requireSignature` still
+defaults to **false** in the auto-update path (no code-signing certificate yet). The fleet's
+protection is the SHA-256 in the Render environment variables. Anyone who can edit those can point
+the manifest at any MSI, which installs as SYSTEM on every machine. Render is also the only place
+the operator key and database URL live. It remains the highest-value credential in the project —
+2FA raised the bar to reach it, it did not remove the exposure. A code-signing certificate is what
+would actually close this.
 
 ### 4.2 Stage 3 — per-device auth — the main remaining work
 
@@ -308,8 +314,8 @@ Built and tested:
   only `growthReadService` → `/v1/growth` (operator-only console dashboards); `maybeActivateAccount`
   does not mutate `accounts.status`, and neither the digest nor the narrative builder reads active
   days. No user experiences any of it.
-- Agent MSI not built. **Blocked deliberately** on Render 2FA (§4.1) — shipping a fleet-wide update
-  while the update manifest's only protection is a hash in the Render environment is the wrong order.
+- ~~Agent MSI not built. **Blocked deliberately** on Render 2FA (§4.1)~~ — **block lifted
+  2026-08-04**, 2FA has been in force since 2026-07-31. See §4.1.
 - The enforce flip itself (Render env var), gated on the query above.
 
 `deviceId` is `Guid.NewGuid()` in `LocalIdentityLinkStore.cs`, persisted to
@@ -528,7 +534,8 @@ refresh instead of riding the chain for 90 days.
    copies from payload without building. **Verify the DLL in `installer\payload`, not `bin`, and
    not the version number** — extract the version string from the binary itself.
 
-**Still open on this item:** the agent MSI. Same block as everything else — §4.1 Render 2FA.
+**Still open on this item:** the agent MSI. **No longer blocked** — §4.1 (Render 2FA) was
+confirmed done 2026-08-04 and the MSI is free to be cut.
 
 ### 4.6a (original writeup) Remembered sign-in stores the PASSWORD, not a token
 
@@ -644,6 +651,36 @@ numbers.
 The two other .NET hits (`System.Net.Http` 4.3.0, `System.Text.RegularExpressions` 4.3.0) appear
 only in `*.Tests` projects and are the stale-reference kind that net8.0 resolves to the runtime's
 own implementations. Ignore them.
+
+---
+
+## 4.8 KNOWN-FAILING TESTS — `Porta.Agent.Core.Tests`, as of 2026-08-04
+
+**The agent test suite is RED on `main` and this is expected. Do not treat a green Core.Tests run
+as the baseline, and do not assume a red one means you broke something.**
+
+Measured 2026-08-04 on `b312bf6`: `dotnet test src\Porta.Agent.Core.Tests` → **711 passed, 4
+failed**. The four:
+
+| test | symptom |
+|---|---|
+| `OverloadBrightnessScenarioTests.Scenario_RestartMidBrightnessRamp_ReconcilesContinuesAndRestoresWithoutDuplicateReducedEvent` | `Expected: 65, Actual: 70` |
+| `DeepWorkSuppressionScenarioTests.Scenario_RestartDuringNotificationSuppression_ReconcilesWithoutDuplicateAndRestoresOnExit` | `Expected: 1, Actual: 0` |
+| `Step20FinalAcceptanceGatesTests.Gate3_RestartNeverLeavesNotificationsSuppressedPermanently` | gate report assert |
+| `Step20FinalAcceptanceGatesTests.Gate4_RestartNeverLeavesBrightnessDimPermanently` | gate report assert |
+
+All four are restart-reconciliation scenarios — brightness ramp and notification suppression
+surviving a restart. **Confirmed pre-existing, not inherited from the 4.6a/SQLite work:** the
+changes were reverted and these same four still failed. They are unrelated to auth, sessions and
+SQLite.
+
+**Decision (user, 2026-08-04): these do NOT block the release.** They are to be fixed separately.
+
+The other four suites are green and *are* a real gate — a failure there is yours:
+ControlCenter.Tests 80, Service.Tests 104, UserAgent.Tests 247, Runtime.Tests 6.
+
+When these are fixed, delete this section rather than editing the numbers — a stale allowance is
+worse than none, because it silently excuses the next four failures too.
 
 ---
 
