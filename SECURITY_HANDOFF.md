@@ -472,7 +472,65 @@ recover any device whose plaintext is lost. Issue-once means there is no other w
 source-constant entropy means read is enough. Device auth closes the *remote* hole; it does not
 defend against someone with local access to that machine. Do not claim otherwise.
 
-### 4.6a Remembered sign-in stores the PASSWORD, not a token — own item, not yet fixed
+### 4.6a Remembered sign-in stored the PASSWORD — DONE 2026-08-04, agent NOT released
+
+Built, tested and pushed in both repos. The control plane is **deployed and verified live**;
+the agent is committed but **not built into an MSI and not released to the fleet**.
+
+| repo | commit | what |
+|---|---|---|
+| porta-control-plane | `f84f339` | refresh tokens on `auth_sessions`, `POST /auth/refresh` |
+| porta-agent-windows-x64 | `d043c94` | v2 store holds a refresh token; v1 password file deleted; GetMeAsync fix |
+| porta-agent-windows-x64 | `777d8ce` | SQLitePCLRaw 2.1.12 (CVE-2025-6965) |
+
+**Deploy order was deliberate and must be preserved if this is ever redone: server first.**
+The agent's refresh path 404s harmlessly against an old control plane, but shipping the agent
+first would mean a fleet holding tokens nothing can redeem.
+
+**Verified against production 2026-08-04 13:08Z, not from code:**
+
+| probe | result |
+|---|---|
+| `POST /auth/refresh` no body | **400** `VALIDATION_ERROR` |
+| `POST /auth/refresh` bogus token | **401** `REFRESH_TOKEN_INVALID` |
+| `GET /auth/me` bogus bearer | **401** `SESSION_EXPIRED` |
+| `GET /health` | **200** |
+
+The two bogus-token probes are the migration proof, and this is the trick worth keeping: both
+run a `SELECT` whose column list now includes `session_type` and `refresh_family_id`. A missing
+column would raise `column does not exist` and surface as a 500. A clean 401 means the SELECT
+executed against the real table — so the `ALTER` applied. A green deploy alone proves nothing
+(see 4.3 trap 2 for the same lesson). The user confirmed his Control Center stayed signed in
+across the deploy, which is the live confirmation that pre-existing rows still authenticate.
+
+**How it works:** `session_type` discriminates access from refresh on the existing
+`auth_sessions` table (`DEFAULT 'access'`, so every pre-existing row is untouched and still
+authenticates). `refresh_family_id` ties an access token to the refresh token that minted it
+and each rotation to the one before. `/auth/refresh` rotates on every use; presenting a
+rotated-away token revokes the **entire family**, because the stolen copy and the real client
+cannot both redeem and there is no way to tell which is which. Refresh tokens are opt-in at
+`/auth/login` via `issue_refresh_token` — only "stay signed in" asks for one.
+
+`readAuthSession` and `refreshReauth` reject `session_type !== 'access'`, so a refresh token
+can never authenticate a route. Logout revokes the whole family. The identity is re-derived
+from the user store on every redemption, so a role change or deleted account lands at the next
+refresh instead of riding the chain for 90 days.
+
+**Two hazards that are not obvious:**
+
+1. **Rolling the control plane back past `f84f339` is a privilege escalation** once agents hold
+   refresh tokens. The rollback removes the `session_type !== 'access'` guard, and a refresh
+   token would then authenticate as a bearer token for its full 90 days. Harmless *today* —
+   refresh tokens are opt-in and no released agent requests one, so zero exist. It stops being
+   harmless the moment the agent ships.
+2. **The SQLite fix needs a CLEAN rebuild.** An incremental build left the old 3.41.2
+   `e_sqlite3.dll` in `bin/` while `dotnet list package` already reported 2.1.12. `install.ps1`
+   copies from payload without building. **Verify the DLL in `installer\payload`, not `bin`, and
+   not the version number** — extract the version string from the binary itself.
+
+**Still open on this item:** the agent MSI. Same block as everything else — §4.1 Render 2FA.
+
+### 4.6a (original writeup) Remembered sign-in stores the PASSWORD, not a token
 
 `ControlPlaneRememberedSignInStore` persists the user's **password** to
 `%LOCALAPPDATA%\PortaAgent\control-center.remembered-signin.v1.json`, DPAPI `CurrentUser`-scoped
@@ -507,6 +565,11 @@ still happening, this may fold into it rather than landing separately. Decide be
 ### 4.6b Automatic credential acquisition — decided 2026-07-31, not yet built
 
 Requiring a user to open the Control Center is a design flaw, not a rollout step. Agreed approach:
+
+**Superseded in part 2026-08-04:** the `GetMeAsync` bullet below is **DONE** (`d043c94`) — it
+shipped with 4.6a because the refresh token would otherwise inherit the same bug. A 401 now
+redeems the refresh token before signing anyone out. The A/B credential-acquisition work is
+still unbuilt.
 
 - **B (the mechanism):** the control plane issues a device credential without a session, for a
   device that is already linked and has none, one shot. This is the only option that works for a
@@ -562,8 +625,15 @@ via `Microsoft.Data.Sqlite` 8.0.10, which pins it transitively.
 passed as a `$` parameter. **This stops being true the moment anyone builds a query from user
 input** — that is the change to catch in review.
 
-**Decision: fold the upgrade into the next release rather than cutting one for it.** Not urgent, but
-do not let it drift indefinitely.
+**DONE 2026-08-04 (`777d8ce`), not yet released.** Pinned `SQLitePCLRaw.bundle_e_sqlite3` 2.1.12
+directly in the three projects with a direct `Microsoft.Data.Sqlite` reference; that overrides
+the transitive 2.1.6 without moving off EF 8. Measured rather than inferred, because the version
+strings mislead: `lib.e_sqlite3` **2.1.11 ships SQLite 3.49.1** (still vulnerable) and **2.1.12
+ships 3.53.3** (fixed). Confirmed in the build output, not just the package graph. See the
+clean-rebuild trap in 4.6a — this is the one that will bite.
+
+**Original decision, kept for context: fold the upgrade into the next release rather than cutting
+one for it.** Not urgent, but do not let it drift indefinitely.
 
 One correction for whoever picks this up: the GitHub advisory page says no patched NuGet version
 exists. That is stale. SQLitePCLRaw renumbered to track SQLite itself and `lib.e_sqlite3` now
