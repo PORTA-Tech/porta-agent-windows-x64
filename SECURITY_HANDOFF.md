@@ -34,18 +34,15 @@ shipped — that order was deliberate and matters (§4.6a).
 | agent commit | `c274516` |
 | control plane | `f84f339`, deployed |
 
-**The one thing NOT yet exercised end to end — do this before trusting the refresh path:**
+**The refresh path is exercised end to end.** The sign-out / sign-in round trip was run on a real
+machine on 2026-08-04: signing back in with "Stay signed in on this PC" ticked issues a refresh
+token, stores it in `control-center.remembered-signin.v2.json`, and the session restores from it.
+Combined with the unit tests (rotation, reuse-detection revoking the family, refresh token
+refused as a bearer token) and the live production probes, the whole chain is verified — server,
+wire and client. **The agent no longer stores a password anywhere.**
 
-Sign out of the Control Center and sign back in with "Stay signed in on this PC" ticked, then
-confirm `%LOCALAPPDATA%\PortaAgent\control-center.remembered-signin.v2.json` exists and the `v1`
-file is gone. The install was verified on a session already valid to 3 Sept, so the *stored*
-session kept working — but that does not prove a refresh token was ever issued, stored or
-redeemed. Rotation, reuse-detection and the v1 password purge are covered by unit tests and by
-live probes against production, **not** by a real client completing the round trip. Until someone
-does that, treat "the agent stores a refresh token instead of a password" as tested-in-parts.
-
-Everything else from the 2026-08-04 stretch is done: 4.1, 4.2, 4.6a, 4.7, 4.9. Open work starts
-at 4.4.
+Everything from the 2026-08-04 stretch is done and verified: 4.1, 4.2, 4.6a, 4.7, 4.9. Open work
+starts at 4.4.
 
 ---
 
@@ -520,11 +517,10 @@ the agent followed.
 | porta-agent-windows-x64 | `777d8ce` | SQLitePCLRaw 2.1.12 (CVE-2025-6965) |
 | porta-agent-windows-x64 | `c274516` | v1.2.126, shared payload removed — **the released build** |
 
-**Not yet proven end to end: a real client completing the refresh round trip.** See §0. Unit tests
-cover rotation and reuse-detection, production probes cover the endpoint, and the install was
-verified — but on a session that had not expired, so nothing has yet demonstrated a refresh token
-being issued, stored in `control-center.remembered-signin.v2.json` and redeemed by an actual
-Control Center. Sign out and back in with "Stay signed in" ticked to close that gap.
+**Proven end to end 2026-08-04.** The sign-out / sign-in round trip was run on a real machine:
+ticking "Stay signed in on this PC" issues a refresh token, it lands in
+`control-center.remembered-signin.v2.json`, and the session restores from it. Together with the
+unit tests and the production probes below, server, wire and client are all verified.
 
 **Deploy order was deliberate and must be preserved if this is ever redone: server first.**
 The agent's refresh path 404s harmlessly against an old control plane, but shipping the agent
