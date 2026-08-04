@@ -16,10 +16,14 @@ than verified, it says so. Keep that convention when you update this document.
 
 ---
 
-## 0. URGENT — nothing outstanding
+## 0. URGENT — one open item: rotate the production database password
+
+**The production Postgres password was exposed in a chat transcript on 2026-08-04 and has not
+been rotated. Do this first — see §4.0.** Until it is rotated, anyone holding that transcript can
+reach the database directly, and write access to it is a full control-plane compromise.
 
 The default-credential hole is **closed, deployed, and verified live on 2026-07-28.** Details in
-section 2. There is no open emergency.
+section 2. That one is not an open emergency.
 
 **Agent 1.2.126 was RELEASED to the fleet on 2026-08-04.** It carries the 4.6a refresh-token work,
 the `GetMeAsync` fix and the SQLite CVE upgrade, and it is the build with the shared payload
@@ -42,7 +46,7 @@ refused as a bearer token) and the live production probes, the whole chain is ve
 wire and client. **The agent no longer stores a password anywhere.**
 
 Everything from the 2026-08-04 stretch is done and verified: 4.1, 4.2, 4.6a, 4.7, 4.9. Open work
-starts at 4.4.
+starts at **4.0 (urgent, above)**, then 4.4.
 
 ---
 
@@ -174,6 +178,70 @@ Queued as 4.3 below. It cannot ship alone — see that section.
 ---
 
 ## 4. What is left, in order
+
+### 4.0 URGENT — rotate the exposed production database password — NOT DONE
+
+**The production Postgres password for the control-plane database was exposed in a chat transcript
+on 2026-08-04.** It has not been rotated. This is the highest-priority open item in this document.
+
+**Do not record the password here, or in any file, commit message, script or plan doc.** It is not
+in this repository and must not be put there. If you need it, take it from the Render dashboard at
+the moment you use it.
+
+**Why this is serious, and not merely untidy.** Render Postgres publishes an external connection
+string, so the credential is usable from anywhere unless connections are IP-restricted (that has
+not been checked — check it). What the database holds:
+
+- `auth_users` — scrypt password hashes. Not plaintext, but crackable offline for weak passwords.
+- `auth_sessions` — sha256 *hashes* of session tokens. Live tokens cannot be reconstructed from
+  these, so read access does not directly hand over anyone's session.
+- `devices` — `device_secret_hash`, same shape, same reasoning.
+- `machine_summaries`, `daily_stats`, `user_history`, `growth_events`, `account_active_days` — the
+  actual behavioural history of every user. This is the privacy exposure, and it is the material
+  §4.5 warns about regulatory-wise (there are UAE users).
+
+**Read access is a serious privacy breach. Write access is total compromise** — an attacker who
+can write can insert an `auth_sessions` row whose `token_hash` is the sha256 of a token they
+chose, and then authenticate as that account; or simply elevate a role in `auth_users`. Hashing
+the stored secrets protects against *reading* them, not against *writing new ones*.
+
+**Rotation steps, in order:**
+
+1. Rotate the password on the Render Postgres instance.
+2. Update the connection string on the web service. **Check BOTH names.**
+   `fleetPersistence.ts:27` reads `PORTA_CONTROL_PLANE_DATABASE_URL` **first** and falls back to
+   `DATABASE_URL`. If both are set and only `DATABASE_URL` is updated, the service keeps using the
+   stale one and fails to connect — with a symptom (memory-mode fallback) that does not obviously
+   say "wrong password".
+3. **Trigger a manual deploy.** Saving env vars alone does not restart the service — this is the
+   trap already recorded for releases (learned on 1.2.112) and it applies here too.
+4. Update every other holder of the old string: any local `.env`, the shell environment used for
+   the maintenance scripts, and any second Render service (cron/worker) if one exists.
+
+**Scripts that take `DATABASE_URL` from the shell and will break until re-exported** (all in
+`porta-control-plane/scripts/`): `clear-device-credential.mjs`, `backfill-growth-facts.mjs`,
+`backfill-install-events.mjs`, `import-legacy-auth-users.mjs`.
+
+**Verify afterwards, against the live service rather than the dashboard:**
+
+- `GET /health` → 200.
+- `GET /auth/me` with a junk bearer token → **401**, not 500. This is the same trick used to prove
+  the 4.6a migration applied: it forces a real `SELECT` against `auth_sessions`, so a clean 401
+  proves the service is actually connected to Postgres. A green deploy on its own proves nothing —
+  the persistence layer falls back to memory mode when it cannot connect, and the service will
+  happily serve `/health` in that state.
+
+**Rotation does not sign anyone out.** Session tokens, device credentials and refresh tokens are
+separate secrets stored as hashes in the database; changing the database password does not
+invalidate them. Expect no user-visible impact.
+
+**Also worth doing while here:** check the Render Postgres connection logs for connections that
+are not from the web service, over the window from the exposure to the rotation. If the transcript
+was only ever seen by the user, this is a formality — but it is cheap and it is the only way to
+turn "probably fine" into evidence.
+
+This is the user's job — it needs the Render dashboard, which cannot be reached from a session
+here, and the password must not be handed over to be typed in on his behalf.
 
 ### 4.1 2FA on the Render account — DONE, in force since 2026-07-31
 
