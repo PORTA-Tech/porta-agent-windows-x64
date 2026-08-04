@@ -16,14 +16,14 @@ than verified, it says so. Keep that convention when you update this document.
 
 ---
 
-## 0. URGENT — one open item: rotate the production database password
-
-**The production Postgres password was exposed in a chat transcript on 2026-08-04 and has not
-been rotated. Do this first — see §4.0.** Until it is rotated, anyone holding that transcript can
-reach the database directly, and write access to it is a full control-plane compromise.
+## 0. URGENT — nothing outstanding
 
 The default-credential hole is **closed, deployed, and verified live on 2026-07-28.** Details in
-section 2. That one is not an open emergency.
+section 2.
+
+The production database password exposed in a chat transcript on 2026-08-04 was **rotated, the old
+credential deleted in Render, and the new connection verified live the same day** (§4.0). There is
+no open emergency.
 
 **Agent 1.2.126 was RELEASED to the fleet on 2026-08-04.** It carries the 4.6a refresh-token work,
 the `GetMeAsync` fix and the SQLite CVE upgrade, and it is the build with the shared payload
@@ -45,8 +45,8 @@ Combined with the unit tests (rotation, reuse-detection revoking the family, ref
 refused as a bearer token) and the live production probes, the whole chain is verified — server,
 wire and client. **The agent no longer stores a password anywhere.**
 
-Everything from the 2026-08-04 stretch is done and verified: 4.1, 4.2, 4.6a, 4.7, 4.9. Open work
-starts at **4.0 (urgent, above)**, then 4.4.
+Everything from the 2026-08-04 stretch is done and verified: 4.0, 4.1, 4.2, 4.6a, 4.7, 4.9. Open
+work starts at 4.4.
 
 ---
 
@@ -179,18 +179,53 @@ Queued as 4.3 below. It cannot ship alone — see that section.
 
 ## 4. What is left, in order
 
-### 4.0 URGENT — rotate the exposed production database password — NOT DONE
+### 4.0 Exposed production database password — ROTATED, REVOKED and VERIFIED 2026-08-04
 
-**The production Postgres password for the control-plane database was exposed in a chat transcript
-on 2026-08-04.** It has not been rotated. This is the highest-priority open item in this document.
+**Closed the same day.** The production Postgres password for the control-plane database was
+exposed in a chat transcript on 2026-08-04. It was rotated, the web service moved to the new
+user's **internal** connection string, deployed, and **the old credential was deleted in Render** —
+so the exposed secret is revoked, not merely superseded. Nothing to do here; kept for the method
+and the traps.
+
+**Verified live after the rotation, not from the dashboard:**
+
+| probe | result | what it proves |
+|---|---|---|
+| `GET /auth/me`, junk bearer | **401** `SESSION_EXPIRED` | the `auth_sessions` SELECT ran and did not throw |
+| `POST /auth/refresh`, junk token | **401** `REFRESH_TOKEN_INVALID` | second DB path, same |
+| `POST /auth/login`, real account + deliberately wrong password | **401** `INVALID_CREDENTIALS` | **the real `auth_users` row was found and read** |
+| `POST /auth/login`, fabricated account | **401** `USER_NOT_FOUND` | control — the endpoint discriminates |
+| `GET /health` | **200** | service up |
+
+**The verification lesson, which is the part worth keeping.** This section originally said a 401
+from `/auth/me` was sufficient proof of connection. **It is not, and that guidance was wrong.**
+`getFleetPersistenceMode()` decides on whether the URL string is non-empty — it never tests
+connectivity — so a service with the variable *unset* runs in memory mode, `readAuthSession`
+returns null without touching Postgres, and you get the same 401. A 401 rules out a *broken*
+connection, not an *absent* one.
+
+The login pair is what actually closes it: `INVALID_CREDENTIALS` for a known account proves a real
+row was read, and `USER_NOT_FOUND` for a fabricated one proves the endpoint is not simply
+answering the same way to everything. In memory mode the production base-user table is empty (the
+`4449fa4` fail-closed fix), so a real account would come back `USER_NOT_FOUND` there. Same
+technique §2 used to verify the default-credential fix: a deliberately wrong password as an
+existence probe, not a guess. No lockout risk — per-IP rate limiting was deliberately removed (§3).
+
+**Also:** the maintenance scripts below run from a workstation and need the **external**
+connection string; the web service uses the internal one. A script that hangs and then times out
+is the symptom of reaching for the wrong one.
+
+---
+
+Original writeup follows, for the reasoning about severity and the rotation procedure.
 
 **Do not record the password here, or in any file, commit message, script or plan doc.** It is not
 in this repository and must not be put there. If you need it, take it from the Render dashboard at
 the moment you use it.
 
-**Why this is serious, and not merely untidy.** Render Postgres publishes an external connection
-string, so the credential is usable from anywhere unless connections are IP-restricted (that has
-not been checked — check it). What the database holds:
+**Why this was serious, and not merely untidy.** Render Postgres publishes an external connection
+string, so the credential was usable from anywhere unless connections are IP-restricted (that was
+not checked at the time). What the database holds:
 
 - `auth_users` — scrypt password hashes. Not plaintext, but crackable offline for weak passwords.
 - `auth_sessions` — sha256 *hashes* of session tokens. Live tokens cannot be reconstructed from
@@ -222,26 +257,21 @@ the stored secrets protects against *reading* them, not against *writing new one
 `porta-control-plane/scripts/`): `clear-device-credential.mjs`, `backfill-growth-facts.mjs`,
 `backfill-install-events.mjs`, `import-legacy-auth-users.mjs`.
 
-**Verify afterwards, against the live service rather than the dashboard:**
-
-- `GET /health` → 200.
-- `GET /auth/me` with a junk bearer token → **401**, not 500. This is the same trick used to prove
-  the 4.6a migration applied: it forces a real `SELECT` against `auth_sessions`, so a clean 401
-  proves the service is actually connected to Postgres. A green deploy on its own proves nothing —
-  the persistence layer falls back to memory mode when it cannot connect, and the service will
-  happily serve `/health` in that state.
+**Verify afterwards, against the live service rather than the dashboard.** See the probe table at
+the top of this section — and note that `/health` and a bare 401 are both insufficient on their
+own, for the reason explained there.
 
 **Rotation does not sign anyone out.** Session tokens, device credentials and refresh tokens are
 separate secrets stored as hashes in the database; changing the database password does not
-invalidate them. Expect no user-visible impact.
+invalidate them. This held — no user-visible impact was observed.
 
-**Also worth doing while here:** check the Render Postgres connection logs for connections that
-are not from the web service, over the window from the exposure to the rotation. If the transcript
-was only ever seen by the user, this is a formality — but it is cheap and it is the only way to
-turn "probably fine" into evidence.
+**Not done, and cheap if it ever matters:** the Render Postgres connection logs were not checked
+for connections that were not the web service over the exposure window. The old credential has
+since been deleted, so this is now purely retrospective; if the transcript was only ever seen by
+the user it is a formality.
 
-This is the user's job — it needs the Render dashboard, which cannot be reached from a session
-here, and the password must not be handed over to be typed in on his behalf.
+This was the user's job — it needs the Render dashboard, which cannot be reached from a session
+here, and the password must not be handed over to be typed in on anyone's behalf.
 
 ### 4.1 2FA on the Render account — DONE, in force since 2026-07-31
 
