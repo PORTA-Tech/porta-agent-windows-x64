@@ -1,257 +1,47 @@
-[CmdletBinding()]
-param(
-    [string]$Version = "",
-    [string]$BackendUrl = "https://porta-control-plane.onrender.com",
-    [string]$Configuration = "Release",
-    [string]$Runtime = "win-x64",
-    [string]$SignToolPath = $env:PORTA_SIGNTOOL_PATH,
-    [string]$SigningThumbprint = $env:PORTA_SIGNING_CERT_THUMBPRINT,
-    [string]$TimestampUrl = $env:PORTA_SIGNING_TIMESTAMP_URL,
-    [switch]$RequireSigning
-)
+# DISABLED 2026-08-06. Do not restore this script's build logic.
+#
+# This script published with /p:PublishSingleFile=false. Since 1.2.126 the installer no
+# longer harvests payload\SharedFiles, because the shipped exes are self-contained
+# single-file bundles with native libraries embedded (~101 MB ari.exe, not a ~151 KB
+# apphost). Publishing non-single-file emits hundreds of loose DLLs that the MSI does not
+# carry, so the installed service starts, cannot find ari.dll, times out twice against the
+# SCM, and the transaction rolls back.
+#
+# That is not hypothetical. On 2026-08-06 this script produced an MSI that failed to
+# install with Error 1920, took the AriAgent service down, and cost ~13 minutes of capture
+# data on the founder's machine. The numbered release script has carried a guard predicting
+# this exact failure since 1.2.126 ("the installed agent would fail to start with a
+# missing-assembly error that points nowhere near this file"); this script had no guard.
+#
+# The flags are deliberately NOT ported here. Two copies of the publish settings is how the
+# drift happened in the first place -- the numbered script is the single source of truth.
+#
+# To build a release: copy the highest-numbered build-<n>.ps1 at the repo root to the next
+# number and run that. Bump the version in the three .csproj files first
+# (Porta.Agent.Service, Porta.UserAgent, Porta.ControlCenter).
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$serviceProject = Join-Path $repoRoot "src/Porta.Agent.Service/Porta.Agent.Service.csproj"
-$userAgentProject = Join-Path $repoRoot "src/Porta.UserAgent/Porta.UserAgent.csproj"
-$controlCenterProject = Join-Path $repoRoot "src/Porta.ControlCenter/Porta.ControlCenter.csproj"
-$publishDir = Join-Path $repoRoot "src/Porta.Agent.Service/bin/$Configuration/net8.0-windows/$Runtime/publish"
-$userAgentPublishDir = Join-Path $repoRoot "src/Porta.UserAgent/bin/$Configuration/net8.0-windows/$Runtime/publish"
-$controlCenterPublishDir = Join-Path $repoRoot "src/Porta.ControlCenter/bin/$Configuration/net8.0-windows/$Runtime/publish"
-$ariExe = Join-Path $publishDir "ari.exe"
-$userAgentExe = Join-Path $userAgentPublishDir "Porta.UserAgent.exe"
-$controlCenterExe = Join-Path $controlCenterPublishDir "Porta.ControlCenter.exe"
-$installerProject = Join-Path $repoRoot "installer/AriAgent.Installer.wixproj"
-$payloadDir = Join-Path $repoRoot "installer/payload"
-$payloadExe = Join-Path $payloadDir "ari.exe"
-$payloadUserAgentExe = Join-Path $payloadDir "Porta.UserAgent.exe"
-$payloadControlCenterExe = Join-Path $payloadDir "Porta.ControlCenter.exe"
-$payloadSharedDir = Join-Path $payloadDir "SharedFiles"
+$newest = Get-ChildItem -LiteralPath $repoRoot -Filter "build-*.ps1" -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.BaseName -match '^build-\d+$' } |
+    Sort-Object { [int]($_.BaseName -replace '^build-', '') } |
+    Select-Object -Last 1
 
-function Resolve-ProjectVersion {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ProjectPath
-    )
-
-    if (-not (Test-Path $ProjectPath)) {
-        throw "Project file '$ProjectPath' does not exist."
-    }
-
-    [xml]$projectXml = Get-Content -LiteralPath $ProjectPath
-    $versionNode = $projectXml.Project.PropertyGroup.Version | Select-Object -First 1
-    $version = $versionNode -as [string]
-    if ([string]::IsNullOrWhiteSpace($version)) {
-        throw "Could not resolve <Version> from '$ProjectPath'."
-    }
-
-    return $version.Trim()
+if ($newest) {
+    $pointer = "The current release script is '$($newest.Name)' at the repo root. Copy it to the next number and run that."
+} else {
+    $pointer = "No build-<n>.ps1 was found at the repo root -- locate the current release script before building."
 }
 
-function Reset-Directory {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
+throw @"
+scripts/build-msi.ps1 is DISABLED and will not build a shippable MSI.
 
-    if (Test-Path $Path) {
-        Remove-Item $Path -Recurse -Force
-    }
+It publishes with PublishSingleFile=false, which produces an installer that fails to start
+the service and rolls back. It did exactly that on 2026-08-06.
 
-    New-Item -ItemType Directory -Path $Path -Force | Out-Null
-}
+$pointer
 
-if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = Resolve-ProjectVersion -ProjectPath $controlCenterProject
-    Write-Host "Resolved MSI version from Control Center project: $Version"
-}
-
-function Merge-PayloadDirectory {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Source,
-        [Parameter(Mandatory = $true)]
-        [string]$Destination,
-        [Parameter(Mandatory = $true)]
-        [string[]]$ExcludeFiles
-    )
-
-    Get-ChildItem $Source -Recurse -File | ForEach-Object {
-        if ($ExcludeFiles -contains $_.Name -or $_.Extension -eq ".pdb") {
-            return
-        }
-
-        $sourceRoot = (Resolve-Path $Source).Path.TrimEnd('\')
-        $filePath = $_.FullName
-        $relativePath = $filePath.Substring($sourceRoot.Length).TrimStart('\')
-        $targetPath = Join-Path $Destination $relativePath
-        $targetDir = Split-Path -Parent $targetPath
-        if (-not [string]::IsNullOrWhiteSpace($targetDir)) {
-            New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-        }
-
-        Copy-Item $_.FullName $targetPath -Force
-    }
-}
-
-function Restore-ProjectForRuntime {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ProjectPath,
-        [Parameter(Mandatory = $true)]
-        [string]$Runtime
-    )
-
-    Write-Host "Restoring $(Split-Path $ProjectPath -Leaf) for runtime $Runtime..."
-    dotnet restore $ProjectPath -r $Runtime
-    if ($LASTEXITCODE -ne 0) {
-        throw "dotnet restore for '$ProjectPath' failed with exit code $LASTEXITCODE."
-    }
-}
-
-function Resolve-SignTool {
-    param(
-        [string]$ConfiguredPath
-    )
-
-    if (-not [string]::IsNullOrWhiteSpace($ConfiguredPath)) {
-        if (-not (Test-Path $ConfiguredPath)) {
-            throw "Configured SignTool path '$ConfiguredPath' does not exist."
-        }
-
-        return (Resolve-Path $ConfiguredPath).Path
-    }
-
-    $command = Get-Command signtool.exe -ErrorAction SilentlyContinue
-    if ($null -ne $command) {
-        return $command.Source
-    }
-
-    return $null
-}
-
-function Sign-MsiIfConfigured {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$MsiPath
-    )
-
-    $signTool = Resolve-SignTool -ConfiguredPath $SignToolPath
-    $hasSigningInputs = -not [string]::IsNullOrWhiteSpace($SigningThumbprint)
-
-    if (-not $hasSigningInputs) {
-        if ($RequireSigning) {
-            throw "MSI signing is required, but no signing thumbprint was provided."
-        }
-
-        Write-Warning "MSI signing skipped because no signing thumbprint was provided."
-        return
-    }
-
-    if ([string]::IsNullOrWhiteSpace($signTool)) {
-        throw "MSI signing was requested, but signtool.exe could not be found."
-    }
-
-    $arguments = @(
-        "sign",
-        "/fd", "sha256",
-        "/sha1", $SigningThumbprint
-    )
-
-    if (-not [string]::IsNullOrWhiteSpace($TimestampUrl)) {
-        $arguments += @("/tr", $TimestampUrl, "/td", "sha256")
-    }
-
-    $arguments += $MsiPath
-
-    Write-Host "Signing MSI with Authenticode..."
-    & $signTool @arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "MSI signing failed with exit code $LASTEXITCODE."
-    }
-
-    $signature = Get-AuthenticodeSignature -LiteralPath $MsiPath
-    if ($signature.Status -ne "Valid") {
-        throw "MSI signing completed, but signature validation returned '$($signature.Status)'."
-    }
-
-    Write-Host "MSI signature validated."
-}
-
-Write-Host "Publishing ari.exe ($Configuration, $Runtime)..."
-Restore-ProjectForRuntime -ProjectPath $serviceProject -Runtime $Runtime
-dotnet publish $serviceProject -c $Configuration -r $Runtime --self-contained true /p:PublishSingleFile=false
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet publish failed with exit code $LASTEXITCODE."
-}
-
-if (-not (Test-Path $ariExe)) {
-    throw "Published binary not found at '$ariExe'."
-}
-
-Write-Host "Publishing Porta.UserAgent.exe ($Configuration, $Runtime)..."
-Restore-ProjectForRuntime -ProjectPath $userAgentProject -Runtime $Runtime
-dotnet publish $userAgentProject -c $Configuration -r $Runtime --self-contained true /p:PublishSingleFile=false
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet publish for Porta.UserAgent failed with exit code $LASTEXITCODE."
-}
-
-if (-not (Test-Path $userAgentExe)) {
-    throw "Published user agent binary not found at '$userAgentExe'."
-}
-
-Write-Host "Publishing Porta.ControlCenter.exe ($Configuration, $Runtime)..."
-Restore-ProjectForRuntime -ProjectPath $controlCenterProject -Runtime $Runtime
-dotnet publish $controlCenterProject -c $Configuration -r $Runtime --self-contained true /p:PublishSingleFile=false
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet publish for Porta.ControlCenter failed with exit code $LASTEXITCODE."
-}
-
-if (-not (Test-Path $controlCenterExe)) {
-    throw "Control Center binary not found at '$controlCenterExe'. Build Porta.ControlCenter first."
-}
-
-Reset-Directory -Path $payloadDir
-New-Item -ItemType Directory -Path $payloadSharedDir -Force | Out-Null
-Set-Content -LiteralPath (Join-Path $payloadDir ".gitignore") -Value "*`n!.gitignore`n" -NoNewline
-
-Copy-Item $ariExe $payloadExe -Force
-Copy-Item $userAgentExe $payloadUserAgentExe -Force
-Copy-Item $controlCenterExe $payloadControlCenterExe -Force
-Merge-PayloadDirectory -Source $publishDir -Destination $payloadSharedDir -ExcludeFiles @("ari.exe")
-Merge-PayloadDirectory -Source $userAgentPublishDir -Destination $payloadSharedDir -ExcludeFiles @("Porta.UserAgent.exe")
-Merge-PayloadDirectory -Source $controlCenterPublishDir -Destination $payloadSharedDir -ExcludeFiles @("Porta.ControlCenter.exe")
-Write-Host "Payload prepared: $payloadExe"
-Write-Host "Payload prepared: $payloadUserAgentExe"
-Write-Host "Payload prepared: $payloadControlCenterExe"
-Write-Host "Payload prepared: $payloadSharedDir"
-
-Write-Host "Building MSI..."
-dotnet build $installerProject -c $Configuration `
-    /p:ProductVersion=$Version `
-    /p:AriBackendUrlDefault=$BackendUrl `
-    /p:AriExeSource=$payloadExe `
-    /p:UserAgentExeSource=$payloadUserAgentExe `
-    /p:ControlCenterExeSource=$payloadControlCenterExe `
-    /p:SharedPayloadSourceDir=$payloadSharedDir
-if ($LASTEXITCODE -ne 0) {
-    throw "MSI build failed with exit code $LASTEXITCODE."
-}
-
-Write-Host "MSI build complete. Output:"
-$msi = Get-ChildItem (Join-Path $repoRoot "installer/bin") -Filter "*.msi" -Recurse |
-    Sort-Object LastWriteTime -Descending
-if (-not $msi) {
-    throw "No MSI was produced under installer/bin."
-}
-$latestMsi = $msi | Select-Object -First 1
-
-Sign-MsiIfConfigured -MsiPath $latestMsi.FullName
-
-$hash = Get-FileHash -LiteralPath $latestMsi.FullName -Algorithm SHA256
-Write-Host "MSI SHA256: $($hash.Hash.ToLowerInvariant())"
-$signatureStatus = (Get-AuthenticodeSignature -LiteralPath $latestMsi.FullName).Status
-Write-Host "MSI signature status: $signatureStatus"
-$latestMsi | Select-Object FullName, Length, LastWriteTime
+See the header of this file, and Loop_And_Report_Build_Brief.md section 9.
+"@
