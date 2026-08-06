@@ -34,7 +34,7 @@ Google Drive links CANNOT be the update source: share links return an HTML page 
 
 - Create a release per version on `PORTA-Tech/porta-agent-windows-x64` (or a dedicated public releases repo if the code repo is private — **verify asset URL downloads without auth before first use**)
 - Asset: `AriAgentInstaller-1.2.X.msi`, direct URL like `https://github.com/.../releases/download/v1.2.X/AriAgentInstaller-1.2.X.msi`
-- `build-msi.ps1` already prints the SHA256 — copy it into the Render env var
+- The numbered `build-<version>.ps1` at the repo root already prints the SHA256 — copy it into the Render env var. (**Not** `scripts/build-msi.ps1` — hard-fail stub since 2026-08-06.)
 - The website download link can also point at the same GitHub asset later (one source of truth; replaces the Drive shuffle)
 
 ## Part 3 — Service-side updater: `AgentUpdateWorker` (the core build)

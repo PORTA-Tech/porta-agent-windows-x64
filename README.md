@@ -64,7 +64,7 @@ src/
   Porta.Agent.Runtime/     # Input capture runtime (keyboard/mouse hooks)
 installer/                 # WiX MSI project
 scripts/
-  build-msi.ps1            # ALWAYS use this to build a release MSI
+  build-msi.ps1            # DO NOT USE — hard-fails. Real script is build-<version>.ps1 at repo root
 ```
 
 ---
@@ -90,12 +90,18 @@ The MSI double-click install works fine for clean/non-hung installs.
 
 ## Building a Release MSI
 
-**Always use `scripts/build-msi.ps1`** — never `dotnet publish` directly, because the MSI reads from `installer/payload/` which only this script populates.
+> **CORRECTED 2026-08-06 — this cost a broken machine.** `scripts/build-msi.ps1` published with
+> `PublishSingleFile=false`, producing an MSI whose service cannot start; the install fails and rolls
+> back. It is now a hard-fail stub. **The real release script is the numbered `build-<version>.ps1`
+> at the repo root** — copy the highest one (currently `build-1298.ps1`) and bump. It carries guards
+> the old script lacked: a loose-file check and a CVE-2025-6965 SQLite check.
+
+**Always use the numbered `build-<version>.ps1` at the repo root** — never `dotnet publish` directly, because the MSI reads from `installer/payload/` which only these scripts populate.
 
 ```powershell
 # Bump Version in all 3 .csproj files first, then:
 cd C:\Users\hp\porta-agent-windows-x64
-powershell -ExecutionPolicy Bypass -File scripts/build-msi.ps1
+powershell -ExecutionPolicy Bypass -File build-1298.ps1
 # Output: installer/bin/x64/Release/AriAgentInstaller.msi
 # Copy to: artifacts/publish/AriAgentInstaller-<version>.msi
 ```

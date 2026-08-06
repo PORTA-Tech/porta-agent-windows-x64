@@ -194,7 +194,7 @@ Files NOT to touch:
 ## Build After These Fixes
 
 After all three fixes are implemented and tested:
-1. Run `scripts/build-msi.ps1` → produces `bin/AriSetup_1.2.13.msi`
+1. Run the numbered `build-<version>.ps1` at the repo root → produces the MSI. **NOT `scripts/build-msi.ps1`** — that is a hard-fail stub since 2026-08-06; it broke a machine. See `Loop_And_Report_Build_Brief.md §9`.
 2. Install with `scripts/install.ps1 -Version 1.2.13` (installs to `C:\Program Files\Ari\`)
 3. Verify: work a 25-min session → break overlay should appear; switch apps repeatedly → distraction text in widget status line
 
