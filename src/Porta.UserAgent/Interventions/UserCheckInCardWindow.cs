@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 // Workstream D (C2 channel) — the compact bottom-right check-in card. Dark "v1" style, ~1/5 of
 // the screen, always-on-top, never full-screen (that is the break overlay's job). Renders the
@@ -32,6 +33,20 @@ internal sealed class UserCheckInCardWindow : Window
     // Confirmation mode: the card is echoing an acknowledgement (no further reply expected), so the
     // ✕ / Escape just hides rather than raising another dismissed response.
     private bool _confirmationMode;
+    // The control that should own the caret for the card currently on screen, re-armed by every
+    // ShowPrompt. Null for kinds with no text input (midday) and for confirmations. The window is
+    // reused across shows (UserCheckInCardPresenter.EnsureWindowOnCurrentDispatcher keeps it
+    // alive), so this MUST NOT be wired through Loaded — that fires once per window lifetime, not
+    // once per show, which is why only the first card of the process ever took the caret.
+    private Control? _focusTarget;
+
+    // Test seam, mirroring WidgetSizeLog.PathOverride: unit tests exercise the per-show re-arming
+    // without letting a card seize foreground on the developer's desktop. Foreground acquisition
+    // itself cannot be unit-tested and is confirmed manually.
+    internal static bool SuppressForegroundAcquisition;
+
+    /// <summary>The control armed to receive the caret for the card currently shown. Test-only.</summary>
+    internal Control? FocusTarget => _focusTarget;
 
     public UserCheckInCardWindow(Action<UserCheckInResponse> onResponse)
     {
@@ -105,6 +120,12 @@ internal sealed class UserCheckInCardWindow : Window
         Content = _cardBorder;
         Loaded += (_, _) => PositionBottomRight();
         SizeChanged += (_, _) => PositionBottomRight();
+        // Registered ONCE, here — not in BuildMorning/BuildEndOfDay. Subscribing per-show leaked a
+        // handler on every ShowPrompt and closed over a TextBox already dropped from the visual
+        // tree. Activated fires on every activation of a reused window, so this is the per-show
+        // hook Loaded was mistaken for; it also backstops the case where activation lands after
+        // ShowPrompt has already returned.
+        Activated += (_, _) => ApplyFocusTarget();
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape)
@@ -137,6 +158,9 @@ internal sealed class UserCheckInCardWindow : Window
         _title.Text = prompt.Title;
         _message.Text = prompt.Message;
         _bodyStack.Children.Clear();
+        // Cleared before the rebuild so a kind with no text input (midday) can never inherit the
+        // previous card's box, which is no longer in the visual tree.
+        _focusTarget = null;
 
         switch (prompt.Kind)
         {
@@ -158,7 +182,7 @@ internal sealed class UserCheckInCardWindow : Window
 
         PositionBottomRight();
         Topmost = true;
-        Activate();
+        AcquireForegroundAndFocus();
     }
 
     // Echoes a short acknowledgement on the same card after the user answered (morning "locked in",
@@ -173,6 +197,8 @@ internal sealed class UserCheckInCardWindow : Window
         _title.Text = message;
         _message.Text = string.Empty;
         _bodyStack.Children.Clear();
+        // A confirmation has no input to type into; don't leave the answered card's box armed.
+        _focusTarget = null;
 
         // Part 5c — "has power": the confirmation can carry ONE action wired to an existing
         // capability (e.g. a reminder). One button, one action, then the card hides.
@@ -250,7 +276,8 @@ internal sealed class UserCheckInCardWindow : Window
         };
         _bodyStack.Children.Add(share);
 
-        Loaded += (_, _) => goalBox.Focus();
+        // Record the intent only. The window-level Activated hook applies it on every show.
+        _focusTarget = goalBox;
     }
 
     private void BuildMidday(UserCheckInPrompt prompt)
@@ -336,7 +363,7 @@ internal sealed class UserCheckInCardWindow : Window
             }
         };
         _bodyStack.Children.Add(save);
-        Loaded += (_, _) => planBox.Focus();
+        _focusTarget = planBox;
     }
 
     private void Respond(UserCheckInResponse response)
@@ -349,6 +376,95 @@ internal sealed class UserCheckInCardWindow : Window
         _responded = true;
         Hide();
         _onResponse(response);
+    }
+
+    // Step 1 — the card must accept typing the instant it appears. Three defects sat behind the
+    // single missing focus call the plan described; this is the third. Logical focus is not
+    // foreground: Show() + Activate() is refused by Windows for a process that does not already
+    // own the foreground, so keystrokes went to whatever app was actually in front. Clicking the
+    // box worked only because the click itself granted foreground.
+    //
+    // Fallback is deliberate and load-bearing: when foreground acquisition fails we still Activate
+    // and still focus the box, so a click-then-type user is never worse off than before this fix.
+    private void AcquireForegroundAndFocus()
+    {
+        // Only seize foreground when there is something to type into. Midday is chips-only, so
+        // taking foreground there would spend an interruption to buy nothing; it keeps the old
+        // Activate-only behaviour and stays as quiet as it is today.
+        bool foreground = _focusTarget != null && TryAcquireForeground();
+        Activate();
+        ApplyFocusTarget();
+        UserAgentFileLog.Info(
+            $"checkin_card_focus kind={_kind} foreground={foreground} target={(_focusTarget == null ? "none" : "input")}");
+    }
+
+    /// <summary>
+    /// Hands the caret to the armed control once activation has settled. Queued at Input priority
+    /// because WPF will otherwise grant logical focus before the HWND is actually foreground, which
+    /// looks identical to the bug being fixed.
+    /// </summary>
+    private void ApplyFocusTarget()
+    {
+        if (_focusTarget is null)
+        {
+            return;
+        }
+
+        _ = Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
+        {
+            if (_focusTarget is { } target && IsVisible)
+            {
+                Keyboard.Focus(target);
+            }
+        });
+    }
+
+    /// <summary>
+    /// The standard AttachThreadInput dance: Windows only grants SetForegroundWindow to a process
+    /// that already owns the foreground or shares an input queue with the one that does. The card
+    /// fires on a timer, not on a click, so it never qualifies on its own. Returns false on any
+    /// failure — the caller degrades to the old Activate-and-focus path rather than throwing.
+    /// </summary>
+    private bool TryAcquireForeground()
+    {
+        if (SuppressForegroundAcquisition)
+        {
+            return false;
+        }
+
+        try
+        {
+            IntPtr hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            IntPtr foregroundWindow = NativeMethods.GetForegroundWindow();
+            uint ourThread = NativeMethods.GetCurrentThreadId();
+            uint foregroundThread = foregroundWindow == IntPtr.Zero
+                ? 0u
+                : NativeMethods.GetWindowThreadProcessId(foregroundWindow, out _);
+
+            bool attached = foregroundThread != 0
+                && foregroundThread != ourThread
+                && NativeMethods.AttachThreadInput(ourThread, foregroundThread, true);
+            try
+            {
+                return NativeMethods.SetForegroundWindow(hwnd);
+            }
+            finally
+            {
+                if (attached)
+                {
+                    _ = NativeMethods.AttachThreadInput(ourThread, foregroundThread, false);
+                }
+            }
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void PositionBottomRight()
@@ -451,5 +567,22 @@ internal sealed class UserCheckInCardWindow : Window
 
         [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
         public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        public static extern uint GetCurrentThreadId();
     }
 }
