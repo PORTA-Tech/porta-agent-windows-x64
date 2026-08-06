@@ -9,6 +9,11 @@ internal interface IUserCheckInCardPresenter : IDisposable
     // the surface is disposed, not ready, or already showing another card — so the caller can avoid
     // marking the check-in as offered when nothing reached the screen.
     bool TryShow(UserCheckInPrompt prompt, Action<UserCheckInResponse> onResponse, out string errorCode);
+
+    // Part 5 (async narrative) — swap the LLM line onto a card that is already on screen. Best
+    // effort by contract: returns false when the card is gone, is showing another kind, or the
+    // user has started answering. A false is a normal outcome, never an error.
+    bool TryUpgradeMessage(UserCheckInKind kind, string line);
 }
 
 // Workstream D — the always-on-top presenter for the conversational check-in card. Mirrors
@@ -21,6 +26,8 @@ internal sealed class UserCheckInCardPresenter : IUserCheckInCardPresenter
     private static readonly TimeSpan ConfirmationDisplay = TimeSpan.FromSeconds(4.5);
     // A confirmation carrying an action button needs long enough to read AND click.
     private static readonly TimeSpan ConfirmationWithActionDisplay = TimeSpan.FromSeconds(12);
+    // The upgrade is cosmetic; never let marshalling it block the caller for long.
+    private static readonly TimeSpan UpgradeMarshalTimeout = TimeSpan.FromSeconds(2);
 
     private readonly object _gate = new();
     private readonly TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -88,6 +95,52 @@ internal sealed class UserCheckInCardPresenter : IUserCheckInCardPresenter
             }
 
             errorCode = "checkin_card_dispatch_failed";
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Part 5 (async narrative) — applies the late LLM line to the card already on screen. The
+    /// window owns the refusal rules; this marshals onto its STA thread and reports what it
+    /// decided. Runs synchronously (Invoke, not BeginInvoke) so the caller can log whether the
+    /// line actually reached the screen — the whole point of the async path is knowing that.
+    /// </summary>
+    public bool TryUpgradeMessage(UserCheckInKind kind, string line)
+    {
+        if (_disposed || string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        Dispatcher? dispatcher;
+        lock (_gate)
+        {
+            // No active card means nothing to upgrade — the user already answered or dismissed.
+            if (_activeResponse is null)
+            {
+                return false;
+            }
+
+            dispatcher = _dispatcher;
+        }
+
+        if (dispatcher is null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return false;
+        }
+
+        try
+        {
+            return dispatcher.Invoke(
+                () => _window?.TryUpgradeMessage(kind, line) ?? false,
+                DispatcherPriority.Send,
+                CancellationToken.None,
+                UpgradeMarshalTimeout);
+        }
+        catch (Exception ex)
+        {
+            // A busy or torn-down dispatcher must never surface as a check-in failure.
+            UserAgentFileLog.Error("checkin_card_upgrade_failed", ex);
             return false;
         }
     }

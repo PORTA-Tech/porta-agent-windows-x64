@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
 // Workstream D (C2 channel) — the compact bottom-right check-in card. Dark "v1" style, ~1/5 of
@@ -21,6 +22,8 @@ internal sealed class UserCheckInCardWindow : Window
     private static readonly Color AccentGreen = Color.FromRgb(0x16, 0xC7, 0x84);
     private const double CardWidth = 380d;
     private const double ScreenMargin = 20d;
+    // Long enough to read as a deliberate change, short enough not to feel like a reload.
+    private static readonly TimeSpan MessageFadeDuration = TimeSpan.FromMilliseconds(160);
 
     private readonly Action<UserCheckInResponse> _onResponse;
     private readonly Border _cardBorder;
@@ -39,6 +42,10 @@ internal sealed class UserCheckInCardWindow : Window
     // alive), so this MUST NOT be wired through Loaded — that fires once per window lifetime, not
     // once per show, which is why only the first card of the process ever took the caret.
     private Control? _focusTarget;
+    // Part 5 (async narrative) — true once the user has typed in this card's box or picked a
+    // chip. The late LLM line must never rewrite copy underneath someone who has started
+    // answering, so this latches on first real interaction and is cleared on the next ShowPrompt.
+    private bool _userInteracted;
 
     // Test seam, mirroring WidgetSizeLog.PathOverride: unit tests exercise the per-show re-arming
     // without letting a card seize foreground on the developer's desktop. Foreground acquisition
@@ -161,6 +168,11 @@ internal sealed class UserCheckInCardWindow : Window
         // Cleared before the rebuild so a kind with no text input (midday) can never inherit the
         // previous card's box, which is no longer in the visual tree.
         _focusTarget = null;
+        _userInteracted = false;
+        // A previous card may have faded its message out mid-upgrade; make sure this one renders
+        // opaque regardless of where the last animation left the property.
+        _message.BeginAnimation(UIElement.OpacityProperty, null);
+        _message.Opacity = 1d;
 
         switch (prompt.Kind)
         {
@@ -240,6 +252,8 @@ internal sealed class UserCheckInCardWindow : Window
             goalBox.CaretIndex = goalBox.Text.Length;
         }
 
+        // Subscribed AFTER the prefill so seeding the box does not count as the user typing.
+        goalBox.TextChanged += (_, _) => _userInteracted = true;
         _bodyStack.Children.Add(goalBox);
 
         string chosenPref = UserCheckInChoices.MorningTracking[0].Value;
@@ -251,6 +265,7 @@ internal sealed class UserCheckInCardWindow : Window
             chips.Add(chip);
             chip.Click += (_, _) =>
             {
+                _userInteracted = true;
                 chosenPref = value;
                 for (int i = 0; i < chips.Count; i++)
                 {
@@ -349,6 +364,7 @@ internal sealed class UserCheckInCardWindow : Window
         AddQuestionLabel(prompt.QuestionLabel);
 
         TextBox planBox = MakeInputBox("Plan tomorrow — one line");
+        planBox.TextChanged += (_, _) => _userInteracted = true;
         _bodyStack.Children.Add(planBox);
 
         Button save = MakePrimaryButton("Save plan");
@@ -376,6 +392,71 @@ internal sealed class UserCheckInCardWindow : Window
         _responded = true;
         Hide();
         _onResponse(response);
+    }
+
+    // Part 5 (async narrative) — replace the templated message with the LLM line after the card
+    // is already on screen. The card is shown instantly with the honest template and the line
+    // upgrades it when it lands, so a slow model never spends the three seconds of willingness
+    // the morning card depends on.
+    //
+    // Refuses (returning false, silently) whenever swapping would be wrong rather than merely
+    // unnecessary: a different kind is showing, the exchange is over, the card is hidden, or the
+    // user has started answering. Refusal is a normal outcome, not an error — the template is
+    // honest copy in its own right.
+    //
+    // The swap is safe to do live because the card is bottom-right anchored: PositionBottomRight
+    // pins the bottom edge, so a taller or shorter message moves only the TOP edge. Everything
+    // below the message — the input box, the chips, the primary button — stays pixel-stable, so
+    // there is nothing for the user to chase. The cross-fade covers the text change itself.
+    internal bool TryUpgradeMessage(UserCheckInKind kind, string line)
+    {
+        string clean = (line ?? string.Empty).Trim();
+        if (clean.Length == 0
+            || !IsVisible
+            || _responded
+            || _confirmationMode
+            || _kind != kind
+            || HasUserEngaged()
+            || string.Equals(_message.Text, clean, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        CrossFadeMessageTo(clean);
+        return true;
+    }
+
+    /// <summary>
+    /// True once this card has been answered in any way the late line must not disturb: a real
+    /// edit to the text box, a chip selection, or a focused box the user has already typed into.
+    /// </summary>
+    private bool HasUserEngaged()
+    {
+        if (_userInteracted)
+        {
+            return true;
+        }
+
+        return _focusTarget is TextBox { IsKeyboardFocused: true } box && box.Text.Trim().Length > 0;
+    }
+
+    /// <summary>
+    /// Fades the message out, swaps the text, fades it back in. Both animations carry an explicit
+    /// From — an omitted From is what caused the widget strip bug fixed in 1.2.114, because the
+    /// animation then starts from whatever the property happens to hold rather than a known value.
+    /// </summary>
+    private void CrossFadeMessageTo(string line)
+    {
+        var fadeOut = new DoubleAnimation(1d, 0d, new Duration(MessageFadeDuration));
+        fadeOut.Completed += (_, _) =>
+        {
+            _message.Text = line;
+            _message.BeginAnimation(
+                UIElement.OpacityProperty,
+                new DoubleAnimation(0d, 1d, new Duration(MessageFadeDuration)));
+        };
+
+        _message.BeginAnimation(UIElement.OpacityProperty, fadeOut);
     }
 
     // Step 1 — the card must accept typing the instant it appears. Three defects sat behind the

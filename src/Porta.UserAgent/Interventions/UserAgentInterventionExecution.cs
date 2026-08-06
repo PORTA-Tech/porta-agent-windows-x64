@@ -195,6 +195,15 @@ internal sealed class UserAgentInterventionExecutor
         return true;
     }
 
+    /// <summary>
+    /// Part 5 (async narrative) — applies the late LLM line to a check-in card already on screen.
+    /// Deliberately ungated: the gates above decide whether a card may be SHOWN, and that decision
+    /// was already made. Re-running them here could only refuse an upgrade to a card the user is
+    /// looking at. Returns false when there is nothing to upgrade.
+    /// </summary>
+    public bool TryUpgradeCheckInLine(UserCheckInKind kind, string line)
+        => _checkInCardPresenter?.TryUpgradeMessage(kind, line) ?? false;
+
     public LocalApiInterventionAckRequest? ExecuteOrReplay(
         LocalApiInterventionPendingResponse intervention,
         string sessionId,

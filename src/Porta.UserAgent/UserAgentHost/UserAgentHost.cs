@@ -1574,17 +1574,21 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             return;
         }
 
-        // Part 5 — the gate above has already decided to SPEAK; now (and only now) fetch the
-        // LLM-written line for the moment. Hard budget, then the honest template takes over —
-        // a narrative problem may delay this card a few seconds but can never block it.
+        // Part 5 — the gate above has already decided to SPEAK, so SPEAK NOW. The card renders
+        // immediately with the honest template and the LLM line upgrades it in place when it
+        // lands (decision locked 2026-08-06).
+        //
+        // This used to await the narrative before showing anything, against a 10s → 9s → 8s
+        // timeout chain. The server-side 8s budget fires first, and roughly seven check-ins in
+        // ten returned nothing — so the common case was the user waiting several seconds and
+        // then getting the template anyway. Waiting spent the three seconds of willingness the
+        // morning card depends on and bought a line that usually never came.
         string narrativeKind = kind switch
         {
             UserCheckInKind.Morning => "morning",
             UserCheckInKind.Midday => "midday",
             _ => "eod"
         };
-        string? narrativeLine = await TryGetNarrativeLineAsync(narrativeKind, userText: null, token).ConfigureAwait(false);
-        UserAgentFileLog.Info($"checkin_narrative kind={narrativeKind} used={narrativeLine != null}");
 
         // Part 1b — when EOD is the single wrap after a skipped midday / away gap, surface those facts
         // so even the templated fallback copy acknowledges the whole day rather than reading generic.
@@ -1593,7 +1597,7 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             : (false, false);
 
         UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
-            kind, goal, metrics, goalResponse.CarriedPlanTomorrow, narrativeLine, middaySkipped, awayGap);
+            kind, goal, metrics, goalResponse.CarriedPlanTomorrow, narrativeLine: null, middaySkipped, awayGap);
 
         bool shown = _interventionExecutor.TryShowGatedCheckIn(
             UserCheckInScheduler.MuteClassFor(kind),
@@ -1604,6 +1608,41 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         UserAgentFileLog.Info(shown
             ? $"checkin_offered kind={kind}"
             : $"checkin_suppressed kind={kind} reason={reason}");
+
+        if (shown)
+        {
+            // Fire-and-forget: the card is already up, so nothing downstream waits on this.
+            _ = UpgradeCheckInLineAsync(kind, narrativeKind, token);
+        }
+    }
+
+    /// <summary>
+    /// Part 5 (async narrative) — fetches the LLM line after the card is on screen and swaps it in.
+    /// Every failure mode is a no-op: no line, a line that arrives after the user answered, or a
+    /// card that has since been replaced all leave the honest template exactly where it is.
+    /// </summary>
+    private async Task UpgradeCheckInLineAsync(UserCheckInKind kind, string narrativeKind, CancellationToken token)
+    {
+        try
+        {
+            string? line = await TryGetNarrativeLineAsync(narrativeKind, userText: null, token).ConfigureAwait(false);
+            UserAgentFileLog.Info($"checkin_narrative kind={narrativeKind} used={line != null}");
+            if (line is null)
+            {
+                return;
+            }
+
+            bool applied = _interventionExecutor.TryUpgradeCheckInLine(kind, line);
+            UserAgentFileLog.Info($"checkin_narrative_upgrade kind={narrativeKind} applied={applied}");
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown or a cancelled tick — the template is already showing, nothing to report.
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error($"checkin_narrative_upgrade_failed kind={narrativeKind}", ex);
+        }
     }
 
     // Runs on the check-in card's STA thread when the user answers or dismisses. Hand the durable

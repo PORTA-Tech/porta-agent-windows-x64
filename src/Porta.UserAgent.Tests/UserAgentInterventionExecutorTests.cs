@@ -925,6 +925,11 @@ public sealed class UserAgentInterventionExecutorTests
         public UserCheckInPrompt? LastPrompt { get; private set; }
         public Action<UserCheckInResponse>? ResponseHandler { get; private set; }
 
+        public bool UpgradeResult { get; init; }
+        public int UpgradeCalls { get; private set; }
+        public UserCheckInKind? LastUpgradeKind { get; private set; }
+        public string? LastUpgradeLine { get; private set; }
+
         public bool TryShow(UserCheckInPrompt prompt, Action<UserCheckInResponse> onResponse, out string errorCode)
         {
             LastPrompt = prompt;
@@ -932,6 +937,14 @@ public sealed class UserAgentInterventionExecutorTests
             ShowCalls++;
             errorCode = ShowResult ? string.Empty : ErrorCode;
             return ShowResult;
+        }
+
+        public bool TryUpgradeMessage(UserCheckInKind kind, string line)
+        {
+            UpgradeCalls++;
+            LastUpgradeKind = kind;
+            LastUpgradeLine = line;
+            return UpgradeResult;
         }
 
         public void Dispose()
