@@ -788,6 +788,49 @@ own implementations. Ignore them.
 
 ---
 
+## 4.10 INCIDENT 2026-08-04 — 1.2.126 shipped a manifest pointing at a URL that did not exist
+
+**Publish the GitHub release BEFORE updating the Render variables. Always. This is the ordering
+that failed.**
+
+The Render manifest for 1.2.126 was updated with a `msiUrl` for a GitHub release that had not been
+created. Every agent that picked up the manifest tried to download, got a 404, and
+`DownloadAndVerifyAsync` threw. **Two machines reached the 3-attempt limit and blacklisted the
+version.**
+
+**The blacklist is per-version and self-heals — do not go touching machines.** Verified by reading
+`AgentUpdateWorker.cs`: the state file is a single `UpdateStateFile(Version, Attempts)` record, the
+blacklist check requires `state.Version == manifest.Version` (line ~160), and `RecordAttempt`
+resets the counter to 1 whenever the version differs (line ~529). So publishing a *new* version
+clears it everywhere automatically. 1.2.127 was cut for exactly this reason. There is also no stale
+lock to clean up: the download-failure path returns before `WriteInstallLock`.
+
+**A machine that has blacklisted a version will never retry it**, though. If you ever need the
+*same* version to be retried, the state file must be deleted on each affected machine — which is
+why bumping the version is the cheap fix and re-pointing the same version is not.
+
+**What this cost and why it is worth a section:** nothing was broken in the code, the build, or the
+MSI. 1.2.126 was correct. The failure was entirely in the order of two manual steps, and the agent
+behaved exactly as designed at every point — it refused to install something it could not download,
+it counted the failures, and it stopped. The fleet's protection worked; the release procedure did
+not.
+
+**Ordering that works:**
+
+1. Build, verify the MSI (`build-<n>.ps1` gates the SQLite version and cross-checks
+   `ProductVersion`).
+2. **Create the GitHub release and upload the MSI.**
+3. **Confirm the URL actually serves the file** — `curl -sIL <msiUrl>` should end in `200`, and the
+   SHA-256 of what downloads should equal the hash the build reported. A release created as a
+   *draft* will 404 exactly like a missing one.
+4. Only then update the Render variables (VERSION / MSI_URL / SHA256 / TITLE).
+5. Trigger a manual deploy — env saves alone do not restart the service.
+
+Step 3 is the one that was missing, and it is the only step that turns "I published it" into
+evidence. It costs one command.
+
+---
+
 ## 4.8 KNOWN-FAILING TESTS — `Porta.Agent.Core.Tests`, as of 2026-08-04
 
 **The agent test suite is RED on `main` and this is expected. Do not treat a green Core.Tests run
