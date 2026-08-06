@@ -134,6 +134,11 @@ public sealed class UserCheckInCardWindowFocusTests
             }
             finally
             {
+                // Shut the dispatcher down with the thread. A Dispatcher outliving its
+                // STA thread keeps WPF resources resident for the whole test process,
+                // which inflates the process-global counts GuiHandleLeakStressTests reads
+                // and made it report a widget leak that does not exist.
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
                 completed.Set();
             }
         });
