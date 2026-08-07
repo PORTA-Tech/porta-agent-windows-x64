@@ -48,8 +48,17 @@ baseline (`SECURITY_HANDOFF.md §4.8`) — **that red is expected, do not treat 
 
 ## 3. Tomorrow morning — what Yadin will report, and what to do with it
 
-He opens his PC as normal and reads three things out of `user-agent.log`. **Do not start step 3
-work in a way that blocks on this; it can run alongside.**
+He opens his PC as normal and reads three things out of `user-agent.log`. Step 3 is already built
+and pushed, but it can run alongside — it is not in this build.
+
+> **Do not build tonight, and do not fold step 3 into tomorrow's confirmation run**
+> (Yadin, 2026-08-07). Tomorrow tests **1.2.129 as installed** — focus, stale card, narrative
+> reason code. Step 3 ships in the build *after* that, **on its own**, so a morning card that
+> misbehaves can only have one cause.
+>
+> This is not automatic. A release ships everything on `main`, so the sequencing only holds while
+> nothing else lands first. As of `b24fa32` the only code on `main` since the 1.2.129 build
+> (`8596d5e`) is the three step-3 commits — check that is still true before cutting the build.
 
 ### a. `checkin_card_focus … foreground=True`
 
