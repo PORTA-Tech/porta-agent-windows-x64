@@ -242,21 +242,121 @@ internal sealed class UserCheckInCardWindow : Window
         Topmost = true;
     }
 
+    // Step 3 — the morning card stops collecting one sentence and starts collecting the day's task
+    // list: up to three things, each with a duration the user TAPS. The card opens with a single
+    // row so it is no taller than it was before; "+ add" reveals the second and third.
+    //
+    // The duration matters because it is what makes these real tasks rather than notes — the store
+    // rejects a task without a legal planned duration, and step 5 shows planned against measured.
+    // It is never typed: the whole point of this card is that answering it costs three seconds.
     private void BuildMorning(UserCheckInPrompt prompt)
     {
-        TextBox goalBox = MakeInputBox("What do you want to get done today?");
-        // Part 3 — last night's plan pre-fills the box so confirming it is a single click/Enter.
-        if (!string.IsNullOrWhiteSpace(prompt.PrefillGoalText))
-        {
-            goalBox.Text = prompt.PrefillGoalText.Trim();
-            goalBox.CaretIndex = goalBox.Text.Length;
-        }
+        var rows = new List<MorningTaskRow>();
+        var rowsPanel = new StackPanel { Orientation = Orientation.Vertical };
+        _bodyStack.Children.Add(rowsPanel);
 
-        // Subscribed AFTER the prefill so seeding the box does not count as the user typing.
-        goalBox.TextChanged += (_, _) => _userInteracted = true;
-        _bodyStack.Children.Add(goalBox);
+        Button addRow = MakeTextButton("+ add", MutedFg);
+        addRow.HorizontalAlignment = HorizontalAlignment.Left;
+        addRow.Margin = new Thickness(0, 8, 0, 0);
 
         string chosenPref = UserCheckInChoices.MorningTracking[0].Value;
+
+        // Declared before the rows so a row's Enter key can raise the same response the button does.
+        UserCheckInResponse BuildResponse()
+        {
+            var entries = new List<UserCheckInTaskEntry>();
+            foreach (MorningTaskRow row in rows)
+            {
+                string title = row.Box.Text.Trim();
+                if (title.Length > 0)
+                {
+                    entries.Add(new UserCheckInTaskEntry(title, row.PlannedSeconds));
+                }
+            }
+
+            // TextReply stays the joined sentence: it is what daily_goals records and what every
+            // pre-step-3 consumer of the morning goal already reads.
+            return new UserCheckInResponse(
+                UserCheckInKind.Morning,
+                UserCheckInTaskPlanner.JoinTitles(entries.Select(e => e.Title)),
+                chosenPref,
+                Dismissed: false,
+                Tasks: entries);
+        }
+
+        MorningTaskRow AddRow(string prefill)
+        {
+            var row = new MorningTaskRow(
+                MakeInputBox(rows.Count == 0 ? "What do you want to get done today?" : "And after that?"),
+                UserCheckInChoices.MorningTaskDurations[0].Seconds);
+
+            // Part 3 — last night's plan pre-fills the first box so confirming it is one Enter.
+            if (prefill.Length > 0)
+            {
+                row.Box.Text = prefill;
+                row.Box.CaretIndex = row.Box.Text.Length;
+            }
+
+            // Subscribed AFTER the prefill so seeding the box does not count as the user typing.
+            row.Box.TextChanged += (_, _) => _userInteracted = true;
+            row.Box.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    Respond(BuildResponse());
+                    e.Handled = true;
+                }
+            };
+
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                Margin = new Thickness(0, rows.Count == 0 ? 0 : 10, 0, 0)
+            };
+            panel.Children.Add(row.Box);
+
+            var durationRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            var durationChips = new List<Button>();
+            foreach ((int seconds, string label) in UserCheckInChoices.MorningTaskDurations)
+            {
+                Button chip = MakeChip(label);
+                durationChips.Add(chip);
+                chip.Click += (_, _) =>
+                {
+                    _userInteracted = true;
+                    row.PlannedSeconds = seconds;
+                    for (int i = 0; i < durationChips.Count; i++)
+                    {
+                        HighlightChip(durationChips[i], durationChips[i] == chip);
+                    }
+                };
+                durationRow.Children.Add(chip);
+            }
+
+            HighlightChip(durationChips[0], true);
+            panel.Children.Add(durationRow);
+            rowsPanel.Children.Add(panel);
+            rows.Add(row);
+
+            // Three is the ceiling: hide the affordance rather than let it fail on click.
+            addRow.Visibility = rows.Count >= UserCheckInTaskPlanner.MaxMorningTasks
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+            return row;
+        }
+
+        MorningTaskRow first = AddRow((prompt.PrefillGoalText ?? string.Empty).Trim());
+
+        addRow.Click += (_, _) =>
+        {
+            _userInteracted = true;
+            MorningTaskRow added = AddRow(string.Empty);
+            // Adding a row is an invitation to type in it, so hand it the caret immediately.
+            _focusTarget = added.Box;
+            Keyboard.Focus(added.Box);
+        };
+        _bodyStack.Children.Add(addRow);
+
         var chipRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
         var chips = new List<Button>();
         foreach ((string value, string label) in UserCheckInChoices.MorningTracking)
@@ -279,20 +379,19 @@ internal sealed class UserCheckInCardWindow : Window
         _bodyStack.Children.Add(chipRow);
 
         Button share = MakePrimaryButton("Share with Ari");
-        share.Click += (_, _) => Respond(new UserCheckInResponse(
-            UserCheckInKind.Morning, goalBox.Text.Trim(), chosenPref, Dismissed: false));
-        goalBox.KeyDown += (_, e) =>
-        {
-            if (e.Key == Key.Enter)
-            {
-                Respond(new UserCheckInResponse(UserCheckInKind.Morning, goalBox.Text.Trim(), chosenPref, Dismissed: false));
-                e.Handled = true;
-            }
-        };
+        share.Click += (_, _) => Respond(BuildResponse());
         _bodyStack.Children.Add(share);
 
         // Record the intent only. The window-level Activated hook applies it on every show.
-        _focusTarget = goalBox;
+        _focusTarget = first.Box;
+    }
+
+    // One line of the morning list. Mutable only in PlannedSeconds, which the duration chips set.
+    private sealed class MorningTaskRow(TextBox box, int plannedSeconds)
+    {
+        public TextBox Box { get; } = box;
+
+        public int PlannedSeconds { get; set; } = plannedSeconds;
     }
 
     private void BuildMidday(UserCheckInPrompt prompt)

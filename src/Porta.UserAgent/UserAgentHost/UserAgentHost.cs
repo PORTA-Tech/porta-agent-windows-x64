@@ -1680,27 +1680,51 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         {
             case UserCheckInKind.Morning:
             {
-                string goal = (response.TextReply ?? string.Empty).Trim();
-                if (goal.Length == 0)
+                // Step 3 — the morning check-in stops storing a sentence and starts creating real
+                // tasks. daily_goals is still written, but as a PROJECTION of the task list rather
+                // than a parallel record, so the five existing readers of the goal row (scheduler,
+                // narrative fact sheet, daily-stats upload, digest goal line, ground-truth label)
+                // keep working unchanged while tasks become the day's actual record.
+                IReadOnlyList<UserCheckInTaskEntry> entries = response.Tasks is { Count: > 0 } typed
+                    ? typed
+                    : UserCheckInTaskPlanner.SingleEntryFrom(response.TextReply);
+
+                // Read once and reuse: the dedupe input and the "which existing task do we start"
+                // lookup must see the same list, or a task could be judged open and then not found.
+                IReadOnlyList<LocalApiTask> openTasks = await ReadOpenTasksAsync().ConfigureAwait(false);
+                MorningTaskPlan plan = UserCheckInTaskPlanner.Plan(
+                    entries, openTasks.Select(t => t.Title).ToList());
+                if (plan.Accepted.Count == 0)
                 {
                     UserAgentFileLog.Info("checkin_morning_empty_goal");
                     return;
                 }
 
+                foreach (SkippedMorningTask skip in plan.Skipped)
+                {
+                    UserAgentFileLog.Info($"checkin_morning_task_skipped reason={skip.ReasonCode}");
+                }
+
+                string goal = plan.GoalText;
                 LocalApiDailyGoalResponse? result = await _localApiClient
                     .SetMorningGoalAsync(new LocalApiGoalMorningRequest(
                         SchemaVer: 1,
                         GoalText: goal,
                         TrackingPref: response.Choice))
                     .ConfigureAwait(false);
-                UserAgentFileLog.Info($"checkin_morning_recorded ok={result?.Success == true} pref={response.Choice}");
+                UserAgentFileLog.Info(
+                    $"checkin_morning_recorded ok={result?.Success == true} pref={response.Choice} tasks={plan.Accepted.Count}");
+
+                string? startedTitle = await CreateMorningTasksAsync(plan, openTasks).ConfigureAwait(false);
 
                 // Part 5b — the text box feeds the LLM: Ari's confirmation responds to the goal
                 // the user actually typed. Fail-soft to the short honest template.
                 string? morningReply = await TryGetNarrativeLineAsync("reply_morning", goal, CancellationToken.None).ConfigureAwait(false);
                 _checkInCardPresenter.ShowConfirmation(
                     UserCheckInKind.Morning,
-                    morningReply ?? "Locked in. I'll help you protect it today.");
+                    morningReply ?? (startedTitle is null
+                        ? "Locked in. I'll help you protect it today."
+                        : $"Locked in — the clock is on “{startedTitle}”."));
                 break;
             }
 
@@ -1778,6 +1802,120 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
                 break;
             }
+        }
+    }
+
+    /// <summary>
+    /// Step 3 — work that is still open, so re-confirming yesterday's unfinished task this morning
+    /// does not create a second copy of it. Fail-soft: an unreachable core returns an empty list,
+    /// which merely means the dedupe does not fire and a duplicate is possible — never a lost answer.
+    /// </summary>
+    private async Task<IReadOnlyList<LocalApiTask>> ReadOpenTasksAsync()
+    {
+        try
+        {
+            LocalApiTasksTodayResponse? today = await _localApiClient.GetTasksTodayAsync().ConfigureAwait(false);
+            return today?.Tasks
+                .Where(t => t.State is "pending" or "active")
+                .ToList() ?? (IReadOnlyList<LocalApiTask>)Array.Empty<LocalApiTask>();
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error("checkin_morning_open_tasks_failed", ex);
+            return Array.Empty<LocalApiTask>();
+        }
+    }
+
+    /// <summary>
+    /// Step 3 — creates the accepted morning tasks and starts the first one. Returns the title of
+    /// the task the clock is now on, or null if nothing could be started.
+    /// </summary>
+    /// <remarks>
+    /// The auto-start is load-bearing, not a convenience (decision locked 2026-08-06):
+    /// AttributeBucketToActiveTask only credits time to a task in state 'active', and the widget —
+    /// the only other place a task can be started — is the surface nobody opens. Without this every
+    /// task would read 0m and step 5 would show a closed loop that measured nothing.
+    /// It costs nothing in invariants: ActOnTask(id, "start") already returns any previously active
+    /// task to 'pending' with its accumulated time intact.
+    /// </remarks>
+    private async Task<string?> CreateMorningTasksAsync(
+        MorningTaskPlan plan,
+        IReadOnlyList<LocalApiTask> openTasks)
+    {
+        long? startId = null;
+        string? startTitle = null;
+
+        foreach (PlannedMorningTask task in plan.Accepted)
+        {
+            if (task.AlreadyOpen)
+            {
+                // Carry-forward: the task already exists, so nothing is created — but it is still a
+                // candidate to start. An already-active one needs no start (ActOnTask would refuse
+                // the transition and log a spurious failure), and it means the clock is on it.
+                LocalApiTask? existing = openTasks.FirstOrDefault(t =>
+                    string.Equals(t.Title.Trim(), task.Title, StringComparison.OrdinalIgnoreCase));
+                UserAgentFileLog.Info($"checkin_morning_task_already_open state={existing?.State ?? "unknown"}");
+                if (startId is null && existing is not null
+                    && !string.Equals(existing.State, "active", StringComparison.Ordinal))
+                {
+                    startId = existing.Id;
+                    startTitle = existing.Title;
+                }
+
+                continue;
+            }
+
+            try
+            {
+                LocalApiTaskCreateResponse? created = await _localApiClient
+                    .CreateTaskAsync(new LocalApiTaskCreateRequest(
+                        SchemaVer: 1,
+                        Title: task.Title,
+                        PlannedSeconds: task.PlannedSeconds))
+                    .ConfigureAwait(false);
+
+                if (created is { Success: true, Task: not null })
+                {
+                    UserAgentFileLog.Info(
+                        $"checkin_morning_task_created id={created.Task.Id} planned_s={created.Task.PlannedSeconds}");
+                    if (startId is null)
+                    {
+                        startId = created.Task.Id;
+                        startTitle = created.Task.Title;
+                    }
+                }
+                else
+                {
+                    // cap_reached (20 open tasks) is the expected refusal. The goal row is already
+                    // written either way, so the day still has a plan — it just isn't timed.
+                    UserAgentFileLog.Info(
+                        $"checkin_morning_task_create_failed reason={created?.Reason ?? "no_response"}");
+                }
+            }
+            catch (Exception ex)
+            {
+                UserAgentFileLog.Error("checkin_morning_task_create_failed", ex);
+            }
+        }
+
+        if (startId is not long id)
+        {
+            return null;
+        }
+
+        try
+        {
+            LocalApiTaskActResponse? started = await _localApiClient
+                .ActOnTaskAsync(new LocalApiTaskActRequest(SchemaVer: 1, Id: id, Action: "start"))
+                .ConfigureAwait(false);
+            bool ok = started is { Success: true };
+            UserAgentFileLog.Info($"checkin_morning_task_started id={id} ok={ok}");
+            return ok ? startTitle : null;
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error($"checkin_morning_task_start_failed id={id}", ex);
+            return null;
         }
     }
 

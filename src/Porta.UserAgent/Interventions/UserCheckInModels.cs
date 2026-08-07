@@ -22,14 +22,23 @@ internal sealed record UserCheckInPrompt(
     // LLM line is odd or the narrative call failed. Empty = no controls (morning uses its own box).
     string QuestionLabel = "");
 
+// Step 3 — one line of the morning list: what the user intends to do, and how long they tapped for
+// it. The duration is always chosen from the chips, never typed (locked decision 2026-08-07), so a
+// number here is a tap, not free text.
+internal sealed record UserCheckInTaskEntry(string Title, int PlannedSeconds);
+
 // The user's answer. TextReply carries the morning goal or the EOD plan; Choice carries the
 // morning tracking preference (remind_me|keep_on_track|just_track) or the midday answer
 // (yes|partly|not_yet). Dismissed = closed without answering.
+// Step 3 — Tasks carries the morning list as real task entries. TextReply still carries the same
+// list joined into one sentence, so every existing consumer of the morning goal keeps working and
+// a card that somehow raises no Tasks degrades to exactly the old single-goal behaviour.
 internal sealed record UserCheckInResponse(
     UserCheckInKind Kind,
     string? TextReply,
     string? Choice,
-    bool Dismissed)
+    bool Dismissed,
+    IReadOnlyList<UserCheckInTaskEntry>? Tasks = null)
 {
     public static UserCheckInResponse DismissedFor(UserCheckInKind kind)
         => new(kind, TextReply: null, Choice: null, Dismissed: true);
@@ -50,5 +59,16 @@ internal static class UserCheckInChoices
         ("yes", "Yes"),
         ("partly", "Partly"),
         ("not_yet", "Not yet"),
+    };
+
+    // Step 3 — Ari proposes the duration and the user taps it. The first entry is the default, so a
+    // morning card answered without touching these still produces a valid, honest planned duration.
+    // A typed number is deliberately impossible here: the morning card is the three seconds the
+    // whole product depends on, and a numeric keypad in it spends them.
+    public static readonly (int Seconds, string Label)[] MorningTaskDurations =
+    {
+        (3600, "1h"),
+        (7200, "2h"),
+        (10800, "3h"),
     };
 }
