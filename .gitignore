@@ -19,3 +19,6 @@ artifacts/publish/
 _widget-out/
 rebuild-widget.cmd
 _debug-*
+
+# Test runner output — never tracked (swept in by a stray `git add -A` on 2026-08-07).
+src/**/TestResults/
