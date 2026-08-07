@@ -204,7 +204,21 @@ the following, and they must be distinguished by measurement before any code cha
    config change. *(This section previously proposed cold start as the leading hypothesis. It was
    wrong, and the falsification is the useful record.)*
 
-   **Leading cause now:** the timeout chain is
+   **TIMEOUT HYPOTHESIS ALSO FALSIFIED — 2026-08-06 morning.** Measured in the field: the call
+   failed in **~3.0 seconds** (fired 06:28:07.61, logged `used=False` at 06:28:10.64) against budgets
+   of 10s/9s/8s. **A 3-second failure is not a timeout.** Something is failing fast. Also ruled out:
+   the request carries no `temperature`/`top_p`/`budget_tokens`, so it is not a universal 400.
+
+   **Do not propose a fourth hypothesis from the agent side — the answer is in the server logs.**
+   Every remaining path in `buildNarrativeLine` logs its own reason on the control plane:
+   `'[narrative] Rejected unknown account'` (`isKnownAccount` false — note the route is
+   unauthenticated and gated on the account UUID existing), `'Daily call cap reached'`
+   (`NARRATIVE_DAILY_CALL_CAP = 16`), `'ANTHROPIC_API_KEY not set'`, `'Model declined'`,
+   `'Unusable reply'`, or `'[narrative] Model call failed:'` with the API error. **Read the Render
+   logs for a timestamp where the agent logged `used=False` and the answer will be sitting there.**
+   Three hypotheses have now been guessed and falsified; this one is free to measure.
+
+   *(Superseded, kept as record.)* The former leading cause was the timeout chain:
    10s (`UserAgentHost.TryGetNarrativeLineAsync:1750`) → 9s (`NarrativeGateway.CallBudget:29`) →
    **8s (`narrativeService.REQUEST_TIMEOUT_MS:22`, which fires first)**, against an Opus call
    (`MODEL = 'claude-opus-4-8'`, `max_tokens: 250`, `:21–23`). A hard 8s wall on an Opus request with
@@ -390,11 +404,24 @@ Exactly the sequence the stale-card mechanism predicts. Build the expiry.
   pre-existing. Do not treat green as the baseline; do not assume red means you broke something.
 - **The other four suites are a real gate** — a failure there is yours: ControlCenter 80,
   Service 104, UserAgent 247, Runtime 6. (UserAgent is now 251 after step 1's four focus tests.)
-- **Known flaky, found 2026-08-06: `GuiHandleLeakStressTests`** — failed once in five full-suite runs
-  ("widget: GDI handles climbed 32 → 129"), passed 3/3 in isolation and on the next three full runs.
-  It is the guard on the July handle leak (`349bc21`), so an intermittent failure there will misfire
-  at exactly the gate that matters. Fix or quarantine it deliberately; a test that cries wolf gets
-  ignored, and this one protects against a defect that reached real users.
+- **`GuiHandleLeakStressTests` — RESOLVED 2026-08-06. Not flaky, and there is no widget leak.**
+  Earlier text in this file called it a 1-in-5 flake. That was wrong. Measured: the widget open/close
+  cycle leaks **zero** USER and GDI handles, flat at 10, 20, 40, 60 and 120 cycles — a real per-cycle
+  leak scales, this does not. The failures were test harnesses starting an STA thread per test and
+  never shutting the `Dispatcher` down, leaving WPF resources resident for the rest of the run; the
+  stress test reads process-wide counts and attributed them to the widget. Fixed in `15c83ee`.
+  Causally confirmed: without the shutdown 3/3 runs fail, with it 6/6 pass. **Neither threshold was
+  relaxed** — this gate guards a defect that reached real users. Any new test that creates a window
+  on its own STA thread must shut that dispatcher down, or this fires again.
+
+- **THE VALIDATION GATE DOES NOT RUN THE TEST SUITES — found 2026-08-06.** `validation-gate.yml`
+  runs `scripts/build.ps1` and `Porta.Agent.ValidationRunner`. There is **no `dotnet test` anywhere
+  in the workflow.** So the 711/4 Core baseline, the 261 UserAgent suite, and the four suites this
+  section calls "a real gate" are **local-only, and CI never runs them**. A genuine regression in any
+  of the five reaches `main` green. Two consequences: never read a green check on GitHub as evidence
+  the suites pass, and run them locally before every push. **Adding a `dotnet test` step to the
+  workflow is the highest-value item on the maintenance list** — the whole "real gate" model in this
+  brief was wrong until it exists.
 - Control-plane tests are vitest (`vitest.config.ts`).
 - **RELEASE BUILDS — corrected 2026-08-06, this cost a broken machine.**
 
@@ -450,6 +477,15 @@ Exactly the sequence the stale-card mechanism predicts. Build the expiry.
 
 ## 11. Open — Yadin's call, not the implementer's
 
-- Default planned duration per task created from the morning card (§6).
-- What ground-truth label a task-shaped morning check-in should emit (§6).
-- Whether the morning card collects two or three tasks, or accepts one.
+**Decided 2026-08-07:**
+
+- **Up to three tasks** on the morning card. One box, "+ add" for more, three is the ceiling.
+- **Ari proposes the duration; the user taps, never types.** A sensible default per task plus quick
+  chips — 1h / 2h / 3h — in the same style as the existing `UserCheckInChoices` rows. The morning
+  card must never require a number to be typed. Reuse `MakeChip` / `HighlightChip`
+  (`UserCheckInCardWindow.cs:390, :406`) so it matches the tracking-preference row already there.
+  Remember `CreateTask` rejects anything under 60s or over 8h (`SqliteBrainStateStore.cs:2154`).
+
+**Still open:**
+
+- What ground-truth label a task-shaped morning check-in should emit (§6, consumer 5).
