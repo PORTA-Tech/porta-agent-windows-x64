@@ -134,7 +134,8 @@ tested form. **Extend them to tasks rather than writing something new.**
 
 ## 4a. Step 3 as built — 2026-08-07
 
-Two commits: `c3e48e0` (day boundary) and `284da6e` (the merge). Not pushed, not in a build.
+Three commits: `c3e48e0` (day boundary), `284da6e` (the merge), `cd24f89` (per-task labels).
+Pushed to `main`. **Not in a build, not released, nothing to the fleet.**
 
 **What the morning card does now.** It collects the day's task list instead of one sentence: one
 row to start, `+ add` for the second and third, and 1h / 2h / 3h chips on each row with 1h
@@ -160,10 +161,10 @@ duplicated** — it starts the existing task instead. That is the shape step 6 n
 was. `AgentCoreController.GoalDayStartLocal` is now the single boundary. Only affects which
 *closed* tasks show; the digest reads the same window and fires at 23:30 local, so it is unmoved.
 
-**Still open, and it is Yadin's call, not the implementer's:** what ground-truth label a
-task-shaped morning check-in should emit. The labels are **deliberately unchanged** — one
-`daily_goal` label per morning, exactly as before — because that was the only option that changes
-nothing by accident. The real question is whether three tasks should emit three labels.
+**The last open item is now closed.** Yadin decided (2026-08-07): **one ground-truth label per
+task**, not one per morning — naming three things is three commitments. `SetMorningGoal` takes an
+optional `taskCount` defaulting to 1, so nothing else changes. **Expect the ops console's per-user
+label counts to rise; they are not comparable to the history before this change.**
 
 **What has NOT been verified:** none of this has run on a live agent. The whole path is untested
 against a real `LocalApi`, and per §8 of the brief the task feature has essentially never been used
