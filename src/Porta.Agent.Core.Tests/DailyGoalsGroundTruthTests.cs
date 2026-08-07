@@ -35,6 +35,34 @@ public sealed class DailyGoalsGroundTruthTests
         });
     }
 
+    // Step 3 — naming three things in the morning is three commitments, so it records three labels
+    // (decided by Yadin, 2026-08-07). The default of 1 keeps every pre-step-3 caller identical.
+    [Theory]
+    [InlineData(1, 1)]
+    [InlineData(2, 2)]
+    [InlineData(3, 3)]
+    [InlineData(0, 1)]    // a caller that doesn't know about tasks still records the morning
+    [InlineData(-4, 1)]
+    [InlineData(500, 10)] // clamped: a malformed local request cannot write labels without bound
+    public void SetMorningGoal_RecordsOneLabelPerTask(int taskCount, int expectedLabels)
+    {
+        RunWithController((controller, dbPath) =>
+        {
+            controller.SetMorningGoal("pricing page; client revisions", "keep_on_track", taskCount);
+            Assert.Equal(expectedLabels, CountLabels(dbPath));
+        });
+    }
+
+    [Fact]
+    public void SetMorningGoal_EmptyGoalText_RecordsNoLabelHoweverManyTasksAreClaimed()
+    {
+        RunWithController((controller, dbPath) =>
+        {
+            controller.SetMorningGoal("   ", "remind_me", taskCount: 3);
+            Assert.Equal(0, CountLabels(dbPath));
+        });
+    }
+
     [Theory]
     [InlineData("yes", 1)]
     [InlineData("partly", 0)]

@@ -286,7 +286,7 @@ public sealed class LocalApiRouteStartupSmokeTests
         public AgentTask? CreateTask(string title, int plannedSeconds) => throw new NotSupportedException();
         public IReadOnlyList<AgentTask> GetTodayTasks() => throw new NotSupportedException();
         public AgentTask? ActOnTask(long id, string action) => throw new NotSupportedException();
-        public AgentDailyGoal? SetMorningGoal(string goalText, string trackingPref) => throw new NotSupportedException();
+        public AgentDailyGoal? SetMorningGoal(string goalText, string trackingPref, int taskCount = 1) => throw new NotSupportedException();
         public AgentDailyGoal? GetTodayGoal() => throw new NotSupportedException();
         public AgentDailyGoal? RecordMiddayAnswer(string answer) => throw new NotSupportedException();
         public AgentDailyGoal? RecordEndOfDay(string planTomorrow) => throw new NotSupportedException();

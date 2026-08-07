@@ -1821,7 +1821,15 @@ public sealed class AgentCoreController : IAgentCoreController
         return new DateTimeOffset(day.Date, day.Offset).AddHours(5);
     }
 
-    public AgentDailyGoal? SetMorningGoal(string goalText, string trackingPref)
+    // Defensive only: the morning card's ceiling is three (locked 2026-08-07), and this is a
+    // localhost request, but a malformed count must not be able to write labels without bound.
+    private const int MaxMorningGoalLabels = 10;
+
+    // Step 3 — taskCount is how many tasks the morning check-in actually recorded. One label per
+    // task (decided by Yadin, 2026-08-07): naming three things is three commitments, and the ops
+    // console's per-user label counts should reflect that rather than flattening it to one.
+    // Defaults to 1, so every pre-step-3 caller keeps its exact previous behaviour.
+    public AgentDailyGoal? SetMorningGoal(string goalText, string trackingPref, int taskCount = 1)
     {
         AgentDailyGoal? goal = _stateStore.UpsertMorningGoal(
             GoalDay(DateTimeOffset.Now), goalText, trackingPref, DateTimeOffset.UtcNow);
@@ -1831,12 +1839,16 @@ public sealed class AgentCoreController : IAgentCoreController
         // drove the check-in. Neutral value: a stated goal, not a right/wrong confirmation.
         if (goal is not null && !string.IsNullOrWhiteSpace(goalText))
         {
-            RecordGoalGroundTruthLabel(
-                source: "morning_goal",
-                promptKind: "morning_goal",
-                responseKind: string.IsNullOrWhiteSpace(trackingPref) ? "stated" : trackingPref.Trim().ToLowerInvariant(),
-                target: "daily_goal",
-                value: 0);
+            int labels = Math.Clamp(taskCount, 1, MaxMorningGoalLabels);
+            for (int i = 0; i < labels; i++)
+            {
+                RecordGoalGroundTruthLabel(
+                    source: "morning_goal",
+                    promptKind: "morning_goal",
+                    responseKind: string.IsNullOrWhiteSpace(trackingPref) ? "stated" : trackingPref.Trim().ToLowerInvariant(),
+                    target: "daily_goal",
+                    value: 0);
+            }
         }
 
         return goal;

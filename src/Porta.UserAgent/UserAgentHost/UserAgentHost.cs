@@ -1710,7 +1710,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                     .SetMorningGoalAsync(new LocalApiGoalMorningRequest(
                         SchemaVer: 1,
                         GoalText: goal,
-                        TrackingPref: response.Choice))
+                        TrackingPref: response.Choice,
+                        // One ground-truth label per task (Yadin, 2026-08-07): naming three things
+                        // is three commitments, and the ops console should see three.
+                        TaskCount: plan.Accepted.Count))
                     .ConfigureAwait(false);
                 UserAgentFileLog.Info(
                     $"checkin_morning_recorded ok={result?.Success == true} pref={response.Choice} tasks={plan.Accepted.Count}");

@@ -62,7 +62,9 @@ public interface IAgentCoreController
     AgentTask? ActOnTask(long id, string action);
 
     // Workstream D — conversational check-in goals (goal-day resolved at the 5:00 boundary).
-    AgentDailyGoal? SetMorningGoal(string goalText, string trackingPref);
+    // Step 3 — taskCount is how many tasks the morning check-in recorded; it drives one ground-truth
+    // label per task. Optional, so a caller that only knows about the goal sentence is unchanged.
+    AgentDailyGoal? SetMorningGoal(string goalText, string trackingPref, int taskCount = 1);
     AgentDailyGoal? GetTodayGoal();
     AgentDailyGoal? RecordMiddayAnswer(string answer);
     AgentDailyGoal? RecordEndOfDay(string planTomorrow);

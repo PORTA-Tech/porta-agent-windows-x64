@@ -365,7 +365,8 @@ public static class LocalApiEndpointMapping
                 return Results.BadRequest(new LocalApiDailyGoalResponse(false, null, DateTimeOffset.UtcNow));
             }
 
-            AgentDailyGoal? goal = controller.SetMorningGoal(request.GoalText ?? string.Empty, request.TrackingPref ?? string.Empty);
+            AgentDailyGoal? goal = controller.SetMorningGoal(
+                request.GoalText ?? string.Empty, request.TrackingPref ?? string.Empty, request.TaskCount);
             return Results.Json(new LocalApiDailyGoalResponse(goal is not null, ToApiGoal(goal), DateTimeOffset.UtcNow));
         });
 

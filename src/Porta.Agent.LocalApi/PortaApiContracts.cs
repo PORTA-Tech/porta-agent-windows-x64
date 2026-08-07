@@ -996,7 +996,10 @@ public sealed record LocalApiDailyGoal(
 public sealed record LocalApiGoalMorningRequest(
     [property: JsonPropertyName("schema_ver")] int SchemaVer,
     [property: JsonPropertyName("goal_text")] string? GoalText,
-    [property: JsonPropertyName("tracking_pref")] string? TrackingPref);      // remind_me | keep_on_track | just_track
+    [property: JsonPropertyName("tracking_pref")] string? TrackingPref,       // remind_me | keep_on_track | just_track
+    // Step 3 — how many tasks this morning check-in recorded, so the ground-truth label count
+    // reflects the commitments made. Absent on an older payload, which the controller reads as 1.
+    [property: JsonPropertyName("task_count")] int TaskCount = 1);
 
 public sealed record LocalApiGoalMiddayRequest(
     [property: JsonPropertyName("schema_ver")] int SchemaVer,
