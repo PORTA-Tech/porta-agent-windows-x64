@@ -108,6 +108,29 @@ public sealed class DailyGoalsStoreTests
         Assert.Equal(expected, AgentCoreController.GoalDay(now));
     }
 
+    // Step 3 — the task list and the goal row are now two halves of one day, so the boundary that
+    // decides which day it is has to be the same one. GoalDayStartLocal is GoalDay expressed as a
+    // timestamp: it must always land on 05:00 of exactly the day GoalDay names, including inside
+    // the 00:00–05:00 window where the two used to disagree.
+    [Theory]
+    [InlineData(2026, 7, 16, 14, 0)]   // afternoon
+    [InlineData(2026, 7, 16, 23, 30)]  // late night
+    [InlineData(2026, 7, 16, 4, 59)]   // before 5am → yesterday's goal-day
+    [InlineData(2026, 7, 16, 5, 0)]    // exactly 5am → today
+    [InlineData(2026, 7, 16, 0, 0)]    // midnight — the case local-midnight got wrong
+    public void GoalDayStartLocal_IsFiveAmOfTheDayGoalDayNames(int year, int month, int day, int hour, int minute)
+    {
+        var now = new DateTimeOffset(year, month, day, hour, minute, 0, TimeSpan.FromHours(4));
+
+        DateTimeOffset start = AgentCoreController.GoalDayStartLocal(now);
+
+        Assert.Equal(AgentCoreController.GoalDay(now), start.ToString("yyyy-MM-dd"));
+        Assert.Equal(5, start.Hour);
+        Assert.Equal(0, start.Minute);
+        // The day cannot start in the future, or "today's tasks" would be empty by construction.
+        Assert.True(start <= now);
+    }
+
     // ── Part 3 — memory: plan_tomorrow on day N carries into the morning of day N+1 ──
 
     [Fact]

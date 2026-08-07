@@ -1788,17 +1788,20 @@ public sealed class AgentCoreController : IAgentCoreController
     public bool AcknowledgeReminder(long id, string action)
         => _stateStore.AcknowledgeReminder(id, action, DateTimeOffset.UtcNow);
 
-    // Workstream 4 — timed tasks. "Today" starts at local midnight: closed tasks from
-    // earlier days drop off the widget list while open ones always show.
+    // Workstream 4 — timed tasks. Closed tasks from earlier days drop off the widget list while
+    // open ones always show.
+    //
+    // Step 3 — "today" here is the GOAL day, not the calendar day. It used to start at local
+    // midnight while the check-in half of the same day started at 05:00 (GoalDay below), so between
+    // midnight and 5am the two halves disagreed about which day it was: the goal row still read
+    // yesterday while today's task list had already emptied itself. Now that the morning check-in
+    // creates the tasks, both halves have to answer that question the same way.
     public AgentTask? CreateTask(string title, int plannedSeconds)
         => _stateStore.CreateTask(title, plannedSeconds, DateTimeOffset.UtcNow);
 
     public IReadOnlyList<AgentTask> GetTodayTasks()
-    {
-        DateTimeOffset nowLocal = DateTimeOffset.Now;
-        var dayStartLocal = new DateTimeOffset(nowLocal.Date, nowLocal.Offset);
-        return _stateStore.ReadTasks(dayStartLocal.ToUniversalTime(), DateTimeOffset.UtcNow);
-    }
+        => _stateStore.ReadTasks(
+            GoalDayStartLocal(DateTimeOffset.Now).ToUniversalTime(), DateTimeOffset.UtcNow);
 
     public AgentTask? ActOnTask(long id, string action)
         => _stateStore.ActOnTask(id, action, DateTimeOffset.UtcNow);
@@ -1808,6 +1811,15 @@ public sealed class AgentCoreController : IAgentCoreController
     // boundary so the whole day lines up.
     internal static string GoalDay(DateTimeOffset nowLocal)
         => (nowLocal.Hour < 5 ? nowLocal.AddDays(-1) : nowLocal).ToString("yyyy-MM-dd");
+
+    // The instant GoalDay(nowLocal) began — the same boundary expressed as a timestamp, so the task
+    // list and the goal row can never disagree about where the day starts. Pure, so the 00:00–05:00
+    // window is unit-tested rather than reasoned about.
+    internal static DateTimeOffset GoalDayStartLocal(DateTimeOffset nowLocal)
+    {
+        DateTimeOffset day = nowLocal.Hour < 5 ? nowLocal.AddDays(-1) : nowLocal;
+        return new DateTimeOffset(day.Date, day.Offset).AddHours(5);
+    }
 
     public AgentDailyGoal? SetMorningGoal(string goalText, string trackingPref)
     {
