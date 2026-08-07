@@ -8,7 +8,13 @@ internal interface IUserCheckInCardPresenter : IDisposable
     // Returns true only when the card was actually dispatched to show; false (with errorCode) when
     // the surface is disposed, not ready, or already showing another card — so the caller can avoid
     // marking the check-in as offered when nothing reached the screen.
-    bool TryShow(UserCheckInPrompt prompt, Action<UserCheckInResponse> onResponse, out string errorCode);
+    // nowLocal is supplied rather than read here so the staleness rule stays a pure function the
+    // presenter merely applies (UserCheckInStalenessPolicy).
+    bool TryShow(
+        UserCheckInPrompt prompt,
+        Action<UserCheckInResponse> onResponse,
+        DateTimeOffset nowLocal,
+        out string errorCode);
 
     // Part 5 (async narrative) — swap the LLM line onto a card that is already on screen. Best
     // effort by contract: returns false when the card is gone, is showing another kind, or the
@@ -37,6 +43,10 @@ internal sealed class UserCheckInCardPresenter : IUserCheckInCardPresenter
     private UserCheckInCardWindow? _window;
     private DispatcherTimer? _confirmationTimer;
     private Action<UserCheckInResponse>? _activeResponse;
+    // Step 2 — what is on screen and when it was shown, so a card that outlives its goal day can
+    // be expired instead of blocking every later check-in behind it. Set and cleared with
+    // _activeResponse, always under _gate.
+    private OpenCheckInCard? _openCard;
     private bool _disposed;
 
     public UserCheckInCardPresenter(bool startThread = true)
@@ -47,7 +57,11 @@ internal sealed class UserCheckInCardPresenter : IUserCheckInCardPresenter
         }
     }
 
-    public bool TryShow(UserCheckInPrompt prompt, Action<UserCheckInResponse> onResponse, out string errorCode)
+    public bool TryShow(
+        UserCheckInPrompt prompt,
+        Action<UserCheckInResponse> onResponse,
+        DateTimeOffset nowLocal,
+        out string errorCode)
     {
         errorCode = string.Empty;
         if (_disposed)
@@ -63,17 +77,41 @@ internal sealed class UserCheckInCardPresenter : IUserCheckInCardPresenter
             return false;
         }
 
+        OpenCheckInCard? expired = null;
         lock (_gate)
         {
             // One card at a time. A card left open (unanswered) keeps this set until the user
-            // replies or dismisses, so a second kind won't stack on top of it.
+            // replies or dismisses, so a second kind won't stack on top of it — EXCEPT when that
+            // card has outlived its goal day, which is how last night's EOD card used to sit in
+            // front of this morning's card until it was dismissed by hand (step 2).
             if (_activeResponse != null)
             {
-                errorCode = "checkin_card_busy";
-                return false;
+                StaleCardDecision decision = UserCheckInStalenessPolicy.Evaluate(_openCard, nowLocal);
+                if (!decision.Expire)
+                {
+                    UserAgentFileLog.Info(
+                        $"checkin_card_busy kind={prompt.Kind} reason={decision.ReasonCode}");
+                    errorCode = "checkin_card_busy";
+                    return false;
+                }
+
+                expired = _openCard;
+                _activeResponse = null;
+                _openCard = null;
             }
 
             _activeResponse = onResponse;
+            _openCard = new OpenCheckInCard(prompt.Kind, nowLocal);
+        }
+
+        if (expired is { } stale)
+        {
+            // The abandoned card is hidden, not answered: it raises no response, so nothing is
+            // recorded as if the user had replied to it. Queued ahead of the new card's ShowPrompt
+            // on the same dispatcher, so the two can never race.
+            UserAgentFileLog.Info(
+                $"checkin_card_expired kind={stale.Kind} shown={stale.ShownAtLocal:yyyy-MM-ddTHH:mm:ss} reason=stale_goal_day_rollover");
+            TryHideExpiredCard();
         }
 
         try
@@ -92,10 +130,45 @@ internal sealed class UserCheckInCardPresenter : IUserCheckInCardPresenter
             lock (_gate)
             {
                 _activeResponse = null;
+                _openCard = null;
             }
 
             errorCode = "checkin_card_dispatch_failed";
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Hides a card abandoned by the goal-day rollover. Best effort by design: if the dispatcher
+    /// is gone the slot has already been cleared, so the due check-in still gets its turn — the
+    /// point of the rule is that nothing can block the morning card, including this cleanup.
+    /// </summary>
+    private void TryHideExpiredCard()
+    {
+        Dispatcher? dispatcher;
+        lock (_gate)
+        {
+            dispatcher = _dispatcher;
+        }
+
+        if (dispatcher is null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        try
+        {
+            dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    _confirmationTimer?.Stop();
+                    _window?.Hide();
+                }),
+                DispatcherPriority.Send);
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error("checkin_card_expire_hide_failed", ex);
         }
     }
 
@@ -335,6 +408,7 @@ internal sealed class UserCheckInCardPresenter : IUserCheckInCardPresenter
         {
             handler = _activeResponse;
             _activeResponse = null;
+            _openCard = null;
         }
 
         handler?.Invoke(response);

@@ -930,10 +930,17 @@ public sealed class UserAgentInterventionExecutorTests
         public UserCheckInKind? LastUpgradeKind { get; private set; }
         public string? LastUpgradeLine { get; private set; }
 
-        public bool TryShow(UserCheckInPrompt prompt, Action<UserCheckInResponse> onResponse, out string errorCode)
+        public DateTimeOffset? LastShowNowLocal { get; private set; }
+
+        public bool TryShow(
+            UserCheckInPrompt prompt,
+            Action<UserCheckInResponse> onResponse,
+            DateTimeOffset nowLocal,
+            out string errorCode)
         {
             LastPrompt = prompt;
             ResponseHandler = onResponse;
+            LastShowNowLocal = nowLocal;
             ShowCalls++;
             errorCode = ShowResult ? string.Empty : ErrorCode;
             return ShowResult;

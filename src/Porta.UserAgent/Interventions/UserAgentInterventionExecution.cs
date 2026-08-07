@@ -184,7 +184,7 @@ internal sealed class UserAgentInterventionExecutor
             return false;
         }
 
-        if (!_checkInCardPresenter.TryShow(prompt, onResponse, out string renderError))
+        if (!_checkInCardPresenter.TryShow(prompt, onResponse, nowUtc.ToLocalTime(), out string renderError))
         {
             reason = renderError;
             return false;
