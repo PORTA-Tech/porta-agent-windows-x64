@@ -1053,7 +1053,13 @@ public sealed record LocalApiNarrativeRequest(
 public sealed record LocalApiNarrativeResponse(
     bool Success,
     [property: JsonPropertyName("line")] string? Line,
-    DateTimeOffset TimestampUtc);
+    DateTimeOffset TimestampUtc,
+    // Why there is no line. The whole path is fail-soft by design — four layers each turn a
+    // failure into a bare null — which made a missing line indistinguishable from a model that
+    // declined. The agent service has no persistent log (it only writes to Console.Error, which
+    // goes nowhere for a Windows service), so the reason has to ride back here to be recorded in
+    // user-agent.log. Empty when a line was produced.
+    [property: JsonPropertyName("reason")] string Reason = "");
 
 /// <summary>
 /// Served by the agent service (which owns the control-plane channel). Null = use the template;
@@ -1062,4 +1068,21 @@ public sealed record LocalApiNarrativeResponse(
 public interface INarrativeGateway
 {
     Task<string?> GetNarrativeLineAsync(string kind, string? userText, CancellationToken token);
+
+    /// <summary>
+    /// Same call, but also reports WHY there is no line. Implementations must never throw; a
+    /// failure is a reason code, not an exception. Reason is empty when a line was produced.
+    /// </summary>
+    Task<NarrativeGatewayResult> GetNarrativeLineWithReasonAsync(
+        string kind,
+        string? userText,
+        CancellationToken token);
+}
+
+/// <summary>A narrative line, or the reason there isn't one.</summary>
+public readonly record struct NarrativeGatewayResult(string? Line, string Reason)
+{
+    public static NarrativeGatewayResult Ok(string line) => new(line, string.Empty);
+
+    public static NarrativeGatewayResult Failed(string reason) => new(null, reason);
 }

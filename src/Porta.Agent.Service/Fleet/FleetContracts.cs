@@ -190,6 +190,9 @@ internal sealed record NarrativeRequestPayload(
 internal sealed record NarrativeResponsePayload(
     [property: JsonPropertyName("line")] string? Line);
 
+/// <summary>The narrative line, or a code describing exactly how the call failed.</summary>
+internal readonly record struct NarrativeCallOutcome(string? Line, string Reason);
+
 internal sealed record DailyDigestReportPayload(
     [property: JsonPropertyName("accountId")] string? AccountId,
     [property: JsonPropertyName("deviceId")] string DeviceId,

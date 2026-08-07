@@ -387,11 +387,15 @@ public static class LocalApiEndpointMapping
         {
             if (request is null || request.SchemaVer != 1 || string.IsNullOrWhiteSpace(request.Kind))
             {
-                return Results.BadRequest(new LocalApiNarrativeResponse(false, null, DateTimeOffset.UtcNow));
+                return Results.BadRequest(new LocalApiNarrativeResponse(
+                    false, null, DateTimeOffset.UtcNow, "invalid_payload_or_schema"));
             }
 
-            string? line = await narrative.GetNarrativeLineAsync(request.Kind.Trim(), request.UserText, token).ConfigureAwait(false);
-            return Results.Json(new LocalApiNarrativeResponse(true, line, DateTimeOffset.UtcNow));
+            NarrativeGatewayResult result = await narrative
+                .GetNarrativeLineWithReasonAsync(request.Kind.Trim(), request.UserText, token)
+                .ConfigureAwait(false);
+            return Results.Json(new LocalApiNarrativeResponse(
+                true, result.Line, DateTimeOffset.UtcNow, result.Reason));
         });
 
         api.MapPost("/goals/eod", (IAgentCoreController controller, LocalApiGoalEndOfDayRequest? request) =>

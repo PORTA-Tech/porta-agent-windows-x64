@@ -121,12 +121,23 @@ internal sealed class ControlPlaneClient : IDisposable
     // Part 5 — one narrative line per high-value moment. Null on any failure or an empty line;
     // the caller falls back to its template. The caller supplies the timeout budget via token.
     public async Task<string?> PostNarrativeAsync(NarrativeRequestPayload payload, CancellationToken token)
+        => (await PostNarrativeWithOutcomeAsync(payload, token).ConfigureAwait(false)).Line;
+
+    /// <summary>
+    /// Same call, but reports the HTTP status rather than collapsing every non-2xx to null. A 401
+    /// under PORTA_DEVICE_AUTH_MODE=enforce, a 400 from payload validation, and a server that
+    /// answered 200 with a null line are three completely different bugs that used to look
+    /// identical from the agent side.
+    /// </summary>
+    public async Task<NarrativeCallOutcome> PostNarrativeWithOutcomeAsync(
+        NarrativeRequestPayload payload,
+        CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(payload);
 
         if (_httpClient is null)
         {
-            return null;
+            return new NarrativeCallOutcome(null, $"client_null:{DisabledReason ?? "unknown"}");
         }
 
         try
@@ -138,18 +149,26 @@ internal sealed class ControlPlaneClient : IDisposable
                 token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                return null;
+                return new NarrativeCallOutcome(null, $"http_{(int)response.StatusCode}");
             }
 
             NarrativeResponsePayload? parsed = await response.Content
                 .ReadFromJsonAsync<NarrativeResponsePayload>(cancellationToken: token)
                 .ConfigureAwait(false);
             string? line = parsed?.Line?.Trim();
-            return string.IsNullOrWhiteSpace(line) ? null : line;
+            return string.IsNullOrWhiteSpace(line)
+                // 200 with no line means the server ran and declined to write one — its own log
+                // carries the specific reason (cap, key, unknown account, model error, refusal).
+                ? new NarrativeCallOutcome(null, "http_200_empty_line")
+                : new NarrativeCallOutcome(line, string.Empty);
         }
-        catch
+        catch (OperationCanceledException)
         {
-            return null;
+            return new NarrativeCallOutcome(null, "cancelled");
+        }
+        catch (Exception ex)
+        {
+            return new NarrativeCallOutcome(null, $"transport:{ex.GetType().Name}");
         }
     }
 

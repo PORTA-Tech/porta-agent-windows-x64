@@ -47,31 +47,77 @@ internal sealed class NarrativeGateway : INarrativeGateway
     }
 
     public async Task<string?> GetNarrativeLineAsync(string kind, string? userText, CancellationToken token)
+        => (await GetNarrativeLineWithReasonAsync(kind, userText, token).ConfigureAwait(false)).Line;
+
+    /// <summary>
+    /// Every exit carries a reason code. Before this, four fail-soft layers each turned a failure
+    /// into a bare null — this gateway had three silent early returns and a bare catch, and
+    /// ControlPlaneClient discarded the HTTP status — so "the model declined" and "the request
+    /// never left the machine" were indistinguishable at the only place anyone can read, the
+    /// agent's `checkin_narrative used=False` line. On 2026-08-07 that cost a full session of
+    /// inference: the control plane logged nothing (its success path is silent and its failure
+    /// paths all log, so silence alone could not tell us which had happened).
+    /// </summary>
+    public async Task<NarrativeGatewayResult> GetNarrativeLineWithReasonAsync(
+        string kind,
+        string? userText,
+        CancellationToken token)
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(kind) || !AllowedKinds.Contains(kind) || !_client.IsEnabled)
+            if (string.IsNullOrWhiteSpace(kind))
             {
-                return null;
+                return NarrativeGatewayResult.Failed("kind_missing");
+            }
+
+            if (!AllowedKinds.Contains(kind))
+            {
+                return NarrativeGatewayResult.Failed("kind_not_allowed");
+            }
+
+            if (!_client.IsEnabled)
+            {
+                // The control-plane channel is off — no HTTP call is made at all, which is why
+                // this case leaves no trace on either side.
+                return NarrativeGatewayResult.Failed($"client_disabled:{_client.DisabledReason ?? "unknown"}");
             }
 
             LocalIdentityLinkSnapshot identity = _identityLinkStore.GetCurrent();
-            if (!string.Equals(identity.LinkStatus, LocalIdentityLinkStatuses.Linked, StringComparison.Ordinal)
-                || string.IsNullOrWhiteSpace(identity.AccountId)
-                || string.IsNullOrWhiteSpace(identity.DeviceId))
+            if (!string.Equals(identity.LinkStatus, LocalIdentityLinkStatuses.Linked, StringComparison.Ordinal))
             {
-                return null;
+                return NarrativeGatewayResult.Failed($"identity_not_linked:{identity.LinkStatus ?? "null"}");
+            }
+
+            if (string.IsNullOrWhiteSpace(identity.AccountId) || string.IsNullOrWhiteSpace(identity.DeviceId))
+            {
+                return NarrativeGatewayResult.Failed("identity_incomplete");
             }
 
             NarrativeRequestPayload payload = BuildPayload(identity, kind, userText);
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
             cts.CancelAfter(CallBudget);
-            return await _client.PostNarrativeAsync(payload, cts.Token).ConfigureAwait(false);
+
+            NarrativeCallOutcome outcome = await _client
+                .PostNarrativeWithOutcomeAsync(payload, cts.Token)
+                .ConfigureAwait(false);
+
+            if (!string.IsNullOrWhiteSpace(outcome.Line))
+            {
+                return NarrativeGatewayResult.Ok(outcome.Line!);
+            }
+
+            // Distinguish "we ran out of our own budget" from "the server answered, emptily".
+            if (outcome.Reason == "cancelled" && !token.IsCancellationRequested)
+            {
+                return NarrativeGatewayResult.Failed($"gateway_budget_exceeded:{CallBudget.TotalSeconds:F0}s");
+            }
+
+            return NarrativeGatewayResult.Failed(outcome.Reason);
         }
-        catch
+        catch (Exception ex)
         {
-            return null;
+            return NarrativeGatewayResult.Failed($"exception:{ex.GetType().Name}");
         }
     }
 

@@ -1625,8 +1625,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     {
         try
         {
-            string? line = await TryGetNarrativeLineAsync(narrativeKind, userText: null, token).ConfigureAwait(false);
-            UserAgentFileLog.Info($"checkin_narrative kind={narrativeKind} used={line != null}");
+            (string? line, string reason) = await GetNarrativeLineWithReasonAsync(narrativeKind, userText: null, token)
+                .ConfigureAwait(false);
+            UserAgentFileLog.Info(
+                $"checkin_narrative kind={narrativeKind} used={line != null}"
+                + (line != null ? string.Empty : $" reason={reason}"));
             if (line is null)
             {
                 return;
@@ -1782,6 +1785,18 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     // the LLM + key live). Null on ANY failure inside the hard budget; callers fall back to their
     // honest template, so this can delay a line slightly but never lose a moment.
     private async Task<string?> TryGetNarrativeLineAsync(string kind, string? userText, CancellationToken token)
+        => (await GetNarrativeLineWithReasonAsync(kind, userText, token).ConfigureAwait(false)).Line;
+
+    /// <summary>
+    /// Returns the line and, when there isn't one, the reason from whichever layer gave up. This
+    /// is the only place in the chain that writes to a durable log — the agent service has none,
+    /// it only writes to Console.Error, which goes nowhere for a Windows service. So every layer
+    /// below hands its reason code up to here rather than logging it locally.
+    /// </summary>
+    private async Task<(string? Line, string Reason)> GetNarrativeLineWithReasonAsync(
+        string kind,
+        string? userText,
+        CancellationToken token)
     {
         try
         {
@@ -1790,12 +1805,29 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             LocalApiNarrativeResponse? response = await _localApiClient
                 .GetNarrativeAsync(new LocalApiNarrativeRequest(SchemaVer: 1, Kind: kind, UserText: userText), cts.Token)
                 .ConfigureAwait(false);
-            string? line = response?.Line?.Trim();
-            return string.IsNullOrWhiteSpace(line) ? null : line;
+
+            if (response is null)
+            {
+                // The local API itself did not answer — the service is down, the port moved, or
+                // the token is stale. Nothing ever reached the control plane.
+                return (null, "local_api_no_response");
+            }
+
+            string? line = response.Line?.Trim();
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                return (line, string.Empty);
+            }
+
+            return (null, string.IsNullOrWhiteSpace(response.Reason) ? "empty_line_no_reason" : response.Reason);
         }
-        catch
+        catch (OperationCanceledException)
         {
-            return null;
+            return (null, "agent_budget_exceeded:10s");
+        }
+        catch (Exception ex)
+        {
+            return (null, $"agent_exception:{ex.GetType().Name}");
         }
     }
 

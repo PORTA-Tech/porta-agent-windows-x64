@@ -302,6 +302,12 @@ public sealed class LocalApiRouteStartupSmokeTests
     {
         public Task<string?> GetNarrativeLineAsync(string kind, string? userText, CancellationToken token) =>
             Task.FromResult<string?>(null);
+
+        public Task<NarrativeGatewayResult> GetNarrativeLineWithReasonAsync(
+            string kind,
+            string? userText,
+            CancellationToken token) =>
+            Task.FromResult(NarrativeGatewayResult.Failed("smoke_stub"));
     }
 
     private sealed class SmokeIdentityLinkStore : ILocalIdentityLinkStore
