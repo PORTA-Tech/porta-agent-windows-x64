@@ -38,7 +38,7 @@ release, no manifest. Pushed through `8596d5e`.
 | 2. Stale card + timing | **Built, not yet confirmed.** `UserCheckInStalenessPolicy`, goal-day rollover rule, 15 tests. |
 | Narrative async | **Built and working.** Card now shows ~3s before the line is even attempted. |
 | Narrative diagnostics | **Built, awaiting first data.** Reason codes ride back to `user-agent.log`. |
-| 3. Merge goals and tasks | **Not started. This is your job.** |
+| 3. Merge goals and tasks | **Built, not yet confirmed live.** See §4a. Two commits, tests green, not yet in a build. |
 
 Test gate before the 1.2.129 build: ControlCenter 80, Runtime 6, Service 117, UserAgent 276 (+3
 skipped) — all green. Core 711 passed / 4 failed, exactly the documented restart-reconciliation
@@ -129,6 +129,45 @@ Not an isolated refactor:
 
 `GetCarriedOverPlan:1840` / `ResolveCarriedOverPlan:1850` already implement carry-forward in pure,
 tested form. **Extend them to tasks rather than writing something new.**
+
+---
+
+## 4a. Step 3 as built — 2026-08-07
+
+Two commits: `c3e48e0` (day boundary) and `284da6e` (the merge). Not pushed, not in a build.
+
+**What the morning card does now.** It collects the day's task list instead of one sentence: one
+row to start, `+ add` for the second and third, and 1h / 2h / 3h chips on each row with 1h
+pre-selected. A card answered in three seconds without touching a chip still produces legal tasks.
+On accept, each row becomes a real task and **the first one is started**, so
+`AttributeBucketToActiveTask` has something to credit — without that every task reads 0m and step 5
+shows a loop that measures nothing.
+
+**How `daily_goals` became a view.** It is still written, but the goal sentence is now *derived*
+from the task titles (`"Pricing page; Client revisions"`) rather than authored separately. That
+keeps all five readers in §4 working untouched. The alternative — computing goal text from `tasks`
+at read time — would have changed read semantics for four consumers at once and could make the
+scheduler think a morning goal exists because the widget created a task. Derive-on-write is the
+reversible version.
+
+**Decision logic is pure and reason-coded** in `UserCheckInTaskPlanner`: the three-task ceiling
+(`over_max_tasks`), dedupe within one list (`duplicate_in_list`), the duration clamp `CreateTask`
+demands, and the goal-text projection. Re-confirming work that is still open is **accepted but not
+duplicated** — it starts the existing task instead. That is the shape step 6 needs.
+
+**The day boundary was wrong and is fixed.** `GetTodayTasks` started at local midnight while
+`GoalDay` starts at 05:00, so between midnight and 5am the two halves disagreed about which day it
+was. `AgentCoreController.GoalDayStartLocal` is now the single boundary. Only affects which
+*closed* tasks show; the digest reads the same window and fires at 23:30 local, so it is unmoved.
+
+**Still open, and it is Yadin's call, not the implementer's:** what ground-truth label a
+task-shaped morning check-in should emit. The labels are **deliberately unchanged** — one
+`daily_goal` label per morning, exactly as before — because that was the only option that changes
+nothing by accident. The real question is whether three tasks should emit three labels.
+
+**What has NOT been verified:** none of this has run on a live agent. The whole path is untested
+against a real `LocalApi`, and per §8 of the brief the task feature has essentially never been used
+in the field (three tasks ever, all in July). First live morning card is the real test.
 
 ---
 
