@@ -1004,6 +1004,11 @@ public sealed class UserDesktopWidgetWindowTests : IDisposable
             }
             finally
             {
+                // Shut the dispatcher down with the thread. A Dispatcher outliving its STA
+                // thread keeps this suite's WPF resources resident for the rest of the run,
+                // which inflates the process-global counts GuiHandleLeakStressTests reads and
+                // makes it report a widget leak that does not exist.
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
                 completed.Set();
             }
         });
