@@ -1596,8 +1596,15 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             ? UserCheckInScheduler.DescribeEndOfDay(goalSnapshot)
             : (false, false);
 
+        // Steps 4-7 — every surface now speaks in terms of the day's real tasks: the morning
+        // proposes from what is still open, midday and evening list them with the measured time.
+        // Fail-soft: an unreachable core yields an empty board and each surface falls back to its
+        // pre-step-3 shape rather than showing an empty list.
+        IReadOnlyList<TaskBoardLine> board = UserCheckInTaskBoard.BuildBoard(
+            (await _localApiClient.GetTasksTodayAsync(token).ConfigureAwait(false))?.Tasks, nowLocal);
+
         UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
-            kind, goal, metrics, goalResponse.CarriedPlanTomorrow, narrativeLine: null, middaySkipped, awayGap);
+            kind, goal, metrics, goalResponse.CarriedPlanTomorrow, narrativeLine: null, middaySkipped, awayGap, board);
 
         bool shown = _interventionExecutor.TryShowGatedCheckIn(
             UserCheckInScheduler.MuteClassFor(kind),
@@ -1733,6 +1740,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
             case UserCheckInKind.Midday:
             {
+                // Step 5 — apply what was ticked FIRST, so the answer recorded below is consistent
+                // with the task states the rest of the day will read.
+                await ApplyTaskOutcomesAsync(response.TaskOutcomes, UserCheckInKind.Midday).ConfigureAwait(false);
+
                 string answer = (response.Choice ?? string.Empty).Trim();
                 if (answer.Length == 0)
                 {
@@ -1790,22 +1801,86 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
             case UserCheckInKind.EndOfDay:
             {
+                // Step 7 — the evening closes the day rather than opening a new one. Keeping an item
+                // needs no write at all: an open task simply stays open, and tomorrow's morning card
+                // proposes it. Only "done" and "drop" change anything, which is why carry-forward
+                // costs nothing and can never lose work.
+                int dropped = await ApplyTaskOutcomesAsync(response.TaskOutcomes, UserCheckInKind.EndOfDay)
+                    .ConfigureAwait(false);
+
+                // plan_tomorrow is now vestigial for a task-shaped day: the tasks ARE tomorrow's
+                // plan. Still written when the fallback note box was used, and the call is what
+                // stamps eod_at_utc, which is how the scheduler knows the evening happened.
                 string plan = (response.TextReply ?? string.Empty).Trim();
                 LocalApiDailyGoalResponse? result = await _localApiClient
                     .RecordEndOfDayAsync(new LocalApiGoalEndOfDayRequest(SchemaVer: 1, PlanTomorrow: plan))
                     .ConfigureAwait(false);
-                UserAgentFileLog.Info($"checkin_eod_recorded ok={result?.Success == true} has_plan={plan.Length > 0}");
-                if (plan.Length > 0)
-                {
-                    string? eodReply = await TryGetNarrativeLineAsync("reply_eod", plan, CancellationToken.None).ConfigureAwait(false);
-                    _checkInCardPresenter.ShowConfirmation(
-                        UserCheckInKind.EndOfDay,
-                        eodReply ?? "Saved for tomorrow. Rest well.");
-                }
+                UserAgentFileLog.Info(
+                    $"checkin_eod_recorded ok={result?.Success == true} has_plan={plan.Length > 0} dropped={dropped}");
 
+                string? eodReply = await TryGetNarrativeLineAsync(
+                    "reply_eod", plan.Length > 0 ? plan : null, CancellationToken.None).ConfigureAwait(false);
+                _checkInCardPresenter.ShowConfirmation(
+                    UserCheckInKind.EndOfDay,
+                    eodReply ?? (plan.Length > 0 ? "Saved for tomorrow. Rest well." : "Day closed. Rest well."));
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// Steps 5 + 7 — applies what the user tapped against each task. Returns how many were dropped.
+    /// </summary>
+    /// <remarks>
+    /// "Not yet" / "Keep" writes NOTHING on purpose: an open task is already carried, so the
+    /// no-op is the carry-forward. That is what makes step 6 free and makes it impossible for
+    /// unfinished work to be lost by a failed write — there is no write to fail.
+    /// Each task is applied independently: one failure must not abandon the rest.
+    /// </remarks>
+    private async Task<int> ApplyTaskOutcomesAsync(
+        IReadOnlyList<UserCheckInTaskOutcome>? outcomes,
+        UserCheckInKind kind)
+    {
+        if (outcomes is null || outcomes.Count == 0)
+        {
+            return 0;
+        }
+
+        int dropped = 0;
+        foreach (UserCheckInTaskOutcome outcome in outcomes)
+        {
+            string? action = outcome.Action switch
+            {
+                UserCheckInTaskOutcome.Done => "done",
+                UserCheckInTaskOutcome.Drop => "abandon",
+                _ => null   // still open — nothing to write
+            };
+
+            if (action is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                LocalApiTaskActResponse? applied = await _localApiClient
+                    .ActOnTaskAsync(new LocalApiTaskActRequest(SchemaVer: 1, Id: outcome.TaskId, Action: action))
+                    .ConfigureAwait(false);
+                bool ok = applied is { Success: true };
+                UserAgentFileLog.Info(
+                    $"checkin_task_outcome kind={kind} id={outcome.TaskId} action={action} ok={ok}");
+                if (ok && action == "abandon")
+                {
+                    dropped++;
+                }
+            }
+            catch (Exception ex)
+            {
+                UserAgentFileLog.Error($"checkin_task_outcome_failed kind={kind} id={outcome.TaskId}", ex);
+            }
+        }
+
+        return dropped;
     }
 
     /// <summary>

@@ -251,6 +251,13 @@ internal sealed class UserCheckInCardWindow : Window
     // It is never typed: the whole point of this card is that answering it costs three seconds.
     private void BuildMorning(UserCheckInPrompt prompt)
     {
+        // Step 6 — said once, plainly, above the list it is about. Not a nag: no escalation, no
+        // repetition beyond this one line, and it never blocks anything.
+        if (!string.IsNullOrWhiteSpace(prompt.CarriedNotice))
+        {
+            AddMutedLine(prompt.CarriedNotice, bottomMargin: 10);
+        }
+
         var rows = new List<MorningTaskRow>();
         var rowsPanel = new StackPanel { Orientation = Orientation.Vertical };
         _bodyStack.Children.Add(rowsPanel);
@@ -345,7 +352,22 @@ internal sealed class UserCheckInCardWindow : Window
             return row;
         }
 
-        MorningTaskRow first = AddRow((prompt.PrefillGoalText ?? string.Empty).Trim());
+        // Step 4 — propose, never present an empty box. Yesterday's unfinished work fills the rows
+        // so the common morning is a glance and a tap. The carried plan is the fallback for a day
+        // with no open tasks at all (the first day, or a day after everything was finished).
+        MorningTaskRow first;
+        if (prompt.Tasks is { Count: > 0 } proposed)
+        {
+            first = AddRow(proposed[0].Title);
+            foreach (TaskBoardLine line in proposed.Skip(1).Take(UserCheckInTaskPlanner.MaxMorningTasks - 1))
+            {
+                AddRow(line.Title);
+            }
+        }
+        else
+        {
+            first = AddRow((prompt.PrefillGoalText ?? string.Empty).Trim());
+        }
 
         addRow.Click += (_, _) =>
         {
@@ -394,33 +416,164 @@ internal sealed class UserCheckInCardWindow : Window
         public int PlannedSeconds { get; set; } = plannedSeconds;
     }
 
+    // Step 5 — one-tap done. The midday card stops asking one vague question about "the goal" and
+    // lists today's actual tasks with the MEASURED time already beside each one. Tick what is done,
+    // press once. Nothing to type, nothing to remember.
+    //
+    // Falls back to the original three-chip question whenever there are no tasks to show, so a day
+    // that predates step 3 — or a user who dismissed the morning card — is no worse off than before.
     private void BuildMidday(UserCheckInPrompt prompt)
     {
         if (!string.IsNullOrWhiteSpace(prompt.ReportLine))
         {
-            _bodyStack.Children.Add(new TextBlock
-            {
-                FontSize = 12,
-                Foreground = new SolidColorBrush(MutedFg),
-                TextWrapping = TextWrapping.Wrap,
-                Text = prompt.ReportLine,
-                Margin = new Thickness(0, 0, 0, 10)
-            });
+            AddMutedLine(prompt.ReportLine, bottomMargin: 10);
         }
 
-        // Part 2b — a fixed question directly above the buttons, so they never dangle unanswered.
-        AddQuestionLabel(prompt.QuestionLabel);
-
-        var chipRow = new StackPanel { Orientation = Orientation.Horizontal };
-        foreach ((string value, string label) in UserCheckInChoices.MiddayAnswers)
+        IReadOnlyList<TaskBoardLine> open = OpenLines(prompt);
+        if (open.Count == 0)
         {
-            Button chip = MakeChip(label);
-            chip.Click += (_, _) => Respond(new UserCheckInResponse(
-                UserCheckInKind.Midday, TextReply: null, Choice: value, Dismissed: false));
-            chipRow.Children.Add(chip);
+            AddQuestionLabel(prompt.QuestionLabel);
+            var chipRow = new StackPanel { Orientation = Orientation.Horizontal };
+            foreach ((string value, string label) in UserCheckInChoices.MiddayAnswers)
+            {
+                Button chip = MakeChip(label);
+                chip.Click += (_, _) => Respond(new UserCheckInResponse(
+                    UserCheckInKind.Midday, TextReply: null, Choice: value, Dismissed: false));
+                chipRow.Children.Add(chip);
+            }
+
+            _bodyStack.Children.Add(chipRow);
+            return;
         }
 
-        _bodyStack.Children.Add(chipRow);
+        AddQuestionLabel(prompt.QuestionLabel);
+        List<TaskOutcomeRow> rows = AddTaskBoard(open, includeDrop: false);
+        AddMeasuredFootnote();
+
+        Button save = MakePrimaryButton("Save");
+        save.Click += (_, _) => Respond(new UserCheckInResponse(
+            UserCheckInKind.Midday,
+            TextReply: null,
+            // Step 5 — the yes/partly/not_yet answer is now DERIVED from what was ticked rather
+            // than asked separately, so daily_goals stays a view over the tasks.
+            Choice: UserCheckInTaskBoard.MiddayAnswerFor(CollectOutcomes(rows)),
+            Dismissed: false,
+            TaskOutcomes: CollectOutcomes(rows)));
+        _bodyStack.Children.Add(save);
+    }
+
+    /// <summary>
+    /// Steps 5 + 7 — renders one row per task: the title, the measured time, and the taps. Returns
+    /// the rows so the caller can read what was chosen when the card is answered.
+    /// </summary>
+    private List<TaskOutcomeRow> AddTaskBoard(IReadOnlyList<TaskBoardLine> lines, bool includeDrop)
+    {
+        var rows = new List<TaskOutcomeRow>();
+        foreach (TaskBoardLine line in lines)
+        {
+            var row = new TaskOutcomeRow(line);
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                Margin = new Thickness(0, rows.Count == 0 ? 0 : 10, 0, 0)
+            };
+
+            // Title and the measured hours on one line: this is the pairing that makes Ari the only
+            // tool where "done" arrives with the time behind it.
+            panel.Children.Add(new TextBlock
+            {
+                FontSize = 12.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(TitleFg),
+                TextWrapping = TextWrapping.Wrap,
+                Text = $"{line.Title} — {line.MeasuredLabel}"
+            });
+
+            if (line.DaysCarried >= UserCheckInTaskBoard.CarriedMentionThreshold)
+            {
+                AddMutedLine($"carried {line.DaysCarried} days", bottomMargin: 0, parent: panel, fontSize: 11);
+            }
+
+            var chipRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            var choices = new List<(string Action, string Label)>
+            {
+                (UserCheckInTaskOutcome.Done, "Done"),
+                (UserCheckInTaskOutcome.NotYet, includeDrop ? "Keep" : "Not yet")
+            };
+
+            if (includeDrop)
+            {
+                // Step 7 — unfinished work is never silently dropped, and never silently carried
+                // forever either. One tap says which.
+                choices.Add((UserCheckInTaskOutcome.Drop, "Drop it"));
+            }
+
+            var chips = new List<Button>();
+            foreach ((string action, string label) in choices)
+            {
+                Button chip = MakeChip(label);
+                chips.Add(chip);
+                chip.Click += (_, _) =>
+                {
+                    _userInteracted = true;
+                    row.Action = action;
+                    for (int i = 0; i < chips.Count; i++)
+                    {
+                        HighlightChip(chips[i], chips[i] == chip);
+                    }
+                };
+                chipRow.Children.Add(chip);
+            }
+
+            // Default selection is the harmless one: still open, still carried, nothing claimed.
+            HighlightChip(chips[1], true);
+            panel.Children.Add(chipRow);
+            _bodyStack.Children.Add(panel);
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    private static IReadOnlyList<UserCheckInTaskOutcome> CollectOutcomes(List<TaskOutcomeRow> rows)
+        => rows.Select(r => new UserCheckInTaskOutcome(r.Line.Id, r.Action)).ToList();
+
+    private IReadOnlyList<TaskBoardLine> OpenLines(UserCheckInPrompt prompt)
+        => prompt.Tasks?.Where(t => t.IsOpen).ToList() ?? (IReadOnlyList<TaskBoardLine>)Array.Empty<TaskBoardLine>();
+
+    /// <summary>
+    /// The measured figure is present-and-working time, not wall clock — roughly two thirds of it in
+    /// practice, because time away credits nothing. Saying so is not a disclaimer: an unexplained
+    /// number that reads low is a number people stop trusting, and this one has to be trustworthy
+    /// enough to put in front of a client.
+    /// </summary>
+    private void AddMeasuredFootnote()
+        => AddMutedLine("Time counted while you were at the machine.", bottomMargin: 0, fontSize: 11, topMargin: 10);
+
+    private void AddMutedLine(
+        string text,
+        double bottomMargin,
+        Panel? parent = null,
+        double fontSize = 12,
+        double topMargin = 0)
+    {
+        (parent ?? _bodyStack).Children.Add(new TextBlock
+        {
+            FontSize = fontSize,
+            Foreground = new SolidColorBrush(MutedFg),
+            TextWrapping = TextWrapping.Wrap,
+            Text = text,
+            Margin = new Thickness(0, topMargin, 0, bottomMargin)
+        });
+    }
+
+    // One task's row on the midday/evening board. Defaults to "still open": a card the user closes
+    // without touching must never mark work done or drop it.
+    private sealed class TaskOutcomeRow(TaskBoardLine line)
+    {
+        public TaskBoardLine Line { get; } = line;
+
+        public string Action { get; set; } = UserCheckInTaskOutcome.NotYet;
     }
 
     // Part 2b — renders the prompt's fixed question label above the answer controls. Skipped when the
@@ -443,42 +596,82 @@ internal sealed class UserCheckInCardWindow : Window
         });
     }
 
+    // Step 7 — the evening CLOSES the day instead of opening a new one. The "what's tomorrow's
+    // task?" box is gone: Yadin stopped answering it, which is the clearest signal available, and
+    // unfinished work now carries itself, so asking was buying nothing.
+    //
+    // What is left is one tap per unfinished item — keep it or drop it — which makes tomorrow's
+    // morning proposal (step 4) free. Finished work is shown but not asked about.
     private void BuildEndOfDay(UserCheckInPrompt prompt)
     {
         // The measured day summary renders as its own block (mirrors midday) so it stays visible
         // whether the message above it is the template or the LLM line.
         if (!string.IsNullOrWhiteSpace(prompt.ReportLine))
         {
-            _bodyStack.Children.Add(new TextBlock
-            {
-                FontSize = 12,
-                Foreground = new SolidColorBrush(MutedFg),
-                TextWrapping = TextWrapping.Wrap,
-                Text = prompt.ReportLine,
-                Margin = new Thickness(0, 0, 0, 10)
-            });
+            AddMutedLine(prompt.ReportLine, bottomMargin: 10);
         }
 
-        // Part 2b — a fixed question directly above the plan box, so it never dangles unanswered.
-        AddQuestionLabel(prompt.QuestionLabel);
+        IReadOnlyList<TaskBoardLine> board = prompt.Tasks ?? Array.Empty<TaskBoardLine>();
+        IReadOnlyList<TaskBoardLine> open = OpenLines(prompt);
 
-        TextBox planBox = MakeInputBox("Plan tomorrow — one line");
-        planBox.TextChanged += (_, _) => _userInteracted = true;
-        _bodyStack.Children.Add(planBox);
-
-        Button save = MakePrimaryButton("Save plan");
-        save.Click += (_, _) => Respond(new UserCheckInResponse(
-            UserCheckInKind.EndOfDay, planBox.Text.Trim(), Choice: null, Dismissed: false));
-        planBox.KeyDown += (_, e) =>
+        if (board.Count == 0)
         {
-            if (e.Key == Key.Enter)
+            // No tasks for the day at all — nothing to close. Keep the old plan box so the evening
+            // card is never an empty shell, and so a pre-step-3 day still records something.
+            AddQuestionLabel(prompt.QuestionLabel);
+            TextBox planBox = MakeInputBox("Anything to note before you stop?");
+            planBox.TextChanged += (_, _) => _userInteracted = true;
+            _bodyStack.Children.Add(planBox);
+
+            Button saveNote = MakePrimaryButton("Save");
+            saveNote.Click += (_, _) => Respond(new UserCheckInResponse(
+                UserCheckInKind.EndOfDay, planBox.Text.Trim(), Choice: null, Dismissed: false));
+            planBox.KeyDown += (_, e) =>
             {
-                Respond(new UserCheckInResponse(UserCheckInKind.EndOfDay, planBox.Text.Trim(), null, Dismissed: false));
-                e.Handled = true;
-            }
-        };
+                if (e.Key == Key.Enter)
+                {
+                    Respond(new UserCheckInResponse(UserCheckInKind.EndOfDay, planBox.Text.Trim(), null, Dismissed: false));
+                    e.Handled = true;
+                }
+            };
+
+            _bodyStack.Children.Add(saveNote);
+            _focusTarget = planBox;
+            return;
+        }
+
+        // Finished work: shown, counted, not asked about. Seeing it is the point.
+        foreach (TaskBoardLine done in board.Where(line => line.IsDone))
+        {
+            AddMutedLine($"✓ {done.Title} — {done.MeasuredLabel}", bottomMargin: 4);
+        }
+
+        if (open.Count == 0)
+        {
+            AddMutedLine("Nothing left open. That is the whole day closed.", bottomMargin: 0, topMargin: 6);
+            Button finish = MakePrimaryButton("Good night");
+            finish.Click += (_, _) => Respond(new UserCheckInResponse(
+                UserCheckInKind.EndOfDay,
+                TextReply: null,
+                Choice: null,
+                Dismissed: false,
+                TaskOutcomes: Array.Empty<UserCheckInTaskOutcome>()));
+            _bodyStack.Children.Add(finish);
+            return;
+        }
+
+        AddQuestionLabel(prompt.QuestionLabel);
+        List<TaskOutcomeRow> rows = AddTaskBoard(open, includeDrop: true);
+        AddMeasuredFootnote();
+
+        Button save = MakePrimaryButton("Close the day");
+        save.Click += (_, _) => Respond(new UserCheckInResponse(
+            UserCheckInKind.EndOfDay,
+            TextReply: null,
+            Choice: null,
+            Dismissed: false,
+            TaskOutcomes: CollectOutcomes(rows)));
         _bodyStack.Children.Add(save);
-        _focusTarget = planBox;
     }
 
     private void Respond(UserCheckInResponse response)

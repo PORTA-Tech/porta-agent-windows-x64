@@ -300,6 +300,9 @@ public sealed class UserCheckInCoordinatorTests
         Assert.Equal("Did you get to your goal?", withoutLlm.QuestionLabel);
     }
 
+    // Step 7 changed WHAT the evening asks — "Plan for tomorrow?" is gone, because Yadin stopped
+    // answering it and unfinished work now carries itself. Part 2b's rule is unchanged and is what
+    // this still guards: a fixed question is always present, whatever the LLM line does.
     [Fact]
     public void BuildPrompt_EndOfDay_AlwaysCarriesTheFixedQuestionLabel_EvenWithNarrative()
     {
@@ -308,8 +311,19 @@ public sealed class UserCheckInCoordinatorTests
         UserCheckInPrompt withoutLlm = UserCheckInCoordinator.BuildPrompt(
             UserCheckInKind.EndOfDay, goal: null, EmptyMetrics(), narrativeLine: "");
 
-        Assert.Equal("Plan for tomorrow?", withLlm.QuestionLabel);
-        Assert.Equal("Plan for tomorrow?", withoutLlm.QuestionLabel);
+        Assert.Equal("Anything to note?", withLlm.QuestionLabel);
+        Assert.Equal("Anything to note?", withoutLlm.QuestionLabel);
+        Assert.DoesNotContain("tomorrow", withLlm.QuestionLabel, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildPrompt_EndOfDay_WithOpenTasks_AsksWhatMovesInsteadOfWhatsNext()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.EndOfDay, goal: null, EmptyMetrics(),
+            board: new[] { Line(1, "Pricing page") });
+
+        Assert.Equal("What moves to tomorrow?", prompt.QuestionLabel);
     }
 
     [Fact]
@@ -355,6 +369,103 @@ public sealed class UserCheckInCoordinatorTests
         CreatedAtUtc: DateTimeOffset.Parse("2026-03-08T08:15:00Z"),
         MiddayAtUtc: null,
         EndOfDayAtUtc: null);
+
+    // ── steps 4-7: every surface now speaks in terms of the day's real tasks ──
+
+    // Step 4 — an open task outranks last night's sentence. A real piece of unfinished work is a
+    // better proposal than a note, and it is the thing the measured hours are attached to.
+    [Fact]
+    public void BuildPrompt_Morning_OpenTasksOutrankTheCarriedPlan()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Morning, goal: null, EmptyMetrics(),
+            carriedPlan: "Finish the report",
+            board: new[] { Line(1, "Pricing page") });
+
+        Assert.Equal("Pricing page", Assert.Single(prompt.Tasks!).Title);
+        Assert.DoesNotContain("Last night you planned", prompt.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildPrompt_Morning_NoOpenTasks_StillFallsBackToTheCarriedPlan()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Morning, goal: null, EmptyMetrics(),
+            carriedPlan: "Finish the report",
+            board: new[] { Line(1, "Pricing page", state: "done") });
+
+        Assert.Equal("Finish the report", prompt.PrefillGoalText);
+    }
+
+    [Fact]
+    public void BuildPrompt_Morning_ProposalCarriesTheNarrativeLineWhenThereIsOne()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Morning, goal: null, EmptyMetrics(),
+            narrativeLine: "You left the pricing page unfinished yesterday.",
+            board: new[] { Line(1, "Pricing page") });
+
+        Assert.Equal("You left the pricing page unfinished yesterday.", prompt.Message);
+        Assert.Single(prompt.Tasks!);
+    }
+
+    // Step 6 — the notice rides on the prompt, said once, and only past the threshold.
+    [Fact]
+    public void BuildPrompt_Morning_SurfacesTheCarriedNoticePastTheThreshold()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Morning, goal: null, EmptyMetrics(),
+            board: new[] { Line(1, "Pricing page", daysCarried: 4) });
+
+        Assert.Contains("moved forward 4 days", prompt.CarriedNotice, StringComparison.Ordinal);
+    }
+
+    // Step 5 — midday stops asking one vague question about "the goal".
+    [Fact]
+    public void BuildPrompt_Midday_WithTasks_AsksAboutTheTasks()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Midday, GoalWithText("Pricing page"), EmptyMetrics(),
+            board: new[] { Line(1, "Pricing page") });
+
+        Assert.Equal("Anything done?", prompt.QuestionLabel);
+        Assert.Single(prompt.Tasks!);
+    }
+
+    [Fact]
+    public void BuildPrompt_Midday_WithoutTasks_KeepsTheOldGoalQuestion()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Midday, GoalWithText("Ship the release"), EmptyMetrics());
+
+        Assert.Equal("Did you get to your goal?", prompt.QuestionLabel);
+    }
+
+    // Step 7 — the evening closes the day. "Plan for tomorrow?" is gone.
+    [Fact]
+    public void BuildPrompt_EndOfDay_WithTasks_AsksWhatMovesRatherThanWhatsNext()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.EndOfDay, GoalWithText("Pricing page"), EmptyMetrics(),
+            board: new[] { Line(1, "Pricing page"), Line(2, "Invoices", state: "done") });
+
+        Assert.Equal("What moves to tomorrow?", prompt.QuestionLabel);
+        Assert.DoesNotContain("Plan for tomorrow", prompt.QuestionLabel, StringComparison.Ordinal);
+        // The message is the day's score, not a fresh question.
+        Assert.Equal("You planned two things. You finished one.", prompt.Message);
+    }
+
+    [Fact]
+    public void BuildPrompt_EndOfDay_WithoutTasks_KeepsThePreStep3Wrap()
+    {
+        UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.EndOfDay, GoalWithText("Ship the release"), EmptyMetrics());
+
+        Assert.Contains("Ship the release", prompt.Message, StringComparison.Ordinal);
+    }
+
+    private static TaskBoardLine Line(long id, string title, string state = "pending", int daysCarried = 0)
+        => new(id, title, PlannedSeconds: 3600, MeasuredSeconds: 0d, State: state, DaysCarried: daysCarried);
 
     private static LocalTodaySummaryMetrics EmptyMetrics() => new(
         HasProcessedTimeline: false,

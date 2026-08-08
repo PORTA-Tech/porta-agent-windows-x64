@@ -50,6 +50,8 @@ internal static class UserCheckInCoordinator
     // Part 1b — middaySkipped/awayGap let the EOD fallback copy acknowledge a skipped midday and an
     // away gap (the away-aware wrap), instead of the generic "Today's goal was: …". They default off
     // so morning/midday callers are unaffected.
+    // Steps 4-7 — board is today's task list with measured time (empty before step 3 has run, or on
+    // a day with no tasks, in which case every surface falls back to its pre-step-3 shape).
     public static UserCheckInPrompt BuildPrompt(
         UserCheckInKind kind,
         LocalApiDailyGoal? goal,
@@ -57,13 +59,28 @@ internal static class UserCheckInCoordinator
         string? carriedPlan = null,
         string? narrativeLine = null,
         bool middaySkipped = false,
-        bool awayGap = false)
+        bool awayGap = false,
+        IReadOnlyList<TaskBoardLine>? board = null)
     {
         string goalText = (goal?.GoalText ?? string.Empty).Trim();
         string plan = (carriedPlan ?? string.Empty).Trim();
         string line = (narrativeLine ?? string.Empty).Trim();
+        IReadOnlyList<TaskBoardLine> tasks = board ?? Array.Empty<TaskBoardLine>();
+        IReadOnlyList<TaskBoardLine> open = tasks.Where(t => t.IsOpen).ToList();
+        string carriedNotice = UserCheckInTaskBoard.CarriedNotice(tasks);
+
         return kind switch
         {
+            // Step 4 — propose, never an empty box. Unfinished work IS the proposal, so the morning
+            // opens with something to confirm rather than something to compose. This outranks the
+            // carried-plan copy below because a real open task beats a sentence typed last night.
+            UserCheckInKind.Morning when open.Count > 0 => new UserCheckInPrompt(
+                Kind: UserCheckInKind.Morning,
+                Title: open.Count == 1 ? "Still on this today?" : "Today's list — look right?",
+                Message: line.Length > 0 ? line : BuildProposalTemplate(open),
+                Tasks: open,
+                CarriedNotice: carriedNotice),
+
             // Part 3 — memory: when last night's plan carried over, open with it (confirm/edit)
             // instead of a blank ask. The plan pre-fills the goal box so confirming is one click.
             UserCheckInKind.Morning when plan.Length > 0 => new UserCheckInPrompt(
@@ -77,32 +94,55 @@ internal static class UserCheckInCoordinator
                 Title: "What's the one thing today?",
                 Message: line.Length > 0 ? line : "Name today's focus and I'll help you protect it."),
 
+            // Step 5 — the midday card lists today's tasks with the hours already beside them, so
+            // "done" is a tap. The question label changes with it: it is no longer about "the goal".
             UserCheckInKind.Midday => new UserCheckInPrompt(
                 Kind: UserCheckInKind.Midday,
                 Title: "How's it going?",
                 Message: line.Length > 0
                     ? line
-                    : goalText.Length > 0
-                        ? $"This morning you said: “{goalText}”. Did you get to it?"
-                        : "Did you get to what mattered so far?",
+                    : open.Count > 0
+                        ? "Here's where today stands."
+                        : goalText.Length > 0
+                            ? $"This morning you said: “{goalText}”. Did you get to it?"
+                            : "Did you get to what mattered so far?",
                 GoalText: goalText,
                 ReportLine: BuildReportLine(metrics),
-                // Part 2b — the fixed question the Yes/Partly/Not-yet buttons answer, always present.
-                QuestionLabel: "Did you get to your goal?"),
+                Tasks: tasks,
+                // Part 2b — the fixed question the answer controls hang off, always present.
+                QuestionLabel: open.Count > 0 ? "Anything done?" : "Did you get to your goal?"),
 
-            // The card renders ReportLine as its own block (same as midday), so the message
-            // stays reflection copy and the measured numbers are never displaced by the LLM.
+            // Step 7 — the evening closes the day. The card renders ReportLine as its own block
+            // (same as midday), so the message stays reflection copy and the measured numbers are
+            // never displaced by the LLM.
             _ => new UserCheckInPrompt(
                 Kind: UserCheckInKind.EndOfDay,
                 Title: "Wrapping up",
                 Message: line.Length > 0
                     ? line
-                    : BuildEndOfDayTemplate(goalText, awayGap),
+                    : tasks.Count > 0
+                        ? UserCheckInTaskBoard.SummarizeDay(tasks)
+                        : BuildEndOfDayTemplate(goalText, awayGap),
                 GoalText: goalText,
                 ReportLine: BuildReportLine(metrics),
-                // Part 2b — the fixed question the plan text box answers, always present.
-                QuestionLabel: "Plan for tomorrow?"),
+                Tasks: tasks,
+                CarriedNotice: carriedNotice,
+                // Step 7 — no longer "Plan for tomorrow?". The evening asks what to do with what is
+                // left, which makes tomorrow's list without opening a new question.
+                QuestionLabel: open.Count > 0 ? "What moves to tomorrow?" : "Anything to note?"),
         };
+    }
+
+    // Step 4 — the honest proposal copy. Names the work rather than describing it, because the list
+    // is right underneath and repeating it in prose would make the card longer for nothing.
+    private static string BuildProposalTemplate(IReadOnlyList<TaskBoardLine> open)
+    {
+        if (open.Count == 1)
+        {
+            return $"“{open[0].Title}” is still open. Keep it, or change it below.";
+        }
+
+        return "Still open from before. Change anything that's wrong, then send.";
     }
 
     // Part 1b — the honest EOD fallback. When there was a substantial away gap, frame it as a
