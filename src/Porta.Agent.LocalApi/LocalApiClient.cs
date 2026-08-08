@@ -10,8 +10,23 @@ namespace Porta.Agent.LocalApi;
 public sealed class LocalApiClient : IDisposable
 {
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(3);
+
+    // The narrative route is the ONE local call that does not end at local SQLite: the local API
+    // forwards it to the control plane, which calls Opus. 3s is right for every other route and
+    // catastrophically wrong for this one — it hung up ~3s into a call the host allows 10s and the
+    // server allows 8-9s, so a line could only land if the whole chain beat 3 seconds. That is the
+    // ~7-in-10 narrative failure, and it read as a server problem for four rounds of investigation
+    // because the agent never recorded which budget expired (2026-08-08).
+    //
+    // 12s sits ABOVE the host's 10s cancellation token deliberately: the host budget is meant to be
+    // the ceiling, per the documented 10s -> 9s -> 8s chain. This one must never be the binding
+    // constraint again. Waiting costs the card nothing — the card renders instantly with its
+    // template and the line upgrades it in place whenever it arrives.
+    private static readonly TimeSpan NarrativeRequestTimeout = TimeSpan.FromSeconds(12);
+
     private const string TokenHeader = "X-PORTA-TOKEN";
     private readonly HttpClient _httpClient;
+    private readonly HttpClient _narrativeHttpClient;
     private readonly LocalApiRuntimeSettings? _settingsOverride;
     private readonly LocalApiEndpointSettings? _endpointOverride;
     private LocalApiRuntimeSettings? _settings;
@@ -38,6 +53,12 @@ public sealed class LocalApiClient : IDisposable
         _httpClient = httpClient ?? new HttpClient
         {
             Timeout = RequestTimeout
+        };
+        // An injected client (tests) is reused for both, so the narrative route is exercised
+        // through the same stub handler rather than quietly bypassing it.
+        _narrativeHttpClient = httpClient ?? new HttpClient
+        {
+            Timeout = NarrativeRequestTimeout
         };
         _settingsOverride = settingsOverride;
         _endpointOverride = endpointOverride;
@@ -421,21 +442,53 @@ public sealed class LocalApiClient : IDisposable
     {
         if (!HasRuntimeSettings())
         {
-            return null;
+            return NoLine("local_api_not_configured");
         }
 
         try
         {
             RefreshEndpointBinding();
             using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
-            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/narrative", content, token).ConfigureAwait(false);
-            return await response.Content.ReadFromJsonAsync<LocalApiNarrativeResponse>(cancellationToken: token).ConfigureAwait(false);
+            using HttpResponseMessage response = await _narrativeHttpClient
+                .PostAsync("/v1/narrative", content, token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                // No EnsureSuccessStatusCode above on purpose: a non-2xx used to fall into
+                // ReadFromJsonAsync, throw on the body, and land in the blind catch as a bare null.
+                return NoLine($"local_api_http_{(int)response.StatusCode}");
+            }
+
+            return await response.Content.ReadFromJsonAsync<LocalApiNarrativeResponse>(cancellationToken: token)
+                .ConfigureAwait(false) ?? NoLine("local_api_empty_body");
         }
-        catch
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
-            return null;
+            // The caller gave up (its own budget, or shutdown). Propagate so the host reports its
+            // own budget rather than blaming the local API for a decision it made itself.
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            // Not the caller's token, so this is HttpClient.Timeout. Read the budget off the client
+            // that actually expired rather than a constant, so the log can never name a number this
+            // route was not really running under — that mismatch is what hid the bug.
+            return NoLine($"local_api_timeout:{_narrativeHttpClient.Timeout.TotalSeconds:F0}s");
+        }
+        catch (Exception ex)
+        {
+            return NoLine($"local_api_transport:{ex.GetType().Name}");
         }
     }
+
+    /// <summary>
+    /// A "there is no line, and here is why" response. This route is the one place a bare null was
+    /// load-bearing information: every other layer of the narrative chain already hands its reason
+    /// code up (ControlPlaneClient, NarrativeGateway), and this catch swallowed the last one — so a
+    /// failure on this machine was indistinguishable from a model that declined on the server.
+    /// The caller reads Reason straight through to user-agent.log.
+    /// </summary>
+    private static LocalApiNarrativeResponse NoLine(string reason)
+        => new(Success: false, Line: null, TimestampUtc: DateTimeOffset.UtcNow, Reason: reason);
 
     private async Task<LocalApiDailyGoalResponse?> PostGoalAsync(string path, object request, CancellationToken token)
     {
@@ -1055,6 +1108,10 @@ public sealed class LocalApiClient : IDisposable
     public void Dispose()
     {
         _httpClient.Dispose();
+        if (!ReferenceEquals(_narrativeHttpClient, _httpClient))
+        {
+            _narrativeHttpClient.Dispose();
+        }
     }
 
     private static async Task<LocalApiAckResponse?> ReadAckResponseAsync(
@@ -1182,13 +1239,29 @@ public sealed class LocalApiClient : IDisposable
         return RefreshEndpointBinding();
     }
 
+    // Every client this binds must stay in lockstep: a narrative client left without the auth token
+    // or the base address would fail in a way that looks exactly like the bug this pair was split
+    // to fix. Iterating them is what keeps that true by construction rather than by memory.
+    private IEnumerable<HttpClient> BoundClients()
+    {
+        yield return _httpClient;
+        if (!ReferenceEquals(_narrativeHttpClient, _httpClient))
+        {
+            yield return _narrativeHttpClient;
+        }
+    }
+
     private bool RefreshEndpointBinding()
     {
         _settings = _settingsOverride ?? LocalApiRuntimeSettingsStore.Load();
         if (_settings == null)
         {
             _authToken = null;
-            _httpClient.DefaultRequestHeaders.Remove(TokenHeader);
+            foreach (HttpClient client in BoundClients())
+            {
+                client.DefaultRequestHeaders.Remove(TokenHeader);
+            }
+
             return false;
         }
 
@@ -1201,10 +1274,13 @@ public sealed class LocalApiClient : IDisposable
 
         if (!string.Equals(nextAuthToken, _authToken, StringComparison.Ordinal))
         {
-            _httpClient.DefaultRequestHeaders.Remove(TokenHeader);
-            if (!string.IsNullOrWhiteSpace(nextAuthToken))
+            foreach (HttpClient client in BoundClients())
             {
-                _httpClient.DefaultRequestHeaders.TryAddWithoutValidation(TokenHeader, nextAuthToken);
+                client.DefaultRequestHeaders.Remove(TokenHeader);
+                if (!string.IsNullOrWhiteSpace(nextAuthToken))
+                {
+                    client.DefaultRequestHeaders.TryAddWithoutValidation(TokenHeader, nextAuthToken);
+                }
             }
 
             _authToken = nextAuthToken;
@@ -1212,14 +1288,20 @@ public sealed class LocalApiClient : IDisposable
 
         if (nextPort == _port
             && string.Equals(nextHost, _host, StringComparison.OrdinalIgnoreCase)
-            && _httpClient.BaseAddress != null)
+            && _httpClient.BaseAddress != null
+            && _narrativeHttpClient.BaseAddress != null)
         {
             return true;
         }
 
         _port = nextPort;
         _host = nextHost;
-        _httpClient.BaseAddress = new Uri($"http://{_host}:{_port}");
+        var baseAddress = new Uri($"http://{_host}:{_port}");
+        foreach (HttpClient client in BoundClients())
+        {
+            client.BaseAddress = baseAddress;
+        }
+
         return true;
     }
 }

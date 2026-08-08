@@ -1949,8 +1949,10 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
             if (response is null)
             {
-                // The local API itself did not answer — the service is down, the port moved, or
-                // the token is stale. Nothing ever reached the control plane.
+                // Defensive only since 2026-08-08: GetNarrativeAsync now always answers, with a
+                // specific reason code (local_api_timeout / _http_NNN / _transport: / _not_configured
+                // / _empty_line). A bare local_api_no_response in the log means this contract broke,
+                // not that the local API was silent — the old code returned null for all of them.
                 return (null, "local_api_no_response");
             }
 
