@@ -25,6 +25,40 @@ language and lead with what it means, not how you found it.**
 
 ---
 
+## 0. The build waiting for Yadin — 1.2.130, 2026-08-08
+
+```
+C:\Users\hp\porta-agent-windows-x64\installer\bin\x64\Release\AriAgentInstaller.msi
+SHA256  25B5A50D022BBEE1F19BC0411930862B5006B0671554DF9F8BF7C2B406F8FD46
+Size    178,008,064 bytes
+Built from b981737 (build-1300.ps1); payload exes all stamped 1.2.130+b981737
+```
+
+**Built, not installed and not released. Installing is Yadin's, always.** No tag, no GitHub release,
+no manifest — nothing reaches the fleet.
+
+Guards that passed: publish output self-contained (single-file), payload SQLite 3.53.3 against
+CVE-2025-6965, and `ProductVersion` read back out of the MSI rather than trusted from the csproj.
+
+Test gate: Core 730 passed / **4 failed** — the documented restart-reconciliation baseline
+(`SECURITY_HANDOFF.md §4.8`), confirmed by name, **that red is expected**. UserAgent 299 (+3
+skipped), Service 117, ControlCenter 80 (+7 skipped), Runtime 6 — all green. CI ran none of these;
+`validation-gate.yml` still has no `dotnet test`.
+
+Carries, each with its own log line so a problem stays attributable:
+
+| Change | What to look for in `user-agent.log` |
+|---|---|
+| Step 3 — morning check-in creates real tasks | `checkin_morning_task_created`, `checkin_morning_task_started` |
+| Task list / goal row share the 05:00 boundary | (no line; visible as closed tasks staying on the list before 5am) |
+| One ground-truth label per task | `checkin_morning_recorded … tasks=N` |
+| Narrative reason codes one layer deeper | `checkin_narrative … reason=local_api_*` |
+| Narrative route's own 12s budget | `checkin_narrative … used=True` far more often |
+
+**What is NOT in it:** nothing new for step 2. The stale-card expiry has still never run.
+
+---
+
 ## 2. Where things stand right now
 
 **Released to Yadin's machine: 1.2.129.** Installed via `scripts\install.ps1`, which copies payload
@@ -34,15 +68,58 @@ release, no manifest. Pushed through `8596d5e`.
 
 | Step | State |
 |---|---|
-| 1. Typing bug | **Done and confirmed live** on the morning of 2026-08-07 — `foreground=True` in the log, typing worked with no click. |
-| 2. Stale card + timing | **Built, not yet confirmed.** `UserCheckInStalenessPolicy`, goal-day rollover rule, 15 tests. |
-| Narrative async | **Built and working.** Card now shows ~3s before the line is even attempted. |
-| Narrative diagnostics | **Built, awaiting first data.** Reason codes ride back to `user-agent.log`. |
-| 3. Merge goals and tasks | **Built, not yet confirmed live.** See §4a. Two commits, tests green, not yet in a build. |
+| 1. Typing bug | **Done and confirmed live**, twice — `foreground=True` on 2026-08-07 and again 2026-08-08, typing worked with no click. |
+| 2. Stale card + timing | **UNTESTED — not done.** The code and 15 tests exist, but `checkin_card_expired` has **never fired, on any date**. No EOD card has been shown since 2026-08-06, so the rule has never had an opportunity to run. Do not report this as working until a card is left open overnight and the next morning's card displaces it. |
+| Narrative async | **Done and confirmed live.** Card renders instantly; on 2026-08-08 the line upgraded it 2.4s later with `applied=True`. |
+| Narrative diagnostics | **Built and it worked.** One reason code in the field (2026-08-07 midday) named the cause — see §3a. |
+| Narrative root cause | **FOUND 2026-08-08 and fixed.** A 3s HTTP client timeout, below all three documented budgets. See §3a. |
+| 3. Merge goals and tasks | **Built, not yet confirmed live.** See §4a. |
 
 Test gate before the 1.2.129 build: ControlCenter 80, Runtime 6, Service 117, UserAgent 276 (+3
 skipped) — all green. Core 711 passed / 4 failed, exactly the documented restart-reconciliation
 baseline (`SECURITY_HANDOFF.md §4.8`) — **that red is expected, do not treat green as the baseline.**
+
+---
+
+## 3a. The narrative failure — SOLVED 2026-08-08
+
+**Four rounds of investigation looked at the server. The defect was a fourth budget on the agent,
+one layer below the three everyone was reading.**
+
+`LocalApiClient` used a single `HttpClient` with `Timeout = 3s` for every local call — including
+`/v1/narrative`, the one route that does not end at local SQLite but is forwarded to the control
+plane and on to Opus. The documented chain was 10s (host token) → 9s (`NarrativeGateway.CallBudget`)
+→ 8s (server `REQUEST_TIMEOUT_MS`). **The 3s client timeout sat below all three and always fired
+first.** A line could only ever land when the local API, the network, Render and Opus writing up to
+250 tokens all finished inside three seconds.
+
+Two field measurements, both landing exactly there:
+
+| When | Elapsed |
+|---|---|
+| 2026-08-06 morning (brief §5b) | 3.03s |
+| 2026-08-07 midday (`local_api_timeout` reason code) | 2.889s |
+
+It explains every symptom that killed the other hypotheses: uniform failure across kinds, no
+correlation with the overnight gap, retries that sometimes win (each draw independent), and the
+~7-in-10 rate.
+
+**Correction to what was believed on 2026-08-07:** `local_api_no_response` was read as "nothing ever
+reached the control plane". That was inferred from a code comment written for a different
+assumption. Under a client-side timeout the request **is** sent and forwarded — the agent just stops
+waiting. **Render is likely logging successful narrative calls at the exact timestamps the agent
+logged `used=False`.** Checking that is a free confirmation and nobody has done it yet.
+
+**The fix:** the narrative route gets its own `HttpClient` at 12s, above the host's 10s ceiling so it
+can never be the binding constraint again. Every other local call keeps 3s, which is correct for a
+SQLite read. Waiting costs the card nothing — it renders instantly and the line upgrades it in
+place. A test pins the two budgets apart.
+
+**Also fixed, and it is what would have found this in one morning:** `GetNarrativeAsync` ended in
+`catch { return null; }`, so the host reported timeouts, HTTP errors, transport failures and an
+unconfigured agent as the single code `local_api_no_response`. It now returns a specific reason:
+`local_api_timeout:12s`, `local_api_http_NNN`, `local_api_transport:<Type>`,
+`local_api_not_configured`, `local_api_empty_body`.
 
 ---
 
@@ -51,14 +128,10 @@ baseline (`SECURITY_HANDOFF.md §4.8`) — **that red is expected, do not treat 
 He opens his PC as normal and reads three things out of `user-agent.log`. Step 3 is already built
 and pushed, but it can run alongside — it is not in this build.
 
-> **Do not build tonight, and do not fold step 3 into tomorrow's confirmation run**
-> (Yadin, 2026-08-07). Tomorrow tests **1.2.129 as installed** — focus, stale card, narrative
-> reason code. Step 3 ships in the build *after* that, **on its own**, so a morning card that
-> misbehaves can only have one cause.
->
-> This is not automatic. A release ships everything on `main`, so the sequencing only holds while
-> nothing else lands first. As of `b24fa32` the only code on `main` since the 1.2.129 build
-> (`8596d5e`) is the three step-3 commits — check that is still true before cutting the build.
+> **Superseded 2026-08-08.** The confirmation run happened on the morning of 08-08 and 1.2.129 came
+> back clean on focus, the async line and the reason codes. Yadin then released the hold: step 3,
+> the deeper reason codes and the narrative timeout fix ship together, because they touch different
+> code and each has its own log line, so a problem is still attributable.
 
 ### a. `checkin_card_focus … foreground=True`
 
