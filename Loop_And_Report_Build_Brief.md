@@ -209,7 +209,53 @@ the following, and they must be distinguished by measurement before any code cha
    of 10s/9s/8s. **A 3-second failure is not a timeout.** Something is failing fast. Also ruled out:
    the request carries no `temperature`/`top_p`/`budget_tokens`, so it is not a universal 400.
 
-   **Do not propose a fourth hypothesis from the agent side — the answer is in the server logs.**
+   **FIRST INSTRUMENTED DATA — 2026-08-08.** Two samples since 1.2.129 landed, and they split:
+   - `08-08 12:06 morning` → `used=True`, `checkin_narrative_upgrade applied=True`. The line worked
+     and reached the screen 2.4s after the card appeared. **The async design is confirmed live.**
+   - `08-07 13:18 midday` → `used=False reason=local_api_no_response`, failing in ~2.9s — the same
+     ~3-second signature measured on 08-06. **It died on the machine and never reached the control
+     plane.** The midday answer wrote successfully through the same local service 0.7s later, so the
+     service was up.
+
+   **This partly invalidates the instruction below.** For `local_api_no_response` the Render logs
+   cannot hold the answer — the request never arrived. The next layer of instrumentation belongs in
+   `LocalApiClient.GetNarrativeAsync`, which currently does `catch { return null; }` and discards the
+   exception. Two samples is not a diagnosis; get more.
+
+   **SOLVED LATER THE SAME DAY — 2026-08-08. The block above is kept as the record; two of its
+   statements are wrong and the correction is the useful part.**
+
+   The cause was **a fourth budget nobody had found**: `LocalApiClient` used one `HttpClient` with
+   `Timeout = 3s` for every local call, including `/v1/narrative` — the only route that does not end
+   at local SQLite but is forwarded to the control plane and on to Opus. **3s sits below all three
+   documented budgets** (10s host token → 9s `NarrativeGateway.CallBudget` → 8s server
+   `REQUEST_TIMEOUT_MS`) and therefore always fired first. A line could only ever land when the local
+   API, the network, Render and Opus writing up to 250 tokens all finished inside three seconds.
+
+   Both measurements land exactly there: **3.03s** (08-06) and **2.889s** (08-07). It explains every
+   symptom that killed the earlier hypotheses — uniform failure across kinds, no correlation with the
+   overnight gap, retries that sometimes win because each draw is independent, and the ~7-in-10 rate.
+   **"A 3-second failure is not a timeout" was the sentence that cost four rounds.** It was a
+   timeout, of a budget one layer below the three being read.
+
+   Two corrections to the block above:
+
+   - **"It died on the machine and never reached the control plane" is wrong.** That was inferred
+     from a code comment written for a different assumption. Under a client-side timeout the request
+     **is** sent and forwarded — the agent simply stops waiting for the reply. **Render is likely
+     logging successful narrative calls at the exact timestamps the agent logged `used=False`.**
+     Still unchecked, and it is free confirmation.
+   - **"The next layer of instrumentation belongs in `GetNarrativeAsync`" was exactly right**, and it
+     is done. That `catch { return null; }` reported timeouts, HTTP errors, transport failures and an
+     unconfigured agent all as the single code `local_api_no_response`. It now answers with
+     `local_api_timeout:12s`, `local_api_http_NNN`, `local_api_transport:<Type>`,
+     `local_api_not_configured` or `local_api_empty_body`.
+
+   Fixed in 1.2.130: the narrative route gets its own `HttpClient` at **12s**, deliberately above the
+   host's 10s ceiling so it can never be the binding constraint again. Every other local call keeps
+   3s, which is correct for a SQLite read. A test pins the two budgets apart.
+
+   **For the remaining reason codes, the answer is still in the server logs.**
    Every remaining path in `buildNarrativeLine` logs its own reason on the control plane:
    `'[narrative] Rejected unknown account'` (`isKnownAccount` false — note the route is
    unauthenticated and gated on the account UUID existing), `'Daily call cap reached'`
