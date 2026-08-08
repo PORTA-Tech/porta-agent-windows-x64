@@ -73,7 +73,11 @@ release, no manifest. Pushed through `8596d5e`.
 | Narrative async | **Done and confirmed live.** Card renders instantly; on 2026-08-08 the line upgraded it 2.4s later with `applied=True`. |
 | Narrative diagnostics | **Built and it worked.** One reason code in the field (2026-08-07 midday) named the cause — see §3a. |
 | Narrative root cause | **FOUND 2026-08-08 and fixed.** A 3s HTTP client timeout, below all three documented budgets. See §3a. |
-| 3. Merge goals and tasks | **Built, not yet confirmed live.** See §4a. |
+| 3. Merge goals and tasks | **Built, not yet confirmed live.** See §4a. Shipped in 1.2.130. |
+| 4. Propose, never an empty box | **Built 2026-08-08, not in a build yet.** Morning pre-fills from open work. |
+| 5. One-tap done | **Built 2026-08-08, not in a build yet.** Midday lists tasks with measured time. |
+| 6. Carry-forward | **Built 2026-08-08, not in a build yet.** Costs nothing — open tasks never left. |
+| 7. Evening closes the day | **Built 2026-08-08, not in a build yet.** The "tomorrow?" box is gone. |
 
 Test gate before the 1.2.129 build: ControlCenter 80, Runtime 6, Service 117, UserAgent 276 (+3
 skipped) — all green. Core 711 passed / 4 failed, exactly the documented restart-reconciliation
@@ -251,6 +255,36 @@ label counts to rise; they are not comparable to the history before this change.
 **What has NOT been verified:** none of this has run on a live agent. The whole path is untested
 against a real `LocalApi`, and per §8 of the brief the task feature has essentially never been used
 in the field (three tasks ever, all in July). First live morning card is the real test.
+
+---
+
+## 4b. Steps 4-7 as built — 2026-08-08 (`aae5609`)
+
+**This is the checkpoint. Do not start step 8.** See §8: Yadin uses it for a week and the test is one
+question — *has Ari changed what he actually did that day?*
+
+- **4. Propose.** The morning card arrives pre-filled from work that is still open, oldest first.
+  An open task **outranks last night's carried plan** — a real piece of unfinished work is a better
+  proposal than a note, and it is what the measured hours are attached to. No open tasks falls back
+  to the carried plan, then to the blank ask; both unchanged.
+- **5. One-tap done.** Midday lists today's tasks with the measured time and a Done / Not yet per
+  row. The yes/partly/not_yet answer is **derived from what was ticked**, not asked separately, so
+  `daily_goals` stays a view over the tasks and both the ground-truth label and the `MiddayRecorded`
+  gate keep working untouched.
+- **6. Carry-forward, which costs nothing.** `ReadTasks` returns pending/active rows regardless of
+  age, so open work never left. **"Keep" writes nothing — the no-op IS the carry.** Unfinished work
+  therefore cannot be lost by a failed write, because there is no write. Three days carried earns
+  one plain sentence, once.
+- **7. Evening closes the day.** The "what's tomorrow's task?" box is gone. What is left: the day's
+  score, finished work shown but not asked about, and one tap per unfinished item — keep or drop.
+
+**The measured-time warning from brief §8 is handled but needs watching.** The number beside each
+task is present-and-working time (~64% of wall clock in the one live measurement), because time away
+credits nothing. The card says "Time counted while you were at the machine." If Yadin still reads it
+as undercounting, that copy is the thing to change — not the number.
+
+**Not verified:** none of steps 4-7 has run on a live agent, and the midday/evening boards have never
+been seen on a real screen. Card height in particular is untested with three tasks plus chips.
 
 ---
 
