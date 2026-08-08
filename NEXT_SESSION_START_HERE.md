@@ -45,7 +45,7 @@ Guards that passed: publish output self-contained (single-file), payload SQLite 
 CVE-2025-6965, and `ProductVersion` read back out of the MSI rather than trusted from the csproj.
 
 Test gate: Core 730 passed / **4 failed** — the documented restart-reconciliation baseline
-(`SECURITY_HANDOFF.md §4.8`), confirmed by name, **that red is expected**. UserAgent 299 (+3
+(`SECURITY_HANDOFF.md §4.8`), confirmed by name, **that red is expected**. UserAgent 347 (+3
 skipped), Service 117, ControlCenter 80 (+7 skipped), Runtime 6 — all green. CI ran none of these;
 `validation-gate.yml` still has no `dotnet test`.
 
@@ -79,11 +79,11 @@ release, no manifest. Pushed through `8596d5e`.
 | Narrative async | **Done and confirmed live.** Card renders instantly; on 2026-08-08 the line upgraded it 2.4s later with `applied=True`. |
 | Narrative diagnostics | **Built and it worked.** One reason code in the field (2026-08-07 midday) named the cause — see §3a. |
 | Narrative root cause | **FOUND 2026-08-08 and fixed.** A 3s HTTP client timeout, below all three documented budgets. See §3a. |
-| 3. Merge goals and tasks | **Built, not yet confirmed live.** See §4a. Shipped in 1.2.130. |
-| 4. Propose, never an empty box | **Built 2026-08-08, not in a build yet.** Morning pre-fills from open work. |
-| 5. One-tap done | **Built 2026-08-08, not in a build yet.** Midday lists tasks with measured time. |
-| 6. Carry-forward | **Built 2026-08-08, not in a build yet.** Costs nothing — open tasks never left. |
-| 7. Evening closes the day | **Built 2026-08-08, not in a build yet.** The "tomorrow?" box is gone. |
+| 3. Merge goals and tasks | **Built, not yet confirmed live.** See §4a. In 1.2.131. |
+| 4. Propose, never an empty box | **Built, not yet confirmed live.** In 1.2.131. Morning pre-fills from open work. |
+| 5. One-tap done | **Built, not yet confirmed live.** In 1.2.131. Midday lists tasks with measured time. |
+| 6. Carry-forward | **Built, not yet confirmed live.** In 1.2.131. Costs nothing — open tasks never left. |
+| 7. Evening closes the day | **Built, not yet confirmed live.** In 1.2.131. The "tomorrow?" box is gone. |
 
 Test gate before the 1.2.129 build: ControlCenter 80, Runtime 6, Service 117, UserAgent 276 (+3
 skipped) — all green. Core 711 passed / 4 failed, exactly the documented restart-reconciliation
