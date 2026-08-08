@@ -25,14 +25,18 @@ language and lead with what it means, not how you found it.**
 
 ---
 
-## 0. The build waiting for Yadin — 1.2.130, 2026-08-08
+## 0. The build waiting for Yadin — 1.2.131, 2026-08-08
 
 ```
 C:\Users\hp\porta-agent-windows-x64\installer\bin\x64\Release\AriAgentInstaller.msi
-SHA256  25B5A50D022BBEE1F19BC0411930862B5006B0671554DF9F8BF7C2B406F8FD46
-Size    178,008,064 bytes
-Built from b981737 (build-1300.ps1); payload exes all stamped 1.2.130+b981737
+SHA256  CE2FC253582D3A5EC7B73C6EC87EA2E6D59CD7FDC76A87337D20406D8C01CB8C
+Size    178,028,544 bytes
+Built from 07de30a (build-1301.ps1); payload exes all stamped 1.2.131+07de30a
 ```
+
+**This is the checkpoint build — steps 1 through 7, the whole closed loop.** After installing it,
+the plan says stop building and use it for a week (§8). 1.2.130 was built earlier the same day and
+superseded before install; only this one matters.
 
 **Built, not installed and not released. Installing is Yadin's, always.** No tag, no GitHub release,
 no manifest — nothing reaches the fleet.
@@ -45,11 +49,13 @@ Test gate: Core 730 passed / **4 failed** — the documented restart-reconciliat
 skipped), Service 117, ControlCenter 80 (+7 skipped), Runtime 6 — all green. CI ran none of these;
 `validation-gate.yml` still has no `dotnet test`.
 
-Carries, each with its own log line so a problem stays attributable:
+Carries everything in 1.2.130 (which was never installed) plus steps 4-7. Each change has its
+own log line so a problem stays attributable:
 
 | Change | What to look for in `user-agent.log` |
 |---|---|
 | Step 3 — morning check-in creates real tasks | `checkin_morning_task_created`, `checkin_morning_task_started` |
+| Steps 4-7 — the closed loop | `checkin_task_outcome kind=… action=done\|abandon`, `checkin_eod_recorded … dropped=N` |
 | Task list / goal row share the 05:00 boundary | (no line; visible as closed tasks staying on the list before 5am) |
 | One ground-truth label per task | `checkin_morning_recorded … tasks=N` |
 | Narrative reason codes one layer deeper | `checkin_narrative … reason=local_api_*` |
