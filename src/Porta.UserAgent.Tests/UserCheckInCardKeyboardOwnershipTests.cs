@@ -125,6 +125,27 @@ public sealed class UserCheckInCardKeyboardOwnershipTests
         });
     }
 
+    // The retry exists to distinguish a transient refusal from a structural one, not to win a
+    // fight. Yadin's rule is "don't trap me", so the bound is part of the contract: a couple of
+    // attempts inside half a second, never a loop that keeps reaching for a keyboard someone else
+    // is using.
+    [Fact]
+    public void ForegroundRetries_AreFewAndFast_SoTheyCanNeverBecomeAFight()
+    {
+        System.Reflection.FieldInfo field = typeof(UserCheckInCardWindow).GetField(
+            "ForegroundRetryDelays",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("ForegroundRetryDelays not found — the retry was restructured.");
+
+        var delays = (TimeSpan[])field.GetValue(null)!;
+
+        Assert.InRange(delays.Length, 1, 3);
+        Assert.All(delays, d => Assert.InRange(d, TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(500)));
+        Assert.True(
+            delays.Aggregate(TimeSpan.Zero, (a, b) => a + b) < TimeSpan.FromSeconds(1),
+            "every retry must be spent inside a second, or the card is arguing with the user.");
+    }
+
     private static UserCheckInPrompt MorningPrompt()
         => new(UserCheckInKind.Morning, "What's the one thing today?", "Name today's focus.");
 

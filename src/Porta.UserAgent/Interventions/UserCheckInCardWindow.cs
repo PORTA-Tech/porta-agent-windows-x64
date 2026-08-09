@@ -858,27 +858,78 @@ internal sealed class UserCheckInCardWindow : Window
     //
     // Fallback is deliberate and load-bearing: when foreground acquisition fails we still Activate
     // and still focus the box, so a click-then-type user is never worse off than before this fix.
-    private void AcquireForegroundAndFocus()
+    private void AcquireForegroundAndFocus(int tryNumber = 0)
     {
         // Only seize foreground when there is something to type into. Midday is chips-only, so
         // taking foreground there would spend an interruption to buy nothing; it keeps the old
         // Activate-only behaviour and stays as quiet as it is today.
         _focusAssertions++;
-        ForegroundAttempt attempt = _focusTarget != null
+        ForegroundAttempt result = _focusTarget != null
             ? TryAcquireForeground()
             : new ForegroundAttempt(false, "not_attempted_no_input");
         Activate();
         ApplyFocusTarget();
 
-        // Only ever shown when there is something to type into AND the grab was refused. A
-        // chips-only card needs no keyboard, so it never carries the hint.
-        _focusHint.Visibility = _focusTarget != null && !attempt.Acquired
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
         UserAgentFileLog.Info(
-            $"checkin_card_focus kind={_kind} foreground={attempt.Acquired} reason={attempt.Reason}"
-            + $" target={(_focusTarget == null ? "none" : "input")}");
+            $"checkin_card_focus kind={_kind} try={tryNumber} foreground={result.Acquired}"
+            + $" reason={result.Reason} target={(_focusTarget == null ? "none" : "input")}");
+
+        if (result.Acquired || _focusTarget == null)
+        {
+            _focusHint.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        // The retry IS the experiment. Windows lists eight conditions under which it will grant
+        // foreground; several are transient (a menu is open, a window is mid-activation, the
+        // foreground app is between input events) and several are not. Which one refused a given
+        // card is not derivable from the return value, and the morning card wins where the evening
+        // card sometimes does not — so rather than assume, try again shortly and log which attempt
+        // won. A `try=1` success in the log means timing and the retry earned its place; three
+        // identical refusals mean the cause is structural and the honest hint is all there is.
+        //
+        // Bounded to two extra attempts inside ~half a second, and abandoned the moment the user
+        // starts answering: this must never become a fight for a keyboard someone else is using.
+        if (tryNumber < ForegroundRetryDelays.Length && !SuppressForegroundAcquisition)
+        {
+            ScheduleForegroundRetry(tryNumber);
+            return;
+        }
+
+        _focusHint.Visibility = Visibility.Visible;
+    }
+
+    // Two extra attempts, close together. Long enough to outlast a menu closing or a window
+    // finishing activation; short enough that a user who is about to type notices nothing.
+    private static readonly TimeSpan[] ForegroundRetryDelays =
+    {
+        TimeSpan.FromMilliseconds(120),
+        TimeSpan.FromMilliseconds(350)
+    };
+
+    private void ScheduleForegroundRetry(int tryNumber)
+    {
+        var timer = new DispatcherTimer(DispatcherPriority.Input, Dispatcher)
+        {
+            Interval = ForegroundRetryDelays[tryNumber]
+        };
+
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+
+            // Abandon silently if the moment has passed: the card is gone, was answered, or the
+            // user has started typing — in which case they already own the keyboard and grabbing
+            // it again would be taking it from them.
+            if (!IsVisible || _responded || _confirmationMode || _focusTarget == null || HasUserEngaged())
+            {
+                return;
+            }
+
+            AcquireForegroundAndFocus(tryNumber + 1);
+        };
+
+        timer.Start();
     }
 
     /// <summary>
