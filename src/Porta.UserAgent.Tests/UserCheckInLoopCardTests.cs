@@ -66,6 +66,103 @@ public sealed class UserCheckInLoopCardTests
         });
     }
 
+    // ── removing a row you changed your mind about (2026-08-09) ──
+
+    [Fact]
+    public void Morning_RemovingARow_DropsThatRowOnly()
+    {
+        UserCheckInResponse? captured = null;
+        RunCard(window =>
+        {
+            window.ShowPrompt(new UserCheckInPrompt(
+                UserCheckInKind.Morning, "Today's list", "Still open.",
+                Tasks: new[] { Line(1, "Pricing page"), Line(2, "Invoices"), Line(3, "Client revisions") }));
+
+            // Drop the middle one — not the last, so an off-by-one would be visible.
+            Click(RemoveButtons(window)[1]);
+            Click(ButtonWithContent(window, "Share with Ari"));
+        }, r => captured = r);
+
+        Assert.Equal(new[] { "Pricing page", "Client revisions" }, captured!.Tasks!.Select(t => t.Title));
+    }
+
+    [Fact]
+    public void Morning_RemovingARow_KeepsTheOtherRowsDurations()
+    {
+        UserCheckInResponse? captured = null;
+        RunCard(window =>
+        {
+            window.ShowPrompt(new UserCheckInPrompt(
+                UserCheckInKind.Morning, "Today's list", "Still open.",
+                Tasks: new[] { Line(1, "Pricing page"), Line(2, "Invoices") }));
+
+            // 3h on the second row, then delete the FIRST — the survivor must keep its own chip.
+            Click(ButtonsWithContent(window, "3h")[1]);
+            Click(RemoveButtons(window)[0]);
+            Click(ButtonWithContent(window, "Share with Ari"));
+        }, r => captured = r);
+
+        UserCheckInTaskEntry only = Assert.Single(captured!.Tasks!);
+        Assert.Equal("Invoices", only.Title);
+        Assert.Equal(10800, only.PlannedSeconds);
+    }
+
+    [Fact]
+    public void Morning_TheLastRowCannotBeRemoved_SoTheCardAlwaysHasABox()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(new UserCheckInPrompt(
+                UserCheckInKind.Morning, "Still on this?", "One thing.",
+                Tasks: new[] { Line(1, "Pricing page") }));
+
+            // With one row there is nothing to remove, so the affordance is not offered at all.
+            Assert.Empty(RemoveButtons(window));
+            Assert.Single(Descendants<TextBox>(window));
+        });
+    }
+
+    [Fact]
+    public void Morning_RemovingDownToOne_HidesTheRemainingRemoveButton()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(new UserCheckInPrompt(
+                UserCheckInKind.Morning, "Today's list", "Two things.",
+                Tasks: new[] { Line(1, "Pricing page"), Line(2, "Invoices") }));
+
+            Assert.Equal(2, RemoveButtons(window).Count);
+
+            Click(RemoveButtons(window)[0]);
+
+            Assert.Empty(RemoveButtons(window));
+        });
+    }
+
+    [Fact]
+    public void Morning_RemovingFromTheCeiling_BringsBackTheAddAffordance()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(new UserCheckInPrompt(
+                UserCheckInKind.Morning, "Today's list", "Three things.",
+                Tasks: new[] { Line(1, "A"), Line(2, "B"), Line(3, "C") }));
+
+            Assert.Equal(Visibility.Collapsed, AddButton(window).Visibility);
+
+            Click(RemoveButtons(window)[2]);
+
+            Assert.Equal(Visibility.Visible, AddButton(window).Visibility);
+        });
+    }
+
+    private static IReadOnlyList<Button> RemoveButtons(UserCheckInCardWindow window)
+        => Descendants<Button>(window)
+            .Where(b => (b.Tag as string) == "remove-row" && b.Visibility == Visibility.Visible)
+            .ToList();
+
+    private static Button AddButton(UserCheckInCardWindow window) => ButtonWithContent(window, "+ add");
+
     // ── step 5: one tap done, with the hours already beside it ──
 
     [Fact]

@@ -55,6 +55,16 @@ internal sealed class UserCheckInCardWindow : Window
     /// <summary>The control armed to receive the caret for the card currently shown. Test-only.</summary>
     internal Control? FocusTarget => _focusTarget;
 
+    /// <summary>
+    /// Test-only: how many times this card has asserted ownership of the keyboard (foreground
+    /// acquisition + caret). Step 1 made that happen when a card APPEARS; the count exists so a test
+    /// can prove it also happens when a new box opens on a card already on screen, which is a
+    /// different moment and was not covered.
+    /// </summary>
+    internal int FocusAssertions => _focusAssertions;
+
+    private int _focusAssertions;
+
     public UserCheckInCardWindow(Action<UserCheckInResponse> onResponse)
     {
         _onResponse = onResponse;
@@ -291,6 +301,43 @@ internal sealed class UserCheckInCardWindow : Window
                 Tasks: entries);
         }
 
+        // Keeps the "+ add" affordance and the per-row ✕ honest after any add or remove: three is
+        // the ceiling, and the last remaining row can never be removed (a card with no box to type
+        // in is not a card). Also restates the top margins, which are positional.
+        void UpdateRowChrome()
+        {
+            addRow.Visibility = rows.Count >= UserCheckInTaskPlanner.MaxMorningTasks
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                rows[i].Remove.Visibility = rows.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+                rows[i].Panel.Margin = new Thickness(0, i == 0 ? 0 : 10, 0, 0);
+            }
+        }
+
+        void RemoveRow(MorningTaskRow row)
+        {
+            if (rows.Count <= 1)
+            {
+                return;
+            }
+
+            _userInteracted = true;
+            rowsPanel.Children.Remove(row.Panel);
+            rows.Remove(row);
+            UpdateRowChrome();
+
+            // If the row being removed owned the caret, hand it to a box that still exists. Leaving
+            // _focusTarget pointing at a TextBox no longer in the visual tree is exactly the defect
+            // step 1 fixed, reached from the other direction.
+            if (ReferenceEquals(_focusTarget, row.Box))
+            {
+                ArmFocus(rows[^1].Box);
+            }
+        }
+
         MorningTaskRow AddRow(string prefill)
         {
             var row = new MorningTaskRow(
@@ -320,7 +367,19 @@ internal sealed class UserCheckInCardWindow : Window
                 Orientation = Orientation.Vertical,
                 Margin = new Thickness(0, rows.Count == 0 ? 0 : 10, 0, 0)
             };
-            panel.Children.Add(row.Box);
+
+            // The box and its ✕ share a line, matching the widget's per-task remove. Changing your
+            // mind about a row you just added has to cost one tap, not a dismissed card.
+            var boxLine = new Grid();
+            boxLine.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            boxLine.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(row.Box, 0);
+            boxLine.Children.Add(row.Box);
+
+            row.Remove.Click += (_, _) => RemoveRow(row);
+            Grid.SetColumn(row.Remove, 1);
+            boxLine.Children.Add(row.Remove);
+            panel.Children.Add(boxLine);
 
             var durationRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
             var durationChips = new List<Button>();
@@ -342,13 +401,10 @@ internal sealed class UserCheckInCardWindow : Window
 
             HighlightChip(durationChips[0], true);
             panel.Children.Add(durationRow);
+            row.Panel = panel;
             rowsPanel.Children.Add(panel);
             rows.Add(row);
-
-            // Three is the ceiling: hide the affordance rather than let it fail on click.
-            addRow.Visibility = rows.Count >= UserCheckInTaskPlanner.MaxMorningTasks
-                ? Visibility.Collapsed
-                : Visibility.Visible;
+            UpdateRowChrome();
             return row;
         }
 
@@ -373,9 +429,7 @@ internal sealed class UserCheckInCardWindow : Window
         {
             _userInteracted = true;
             MorningTaskRow added = AddRow(string.Empty);
-            // Adding a row is an invitation to type in it, so hand it the caret immediately.
-            _focusTarget = added.Box;
-            Keyboard.Focus(added.Box);
+            ArmFocus(added.Box);
         };
         _bodyStack.Children.Add(addRow);
 
@@ -408,12 +462,37 @@ internal sealed class UserCheckInCardWindow : Window
         _focusTarget = first.Box;
     }
 
-    // One line of the morning list. Mutable only in PlannedSeconds, which the duration chips set.
+    // One line of the morning list. Panel is the whole row (box + ✕ + duration chips) so removing it
+    // is one operation on the parent; Remove is kept on the row so the chrome pass can hide it when
+    // only one row is left.
     private sealed class MorningTaskRow(TextBox box, int plannedSeconds)
     {
         public TextBox Box { get; } = box;
 
         public int PlannedSeconds { get; set; } = plannedSeconds;
+
+        public Button Remove { get; } = MakeRemoveButton();
+
+        public StackPanel Panel { get; set; } = new();
+    }
+
+    /// <summary>
+    /// The rule, after a task was typed into another application unnoticed on 2026-08-09: while a
+    /// card with a text box is open, the keyboard belongs to Ari — and a box that OPENS LATER is the
+    /// same moment as the card appearing, so it runs the same routine.
+    /// </summary>
+    /// <remarks>
+    /// Two things the old inline <c>Keyboard.Focus</c> skipped. It never re-acquired foreground, so
+    /// on a card that had lost it the caret moved but the keystrokes did not. And it ran
+    /// synchronously against a TextBox added to the tree microseconds earlier, before layout — WPF
+    /// will not focus a control that is not yet visible, so the request was silently dropped and
+    /// focus stayed on the "+ add" button. <see cref="ApplyFocusTarget"/> queues at Input priority,
+    /// which is after layout.
+    /// </remarks>
+    private void ArmFocus(Control target)
+    {
+        _focusTarget = target;
+        AcquireForegroundAndFocus();
     }
 
     // Step 5 — one-tap done. The midday card stops asking one vague question about "the goal" and
@@ -764,6 +843,7 @@ internal sealed class UserCheckInCardWindow : Window
         // Only seize foreground when there is something to type into. Midday is chips-only, so
         // taking foreground there would spend an interruption to buy nothing; it keeps the old
         // Activate-only behaviour and stays as quiet as it is today.
+        _focusAssertions++;
         bool foreground = _focusTarget != null && TryAcquireForeground();
         Activate();
         ApplyFocusTarget();
@@ -914,6 +994,18 @@ internal sealed class UserCheckInCardWindow : Window
             BorderThickness = new Thickness(1),
             Cursor = Cursors.Hand
         };
+    }
+
+    // Per-row remove, matching the ✕ the widget already puts on every task. Tagged so a test can
+    // tell it apart from the card's own dismiss ✕ in the header.
+    private static Button MakeRemoveButton()
+    {
+        Button remove = MakeTextButton("✕", MutedFg);
+        remove.Tag = "remove-row";
+        remove.Margin = new Thickness(6, 0, 0, 0);
+        remove.VerticalAlignment = VerticalAlignment.Center;
+        remove.ToolTip = "Remove this one";
+        return remove;
     }
 
     private static Button MakeTextButton(string label, Color fg)
