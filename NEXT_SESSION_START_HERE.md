@@ -25,17 +25,19 @@ language and lead with what it means, not how you found it.**
 
 ---
 
-## 0. The build waiting for Yadin — 1.2.132, 2026-08-09
+## 0. The build waiting for Yadin — 1.2.133, 2026-08-09
 
 ```
 C:\Users\hp\porta-agent-windows-x64\installer\bin\x64\Release\AriAgentInstaller.msi
-SHA256  332AA16126B88F74C3D6BD243CB088E3EFB54DBFC97702D2A9C6DFEA33E84EBE
-Size    178,012,160 bytes
-Built from 67cba17 (build-1302.ps1); payload exes all stamped 1.2.132+67cba17
+SHA256  59548084679499702B522913AFFC7CBF643E9B66C572C10AE48EE6B30D9E8399
+Size    178,020,352 bytes
+Built from 4400adf (build-1303.ps1); payload exes all stamped 1.2.133+4400adf
 ```
 
-Steps 1-7 plus the two fixes from the first real day on 1.2.131: a per-row ✕ on the morning card,
-and the keyboard following a box that opens later. **Steps 3 and 4 are CONFIRMED LIVE** — see §4c.
+Steps 1-7, the two fixes from the first real day on 1.2.131 (per-row ✕; the keyboard follows a box
+that opens later), and the instrumented foreground retry from §4d. **Steps 3 and 4 are CONFIRMED
+LIVE** — see §4c. 1.2.132 was installed and is fine to keep running; 1.2.133 only adds the retry
+and its logging.
 
 **Built, not installed and not released. Installing is Yadin's, always.** No tag, no GitHub release,
 no manifest — nothing reaches the fleet.
@@ -349,6 +351,25 @@ machine-wide system-settings change affecting every application — not Ari's to
 common workaround, injecting a synthetic key to become the last input receiver, would fight the user
 for a keyboard they are actively using. Yadin also ruled out the aggressive reading of "the keyboard
 belongs to Ari" (re-grabbing whenever focus is lost): **do not trap the user.**
+
+**Ruled out, 2026-08-09, before any further fix.** Ari is not doing this to itself. Every `user32`
+entry point the agent imports was enumerated: `SystemParametersInfo` appears exactly once and it is
+the GET. No `SPI_SET`, no `LockSetForegroundWindow`. `focus_mode_enabled` is inert agent-side — it
+is not in `InterruptToastActions`, so applying it writes one log line and nothing else. Nothing is
+toggling the value per-app either: it read `2147483647` across 40 minutes and across different
+foreground applications while HKCU still said `200000`, so something in this Windows session set it
+at runtime without persisting. **What set it is still unknown** — a reboot would say whether it
+survives logon. Integrity is not the blocker: `claude`, `chrome` and `Porta.UserAgent` are all
+readable from a non-elevated shell, so UIPI is not refusing the attach.
+
+**Still unknown, and how 1.2.133 answers it.** Windows lists eight conditions for granting
+foreground; several are transient (a menu open, a window mid-activation, the foreground app between
+input events) and several are not. Which one refused the 08-08 evening card is not derivable from
+the return value. So the retry is built as the experiment: two extra attempts at 120ms and 350ms,
+each logging its `try=` and reason. **`try=1 foreground=True` means timing and the retry earned its
+place; three identical refusals mean it is structural.** Bounded by a test — at most three attempts,
+none over 500ms, under a second total — and abandoned the instant the user starts typing, per
+Yadin's rule: never fight for a keyboard someone else is using.
 
 **What was done.** Every refusal now carries a reason (`refused_attached:err=…,fg=…,locktimeout_ms=…`
 — process NAME only, never a window title), and when the keyboard is refused the card **says so**
