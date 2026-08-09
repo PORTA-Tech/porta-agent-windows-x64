@@ -25,18 +25,17 @@ language and lead with what it means, not how you found it.**
 
 ---
 
-## 0. The build waiting for Yadin — 1.2.131, 2026-08-08
+## 0. The build waiting for Yadin — 1.2.132, 2026-08-09
 
 ```
 C:\Users\hp\porta-agent-windows-x64\installer\bin\x64\Release\AriAgentInstaller.msi
-SHA256  CE2FC253582D3A5EC7B73C6EC87EA2E6D59CD7FDC76A87337D20406D8C01CB8C
-Size    178,028,544 bytes
-Built from 07de30a (build-1301.ps1); payload exes all stamped 1.2.131+07de30a
+SHA256  332AA16126B88F74C3D6BD243CB088E3EFB54DBFC97702D2A9C6DFEA33E84EBE
+Size    178,012,160 bytes
+Built from 67cba17 (build-1302.ps1); payload exes all stamped 1.2.132+67cba17
 ```
 
-**This is the checkpoint build — steps 1 through 7, the whole closed loop.** After installing it,
-the plan says stop building and use it for a week (§8). 1.2.130 was built earlier the same day and
-superseded before install; only this one matters.
+Steps 1-7 plus the two fixes from the first real day on 1.2.131: a per-row ✕ on the morning card,
+and the keyboard following a box that opens later. **Steps 3 and 4 are CONFIRMED LIVE** — see §4c.
 
 **Built, not installed and not released. Installing is Yadin's, always.** No tag, no GitHub release,
 no manifest — nothing reaches the fleet.
@@ -45,12 +44,11 @@ Guards that passed: publish output self-contained (single-file), payload SQLite 
 CVE-2025-6965, and `ProductVersion` read back out of the MSI rather than trusted from the csproj.
 
 Test gate: Core 730 passed / **4 failed** — the documented restart-reconciliation baseline
-(`SECURITY_HANDOFF.md §4.8`), confirmed by name, **that red is expected**. UserAgent 347 (+3
+(`SECURITY_HANDOFF.md §4.8`), confirmed by name, **that red is expected**. UserAgent 358 (+3
 skipped), Service 117, ControlCenter 80 (+7 skipped), Runtime 6 — all green. CI ran none of these;
 `validation-gate.yml` still has no `dotnet test`.
 
-Carries everything in 1.2.130 (which was never installed) plus steps 4-7. Each change has its
-own log line so a problem stays attributable:
+Each change has its own log line so a problem stays attributable:
 
 | Change | What to look for in `user-agent.log` |
 |---|---|
@@ -60,6 +58,8 @@ own log line so a problem stays attributable:
 | One ground-truth label per task | `checkin_morning_recorded … tasks=N` |
 | Narrative reason codes one layer deeper | `checkin_narrative … reason=local_api_*` |
 | Narrative route's own 12s budget | `checkin_narrative … used=True` far more often |
+| Why a keyboard grab was refused | `checkin_card_focus … reason=refused_*:err=…,fg=…,locktimeout_ms=…` |
+| Focus follows a box opened later | a SECOND `checkin_card_focus` line after a `+ add` |
 
 **What is NOT in it:** nothing new for step 2. The stale-card expiry has still never run.
 
@@ -79,11 +79,11 @@ release, no manifest. Pushed through `8596d5e`.
 | Narrative async | **Done and confirmed live.** Card renders instantly; on 2026-08-08 the line upgraded it 2.4s later with `applied=True`. |
 | Narrative diagnostics | **Built and it worked.** One reason code in the field (2026-08-07 midday) named the cause — see §3a. |
 | Narrative root cause | **FOUND 2026-08-08 and fixed.** A 3s HTTP client timeout, below all three documented budgets. See §3a. |
-| 3. Merge goals and tasks | **Built, not yet confirmed live.** See §4a. In 1.2.131. |
-| 4. Propose, never an empty box | **Built, not yet confirmed live.** In 1.2.131. Morning pre-fills from open work. |
-| 5. One-tap done | **Built, not yet confirmed live.** In 1.2.131. Midday lists tasks with measured time. |
-| 6. Carry-forward | **Built, not yet confirmed live.** In 1.2.131. Costs nothing — open tasks never left. |
-| 7. Evening closes the day | **Built, not yet confirmed live.** In 1.2.131. The "tomorrow?" box is gone. |
+| 3. Merge goals and tasks | **CONFIRMED LIVE 2026-08-09.** Three tasks created, first auto-started. See §4c. |
+| 4. Propose, never an empty box | **CONFIRMED LIVE 2026-08-09.** Card arrived pre-filled; chips used. See §4c. |
+| 5. One-tap done | **Built, not yet confirmed live.** In 1.2.132. Midday lists tasks with measured time. |
+| 6. Carry-forward | **Built, not yet confirmed live.** In 1.2.132. Costs nothing — open tasks never left. |
+| 7. Evening closes the day | **Built, not yet confirmed live.** In 1.2.132. The "tomorrow?" box is gone. |
 
 Test gate before the 1.2.129 build: ControlCenter 80, Runtime 6, Service 117, UserAgent 276 (+3
 skipped) — all green. Core 711 passed / 4 failed, exactly the documented restart-reconciliation
@@ -291,6 +291,69 @@ as undercounting, that copy is the thing to change — not the number.
 
 **Not verified:** none of steps 4-7 has run on a live agent, and the midday/evening boards have never
 been seen on a real screen. Card height in particular is untested with three tasks plus chips.
+
+---
+
+## 4c. First real day on 1.2.131 — 2026-08-09
+
+**Steps 3 and 4 confirmed live.** The morning card arrived pre-filled, three tasks were created with
+three different durations (so the chips were used, and nothing was typed as a number), and the first
+task auto-started:
+
+```
+14:11:16  checkin_offered kind=Morning
+14:11:16  checkin_card_focus kind=Morning foreground=True target=input
+14:14:06  checkin_morning_recorded ok=True pref=remind_me tasks=3
+14:14:06  checkin_morning_task_created id=5 planned_s=7200    (2h)
+14:14:06  checkin_morning_task_created id=6 planned_s=10800   (3h)
+14:14:06  checkin_morning_task_created id=7 planned_s=3600    (1h)
+14:14:06  checkin_morning_task_started id=5 ok=True
+```
+
+`checkin_narrative_upgrade applied=False` on the same card is **not a defect** — the line arrived
+2.5s in, by which point the user had started answering, and the rule is never to rewrite copy under
+someone mid-answer.
+
+**Why the card was late.** It fired at 14:11 for a 1pm start, and neither cause is a regression:
+the user agent was not running at all until 14:03 (watchdog relaunch, `stale_heartbeat`), and the
+Part 1c settle gate then held it three times waiting for 3 minutes of continuous activity. The gate
+returns at `UserAgentHost.cs:1574`, well before any steps 3-7 code at :1603.
+
+**Worth knowing: the test suite writes into the production log.** `UserAgentFileLog` has no path
+override in tests, so bursts of dozens of `checkin_card_focus` lines in `user-agent.log` are test
+runs, not field events (2026-08-07 06:48, 2026-08-08 09:16 and 19:21). It briefly had test output
+being read as field data. Worth fixing — it corrupts exactly this kind of investigation.
+
+---
+
+## 4d. The keyboard, and why Ari cannot always have it — 2026-08-09
+
+**Measured on the machine, before writing any fix:**
+
+```
+SPI_GETFOREGROUNDLOCKTIMEOUT              = 2147483647 ms  (~24.8 days)
+HKCU\Control Panel\Desktop\ForegroundLockTimeout = 200000
+```
+
+The effective foreground lock is pinned at `Int32.MaxValue`. While it holds, Windows **refuses**
+`SetForegroundWindow` by design and flashes the taskbar button instead. A `Topmost` window still
+draws on top — so the card is visible, looks focused, and the keystrokes go to whatever is actually
+in front. That is the `foreground=False` on the evening card of 2026-08-08, and it is how a whole
+task got typed into another application unnoticed.
+
+`AttachThreadInput` bypasses the lock only when the attach succeeds, which is why the morning card
+usually wins and the evening card sometimes does not.
+
+**What was NOT done, deliberately.** Overriding the lock means `SPI_SETFOREGROUNDLOCKTIMEOUT`, a
+machine-wide system-settings change affecting every application — not Ari's to make. The other
+common workaround, injecting a synthetic key to become the last input receiver, would fight the user
+for a keyboard they are actively using. Yadin also ruled out the aggressive reading of "the keyboard
+belongs to Ari" (re-grabbing whenever focus is lost): **do not trap the user.**
+
+**What was done.** Every refusal now carries a reason (`refused_attached:err=…,fg=…,locktimeout_ms=…`
+— process NAME only, never a window title), and when the keyboard is refused the card **says so**
+rather than looking focused. The harm was never that Ari lacked the keyboard; it was that there was
+no way to tell.
 
 ---
 
