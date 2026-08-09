@@ -74,6 +74,57 @@ public sealed class UserCheckInCardKeyboardOwnershipTests
         });
     }
 
+    // Ari cannot always win the keyboard: SPI_FOREGROUNDLOCKTIMEOUT is measured at 2147483647ms on
+    // Yadin's machine, and Windows refuses SetForegroundWindow outright while that lock holds. A
+    // Topmost window still draws on top, so the card looks focused while the keystrokes go
+    // elsewhere — which is exactly how a task was typed into another application unnoticed.
+    // Overriding the lock is a system-settings change and is not Ari's to make. Saying so is.
+    [Fact]
+    public void WhenTheKeyboardIsRefused_TheCardSaysSo_RatherThanLookingFocused()
+    {
+        RunCard(window =>
+        {
+            // Suppression is the refused path: the grab returns false, as it does in the field.
+            window.ShowPrompt(MorningPrompt());
+
+            Assert.Contains(
+                Descendants<TextBlock>(window),
+                t => t.Visibility == Visibility.Visible
+                     && t.Text.Contains("Click the box to type", StringComparison.Ordinal));
+        });
+    }
+
+    [Fact]
+    public void AChipsOnlyCard_NeverCarriesTheHint_BecauseItNeedsNoKeyboard()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(new UserCheckInPrompt(
+                UserCheckInKind.Midday, "How's it going?", "Halfway.", QuestionLabel: "Did you get to your goal?"));
+
+            Assert.DoesNotContain(
+                Descendants<TextBlock>(window),
+                t => t.Visibility == Visibility.Visible
+                     && t.Text.Contains("Click the box to type", StringComparison.Ordinal));
+        });
+    }
+
+    [Fact]
+    public void TheHintIsClearedWhenTheCardMovesOn()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(MorningPrompt());
+            window.ShowConfirmation(UserCheckInKind.Morning, "Locked in.");
+
+            // A confirmation has nothing to type into; a stale hint would read as a broken card.
+            Assert.DoesNotContain(
+                Descendants<TextBlock>(window),
+                t => t.Visibility == Visibility.Visible
+                     && t.Text.Contains("Click the box to type", StringComparison.Ordinal));
+        });
+    }
+
     private static UserCheckInPrompt MorningPrompt()
         => new(UserCheckInKind.Morning, "What's the one thing today?", "Name today's focus.");
 

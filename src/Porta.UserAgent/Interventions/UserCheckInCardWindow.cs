@@ -31,6 +31,8 @@ internal sealed class UserCheckInCardWindow : Window
     private readonly TextBlock _title;
     private readonly TextBlock _message;
     private readonly StackPanel _bodyStack;   // mode-specific content is rebuilt here each ShowPrompt
+    // Visible only when the keyboard grab was refused; see the constructor.
+    private readonly TextBlock _focusHint;
     private UserCheckInKind _kind;
     private bool _responded;
     // Confirmation mode: the card is echoing an acknowledgement (no further reply expected), so the
@@ -134,6 +136,22 @@ internal sealed class UserCheckInCardWindow : Window
         _bodyStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(0, 12, 0, 0) };
         stack.Children.Add(_bodyStack);
 
+        // Shown ONLY when Windows refused the keyboard. Ari cannot always win the foreground —
+        // SPI_FOREGROUNDLOCKTIMEOUT is a deliberate OS protection and overriding it is a
+        // system-settings change that is not Ari's to make. What it must never do is look focused
+        // while it isn't: that is how a whole task got typed into another application unnoticed.
+        // Telling the truth costs one quiet line; staying silent costs the user their input.
+        _focusHint = new TextBlock
+        {
+            FontSize = 11,
+            Foreground = new SolidColorBrush(AccentGreen),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0),
+            Text = "Click the box to type — Windows kept the keyboard.",
+            Visibility = Visibility.Collapsed
+        };
+        stack.Children.Add(_focusHint);
+
         Content = _cardBorder;
         Loaded += (_, _) => PositionBottomRight();
         SizeChanged += (_, _) => PositionBottomRight();
@@ -179,6 +197,7 @@ internal sealed class UserCheckInCardWindow : Window
         // previous card's box, which is no longer in the visual tree.
         _focusTarget = null;
         _userInteracted = false;
+        _focusHint.Visibility = Visibility.Collapsed;
         // A previous card may have faded its message out mid-upgrade; make sure this one renders
         // opaque regardless of where the last animation left the property.
         _message.BeginAnimation(UIElement.OpacityProperty, null);
@@ -221,6 +240,7 @@ internal sealed class UserCheckInCardWindow : Window
         _bodyStack.Children.Clear();
         // A confirmation has no input to type into; don't leave the answered card's box armed.
         _focusTarget = null;
+        _focusHint.Visibility = Visibility.Collapsed;
 
         // Part 5c — "has power": the confirmation can carry ONE action wired to an existing
         // capability (e.g. a reminder). One button, one action, then the card hides.
@@ -844,11 +864,21 @@ internal sealed class UserCheckInCardWindow : Window
         // taking foreground there would spend an interruption to buy nothing; it keeps the old
         // Activate-only behaviour and stays as quiet as it is today.
         _focusAssertions++;
-        bool foreground = _focusTarget != null && TryAcquireForeground();
+        ForegroundAttempt attempt = _focusTarget != null
+            ? TryAcquireForeground()
+            : new ForegroundAttempt(false, "not_attempted_no_input");
         Activate();
         ApplyFocusTarget();
+
+        // Only ever shown when there is something to type into AND the grab was refused. A
+        // chips-only card needs no keyboard, so it never carries the hint.
+        _focusHint.Visibility = _focusTarget != null && !attempt.Acquired
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
         UserAgentFileLog.Info(
-            $"checkin_card_focus kind={_kind} foreground={foreground} target={(_focusTarget == null ? "none" : "input")}");
+            $"checkin_card_focus kind={_kind} foreground={attempt.Acquired} reason={attempt.Reason}"
+            + $" target={(_focusTarget == null ? "none" : "input")}");
     }
 
     /// <summary>
@@ -878,11 +908,14 @@ internal sealed class UserCheckInCardWindow : Window
     /// fires on a timer, not on a click, so it never qualifies on its own. Returns false on any
     /// failure — the caller degrades to the old Activate-and-focus path rather than throwing.
     /// </summary>
-    private bool TryAcquireForeground()
+    /// <summary>The outcome of one foreground grab, with a reason code for every refusal.</summary>
+    private readonly record struct ForegroundAttempt(bool Acquired, string Reason);
+
+    private ForegroundAttempt TryAcquireForeground()
     {
         if (SuppressForegroundAcquisition)
         {
-            return false;
+            return new ForegroundAttempt(false, "suppressed_for_test");
         }
 
         try
@@ -890,21 +923,44 @@ internal sealed class UserCheckInCardWindow : Window
             IntPtr hwnd = new WindowInteropHelper(this).Handle;
             if (hwnd == IntPtr.Zero)
             {
-                return false;
+                return new ForegroundAttempt(false, "no_hwnd");
             }
 
             IntPtr foregroundWindow = NativeMethods.GetForegroundWindow();
             uint ourThread = NativeMethods.GetCurrentThreadId();
-            uint foregroundThread = foregroundWindow == IntPtr.Zero
-                ? 0u
-                : NativeMethods.GetWindowThreadProcessId(foregroundWindow, out _);
+            uint foregroundThread = 0u;
+            uint foregroundPid = 0u;
+            if (foregroundWindow != IntPtr.Zero)
+            {
+                foregroundThread = NativeMethods.GetWindowThreadProcessId(foregroundWindow, out foregroundPid);
+            }
 
             bool attached = foregroundThread != 0
                 && foregroundThread != ourThread
                 && NativeMethods.AttachThreadInput(ourThread, foregroundThread, true);
             try
             {
-                return NativeMethods.SetForegroundWindow(hwnd);
+                bool ok = NativeMethods.SetForegroundWindow(hwnd);
+                int lastError = ok ? 0 : System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                if (ok)
+                {
+                    return new ForegroundAttempt(true, foregroundThread == 0
+                        ? "ok_no_foreground"
+                        : attached ? "ok_attached" : "ok_direct");
+                }
+
+                // The refusal detail. Windows grants SetForegroundWindow only under a short list of
+                // conditions; which one we failed is not derivable from the return value alone, so
+                // record everything that distinguishes them: whether the input-queue attach worked,
+                // the Win32 error, who actually held the foreground, and the system's foreground
+                // lock timeout (a non-zero value is itself a documented reason for refusal).
+                //
+                // Process NAME only, never a window title — titles carry document names and message
+                // subjects. The name is the datum that identifies the culprit; the title adds
+                // nothing here and would put user content in a durable log.
+                return new ForegroundAttempt(false,
+                    $"refused_{(attached ? "attached" : foregroundThread == 0 ? "no_fg" : "unattached")}"
+                    + $":err={lastError},fg={DescribeProcess(foregroundPid)},locktimeout_ms={ReadForegroundLockTimeout()}");
             }
             finally
             {
@@ -914,9 +970,51 @@ internal sealed class UserCheckInCardWindow : Window
                 }
             }
         }
+        catch (Exception ex)
+        {
+            return new ForegroundAttempt(false, $"exception:{ex.GetType().Name}");
+        }
+    }
+
+    /// <summary>Process name for the pid that held the foreground, or a marker. Never a title.</summary>
+    private static string DescribeProcess(uint pid)
+    {
+        if (pid == 0)
+        {
+            return "none";
+        }
+
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById((int)pid);
+            return process.ProcessName;
+        }
         catch
         {
-            return false;
+            return $"pid{pid}";
+        }
+    }
+
+    /// <summary>
+    /// Reads (never writes) SPI_GETFOREGROUNDLOCKTIMEOUT. A non-zero value means Windows is holding
+    /// a foreground lock, which refuses SetForegroundWindow outright and merely flashes the taskbar
+    /// button — a window that is Topmost still draws on top, so the card would be visible while the
+    /// keystrokes went elsewhere. That is exactly the reported symptom, so the number is worth
+    /// having before anyone proposes a remedy. -1 = the query itself failed.
+    /// </summary>
+    private static int ReadForegroundLockTimeout()
+    {
+        try
+        {
+            uint timeout = 0;
+            return NativeMethods.SystemParametersInfo(
+                NativeMethods.SpiGetForegroundLockTimeout, 0, ref timeout, 0)
+                ? (int)timeout
+                : -1;
+        }
+        catch
+        {
+            return -1;
         }
     }
 
@@ -1049,5 +1147,13 @@ internal sealed class UserCheckInCardWindow : Window
 
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
         public static extern uint GetCurrentThreadId();
+
+        // Read-only diagnostic. This code never calls the SET counterpart: changing the machine's
+        // foreground lock is a system-settings change and is not Ari's to make.
+        public const uint SpiGetForegroundLockTimeout = 0x2000;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, ref uint pvParam, uint fWinIni);
     }
 }
