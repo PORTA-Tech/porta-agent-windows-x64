@@ -1600,11 +1600,21 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         // proposes from what is still open, midday and evening list them with the measured time.
         // Fail-soft: an unreachable core yields an empty board and each surface falls back to its
         // pre-step-3 shape rather than showing an empty list.
-        IReadOnlyList<TaskBoardLine> board = UserCheckInTaskBoard.BuildBoard(
-            (await _localApiClient.GetTasksTodayAsync(token).ConfigureAwait(false))?.Tasks, nowLocal);
+        // Step 8 — the morning card shows yesterday, so it needs a day more history than the others.
+        // One read serves both: today's board is the subset still open or closed since 05:00, and
+        // yesterday's block is what closed during the previous goal-day.
+        int lookbackDays = kind == UserCheckInKind.Morning ? 1 : 0;
+        IReadOnlyList<LocalApiTask>? rows =
+            (await _localApiClient.GetTasksTodayAsync(token, lookbackDays).ConfigureAwait(false))?.Tasks;
+
+        IReadOnlyList<TaskBoardLine> board = UserCheckInTaskBoard.BuildBoard(rows, nowLocal);
+        IReadOnlyList<TaskBoardLine> yesterday = kind == UserCheckInKind.Morning
+            ? UserCheckInTaskBoard.Yesterday(rows, nowLocal)
+            : Array.Empty<TaskBoardLine>();
 
         UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
-            kind, goal, metrics, goalResponse.CarriedPlanTomorrow, narrativeLine: null, middaySkipped, awayGap, board);
+            kind, goal, metrics, goalResponse.CarriedPlanTomorrow, narrativeLine: null, middaySkipped, awayGap,
+            board, yesterday);
 
         bool shown = _interventionExecutor.TryShowGatedCheckIn(
             UserCheckInScheduler.MuteClassFor(kind),

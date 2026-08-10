@@ -10,6 +10,7 @@ namespace Porta.UserAgent.Tests;
 // guard is the contract between the card and the host: the card must hand back real entries with a
 // duration on each, must never require a number to be typed, and must still produce the joined goal
 // sentence every pre-step-3 consumer reads.
+[Collection(CheckInCardCollection.Name)]
 public sealed class UserCheckInMorningTaskCardTests
 {
     [Fact]
@@ -57,7 +58,7 @@ public sealed class UserCheckInMorningTaskCardTests
             boxes[0].Text = "Pricing page";
             boxes[1].Text = "Client revisions";
 
-            Click(ButtonWithContent(window, "Share with Ari"));
+            Click(ButtonWithContent(window, "Start the day"));
         }, response => captured = response);
 
         Assert.NotNull(captured);
@@ -89,7 +90,7 @@ public sealed class UserCheckInMorningTaskCardTests
             Assert.Equal(2, threeHour.Count);
             Click(threeHour[1]);
 
-            Click(ButtonWithContent(window, "Share with Ari"));
+            Click(ButtonWithContent(window, "Start the day"));
         }, response => captured = response);
 
         Assert.Equal(UserCheckInChoices.MorningTaskDurations[0].Seconds, captured!.Tasks![0].PlannedSeconds);
@@ -109,7 +110,7 @@ public sealed class UserCheckInMorningTaskCardTests
             boxes[0].Text = "Pricing page";
             boxes[1].Text = "Client revisions";
 
-            Click(ButtonWithContent(window, "Share with Ari"));
+            Click(ButtonWithContent(window, "Start the day"));
         }, response => captured = response);
 
         Assert.Equal("Pricing page; Client revisions", captured!.TextReply);
@@ -129,7 +130,7 @@ public sealed class UserCheckInMorningTaskCardTests
 
             Descendants<TextBox>(window)[1].Text = "  Client revisions  ";
 
-            Click(ButtonWithContent(window, "Share with Ari"));
+            Click(ButtonWithContent(window, "Start the day"));
         }, response => captured = response);
 
         UserCheckInTaskEntry only = Assert.Single(captured!.Tasks!);

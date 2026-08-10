@@ -18,6 +18,7 @@ namespace Porta.UserAgent.Tests;
 // These tests are written against the observable that matters — whether the card re-asserted
 // ownership of the keyboard — rather than against real foreground, which cannot be unit-tested and
 // is confirmed by `foreground=` in user-agent.log.
+[Collection(CheckInCardCollection.Name)]
 public sealed class UserCheckInCardKeyboardOwnershipTests
 {
     [Fact]

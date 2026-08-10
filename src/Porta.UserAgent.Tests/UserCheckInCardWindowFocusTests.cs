@@ -14,6 +14,7 @@ namespace Porta.UserAgent.Tests;
 //
 // Foreground acquisition is suppressed here: it cannot be unit-tested (it depends on which process
 // owns the foreground) and is confirmed manually. See UserCheckInCardWindow.TryAcquireForeground.
+[Collection(CheckInCardCollection.Name)]
 public sealed class UserCheckInCardWindowFocusTests
 {
     [Fact]

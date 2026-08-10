@@ -63,7 +63,8 @@ internal static class UserCheckInTaskBoard
                 PlannedSeconds: task.PlannedSeconds,
                 MeasuredSeconds: task.ActiveSeconds,
                 State: task.State ?? string.Empty,
-                DaysCarried: DaysCarried(task.CreatedAtUtc.ToLocalTime(), nowLocal)));
+                DaysCarried: DaysCarried(task.CreatedAtUtc.ToLocalTime(), nowLocal),
+                EndedAtLocal: task.EndedAtUtc?.ToLocalTime()));
         }
 
         return board;
@@ -134,6 +135,27 @@ internal static class UserCheckInTaskBoard
     }
 
     /// <summary>
+    /// Step 8 — what yesterday came to: the tasks CLOSED during yesterday's goal-day, newest first.
+    /// </summary>
+    /// <remarks>
+    /// Closed only, on purpose. Anything still open is carried and already appears in today's rows
+    /// as a proposal, so including it here would show the same title twice on one card.
+    /// </remarks>
+    public static IReadOnlyList<TaskBoardLine> Yesterday(
+        IReadOnlyList<LocalApiTask>? tasks,
+        DateTimeOffset nowLocal)
+    {
+        string yesterday = UserCheckInStalenessPolicy.GoalDayOf(nowLocal.AddDays(-1));
+        return BuildBoard(tasks, nowLocal)
+            .Where(line => !line.IsOpen)
+            .Where(line => line.EndedAtLocal is { } ended
+                && UserCheckInStalenessPolicy.GoalDayOf(ended) == yesterday)
+            .OrderByDescending(line => line.EndedAtLocal)
+            .ThenBy(line => line.Id)
+            .ToList();
+    }
+
+    /// <summary>
     /// Step 6 — the one plain sentence about work that keeps sliding. Said once, about the single
     /// worst offender, and never escalated; empty when nothing has crossed the threshold.
     /// </summary>
@@ -170,13 +192,27 @@ internal sealed record TaskBoardLine(
     int PlannedSeconds,
     double MeasuredSeconds,
     string State,
-    int DaysCarried)
+    int DaysCarried,
+    DateTimeOffset? EndedAtLocal = null)
 {
     public bool IsOpen => State is "pending" or "active";
 
     public bool IsDone => string.Equals(State, "done", StringComparison.Ordinal);
 
-    /// <summary>The measured time, formatted the way the widget's completion line formats it.</summary>
+    /// <summary>
+    /// The measured time. Sub-minute work is rendered in seconds rather than rounded to "0m":
+    /// twenty seconds against a planned three hours is the most eloquent number on the card, and
+    /// rounding it away would delete exactly the fact worth seeing.
+    /// </summary>
     public string MeasuredLabel
-        => ReminderTimeParser.FormatDuration((int)Math.Round(MeasuredSeconds / 60d));
+        => MeasuredSeconds > 0d && MeasuredSeconds < 60d
+            ? $"{(int)Math.Round(MeasuredSeconds)}s"
+            : ReminderTimeParser.FormatDuration((int)Math.Round(MeasuredSeconds / 60d));
+
+    /// <summary>
+    /// Measured against planned, clamped to 0..1 — what the row's bar fills to. Planned is the
+    /// commitment, so overrunning it reads as full rather than as an error.
+    /// </summary>
+    public double ProgressFraction
+        => PlannedSeconds <= 0 ? 0d : Math.Clamp(MeasuredSeconds / PlannedSeconds, 0d, 1d);
 }

@@ -306,9 +306,15 @@ public static class LocalApiEndpointMapping
         // Workstream 4 — timed tasks (plan vs. reality). Same auth/contract patterns as
         // reminders; attribution happens in the bucket pipeline, these endpoints only
         // manage lifecycle and read the measured numbers.
-        api.MapGet("/tasks/today", (IAgentCoreController controller) =>
+        // goalDaysBack widens the window backwards for step 8's "yesterday" block: the morning card
+        // fires after the 05:00 boundary, so yesterday's closed tasks are already outside today's
+        // window at exactly the moment the card wants to show them. Absent or 0 = today only, so
+        // every existing caller behaves exactly as before.
+        api.MapGet("/tasks/today", (IAgentCoreController controller, int? goalDaysBack) =>
         {
-            IReadOnlyList<AgentTask> tasks = controller.GetTodayTasks();
+            IReadOnlyList<AgentTask> tasks = goalDaysBack is > 0
+                ? controller.GetRecentTasks(goalDaysBack.Value)
+                : controller.GetTodayTasks();
             return new LocalApiTasksTodayResponse(
                 Tasks: tasks.Select(ToApiTask).ToList()!,
                 TimestampUtc: DateTimeOffset.UtcNow);

@@ -10,6 +10,7 @@ namespace Porta.UserAgent.Tests;
 // already started answering.
 //
 // Foreground acquisition is suppressed throughout — see UserCheckInCardWindowFocusTests.
+[Collection(CheckInCardCollection.Name)]
 public sealed class UserCheckInCardNarrativeUpgradeTests
 {
     private const string Template = "Name today's focus and I'll help you protect it.";

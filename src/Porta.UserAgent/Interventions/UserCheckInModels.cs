@@ -24,6 +24,10 @@ internal sealed record UserCheckInPrompt(
     IReadOnlyList<TaskBoardLine>? Tasks = null,
     // Step 6 — the one plain sentence about work that has carried for days. Empty almost always.
     string CarriedNotice = "",
+    // Step 8 — yesterday, on the morning card: the tasks closed during yesterday's goal-day, and
+    // the one sentence that scores them. Empty on a first day, or a day when nothing was closed.
+    IReadOnlyList<TaskBoardLine>? Yesterday = null,
+    string YesterdaySummary = "",
     // Part 2b — a fixed question label the card renders directly above its answer controls, so the
     // Yes/Partly/Not-yet buttons and the EOD plan box always have a question attached even when the
     // LLM line is odd or the narrative call failed. Empty = no controls (morning uses its own box).

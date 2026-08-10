@@ -8,6 +8,7 @@ namespace Porta.UserAgent.Tests;
 
 // Steps 4, 5 and 7 as the user meets them: a morning that proposes instead of asking, a midday that
 // takes one tap per task, and an evening that closes the day instead of opening a new one.
+[Collection(CheckInCardCollection.Name)]
 public sealed class UserCheckInLoopCardTests
 {
     // ── step 4: propose, never an empty box ──
@@ -43,7 +44,7 @@ public sealed class UserCheckInLoopCardTests
                 Tasks: new[] { Line(1, "Pricing page") }));
 
             // No typing at all — the whole point of step 4.
-            Click(ButtonWithContent(window, "Share with Ari"));
+            Click(ButtonWithContent(window, "Start the day"));
         }, r => captured = r);
 
         UserCheckInTaskEntry only = Assert.Single(captured!.Tasks!);
@@ -80,7 +81,7 @@ public sealed class UserCheckInLoopCardTests
 
             // Drop the middle one — not the last, so an off-by-one would be visible.
             Click(RemoveButtons(window)[1]);
-            Click(ButtonWithContent(window, "Share with Ari"));
+            Click(ButtonWithContent(window, "Start the day"));
         }, r => captured = r);
 
         Assert.Equal(new[] { "Pricing page", "Client revisions" }, captured!.Tasks!.Select(t => t.Title));
@@ -99,7 +100,7 @@ public sealed class UserCheckInLoopCardTests
             // 3h on the second row, then delete the FIRST — the survivor must keep its own chip.
             Click(ButtonsWithContent(window, "3h")[1]);
             Click(RemoveButtons(window)[0]);
-            Click(ButtonWithContent(window, "Share with Ari"));
+            Click(ButtonWithContent(window, "Start the day"));
         }, r => captured = r);
 
         UserCheckInTaskEntry only = Assert.Single(captured!.Tasks!);

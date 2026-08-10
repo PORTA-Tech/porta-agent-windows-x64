@@ -60,7 +60,9 @@ internal static class UserCheckInCoordinator
         string? narrativeLine = null,
         bool middaySkipped = false,
         bool awayGap = false,
-        IReadOnlyList<TaskBoardLine>? board = null)
+        IReadOnlyList<TaskBoardLine>? board = null,
+        // Step 8 — yesterday's closed tasks, shown quietly above today's list on the morning card.
+        IReadOnlyList<TaskBoardLine>? yesterday = null)
     {
         string goalText = (goal?.GoalText ?? string.Empty).Trim();
         string plan = (carriedPlan ?? string.Empty).Trim();
@@ -68,6 +70,8 @@ internal static class UserCheckInCoordinator
         IReadOnlyList<TaskBoardLine> tasks = board ?? Array.Empty<TaskBoardLine>();
         IReadOnlyList<TaskBoardLine> open = tasks.Where(t => t.IsOpen).ToList();
         string carriedNotice = UserCheckInTaskBoard.CarriedNotice(tasks);
+        IReadOnlyList<TaskBoardLine> lastDay = yesterday ?? Array.Empty<TaskBoardLine>();
+        string yesterdaySummary = UserCheckInTaskBoard.SummarizeDay(lastDay);
 
         return kind switch
         {
@@ -79,7 +83,9 @@ internal static class UserCheckInCoordinator
                 Title: open.Count == 1 ? "Still on this today?" : "Today's list — look right?",
                 Message: line.Length > 0 ? line : BuildProposalTemplate(open),
                 Tasks: open,
-                CarriedNotice: carriedNotice),
+                CarriedNotice: carriedNotice,
+                Yesterday: lastDay,
+                YesterdaySummary: yesterdaySummary),
 
             // Part 3 — memory: when last night's plan carried over, open with it (confirm/edit)
             // instead of a blank ask. The plan pre-fills the goal box so confirming is one click.
@@ -87,12 +93,16 @@ internal static class UserCheckInCoordinator
                 Kind: UserCheckInKind.Morning,
                 Title: "Still the goal for today?",
                 Message: line.Length > 0 ? line : $"Last night you planned: “{plan}”. Confirm it or change it below.",
-                PrefillGoalText: plan),
+                PrefillGoalText: plan,
+                Yesterday: lastDay,
+                YesterdaySummary: yesterdaySummary),
 
             UserCheckInKind.Morning => new UserCheckInPrompt(
                 Kind: UserCheckInKind.Morning,
                 Title: "What's the one thing today?",
-                Message: line.Length > 0 ? line : "Name today's focus and I'll help you protect it."),
+                Message: line.Length > 0 ? line : "Name today's focus and I'll help you protect it.",
+                Yesterday: lastDay,
+                YesterdaySummary: yesterdaySummary),
 
             // Step 5 — the midday card lists today's tasks with the hours already beside them, so
             // "done" is a tap. The question label changes with it: it is no longer about "the goal".

@@ -20,6 +20,19 @@ internal sealed class UserCheckInCardWindow : Window
     private static readonly Color BodyFg = Color.FromRgb(202, 214, 226);
     private static readonly Color MutedFg = Color.FromRgb(144, 168, 191);
     private static readonly Color AccentGreen = Color.FromRgb(0x16, 0xC7, 0x84);
+    // Step 8 palette. Green means ONE thing on this card — finished — and the primary button. There
+    // is deliberately no red anywhere: a task the user chose to drop is a decision, not an error,
+    // and colouring it like a failure would be the card arguing with them.
+    private static readonly Color HairlineFg = Color.FromRgb(0x27, 0x31, 0x3C);  // section rule
+    private static readonly Color QuietFg = Color.FromRgb(0x6E, 0x7E, 0x91);     // dropped: faded, not alarming
+    private static readonly Color BarTrackFg = Color.FromRgb(0x1C, 0x24, 0x2D);  // the unfilled remainder
+    private static readonly Color BarQuietFg = Color.FromRgb(0x3E, 0x4B, 0x5A);  // a dropped task's own bar
+    // Yesterday is history and today is the decision, so yesterday is rendered a step quieter
+    // throughout — smaller, dimmer, no interaction. Quiet yesterday, loud today.
+    private const double YesterdayRowFontSize = 11.5;
+    private const double BarColumnWidth = 62d;
+    private const double ValueColumnWidth = 56d;
+    private const double BarHeight = 4d;
     private const double CardWidth = 380d;
     private const double ScreenMargin = 20d;
     // Long enough to read as a deliberate change, short enough not to feel like a reload.
@@ -33,6 +46,12 @@ internal sealed class UserCheckInCardWindow : Window
     private readonly StackPanel _bodyStack;   // mode-specific content is rebuilt here each ShowPrompt
     // Visible only when the keyboard grab was refused; see the constructor.
     private readonly TextBlock _focusHint;
+    // Where the hint lives when a surface has not claimed it. Step 8 made the card tall enough that
+    // a notice pinned to the bottom can sit far below the box it is about, so the morning surface
+    // moves it up to sit directly above the first input.
+    private readonly Panel _focusHintHome;
+    // The armed box, remembered so its border can be restored when the next card is built.
+    private TextBox? _accentedBox;
     private UserCheckInKind _kind;
     private bool _responded;
     // Confirmation mode: the card is echoing an acknowledgement (no further reply expected), so the
@@ -144,13 +163,18 @@ internal sealed class UserCheckInCardWindow : Window
         _focusHint = new TextBlock
         {
             FontSize = 11,
-            Foreground = new SolidColorBrush(AccentGreen),
+            // NOT green. Green on this card means one thing — finished — plus the primary button
+            // and, when Windows refuses the keyboard, the border of the box that wants your click.
+            // A green sentence here would make the colour mean "notice me" as well, which is how a
+            // palette stops carrying information.
+            Foreground = new SolidColorBrush(BodyFg),
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 8, 0, 0),
+            Margin = new Thickness(0, 0, 0, 6),
             Text = "Click the box to type — Windows kept the keyboard.",
             Visibility = Visibility.Collapsed
         };
         stack.Children.Add(_focusHint);
+        _focusHintHome = stack;
 
         Content = _cardBorder;
         Loaded += (_, _) => PositionBottomRight();
@@ -195,9 +219,11 @@ internal sealed class UserCheckInCardWindow : Window
         _bodyStack.Children.Clear();
         // Cleared before the rebuild so a kind with no text input (midday) can never inherit the
         // previous card's box, which is no longer in the visual tree.
+        SetBoxAccent(false);
         _focusTarget = null;
         _userInteracted = false;
         _focusHint.Visibility = Visibility.Collapsed;
+        MoveFocusHintTo(_focusHintHome);
         // A previous card may have faded its message out mid-upgrade; make sure this one renders
         // opaque regardless of where the last animation left the property.
         _message.BeginAnimation(UIElement.OpacityProperty, null);
@@ -272,6 +298,114 @@ internal sealed class UserCheckInCardWindow : Window
         Topmost = true;
     }
 
+    /// <summary>
+    /// A section label: small, muted, with a hairline under it. The label is always quieter than
+    /// the values beneath it — it is scaffolding, not content.
+    /// </summary>
+    private void AddSectionLabel(string text, double topMargin)
+    {
+        _bodyStack.Children.Add(new TextBlock
+        {
+            FontSize = 10,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(MutedFg),
+            Text = text,
+            Margin = new Thickness(0, topMargin, 0, 5)
+        });
+
+        _bodyStack.Children.Add(new Border
+        {
+            Height = 1,
+            Background = new SolidColorBrush(HairlineFg),
+            Margin = new Thickness(0, 0, 0, 9)
+        });
+    }
+
+    /// <summary>
+    /// Step 8 — yesterday, as three columns: what it was, how far it got, how long it took.
+    /// </summary>
+    /// <remarks>
+    /// The bar is the "simple graphic of the day" the plan asks for, resolved per row rather than
+    /// as a separate chart: measured against PLANNED, so twenty seconds of an intended three hours
+    /// reads on its own without a caption. A floor of two pixels keeps that case visible — a bar
+    /// rounded to nothing would say "no data" when the truth is "barely started".
+    ///
+    /// Numbers sit in a fixed right-aligned column with tabular figures, so 1h53m and 20s line up
+    /// on their digits and the column can be read down rather than across.
+    /// </remarks>
+    private void AddYesterdayRow(TaskBoardLine line)
+    {
+        bool done = line.IsDone;
+
+        var row = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(BarColumnWidth) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ValueColumnWidth) });
+
+        var title = new TextBlock
+        {
+            FontSize = YesterdayRowFontSize,
+            // Finished work reads at full strength; dropped work fades back. The state is carried
+            // by weight and colour rather than by a cross, which would read as an error.
+            Foreground = new SolidColorBrush(done ? TitleFg : QuietFg),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.NoWrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+        if (done)
+        {
+            title.Inlines.Add(new System.Windows.Documents.Run("✓ ")
+            {
+                Foreground = new SolidColorBrush(AccentGreen),
+                FontWeight = FontWeights.Bold
+            });
+        }
+
+        title.Inlines.Add(new System.Windows.Documents.Run(line.Title));
+        Grid.SetColumn(title, 0);
+        row.Children.Add(title);
+
+        var track = new Border
+        {
+            Height = BarHeight,
+            Width = BarColumnWidth,
+            CornerRadius = new CornerRadius(BarHeight / 2d),
+            Background = new SolidColorBrush(BarTrackFg),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        var fill = new Border
+        {
+            Height = BarHeight,
+            Width = Math.Max(2d, BarColumnWidth * line.ProgressFraction),
+            CornerRadius = new CornerRadius(BarHeight / 2d),
+            Background = new SolidColorBrush(done ? AccentGreen : BarQuietFg),
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        var barHost = new Grid { VerticalAlignment = VerticalAlignment.Center };
+        barHost.Children.Add(track);
+        barHost.Children.Add(fill);
+        Grid.SetColumn(barHost, 1);
+        row.Children.Add(barHost);
+
+        var value = new TextBlock
+        {
+            FontSize = YesterdayRowFontSize,
+            Foreground = new SolidColorBrush(done ? BodyFg : QuietFg),
+            Text = line.MeasuredLabel,
+            TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        // Tabular figures: proportional digits would stop the column lining up, which is the
+        // entire reason it is a column.
+        System.Windows.Documents.Typography.SetNumeralAlignment(value, FontNumeralAlignment.Tabular);
+        Grid.SetColumn(value, 2);
+        row.Children.Add(value);
+
+        _bodyStack.Children.Add(row);
+    }
+
     // Step 3 — the morning card stops collecting one sentence and starts collecting the day's task
     // list: up to three things, each with a duration the user TAPS. The card opens with a single
     // row so it is no taller than it was before; "+ add" reveals the second and third.
@@ -287,6 +421,36 @@ internal sealed class UserCheckInCardWindow : Window
         {
             AddMutedLine(prompt.CarriedNotice, bottomMargin: 10);
         }
+
+        // Step 8 — yesterday, quiet, above today. History first so the decision below it is made
+        // with the evidence in view; rendered a step dimmer and smaller throughout, and with no
+        // control on it at all, because it is not the thing to act on.
+        IReadOnlyList<TaskBoardLine> yesterday = prompt.Yesterday ?? Array.Empty<TaskBoardLine>();
+        if (yesterday.Count > 0)
+        {
+            AddSectionLabel("YESTERDAY", topMargin: 0);
+            if (!string.IsNullOrWhiteSpace(prompt.YesterdaySummary))
+            {
+                _bodyStack.Children.Add(new TextBlock
+                {
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(BodyFg),
+                    TextWrapping = TextWrapping.Wrap,
+                    Text = prompt.YesterdaySummary,
+                    Margin = new Thickness(0, 0, 0, 9)
+                });
+            }
+
+            foreach (TaskBoardLine line in yesterday)
+            {
+                AddYesterdayRow(line);
+            }
+
+            AddSectionLabel("TODAY", topMargin: 12);
+        }
+
+        // The refusal hint belongs with the box it is about, not at the foot of a tall card.
+        MoveFocusHintTo(_bodyStack);
 
         var rows = new List<MorningTaskRow>();
         var rowsPanel = new StackPanel { Orientation = Orientation.Vertical };
@@ -474,7 +638,9 @@ internal sealed class UserCheckInCardWindow : Window
         HighlightChip(chips[0], true);
         _bodyStack.Children.Add(chipRow);
 
-        Button share = MakePrimaryButton("Share with Ari");
+        // "Start the day" — the card is no longer a form you submit to Ari, it is the moment the
+        // day begins, and the first task starts running the instant it is pressed.
+        Button share = MakePrimaryButton("Start the day");
         share.Click += (_, _) => Respond(BuildResponse());
         _bodyStack.Children.Add(share);
 
@@ -494,6 +660,40 @@ internal sealed class UserCheckInCardWindow : Window
         public Button Remove { get; } = MakeRemoveButton();
 
         public StackPanel Panel { get; set; } = new();
+    }
+
+    /// <summary>Moves the refusal hint so it sits with the input it is about.</summary>
+    private void MoveFocusHintTo(Panel target)
+    {
+        if (ReferenceEquals(_focusHint.Parent, target))
+        {
+            return;
+        }
+
+        (_focusHint.Parent as Panel)?.Children.Remove(_focusHint);
+        target.Children.Add(_focusHint);
+    }
+
+    /// <summary>
+    /// Marks the armed box when Windows refused the keyboard. The hint says what to do; this says
+    /// WHERE — without it the box looks identical whether it has the caret or not, which is the
+    /// whole reason a task went into another application unnoticed.
+    /// </summary>
+    private void SetBoxAccent(bool refused)
+    {
+        if (_accentedBox is { } previous)
+        {
+            previous.BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x41, 0x50));
+            previous.BorderThickness = new Thickness(1);
+            _accentedBox = null;
+        }
+
+        if (refused && _focusTarget is TextBox box)
+        {
+            box.BorderBrush = new SolidColorBrush(AccentGreen);
+            box.BorderThickness = new Thickness(1.5);
+            _accentedBox = box;
+        }
     }
 
     /// <summary>
@@ -877,6 +1077,7 @@ internal sealed class UserCheckInCardWindow : Window
         if (result.Acquired || _focusTarget == null)
         {
             _focusHint.Visibility = Visibility.Collapsed;
+            SetBoxAccent(false);
             return;
         }
 
@@ -897,6 +1098,7 @@ internal sealed class UserCheckInCardWindow : Window
         }
 
         _focusHint.Visibility = Visibility.Visible;
+        SetBoxAccent(true);
     }
 
     // Two extra attempts, close together. Long enough to outlast a menu closing or a window
@@ -1072,8 +1274,17 @@ internal sealed class UserCheckInCardWindow : Window
     private void PositionBottomRight()
     {
         Rect work = SystemParameters.WorkArea;
+
+        // Step 8 guard. The card grows upward because the BOTTOM edge is pinned, so content that
+        // outgrows the work area pushes the header off the top of the screen rather than off the
+        // bottom — invisible, and the "Ari" row and the ✕ are the first things lost. Measured on a
+        // 1920x1080 @150% display the work area is 672 DIPs and a three-task morning card is 452,
+        // so this should never fire there; it is the difference between a safety net and a bug on
+        // the next screen (a 1366x768 laptop, or a title that wraps to three lines).
+        MaxHeight = Math.Max(240d, work.Height - (ScreenMargin * 2d));
+
         Left = work.Right - ActualWidth - ScreenMargin;
-        Top = work.Bottom - ActualHeight - ScreenMargin;
+        Top = Math.Max(work.Top + ScreenMargin, work.Bottom - ActualHeight - ScreenMargin);
     }
 
     protected override void OnSourceInitialized(EventArgs e)

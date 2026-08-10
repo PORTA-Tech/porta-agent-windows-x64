@@ -342,7 +342,13 @@ public sealed class LocalApiClient : IDisposable
     }
 
     // ── Workstream 4: timed tasks ───────────────────────────────────────────────
-    public async Task<LocalApiTasksTodayResponse?> GetTasksTodayAsync(CancellationToken token = default)
+    /// <param name="goalDaysBack">
+    /// How many goal-days of CLOSED tasks to include as well as today. 0 = today only, which is
+    /// what every caller before step 8 wanted. Open tasks always come back regardless.
+    /// </param>
+    public async Task<LocalApiTasksTodayResponse?> GetTasksTodayAsync(
+        CancellationToken token = default,
+        int goalDaysBack = 0)
     {
         if (!HasRuntimeSettings())
         {
@@ -353,7 +359,8 @@ public sealed class LocalApiClient : IDisposable
         {
             RefreshEndpointBinding();
             return await _httpClient.GetFromJsonAsync<LocalApiTasksTodayResponse>(
-                "/v1/tasks/today", token).ConfigureAwait(false);
+                goalDaysBack > 0 ? $"/v1/tasks/today?goalDaysBack={goalDaysBack}" : "/v1/tasks/today",
+                token).ConfigureAwait(false);
         }
         catch
         {
