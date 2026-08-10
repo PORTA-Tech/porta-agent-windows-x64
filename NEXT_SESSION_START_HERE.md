@@ -25,7 +25,7 @@ language and lead with what it means, not how you found it.**
 
 ---
 
-## 0. The build waiting for Yadin — 1.2.133, 2026-08-09
+## 0. Current build — 1.2.133, INSTALLED 2026-08-09
 
 ```
 C:\Users\hp\porta-agent-windows-x64\installer\bin\x64\Release\AriAgentInstaller.msi
@@ -39,8 +39,8 @@ that opens later), and the instrumented foreground retry from §4d. **Steps 3 an
 LIVE** — see §4c. 1.2.132 was installed and is fine to keep running; 1.2.133 only adds the retry
 and its logging.
 
-**Built, not installed and not released. Installing is Yadin's, always.** No tag, no GitHub release,
-no manifest — nothing reaches the fleet.
+**Installed on Yadin's machine and confirmed by the ops console (`1.2.133.0`). Not released.**
+No tag, no GitHub release, no manifest — nothing reaches the fleet. Installing is Yadin's, always.
 
 Guards that passed: publish output self-contained (single-file), payload SQLite 3.53.3 against
 CVE-2025-6965, and `ProductVersion` read back out of the MSI rather than trusted from the csproj.
@@ -69,10 +69,12 @@ Each change has its own log line so a problem stays attributable:
 
 ## 2. Where things stand right now
 
-**Released to Yadin's machine: 1.2.133** (ops console confirms `1.2.133.0`). Previously 1.2.129: Installed via `scripts\install.ps1`, which copies payload
-exes directly and never touches the MSI — so **the binaries are 1.2.129 while the registry still
-reads 1.2.127.** Do not read the registry as the version. Nothing has gone to the fleet: no tag, no
-release, no manifest. Pushed through `8596d5e`.
+**On Yadin's machine: 1.2.133**, confirmed by the ops console reporting `1.2.133.0`.
+
+**Do not read the registry as the version.** `scripts\install.ps1` copies the payload exes directly
+and never touches the MSI, so the registry can lag the binaries by several releases (it read 1.2.127
+while 1.2.129 was running). The ops console and the exes' own `ProductVersion` are the truth.
+Nothing has gone to the fleet: no tag, no release, no manifest.
 
 | Step | State |
 |---|---|
