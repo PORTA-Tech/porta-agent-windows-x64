@@ -157,6 +157,13 @@ public sealed class UserCheckInLoopCardTests
         });
     }
 
+    /// <summary>Titles are composed from Runs (an optional check plus the title).</summary>
+    private static string TextOf(TextBlock block)
+    {
+        string fromRuns = string.Concat(block.Inlines.OfType<System.Windows.Documents.Run>().Select(r => r.Text));
+        return fromRuns.Length > 0 ? fromRuns : block.Text;
+    }
+
     private static IReadOnlyList<Button> RemoveButtons(UserCheckInCardWindow window)
         => Descendants<Button>(window)
             .Where(b => (b.Tag as string) == "remove-row" && b.Visibility == Visibility.Visible)
@@ -175,9 +182,13 @@ public sealed class UserCheckInLoopCardTests
                 Line(1, "Pricing page", measuredSeconds: 4320d),
                 Line(2, "Client revisions", measuredSeconds: 7440d)));
 
-            IReadOnlyList<string> text = Descendants<TextBlock>(window).Select(t => t.Text).ToList();
-            Assert.Contains("Pricing page — 1h12m", text);
-            Assert.Contains("Client revisions — 2h4m", text);
+            // Title and number are separate cells now (shared renderer, fixed number column), so
+            // they are asserted separately rather than as one concatenated line.
+            IReadOnlyList<string> text = Descendants<TextBlock>(window).Select(TextOf).ToList();
+            Assert.Contains("Pricing page", text);
+            Assert.Contains("1h12m", text);
+            Assert.Contains("Client revisions", text);
+            Assert.Contains("2h4m", text);
             // The number is present-and-working time, not wall clock. Saying so is what keeps it
             // trustworthy enough to eventually put in front of a client.
             Assert.Contains(text, t => t.Contains("while you were at the machine", StringComparison.Ordinal));
@@ -281,8 +292,10 @@ public sealed class UserCheckInLoopCardTests
                 Line(1, "Pricing page", state: "done", measuredSeconds: 4320d),
                 Line(2, "Invoices", state: "pending")));
 
-            IReadOnlyList<string> text = Descendants<TextBlock>(window).Select(t => t.Text).ToList();
-            Assert.Contains("✓ Pricing page — 1h12m", text);
+            IReadOnlyList<string> text = Descendants<TextBlock>(window).Select(TextOf).ToList();
+            // The check is a Run inside the title cell; the number is its own right-aligned cell.
+            Assert.Contains("✓ Pricing page", text);
+            Assert.Contains("1h12m", text);
             // One open task, so exactly one row of chips to answer.
             Assert.Single(ButtonsWithContent(window, "Drop it"));
         });

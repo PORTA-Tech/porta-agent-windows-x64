@@ -333,9 +333,16 @@ internal sealed class UserCheckInCardWindow : Window
     /// Numbers sit in a fixed right-aligned column with tabular figures, so 1h53m and 20s line up
     /// on their digits and the column can be read down rather than across.
     /// </remarks>
-    private void AddYesterdayRow(TaskBoardLine line)
+    private void AddTaskRow(TaskBoardLine line, bool fadeUnfinished)
     {
         bool done = line.IsDone;
+        // THE ONE DIFFERENCE BETWEEN THE THREE CARDS, and it is deliberate. Fading is TONE, not
+        // state. On yesterday's block, "not done" means "you dropped this" and receding is right.
+        // On today's board, "not done" means "this is the live work you are about to act on" —
+        // fading it would make the interactive rows the quietest thing on the card and would read
+        // as a reproach for work that is simply still in progress. Same renderer, same columns,
+        // same numbers; only the weight of unfinished work changes.
+        bool quiet = !done && fadeUnfinished;
 
         var row = new Grid { Margin = new Thickness(0, 0, 0, 6) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -347,7 +354,7 @@ internal sealed class UserCheckInCardWindow : Window
             FontSize = YesterdayRowFontSize,
             // Finished work reads at full strength; dropped work fades back. The state is carried
             // by weight and colour rather than by a cross, which would read as an error.
-            Foreground = new SolidColorBrush(done ? TitleFg : QuietFg),
+            Foreground = new SolidColorBrush(quiet ? QuietFg : TitleFg),
             TextTrimming = TextTrimming.CharacterEllipsis,
             TextWrapping = TextWrapping.NoWrap,
             VerticalAlignment = VerticalAlignment.Center,
@@ -380,6 +387,7 @@ internal sealed class UserCheckInCardWindow : Window
             Height = BarHeight,
             Width = Math.Max(2d, BarColumnWidth * line.ProgressFraction),
             CornerRadius = new CornerRadius(BarHeight / 2d),
+            // Green fills only for finished work, on every card. An in-progress bar is neutral.
             Background = new SolidColorBrush(done ? AccentGreen : BarQuietFg),
             HorizontalAlignment = HorizontalAlignment.Left
         };
@@ -392,7 +400,7 @@ internal sealed class UserCheckInCardWindow : Window
         var value = new TextBlock
         {
             FontSize = YesterdayRowFontSize,
-            Foreground = new SolidColorBrush(done ? BodyFg : QuietFg),
+            Foreground = new SolidColorBrush(quiet ? QuietFg : BodyFg),
             Text = line.MeasuredLabel,
             TextAlignment = TextAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center
@@ -443,7 +451,8 @@ internal sealed class UserCheckInCardWindow : Window
 
             foreach (TaskBoardLine line in yesterday)
             {
-                AddYesterdayRow(line);
+                // History: dropped work recedes.
+                AddTaskRow(line, fadeUnfinished: true);
             }
 
             AddSectionLabel("TODAY", topMargin: 12);
@@ -745,6 +754,7 @@ internal sealed class UserCheckInCardWindow : Window
             return;
         }
 
+        AddSectionLabel("TODAY", topMargin: 0);
         AddQuestionLabel(prompt.QuestionLabel);
         List<TaskOutcomeRow> rows = AddTaskBoard(open, includeDrop: false);
         AddMeasuredFootnote();
@@ -771,29 +781,26 @@ internal sealed class UserCheckInCardWindow : Window
         foreach (TaskBoardLine line in lines)
         {
             var row = new TaskOutcomeRow(line);
+
+            // The SAME row renderer the morning card uses — title, bar of actual against planned,
+            // and the measured time in the fixed tabular column. Sharing it is the point: three
+            // cards rendering the same object three ways is how they drift.
+            //
+            // fadeUnfinished: false — this is today's live work, not history. See AddTaskRow.
+            AddTaskRow(line, fadeUnfinished: false);
+
             var panel = new StackPanel
             {
                 Orientation = Orientation.Vertical,
-                Margin = new Thickness(0, rows.Count == 0 ? 0 : 10, 0, 0)
+                Margin = new Thickness(0, 0, 0, 10)
             };
-
-            // Title and the measured hours on one line: this is the pairing that makes Ari the only
-            // tool where "done" arrives with the time behind it.
-            panel.Children.Add(new TextBlock
-            {
-                FontSize = 12.5,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(TitleFg),
-                TextWrapping = TextWrapping.Wrap,
-                Text = $"{line.Title} — {line.MeasuredLabel}"
-            });
 
             if (line.DaysCarried >= UserCheckInTaskBoard.CarriedMentionThreshold)
             {
                 AddMutedLine($"carried {line.DaysCarried} days", bottomMargin: 0, parent: panel, fontSize: 11);
             }
 
-            var chipRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            var chipRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 0) };
             var choices = new List<(string Action, string Label)>
             {
                 (UserCheckInTaskOutcome.Done, "Done"),
@@ -939,10 +946,17 @@ internal sealed class UserCheckInCardWindow : Window
             return;
         }
 
-        // Finished work: shown, counted, not asked about. Seeing it is the point.
-        foreach (TaskBoardLine done in board.Where(line => line.IsDone))
+        // Finished work: shown, counted, not asked about. Seeing it is the point — and it goes
+        // through the same renderer as everywhere else, so the check, the bar and the number column
+        // line up with the morning card rather than being a second dialect.
+        IReadOnlyList<TaskBoardLine> finished = board.Where(line => line.IsDone).ToList();
+        if (finished.Count > 0)
         {
-            AddMutedLine($"✓ {done.Title} — {done.MeasuredLabel}", bottomMargin: 4);
+            AddSectionLabel("FINISHED", topMargin: 0);
+            foreach (TaskBoardLine done in finished)
+            {
+                AddTaskRow(done, fadeUnfinished: false);
+            }
         }
 
         if (open.Count == 0)
@@ -959,6 +973,7 @@ internal sealed class UserCheckInCardWindow : Window
             return;
         }
 
+        AddSectionLabel("STILL OPEN", topMargin: finished.Count > 0 ? 12 : 0);
         AddQuestionLabel(prompt.QuestionLabel);
         List<TaskOutcomeRow> rows = AddTaskBoard(open, includeDrop: true);
         AddMeasuredFootnote();
