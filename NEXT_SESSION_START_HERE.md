@@ -69,7 +69,7 @@ Each change has its own log line so a problem stays attributable:
 
 ## 2. Where things stand right now
 
-**Released to Yadin's machine: 1.2.129.** Installed via `scripts\install.ps1`, which copies payload
+**Released to Yadin's machine: 1.2.133** (ops console confirms `1.2.133.0`). Previously 1.2.129: Installed via `scripts\install.ps1`, which copies payload
 exes directly and never touches the MSI — so **the binaries are 1.2.129 while the registry still
 reads 1.2.127.** Do not read the registry as the version. Nothing has gone to the fleet: no tag, no
 release, no manifest. Pushed through `8596d5e`.
@@ -83,9 +83,9 @@ release, no manifest. Pushed through `8596d5e`.
 | Narrative root cause | **FOUND 2026-08-08 and fixed.** A 3s HTTP client timeout, below all three documented budgets. See §3a. |
 | 3. Merge goals and tasks | **CONFIRMED LIVE 2026-08-09.** Three tasks created, first auto-started. See §4c. |
 | 4. Propose, never an empty box | **CONFIRMED LIVE 2026-08-09.** Card arrived pre-filled; chips used. See §4c. |
-| 5. One-tap done | **Built, not yet confirmed live.** In 1.2.132. Midday lists tasks with measured time. |
-| 6. Carry-forward | **Built, not yet confirmed live.** In 1.2.132. Costs nothing — open tasks never left. |
-| 7. Evening closes the day | **Built, not yet confirmed live.** In 1.2.132. The "tomorrow?" box is gone. |
+| 5. One-tap done | **CONFIRMED LIVE 2026-08-09 17:08.** Per-task time + Done/Not yet; the midday answer derived correctly (`answer=partly` from 1 of 2 ticked). |
+| 6. Carry-forward | **Built, not yet confirmed live.** In 1.2.132. Costs nothing — open tasks never left. Untested: no task has yet survived a day. |
+| 7. Evening closes the day | **CONFIRMED LIVE 2026-08-09 18:41.** "Nothing left open" + Good night rendered. NOTE: the card was **dismissed**, not completed — see §4e. |
 
 Test gate before the 1.2.129 build: ControlCenter 80, Runtime 6, Service 117, UserAgent 276 (+3
 skipped) — all green. Core 711 passed / 4 failed, exactly the documented restart-reconciliation
@@ -375,6 +375,50 @@ Yadin's rule: never fight for a keyboard someone else is using.
 — process NAME only, never a window title), and when the keyboard is refused the card **says so**
 rather than looking focused. The harm was never that Ari lacked the keyboard; it was that there was
 no way to tell.
+
+---
+
+## 4e. The dropped-task question — answered 2026-08-10
+
+**Asked:** last night's evening card said nothing was left open, `writting` and `working on apollo`
+were both dropped at 0m, and this morning's card appeared to pre-fill "continue writting". Should a
+dropped task come back as a proposal?
+
+**No — and it did not. VERIFIED against the live database, not reasoned.**
+
+```
+tasks
+6  writting            abandoned  20s   ended 2026-08-09T13:42
+7  working on apollo   abandoned   0s   ended 2026-08-09T10:28
+9  continue writting   pending      0s  created 2026-08-10T07:41   <- a NEW task
+```
+
+Two independent facts, both measured:
+
+1. **`Propose` filters on `IsOpen` (pending/active).** An abandoned task cannot be proposed, and
+   `Propose_SkipsFinishedWork` pins it. Both were abandoned hours before the morning card.
+2. **The other possible source was empty too.** The pre-fill's only other input is
+   `PrefillGoalText` ← `GetCarriedOverPlan()` ← **yesterday's `daily_goals.plan_tomorrow`**. The
+   2026-08-09 row has `plan_tomorrow` empty and `eod_at_utc` empty, because the evening card was
+   **dismissed** rather than completed (`checkin_dismissed kind=EndOfDay` at 14:42 UTC, no
+   `checkin_eod_recorded`).
+
+So both pre-fill sources were empty and the box was blank. Task id=9 is a **new** task typed that
+morning — note the second `checkin_card_focus … reason=ok_direct` at 07:40:41, which is the "+ add"
+row being opened by hand.
+
+**THE REAL GAP, and it is worth fixing.** *Inferred, not verified:* what almost certainly suggested
+"continue writting" was **the AI line**, which landed on that card (`used=True`, `applied=True`).
+And the AI is not bound by the rule the pre-fill obeys — **verified by code**: `NarrativeGateway`
+sends the goal ROW only (`goalToday`, `carriedPlan`), and `DailyStatsReporter` carries goal + midday
+answer. **No task outcome ever reaches the model.** Yesterday's goal sentence was
+`"keep improving the system; writting; working on apollo"` — the projection written in the morning,
+never updated when two of the three were abandoned.
+
+So Ari will never *pre-fill* dropped work, but it can still *talk you into* it, because the model has
+never been told what happened. This is exactly the gap `Loop_And_Report_Build_Brief.md §5c` flagged
+("yesterday's tasks genuinely are missing") and it is now costing something real. Fixing it means
+sending task outcomes with the narrative payload, not just the morning sentence.
 
 ---
 
