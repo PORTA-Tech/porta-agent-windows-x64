@@ -214,9 +214,10 @@ public sealed class UserCheckInMorningScreenTests
             var box = (TextBox)window.FocusTarget!;
             var border = (SolidColorBrush)box.BorderBrush;
 
-            // Green, matching "this is the thing that wants your click".
-            Assert.True(border.Color.G > 150 && border.Color.R < 100);
-            Assert.True(box.BorderThickness.Left > 1d);
+            // Grey, not green (Yadin, 2026-08-10). A refused box POINTS; it does not celebrate, and
+            // green is reserved for the finished check, the finished bar and the primary button.
+            Assert.Equal("#FF8B929E", border.Color.ToString());
+            Assert.Equal(1d, box.BorderThickness.Left);   // 1px marked vs the 0.5px default
         });
     }
 

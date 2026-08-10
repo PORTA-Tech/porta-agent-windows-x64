@@ -14,28 +14,40 @@ using System.Windows.Threading;
 // through the C2 always-on-top channel so it fires even when the widget is hidden.
 internal sealed class UserCheckInCardWindow : Window
 {
-    private static readonly Color CardBg = Color.FromRgb(20, 25, 31);
-    private static readonly Color CardBorder = Color.FromRgb(51, 63, 77);
-    private static readonly Color TitleFg = Color.FromRgb(238, 243, 248);
-    private static readonly Color BodyFg = Color.FromRgb(202, 214, 226);
-    private static readonly Color MutedFg = Color.FromRgb(144, 168, 191);
-    private static readonly Color AccentGreen = Color.FromRgb(0x16, 0xC7, 0x84);
-    // Step 8 palette. Green means ONE thing on this card — finished — and the primary button. There
-    // is deliberately no red anywhere: a task the user chose to drop is a decision, not an error,
-    // and colouring it like a failure would be the card arguing with them.
-    private static readonly Color HairlineFg = Color.FromRgb(0x27, 0x31, 0x3C);  // section rule
-    private static readonly Color QuietFg = Color.FromRgb(0x6E, 0x7E, 0x91);     // dropped: faded, not alarming
-    private static readonly Color BarTrackFg = Color.FromRgb(0x1C, 0x24, 0x2D);  // the unfilled remainder
-    private static readonly Color BarQuietFg = Color.FromRgb(0x3E, 0x4B, 0x5A);  // a dropped task's own bar
-    // Yesterday is history and today is the decision, so yesterday is rendered a step quieter
-    // throughout — smaller, dimmer, no interaction. Quiet yesterday, loud today.
-    private const double YesterdayRowFontSize = 11.5;
+    // ── the design values, given exactly, 2026-08-10 ──
+    // Two weights only: Normal and Medium. Nothing bold, no gradients, no shadows.
+    private static readonly Color CardBg = FromHex("#14171C");
+    private static readonly Color CardBorder = FromHex("#2A3038");   // also the hairline
+    private static readonly Color HeadlineFg = FromHex("#F2F4F7");   // headline + input text
+    private static readonly Color AiLineFg = FromHex("#8B929E");     // the AI line, unselected chip text
+    private static readonly Color LabelFg = FromHex("#6F7885");      // section labels, hint, meta
+    private static readonly Color TitleLiveFg = FromHex("#DFE3E9");  // a task title that is live
+    private static readonly Color TitleFadedFg = FromHex("#78808C"); // a task title that is faded
+    private static readonly Color AccentGreen = FromHex("#3FBF7F");  // finished check, finished bar, button
+    private static readonly Color OnAccentFg = FromHex("#0E2A1C");   // text on the green button
+    private static readonly Color BarTrackFg = FromHex("#232931");
+    private static readonly Color BarUnfinishedFg = FromHex("#5A626D");
+    // Chips are NEUTRAL (Yadin, 2026-08-10): a selected chip is a solid light fill, never green, so
+    // green is left meaning finished and the primary action only.
+    private static readonly Color ChipSelectedFill = FromHex("#2E353E");
+    private static readonly Color ChipSelectedFg = FromHex("#F2F4F7");
+    // The refused-keyboard border. NOT green: green means the finished check, the finished bar and
+    // the primary button, and nothing else touches it - not chips, not inputs.
+    private static readonly Color RefusedBorderFg = FromHex("#8B929E");
+
+    private const double HairlineThickness = 0.5d;
     private const double BarColumnWidth = 62d;
-    private const double ValueColumnWidth = 56d;
-    private const double BarHeight = 4d;
+    private const double BarHeight = 5d;
+    private const double BarRadius = 3d;
+    private const double ValueColumnWidth = 42d;
+    private const double TaskRowFontSize = 12d;
+    private const double CheckFontSize = 13d;
     private const double CardWidth = 380d;
     private const double ScreenMargin = 20d;
-    // Long enough to read as a deliberate change, short enough not to feel like a reload.
+
+    private static Color FromHex(string hex)
+        => (Color)ColorConverter.ConvertFromString(hex)!;
+
     private static readonly TimeSpan MessageFadeDuration = TimeSpan.FromMilliseconds(160);
 
     private readonly Action<UserCheckInResponse> _onResponse;
@@ -104,11 +116,11 @@ internal sealed class UserCheckInCardWindow : Window
 
         _cardBorder = new Border
         {
-            Padding = new Thickness(20),
-            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(16),
+            CornerRadius = new CornerRadius(12),
             Background = new SolidColorBrush(CardBg),
             BorderBrush = new SolidColorBrush(CardBorder),
-            BorderThickness = new Thickness(1.25)
+            BorderThickness = new Thickness(HairlineThickness)
         };
 
         var stack = new StackPanel { Orientation = Orientation.Vertical };
@@ -120,14 +132,13 @@ internal sealed class UserCheckInCardWindow : Window
         _eyebrow = new TextBlock
         {
             FontSize = 11,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(MutedFg),
+            Foreground = new SolidColorBrush(LabelFg),
             Text = "Ari"
         };
         Grid.SetColumn(_eyebrow, 0);
         headerRow.Children.Add(_eyebrow);
 
-        Button dismiss = MakeTextButton("✕", MutedFg);
+        Button dismiss = MakeTextButton("✕", LabelFg);
         dismiss.Click += (_, _) => DismissClicked();
         Grid.SetColumn(dismiss, 1);
         headerRow.Children.Add(dismiss);
@@ -135,9 +146,9 @@ internal sealed class UserCheckInCardWindow : Window
 
         _title = new TextBlock
         {
-            FontSize = 17,
-            FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(TitleFg),
+            FontSize = 16,
+            FontWeight = FontWeights.Medium,
+            Foreground = new SolidColorBrush(HeadlineFg),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0)
         };
@@ -145,9 +156,11 @@ internal sealed class UserCheckInCardWindow : Window
 
         _message = new TextBlock
         {
-            FontSize = 12.5,
-            Foreground = new SolidColorBrush(BodyFg),
+            FontSize = 12,
+            Foreground = new SolidColorBrush(AiLineFg),
             TextWrapping = TextWrapping.Wrap,
+            LineHeight = 18,                       // 12px * 1.5
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
             Margin = new Thickness(0, 6, 0, 0)
         };
         stack.Children.Add(_message);
@@ -167,7 +180,7 @@ internal sealed class UserCheckInCardWindow : Window
             // and, when Windows refuses the keyboard, the border of the box that wants your click.
             // A green sentence here would make the colour mean "notice me" as well, which is how a
             // palette stops carrying information.
-            Foreground = new SolidColorBrush(BodyFg),
+            Foreground = new SolidColorBrush(LabelFg),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 6),
             Text = "Click the box to type — Windows kept the keyboard.",
@@ -307,16 +320,19 @@ internal sealed class UserCheckInCardWindow : Window
         _bodyStack.Children.Add(new TextBlock
         {
             FontSize = 10,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(MutedFg),
-            Text = text,
+            Foreground = new SolidColorBrush(LabelFg),
+            // Uppercased here rather than relying on the caller, so every label is consistent.
+            // Letter-spacing was specced at 0.07em and deliberately DROPPED (Yadin, 2026-08-10):
+            // WPF TextBlock has no letter-spacing property, and 0.7px at this size does not
+            // justify per-glyph Glyphs machinery. Everything else on the label is to spec.
+            Text = text.ToUpperInvariant(),
             Margin = new Thickness(0, topMargin, 0, 5)
         });
 
         _bodyStack.Children.Add(new Border
         {
-            Height = 1,
-            Background = new SolidColorBrush(HairlineFg),
+            Height = HairlineThickness,
+            Background = new SolidColorBrush(CardBorder),
             Margin = new Thickness(0, 0, 0, 9)
         });
     }
@@ -351,10 +367,10 @@ internal sealed class UserCheckInCardWindow : Window
 
         var title = new TextBlock
         {
-            FontSize = YesterdayRowFontSize,
+            FontSize = TaskRowFontSize,
             // Finished work reads at full strength; dropped work fades back. The state is carried
             // by weight and colour rather than by a cross, which would read as an error.
-            Foreground = new SolidColorBrush(quiet ? QuietFg : TitleFg),
+            Foreground = new SolidColorBrush(quiet ? TitleFadedFg : TitleLiveFg),
             TextTrimming = TextTrimming.CharacterEllipsis,
             TextWrapping = TextWrapping.NoWrap,
             VerticalAlignment = VerticalAlignment.Center,
@@ -365,7 +381,7 @@ internal sealed class UserCheckInCardWindow : Window
             title.Inlines.Add(new System.Windows.Documents.Run("✓ ")
             {
                 Foreground = new SolidColorBrush(AccentGreen),
-                FontWeight = FontWeights.Bold
+                FontSize = CheckFontSize
             });
         }
 
@@ -377,7 +393,7 @@ internal sealed class UserCheckInCardWindow : Window
         {
             Height = BarHeight,
             Width = BarColumnWidth,
-            CornerRadius = new CornerRadius(BarHeight / 2d),
+            CornerRadius = new CornerRadius(BarRadius),
             Background = new SolidColorBrush(BarTrackFg),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Left
@@ -386,9 +402,9 @@ internal sealed class UserCheckInCardWindow : Window
         {
             Height = BarHeight,
             Width = Math.Max(2d, BarColumnWidth * line.ProgressFraction),
-            CornerRadius = new CornerRadius(BarHeight / 2d),
+            CornerRadius = new CornerRadius(BarRadius),
             // Green fills only for finished work, on every card. An in-progress bar is neutral.
-            Background = new SolidColorBrush(done ? AccentGreen : BarQuietFg),
+            Background = new SolidColorBrush(done ? AccentGreen : BarUnfinishedFg),
             HorizontalAlignment = HorizontalAlignment.Left
         };
         var barHost = new Grid { VerticalAlignment = VerticalAlignment.Center };
@@ -399,8 +415,9 @@ internal sealed class UserCheckInCardWindow : Window
 
         var value = new TextBlock
         {
-            FontSize = YesterdayRowFontSize,
-            Foreground = new SolidColorBrush(quiet ? QuietFg : BodyFg),
+            FontSize = TaskRowFontSize,
+            // Same colour as its title, so a row reads as one object.
+            Foreground = new SolidColorBrush(quiet ? TitleFadedFg : TitleLiveFg),
             Text = line.MeasuredLabel,
             TextAlignment = TextAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center
@@ -433,7 +450,14 @@ internal sealed class UserCheckInCardWindow : Window
         // Step 8 — yesterday, quiet, above today. History first so the decision below it is made
         // with the evidence in view; rendered a step dimmer and smaller throughout, and with no
         // control on it at all, because it is not the thing to act on.
-        IReadOnlyList<TaskBoardLine> yesterday = prompt.Yesterday ?? Array.Empty<TaskBoardLine>();
+        // Yesterday is context; today is what gets acted on. When today already carries three rows
+        // the card is at its tallest, so yesterday gives ground first (Yadin, 2026-08-10). The
+        // summary line above still counts everything, so the day is never misreported - only fewer
+        // of its rows are itemised.
+        int proposedToday = prompt.Tasks?.Count(t => t.IsOpen) ?? 0;
+        IReadOnlyList<TaskBoardLine> yesterday = (prompt.Yesterday ?? Array.Empty<TaskBoardLine>())
+            .Take(proposedToday >= UserCheckInTaskPlanner.MaxMorningTasks ? 2 : int.MaxValue)
+            .ToList();
         if (yesterday.Count > 0)
         {
             AddSectionLabel("YESTERDAY", topMargin: 0);
@@ -442,7 +466,7 @@ internal sealed class UserCheckInCardWindow : Window
                 _bodyStack.Children.Add(new TextBlock
                 {
                     FontSize = 12,
-                    Foreground = new SolidColorBrush(BodyFg),
+                    Foreground = new SolidColorBrush(TitleLiveFg),
                     TextWrapping = TextWrapping.Wrap,
                     Text = prompt.YesterdaySummary,
                     Margin = new Thickness(0, 0, 0, 9)
@@ -465,7 +489,7 @@ internal sealed class UserCheckInCardWindow : Window
         var rowsPanel = new StackPanel { Orientation = Orientation.Vertical };
         _bodyStack.Children.Add(rowsPanel);
 
-        Button addRow = MakeTextButton("+ add", MutedFg);
+        Button addRow = MakeTextButton("+ add", LabelFg);
         addRow.HorizontalAlignment = HorizontalAlignment.Left;
         addRow.Margin = new Thickness(0, 8, 0, 0);
 
@@ -692,15 +716,18 @@ internal sealed class UserCheckInCardWindow : Window
     {
         if (_accentedBox is { } previous)
         {
-            previous.BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x41, 0x50));
-            previous.BorderThickness = new Thickness(1);
+            previous.BorderBrush = new SolidColorBrush(CardBorder);
+            previous.BorderThickness = new Thickness(HairlineThickness);
             _accentedBox = null;
         }
 
         if (refused && _focusTarget is TextBox box)
         {
-            box.BorderBrush = new SolidColorBrush(AccentGreen);
-            box.BorderThickness = new Thickness(1.5);
+            // A box that HOLDS the keyboard needs no colour at all - the caret already says so.
+            // Only a REFUSED box gets marked, and it is marked in grey: it is pointing, not
+            // celebrating (Yadin, 2026-08-10, correcting the earlier spec).
+            box.BorderBrush = new SolidColorBrush(RefusedBorderFg);
+            box.BorderThickness = new Thickness(1d);
             _accentedBox = box;
         }
     }
@@ -860,13 +887,13 @@ internal sealed class UserCheckInCardWindow : Window
         string text,
         double bottomMargin,
         Panel? parent = null,
-        double fontSize = 12,
+        double fontSize = 11,
         double topMargin = 0)
     {
         (parent ?? _bodyStack).Children.Add(new TextBlock
         {
             FontSize = fontSize,
-            Foreground = new SolidColorBrush(MutedFg),
+            Foreground = new SolidColorBrush(LabelFg),
             TextWrapping = TextWrapping.Wrap,
             Text = text,
             Margin = new Thickness(0, topMargin, 0, bottomMargin)
@@ -893,9 +920,9 @@ internal sealed class UserCheckInCardWindow : Window
 
         _bodyStack.Children.Add(new TextBlock
         {
-            FontSize = 12.5,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(BodyFg),
+            FontSize = 12,
+            FontWeight = FontWeights.Medium,
+            Foreground = new SolidColorBrush(TitleLiveFg),
             TextWrapping = TextWrapping.Wrap,
             Text = questionLabel.Trim(),
             Margin = new Thickness(0, 0, 0, 8)
@@ -1318,64 +1345,114 @@ internal sealed class UserCheckInCardWindow : Window
         var box = new TextBox
         {
             FontSize = 13,
-            MinHeight = 30,
-            Padding = new Thickness(8, 6, 8, 6),
-            Background = new SolidColorBrush(Color.FromRgb(0x0F, 0x11, 0x14)),
-            Foreground = new SolidColorBrush(Color.FromRgb(0xED, 0xEF, 0xF3)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x41, 0x50)),
-            BorderThickness = new Thickness(1),
-            CaretBrush = new SolidColorBrush(AccentGreen),
+            Padding = new Thickness(10, 8, 10, 8),
+            Background = new SolidColorBrush(CardBg),
+            Foreground = new SolidColorBrush(HeadlineFg),
+            BorderBrush = new SolidColorBrush(CardBorder),
+            BorderThickness = new Thickness(HairlineThickness),
+            CaretBrush = new SolidColorBrush(HeadlineFg),
             TextWrapping = TextWrapping.Wrap,
             Tag = placeholder
         };
+        ApplyInputTemplate(box, 7d);
         return box;
     }
 
     private static Button MakeChip(string label)
     {
-        return new Button
+        var chip = new Button
         {
             Content = label,
-            FontSize = 12,
+            FontSize = 11,
             Padding = new Thickness(10, 4, 10, 4),
             Margin = new Thickness(0, 0, 6, 0),
-            Background = Brushes.Transparent,
-            Foreground = new SolidColorBrush(MutedFg),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x35)),
-            BorderThickness = new Thickness(1),
             Cursor = Cursors.Hand
         };
+        ApplyButtonTemplate(chip, 5d);
+        HighlightChip(chip, selected: false);
+        return chip;
     }
 
+    /// <summary>
+    /// Selection is a solid LIGHT fill, never green (Yadin, 2026-08-10). Green had drifted into a
+    /// third meaning - finished, the primary action, AND "this chip is chosen" - and on a card with
+    /// three duration rows that put seven green things on screen, exactly one of which meant
+    /// finished. Neutral selection gives the colour back its single meaning.
+    /// </summary>
     private static void HighlightChip(Button chip, bool selected)
     {
-        chip.Foreground = new SolidColorBrush(selected ? AccentGreen : MutedFg);
-        chip.BorderBrush = new SolidColorBrush(selected ? Color.FromRgb(0x1E, 0x4D, 0x3B) : Color.FromRgb(0x25, 0x25, 0x35));
+        chip.Background = selected ? new SolidColorBrush(ChipSelectedFill) : Brushes.Transparent;
+        chip.Foreground = new SolidColorBrush(selected ? ChipSelectedFg : AiLineFg);
+        chip.BorderBrush = selected ? Brushes.Transparent : new SolidColorBrush(CardBorder);
+        chip.BorderThickness = new Thickness(selected ? 0d : HairlineThickness);
     }
 
     private static Button MakePrimaryButton(string label)
     {
-        return new Button
+        var button = new Button
         {
             Content = label,
             FontSize = 13,
-            FontWeight = FontWeights.SemiBold,
-            Padding = new Thickness(12, 6, 12, 6),
+            FontWeight = FontWeights.Medium,
+            Padding = new Thickness(12, 9, 12, 9),
             Margin = new Thickness(0, 12, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Background = new SolidColorBrush(Color.FromRgb(0x16, 0x3C, 0x30)),
-            Foreground = new SolidColorBrush(AccentGreen),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x4D, 0x3B)),
-            BorderThickness = new Thickness(1),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(AccentGreen),
+            Foreground = new SolidColorBrush(OnAccentFg),
+            BorderThickness = new Thickness(0),
             Cursor = Cursors.Hand
         };
+        ApplyButtonTemplate(button, 7d);
+        return button;
     }
+
+    // WPF's stock Button and TextBox templates draw their own chrome, so a corner radius cannot be
+    // set as a property - it has to come from the template. These are the smallest templates that
+    // honour Background / BorderBrush / BorderThickness / Padding from the control itself, so the
+    // rest of the styling stays where it is readable.
+    private static void ApplyButtonTemplate(Button button, double radius)
+    {
+        var template = new ControlTemplate(typeof(Button));
+        FrameworkElementFactory border = ChromeBorder(radius);
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        presenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+        presenter.SetBinding(FrameworkElement.MarginProperty, TemplateBinding("Padding"));
+        border.AppendChild(presenter);
+        template.VisualTree = border;
+        button.Template = template;
+    }
+
+    private static void ApplyInputTemplate(TextBox box, double radius)
+    {
+        var template = new ControlTemplate(typeof(TextBox));
+        FrameworkElementFactory border = ChromeBorder(radius);
+        var host = new FrameworkElementFactory(typeof(ScrollViewer), "PART_ContentHost");
+        host.SetValue(FrameworkElement.MarginProperty, new Thickness(0));
+        host.SetBinding(Control.PaddingProperty, TemplateBinding("Padding"));
+        border.AppendChild(host);
+        template.VisualTree = border;
+        box.Template = template;
+    }
+
+    private static FrameworkElementFactory ChromeBorder(double radius)
+    {
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(radius));
+        border.SetBinding(Border.BackgroundProperty, TemplateBinding("Background"));
+        border.SetBinding(Border.BorderBrushProperty, TemplateBinding("BorderBrush"));
+        border.SetBinding(Border.BorderThicknessProperty, TemplateBinding("BorderThickness"));
+        return border;
+    }
+
+    private static System.Windows.Data.Binding TemplateBinding(string path)
+        => new(path) { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent };
 
     // Per-row remove, matching the ✕ the widget already puts on every task. Tagged so a test can
     // tell it apart from the card's own dismiss ✕ in the header.
     private static Button MakeRemoveButton()
     {
-        Button remove = MakeTextButton("✕", MutedFg);
+        Button remove = MakeTextButton("✕", LabelFg);
         remove.Tag = "remove-row";
         remove.Margin = new Thickness(6, 0, 0, 0);
         remove.VerticalAlignment = VerticalAlignment.Center;

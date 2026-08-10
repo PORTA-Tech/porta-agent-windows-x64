@@ -55,35 +55,53 @@ public sealed class UserCheckInCardVisualRulesTests
             int finishedRows = FinishedTitles(window).Count;
             Assert.Equal(finishedRows, greenRuns);
 
-            // Green fills: only finished rows' bars.
-            int greenFills = Descendants<Border>(window)
-                .Select(b => b.Background)
-                .OfType<SolidColorBrush>()
-                .Count(IsGreen);
-            Assert.Equal(finishedRows, greenFills);
-
-            // FLAGGED FOR YADIN, 2026-08-10 — not silently accepted. Green currently carries a
-            // THIRD meaning: HighlightChip has always painted the SELECTED chip with the accent, so
-            // the chosen duration ("1h") and tracking preference ("Remind me") are green too. That
-            // predates step 8 and applies to every card equally, so it is not drift between the
-            // three — but it is a genuine conflict with "green means finished and the button".
-            // Left alone deliberately: changing selection colour is a visible change nobody asked
-            // for. The test names the exception so it cannot become invisible.
-            IReadOnlyList<string> greenButtons = Descendants<Button>(window)
-                .Where(b => b.Foreground is SolidColorBrush g && IsGreen(g))
-                .Select(b => b.Content as string ?? string.Empty)
+            // Green fills: the finished rows' bars, plus the primary button. Nothing else.
+            IReadOnlyList<SolidColorBrush> greenFills = Descendants<Border>(window)
+                .Select(b => b.Background).OfType<SolidColorBrush>().Where(IsGreen)
+                .Concat(Descendants<Button>(window).Select(b => b.Background).OfType<SolidColorBrush>().Where(IsGreen))
                 .ToList();
+            Assert.Equal(finishedRows + 1, greenFills.Count);
+
+            // Chips went NEUTRAL on 2026-08-10, so the exception this test used to carry is gone:
+            // a selected chip is a solid light fill with dark text, never green. Green is now the
+            // finished check, the finished bar, and the primary button - three uses, one meaning
+            // each, and nothing has to be explained away.
+            Assert.Empty(Descendants<Button>(window)
+                .Where(b => b.Foreground is SolidColorBrush g && IsGreen(g)));
+
+            Assert.All(
+                Descendants<Button>(window).Where(b => b.Background is SolidColorBrush g && IsGreen(g)),
+                b => Assert.True(
+                    b.Content is "Start the day" or "Save" or "Close the day" or "Good night",
+                    $"only the primary button may be green; found: {b.Content}"));
+        });
+    }
+
+    // Green touches exactly three things. Nothing on an input or a chip may ever be green again:
+    // that is how it drifted to seven green elements on one card in the first place.
+    [Theory]
+    [MemberData(nameof(AllThreeCards))]
+    public void NoInputOrChipIsEverGreen(string card)
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(PromptFor(card));
+
+            Assert.All(Descendants<TextBox>(window), box =>
+            {
+                Assert.False(box.BorderBrush is SolidColorBrush b && IsGreen(b), "an input border was green");
+                Assert.False(box.Background is SolidColorBrush g && IsGreen(g), "an input fill was green");
+                Assert.False(box.Foreground is SolidColorBrush f && IsGreen(f), "input text was green");
+            });
 
             string[] primary = { "Start the day", "Save", "Close the day", "Good night" };
-            string[] selectableChips = UserCheckInChoices.MorningTaskDurations.Select(d => d.Label)
-                .Concat(UserCheckInChoices.MorningTracking.Select(t => t.Label))
-                .Concat(new[] { "Done", "Not yet", "Keep", "Drop it" })
-                .ToArray();
-
-            Assert.All(greenButtons, content => Assert.True(
-                primary.Contains(content) || selectableChips.Contains(content),
-                $"an unexpected green button on the {card} card: {content}. Green is the primary "
-                + "button, the finished check, and (pre-existing) the selected chip — nothing else."));
+            Assert.All(
+                Descendants<Button>(window).Where(b => !primary.Contains(b.Content as string)),
+                b =>
+                {
+                    Assert.False(b.Background is SolidColorBrush g && IsGreen(g), $"a chip fill was green: {b.Content}");
+                    Assert.False(b.Foreground is SolidColorBrush f && IsGreen(f), $"chip text was green: {b.Content}");
+                });
         });
     }
 
@@ -136,11 +154,11 @@ public sealed class UserCheckInCardVisualRulesTests
                 .ToList();
 
             Assert.NotEmpty(tracks);
-            Assert.All(tracks, t => Assert.Equal(4d, t.Height));
+            Assert.All(tracks, t => Assert.Equal(5d, t.Height));
 
             // A barely-started task still shows a sliver rather than nothing.
             Assert.All(
-                Descendants<Border>(window).Where(b => b.Height == 4d && b.Width < 62d),
+                Descendants<Border>(window).Where(b => b.Height == 5d && b.Width < 62d),
                 b => Assert.True(b.Width >= 2d, "a bar rounded to nothing reads as 'no data'"));
         });
     }
@@ -167,7 +185,7 @@ public sealed class UserCheckInCardVisualRulesTests
             });
 
             // Each label is followed by a hairline rule.
-            Assert.NotEmpty(Descendants<Border>(window).Where(b => b.Height == 1d));
+            Assert.NotEmpty(Descendants<Border>(window).Where(b => Math.Abs(b.Height - 0.5d) < 0.01));
         });
     }
 
@@ -210,7 +228,7 @@ public sealed class UserCheckInCardVisualRulesTests
     private static SolidColorBrush Color(System.Windows.Media.Color c) => new(c);
 
     private static System.Windows.Media.Color TitleFgProbe()
-        => System.Windows.Media.Color.FromRgb(238, 243, 248);   // TitleFg
+        => (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#DFE3E9")!;   // the spec's live-title colour
 
     private static UserCheckInPrompt PromptFor(string card) => card switch
     {
