@@ -32,6 +32,47 @@ internal sealed class NarrativeGateway : INarrativeGateway
     // UserCheckInScheduler.AwayGapThreshold, which lives in a different assembly).
     private const double AwayGapThresholdSeconds = 2 * 3600d;
 
+    // One goal-day back, so the morning card can see what happened yesterday. Open tasks come back
+    // regardless of age; this only widens how far CLOSED ones reach.
+    private const int TaskLookbackGoalDays = 1;
+
+    // A hard ceiling on how much of the user's own writing rides a model call. The morning card
+    // caps at three tasks a day, so ten covers today and yesterday with room to spare — and past
+    // that the oldest closed work is the least useful thing on the sheet anyway.
+    internal const int MaxNarrativeTasks = 10;
+
+    /// <summary>
+    /// Turns store rows into the fact-sheet payload: open work first (it is what a decision is made
+    /// about), then the most recently closed, capped. Pure so the ordering and the cap are pinned by
+    /// a test rather than trusted.
+    /// </summary>
+    internal static IReadOnlyList<NarrativeTaskPayload>? ProjectTasks(
+        IReadOnlyList<AgentTask>? tasks,
+        int max)
+    {
+        if (tasks is null || tasks.Count == 0 || max <= 0)
+        {
+            return null;
+        }
+
+        List<NarrativeTaskPayload> projected = tasks
+            .Where(t => !string.IsNullOrWhiteSpace(t.Title))
+            // Open before closed; within closed, most recently finished first, so a truncated list
+            // loses the stalest facts rather than the freshest.
+            .OrderBy(t => t.State is "active" or "pending" ? 0 : 1)
+            .ThenByDescending(t => t.EndedAtUtc ?? DateTimeOffset.MinValue)
+            .ThenBy(t => t.Id)
+            .Take(max)
+            .Select(t => new NarrativeTaskPayload(
+                Title: t.Title.Trim(),
+                State: t.State,
+                PlannedSeconds: t.PlannedSeconds,
+                ActualSeconds: Math.Round(t.ActiveSeconds)))
+            .ToList();
+
+        return projected.Count > 0 ? projected : null;
+    }
+
     private readonly IAgentCoreController _controller;
     private readonly ControlPlaneClient _client;
     private readonly ILocalIdentityLinkStore _identityLinkStore;
@@ -164,6 +205,18 @@ internal sealed class NarrativeGateway : INarrativeGateway
         {
         }
 
+        // What actually happened, so the line is not written from the morning sentence alone.
+        // Fail-soft like everything else on this path: a store that will not answer costs the
+        // model some context, never the check-in.
+        IReadOnlyList<NarrativeTaskPayload>? tasks = null;
+        try
+        {
+            tasks = ProjectTasks(_controller.GetRecentTasks(TaskLookbackGoalDays), MaxNarrativeTasks);
+        }
+        catch
+        {
+        }
+
         // Same 5:00-local goal-day boundary as AgentCoreController.GoalDay: a card shown at 02:00
         // still belongs to yesterday's goal-day, and the server caches one line per moment per day.
         string dateLocal = (nowLocal.Hour < 5 ? nowLocal.AddDays(-1) : nowLocal).ToString("yyyy-MM-dd");
@@ -190,7 +243,8 @@ internal sealed class NarrativeGateway : INarrativeGateway
             LocalTimeHHmm: nowLocal.ToString("HH\\:mm"),
             UserText: NullIfBlank(userText),
             MiddaySkipped: middaySkipped,
-            AwayGap: awayGap);
+            AwayGap: awayGap,
+            Tasks: tasks);
 
         return new NarrativeRequestPayload(
             AccountId: identity.AccountId!,

@@ -108,6 +108,8 @@ public sealed class NarrativeGatewayTests
         public bool AcknowledgeReminder(long id, string action) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentTask? CreateTask(string title, int plannedSeconds) => throw new NotSupportedException();
         public IReadOnlyList<Porta.Agent.Core.AgentTask> GetTodayTasks() => throw new NotSupportedException();
+
+        public IReadOnlyList<Porta.Agent.Core.AgentTask> GetRecentTasks(int goalDaysBack) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentTask? ActOnTask(long id, string action) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentDailyGoal? SetMorningGoal(string goalText, string trackingPref, int taskCount = 1) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentDailyGoal? GetTodayGoal() => throw new NotSupportedException();

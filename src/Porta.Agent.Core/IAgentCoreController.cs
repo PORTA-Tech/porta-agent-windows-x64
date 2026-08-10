@@ -59,6 +59,11 @@ public interface IAgentCoreController
     // and act on one (start | done | abandon | extend).
     AgentTask? CreateTask(string title, int plannedSeconds);
     IReadOnlyList<AgentTask> GetTodayTasks();
+
+    // Tasks from the last N goal-days as well as today. The narrative needs it: the morning
+    // card fires after the 05:00 boundary, so yesterday's finished and abandoned tasks are
+    // already outside GetTodayTasks' window at exactly the moment they matter most.
+    IReadOnlyList<AgentTask> GetRecentTasks(int goalDaysBack);
     AgentTask? ActOnTask(long id, string action);
 
     // Workstream D — conversational check-in goals (goal-day resolved at the 5:00 boundary).

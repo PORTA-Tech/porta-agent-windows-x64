@@ -1803,6 +1803,22 @@ public sealed class AgentCoreController : IAgentCoreController
         => _stateStore.ReadTasks(
             GoalDayStartLocal(DateTimeOffset.Now).ToUniversalTime(), DateTimeOffset.UtcNow);
 
+    /// <summary>
+    /// Tasks from the last <paramref name="goalDaysBack"/> goal-days as well as today. Open tasks
+    /// always come back regardless of age; the window only decides how far back CLOSED ones reach.
+    /// </summary>
+    /// <remarks>
+    /// The narrative needs this and <see cref="GetTodayTasks"/> cannot serve it. The morning card
+    /// fires around 07:00, after the 05:00 boundary, so yesterday's finished and abandoned tasks
+    /// are already outside today's window — the exact moment Ari most needs to know what happened,
+    /// it would otherwise be handed an empty list. Measured on 2026-08-10: at 07:39 the day's task
+    /// list was empty while two tasks had been abandoned the previous afternoon.
+    /// </remarks>
+    public IReadOnlyList<AgentTask> GetRecentTasks(int goalDaysBack)
+        => _stateStore.ReadTasks(
+            GoalDayStartLocal(DateTimeOffset.Now).AddDays(-Math.Max(0, goalDaysBack)).ToUniversalTime(),
+            DateTimeOffset.UtcNow);
+
     public AgentTask? ActOnTask(long id, string action)
         => _stateStore.ActOnTask(id, action, DateTimeOffset.UtcNow);
 

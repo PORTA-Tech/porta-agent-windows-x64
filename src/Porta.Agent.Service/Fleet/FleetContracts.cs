@@ -177,7 +177,27 @@ internal sealed record NarrativeSituationPayload(
     // Part 1b — the EOD wrap's whole-day facts: midday was skipped (morning goal set, no midday
     // answer) and there was a substantial away gap. Default false so non-EOD moments are unaffected.
     [property: JsonPropertyName("middaySkipped")] bool MiddaySkipped = false,
-    [property: JsonPropertyName("awayGap")] bool AwayGap = false);
+    [property: JsonPropertyName("awayGap")] bool AwayGap = false,
+    // 2026-08-10 — what actually HAPPENED, not just what was planned. GoalToday is the morning
+    // sentence and is never revised, so a task the user abandoned still reads as today's plan: on
+    // 2026-08-10 Ari opened by proposing "writting" back, which had been dropped the previous
+    // afternoon after 20 seconds. The model could not know, because no task outcome had ever
+    // reached it. Null when there is nothing to report, so the fact sheet simply omits the section.
+    [property: JsonPropertyName("tasks")] IReadOnlyList<NarrativeTaskPayload>? Tasks = null);
+
+/// <summary>
+/// One task on the narrative fact sheet. Deliberately four fields: the title the user typed, what
+/// became of it, what they intended to spend, and what was actually measured.
+/// </summary>
+/// <remarks>
+/// OfftaskSeconds is carried by the digest but NOT here: the line needs to know a task was dropped,
+/// not how its minutes were split. Every field on this payload has to earn the trip.
+/// </remarks>
+internal sealed record NarrativeTaskPayload(
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("state")] string State,          // done | abandoned | active | pending
+    [property: JsonPropertyName("plannedSeconds")] int PlannedSeconds,
+    [property: JsonPropertyName("actualSeconds")] double ActualSeconds);
 
 internal sealed record NarrativeRequestPayload(
     [property: JsonPropertyName("accountId")] string AccountId,
