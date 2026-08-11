@@ -29,6 +29,22 @@ internal static class FocusAppUsageBuilder
     /// </summary>
     public const string ResidualBrowsingLabel = "Other browsing";
 
+    /// <summary>
+    /// Complaint 7 (2026-08-11) — foreground time whose identity was never labelled at all.
+    ///
+    /// This used to be DROPPED: no entry in the label map meant `continue`, and the time simply
+    /// left the report. Measured on the founder's machine, 2026-08-10: 42m 30s across 14 of 19
+    /// identities went nowhere, so "where your time went" did not add up to the day he worked.
+    /// That is worse than an honest unnamed row and breaks the same rule the residue exists to
+    /// keep — admit the time, never guess the name.
+    ///
+    /// It is deliberately NOT folded into <see cref="ResidualBrowsingLabel"/>. An unlabelled
+    /// identity might be a desktop app rather than a browser page — nothing here knows which —
+    /// and calling a desktop app "Other browsing" would be exactly the invented name a client
+    /// report must never contain. Two honest rows still add up; one guessed row does not.
+    /// </summary>
+    public const string UnnamedTimeLabel = "Unnamed";
+
     public static IReadOnlyList<FocusAppUsagePayload> BuildTopApps(
         IReadOnlyDictionary<string, double> dwellByHash,
         IReadOnlyDictionary<string, string> labelByHash,
@@ -38,9 +54,12 @@ internal static class FocusAppUsageBuilder
         var categoryForLabel = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (KeyValuePair<string, double> entry in dwellByHash)
         {
+            // Complaint 7 — an identity with no label is time we cannot NAME, not time that did not
+            // happen. It now surfaces under UnnamedTimeLabel instead of being dropped, so the day
+            // adds up. See the field measurement on that constant.
             if (!labelByHash.TryGetValue(entry.Key, out string? label) || string.IsNullOrWhiteSpace(label))
             {
-                continue;
+                label = UnnamedTimeLabel;
             }
 
             // A1 — the lock screen and other non-user shell surfaces are away time, never an app.

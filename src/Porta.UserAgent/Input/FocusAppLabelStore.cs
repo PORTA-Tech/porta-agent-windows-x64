@@ -41,6 +41,13 @@ internal static class FocusAppLabelStore
     public static string ReadLastPersistErrorType()
         => _lastPersistErrorType;
 
+    /// <summary>
+    /// Test seam: the directory the maps are written to. Null = the real ProgramData\PortaAgent.
+    /// CommonApplicationData is a Windows known folder and cannot be redirected by environment
+    /// variable, so the merge behaviour would otherwise be untestable without touching the live map.
+    /// </summary>
+    internal static string? DirectoryOverrideForTests;
+
     /// <summary>Writes the current hash → label and hash → category snapshots. Safe to call every flush.</summary>
     public static void Persist()
     {
@@ -53,6 +60,13 @@ internal static class FocusAppLabelStore
         }
     }
 
+    /// <summary>
+    /// Upper bound on retained identities, so merging cannot grow the file without limit. A hash
+    /// plus a coarse label is ~50 bytes, so this is a few hundred KB at worst. On overflow the
+    /// IN-MEMORY (most recently seen) entries are kept in preference to older file ones.
+    /// </summary>
+    private const int MaxRetainedIdentities = 5000;
+
     private static bool WriteMap<T>(string fileName, IReadOnlyDictionary<string, T> map)
     {
         if (map.Count == 0)
@@ -63,15 +77,34 @@ internal static class FocusAppLabelStore
         string tempPath = string.Empty;
         try
         {
-            string root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            string path = Path.Combine(root, "PortaAgent", fileName);
+            string path = DirectoryOverrideForTests is { Length: > 0 } overrideDir
+                ? Path.Combine(overrideDir, fileName)
+                : Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "PortaAgent",
+                    fileName);
             string? directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(directory))
             {
                 Directory.CreateDirectory(directory);
             }
 
-            string json = JsonSerializer.Serialize(map);
+            // Complaint 7 (2026-08-11) — MERGE with what is already on disk instead of replacing it.
+            //
+            // This write used to serialize the in-memory registry over the top of the file. The
+            // registry is per-process and starts EMPTY, and the user agent — the process that writes
+            // here — never seeds itself from the file (CategoryRegistrySeeder exists, but only the
+            // SERVICE calls it). So every user-agent restart, including every watchdog relaunch,
+            // truncated the map to whatever had been seen since that restart and destroyed every
+            // label learned before it.
+            //
+            // Measured on the founder's machine 2026-08-11: 5 labels total on the whole machine,
+            // while 2026-08-10 alone had 19 distinct foreground identities and 14 of them unnamed.
+            // The classifier was working; its output was being erased.
+            //
+            // Merging (rather than only seeding at startup) also makes this safe against the two
+            // processes racing on the same file: a stale writer can no longer delete another's work.
+            string json = JsonSerializer.Serialize(MergeWithExisting(path, map));
             tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             File.WriteAllText(tempPath, json);
 
@@ -119,6 +152,67 @@ internal static class FocusAppLabelStore
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Returns the union of what is already stored and what this process has learned, with the
+    /// in-memory entry winning on conflict (it is the fresher classification).
+    ///
+    /// Fails toward the in-memory map: if the existing file is missing, empty or corrupt, this
+    /// returns exactly what would have been written before, so a bad file can never block the
+    /// write or lose the current session's labels.
+    /// </summary>
+    private static IReadOnlyDictionary<string, T> MergeWithExisting<T>(
+        string path,
+        IReadOnlyDictionary<string, T> current)
+    {
+        Dictionary<string, T> merged;
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return current;
+            }
+
+            string existingJson = File.ReadAllText(path);
+            if (string.IsNullOrWhiteSpace(existingJson))
+            {
+                return current;
+            }
+
+            merged = JsonSerializer.Deserialize<Dictionary<string, T>>(existingJson)
+                ?? new Dictionary<string, T>(StringComparer.Ordinal);
+        }
+        catch
+        {
+            // Unreadable or malformed file: keep this session's labels rather than failing the write.
+            return current;
+        }
+
+        // Current wins on conflict — a re-seen identity may have been reclassified.
+        foreach (KeyValuePair<string, T> entry in current)
+        {
+            merged[entry.Key] = entry.Value;
+        }
+
+        if (merged.Count <= MaxRetainedIdentities)
+        {
+            return merged;
+        }
+
+        // Over the cap: keep everything this process has seen, then top up from the file until full.
+        var capped = new Dictionary<string, T>(current, StringComparer.Ordinal);
+        foreach (KeyValuePair<string, T> entry in merged)
+        {
+            if (capped.Count >= MaxRetainedIdentities)
+            {
+                break;
+            }
+
+            capped.TryAdd(entry.Key, entry.Value);
+        }
+
+        return capped;
     }
 
     private static bool TryAtomicReplace(string tempPath, string path)
