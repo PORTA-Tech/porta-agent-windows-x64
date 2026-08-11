@@ -1235,13 +1235,31 @@ internal sealed class UserCheckInCardWindow : Window
                 && NativeMethods.AttachThreadInput(ourThread, foregroundThread, true);
             try
             {
-                bool ok = NativeMethods.SetForegroundWindow(hwnd);
-                int lastError = ok ? 0 : System.Runtime.InteropServices.Marshal.GetLastWin32Error();
-                if (ok)
+                bool reported = NativeMethods.SetForegroundWindow(hwnd);
+                int lastError = reported ? 0 : System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+
+                // DO NOT TRUST THE RETURN VALUE (2026-08-11). Windows can return nonzero while the
+                // window never actually reaches the foreground - under an active foreground lock it
+                // may only flash the taskbar button. That is what happened on the morning of
+                // 2026-08-11: the log recorded foreground=True, so no hint and no grey border were
+                // shown, and the typing went somewhere else with nothing on screen to explain it.
+                // A silent failure is worse than a refusal, because the refusal already has a
+                // visible state. Ask the OS who actually holds it.
+                bool actuallyForeground = reported && NativeMethods.GetForegroundWindow() == hwnd;
+                if (actuallyForeground)
                 {
                     return new ForegroundAttempt(true, foregroundThread == 0
                         ? "ok_no_foreground"
                         : attached ? "ok_attached" : "ok_direct");
+                }
+
+                if (reported)
+                {
+                    // Reported success, did not get it. Treated exactly as a refusal so the card
+                    // shows the grey border and the hint rather than looking ready to type into.
+                    return new ForegroundAttempt(false,
+                        $"refused_reported_ok_but_not_foreground:fg={DescribeProcess(ForegroundPid())}"
+                        + $",locktimeout_ms={ReadForegroundLockTimeout()}");
                 }
 
                 // The refusal detail. Windows grants SetForegroundWindow only under a short list of
@@ -1269,6 +1287,19 @@ internal sealed class UserCheckInCardWindow : Window
         {
             return new ForegroundAttempt(false, $"exception:{ex.GetType().Name}");
         }
+    }
+
+    /// <summary>Who holds the foreground right now, asked fresh rather than remembered.</summary>
+    private static uint ForegroundPid()
+    {
+        IntPtr hwnd = NativeMethods.GetForegroundWindow();
+        if (hwnd == IntPtr.Zero)
+        {
+            return 0u;
+        }
+
+        _ = NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
+        return pid;
     }
 
     /// <summary>Process name for the pid that held the foreground, or a marker. Never a title.</summary>
