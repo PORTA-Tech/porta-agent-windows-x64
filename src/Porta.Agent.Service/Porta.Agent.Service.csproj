@@ -6,10 +6,10 @@
     <Platforms>x64</Platforms>
     <OutputType>Exe</OutputType>
     <AssemblyName>ari</AssemblyName>
-    <Version>1.2.137</Version>
-    <AssemblyVersion>1.2.137.0</AssemblyVersion>
-    <FileVersion>1.2.137.0</FileVersion>
-    <InformationalVersion>1.2.137</InformationalVersion>
+    <Version>1.2.138</Version>
+    <AssemblyVersion>1.2.138.0</AssemblyVersion>
+    <FileVersion>1.2.138.0</FileVersion>
+    <InformationalVersion>1.2.138</InformationalVersion>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
