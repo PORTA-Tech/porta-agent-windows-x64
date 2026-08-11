@@ -116,7 +116,13 @@ internal static class Migrations
         new(
             Version: 24,
             Name: "daily_goals_v24",
-            Apply: Schema.ApplyDailyGoalsV24)
+            Apply: Schema.ApplyDailyGoalsV24),
+        // Complaint 3 (2026-08-11) — "Tomorrow" on the close-out card has to persist, or card four
+        // is theatre. Adds tasks.deferred_until_day. Additive, defaulted, local only.
+        new(
+            Version: 25,
+            Name: "tasks_defer_v25",
+            Apply: Schema.ApplyTasksDeferV25)
     ];
 
     internal static void Migrate(SqliteConnection connection)

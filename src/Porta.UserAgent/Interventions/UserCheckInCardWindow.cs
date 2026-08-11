@@ -939,8 +939,14 @@ internal sealed class UserCheckInCardWindow : Window
     private static IReadOnlyList<UserCheckInTaskOutcome> CollectOutcomes(List<TaskOutcomeRow> rows)
         => rows.Select(r => new UserCheckInTaskOutcome(r.Line.Id, r.Action)).ToList();
 
+    /// <summary>
+    /// The open work a card should ask about. Complaint 3 — excludes anything the close-out card
+    /// already moved to a later day, so no surface can re-ask about a commitment just made.
+    /// </summary>
     private IReadOnlyList<TaskBoardLine> OpenLines(UserCheckInPrompt prompt)
-        => prompt.Tasks?.Where(t => t.IsOpen).ToList() ?? (IReadOnlyList<TaskBoardLine>)Array.Empty<TaskBoardLine>();
+        => prompt.Tasks is { } lines
+            ? UserCheckInTaskBoard.StillToAsk(lines)
+            : Array.Empty<TaskBoardLine>();
 
     /// <summary>
     /// The measured figure is present-and-working time, not wall clock — roughly two thirds of it in

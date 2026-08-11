@@ -404,7 +404,11 @@ public sealed record AgentTask(
     double ActiveSeconds,
     double FocusedSeconds,
     double OfftaskSeconds,
-    int ExtendedSeconds);
+    int ExtendedSeconds,
+    // Complaint 3 (2026-08-11) — the goal-day ("yyyy-MM-dd") this task is next due back, set by the
+    // close-out card's "Tomorrow". Empty = not deferred. Defaulted so every existing construction
+    // and every already-stored row keeps working untouched.
+    string DeferredUntilDay = "");
 
 // Workstream D — the day's conversational check-in state. One row per local "goal day"
 // (LocalDate = the 5:00-boundary day, "yyyy-MM-dd"). GoalText/TrackingPref set by the morning

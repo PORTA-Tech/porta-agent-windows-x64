@@ -50,7 +50,9 @@ public interface IBrainStateStore
     // Workstream 4 — timed tasks (plan vs. reality), service-side like reminders.
     AgentTask? CreateTask(string title, int plannedSeconds, DateTimeOffset nowUtc);
     IReadOnlyList<AgentTask> ReadTasks(DateTimeOffset dayStartUtc, DateTimeOffset nowUtc);
-    AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc);
+    // deferUntilDay carries the goal-day ("yyyy-MM-dd") for the "defer" action only; the day is a
+    // LOCAL concept, so the caller resolves it rather than the store guessing from nowUtc.
+    AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc, string? deferUntilDay = null);
 
     // Workstream D — conversational check-in goals.
     AgentDailyGoal? UpsertMorningGoal(string localDate, string goalText, string trackingPref, DateTimeOffset nowUtc);

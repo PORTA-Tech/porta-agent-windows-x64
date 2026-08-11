@@ -49,6 +49,7 @@ internal static class UserCheckInTaskBoard
         DateTimeOffset nowLocal)
     {
         var board = new List<TaskBoardLine>();
+        string todayGoalDay = UserCheckInStalenessPolicy.GoalDayOf(nowLocal);
         foreach (LocalApiTask task in tasks ?? Array.Empty<LocalApiTask>())
         {
             string title = (task.Title ?? string.Empty).Trim();
@@ -57,6 +58,8 @@ internal static class UserCheckInTaskBoard
                 continue;
             }
 
+            string deferredUntil = (task.DeferredUntilDay ?? string.Empty).Trim();
+
             board.Add(new TaskBoardLine(
                 Id: task.Id,
                 Title: title,
@@ -64,10 +67,65 @@ internal static class UserCheckInTaskBoard
                 MeasuredSeconds: task.ActiveSeconds,
                 State: task.State ?? string.Empty,
                 DaysCarried: DaysCarried(task.CreatedAtUtc.ToLocalTime(), nowLocal),
-                EndedAtLocal: task.EndedAtUtc?.ToLocalTime()));
+                EndedAtLocal: task.EndedAtUtc?.ToLocalTime(),
+                DeferredUntilDay: deferredUntil,
+                MovedOut: IsMovedOut(deferredUntil, todayGoalDay)));
         }
 
         return board;
+    }
+
+    /// <summary>
+    /// Complaint 3 — is this task moved out past today?
+    ///
+    /// The value MUST parse as a real goal-day before it can hide anything. An earlier version
+    /// compared the raw strings ordinally, and a malformed value like "not-a-day" sorts AFTER
+    /// "2026-07-16" — so garbage in the column would have hidden real work indefinitely. A test
+    /// caught it. Fail toward visible: anything unparseable means "not deferred".
+    /// </summary>
+    private static bool IsMovedOut(string deferredUntilDay, string todayGoalDay)
+        => deferredUntilDay.Length > 0
+            && DateOnly.TryParseExact(
+                deferredUntilDay,
+                "yyyy-MM-dd",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,
+                out DateOnly until)
+            && DateOnly.TryParseExact(
+                todayGoalDay,
+                "yyyy-MM-dd",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,
+                out DateOnly today)
+            && until > today;
+
+    /// <summary>
+    /// Complaint 3 (2026-08-11) — the open work the EVENING card should still ask about: everything
+    /// except what the close-out card already moved to a later day.
+    ///
+    /// "A card that asks me what moves and then forgets is the exact thing this project exists to
+    /// fix." Asking again about work the user moved an hour earlier is precisely that forgetting.
+    /// </summary>
+    public static IReadOnlyList<TaskBoardLine> StillToAsk(IReadOnlyList<TaskBoardLine> board)
+        => board.Where(line => line.IsOpen && !line.MovedOut).ToList();
+
+    /// <summary>
+    /// Complaint 3 — what the evening card SAYS about the work already moved. One plain sentence,
+    /// named rather than counted when it is one or two items, because "1 item moved" tells the user
+    /// nothing he did not already know. Empty when nothing was moved.
+    /// </summary>
+    public static string MovingNotice(IReadOnlyList<TaskBoardLine> board)
+    {
+        List<TaskBoardLine> moved = board.Where(line => line.IsOpen && line.MovedOut).ToList();
+
+        if (moved.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return moved.Count <= 2
+            ? $"Moving to tomorrow: {string.Join(", ", moved.Select(m => m.Title))}."
+            : $"Moving to tomorrow: {moved.Count} items.";
     }
 
     /// <summary>
@@ -193,9 +251,22 @@ internal sealed record TaskBoardLine(
     double MeasuredSeconds,
     string State,
     int DaysCarried,
-    DateTimeOffset? EndedAtLocal = null)
+    DateTimeOffset? EndedAtLocal = null,
+    // Complaint 3 — the goal-day this task was moved to by the close-out card. Empty = not moved.
+    string DeferredUntilDay = "",
+    // Stamped by BuildBoard, which is the one place that knows what "today" is. Carrying the
+    // resolved answer means the card renderers never need a clock of their own.
+    bool MovedOut = false)
 {
     public bool IsOpen => State is "pending" or "active";
+
+    /// <summary>
+    /// Complaint 3 (2026-08-11) — has the user already said this moves to a later day? The evening
+    /// card uses this to stop asking about work he has just moved.
+    ///
+    /// Resolved by BuildBoard, which is the one place that knows what "today" is; see MovedOut.
+    /// </summary>
+    public bool IsDeferredBeyond(string todayGoalDay) => MovedOut;
 
     public bool IsDone => string.Equals(State, "done", StringComparison.Ordinal);
 

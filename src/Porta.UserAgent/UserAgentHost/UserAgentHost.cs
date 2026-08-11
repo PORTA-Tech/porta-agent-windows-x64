@@ -1967,7 +1967,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             {
                 UserCheckInTaskOutcome.Done => "done",
                 UserCheckInTaskOutcome.Drop => "abandon",
-                _ => null   // still open — nothing to write
+                // Complaint 3 — "Tomorrow" now writes. It does NOT change the task's state: the task
+                // stays open, so deferring still cannot lose work. It records WHICH DAY the task is
+                // due back, which is what stops the evening card asking about it again tonight.
+                UserCheckInTaskOutcome.Defer => "defer",
+                _ => null   // still open, still today — nothing to write
             };
 
             if (action is null)

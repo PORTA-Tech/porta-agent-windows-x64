@@ -37,6 +37,58 @@ public sealed class TasksStoreTests
         });
     }
 
+    // Complaint 3 (2026-08-11) — the close-out card's "Tomorrow" has to persist, or card four is
+    // theatre. Schema v25 adds tasks.deferred_until_day; these two pin the contract that matters.
+
+    [Fact]
+    public void Defer_RecordsTheDay_AndLeavesTheTaskOpen()
+    {
+        RunWithStore((store, _) =>
+        {
+            AgentTask task = store.CreateTask("client revisions", 3600, Now)!;
+
+            AgentTask? deferred = store.ActOnTask(task.Id, "defer", Now, deferUntilDay: "2026-07-08");
+
+            Assert.NotNull(deferred);
+            Assert.Equal("2026-07-08", deferred!.DeferredUntilDay);
+            // The safety property: deferring is a statement about the PLAN, never a state change,
+            // so moving work to tomorrow can never lose it.
+            Assert.Equal("pending", deferred.State);
+            Assert.Null(deferred.EndedAtUtc);
+
+            Assert.Equal("2026-07-08", store.ReadTasks(Now.AddHours(-1), Now).Single().DeferredUntilDay);
+        });
+    }
+
+    [Fact]
+    public void Defer_AppliesToTheRunningTask_AndDoesNotStopItsClock()
+    {
+        RunWithStore((store, _) =>
+        {
+            AgentTask task = store.CreateTask("client revisions", 3600, Now)!;
+            store.ActOnTask(task.Id, "start", Now);
+
+            AgentTask? deferred = store.ActOnTask(task.Id, "defer", Now, deferUntilDay: "2026-07-08");
+
+            // Still active: if the user keeps working on it the measured time is still real, and
+            // still lands on this task. Deferring says when it is due back, not that it stopped.
+            Assert.Equal("active", deferred!.State);
+            Assert.Equal("2026-07-08", deferred.DeferredUntilDay);
+        });
+    }
+
+    [Fact]
+    public void ExistingTasks_HaveNoDeferral()
+    {
+        // The migration is additive and defaulted, so everything already stored reads as "not
+        // deferred" rather than as missing.
+        RunWithStore((store, _) =>
+        {
+            AgentTask task = store.CreateTask("write digest section", 3600, Now)!;
+            Assert.Equal(string.Empty, task.DeferredUntilDay);
+        });
+    }
+
     [Fact]
     public void StartSecondTask_PausesTheFirst_OneActiveInvariant()
     {

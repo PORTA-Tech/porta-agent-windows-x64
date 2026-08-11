@@ -584,6 +584,27 @@ internal static class Schema
     // answer (yes/partly/not_yet), and the end-of-day marker + tomorrow's plan. Lives in the
     // SERVICE like tasks/reminders so it survives user-agent restarts; user-authored, wiped on
     // local-data reset (privacy). The goal + midday answer double as Phase-1b ground-truth labels.
+    /// <summary>
+    /// Complaint 3 (2026-08-11) — the close-out card's "Tomorrow" has to STICK. A card that asks
+    /// what moves and then forgets is the thing this project exists to fix: a commitment nobody
+    /// follows up on is a note, not a commitment.
+    ///
+    /// One column on the existing local tasks table. Holds a goal-day key (yyyy-MM-dd): the first
+    /// day this task is "back". Empty = not deferred, which is every existing row, so the migration
+    /// is a no-op for anything already stored.
+    ///
+    /// A DAY rather than a flag, deliberately: it self-expires. Tomorrow the key is no longer in the
+    /// future, the task is an ordinary open task again, and the morning card proposes it. No cleanup
+    /// job, and no flag that can go stale and hide work forever.
+    ///
+    /// Local only. Nothing is added to the digest or narrative payloads, so deferring a task does
+    /// not send anything new off the machine.
+    /// </summary>
+    internal static void ApplyTasksDeferV25(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "tasks", "deferred_until_day", "TEXT NOT NULL DEFAULT ''");
+    }
+
     internal static void ApplyDailyGoalsV24(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

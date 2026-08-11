@@ -81,8 +81,8 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
         => _inner.CreateTask(title, plannedSeconds, nowUtc);
     public IReadOnlyList<AgentTask> ReadTasks(DateTimeOffset dayStartUtc, DateTimeOffset nowUtc)
         => _inner.ReadTasks(dayStartUtc, nowUtc);
-    public AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc)
-        => _inner.ActOnTask(id, action, nowUtc);
+    public AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc, string? deferUntilDay = null)
+        => _inner.ActOnTask(id, action, nowUtc, deferUntilDay);
 
     public AgentDailyGoal? UpsertMorningGoal(string localDate, string goalText, string trackingPref, DateTimeOffset nowUtc)
         => _inner.UpsertMorningGoal(localDate, goalText, trackingPref, nowUtc);

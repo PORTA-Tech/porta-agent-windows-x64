@@ -1819,8 +1819,17 @@ public sealed class AgentCoreController : IAgentCoreController
             GoalDayStartLocal(DateTimeOffset.Now).AddDays(-Math.Max(0, goalDaysBack)).ToUniversalTime(),
             DateTimeOffset.UtcNow);
 
+    // Complaint 3 (2026-08-11) — "defer" resolves tomorrow's goal-day HERE, because the goal day is
+    // a local, 05:00-boundary concept and the store must not have to guess it from a UTC instant.
+    // Every other action ignores the extra argument.
     public AgentTask? ActOnTask(long id, string action)
-        => _stateStore.ActOnTask(id, action, DateTimeOffset.UtcNow);
+        => _stateStore.ActOnTask(
+            id,
+            action,
+            DateTimeOffset.UtcNow,
+            deferUntilDay: string.Equals(action?.Trim(), "defer", StringComparison.OrdinalIgnoreCase)
+                ? GoalDay(DateTimeOffset.Now.AddDays(1))
+                : null);
 
     // Workstream D — conversational check-in goals. The "goal day" is the 5:00-local-boundary
     // day (a check-in at 02:00 still belongs to yesterday), matching the widget-hide / mute

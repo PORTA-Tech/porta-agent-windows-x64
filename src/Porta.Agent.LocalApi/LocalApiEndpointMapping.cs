@@ -1094,7 +1094,8 @@ public static class LocalApiEndpointMapping
                 ExtendedSeconds: task.ExtendedSeconds,
                 CreatedAtUtc: task.CreatedAtUtc,
                 StartedAtUtc: task.StartedAtUtc,
-                EndedAtUtc: task.EndedAtUtc);
+                EndedAtUtc: task.EndedAtUtc,
+                DeferredUntilDay: task.DeferredUntilDay);
     }
 
     private static LocalApiDailyGoal? ToApiGoal(AgentDailyGoal? goal)

@@ -2252,7 +2252,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     /// its accumulated reality intact — starting task B while A runs is a switch, not an
     /// error. Returns the updated task, or null for unknown id / illegal transition.
     /// </summary>
-    public AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc)
+    public AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc, string? deferUntilDay = null)
     {
         string verb = (action ?? string.Empty).Trim().ToLowerInvariant();
         string nowRaw = nowUtc.ToUniversalTime().ToString("O");
@@ -2298,6 +2298,22 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                         WHERE id = $id AND state = 'active';
                         """;
                     break;
+                // Complaint 3 (2026-08-11) — "Tomorrow" on the close-out card. Records WHEN the task
+                // is due back rather than changing its state: it stays open, so deferring can never
+                // lose work, and the evening card reads this to stop asking about it today.
+                //
+                // Applies to pending AND active, because the task being deferred is often the one
+                // currently running. It does NOT stop the clock: if the user keeps working on it,
+                // the measured time is still real and still lands on the task. Deferring is a
+                // statement about the plan, not about the measurement.
+                case "defer":
+                    cmd.CommandText =
+                        """
+                        UPDATE tasks SET deferred_until_day = $day
+                        WHERE id = $id AND state IN ('pending','active');
+                        """;
+                    cmd.Parameters.AddWithValue("$day", deferUntilDay ?? string.Empty);
+                    break;
                 default:
                     tx.Commit();
                     return null;
@@ -2318,7 +2334,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
     private const string TaskColumns =
         "id, title, planned_seconds, state, order_index, created_at_utc, started_at_utc, " +
-        "ended_at_utc, active_seconds, focused_seconds, offtask_seconds, extended_seconds";
+        "ended_at_utc, active_seconds, focused_seconds, offtask_seconds, extended_seconds, " +
+        "deferred_until_day";
 
     private static AgentTask? ReadTaskRow(SqliteConnection connection, SqliteTransaction tx, long id)
     {
@@ -2346,7 +2363,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             ActiveSeconds: reader.GetDouble(8),
             FocusedSeconds: reader.GetDouble(9),
             OfftaskSeconds: reader.GetDouble(10),
-            ExtendedSeconds: reader.GetInt32(11));
+            ExtendedSeconds: reader.GetInt32(11),
+            DeferredUntilDay: reader.IsDBNull(12) ? string.Empty : reader.GetString(12));
     }
 
     /// <summary>

@@ -955,7 +955,10 @@ public sealed record LocalApiTask(
     [property: JsonPropertyName("extended_seconds")] int ExtendedSeconds,
     [property: JsonPropertyName("created_at_utc")] DateTimeOffset CreatedAtUtc,
     [property: JsonPropertyName("started_at_utc")] DateTimeOffset? StartedAtUtc,
-    [property: JsonPropertyName("ended_at_utc")] DateTimeOffset? EndedAtUtc);
+    [property: JsonPropertyName("ended_at_utc")] DateTimeOffset? EndedAtUtc,
+    // Complaint 3 (2026-08-11) — the goal-day this task is next due back, set by the close-out
+    // card's "Tomorrow". Empty = not deferred. Defaulted so older payloads deserialize unchanged.
+    [property: JsonPropertyName("deferred_until_day")] string DeferredUntilDay = "");
 
 public sealed record LocalApiTaskCreateRequest(
     [property: JsonPropertyName("schema_ver")] int SchemaVer,

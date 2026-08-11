@@ -68,7 +68,11 @@ internal static class UserCheckInCoordinator
         string plan = (carriedPlan ?? string.Empty).Trim();
         string line = (narrativeLine ?? string.Empty).Trim();
         IReadOnlyList<TaskBoardLine> tasks = board ?? Array.Empty<TaskBoardLine>();
-        IReadOnlyList<TaskBoardLine> open = tasks.Where(t => t.IsOpen).ToList();
+        // Complaint 3 — work the close-out card already moved to tomorrow is NOT still to be asked
+        // about. Filtering here rather than in each card keeps every surface honest by default: a
+        // commitment the user made an hour ago must not be re-asked as though it never happened.
+        IReadOnlyList<TaskBoardLine> open = UserCheckInTaskBoard.StillToAsk(tasks);
+        string movingNotice = UserCheckInTaskBoard.MovingNotice(tasks);
         string carriedNotice = UserCheckInTaskBoard.CarriedNotice(tasks);
         IReadOnlyList<TaskBoardLine> lastDay = yesterday ?? Array.Empty<TaskBoardLine>();
         string yesterdaySummary = UserCheckInTaskBoard.SummarizeDay(lastDay);
@@ -159,10 +163,16 @@ internal static class UserCheckInCoordinator
                 GoalText: goalText,
                 ReportLine: BuildReportLine(metrics),
                 Tasks: tasks,
-                CarriedNotice: carriedNotice,
+                // Complaint 3 — when the close-out card already moved work, the evening card SAYS
+                // so rather than staying silent about it. The user told Ari something an hour ago;
+                // repeating it back is the difference between a commitment and a note. The carried
+                // notice keeps priority on the rare day both apply, since it is the older concern.
+                CarriedNotice: carriedNotice.Length > 0 ? carriedNotice : movingNotice,
                 // Step 7 — no longer "Plan for tomorrow?". The evening asks what to do with what is
                 // left, which makes tomorrow's list without opening a new question.
-                QuestionLabel: open.Count > 0 ? "What moves to tomorrow?" : "Anything to note?"),
+                QuestionLabel: open.Count > 0
+                    ? "What moves to tomorrow?"
+                    : movingNotice.Length > 0 ? "Anything else?" : "Anything to note?"),
         };
     }
 
