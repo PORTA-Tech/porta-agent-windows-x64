@@ -13,6 +13,18 @@
     <UseWPF>true</UseWPF>
     <PlatformTarget>x64</PlatformTarget>
     <Platforms>x64</Platforms>
+    <!--
+      CS8509 = a switch expression does not handle every NAMED enum value. Promoted to an ERROR so
+      that adding a UserCheckInKind cannot silently fall through a `_` arm into another card's
+      per-day mute class (see UserCheckInScheduler.MuteClassFor). The project had no CS8509 warnings
+      when this was turned on, so it costs nothing today and catches a real bug tomorrow.
+
+      CS8524 is the sibling warning for values OUTSIDE the named set — an arbitrary int cast to the
+      enum. Suppressed, because the only way to silence it is to add back the `_` arm, and that arm
+      is precisely the bug being removed: with a `_` present, CS8509 can never fire again.
+    -->
+    <WarningsAsErrors>$(WarningsAsErrors);CS8509</WarningsAsErrors>
+    <NoWarn>$(NoWarn);CS8524</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

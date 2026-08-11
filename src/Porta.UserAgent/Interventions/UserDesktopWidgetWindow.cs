@@ -1195,7 +1195,13 @@ internal sealed class UserDesktopWidgetWindow : Window
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, UpdateWindowHeight);
     }
 
-    public void PresentAttention(string title, string message)
+    /// <summary>
+    /// Complaint 6 (2026-08-11) — "the done confirmation dwells too long. Shorter, but not instant.
+    /// Every task." <paramref name="dwell"/> lets one caller shorten its own message; null keeps the
+    /// shared 30s AttentionDuration for every other attention surface, which was not complained
+    /// about and carries longer copy.
+    /// </summary>
+    public void PresentAttention(string title, string message, TimeSpan? dwell = null)
     {
         if (!CanAcceptUiActions)
         {
@@ -1215,6 +1221,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         // animation always targets the fully settled text height.
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, UpdateWindowHeight);
         _attentionTimer.Stop();
+        _attentionTimer.Interval = dwell is { } requested && requested > TimeSpan.Zero
+            ? requested
+            : AttentionDuration;
         _attentionTimer.Start();
     }
 

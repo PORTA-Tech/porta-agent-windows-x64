@@ -13,6 +13,17 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     private const int WidgetHealthUnavailable = 0;
     private const int WidgetHealthStarting = 1;
     private const int WidgetHealthReady = 2;
+    /// <summary>
+    /// Complaint 6 (2026-08-11) — how long the finished-task confirmation stays up. It was
+    /// inheriting the widget's shared 30-second attention hold, which is why it read as dwelling.
+    ///
+    /// Six seconds: the line is one sentence of numbers ("planned 2h · took 1h 12m · 8m off-task"),
+    /// which reads in two to three, so this leaves a comfortable beat and then goes. Deliberately
+    /// not instant — the measured time is the payoff for finishing a task, and a confirmation that
+    /// vanishes is one the user stops looking for.
+    /// </summary>
+    internal static readonly TimeSpan TaskConfirmationDwell = TimeSpan.FromSeconds(6);
+
     private static readonly TimeSpan WidgetReadyTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan WidgetStartupGracePeriod = TimeSpan.FromSeconds(10);
     private readonly UserInterventionToastRenderer _fallbackRenderer = new();
@@ -208,11 +219,21 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     internal bool TryShowSystemNotification(string title, string message)
         => _fallbackRenderer.TryShow(title, message, out _);
 
+    private static int? ToFallbackMs(TimeSpan? dwell)
+        => dwell is { } value && value > TimeSpan.Zero ? (int)value.TotalMilliseconds : null;
+
     public bool TryShow(string title, string message, out string errorCode)
+        => TryShow(title, message, out errorCode, dwell: null);
+
+    /// <summary>
+    /// Complaint 6 — same surface, caller-chosen dwell. Both the widget and the fallback toast honor
+    /// it, so a shortened message does not quietly go back to full length when the widget is off.
+    /// </summary>
+    public bool TryShow(string title, string message, out string errorCode, TimeSpan? dwell)
     {
         if (!_rollout.SupportsWidgetSurface)
         {
-            return _fallbackRenderer.TryShow(title, message, out errorCode);
+            return _fallbackRenderer.TryShow(title, message, out errorCode, ToFallbackMs(dwell));
         }
 
         if (_visibilityStore.IsHidden())
@@ -221,12 +242,12 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
             return true;
         }
 
-        if (TryDispatchToWidget(window => window.PresentAttention(title, message), out errorCode))
+        if (TryDispatchToWidget(window => window.PresentAttention(title, message, dwell), out errorCode))
         {
             return true;
         }
 
-        return _fallbackRenderer.TryShow(title, message, out errorCode);
+        return _fallbackRenderer.TryShow(title, message, out errorCode, ToFallbackMs(dwell));
     }
 
     public bool TryPresentPrompt(
@@ -1178,7 +1199,10 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                     $"{finished.Title}: planned {Porta.Agent.Common.ReminderTimeParser.FormatDuration(finished.PlannedSeconds / 60)}"
                     + $" · took {Porta.Agent.Common.ReminderTimeParser.FormatDuration(tookMinutes)}"
                     + (offtaskMinutes > 0 ? $" · {offtaskMinutes}m off-task." : ".");
-                _ = TryShow("Ari", line, out _);
+                // Complaint 6 — this is THE confirmation that dwelled too long: it was inheriting
+                // the widget's shared 30s attention hold. Applies to every task, by construction:
+                // this is the only place a finished task is confirmed.
+                _ = TryShow("Ari", line, out _, TaskConfirmationDwell);
             }
         }
         catch (Exception ex)

@@ -250,6 +250,9 @@ internal sealed class UserCheckInCardWindow : Window
             case UserCheckInKind.Midday:
                 BuildMidday(prompt);
                 break;
+            case UserCheckInKind.MiddayClose:
+                BuildMiddayClose(prompt);
+                break;
             case UserCheckInKind.EndOfDay:
                 BuildEndOfDay(prompt);
                 break;
@@ -799,10 +802,71 @@ internal sealed class UserCheckInCardWindow : Window
     }
 
     /// <summary>
+    /// Complaint 3 — the close-out card. Deliberately a DIFFERENT question from the first midday:
+    /// that one asks what is done, this one asks what is left and whether it still lands today.
+    /// Cloning card one is what teaches a person to ignore both.
+    /// </summary>
+    private void BuildMiddayClose(UserCheckInPrompt prompt)
+    {
+        if (!string.IsNullOrWhiteSpace(prompt.ReportLine))
+        {
+            AddMutedLine(prompt.ReportLine, bottomMargin: 10);
+        }
+
+        IReadOnlyList<TaskBoardLine> open = OpenLines(prompt);
+        if (open.Count == 0)
+        {
+            // Nothing open. There is no forward-looking question to ask, so do not invent one -
+            // close the card with a single acknowledgement rather than manufacturing a choice.
+            AddQuestionLabel(prompt.QuestionLabel);
+            Button ok = MakePrimaryButton("Nothing left");
+            ok.Click += (_, _) => Respond(new UserCheckInResponse(
+                UserCheckInKind.MiddayClose, TextReply: null, Choice: null, Dismissed: false));
+            _bodyStack.Children.Add(ok);
+            return;
+        }
+
+        AddSectionLabel("STILL OPEN", topMargin: 0);
+        AddQuestionLabel(prompt.QuestionLabel);
+
+        // Today / Tomorrow, not Done / Not yet. Neither writes anything to the task - an open task
+        // carries by staying open - so answering this card can never lose work.
+        List<TaskOutcomeRow> rows = AddTaskBoard(
+            open,
+            includeDrop: false,
+            choices: new List<(string Action, string Label)>
+            {
+                (UserCheckInTaskOutcome.NotYet, "Today"),
+                (UserCheckInTaskOutcome.Defer, "Tomorrow")
+            },
+            defaultIndex: 0);
+        AddMeasuredFootnote();
+
+        Button save = MakePrimaryButton("Save");
+        save.Click += (_, _) => Respond(new UserCheckInResponse(
+            UserCheckInKind.MiddayClose,
+            TextReply: null,
+            // No yes/partly/not_yet here: that is the FIRST midday's question, and answering it
+            // from this card would let the close-out silently stand in for a check-in it is not.
+            Choice: null,
+            Dismissed: false,
+            TaskOutcomes: CollectOutcomes(rows)));
+        _bodyStack.Children.Add(save);
+    }
+
+    /// <summary>
     /// Steps 5 + 7 — renders one row per task: the title, the measured time, and the taps. Returns
     /// the rows so the caller can read what was chosen when the card is answered.
+    ///
+    /// Complaint 3 — the choice set is a parameter so the close-out card can ask Today/Tomorrow
+    /// through the SAME row renderer. Three cards rendering the same object three ways is how they
+    /// drift; that is why AddTaskRow is shared, and the chips now follow the same rule.
     /// </summary>
-    private List<TaskOutcomeRow> AddTaskBoard(IReadOnlyList<TaskBoardLine> lines, bool includeDrop)
+    private List<TaskOutcomeRow> AddTaskBoard(
+        IReadOnlyList<TaskBoardLine> lines,
+        bool includeDrop,
+        List<(string Action, string Label)>? choices = null,
+        int defaultIndex = 1)
     {
         var rows = new List<TaskOutcomeRow>();
         foreach (TaskBoardLine line in lines)
@@ -828,21 +892,23 @@ internal sealed class UserCheckInCardWindow : Window
             }
 
             var chipRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 0) };
-            var choices = new List<(string Action, string Label)>
-            {
-                (UserCheckInTaskOutcome.Done, "Done"),
-                (UserCheckInTaskOutcome.NotYet, includeDrop ? "Keep" : "Not yet")
-            };
+            var rowChoices = choices is { Count: > 0 }
+                ? new List<(string Action, string Label)>(choices)
+                : new List<(string Action, string Label)>
+                {
+                    (UserCheckInTaskOutcome.Done, "Done"),
+                    (UserCheckInTaskOutcome.NotYet, includeDrop ? "Keep" : "Not yet")
+                };
 
-            if (includeDrop)
+            if (includeDrop && choices is null)
             {
                 // Step 7 — unfinished work is never silently dropped, and never silently carried
                 // forever either. One tap says which.
-                choices.Add((UserCheckInTaskOutcome.Drop, "Drop it"));
+                rowChoices.Add((UserCheckInTaskOutcome.Drop, "Drop it"));
             }
 
             var chips = new List<Button>();
-            foreach ((string action, string label) in choices)
+            foreach ((string action, string label) in rowChoices)
             {
                 Button chip = MakeChip(label);
                 chips.Add(chip);
@@ -859,7 +925,9 @@ internal sealed class UserCheckInCardWindow : Window
             }
 
             // Default selection is the harmless one: still open, still carried, nothing claimed.
-            HighlightChip(chips[1], true);
+            // On the close-out card that is "Today" at index 0 — leaving the day's plan as it
+            // stands. Either way the default writes nothing.
+            HighlightChip(chips[Math.Clamp(defaultIndex, 0, chips.Count - 1)], true);
             panel.Children.Add(chipRow);
             _bodyStack.Children.Add(panel);
             rows.Add(row);

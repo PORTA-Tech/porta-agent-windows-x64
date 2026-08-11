@@ -25,6 +25,13 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
     }
 
     public bool TryShow(string title, string message, out string errorCode)
+        => TryShow(title, message, out errorCode, displayDurationMs: null);
+
+    /// <summary>
+    /// Complaint 6 — same toast, caller-chosen dwell. Used by the finished-task confirmation, which
+    /// was staying on screen twice as long as it needs to.
+    /// </summary>
+    public bool TryShow(string title, string message, out string errorCode, int? displayDurationMs)
     {
         errorCode = string.Empty;
         if (_disposed)
@@ -47,7 +54,7 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
 
         try
         {
-            _queue.Add(RendererCommand.CreateToast(title, message), CancellationToken.None);
+            _queue.Add(RendererCommand.CreateToast(title, message, displayDurationMs), CancellationToken.None);
             return true;
         }
         catch (InvalidOperationException)
@@ -153,7 +160,10 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
         RendererCommandKind Kind,
         string Title,
         string Message,
-        UserTrayVisualState TrayState)
+        UserTrayVisualState TrayState,
+        // Complaint 6 - per-toast dwell. null keeps the shared default, so only the caller that
+        // asked for a shorter confirmation gets one.
+        int? DisplayDurationMs = null)
     {
         public static RendererCommand Exit => new(
             RendererCommandKind.Exit,
@@ -161,11 +171,12 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
             string.Empty,
             new UserTrayVisualState(UserTrayMode.Unavailable, "PORTA"));
 
-        public static RendererCommand CreateToast(string title, string message) => new(
+        public static RendererCommand CreateToast(string title, string message, int? displayDurationMs = null) => new(
             RendererCommandKind.Toast,
             title,
             message,
-            new UserTrayVisualState(UserTrayMode.Unavailable, "PORTA"));
+            new UserTrayVisualState(UserTrayMode.Unavailable, "PORTA"),
+            displayDurationMs);
 
         public static RendererCommand CreateTrayState(UserTrayVisualState state) => new(
             RendererCommandKind.TrayState,
@@ -235,7 +246,7 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
                 string message = string.IsNullOrWhiteSpace(command.Message)
                     ? "PORTA has a suggestion for you."
                     : command.Message.Trim();
-                ShowDesktopToast(title, message);
+                ShowDesktopToast(title, message, command.DisplayDurationMs);
             }
         }
 
@@ -245,11 +256,11 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
             _notifyIcon.Text = NormalizeNotifyIconText(state.TooltipText);
         }
 
-        private void ShowDesktopToast(string title, string message)
+        private void ShowDesktopToast(string title, string message, int? displayDurationMs)
         {
             _activeToast?.Close();
             _activeToast?.Dispose();
-            _activeToast = new ToastPopupForm(title, message);
+            _activeToast = new ToastPopupForm(title, message, displayDurationMs);
             _activeToast.Show();
         }
 
@@ -290,9 +301,23 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
         private const int ToastScreenMargin = 18;
         private const int ToastDisplayDurationMs = 6500;
 
+        /// <summary>
+        /// Complaint 6 (2026-08-11) - "the done confirmation dwells too long. Shorter, but not
+        /// instant. Every task."
+        ///
+        /// 3.5s rather than 6.5s. The confirmation is about ten words ("planned 2h, took 1h 12m,
+        /// 8m off-task"), which reads in roughly two and a half seconds, so this leaves margin
+        /// without lingering. Deliberately NOT zero: the number is the whole point of finishing a
+        /// task, and a confirmation that vanishes is one the user learns not to look for.
+        ///
+        /// Scoped to the task confirmation, not applied to every toast - the other surfaces carry
+        /// different copy and were not what was complained about.
+        /// </summary>
+        public const int TaskConfirmationDurationMs = 3500;
+
         private readonly System.Windows.Forms.Timer _closeTimer;
 
-        public ToastPopupForm(string title, string message)
+        public ToastPopupForm(string title, string message, int? displayDurationMs = null)
         {
             Font baseFont = SystemFonts.MessageBoxFont ?? Control.DefaultFont;
             FormBorderStyle = FormBorderStyle.None;
@@ -381,7 +406,10 @@ internal sealed class UserInterventionToastRenderer : IUserInterventionPresenter
             ApplyRoundedChrome();
             PositionTopRight();
 
-            _closeTimer = new System.Windows.Forms.Timer { Interval = ToastDisplayDurationMs };
+            _closeTimer = new System.Windows.Forms.Timer
+            {
+                Interval = Math.Max(1, displayDurationMs ?? ToastDisplayDurationMs)
+            };
             _closeTimer.Tick += (_, _) =>
             {
                 _closeTimer.Stop();

@@ -122,10 +122,33 @@ internal static class UserCheckInCoordinator
                 // Part 2b — the fixed question the answer controls hang off, always present.
                 QuestionLabel: open.Count > 0 ? "Anything done?" : "Did you get to your goal?"),
 
+            // Complaint 3 — the FOURTH card. It must not clone the first midday. The first looks
+            // backward ("done, or not yet"); this one looks forward: what is still open, and does it
+            // realistically land today or move to tomorrow.
+            //
+            // middaySkipped here means the FIRST midday never happened. The card says so plainly
+            // rather than pretending the day was tracked — the same honesty rule the EOD wrap
+            // already follows for a skipped midday.
+            UserCheckInKind.MiddayClose => new UserCheckInPrompt(
+                Kind: UserCheckInKind.MiddayClose,
+                Title: open.Count > 0 ? "What's still open?" : "Anything left today?",
+                Message: line.Length > 0
+                    ? line
+                    : middaySkipped
+                        ? "We didn't check in earlier. Here's where the day actually stands."
+                        : open.Count > 0
+                            ? "Last stretch. Say what lands today and what moves."
+                            : "Nothing's open. Anything you want on tomorrow's list?",
+                GoalText: goalText,
+                ReportLine: BuildReportLine(metrics),
+                Tasks: tasks,
+                CarriedNotice: carriedNotice,
+                QuestionLabel: "Does this land today?"),
+
             // Step 7 — the evening closes the day. The card renders ReportLine as its own block
             // (same as midday), so the message stays reflection copy and the measured numbers are
             // never displaced by the LLM.
-            _ => new UserCheckInPrompt(
+            UserCheckInKind.EndOfDay => new UserCheckInPrompt(
                 Kind: UserCheckInKind.EndOfDay,
                 Title: "Wrapping up",
                 Message: line.Length > 0

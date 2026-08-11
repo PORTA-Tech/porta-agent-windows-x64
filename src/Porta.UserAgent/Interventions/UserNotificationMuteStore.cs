@@ -42,8 +42,15 @@ internal sealed class UserNotificationMuteStore
                 map[Normalize(classKey)] = nowLocal.ToUniversalTime().ToString("O");
                 Save(map);
             }
-            catch
+            catch (Exception ex)
             {
+                // Still fails toward NOT muted, per the class contract above — but it must not
+                // vanish. This write is the ONLY thing stopping a check-in card firing twice in a
+                // day, and the most likely reason it fails is a full disk (measured: 36 MB free on
+                // 2026-08-11). A silent catch here turns "the card asked me twice" into an
+                // unexplainable field report, which is exactly the kind of bug that costs a day.
+                UserAgentFileLog.Info(
+                    $"mute_write_failed class={Normalize(classKey)} err={ex.GetType().Name}");
             }
         }
     }

@@ -1,11 +1,18 @@
 namespace Porta.UserAgent.Interventions;
 
-// Workstream D — conversational check-ins. Three surfaces render in the compact bottom-right
-// corner card (C2 channel): morning goal, midday progress, end-of-day wrap.
+// Workstream D — conversational check-ins. Four surfaces render in the compact bottom-right
+// corner card (C2 channel): morning goal, midday progress, the second midday close-out, and the
+// end-of-day wrap.
+//
+// Complaint 3 (2026-08-11) — MiddayClose is the FOURTH card and it must ask a different question
+// from Midday. Midday looks backward ("done, or not yet"); MiddayClose looks forward ("what is
+// still open, and does it land today or move"). Cloning the first card teaches the user to ignore
+// both.
 internal enum UserCheckInKind
 {
     Morning,
     Midday,
+    MiddayClose,
     EndOfDay
 }
 
@@ -46,6 +53,15 @@ internal sealed record UserCheckInTaskOutcome(long TaskId, string Action)
     public const string Done = "done";
     public const string NotYet = "not_yet";
     public const string Drop = "drop";
+
+    // Complaint 3 - the close-out card's "Tomorrow". Like NotYet it writes NOTHING to the task: an
+    // open task carries by simply staying open, so deferring cannot lose work. It is a separate
+    // value only so the INTENT is distinguishable from "still today" in the log and in the copy.
+    //
+    // NOTE: that intent is not yet persisted anywhere, so the evening card cannot currently see it.
+    // Giving "Tomorrow" a durable meaning needs a storage decision (a task column, or the existing
+    // plan_tomorrow) and that is Yadin's call, not an implementation detail to invent.
+    public const string Defer = "defer";
 }
 
 // The user's answer. TextReply carries the morning goal or the EOD plan; Choice carries the

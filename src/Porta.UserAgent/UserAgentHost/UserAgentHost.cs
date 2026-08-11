@@ -67,6 +67,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private DateTimeOffset _lastRecentEventsRefreshUtc = DateTimeOffset.MinValue;
     private IReadOnlyList<LocalApiEventResponse> _widgetDetailEvents = [];
     private LocalApiTimelineResponse? _widgetDetailTimeline;
+    // Complaint 2 — the learned length of a working day, so the four cards can be spaced by
+    // fractions of it without ever asking the user how long he plans to work.
+    private readonly UserWorkDayLengthStore _workDayLengthStore = new();
     private LocalApiSettingsResponse? _widgetDetailSettings;
     private DateTimeOffset _lastWidgetDetailRefreshUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _lastUiRefreshUtc = DateTimeOffset.MinValue;
@@ -1498,6 +1501,35 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     // check-in door (per-day mute, critical-state suppression, presentation check) to the
     // always-on-top card. The per-day mute is BOTH the "already offered today" gate the scheduler
     // reads and the once-shown lock the door sets, so each check-in fires exactly once per day.
+    /// <summary>
+    /// Complaint 3 (2026-08-11) — when work actually started today, as the first CAPTURED activity
+    /// of the goal day.
+    ///
+    /// Deliberately NOT "when the user agent started". On 2026-08-09 the user agent was down until
+    /// 14:03 after a watchdog relaunch while the SERVICE captured throughout (the watchdog itself
+    /// lives in Porta.Agent.Service), so anchoring on the process would have declared a 14:03 start
+    /// and misplaced every card that day. The timeline is the service's record and survives the
+    /// user agent restarting underneath it.
+    ///
+    /// Returns null when nothing has been captured yet, which leaves every fraction-based card
+    /// undecided rather than guessing — and if the service was down too, a late anchor is bounded by
+    /// the evening card's break guard and hard ceiling, not by an invented correction.
+    /// </summary>
+    private DateTimeOffset? ResolveWorkStartLocal(string goalDayKey)
+    {
+        IReadOnlyList<LocalApiCurrentSnapshotResponse> snapshots = _widgetDetailTimeline?.Snapshots ?? [];
+        foreach (LocalApiCurrentSnapshotResponse entry in snapshots)
+        {
+            DateTimeOffset local = entry.TimestampUtc.ToLocalTime();
+            if (string.Equals(UserCheckInStalenessPolicy.GoalDayOf(local), goalDayKey, StringComparison.Ordinal))
+            {
+                return local;
+            }
+        }
+
+        return null;
+    }
+
     private async Task RefreshCheckInAsync(
         DateTimeOffset nowUtc,
         LocalApiCurrentSnapshotResponse? snapshot,
@@ -1556,14 +1588,57 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         DailyGoalSnapshot goalSnapshot = UserCheckInCoordinator.BuildSnapshot(goal, activeWorkSinceMorning, awayToday);
 
-        UserCheckInKind? due = UserCheckInScheduler.DecideCheckIn(
+        // Complaints 1 + 2 + 3 — the four cards are timed off the shape of the day and off the
+        // user's own task estimate, not off the wall-clock hour. Everything below is measurement,
+        // never inference: work start is the first CAPTURED activity, the task budget is what the
+        // user tapped plus any +15 he pressed, and idle comes straight off the live session.
+        //
+        // The task read has to happen BEFORE the decision now, because the first midday's trigger
+        // is the active task's estimate expiring. Lookback 0 here (today only, which always
+        // contains the active task); the morning card re-reads with a day of history below.
+        IReadOnlyList<LocalApiTask>? todayRows =
+            (await _localApiClient.GetTasksTodayAsync(token, 0).ConfigureAwait(false))?.Tasks;
+
+        string goalDayKey = UserCheckInStalenessPolicy.GoalDayOf(nowLocal);
+        DateTimeOffset? workStartLocal = ResolveWorkStartLocal(goalDayKey);
+
+        // Feed the learned day length before reading it back, so today counts from tomorrow on.
+        if (workStartLocal is { } startedAt && nowLocal > startedAt)
+        {
+            _workDayLengthStore.Observe(goalDayKey, nowLocal - startedAt);
+        }
+
+        LocalApiTask? activeTask = todayRows?
+            .FirstOrDefault(t => string.Equals(t.State, "active", StringComparison.OrdinalIgnoreCase));
+
+        var day = new UserCheckInDayTiming.WorkDaySnapshot(
+            WorkStartLocal: workStartLocal,
+            DayLength: UserCheckInDayTiming.ResolveDayLength(_workDayLengthStore.AverageRecent(goalDayKey)),
+            ActiveTaskSpent: activeTask is null ? null : TimeSpan.FromSeconds(Math.Max(0d, activeTask.ActiveSeconds)),
+            // Budget is planned PLUS extended, so the widget's +15 moves the check with the task
+            // rather than firing on an estimate the user has already revised.
+            ActiveTaskBudget: activeTask is null
+                ? null
+                : TimeSpan.FromSeconds(Math.Max(0, activeTask.PlannedSeconds + activeTask.ExtendedSeconds)),
+            ActiveWorkToday: activeWorkSinceMorning ?? TimeSpan.Zero,
+            IdleFor: liveSession is { } idleSession
+                ? TimeSpan.FromSeconds(Math.Max(0d, idleSession.IdleSeconds))
+                : TimeSpan.Zero);
+
+        (UserCheckInKind? due, string timingReason) = UserCheckInScheduler.DecideCheckIn(
             nowLocal,
             goalSnapshot,
+            day,
             kind => _interventionExecutor.IsClassMutedForToday(UserCheckInScheduler.MuteClassFor(kind)));
         if (due is not UserCheckInKind kind)
         {
             return;
         }
+
+        UserAgentFileLog.Info(
+            $"checkin_timing kind={kind} reason={timingReason} " +
+            $"start={workStartLocal:HH\\:mm} day_len_m={(int)day.DayLength.TotalMinutes} " +
+            $"active_work_m={(int)day.ActiveWorkToday.TotalMinutes} idle_m={(int)day.IdleFor.TotalMinutes}");
 
         // Part 1c — settle-in: never pop the instant the session resumes. Hold any due check-in until
         // the user has been continuously active for SettleInDelay. Fail-soft: an unavailable activity
@@ -1587,14 +1662,25 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         {
             UserCheckInKind.Morning => "morning",
             UserCheckInKind.Midday => "midday",
-            _ => "eod"
+            // The close-out card asks a forward-looking question, but the server's kind vocabulary
+            // is morning/midday/eod. It maps to midday: the fact sheet it needs is the same one,
+            // and inventing a fourth server kind would fail closed on every deployed control plane.
+            UserCheckInKind.MiddayClose => "midday",
+            UserCheckInKind.EndOfDay => "eod"
         };
 
         // Part 1b — when EOD is the single wrap after a skipped midday / away gap, surface those facts
         // so even the templated fallback copy acknowledges the whole day rather than reading generic.
-        (bool middaySkipped, bool awayGap) = kind == UserCheckInKind.EndOfDay
-            ? UserCheckInScheduler.DescribeEndOfDay(goalSnapshot)
-            : (false, false);
+        // Complaint 3 — the close-out card reuses middaySkipped to mean "the FIRST midday never
+        // happened", so it can acknowledge the gap instead of pretending the day was tracked. Same
+        // honesty rule the EOD wrap already follows.
+        (bool middaySkipped, bool awayGap) = kind switch
+        {
+            UserCheckInKind.EndOfDay => UserCheckInScheduler.DescribeEndOfDay(goalSnapshot),
+            UserCheckInKind.MiddayClose =>
+                (UserCheckInDayTiming.DescribeSecondMidday(goalSnapshot.MiddayRecorded), false),
+            _ => (false, false)
+        };
 
         // Steps 4-7 — every surface now speaks in terms of the day's real tasks: the morning
         // proposes from what is still open, midday and evening list them with the measured time.
@@ -1603,9 +1689,12 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         // Step 8 — the morning card shows yesterday, so it needs a day more history than the others.
         // One read serves both: today's board is the subset still open or closed since 05:00, and
         // yesterday's block is what closed during the previous goal-day.
-        int lookbackDays = kind == UserCheckInKind.Morning ? 1 : 0;
-        IReadOnlyList<LocalApiTask>? rows =
-            (await _localApiClient.GetTasksTodayAsync(token, lookbackDays).ConfigureAwait(false))?.Tasks;
+        // The timing decision above already read today's rows. Only the morning card needs the extra
+        // day of history (for its "yesterday" block), so only the morning card pays for a second
+        // read — and BuildBoard does not filter by day, so the wider set must not reach the others.
+        IReadOnlyList<LocalApiTask>? rows = kind == UserCheckInKind.Morning
+            ? (await _localApiClient.GetTasksTodayAsync(token, 1).ConfigureAwait(false))?.Tasks
+            : todayRows;
 
         IReadOnlyList<TaskBoardLine> board = UserCheckInTaskBoard.BuildBoard(rows, nowLocal);
         IReadOnlyList<TaskBoardLine> yesterday = kind == UserCheckInKind.Morning
@@ -1806,6 +1895,21 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                     _checkInCardPresenter.ShowConfirmation(UserCheckInKind.Midday, followUp);
                 }
 
+                break;
+            }
+
+            case UserCheckInKind.MiddayClose:
+            {
+                // Complaint 3 — the close-out card. Neither of its answers changes a task state:
+                // "Today" and "Tomorrow" are both still-open, so this card cannot lose work, and it
+                // deliberately does NOT record a midday answer — that is the first card's question.
+                await ApplyTaskOutcomesAsync(response.TaskOutcomes, UserCheckInKind.MiddayClose)
+                    .ConfigureAwait(false);
+
+                int deferred = response.TaskOutcomes?
+                    .Count(o => o.Action == UserCheckInTaskOutcome.Defer) ?? 0;
+                UserAgentFileLog.Info(
+                    $"checkin_midday_close_recorded tasks={response.TaskOutcomes?.Count ?? 0} deferred={deferred}");
                 break;
             }
 
