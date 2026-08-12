@@ -42,21 +42,25 @@ you'd do each morning, then behaved as if it never asked.
 
 ## 3. Where the project is
 
-Steps 1–8 and 9a are built. **1.2.144 was handed over 2026-08-12 and Yadin said he would install
-it — that is not the same as installed. READ THE EXES.** As of the handover the machine was on
-1.2.139 (`1.2.139+3dc6e60`, verified 2026-08-12 from `C:\Program Files\Ari`). 1.2.137 carried the
-caret fix; 1.2.138 the four-card timing, close-out card and persisted "Tomorrow"; 1.2.139 the
-day-adds-up and label-survival fixes; 1.2.140 `dayTimeline`; 1.2.142 the test-suite cleanups;
-1.2.143 step 9a; **1.2.144 = 9a (§12) + the `primitive_buckets` privacy and disk fix (§13.2)**.
+Steps 1–8 and 9a are built, plus the database work in §13–§15. **1.2.145 is the current build and
+the ONLY one worth installing** — it carries everything. **READ THE EXES before writing about what
+is installed.** 1.2.137 carried the caret fix; 1.2.138 the four-card timing, close-out card and
+persisted "Tomorrow"; 1.2.139 the day-adds-up and label-survival fixes; 1.2.140 `dayTimeline`;
+1.2.142 the test-suite cleanups; 1.2.143 step 9a; 1.2.144 added the `primitive_buckets` fix;
+**1.2.145 = all of that plus the hourly app rollup (§14) and the backup constants (§15)**.
 
 **1.2.143 IS INSTALLED** — verified from the exes 2026-08-12 (`1.2.143+610c6d7`, `C:\Program
 Files\Ari`). This file briefly claimed it had never been installed, on the strength of Yadin saying
 "I have not installed 1.2.143". He installed it anyway, without saying so. **That is the third time
 this trap has been walked into — read the exes, never the sentence.**
 
-What that means concretely: **the machine has step 9a but NOT the `primitive_buckets` fix.** So
-projects work, and the database is still growing ~16.7 MB/day unpruned, and "delete my local data"
-still leaves it behind. **1.2.144 is the one that needs installing.**
+What that means concretely: **the machine has step 9a and nothing else.** The database is still
+growing ~16.7 MB/day unpruned, "delete my local data" still leaves 542 MB behind, and the rollup is
+not capturing. **1.2.144 is superseded and should be skipped; install 1.2.145.**
+
+> **The rollup makes installing time-sensitive in a way nothing else here is.** Its backfill can
+> only reach as far as `input_signal_windows` still holds — 14 days, sliding by one every day. Each
+> day 1.2.145 is not installed is a day of per-app history that no later install can recover.
 
 **Anything before 1.2.140 sends NO `dayTimeline`** — the digest's THE DAY section cannot appear
 until 1.2.140 or later is installed.
@@ -800,3 +804,110 @@ is not — but it is a trade, not a fix. **The real fix is not needing ~900 MB o
 backup.** The `primitive_buckets` prune buys most of that. If it is still tight afterwards, the next
 lever is `RetentionDays` 7 → 5 (~3 GB of backups instead of ~4.2), and after that a strategy that
 is not seven full copies. Do not raise the floor and call the problem solved.
+
+---
+
+## 14. The hourly app rollup — BUILT 2026-08-12, `e979f2b`, shipped in 1.2.145
+
+**Why it went before the projects page, and before 9b:** the page needs per-app time going back
+months; the tables it would have to read are pruned at 14 days and cost ~32 MB/day. Every day the
+rollup did not exist was a day of history nobody could get back. Yadin's reasoning, and it was right.
+
+### What it is
+
+One table, `app_usage_rollup`, one row per **UTC hour × task × application**:
+
+```
+hour_start_utc  "2026-08-13T10:00:00.0000000+00:00"
+task_id         7          (0 = time not on any task — most of a normal day)
+app_hash        32 chars   (resolves to a name through the existing label map)
+focused_seconds / offtask_seconds / active_seconds
+backfilled      0 = measured live, 1 = reconstructed
+```
+
+**Measured, not estimated: 595 rows for 14 days of real history, 57 KB — about 4 KB/day, ~1.5 MB a
+year.** The capture pipeline is ~32 MB/day, so the rollup costs about 0.01% of what is already
+being paid, and never needs pruning for size.
+
+### The two design decisions that matter
+
+**Keyed by TASK, not project.** Re-tagging is allowed at any time and the page is current truth. A
+stored `project_id` would freeze last month's rows at whatever the tag was then, and rebuilding
+them is only possible while the source buckets survive — 14 days. Resolving `tasks.project_id` at
+READ time makes a re-tag instant, total and permanent. There is a test that re-tags a task and
+asserts three separate days of history follow it.
+
+**Keyed by UTC hour, converted with the reader's offset** — the same contract `ReadDayTimeline`
+uses. Hourly rather than daily on Yadin's call: *"I can ignore detail I have. I can't recover detail
+I didn't take."*
+
+### The line that must not be moved
+
+`AccumulateAppUsageRollup` runs in the SAME transaction as `AttributeBucketToActiveTask`, off the
+same inputs. **It is the only place the task→app link is ever recorded, and it cannot be
+reconstructed afterwards** — `input_signal_windows` has no task column, and `tasks` logs only its
+FIRST start (`started_at_utc = CASE WHEN … = '' THEN`), so a task switched away from and resumed
+looks continuous. Attributing app time across that gap would invent exactly the number a client's
+invoice must never contain. If this write is ever made conditional or moved, that history stops
+existing and no later fix recovers it.
+
+### The backfill — one shot, already taken
+
+Runs inside the v27 migration because those days get no second chance. **Verified against a copy of
+the live 926 MB database before shipping:** 935 ms, 595 rows, 107 hours across 14 days, 46 apps,
+2026-07-30 → 2026-08-12. **Reconstructed total 76.5 hours against 76.5 hours in the source** —
+nothing lost, nothing double-counted.
+
+It fills the APP dimension only. Every backfilled row is `task_id = 0` and carries `active_seconds`
+alone, flagged `backfilled = 1`. **A zero in the focused/off-task split on those rows means "not
+known", never "measured as zero"** — anything that renders them must say so or omit them. The
+project dimension genuinely begins the day projects did, which is 2026-08-12.
+
+---
+
+## 15. The backup constants — and a recommendation I had to correct
+
+`MaxFolderBytes` **8 GB → 5 GB**. The 8 was derived from a database measured at ~640 MB on
+2026-07-27; it was 923 MB by 2026-08-12, and 8 GB was **larger than the free space on the drive it
+was protecting**, so the ceiling could never fire before the disk did.
+
+**The floor is the part worth reading.** It was recommended as a flat `database + 3 GB`, and Yadin
+approved it on that recommendation. Implementing it surfaced three existing tests asserting the
+opposite, and `b11f345` (2026-07-28) had already removed a flat 2 GB floor for precisely the reason
+it was about to be reintroduced:
+
+> *"An invented floor fails in the worst direction — it silently stops backing up a machine that has
+> ample room."*
+
+A fixed 3 GB refuses a 60 MB database on a laptop with 400 MB free — forever, and quietly. So the
+rule stays **derived**, and only the multiple moved: **1 → 2**, meaning after writing a snapshot the
+volume must still hold two more. On the machine that prompted this that is **2.77 GB rather than
+1.85 GB** — the intent of the approved number without breaking the small case.
+
+**The lesson, since it has now cost two rounds:** before changing a constant in this codebase, run
+`git log -S` on it. Both floors and both ceilings here have a history, and each was set the way it
+was for a reason someone wrote down.
+
+**Known and accepted (Yadin):** a stricter rule stops backups sooner, which is the opposite of what
+you want on a tight disk. It is the right trade — a skipped backup is recoverable, a full disk
+corrupting the live database is not — but it is a trade, not a fix.
+
+---
+
+## 16. OWED: check the disk on or after 2026-08-19
+
+**Yadin asked to be reminded.** One week after 1.2.145 has been running:
+
+> **If C: is still tight, drop `DatabaseBackupWorker.RetentionDays` from 7 nightly copies to 5.**
+
+That is ~3 GB of backups instead of ~4.2 GB. It is the next lever after the `primitive_buckets`
+prune, and it should not be pulled before there is a week of evidence that the prune was not enough.
+
+**What to measure before deciding**, all on `C:\ProgramData\PortaAgent`:
+
+1. `core-state.db` — should be roughly flat, near 600 MB, not climbing. It will NOT have shrunk from
+   923 MB; SQLite frees pages for reuse rather than returning them (§13.2).
+2. `backups\` — should be falling as pre-fix snapshots age out of the 7-day window.
+3. Free space on C:.
+4. `app_usage_rollup` row count — expect ~40/day. If it is far above that, something is fragmenting
+   the app identity and that is worth understanding before it fills anything.
