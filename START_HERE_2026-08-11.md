@@ -49,14 +49,16 @@ persisted "Tomorrow"; 1.2.139 the day-adds-up and label-survival fixes; 1.2.140 
 1.2.142 the test-suite cleanups; 1.2.143 step 9a; 1.2.144 added the `primitive_buckets` fix;
 **1.2.145 = all of that plus the hourly app rollup (§14) and the backup constants (§15)**.
 
-**1.2.143 IS INSTALLED** — verified from the exes 2026-08-12 (`1.2.143+610c6d7`, `C:\Program
-Files\Ari`). This file briefly claimed it had never been installed, on the strength of Yadin saying
-"I have not installed 1.2.143". He installed it anyway, without saying so. **That is the third time
-this trap has been walked into — read the exes, never the sentence.**
+**1.2.144 IS INSTALLED** — verified from the exes 2026-08-12 (`1.2.144+861b4c5`, `C:\Program
+Files\Ari`). It went on mid-session, without being mentioned, while 1.2.145 was being built. This
+file has now been wrong about the installed version **four times in two days**, in both directions.
+Every one of them was fixed by reading `ProductVersion` off `C:\Program Files\Ari\ari.exe`, which
+takes a second. **Do that before writing a sentence about what is installed. Never infer it from
+what Yadin said he would do, and never from this file.**
 
-What that means concretely: **the machine has step 9a and nothing else.** The database is still
-growing ~16.7 MB/day unpruned, "delete my local data" still leaves 542 MB behind, and the rollup is
-not capturing. **1.2.144 is superseded and should be skipped; install 1.2.145.**
+What that means concretely: **the machine has step 9a and the `primitive_buckets` fix** — the
+database is pruning and "delete my local data" is honest again. **What it does not have is the
+rollup, which is the time-sensitive one (see the box below). Install 1.2.145.**
 
 > **The rollup makes installing time-sensitive in a way nothing else here is.** Its backfill can
 > only reach as far as `input_signal_windows` still holds — 14 days, sliding by one every day. Each
