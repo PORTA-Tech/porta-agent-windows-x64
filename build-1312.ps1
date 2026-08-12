@@ -240,18 +240,31 @@ Write-Host "SHA256:" -ForegroundColor Cyan
 # keeps its intermediates, which is exactly when you want to look at them.
 #
 # installer\bin is NOT touched: the MSI just built lives there.
+# It deletes through `git clean -xdf`, scoped to those two paths, and NOT through Remove-Item.
+# Both directories contain TRACKED files -- installer/payload/.gitignore and
+# publish/useragent/Porta.Agent.Runtime.runtimeconfig.json -- and a blind wipe deletes them, so
+# every successful build would leave the repo dirty with two deletions the user then has to notice
+# and restore. `git clean` removes untracked and ignored files (-x -d) and CANNOT remove a tracked
+# one, so the rule stays correct on its own if another placeholder is ever added.
 $reclaimedBytes = 0
 foreach ($intermediate in @("$root\publish", "$payload")) {
     if (Test-Path $intermediate) {
         $reclaimedBytes += Get-DirectorySizeBytes $intermediate
-        try {
-            Remove-Item (Join-Path $intermediate '*') -Recurse -Force -ErrorAction Stop
-        }
-        catch {
-            # Never fail a good build over cleanup. The MSI above is the deliverable.
-            Write-Host "  could not clear $intermediate -- $($_.Exception.Message)" -ForegroundColor DarkYellow
-        }
     }
+}
+
+try {
+    $cleanOutput = & git -C $root clean -xdf -- "publish" "installer/payload" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "git clean exited $LASTEXITCODE : $cleanOutput"
+    }
+}
+catch {
+    # Never fail a good build over cleanup, and never fall back to a blind delete -- reclaiming a
+    # gigabyte is not worth deleting a tracked file. The MSI above is the deliverable.
+    Write-Host "  could not clear intermediates -- $($_.Exception.Message)" -ForegroundColor DarkYellow
+    Write-Host "  publish\ and installer\payload\ have been left alone." -ForegroundColor DarkYellow
+    $reclaimedBytes = 0
 }
 
 if ($reclaimedBytes -gt 0) {
