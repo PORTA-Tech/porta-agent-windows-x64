@@ -109,14 +109,21 @@ foreach ($project in $projects) {
             }
         }
 
-        $expectedButPassing = @()
-        foreach ($known in $knownFailures) {
-            if ($failed -notcontains $known) { $expectedButPassing += $known }
-        }
-
-        if ($expectedButPassing.Count -gt 0) {
-            foreach ($fixed in $expectedButPassing) {
-                $problems += "$name : known failure now PASSES -- $fixed. Remove it from scripts/test-gate.ps1 and delete the entry in SECURITY_HANDOFF.md section 4.8."
+        # ALLOWED TO FAIL, NOT REQUIRED TO FAIL.
+        #
+        # The first version of this made a listed test that PASSES fail the gate, so a stale
+        # allowance could not rot. That was wrong, and CI proved it within the hour: all four pass
+        # on GitHub's runner and fail only on the founder's machine, so the strict rule turned a
+        # green run into four errors. They are environment-dependent restart-reconciliation
+        # scenarios (SECURITY_HANDOFF.md section 4.8), not tests that fail everywhere.
+        #
+        # Noted rather than enforced: if they pass EVERYWHERE the entry should still be deleted, but
+        # that is a judgement from several runs, not something one run can decide.
+        $passingHere = @($knownFailures | Where-Object { $failed -notcontains $_ })
+        if ($passingHere.Count -gt 0) {
+            Write-Host "  $($passingHere.Count) documented failure(s) PASSED in this environment (allowed, not required):" -ForegroundColor DarkGray
+            foreach ($passed in $passingHere) {
+                Write-Host "    $passed" -ForegroundColor DarkGray
             }
         }
 

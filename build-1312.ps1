@@ -231,8 +231,13 @@ Write-Host "SHA256:" -ForegroundColor Cyan
 
 # ── CLEAN UP THIS BUILD'S INTERMEDIATES ───────────────────────────────────────────────────
 #
-# Added 2026-08-12. publish\ and installer\payload\ are ~0.9 GB per build and were left behind by
-# every build ever run, which is a large part of why the disk kept filling.
+# Added 2026-08-12. publish\ is ~0.5 GB per build and was left behind by every build ever run,
+# which is a large part of why the disk kept filling.
+#
+# installer\payload IS NOT TOUCHED, and must not be. It looks like an intermediate and is not:
+# scripts\install.ps1 installs by copying OUT OF IT, not out of the MSI. The first version of this
+# cleanup wiped it, which left the very next install with nothing to copy. Deleting it saves half a
+# gigabyte and costs the user the ability to install the build that was just made.
 #
 # Deliberately LAST, and only on the success path: the MSI has been built, its ProductVersion read
 # back out of the artifact, and its hash printed above. Nothing below this line can need them.
@@ -246,15 +251,10 @@ Write-Host "SHA256:" -ForegroundColor Cyan
 # every successful build would leave the repo dirty with two deletions the user then has to notice
 # and restore. `git clean` removes untracked and ignored files (-x -d) and CANNOT remove a tracked
 # one, so the rule stays correct on its own if another placeholder is ever added.
-$reclaimedBytes = 0
-foreach ($intermediate in @("$root\publish", "$payload")) {
-    if (Test-Path $intermediate) {
-        $reclaimedBytes += Get-DirectorySizeBytes $intermediate
-    }
-}
+$reclaimedBytes = Get-DirectorySizeBytes "$root\publish"
 
 try {
-    $cleanOutput = & git -C $root clean -xdf -- "publish" "installer/payload" 2>&1
+    $cleanOutput = & git -C $root clean -xdf -- "publish" 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "git clean exited $LASTEXITCODE : $cleanOutput"
     }
@@ -263,12 +263,12 @@ catch {
     # Never fail a good build over cleanup, and never fall back to a blind delete -- reclaiming a
     # gigabyte is not worth deleting a tracked file. The MSI above is the deliverable.
     Write-Host "  could not clear intermediates -- $($_.Exception.Message)" -ForegroundColor DarkYellow
-    Write-Host "  publish\ and installer\payload\ have been left alone." -ForegroundColor DarkYellow
+    Write-Host "  publish has been left alone." -ForegroundColor DarkYellow
     $reclaimedBytes = 0
 }
 
 if ($reclaimedBytes -gt 0) {
-    Write-Host ("Cleaned intermediates: {0:N2} GB reclaimed (publish\, installer\payload\). C: now {1:N2} GB free." -f `
+    Write-Host ("Cleaned intermediates: {0:N2} GB reclaimed (publish\ only; installer\payload is the install source and is kept). C: now {1:N2} GB free." -f `
         ($reclaimedBytes / 1GB), ((Get-PSDrive C).Free / 1GB)) -ForegroundColor DarkGray
 }
 

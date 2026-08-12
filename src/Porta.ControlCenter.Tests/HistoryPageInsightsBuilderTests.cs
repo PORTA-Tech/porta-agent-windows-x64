@@ -9,7 +9,15 @@ public sealed class HistoryPageInsightsBuilderTests
     [Fact]
     public void Build_ComputesHumanHistoryMetrics_FromTimeline()
     {
-        DateTimeOffset baseUtc = DateTimeOffset.Parse("2026-04-03T09:00:00Z");
+        // 13:00 LOCAL, expressed as UTC. MostDistractedPeriodLabel buckets by the LOCAL hour
+        // (HistoryPageInsights.cs:117), so the old "2026-04-03T09:00:00Z" literal only read as the
+        // afternoon in timezones east of about UTC+3. Found 2026-08-12 by the new CI test gate on
+        // its first run: it passed here at UTC+4 and failed on GitHub's UTC runner, where 09:00Z is
+        // the morning. Anchoring on local time keeps the intent — "a distraction at 1pm is an
+        // afternoon distraction" — true wherever it runs.
+        DateTime localNoonish = new(2026, 4, 3, 13, 0, 0, DateTimeKind.Unspecified);
+        DateTimeOffset baseUtc = new DateTimeOffset(localNoonish, TimeZoneInfo.Local.GetUtcOffset(localNoonish))
+            .ToUniversalTime();
         LocalApiTimelineResponse timeline = new(
             FromUtc: baseUtc,
             ToUtc: baseUtc.AddMinutes(15),
