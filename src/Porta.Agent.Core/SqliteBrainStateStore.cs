@@ -767,6 +767,14 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     DELETE FROM input_signal_windows;
                     DELETE FROM input_buckets;
                     DELETE FROM state_buckets;
+                    -- primitive_buckets was MISSING here until 2026-08-12, which made this a
+                    -- PRIVACY defect and not a disk one: "delete my local data" reported success
+                    -- and left 542 MB of the user's own behavioural primitives on the machine
+                    -- (measured on the founder's install). The normalized, z-scored primitives
+                    -- and their contributor/why JSON are exactly the kind of thing someone
+                    -- pressing this button means to be rid of. Same root cause as its absence
+                    -- from PruneIfNeeded: this list predates the table by 38 minutes.
+                    DELETE FROM primitive_buckets;
                     DELETE FROM events;
                     DELETE FROM interventions;
                     DELETE FROM system_changes;
@@ -9413,6 +9421,19 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         // IMPORTANT: ground_truth_labels is intentionally NOT pruned here. Labels must survive
         // for months to feed the future learned model (Phase 1b). They are rare and self-contained,
         // so keeping them forever is cheap. Do NOT add ground_truth_labels to this DELETE list.
+        //
+        // primitive_buckets was MISSING from this list until 2026-08-12, and the omission was an
+        // accident with a provable date: this list was written in b3beced at 13:23:52 on
+        // 2026-03-02, when primitive_buckets did not yet exist; the table was created 38 minutes
+        // later in a7d5370. Nobody came back. `DELETE FROM primitive_buckets` had never appeared
+        // in any commit on any branch.
+        //
+        // Measured cost of that on the founder's machine, 2026-08-12: 542 MB, 137,217 rows,
+        // 4,141 bytes per row, 34 days deep while every table in this list held 15 — about
+        // 16.7 MB a day, unbounded. Multiplied by eight, because DatabaseBackupWorker keeps seven
+        // nightly VACUUM copies of the whole database beside the live one.
+        //
+        // It uses start_utc, not timestamp_utc (ix_primitive_buckets_start_utc covers it).
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText =
@@ -9420,6 +9441,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             DELETE FROM input_signal_windows WHERE window_end_utc < $cutoff;
             DELETE FROM input_buckets WHERE timestamp_utc < $cutoff;
             DELETE FROM state_buckets WHERE timestamp_utc < $cutoff;
+            DELETE FROM primitive_buckets WHERE start_utc < $cutoff;
             DELETE FROM events WHERE timestamp_utc < $cutoff;
             DELETE FROM system_changes WHERE timestamp_utc < $cutoff;
             DELETE FROM consent WHERE timestamp_utc < $cutoff;
