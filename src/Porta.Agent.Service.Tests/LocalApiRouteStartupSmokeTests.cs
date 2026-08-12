@@ -292,6 +292,7 @@ public sealed class LocalApiRouteStartupSmokeTests
         public AgentTask? SetTaskProject(long taskId, long projectId) => throw new NotSupportedException();
         public AgentProject? RenameProject(long id, string name) => throw new NotSupportedException();
         public AgentProject? SetProjectArchived(long id, bool archived) => throw new NotSupportedException();
+        public IReadOnlyList<AgentAppUsageHour> GetAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc) => throw new NotSupportedException();
         public IReadOnlyList<AgentTask> GetTodayTasks() => throw new NotSupportedException();
 
         public IReadOnlyList<AgentTask> GetRecentTasks(int goalDaysBack) => throw new NotSupportedException();

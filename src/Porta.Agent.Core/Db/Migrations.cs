@@ -129,7 +129,14 @@ internal static class Migrations
         new(
             Version: 26,
             Name: "projects_v26",
-            Apply: Schema.ApplyProjectsV26)
+            Apply: Schema.ApplyProjectsV26),
+        // 2026-08-12 — the hourly app-usage rollup, so a project's picture can outlive the
+        // 14-day capture window. Creates the table AND backfills it from whatever
+        // input_signal_windows still holds, which is the only chance those days will get.
+        new(
+            Version: 27,
+            Name: "app_usage_rollup_v27",
+            Apply: Schema.ApplyAppUsageRollupV27)
     ];
 
     internal static void Migrate(SqliteConnection connection)

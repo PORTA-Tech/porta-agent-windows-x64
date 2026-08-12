@@ -62,6 +62,13 @@ public interface IBrainStateStore
     AgentProject? RenameProject(long id, string name);
     AgentProject? SetProjectArchived(long id, bool archived, DateTimeOffset nowUtc);
 
+    // 2026-08-12 — the hourly app rollup, resolved to projects at read time. localOffset is passed
+    // in for the same reason ReadDayTimeline takes it: the local hour is a local concept.
+    IReadOnlyList<AgentAppUsageHour> ReadAppUsage(
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        TimeSpan localOffset);
+
     // Digest redesign — the day's shape by local hour. localOffset is passed in for the same reason
     // as above: the hour is a local concept and the store holds UTC.
     IReadOnlyList<AgentDayTimelineHour> ReadDayTimeline(

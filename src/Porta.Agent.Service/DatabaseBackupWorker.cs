@@ -46,15 +46,48 @@ internal sealed class DatabaseBackupWorker : BackgroundService
     internal const int RetentionDays = 7;
 
     /// <summary>
-    /// Safety net for disk use, NOT the primary control — RetentionDays is. Sized from a measured
-    /// snapshot: core-state.db vacuums to ~640 MB on a real machine (2026-07-27), so 7 days is
-    /// ~4.5 GB. 8 GB leaves room for the database to grow without the ceiling silently pruning
-    /// below the retention the user asked for.
+    /// Safety net for disk use, NOT the primary control — RetentionDays is.
+    ///
+    /// 8 GB → 5 GB, 2026-08-12. The 8 was derived from a database measured at ~640 MB on
+    /// 2026-07-27; by 2026-08-12 it was 923 MB and the backups 855 MB each, so the number was
+    /// stale before anyone read it. Worse, 8 GB was LARGER THAN THE FREE SPACE ON THE DRIVE it was
+    /// protecting — the ceiling could never engage before the disk filled, which is not a ceiling.
+    ///
+    /// 5 GB, because once the primitive_buckets prune settles the database near 600 MB, seven
+    /// backups is ~4.2 GB. That keeps this above normal operation — it must NOT bind day to day or
+    /// it silently prunes below the retention the user asked for — while being low enough to
+    /// actually fire on a machine that lives near its limit.
     ///
     /// If this ever needs revisiting, measure a real backup first. An earlier 500 MB value was
     /// guessed rather than measured, and would have capped the folder at a single snapshot.
     /// </summary>
-    internal const long MaxFolderBytes = 8L * 1024 * 1024 * 1024;
+    internal const long MaxFolderBytes = 5L * 1024 * 1024 * 1024;
+
+    /// <summary>
+    /// How many database-sized copies of headroom must REMAIN after a snapshot is written, when
+    /// nothing is configured. 1 → 2 (2026-08-12), so the volume keeps room for two more.
+    ///
+    /// A FLAT FLOOR WAS PROPOSED HERE AND REJECTED, for the second time. `b11f345` (2026-07-28)
+    /// removed exactly such a constant — a flat 2 GB — and its reasoning still holds:
+    ///
+    ///   "An invented floor fails in the worst direction — it silently stops backing up a machine
+    ///    that has ample room."
+    ///
+    /// A 60 MB database on a laptop with 400 MB free must still be backed up; a fixed 3 GB refuses
+    /// that machine forever and says nothing. So the requirement stays DERIVED from the one
+    /// quantity here that is measured, and only the multiple moves.
+    ///
+    /// What this buys on the machine that prompted it: a 923 MB database now needs 2.77 GB free
+    /// rather than 1.85 GB — close to the fixed 3 GB that was asked for, without breaking the
+    /// small case. C: reached 36 MB free twice in the week before this changed.
+    ///
+    /// Known and accepted (Yadin, 2026-08-12): a stricter rule stops backups SOONER, which is the
+    /// opposite of what you want on a tight disk. It is still the right trade — a skipped backup
+    /// is recoverable, a full disk corrupting the live database is not — but it is a trade, not a
+    /// fix. The fix is not needing ~900 MB free per backup, which the primitive_buckets prune
+    /// mostly buys. Next lever after that is RetentionDays 7 → 5.
+    /// </summary>
+    internal const int DefaultFreeSpaceMultiple = 2;
 
     /// <summary>
     /// Override for the free-space rule, in bytes. Set it on a machine that needs an explicit
@@ -240,7 +273,9 @@ internal sealed class DatabaseBackupWorker : BackgroundService
     /// </summary>
     internal static bool HasHeadroom(long availableFreeBytes, long dbBytes, long? configuredMinFreeBytes)
     {
-        long requiredAfterWriting = configuredMinFreeBytes ?? dbBytes;
+        // Still derived from the database, never invented — see DefaultFreeSpaceMultiple. Only the
+        // multiple changed: room for two more copies rather than one.
+        long requiredAfterWriting = configuredMinFreeBytes ?? (dbBytes * DefaultFreeSpaceMultiple);
         return availableFreeBytes - dbBytes >= requiredAfterWriting;
     }
 

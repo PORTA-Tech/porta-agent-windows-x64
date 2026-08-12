@@ -423,6 +423,29 @@ public sealed record AgentTask(
 /// orphan measured time that may already have been reported. Archiving hides it from the picker
 /// and leaves the history intact.
 /// </summary>
+/// <summary>
+/// 2026-08-12 — one hour of one application's time, already resolved to its project. The grain the
+/// projects page reads: hourly rather than daily, because detail you did not capture is gone
+/// forever and detail you have can always be ignored (Yadin, 2026-08-12).
+///
+/// Backfilled = reconstructed from input_signal_windows rather than measured live. Those rows
+/// carry ActiveSeconds ONLY — the focused/off-task split and the task were not recoverable after
+/// the fact, so a zero in those fields is "not known", never "measured as zero". Anything that
+/// renders them must say so or omit them.
+/// </summary>
+public sealed record AgentAppUsageHour(
+    DateTimeOffset HourStartUtc,
+    string LocalDate,
+    int HourLocal,
+    long ProjectId,
+    string ProjectName,
+    long TaskId,
+    string AppHash,
+    double FocusedSeconds,
+    double OfftaskSeconds,
+    double ActiveSeconds,
+    bool Backfilled);
+
 public sealed record AgentProject(
     long Id,
     string Name,

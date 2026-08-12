@@ -97,6 +97,9 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
         => _inner.RenameProject(id, name);
     public AgentProject? SetProjectArchived(long id, bool archived, DateTimeOffset nowUtc)
         => _inner.SetProjectArchived(id, archived, nowUtc);
+    public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(
+        DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset)
+        => _inner.ReadAppUsage(fromUtc, toUtc, localOffset);
 
     public IReadOnlyList<AgentDayTimelineHour> ReadDayTimeline(
         DateTimeOffset fromUtc,

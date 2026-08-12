@@ -1830,6 +1830,14 @@ public sealed class AgentCoreController : IAgentCoreController
     public AgentProject? SetProjectArchived(long id, bool archived)
         => _stateStore.SetProjectArchived(id, archived, DateTimeOffset.UtcNow);
 
+    /// <summary>
+    /// 2026-08-12 — the hourly app rollup for a window, already resolved to projects. The local
+    /// offset is resolved HERE, the same place GoalDay resolves the local day, so callers never
+    /// have to know the store holds UTC.
+    /// </summary>
+    public IReadOnlyList<AgentAppUsageHour> GetAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc)
+        => _stateStore.ReadAppUsage(fromUtc, toUtc, DateTimeOffset.Now.Offset);
+
     public IReadOnlyList<AgentTask> GetTodayTasks()
         => _stateStore.ReadTasks(
             GoalDayStartLocal(DateTimeOffset.Now).ToUniversalTime(), DateTimeOffset.UtcNow);

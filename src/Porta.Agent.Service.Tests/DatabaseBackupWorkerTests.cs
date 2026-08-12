@@ -286,16 +286,40 @@ public sealed class DatabaseBackupWorkerTests : IDisposable
 
     // ------------------------------------------------------------------ free space
 
+    /// <summary>
+    /// 2026-08-12 — the multiple moved from 1 to 2: after writing, the volume must still hold TWO
+    /// more copies, not one. C: reached 36 MB free twice in a week while the old rule reported
+    /// healthy headroom, and the agent's own SQLite writes are what that endangers.
+    ///
+    /// The rule is still DERIVED, deliberately. A flat floor was proposed again and rejected again
+    /// — see DefaultFreeSpaceMultiple and `b11f345`.
+    /// </summary>
     [Fact]
-    public void HasHeadroom_RequiresRoomForThisSnapshotAndTheNextOne()
+    public void HasHeadroom_RequiresRoomForThisSnapshotAndTwoMore()
     {
         const long dbBytes = 640 * OneMb;
 
-        // Exactly enough for two: the one being written and its successor.
-        Assert.True(DatabaseBackupWorker.HasHeadroom(availableFreeBytes: 1280 * OneMb, dbBytes, configuredMinFreeBytes: null));
+        // Exactly enough for three: the one being written and two successors.
+        Assert.True(DatabaseBackupWorker.HasHeadroom(availableFreeBytes: 1920 * OneMb, dbBytes, configuredMinFreeBytes: null));
+
+        // Room for this one and only one more — no longer enough.
+        Assert.False(DatabaseBackupWorker.HasHeadroom(availableFreeBytes: 1280 * OneMb, dbBytes, configuredMinFreeBytes: null));
 
         // Room for this one but not the next — refuse, so the disk is never filled to the brim.
         Assert.False(DatabaseBackupWorker.HasHeadroom(availableFreeBytes: 1000 * OneMb, dbBytes, configuredMinFreeBytes: null));
+    }
+
+    /// <summary>
+    /// The case that killed the flat 2 GB floor in `b11f345`, re-asserted because a fixed 3 GB was
+    /// proposed on 2026-08-12 and would have broken it again: a small database on a small disk
+    /// must still be backed up rather than silently refused for space it was never going to use.
+    /// </summary>
+    [Fact]
+    public void HasHeadroom_StillBacksUpASmallDatabaseOnASmallDisk_AfterTheMultipleRose()
+    {
+        // 60 MB database, 400 MB free: needs 180 MB after writing, has 340 MB.
+        Assert.True(DatabaseBackupWorker.HasHeadroom(
+            availableFreeBytes: 400 * OneMb, dbBytes: 60 * OneMb, configuredMinFreeBytes: null));
     }
 
     [Fact]

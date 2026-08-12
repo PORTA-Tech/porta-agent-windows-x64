@@ -115,6 +115,7 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
     public AgentTask? SetTaskProject(long taskId, long projectId) => null;
     public AgentProject? RenameProject(long id, string name) => null;
     public AgentProject? SetProjectArchived(long id, bool archived, DateTimeOffset nowUtc) => null;
+    public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => System.Array.Empty<AgentAppUsageHour>();
 
     public IReadOnlyList<AgentDayTimelineHour> ReadDayTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => Array.Empty<AgentDayTimelineHour>();
     public AgentDailyGoal? UpsertMorningGoal(string localDate, string goalText, string trackingPref, DateTimeOffset nowUtc) => null;

@@ -640,6 +640,93 @@ internal static class Schema
         EnsureColumnExists(connection, "tasks", "project_id", "INTEGER NOT NULL DEFAULT 0");
     }
 
+    /// <summary>
+    /// 2026-08-12 — the hourly app-usage rollup. The one table that lets a project's picture
+    /// outlive the five-second firehose.
+    ///
+    /// WHY IT EXISTS: per-app time comes from <c>input_signal_windows</c>, which is pruned at 14
+    /// days and costs ~32 MB/day across the capture tables. Keeping months of that is roughly
+    /// 12 GB/year and not an option. This rollup answers the same questions at ~15 KB/day.
+    ///
+    /// KEYED BY TASK, NOT PROJECT, deliberately. Re-tagging a task is allowed at any time
+    /// (Yadin, 2026-08-12) and the projects page is current truth. Storing project_id here would
+    /// freeze last month's rows at whatever the tag was then, and rebuilding them is only possible
+    /// while the source buckets survive — 14 days. Resolving tasks.project_id at READ time makes a
+    /// re-tag instant, total, and permanent, with no rebuild. Same rule as the digest summing
+    /// BY PROJECT from the tasks it already carries rather than keeping its own totals.
+    ///
+    /// KEYED BY UTC HOUR, converted at read time — the same contract ReadDayTimeline already uses.
+    /// The local hour is a local concept and the store holds UTC; deriving it at write time would
+    /// bake one machine's offset into history that outlives it.
+    ///
+    /// task_id 0 = time not on any task, which is most of a normal day and all of the backfill.
+    /// Away time is absent entirely, mirroring AttributeBucketToActiveTask: away is not an app.
+    ///
+    /// backfilled = 1 marks rows reconstructed from input_signal_windows rather than measured
+    /// live. Those carry active_seconds ONLY — the attention split and the active task are not
+    /// recoverable after the fact, and a zero there must never be read as a measured zero.
+    /// </summary>
+    internal static void ApplyAppUsageRollupV27(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS app_usage_rollup (
+                hour_start_utc  TEXT    NOT NULL,
+                task_id         INTEGER NOT NULL DEFAULT 0,
+                app_hash        TEXT    NOT NULL,
+                focused_seconds REAL    NOT NULL DEFAULT 0,
+                offtask_seconds REAL    NOT NULL DEFAULT 0,
+                active_seconds  REAL    NOT NULL DEFAULT 0,
+                backfilled      INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (hour_start_utc, task_id, app_hash)
+            ) WITHOUT ROWID;
+
+            CREATE INDEX IF NOT EXISTS ix_app_usage_rollup_task
+                ON app_usage_rollup(task_id);
+            """;
+        cmd.ExecuteNonQuery();
+
+        BackfillAppUsageRollup(connection);
+    }
+
+    /// <summary>
+    /// One-shot reconstruction from whatever <c>input_signal_windows</c> still holds — 14 days at
+    /// most, and it slides by a day every day. Runs inside the v27 migration so it happens exactly
+    /// once, on the only data that will ever be available for those days.
+    ///
+    /// It fills the APP dimension only. task_id is 0 for every backfilled row and that is not a
+    /// shortcut: input_signal_windows has no task column, and tasks record only their FIRST start
+    /// and their close, so a task switched away from and resumed looks continuous. Attributing app
+    /// time across that span would invent the exact kind of number a client's invoice must never
+    /// contain. The project dimension genuinely starts the day projects did.
+    /// </summary>
+    private static void BackfillAppUsageRollup(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            INSERT INTO app_usage_rollup
+                (hour_start_utc, task_id, app_hash, focused_seconds, offtask_seconds, active_seconds, backfilled)
+            SELECT
+                substr(window_start_utc, 1, 13) || ':00:00.0000000+00:00' AS hour_start_utc,
+                0,
+                focus_app_hash,
+                0,
+                0,
+                SUM(
+                    MAX(0,
+                        (julianday(window_end_utc) - julianday(window_start_utc)) * 86400.0)),
+                1
+            FROM input_signal_windows
+            WHERE focus_app_hash <> ''
+              AND window_end_utc > window_start_utc
+            GROUP BY hour_start_utc, focus_app_hash
+            ON CONFLICT(hour_start_utc, task_id, app_hash) DO NOTHING;
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
     internal static void ApplyDailyGoalsV24(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

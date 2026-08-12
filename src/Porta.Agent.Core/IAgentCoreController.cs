@@ -79,6 +79,10 @@ public interface IAgentCoreController
     AgentProject? RenameProject(long id, string name);
     AgentProject? SetProjectArchived(long id, bool archived);
 
+    // 2026-08-12 — hourly per-app time, resolved to projects at read time. The grain the projects
+    // page will read, and the only record of it that outlives the 14-day capture window.
+    IReadOnlyList<AgentAppUsageHour> GetAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc);
+
     // Workstream D — conversational check-in goals (goal-day resolved at the 5:00 boundary).
     // Step 3 — taskCount is how many tasks the morning check-in recorded; it drives one ground-truth
     // label per task. Optional, so a caller that only knows about the goal sentence is unchanged.

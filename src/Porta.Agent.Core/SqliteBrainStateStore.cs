@@ -474,6 +474,16 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     tx,
                     Time.bucketSeconds,
                     derivedSession.AttentionSegmentKind);
+                // ...and onto the hourly app rollup, which is the only record of this that
+                // survives the 14-day prune. Same transaction, same inputs, so the two cannot
+                // drift apart.
+                AccumulateAppUsageRollup(
+                    connection,
+                    tx,
+                    Time.bucketSeconds,
+                    derivedSession.AttentionSegmentKind,
+                    mapped.DominantAppHash,
+                    mapped.StartUtc);
                 TryInsertAutomaticInterventionEvent(connection, tx, inferredSnapshot);
                 UpsertRuntimeStateForSnapshot(
                     connection,
@@ -775,6 +785,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     -- pressing this button means to be rid of. Same root cause as its absence
                     -- from PruneIfNeeded: this list predates the table by 38 minutes.
                     DELETE FROM primitive_buckets;
+                    -- The app rollup is per-application time the user produced. It goes with
+                    -- everything else they typed and everything else that watched them.
+                    DELETE FROM app_usage_rollup;
                     DELETE FROM events;
                     DELETE FROM interventions;
                     DELETE FROM system_changes;
@@ -2801,6 +2814,170 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         cmd.Parameters.AddWithValue("$focused", offtask ? 0d : bucketSeconds);
         cmd.Parameters.AddWithValue("$offtask", offtask ? bucketSeconds : 0d);
         cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// 2026-08-12 — the same bucket, landed on the hourly app rollup so it survives the 14-day
+    /// prune. Runs in the SAME transaction as the task attribution above and off the same inputs,
+    /// so the rollup can never disagree with the per-task numbers.
+    ///
+    /// Away is skipped for the same reason it is skipped above: away is not an app. The active
+    /// task is read rather than assumed, and 0 when there is none — time not on a task is still
+    /// time in an application, and it is most of a normal day.
+    ///
+    /// This is the ONLY place the task→app link is ever recorded. It cannot be reconstructed
+    /// afterwards: input_signal_windows has no task column and tasks log only their first start.
+    /// If this write is ever moved or made conditional, that history stops existing.
+    /// </summary>
+    /// <remarks>
+    /// The app here is the bucket's DOMINANT app, which is the unit the pipeline already
+    /// attributes by. The digest's "where your time went" sums per-window dwell instead, so the
+    /// two can differ by a little on a bucket where focus switched mid-way. That is a real
+    /// difference and not a bug: neither number is inferred, they are simply measured at different
+    /// grains. Do not "reconcile" them by inventing a split.
+    /// </remarks>
+    internal static void AccumulateAppUsageRollup(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        double bucketSeconds,
+        string? attentionSegmentKind,
+        string? dominantAppHash,
+        string? bucketStartUtcRaw)
+    {
+        string app = (dominantAppHash ?? string.Empty).Trim();
+        if (bucketSeconds <= 0d || app.Length == 0 || AttentionSegmentKinds.IsAway(attentionSegmentKind))
+        {
+            return;
+        }
+
+        // Fail closed: a bucket whose start cannot be read gets no rollup row rather than one
+        // filed under a guessed hour.
+        if (!DateTimeOffset.TryParse(
+                bucketStartUtcRaw,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out DateTimeOffset bucketStartUtc))
+        {
+            return;
+        }
+
+        bool offtask = AttentionSegmentKinds.IsDistraction(attentionSegmentKind);
+
+        long taskId = 0;
+        using (var active = connection.CreateCommand())
+        {
+            active.Transaction = tx;
+            active.CommandText = "SELECT id FROM tasks WHERE state = 'active' LIMIT 1;";
+            object? scalar = active.ExecuteScalar();
+            if (scalar is not null && scalar != DBNull.Value)
+            {
+                taskId = Convert.ToInt64(scalar);
+            }
+        }
+
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            INSERT INTO app_usage_rollup
+                (hour_start_utc, task_id, app_hash, focused_seconds, offtask_seconds, active_seconds, backfilled)
+            VALUES ($hour, $task, $app, $focused, $offtask, $seconds, 0)
+            ON CONFLICT(hour_start_utc, task_id, app_hash) DO UPDATE SET
+                focused_seconds = focused_seconds + excluded.focused_seconds,
+                offtask_seconds = offtask_seconds + excluded.offtask_seconds,
+                active_seconds  = active_seconds  + excluded.active_seconds,
+                -- A live write over a backfilled row makes the row measured: the backfill only
+                -- ever claimed active_seconds, so once real numbers land the caveat is gone.
+                backfilled      = 0;
+            """;
+        cmd.Parameters.AddWithValue("$hour", HourStartUtc(bucketStartUtc));
+        cmd.Parameters.AddWithValue("$task", taskId);
+        cmd.Parameters.AddWithValue("$app", app);
+        cmd.Parameters.AddWithValue("$focused", offtask ? 0d : bucketSeconds);
+        cmd.Parameters.AddWithValue("$offtask", offtask ? bucketSeconds : 0d);
+        cmd.Parameters.AddWithValue("$seconds", bucketSeconds);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// The UTC hour a bucket belongs to, formatted exactly as the backfill's string surgery
+    /// produces it so the two writers land on the same primary key.
+    /// </summary>
+    internal static string HourStartUtc(DateTimeOffset instant)
+    {
+        DateTimeOffset utc = instant.ToUniversalTime();
+        return new DateTimeOffset(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, TimeSpan.Zero)
+            .ToString("O");
+    }
+
+    /// <summary>
+    /// The rollup, resolved through tasks to projects at READ time — which is what makes a
+    /// re-tag instant and permanent. One row per local hour, per project, per application.
+    ///
+    /// <paramref name="localOffset"/> is passed in for the same reason ReadDayTimeline takes it:
+    /// the local hour is a local concept and this store holds UTC.
+    ///
+    /// A row whose task has aged out of the 400-day window resolves to untagged rather than
+    /// vanishing — the time was still real, only its label is gone.
+    /// </summary>
+    public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        TimeSpan localOffset)
+    {
+        var rows = new List<AgentAppUsageHour>();
+        if (toUtc <= fromUtc)
+        {
+            return rows;
+        }
+
+        using ReadGateLease _ = AcquireReadGate();
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT r.hour_start_utc,
+                   COALESCE(t.project_id, 0) AS project_id,
+                   COALESCE(p.name, '')      AS project_name,
+                   r.task_id,
+                   r.app_hash,
+                   r.focused_seconds,
+                   r.offtask_seconds,
+                   r.active_seconds,
+                   r.backfilled
+            FROM app_usage_rollup r
+            LEFT JOIN tasks    t ON t.id = r.task_id
+            LEFT JOIN projects p ON p.id = t.project_id
+            WHERE r.hour_start_utc >= $from AND r.hour_start_utc < $to
+            ORDER BY r.hour_start_utc;
+            """;
+        cmd.Parameters.AddWithValue("$from", HourStartUtc(fromUtc));
+        cmd.Parameters.AddWithValue("$to", toUtc.ToUniversalTime().ToString("O"));
+
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (!DateTimeOffset.TryParse(reader.GetString(0), out DateTimeOffset hourUtc))
+            {
+                continue;
+            }
+
+            DateTimeOffset local = hourUtc.ToOffset(localOffset);
+            rows.Add(new AgentAppUsageHour(
+                HourStartUtc: hourUtc,
+                LocalDate: local.ToString("yyyy-MM-dd"),
+                HourLocal: local.Hour,
+                ProjectId: reader.GetInt64(1),
+                ProjectName: reader.GetString(2),
+                TaskId: reader.GetInt64(3),
+                AppHash: reader.GetString(4),
+                FocusedSeconds: reader.GetDouble(5),
+                OfftaskSeconds: reader.GetDouble(6),
+                ActiveSeconds: reader.GetDouble(7),
+                Backfilled: reader.GetInt32(8) == 1));
+        }
+
+        return rows;
     }
 
     // ── Workstream D: conversational check-in goals (one row per local goal-day) ──
@@ -9451,6 +9628,17 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             """;
         cmd.Parameters.AddWithValue("$cutoff", cutoffRaw);
         cmd.ExecuteNonQuery();
+
+        // The app rollup is the point of the exercise and keeps its own, far longer window: it
+        // exists precisely so a project's picture outlives the 14-day capture tables. Matched to
+        // task retention, because a rollup row whose task has aged out can no longer name its
+        // project and is just an app total with a dangling id.
+        using var rollupCmd = connection.CreateCommand();
+        rollupCmd.Transaction = tx;
+        rollupCmd.CommandText = "DELETE FROM app_usage_rollup WHERE hour_start_utc < $rollupCutoff;";
+        rollupCmd.Parameters.AddWithValue(
+            "$rollupCutoff", nowUtc.AddDays(-TaskDoneRetentionDays).ToUniversalTime().ToString("O"));
+        rollupCmd.ExecuteNonQuery();
 
         _lastPruneUtc = nowUtc;
     }

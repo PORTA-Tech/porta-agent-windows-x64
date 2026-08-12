@@ -115,6 +115,7 @@ public sealed class NarrativeGatewayTests
         public Porta.Agent.Core.AgentTask? SetTaskProject(long taskId, long projectId) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? RenameProject(long id, string name) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? SetProjectArchived(long id, bool archived) => throw new NotSupportedException();
+        public IReadOnlyList<Porta.Agent.Core.AgentAppUsageHour> GetAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc) => throw new NotSupportedException();
         public IReadOnlyList<Porta.Agent.Core.AgentTask> GetTodayTasks() => throw new NotSupportedException();
 
         public IReadOnlyList<Porta.Agent.Core.AgentTask> GetRecentTasks(int goalDaysBack) => throw new NotSupportedException();
