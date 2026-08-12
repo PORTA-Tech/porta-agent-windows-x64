@@ -10,6 +10,7 @@ using Porta.UserAgent.Interventions;
 
 namespace Porta.UserAgent.Tests;
 
+[Collection(WidgetSizeLogCollection.Name)]
 public sealed class UserDesktopWidgetWindowTests : IDisposable
 {
     // v1.2.113: LogSizeEvent is no longer a no-op — Collapse/Expand/measure/anim all write

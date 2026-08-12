@@ -231,6 +231,26 @@ public sealed class DeterministicFinalizerScenarioRunner : IDisposable
         return rows;
     }
 
+    /// <summary>
+    /// Maintenance item (c), 2026-08-12 — this used to leak a database per scenario into %TEMP%.
+    ///
+    /// <para>Measured on 2026-08-11: <b>5.1 GB</b> in <c>%TEMP%\porta-step19-scenarios</c> — 924
+    /// <c>.db</c>, 842 <c>-wal</c>, 842 <c>-shm</c> — which is what took C: down to 36 MB free and
+    /// put the live agent's own SQLite writes at risk.</para>
+    ///
+    /// <para>Two defects, and the second was NOT what the handoff assumed. It recorded that dispose
+    /// "never disposes _innerStore, so the connection is still open". <b>There is no connection to
+    /// dispose:</b> SqliteBrainStateStore is not IDisposable and opens a fresh connection per call
+    /// via DbOpen.OpenConnection, each inside a `using` (verified by reading both). The real reason
+    /// the file was still locked is <b>connection pooling</b> — Microsoft.Data.Sqlite pools by
+    /// connection string and keeps the underlying handle open after the connection is disposed, so
+    /// File.Delete hit a sharing violation, the catch swallowed it, and the .db survived. That also
+    /// explains the 924-vs-842 gap: the sidecars are only created once a connection has actually
+    /// written, so scenarios that never wrote left a .db and no -wal.</para>
+    ///
+    /// <para>So: drop the pooled handles first, then delete all THREE files. Deleting only the .db
+    /// left the -wal and -shm behind on every clean pass, which is 1.77 GB of the total on its own.</para>
+    /// </summary>
     public void Dispose()
     {
         if (_disposed)
@@ -240,17 +260,43 @@ public sealed class DeterministicFinalizerScenarioRunner : IDisposable
 
         _disposed = true;
 
+        // Returns every pooled handle for every scenario database. Safe under parallel runs: a
+        // pool that is cleared simply reopens on next use.
         try
         {
-            // Ensure deterministic cleanup so scenario DBs are isolated per test.
-            if (File.Exists(_dbPath))
-            {
-                File.Delete(_dbPath);
-            }
+            SqliteConnection.ClearAllPools();
         }
-        catch (IOException)
+        catch (Exception)
         {
-            // Best effort; the next scenario still gets a unique path.
+            // Cleanup must never fail a scenario. The deletes below are still attempted.
+        }
+
+        DeleteDatabaseFiles(_dbPath);
+    }
+
+    /// <summary>
+    /// Deletes a SQLite database and its write-ahead-log sidecars. Every scenario that wrote
+    /// anything leaves all three, and deleting one of three is why a fully successful dispose still
+    /// grew the directory.
+    /// </summary>
+    internal static void DeleteDatabaseFiles(string dbPath)
+    {
+        foreach (string path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch (IOException)
+            {
+                // Best effort; the next scenario still gets a unique path.
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
         }
     }
 

@@ -23,3 +23,19 @@ jobs:
 
       - name: Run Validation Runner (Gate)
         run: dotnet run --project src/Porta.Agent.ValidationRunner/Porta.Agent.ValidationRunner.csproj -c Release --no-build
+
+      # Maintenance item (a), 2026-08-12. Until this step existed, a green tick on this workflow
+      # meant the solution COMPILED and nothing more: there was no `dotnet test` anywhere, so a
+      # regression in any of the five suites reached main green. The four documented Core failures
+      # (SECURITY_HANDOFF.md section 4.8) are allowed BY NAME, never by count.
+      - name: Run Test Gate (five suites, four documented failures allowed by name)
+        shell: pwsh
+        run: ./scripts/test-gate.ps1 -Configuration Release
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: artifacts/test-results/*.trx
+          if-no-files-found: warn

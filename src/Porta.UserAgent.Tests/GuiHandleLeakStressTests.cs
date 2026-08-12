@@ -12,6 +12,7 @@ namespace Porta.UserAgent.Tests;
 /// disposal fix (six un-stopped DispatcherTimers rooting every dead widget window) this climbs
 /// monotonically; after it, the counts stay flat.
 /// </summary>
+[Collection(WidgetSizeLogCollection.Name)]
 public sealed class GuiHandleLeakStressTests : IDisposable
 {
     private const int WarmupCycles = 5;

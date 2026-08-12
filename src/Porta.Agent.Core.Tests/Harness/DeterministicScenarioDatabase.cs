@@ -70,16 +70,22 @@ public sealed class DeterministicScenarioDatabase : IDisposable
         _disposed = true;
         Connection.Dispose();
 
-        if (!string.IsNullOrWhiteSpace(FilePath) && File.Exists(FilePath))
+        if (!string.IsNullOrWhiteSpace(FilePath))
         {
+            // Maintenance item (c), 2026-08-12 — the SECOND temp directory. This one disposes its
+            // connection properly, but it deleted only the .db and left -wal/-shm behind, and a
+            // disposed connection still leaves a POOLED handle on the file. Same fix as the
+            // scenario runner: clear the pool, then delete all three.
             try
             {
-                File.Delete(FilePath);
+                SqliteConnection.ClearPool(Connection);
             }
-            catch (IOException)
+            catch (Exception)
             {
-                // Leave best-effort cleanup for OS if lock is still being released.
+                // Cleanup must never fail a test.
             }
+
+            DeterministicFinalizerScenarioRunner.DeleteDatabaseFiles(FilePath);
         }
     }
 }
