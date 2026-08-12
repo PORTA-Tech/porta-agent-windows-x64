@@ -220,6 +220,7 @@ internal sealed class DailyDigestReporter : BackgroundService
                 MissingFields: new[] { "gaming", "socialMedia" },
                 TopApps: topApps,
                 Tasks: BuildTaskPayloads(),
+                DayTimeline: BuildTimelinePayloads(startOfDayUtc, nowUtc),
                 // C1 — lead the digest with goal vs reality. Null when no goal was set today, so
                 // the email omits the section rather than showing an empty one.
                 Goal: todayGoal?.GoalText,
@@ -247,25 +248,53 @@ internal sealed class DailyDigestReporter : BackgroundService
             Console.WriteLine($"Daily digest error: {ex.GetType().Name} {ex.Message}");
         }
     }
-    // Workstream 4 — plan vs. reality: today's CLOSED tasks only, exactly the measured
-    // numbers. An empty day yields an empty list and the email omits the section.
+    // Workstream 4 — plan vs. reality, exactly the measured numbers. An empty day yields an empty
+    // list and the email omits the section.
+    //
+    // CHANGED 2026-08-11: this used to filter to `done or abandoned`. That was wrong in two ways
+    // once the close-out card existed. A task moved to tomorrow is still OPEN, so "moved on" could
+    // never be rendered; and the email counted only closed tasks as "planned", so it disagreed with
+    // the evening card, which counts the whole board (UserCheckInTaskBoard.SummarizeDay). Same
+    // board, same count, both surfaces.
     private IReadOnlyList<DigestTaskPayload> BuildTaskPayloads()
     {
         try
         {
             return _controller.GetTodayTasks()
-                .Where(static t => t.State is "done" or "abandoned")
                 .Select(static t => new DigestTaskPayload(
                     Title: t.Title,
                     PlannedSeconds: t.PlannedSeconds,
                     ActualSeconds: t.ActiveSeconds,
                     OfftaskSeconds: t.OfftaskSeconds,
-                    State: t.State))
+                    State: t.State,
+                    DeferredUntilDay: t.DeferredUntilDay))
                 .ToList();
         }
         catch
         {
             return Array.Empty<DigestTaskPayload>();
+        }
+    }
+
+    // Digest redesign — the day's shape for the timeline strip. Numbers only, never a title.
+    // Failure yields an empty list and the email omits the section rather than drawing a flat bar.
+    private IReadOnlyList<DigestTimelineHourPayload> BuildTimelinePayloads(
+        DateTimeOffset startOfDayUtc,
+        DateTimeOffset nowUtc)
+    {
+        try
+        {
+            return _controller.GetDayTimeline(startOfDayUtc, nowUtc)
+                .Select(static h => new DigestTimelineHourPayload(
+                    HourLocal: h.HourLocal,
+                    FocusSeconds: h.FocusSeconds,
+                    ActiveSeconds: h.ActiveSeconds,
+                    AwaySeconds: h.AwaySeconds))
+                .ToList();
+        }
+        catch
+        {
+            return Array.Empty<DigestTimelineHourPayload>();
         }
     }
 

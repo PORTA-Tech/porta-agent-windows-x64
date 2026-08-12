@@ -243,6 +243,8 @@ public sealed class LocalApiRouteStartupSmokeTests
             Snapshots: [],
             Interventions: []);
         public IReadOnlyDictionary<string, double> GetFocusAppDwellSeconds(DateTimeOffset fromUtc, DateTimeOffset toUtc) => new Dictionary<string, double>();
+
+        public IReadOnlyList<Porta.Agent.Core.AgentDayTimelineHour> GetDayTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc) => System.Array.Empty<Porta.Agent.Core.AgentDayTimelineHour>();
         public void PublishLiveSessionState(AgentLiveSessionSignalPacket packet) => throw new NotSupportedException();
         public void IngestInputSignals(InputSignalsPacket packet) => throw new NotSupportedException();
         public AgentSettingsState GetEffectiveSettings() => new(

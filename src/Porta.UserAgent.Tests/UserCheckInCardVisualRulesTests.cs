@@ -38,9 +38,19 @@ public sealed class UserCheckInCardVisualRulesTests
         });
     }
 
+    // THE GREEN RULE, restated by Yadin 2026-08-11 when the digest's timeline needed the accent for
+    // focused time:
+    //
+    //     "Green means work that counted: a finished task, a finished bar, focused time on the
+    //      timeline, plus the primary button. Nothing else, ever."
+    //
+    // He chose to fix the rule rather than widen it case by case. On a CARD there is no timeline, so
+    // the enforceable set here is unchanged — the check, the finished bars, the button. The timeline
+    // clause governs the digest email, which has no card surface to test. What must never change is
+    // the exclusion: nothing on an input, a chip, or an unfinished row may be green.
     [Theory]
     [MemberData(nameof(AllThreeCards))]
-    public void GreenMeansFinished_AndTheButton_AndNothingElse(string card)
+    public void GreenMeansWorkThatCounted_AndNothingElse(string card)
     {
         RunCard(window =>
         {
@@ -77,8 +87,8 @@ public sealed class UserCheckInCardVisualRulesTests
         });
     }
 
-    // Green touches exactly three things. Nothing on an input or a chip may ever be green again:
-    // that is how it drifted to seven green elements on one card in the first place.
+    // Green means work that counted, and nothing else. Nothing on an input or a chip may ever be
+    // green again: that is how it drifted to seven green elements on one card in the first place.
     [Theory]
     [MemberData(nameof(AllThreeCards))]
     public void NoInputOrChipIsEverGreen(string card)

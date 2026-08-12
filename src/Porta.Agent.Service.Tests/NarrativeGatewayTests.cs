@@ -82,6 +82,8 @@ public sealed class NarrativeGatewayTests
         public System.Collections.Generic.IReadOnlyList<Porta.Agent.Core.AgentPendingIntervention> GetPendingInterventions(string sessionId, int limit = 20) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentTimelineData GetTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, int bucketSeconds = Porta.Agent.Core.Time.bucketSeconds) => throw new NotSupportedException();
         public System.Collections.Generic.IReadOnlyDictionary<string, double> GetFocusAppDwellSeconds(DateTimeOffset fromUtc, DateTimeOffset toUtc) => throw new NotSupportedException();
+
+        public System.Collections.Generic.IReadOnlyList<Porta.Agent.Core.AgentDayTimelineHour> GetDayTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc) => throw new NotSupportedException();
         public void PublishLiveSessionState(Porta.Agent.Core.AgentLiveSessionSignalPacket packet) => throw new NotSupportedException();
         public void IngestInputSignals(Porta.Agent.Core.InputSignalsPacket packet) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentSettingsState GetEffectiveSettings() => throw new NotSupportedException();

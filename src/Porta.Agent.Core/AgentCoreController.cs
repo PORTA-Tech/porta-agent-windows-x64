@@ -1006,6 +1006,16 @@ public sealed class AgentCoreController : IAgentCoreController
         return _stateStore.ReadFocusAppDwellSeconds(fromUtc, toUtc);
     }
 
+    /// <summary>
+    /// Digest redesign — the day's shape by local hour, for the email's timeline strip. The local
+    /// offset comes from the machine's own clock, matching how the goal day is resolved everywhere
+    /// else in this controller.
+    /// </summary>
+    public IReadOnlyList<AgentDayTimelineHour> GetDayTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc)
+        => toUtc <= fromUtc
+            ? Array.Empty<AgentDayTimelineHour>()
+            : _stateStore.ReadDayTimeline(fromUtc, toUtc, DateTimeOffset.Now.Offset);
+
     public void IngestInputSignals(InputSignalsPacket packet)
     {
         if (packet is null)

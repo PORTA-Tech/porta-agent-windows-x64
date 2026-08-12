@@ -216,6 +216,8 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         public System.Collections.Generic.IReadOnlyList<Porta.Agent.Core.AgentPendingIntervention> GetPendingInterventions(string sessionId, int limit = 20) => [];
         public Porta.Agent.Core.AgentTimelineData GetTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, int bucketSeconds = Porta.Agent.Core.Time.bucketSeconds) => throw new NotSupportedException();
         public System.Collections.Generic.IReadOnlyDictionary<string, double> GetFocusAppDwellSeconds(DateTimeOffset fromUtc, DateTimeOffset toUtc) => new System.Collections.Generic.Dictionary<string, double>();
+
+        public System.Collections.Generic.IReadOnlyList<Porta.Agent.Core.AgentDayTimelineHour> GetDayTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc) => System.Array.Empty<Porta.Agent.Core.AgentDayTimelineHour>();
         public void PublishLiveSessionState(Porta.Agent.Core.AgentLiveSessionSignalPacket packet) { }
         public void IngestInputSignals(Porta.Agent.Core.InputSignalsPacket packet) { }
         public Porta.Agent.Core.AgentSettingsState GetEffectiveSettings() => throw new NotSupportedException();

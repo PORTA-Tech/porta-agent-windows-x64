@@ -261,15 +261,39 @@ internal sealed record DailyDigestReportPayload(
     // The digest leads with goal-vs-reality; null/empty → the Goal section is omitted entirely
     // (a user who never set a goal must never see an empty or invented one).
     [property: JsonPropertyName("goal")] string? Goal = null,
-    [property: JsonPropertyName("middayAnswer")] string? MiddayAnswer = null);
+    [property: JsonPropertyName("middayAnswer")] string? MiddayAnswer = null,
+    // Digest redesign (2026-08-11) — the shape of the day for the email's timeline strip. Hours that
+    // recorded nothing are absent, not zeroed; null/empty → the timeline section is omitted entirely.
+    [property: JsonPropertyName("dayTimeline")] IReadOnlyList<DigestTimelineHourPayload>? DayTimeline = null);
 
-// Workstream 4 — one closed task in the digest payload.
+// Workstream 4 — one task in the digest payload. Since the 2026-08-11 redesign this carries OPEN
+// tasks too, not only closed ones: a task moved to tomorrow is still open, so closed-only made
+// "moved on" unrenderable and made the planned-vs-finished count disagree with the evening card.
 internal sealed record DigestTaskPayload(
     [property: JsonPropertyName("title")] string Title,
     [property: JsonPropertyName("plannedSeconds")] int PlannedSeconds,
     [property: JsonPropertyName("actualSeconds")] double ActualSeconds,
     [property: JsonPropertyName("offtaskSeconds")] double OfftaskSeconds,
-    [property: JsonPropertyName("state")] string State);
+    [property: JsonPropertyName("state")] string State,
+    // Digest redesign (2026-08-11) — the goal-day this task was moved to by the close-out card.
+    // Empty = not moved. The email renders a moved task as "moved on", never as a failure, and it
+    // is why OPEN tasks are now sent at all: a moved task is still open, so filtering to closed
+    // tasks made "moved on" unrenderable and the planned-vs-finished count wrong.
+    [property: JsonPropertyName("deferredUntilDay")] string DeferredUntilDay = "");
+
+/// <summary>
+/// Digest redesign (2026-08-11) — one local hour of the day's shape, for the email's timeline.
+/// NUMBERS ONLY: no titles, no site tokens. Focus + Active + Away sum to at most 3600.
+///
+/// An hour that recorded nothing is ABSENT from the list rather than sent as zeros. "Nothing
+/// recorded" (the machine was off) is a different claim from "away" (there, but idle), and the
+/// email renders the difference: an absent hour is empty track, so nothing there reads as nothing.
+/// </summary>
+public sealed record DigestTimelineHourPayload(
+    [property: JsonPropertyName("hourLocal")] int HourLocal,
+    [property: JsonPropertyName("focusSeconds")] double FocusSeconds,
+    [property: JsonPropertyName("activeSeconds")] double ActiveSeconds,
+    [property: JsonPropertyName("awaySeconds")] double AwaySeconds);
 
 /// <summary>
 /// Lightweight periodic stats payload POSTed to /api/agent/daily-stats every 2 hours.

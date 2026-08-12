@@ -410,6 +410,16 @@ public sealed record AgentTask(
     // and every already-stored row keeps working untouched.
     string DeferredUntilDay = "");
 
+// Digest redesign (2026-08-11) — one local hour of the day's shape. Seconds only, never a title:
+// this describes WHEN work happened, not what was open. Focus + Active + Away sum to at most 3600;
+// an hour that recorded nothing is ABSENT rather than zero, because "nothing recorded" (machine off)
+// is a different statement from "away" (there, but idle).
+public sealed record AgentDayTimelineHour(
+    int HourLocal,
+    double FocusSeconds,
+    double ActiveSeconds,
+    double AwaySeconds);
+
 // Workstream D — the day's conversational check-in state. One row per local "goal day"
 // (LocalDate = the 5:00-boundary day, "yyyy-MM-dd"). GoalText/TrackingPref set by the morning
 // check-in; MiddayAnswer (yes|partly|not_yet) by midday; PlanTomorrow/EndOfDayAtUtc by EOD.

@@ -21,6 +21,10 @@ public interface IAgentCoreController
 
     /// <summary>Foreground dwell seconds per focus-identity hash over the window (for the digest breakdown).</summary>
     IReadOnlyDictionary<string, double> GetFocusAppDwellSeconds(DateTimeOffset fromUtc, DateTimeOffset toUtc);
+
+    // Digest redesign (2026-08-11) — the day's shape by local hour for the email's timeline strip.
+    // Hours that recorded nothing are absent from the result, never zeroed.
+    IReadOnlyList<AgentDayTimelineHour> GetDayTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc);
     void PublishLiveSessionState(AgentLiveSessionSignalPacket packet);
     void IngestInputSignals(InputSignalsPacket packet);
     AgentSettingsState GetEffectiveSettings();

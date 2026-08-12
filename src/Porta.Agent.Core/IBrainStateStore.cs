@@ -54,6 +54,13 @@ public interface IBrainStateStore
     // LOCAL concept, so the caller resolves it rather than the store guessing from nowUtc.
     AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc, string? deferUntilDay = null);
 
+    // Digest redesign — the day's shape by local hour. localOffset is passed in for the same reason
+    // as above: the hour is a local concept and the store holds UTC.
+    IReadOnlyList<AgentDayTimelineHour> ReadDayTimeline(
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        TimeSpan localOffset);
+
     // Workstream D — conversational check-in goals.
     AgentDailyGoal? UpsertMorningGoal(string localDate, string goalText, string trackingPref, DateTimeOffset nowUtc);
     AgentDailyGoal? GetDailyGoal(string localDate);

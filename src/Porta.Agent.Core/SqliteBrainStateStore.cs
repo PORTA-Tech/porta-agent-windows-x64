@@ -1478,6 +1478,90 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         return rows;
     }
 
+    /// <summary>
+    /// Digest redesign (2026-08-11) — the SHAPE of the day, one row per local hour that recorded
+    /// anything: focused / at the machine / away, in seconds.
+    ///
+    /// Uses the capture pipeline's OWN attention classification, exactly as
+    /// <see cref="AttributeBucketToActiveTask"/> does, so the timeline and the per-task numbers can
+    /// never tell different stories: away is away, distraction kinds are "at the machine", and
+    /// everything else (focus, meeting, context excursion) is focused. No new inference.
+    ///
+    /// An hour with NO buckets is simply absent from the result. That is deliberate and load-bearing:
+    /// absent means nothing was recorded (the machine was off), which is not the same claim as
+    /// "away" — away says the user was there and idle. The email renders an absent hour as empty
+    /// track, so nothing there reads as nothing.
+    /// </summary>
+    public IReadOnlyList<AgentDayTimelineHour> ReadDayTimeline(
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        TimeSpan localOffset)
+    {
+        var byHour = new Dictionary<int, (double Focus, double Active, double Away)>();
+        if (toUtc <= fromUtc)
+        {
+            return Array.Empty<AgentDayTimelineHour>();
+        }
+
+        using ReadGateLease _ = AcquireReadGate();
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT timestamp_utc,
+                   LOWER(COALESCE(json_extract(state_flags_json, '$.attention_segment_kind'), 'focus'))
+            FROM state_buckets
+            WHERE timestamp_utc >= $from AND timestamp_utc < $to
+            """;
+        cmd.Parameters.AddWithValue("$from", fromUtc.ToUniversalTime().ToString("O"));
+        cmd.Parameters.AddWithValue("$to", toUtc.ToUniversalTime().ToString("O"));
+
+        double perBucket = Time.bucketSeconds;
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (reader.IsDBNull(0)
+                || !DateTimeOffset.TryParse(
+                    reader.GetString(0),
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind,
+                    out DateTimeOffset stampUtc))
+            {
+                continue;
+            }
+
+            string kind = reader.IsDBNull(1) ? "focus" : reader.GetString(1);
+            int hour = stampUtc.ToOffset(localOffset).Hour;
+            (double focus, double active, double away) = byHour.TryGetValue(hour, out var current)
+                ? current
+                : (0d, 0d, 0d);
+
+            if (AttentionSegmentKinds.IsAway(kind))
+            {
+                away += perBucket;
+            }
+            else if (AttentionSegmentKinds.IsDistraction(kind))
+            {
+                active += perBucket;
+            }
+            else
+            {
+                focus += perBucket;
+            }
+
+            byHour[hour] = (focus, active, away);
+        }
+
+        return byHour
+            .OrderBy(pair => pair.Key)
+            .Select(pair => new AgentDayTimelineHour(
+                HourLocal: pair.Key,
+                FocusSeconds: Math.Round(pair.Value.Focus, 1),
+                ActiveSeconds: Math.Round(pair.Value.Active, 1),
+                AwaySeconds: Math.Round(pair.Value.Away, 1)))
+            .ToList();
+    }
+
     public IReadOnlyDictionary<string, double> ReadFocusAppDwellSeconds(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc)
