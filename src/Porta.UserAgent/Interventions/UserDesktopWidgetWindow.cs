@@ -150,6 +150,9 @@ internal sealed class UserDesktopWidgetWindow : Window
     private WidgetTakeoverMessage? _stateTakeoverMessage;
     private string? _lastStateTakeoverKey;
     private UserDesktopWidgetLabelPrompt? _labelPrompt;
+    // Complaints 4 + 5 — the estimate-expiry ask and the id of the one already answered.
+    private UserDesktopWidgetTaskAsk? _taskAsk;
+    private string? _resolvedTaskAskId;
     private string? _resolvedLabelPromptId;
     private UserDesktopWidgetSignupNudge? _signupNudge;
     private string? _resolvedSignupNudgeId;
@@ -1187,6 +1190,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         UpdateLabelPrompt(state);
         UpdateSignupNudge(state);
         UpdateReminder(state);
+        UpdateTaskAsk(state);
         UpdateTasks(state);
         RefreshInlineMessage();
         RefreshReminderPill();
@@ -2802,6 +2806,26 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
+        // Complaints 4 + 5 — the estimate-expiry ask. Ranked above the label prompt and the signup
+        // nudge because it is the user's own commitment coming back to him, and below a fired
+        // reminder, which is an alarm he set for a fixed moment.
+        if (_taskAsk != null
+            && !string.Equals(_taskAsk.AskId, _resolvedTaskAskId, StringComparison.Ordinal))
+        {
+            RenderInlineMessage(
+                title: string.Empty,
+                body: _taskAsk.Body,
+                footer: string.Empty,
+                severity: UserDesktopWidgetMessageSeverity.Info,
+                primaryAction: UserDesktopWidgetAction.TaskAskDone,
+                primaryLabel: "Done",
+                secondaryAction: UserDesktopWidgetAction.TaskAskExtend,
+                secondaryLabel: "+15",
+                tertiaryAction: UserDesktopWidgetAction.TaskAskSwitched,
+                tertiaryLabel: "Switched");
+            return;
+        }
+
         if (_labelPrompt != null
             && !string.Equals(_labelPrompt.PromptId, _resolvedLabelPromptId, StringComparison.Ordinal))
         {
@@ -2837,6 +2861,23 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
 
         RenderSummarySurface();
+    }
+
+    /// <summary>
+    /// Complaints 4 + 5 — a NEW ask expands the widget. That is the whole difference between this
+    /// and what shipped before it: the row has printed "12m over" for weeks and an expiry toast has
+    /// said "…from the widget" for as long, and neither closed the loop, because both waited for the
+    /// user to come and look. This comes to him — but it still never takes the keyboard, so it can
+    /// never do what the check-in card did in 1.2.136.
+    /// </summary>
+    private void UpdateTaskAsk(UserDesktopWidgetState state)
+    {
+        _taskAsk = state.TaskAsk;
+        if (_taskAsk != null
+            && !string.Equals(_taskAsk.AskId, _resolvedTaskAskId, StringComparison.Ordinal))
+        {
+            Expand();
+        }
     }
 
     private void UpdateLabelPrompt(UserDesktopWidgetState state)
@@ -3135,6 +3176,14 @@ internal sealed class UserDesktopWidgetWindow : Window
         // after the user clicks a message-card action button.
         _collapseTimer.Stop();
         _suspendAutoCollapseUntilPointerLeaves = true;
+
+        if (action is UserDesktopWidgetAction.TaskAskDone
+            or UserDesktopWidgetAction.TaskAskExtend
+            or UserDesktopWidgetAction.TaskAskSwitched)
+        {
+            ResolveTaskAsk(action);
+            return;
+        }
 
         if (action is UserDesktopWidgetAction.LabelAnswerPositive
             or UserDesktopWidgetAction.LabelAnswerNegative
@@ -3963,6 +4012,52 @@ internal sealed class UserDesktopWidgetWindow : Window
         UpdateWindowHeight();
     }
 
+    /// <summary>
+    /// Complaints 4 + 5 — answering the estimate-expiry ask. Done and +15 are the SAME two verbs the
+    /// task row already sends, so nothing new reaches the core.
+    ///
+    /// "Switched" deliberately does not touch the running task: it opens the task box so the user can
+    /// say what he is on now, and starting that task is what moves the measurement (the core sets
+    /// every other active task back to pending on a start). Time already credited stays where it was
+    /// measured. Ari does not reassign it, and does not ask him to remember it — dropping it would
+    /// make the day stop adding up, and remembering it would put an invented number in a client's
+    /// report (Yadin, 2026-08-12).
+    /// </summary>
+    private void ResolveTaskAsk(UserDesktopWidgetAction action)
+    {
+        UserDesktopWidgetTaskAsk? ask = _taskAsk;
+        if (ask == null)
+        {
+            return;
+        }
+
+        // Suppress re-showing THIS estimate. A +15 changes the budget, so the AskId changes with it
+        // and the next expiry of the same task is a new question.
+        _resolvedTaskAskId = ask.AskId;
+
+        switch (action)
+        {
+            case UserDesktopWidgetAction.TaskAskDone:
+                _taskCommandRequested?.Invoke(new UserDesktopWidgetTaskCommand(
+                    Kind: "done", Id: ask.TaskId, Title: ask.TaskTitle, PlannedSeconds: ask.PlannedSeconds));
+                break;
+
+            case UserDesktopWidgetAction.TaskAskExtend:
+                _taskCommandRequested?.Invoke(new UserDesktopWidgetTaskCommand(
+                    Kind: "extend", Id: ask.TaskId, Title: ask.TaskTitle, PlannedSeconds: ask.PlannedSeconds));
+                break;
+
+            case UserDesktopWidgetAction.TaskAskSwitched:
+                RefreshInlineMessage();
+                UpdateWindowHeight();
+                ToggleTaskAdd();
+                return;
+        }
+
+        RefreshInlineMessage();
+        UpdateWindowHeight();
+    }
+
     private void ResolveLabelPrompt(UserDesktopWidgetAction action)
     {
         UserDesktopWidgetLabelPrompt? prompt = _labelPrompt;
@@ -4027,6 +4122,10 @@ internal sealed class UserDesktopWidgetWindow : Window
             && _currentState?.CriticalState == null
             && !IsLabelPromptActive()
             && !IsSignupNudgeActive()
+            // Complaints 4 + 5: the estimate-expiry ask needs an answer, so it pins the widget open
+            // like every other surface that asks a question. Without this the pill closes as the
+            // user reaches for Done.
+            && !IsTaskAskActive()
             // Phase 2c: typing a reminder pins the widget open. A FIRED reminder deliberately
             // does NOT pin — it stays until acted on anyway, and pinning froze all widget
             // movement, which reads as "the notification blocks everything".
@@ -4037,6 +4136,10 @@ internal sealed class UserDesktopWidgetWindow : Window
             // covered reminders; _taskAddOpen was missed.)
             && !_taskAddOpen;
     }
+
+    // Complaints 4 + 5 — an unanswered estimate-expiry ask pins the widget open.
+    private bool IsTaskAskActive()
+        => _taskAsk != null && !string.Equals(_taskAsk.AskId, _resolvedTaskAskId, StringComparison.Ordinal);
 
     // Phase 2c — a fired reminder needs an answer (Done / +10m), so it pins the widget open
     // exactly like label prompts and critical cards.

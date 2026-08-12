@@ -90,6 +90,24 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private DateTimeOffset _lastTasksCheckUtc = DateTimeOffset.MinValue;
     private IReadOnlyList<LocalApiTask> _todayTasks = Array.Empty<LocalApiTask>();
     private readonly HashSet<string> _taskExpiryToastedKeys = new(StringComparer.Ordinal);
+    // Complaints 4 + 5 — the estimate-expiry ask. The pill currently offered (null = none), the day
+    // it belongs to, how many asks have been DELIVERED today, when this expiry was first seen (so a
+    // fold that never got its card is released rather than swallowed), and when the user was last
+    // interrupted by anything at all — a card or an ask — which is what the 45-minute floor counts.
+    private UserDesktopWidgetTaskAsk? _activeTaskAsk;
+    private string _taskAskDayKey = string.Empty;
+    private int _taskAsksDeliveredToday;
+    private readonly Dictionary<string, DateTimeOffset> _taskExpiryFirstSeenLocal = new(StringComparer.Ordinal);
+    private DateTimeOffset? _lastInterruptionLocal;
+    // The expiry a card has been asked to carry, and the title it should lead with.
+    private string? _foldedExpiryKey;
+    private string? _foldedExpiryTitle;
+    // The shape of the day, published by RefreshCheckInAsync so the ask policy can see when the next
+    // scheduled card is due without rebuilding the whole snapshot on the tasks poll. Work start is
+    // fixed for the day and the learned length moves slowly, so a tick of staleness cannot misplace
+    // a 20-minute fold window.
+    private DateTimeOffset? _checkInWorkStartLocal;
+    private TimeSpan _checkInDayLength = UserCheckInDayTiming.DefaultDayLength;
     // Workstream D — conversational check-ins. Polled infrequently (the scheduler + per-day mute
     // do the real once-per-day gating); a cold-start grace keeps a morning card from popping while
     // the agent is still settling right after launch.
@@ -402,7 +420,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 LabelPrompt = _activeLabelPrompt,
                 SignupNudge = _activeSignupNudge,
                 NextReminder = MapNextReminder(),
-                Tasks = MapTodayTasks()
+                Tasks = MapTodayTasks(),
+                TaskAsk = _activeTaskAsk
             });
 
         // Refresh Ari context from local API every 30 min
@@ -1422,34 +1441,195 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         _todayTasks = response.Tasks ?? Array.Empty<LocalApiTask>();
 
+        RefreshTaskAskAsync(nowUtc, snapshot);
+    }
+
+    /// <summary>
+    /// Complaints 4 + 5 (2026-08-12) — "if I finish a task, or start a new one, without pressing
+    /// anything on the widget, Ari doesn't know."
+    ///
+    /// <para>This REPLACES a notify-only toast that had been firing on the same trigger since
+    /// Workstream 4. That toast read "Time's up on X — mark it done, add 15 minutes, or switch,
+    /// FROM THE WIDGET": it announced the ask instead of being it, so answering still cost the trip
+    /// to the widget that was not being made. Together with the row's "12m over" text, that is two
+    /// passive surfaces shipped weeks apart, neither of which changed anything — which is the
+    /// evidence this design turns on (Yadin, 2026-08-12).</para>
+    ///
+    /// <para>The trigger is unchanged and is not inference: the moment the user's OWN estimate runs
+    /// out, once per (task, planned+extended). What is new is that the answer is on the pill, and
+    /// that <see cref="UserTaskAskPolicy"/> rations it — 45 minutes from any other interruption,
+    /// three a day, folding into a scheduled card that is nearly due.</para>
+    /// </summary>
+    private void RefreshTaskAskAsync(DateTimeOffset nowUtc, LocalApiCurrentSnapshotResponse? snapshot)
+    {
+        DateTimeOffset nowLocal = nowUtc.ToLocalTime();
+        string dayKey = UserCheckInStalenessPolicy.GoalDayOf(nowLocal);
+        if (!string.Equals(dayKey, _taskAskDayKey, StringComparison.Ordinal))
+        {
+            _taskAskDayKey = dayKey;
+            _taskAsksDeliveredToday = 0;
+            _taskExpiryFirstSeenLocal.Clear();
+            _foldedExpiryKey = null;
+            _foldedExpiryTitle = null;
+            _activeTaskAsk = null;
+        }
+
+        // Only one task can be active at a time — the core sets every other active task back to
+        // pending on a start — so there is at most one estimate to expire, and no ask can ever
+        // collide with another ask.
+        LocalApiTask? expired = null;
+        int budgetSeconds = 0;
         foreach (LocalApiTask task in _todayTasks)
         {
-            int budgetSeconds = task.PlannedSeconds + task.ExtendedSeconds;
-            if (!string.Equals(task.State, "active", StringComparison.Ordinal)
-                || task.ActiveSeconds < budgetSeconds)
+            int budget = task.PlannedSeconds + task.ExtendedSeconds;
+            if (string.Equals(task.State, "active", StringComparison.Ordinal)
+                && budget > 0
+                && task.ActiveSeconds >= budget)
             {
-                continue;
+                expired = task;
+                budgetSeconds = budget;
+                break;
             }
+        }
 
-            string key = $"{task.Id}:{budgetSeconds}";
-            if (_taskExpiryToastedKeys.Contains(key) || IsMeetingForeground(snapshot))
-            {
-                continue;
-            }
+        if (expired is null)
+        {
+            // Nothing is over its estimate: retire any pill still on the widget. Marking the task
+            // done, or pressing +15, both land here on the next poll.
+            _activeTaskAsk = null;
+            return;
+        }
 
-            _taskExpiryToastedKeys.Add(key);
-            // B1: task-expiry is an interrupt — route through the anti-spam gate like every
-            // other interrupt. The per-(id,budget) key above already enforces once-per-expiry
-            // and once-per-extension (budget includes extended_seconds).
-            _ = _interventionExecutor.TryShowGatedInterruptToast(
-                "task:expiry",
-                "Ari",
-                $"Time's up on \"{task.Title}\" — mark it done, add 15 minutes, or switch, from the widget.",
-                nowUtc,
-                out _);
-            UserAgentFileLog.Info($"task_expiry_notified id={task.Id} budget_s={budgetSeconds}");
+        string key = $"{expired.Id}:{budgetSeconds}";
+
+        // Already asked about THIS estimate — the pill stands until the user answers it or the
+        // estimate moves. A +15 changes the budget, so the next expiry has a different key.
+        if (_taskExpiryToastedKeys.Contains(key))
+        {
+            return;
+        }
+
+        // The meeting shield defers, never consumes: the ask lands after the call.
+        if (IsMeetingForeground(snapshot))
+        {
+            return;
+        }
+
+        if (!_taskExpiryFirstSeenLocal.TryGetValue(key, out DateTimeOffset firstSeen))
+        {
+            firstSeen = nowLocal;
+            _taskExpiryFirstSeenLocal[key] = firstSeen;
+        }
+
+        var ctx = new UserTaskAskPolicy.TaskAskContext(
+            LastInterruptionLocal: _lastInterruptionLocal,
+            AsksDeliveredToday: _taskAsksDeliveredToday,
+            NextScheduledCardDueLocal: NextScheduledCardDueLocal(nowLocal),
+            EveningDueWaiting: IsEveningCardDueAndWaiting(nowLocal),
+            FirstSeenLocal: firstSeen);
+
+        UserTaskAskPolicy.TaskAskDecision decision = UserTaskAskPolicy.Decide(nowLocal, ctx);
+
+        switch (decision.Outcome)
+        {
+            case UserTaskAskPolicy.TaskAskOutcome.Ask:
+                _taskExpiryToastedKeys.Add(key);
+                _taskAsksDeliveredToday++;
+                _lastInterruptionLocal = nowLocal;
+                _foldedExpiryKey = null;
+                _foldedExpiryTitle = null;
+                _activeTaskAsk = new UserDesktopWidgetTaskAsk(
+                    AskId: key,
+                    TaskId: expired.Id,
+                    TaskTitle: expired.Title,
+                    PlannedSeconds: expired.PlannedSeconds,
+                    Body: $"\"{expired.Title}\" has had the {FormatBudget(budgetSeconds)} you gave it.");
+                UserAgentFileLog.Info(
+                    $"task_ask kind=pill id={expired.Id} budget_s={budgetSeconds} reason={decision.Reason}");
+                break;
+
+            case UserTaskAskPolicy.TaskAskOutcome.Fold:
+                // The card carries the question. Nothing separate reaches the user, and the fold
+                // costs none of the day's three asks.
+                if (!string.Equals(_foldedExpiryKey, key, StringComparison.Ordinal))
+                {
+                    _foldedExpiryKey = key;
+                    _foldedExpiryTitle = expired.Title;
+                    UserAgentFileLog.Info(
+                        $"task_ask kind=fold id={expired.Id} budget_s={budgetSeconds} reason={decision.Reason}");
+                }
+
+                break;
+
+            case UserTaskAskPolicy.TaskAskOutcome.Drop:
+                // Cannot come back today. Consume the key so the policy is not re-run every poll.
+                _taskExpiryToastedKeys.Add(key);
+                UserAgentFileLog.Info(
+                    $"task_ask kind=drop id={expired.Id} budget_s={budgetSeconds} reason={decision.Reason}");
+                break;
+
+            case UserTaskAskPolicy.TaskAskOutcome.Hold:
+                // Still true, just not now. Deliberately NOT consumed and deliberately not logged
+                // every poll — the reason is re-derived on the next tick.
+                break;
         }
     }
+
+    private static string FormatBudget(int budgetSeconds)
+        => Porta.Agent.Common.ReminderTimeParser.FormatDuration(Math.Max(0, budgetSeconds) / 60);
+
+    /// <summary>
+    /// When the next of the four scheduled cards is due, for the fold rule. Null when none is left
+    /// to fold into.
+    ///
+    /// <para>The FIRST midday returns "now" whenever it has not yet been offered: it is the
+    /// estimate-driven card, so this very expiry is what fires it. That is the case the fold matters
+    /// most for — without it the first expiry of the day would produce a pill AND the card it
+    /// triggers.</para>
+    /// </summary>
+    private DateTimeOffset? NextScheduledCardDueLocal(DateTimeOffset nowLocal)
+    {
+        if (_checkInWorkStartLocal is not { } start)
+        {
+            return null;
+        }
+
+        if (!IsCheckInOffered(UserCheckInKind.Midday))
+        {
+            return nowLocal;
+        }
+
+        DateTimeOffset? next = null;
+        void Consider(UserCheckInKind kind, double fraction)
+        {
+            if (IsCheckInOffered(kind))
+            {
+                return;
+            }
+
+            DateTimeOffset at = start + TimeSpan.FromTicks((long)(_checkInDayLength.Ticks * fraction));
+            if (at >= nowLocal && (next is null || at < next))
+            {
+                next = at;
+            }
+        }
+
+        Consider(UserCheckInKind.MiddayClose, UserCheckInDayTiming.SecondMiddayFraction);
+        Consider(UserCheckInKind.EndOfDay, 1d);
+        return next;
+    }
+
+    /// <summary>
+    /// True once the evening card is past its due time and waiting for a real break. Its fire time
+    /// cannot be predicted — it waits up to two hours for one — so no ask may fire alongside it.
+    /// </summary>
+    private bool IsEveningCardDueAndWaiting(DateTimeOffset nowLocal)
+        => _checkInWorkStartLocal is { } start
+            && !IsCheckInOffered(UserCheckInKind.EndOfDay)
+            && nowLocal >= start + _checkInDayLength;
+
+    private bool IsCheckInOffered(UserCheckInKind kind)
+        => _interventionExecutor.IsClassMutedForToday(UserCheckInScheduler.MuteClassFor(kind));
 
     private static bool IsMeetingForeground(LocalApiCurrentSnapshotResponse? snapshot)
     {
@@ -1611,9 +1791,15 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         LocalApiTask? activeTask = todayRows?
             .FirstOrDefault(t => string.Equals(t.State, "active", StringComparison.OrdinalIgnoreCase));
 
+        // Complaints 4 + 5 — publish the day's shape for the estimate-expiry ask policy, which runs
+        // on the tasks poll and needs to know when the next scheduled card is due in order to fold
+        // into it.
+        _checkInWorkStartLocal = workStartLocal;
+        _checkInDayLength = UserCheckInDayTiming.ResolveDayLength(_workDayLengthStore.AverageRecent(goalDayKey));
+
         var day = new UserCheckInDayTiming.WorkDaySnapshot(
             WorkStartLocal: workStartLocal,
-            DayLength: UserCheckInDayTiming.ResolveDayLength(_workDayLengthStore.AverageRecent(goalDayKey)),
+            DayLength: _checkInDayLength,
             ActiveTaskSpent: activeTask is null ? null : TimeSpan.FromSeconds(Math.Max(0d, activeTask.ActiveSeconds)),
             // Budget is planned PLUS extended, so the widget's +15 moves the check with the task
             // rather than firing on an estimate the user has already revised.
@@ -1714,6 +1900,25 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         UserAgentFileLog.Info(shown
             ? $"checkin_offered kind={kind}"
             : $"checkin_suppressed kind={kind} reason={reason}");
+
+        if (shown)
+        {
+            // Complaints 4 + 5 — a card IS an interruption, so it starts the 45-minute floor for the
+            // estimate-expiry ask. Without this a card at 10:00 and an ask at 10:25 is exactly the
+            // double-interruption the floor exists to prevent.
+            _lastInterruptionLocal = nowLocal;
+
+            // The card has now put every task in front of the user with one-tap done, so any expiry
+            // it was folding is answered by definition. Consume the key so no pill follows it.
+            if (_foldedExpiryKey is { } foldedKey)
+            {
+                _taskExpiryToastedKeys.Add(foldedKey);
+                _activeTaskAsk = null;
+                _foldedExpiryKey = null;
+                _foldedExpiryTitle = null;
+                UserAgentFileLog.Info($"task_ask kind=fold_carried by={kind}");
+            }
+        }
 
         if (shown)
         {

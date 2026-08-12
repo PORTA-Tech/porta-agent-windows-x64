@@ -38,7 +38,13 @@ internal enum UserDesktopWidgetAction
     // (window-local; never reaches the presenter).
     ReminderDone,
     ReminderSnooze,
-    ReminderOpenQuickAdd
+    ReminderOpenQuickAdd,
+    // Complaints 4 + 5 — the estimate-expiry ask, answered where it appears. The old expiry toast
+    // said "…from the widget", which left the trip to the widget — the exact act that was not
+    // happening — still to be made.
+    TaskAskDone,
+    TaskAskExtend,
+    TaskAskSwitched
 }
 
 internal enum UserDesktopWidgetMessageSeverity
@@ -90,7 +96,10 @@ internal sealed record UserDesktopWidgetState(
     // Phase 2c — the next reminder to surface (pill at T-60, toast when fired). Null = none.
     UserDesktopWidgetReminderInfo? NextReminder = null,
     // Workstream 4 — today's timed tasks (plan vs. reality). Null/empty = section hidden.
-    IReadOnlyList<UserDesktopWidgetTaskInfo>? Tasks = null);
+    IReadOnlyList<UserDesktopWidgetTaskInfo>? Tasks = null,
+    // Complaints 4 + 5 — the estimate has run out on the active task and Ari is asking about it,
+    // with the answer on the same pill. Null = nothing to ask.
+    UserDesktopWidgetTaskAsk? TaskAsk = null);
 
 // Phase 2c — the next reminder as the widget renders it. State: pending | fired.
 internal sealed record UserDesktopWidgetReminderInfo(
@@ -144,6 +153,24 @@ internal sealed record UserDesktopWidgetLabelAnswer(
     string PromptKind,
     string Answer,
     bool IsDismiss);
+
+/// <summary>
+/// Complaints 4 + 5 — the estimate-expiry ask, shown as a three-button pill on the widget.
+///
+/// <para><b>AskId</b> is the expiry key, "<c>taskId:budgetSeconds</c>", so it changes on every +15
+/// and the pill can therefore ask again about the same task on a new estimate — while a resolved
+/// ask stays resolved until the estimate actually moves.</para>
+///
+/// <para>Answering never reassigns measured time. "Switched" opens the task box so the user can say
+/// what he is on now; whatever was already credited stays on the task it was measured against, and
+/// only the future changes (Yadin, 2026-08-12).</para>
+/// </summary>
+internal sealed record UserDesktopWidgetTaskAsk(
+    string AskId,      // "{taskId}:{plannedSeconds+extendedSeconds}"
+    long TaskId,
+    string TaskTitle,
+    int PlannedSeconds,
+    string Body);      // "Pricing page has had the 2h you gave it."
 
 // Phase 1c: signup nudge shown as a two-button toast in the widget ("Sign in" / "Not now").
 internal sealed record UserDesktopWidgetSignupNudge(
