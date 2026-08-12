@@ -329,7 +329,8 @@ public static class LocalApiEndpointMapping
                     TimestampUtc: DateTimeOffset.UtcNow));
             }
 
-            AgentTask? created = controller.CreateTask(request.Title ?? string.Empty, request.PlannedSeconds);
+            AgentTask? created = controller.CreateTask(
+                request.Title ?? string.Empty, request.PlannedSeconds, request.ProjectId);
             return created is null
                 ? Results.Json(new LocalApiTaskCreateResponse(
                     Success: false, Reason: "cap_reached_or_invalid", Task: null,
@@ -348,6 +349,87 @@ public static class LocalApiEndpointMapping
             }
 
             AgentTask? updated = controller.ActOnTask(request.Id, request.Action ?? string.Empty);
+            return updated is null
+                ? Results.BadRequest(new LocalApiTaskActResponse(
+                    Success: false, Task: null, TimestampUtc: DateTimeOffset.UtcNow))
+                : Results.Json(new LocalApiTaskActResponse(
+                    Success: true, Task: ToApiTask(updated), TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
+        // Step 9a — projects. Local only: nothing here feeds any payload that leaves the machine.
+        // Ari never guesses a project, so there is no inference endpoint and never will be — every
+        // value that arrives here came from the user tapping something.
+        api.MapGet("/projects", (IAgentCoreController controller, bool? includeArchived) =>
+            new LocalApiProjectsResponse(
+                Projects: controller.GetProjects(includeArchived ?? false).Select(ToApiProject).ToList()!,
+                TimestampUtc: DateTimeOffset.UtcNow));
+
+        api.MapPost("/projects", (IAgentCoreController controller, LocalApiProjectCreateRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiProjectResponse(
+                    Success: false, Reason: "invalid_payload_or_schema", Project: null,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            // Create-or-get: a name that already exists returns that project rather than failing.
+            AgentProject? project = controller.CreateProject(request.Name ?? string.Empty);
+            return project is null
+                ? Results.Json(new LocalApiProjectResponse(
+                    Success: false, Reason: "cap_reached_or_invalid", Project: null,
+                    TimestampUtc: DateTimeOffset.UtcNow))
+                : Results.Json(new LocalApiProjectResponse(
+                    Success: true, Reason: null, Project: ToApiProject(project),
+                    TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
+        api.MapPost("/projects/update", (IAgentCoreController controller, LocalApiProjectUpdateRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiProjectResponse(
+                    Success: false, Reason: "invalid_payload_or_schema", Project: null,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            AgentProject? updated = null;
+            if (request.Archived is { } archived)
+            {
+                updated = controller.SetProjectArchived(request.Id, archived);
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Name))
+            {
+                // A rename that collides with another project returns null, and the whole call
+                // reports failure — a silent no-op would read as a rename that worked.
+                updated = controller.RenameProject(request.Id, request.Name!);
+                if (updated is null)
+                {
+                    return Results.Json(new LocalApiProjectResponse(
+                        Success: false, Reason: "name_taken", Project: null,
+                        TimestampUtc: DateTimeOffset.UtcNow));
+                }
+            }
+
+            return updated is null
+                ? Results.BadRequest(new LocalApiProjectResponse(
+                    Success: false, Reason: "unknown_project", Project: null,
+                    TimestampUtc: DateTimeOffset.UtcNow))
+                : Results.Json(new LocalApiProjectResponse(
+                    Success: true, Reason: null, Project: ToApiProject(updated),
+                    TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
+        api.MapPost("/tasks/project", (IAgentCoreController controller, LocalApiTaskProjectRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiTaskActResponse(
+                    Success: false, Task: null, TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            AgentTask? updated = controller.SetTaskProject(request.TaskId, request.ProjectId);
             return updated is null
                 ? Results.BadRequest(new LocalApiTaskActResponse(
                     Success: false, Task: null, TimestampUtc: DateTimeOffset.UtcNow))
@@ -1095,8 +1177,17 @@ public static class LocalApiEndpointMapping
                 CreatedAtUtc: task.CreatedAtUtc,
                 StartedAtUtc: task.StartedAtUtc,
                 EndedAtUtc: task.EndedAtUtc,
-                DeferredUntilDay: task.DeferredUntilDay);
+                DeferredUntilDay: task.DeferredUntilDay,
+                ProjectId: task.ProjectId,
+                ProjectName: task.ProjectName);
     }
+
+    private static LocalApiProject ToApiProject(AgentProject project)
+        => new(
+            Id: project.Id,
+            Name: project.Name,
+            Archived: project.Archived,
+            CreatedAtUtc: project.CreatedAtUtc);
 
     private static LocalApiDailyGoal? ToApiGoal(AgentDailyGoal? goal)
     {

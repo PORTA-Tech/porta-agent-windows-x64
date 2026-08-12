@@ -1158,6 +1158,42 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         }
     }
 
+    /// <summary>
+    /// Step 9a — the compose's picked project as an id. Failure yields 0, so the task is created
+    /// untagged rather than not created: losing a tag is a nuisance, losing the task loses the work.
+    /// </summary>
+    private async Task<long> ResolveWidgetProjectIdAsync(UserDesktopWidgetTaskCommand command)
+    {
+        if (command.ProjectId != 0)
+        {
+            return command.ProjectId;
+        }
+
+        if (string.IsNullOrWhiteSpace(command.ProjectName))
+        {
+            return 0;
+        }
+
+        try
+        {
+            LocalApiProjectResponse? created = await _actionClient
+                .CreateProjectAsync(new LocalApiProjectCreateRequest(SchemaVer: 1, Name: command.ProjectName))
+                .ConfigureAwait(false);
+            if (created is { Success: true, Project: not null })
+            {
+                return created.Project.Id;
+            }
+
+            UserAgentFileLog.Info($"widget_project_create_failed reason={created?.Reason ?? "no_response"}");
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error("widget_project_create_failed", ex);
+        }
+
+        return 0;
+    }
+
     // Workstream 4 — task commands from the widget's Today section. On completion the
     // honest plan-vs-reality line is shown once: measured numbers, no judgment adjectives.
     private async void OnTaskCommandRequested(UserDesktopWidgetTaskCommand command)
@@ -1166,11 +1202,16 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         {
             if (string.Equals(command.Kind, "create", StringComparison.Ordinal))
             {
+                // Step 9a — resolve the project first. A name typed into "+ new" goes through
+                // create-or-get, so typing the same one twice cannot split a client in half.
+                long projectId = await ResolveWidgetProjectIdAsync(command).ConfigureAwait(false);
+
                 LocalApiTaskCreateResponse? created = await _actionClient.CreateTaskAsync(
                     new LocalApiTaskCreateRequest(
                         SchemaVer: 1,
                         Title: command.Title,
-                        PlannedSeconds: command.PlannedSeconds)).ConfigureAwait(false);
+                        PlannedSeconds: command.PlannedSeconds,
+                        ProjectId: projectId)).ConfigureAwait(false);
                 UserAgentFileLog.Info(created is { Success: true, Task: not null }
                     ? $"task_created id={created.Task.Id} planned_s={created.Task.PlannedSeconds}"
                     : $"task_create_failed reason={created?.Reason ?? "no_response"}");

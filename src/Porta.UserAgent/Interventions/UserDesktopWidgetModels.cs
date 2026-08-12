@@ -99,7 +99,12 @@ internal sealed record UserDesktopWidgetState(
     IReadOnlyList<UserDesktopWidgetTaskInfo>? Tasks = null,
     // Complaints 4 + 5 — the estimate has run out on the active task and Ari is asking about it,
     // with the answer on the same pill. Null = nothing to ask.
-    UserDesktopWidgetTaskAsk? TaskAsk = null);
+    UserDesktopWidgetTaskAsk? TaskAsk = null,
+    // Step 9a — the projects the "+ task" compose offers, most-recently-used first. Null/empty =
+    // the compose offers only "+ new". Deliberately NOT used to draw anything on a task ROW: the
+    // title has 96 DIPs and a "Nolan · " prefix would eat 40% of the thing the user needs to read
+    // (Yadin, 2026-08-12). The widget is about what is being worked on, not what it bills to.
+    IReadOnlyList<UserDesktopWidgetProject>? Projects = null);
 
 // Phase 2c — the next reminder as the widget renders it. State: pending | fired.
 internal sealed record UserDesktopWidgetReminderInfo(
@@ -134,7 +139,15 @@ internal sealed record UserDesktopWidgetTaskCommand(
     string Kind,
     long Id,
     string Title,
-    int PlannedSeconds);
+    int PlannedSeconds,
+    // Step 9a — the project picked in the compose. ProjectId names one that exists; ProjectName
+    // carries one typed into "+ new", resolved by the presenter through create-or-get. Both empty
+    // = untagged, which is the default and never nagged about.
+    long ProjectId = 0,
+    string ProjectName = "");
+
+// Step 9a — one project as the widget's picker sees it. On a compose a project is only a name.
+internal sealed record UserDesktopWidgetProject(long Id, string Name);
 
 // Phase 1b — Step 3c: one-tap ground-truth prompt shown in the widget pill.
 internal sealed record UserDesktopWidgetLabelPrompt(

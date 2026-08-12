@@ -958,12 +958,53 @@ public sealed record LocalApiTask(
     [property: JsonPropertyName("ended_at_utc")] DateTimeOffset? EndedAtUtc,
     // Complaint 3 (2026-08-11) — the goal-day this task is next due back, set by the close-out
     // card's "Tomorrow". Empty = not deferred. Defaulted so older payloads deserialize unchanged.
-    [property: JsonPropertyName("deferred_until_day")] string DeferredUntilDay = "");
+    [property: JsonPropertyName("deferred_until_day")] string DeferredUntilDay = "",
+    // Step 9a — the project this task belongs to. 0 = untagged, and the name is empty with it.
+    // The name rides along so the widget, repainting every 4s, never needs a second call.
+    // Defaulted so older payloads deserialize unchanged.
+    [property: JsonPropertyName("project_id")] long ProjectId = 0,
+    [property: JsonPropertyName("project_name")] string ProjectName = "");
 
 public sealed record LocalApiTaskCreateRequest(
     [property: JsonPropertyName("schema_ver")] int SchemaVer,
     [property: JsonPropertyName("title")] string? Title,
-    [property: JsonPropertyName("planned_seconds")] int PlannedSeconds);
+    [property: JsonPropertyName("planned_seconds")] int PlannedSeconds,
+    // Step 9a — 0 = untagged, which is the default and a permanent valid state.
+    [property: JsonPropertyName("project_id")] long ProjectId = 0);
+
+// Step 9a — projects. On a card a project is ONLY a name; anything richer lives in Control Center.
+public sealed record LocalApiProject(
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("archived")] bool Archived,
+    [property: JsonPropertyName("created_at_utc")] DateTimeOffset CreatedAtUtc);
+
+public sealed record LocalApiProjectsResponse(
+    IReadOnlyList<LocalApiProject> Projects,
+    DateTimeOffset TimestampUtc);
+
+public sealed record LocalApiProjectCreateRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("name")] string? Name);
+
+public sealed record LocalApiProjectResponse(
+    bool Success,
+    string? Reason,                                              // cap_reached_or_invalid / name_taken
+    LocalApiProject? Project,
+    DateTimeOffset TimestampUtc);
+
+public sealed record LocalApiProjectUpdateRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("name")] string? Name,           // rename when present
+    [property: JsonPropertyName("archived")] bool? Archived);    // archive/un-archive when present
+
+// Step 9a — re-tagging an existing task. project_id 0 clears the tag: untagged must always be
+// reachable, because it is a choice and not an error.
+public sealed record LocalApiTaskProjectRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("task_id")] long TaskId,
+    [property: JsonPropertyName("project_id")] long ProjectId);
 
 public sealed record LocalApiTaskCreateResponse(
     bool Success,

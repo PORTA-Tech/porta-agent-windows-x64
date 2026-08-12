@@ -779,6 +779,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     DELETE FROM prompt_events;
                     DELETE FROM reminders;
                     DELETE FROM tasks;
+                    -- Step 9a: project names are user-authored, so the local-data reset takes
+                    -- them with everything else the user typed.
+                    DELETE FROM projects;
                     DELETE FROM daily_goals;
                     DELETE FROM sqlite_sequence;
                     """;
@@ -2229,10 +2232,24 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     // ── Workstream 4: timed tasks (plan vs. reality) ──
 
     private const int MaxOpenTasks = 20;
-    private const int TaskDoneRetentionDays = 30;
+
+    /// <summary>
+    /// Step 9a (2026-08-12) — was 30 days. Extended on Yadin's instruction after measuring what a
+    /// task row actually costs: 135 bytes, three a day, so a year is about 148 KB. Beside the
+    /// 800 MB the 5-second capture pipeline holds, task history is free, and the projects page
+    /// needs "how many days does this project span" to mean something.
+    ///
+    /// 400 rather than 365, so a project a year old does not vanish the day before its anniversary.
+    /// Nothing depends on the sweep for correctness — every read is date-windowed by its own WHERE
+    /// clause — so this changes disk use and nothing else.
+    /// </summary>
+    private const int TaskDoneRetentionDays = 400;
     public const int TaskExtendSeconds = 900;
 
     public AgentTask? CreateTask(string title, int plannedSeconds, DateTimeOffset nowUtc)
+        => CreateTask(title, plannedSeconds, nowUtc, projectId: 0);
+
+    public AgentTask? CreateTask(string title, int plannedSeconds, DateTimeOffset nowUtc, long projectId)
     {
         string cleanTitle = (title ?? string.Empty).Trim();
         if (cleanTitle.Length == 0 || plannedSeconds < 60 || plannedSeconds > 8 * 3600)
@@ -2263,14 +2280,19 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 cmd.Transaction = tx;
                 cmd.CommandText =
                     """
-                    INSERT INTO tasks (created_at_utc, title, planned_seconds, state, order_index)
+                    INSERT INTO tasks (created_at_utc, title, planned_seconds, state, order_index, project_id)
                     VALUES ($created, $title, $planned, 'pending',
-                        (SELECT COALESCE(MAX(order_index), 0) + 1 FROM tasks));
+                        (SELECT COALESCE(MAX(order_index), 0) + 1 FROM tasks),
+                        -- An id that does not resolve to a live project is stored as untagged
+                        -- rather than as a dangling pointer: the picker is the only writer, but a
+                        -- stale id from a card left open across an archive must not invent a tag.
+                        COALESCE((SELECT id FROM projects WHERE id = $project AND archived_at_utc = ''), 0));
                     SELECT last_insert_rowid();
                     """;
                 cmd.Parameters.AddWithValue("$created", nowUtc.ToUniversalTime().ToString("O"));
                 cmd.Parameters.AddWithValue("$title", cleanTitle);
                 cmd.Parameters.AddWithValue("$planned", plannedSeconds);
+                cmd.Parameters.AddWithValue("$project", projectId);
                 id = (long)(cmd.ExecuteScalar() ?? 0L);
             }
 
@@ -2310,12 +2332,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 cmd.Transaction = tx;
                 cmd.CommandText =
                     $"""
-                    SELECT {TaskColumns}
-                    FROM tasks
-                    WHERE state IN ('pending','active')
-                       OR (state IN ('done','abandoned') AND ended_at_utc >= $dayStart)
-                    ORDER BY CASE state WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
-                             order_index ASC, id ASC;
+                    {TaskSelect}
+                    WHERE t.state IN ('pending','active')
+                       OR (t.state IN ('done','abandoned') AND t.ended_at_utc >= $dayStart)
+                    ORDER BY CASE t.state WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
+                             t.order_index ASC, t.id ASC;
                     """;
                 cmd.Parameters.AddWithValue("$dayStart", dayStartUtc.ToUniversalTime().ToString("O"));
                 using SqliteDataReader reader = cmd.ExecuteReader();
@@ -2416,16 +2437,302 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         }
     }
 
+    // ── Step 9a: projects ──
+    //
+    // LOCAL ONLY. Nothing here is added to any payload; the digest and the narrative are byte-for-
+    // byte what they were before 9a.
+
+    private const int MaxProjects = 200;
+    private const int MaxProjectNameLength = 60;
+
+    /// <summary>
+    /// Creates a project, or returns the EXISTING one when the name already exists in any casing.
+    /// Create-or-get rather than create-or-fail: the picker's "+ new" is the only caller, and a
+    /// user who types a name he already has means that project — telling him off would be the
+    /// wrong answer, and creating a second "nolan" would split a client's total in half.
+    /// Returns null only for an empty name or once the cap is reached.
+    /// </summary>
+    public AgentProject? CreateProject(string name, DateTimeOffset nowUtc)
+    {
+        string clean = NormalizeProjectName(name);
+        if (clean.Length == 0)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+
+            AgentProject? existing = ReadProjectByName(connection, tx, clean);
+            if (existing != null)
+            {
+                // An archived project whose name is typed again comes BACK rather than colliding
+                // with the unique index. The user is asking for it by name; that is un-archiving.
+                if (existing.Archived)
+                {
+                    using var revive = connection.CreateCommand();
+                    revive.Transaction = tx;
+                    revive.CommandText = "UPDATE projects SET archived_at_utc = '' WHERE id = $id;";
+                    revive.Parameters.AddWithValue("$id", existing.Id);
+                    revive.ExecuteNonQuery();
+                    existing = ReadProjectById(connection, tx, existing.Id);
+                }
+
+                tx.Commit();
+                return existing;
+            }
+
+            using (var countCmd = connection.CreateCommand())
+            {
+                countCmd.Transaction = tx;
+                countCmd.CommandText = "SELECT COUNT(*) FROM projects;";
+                long total = (long)(countCmd.ExecuteScalar() ?? 0L);
+                if (total >= MaxProjects)
+                {
+                    tx.Commit();
+                    return null;
+                }
+            }
+
+            long id;
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText =
+                    """
+                    INSERT INTO projects (name, created_at_utc, archived_at_utc, order_index)
+                    VALUES ($name, $created, '', (SELECT COALESCE(MAX(order_index), 0) + 1 FROM projects));
+                    SELECT last_insert_rowid();
+                    """;
+                cmd.Parameters.AddWithValue("$name", clean);
+                cmd.Parameters.AddWithValue("$created", nowUtc.ToUniversalTime().ToString("O"));
+                id = (long)(cmd.ExecuteScalar() ?? 0L);
+            }
+
+            AgentProject? created = ReadProjectById(connection, tx, id);
+            tx.Commit();
+            return created;
+        }
+    }
+
+    /// <summary>
+    /// The picker's list, most-recently-USED first — the order that makes a six-item cap workable,
+    /// because the projects you are working on this week float to the top on their own. Recency is
+    /// the newest task created against the project, falling back to when the project was made.
+    /// Archived projects are excluded unless asked for (Control Center asks).
+    /// </summary>
+    public IReadOnlyList<AgentProject> ReadProjects(bool includeArchived = false)
+    {
+        using ReadGateLease _ = AcquireReadGate();
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            $"""
+            SELECT p.id, p.name, p.created_at_utc, p.archived_at_utc, p.order_index
+            FROM projects p
+            WHERE $includeArchived = 1 OR p.archived_at_utc = ''
+            ORDER BY COALESCE(
+                         (SELECT MAX(t.created_at_utc) FROM tasks t WHERE t.project_id = p.id),
+                         p.created_at_utc) DESC,
+                     p.id DESC
+            LIMIT {MaxProjects};
+            """;
+        cmd.Parameters.AddWithValue("$includeArchived", includeArchived ? 1 : 0);
+
+        var projects = new List<AgentProject>();
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            projects.Add(MapProjectRow(reader));
+        }
+
+        return projects;
+    }
+
+    /// <summary>
+    /// Re-tags a task. projectId 0 clears the tag back to untagged, which must always be possible:
+    /// untagged is a valid permanent state, not an error to be corrected.
+    ///
+    /// Re-tagging is allowed at any time, including after time has been credited — Yadin's
+    /// decision (2026-08-12). Every measured minute moves with the task, all of it or none of it,
+    /// so a minute still belongs to exactly one project. The digest already sent for an earlier
+    /// day is a snapshot of what was known then and is never regenerated.
+    /// </summary>
+    public AgentTask? SetTaskProject(long taskId, long projectId)
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText =
+                    """
+                    UPDATE tasks
+                    SET project_id =
+                        COALESCE((SELECT id FROM projects WHERE id = $project AND archived_at_utc = ''), 0)
+                    WHERE id = $id;
+                    """;
+                cmd.Parameters.AddWithValue("$id", taskId);
+                cmd.Parameters.AddWithValue("$project", projectId);
+                if (cmd.ExecuteNonQuery() == 0)
+                {
+                    tx.Commit();
+                    return null;
+                }
+            }
+
+            AgentTask? updated = ReadTaskRow(connection, tx, taskId);
+            tx.Commit();
+            return updated;
+        }
+    }
+
+    /// <summary>
+    /// Renames a project. Returns null when the name is empty or already belongs to a DIFFERENT
+    /// project — the unique index would refuse it anyway, and a silent failure here would look
+    /// like a rename that worked.
+    /// </summary>
+    public AgentProject? RenameProject(long id, string name)
+    {
+        string clean = NormalizeProjectName(name);
+        if (clean.Length == 0)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+
+            AgentProject? clash = ReadProjectByName(connection, tx, clean);
+            if (clash != null && clash.Id != id)
+            {
+                tx.Commit();
+                return null;
+            }
+
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = "UPDATE projects SET name = $name WHERE id = $id;";
+                cmd.Parameters.AddWithValue("$name", clean);
+                cmd.Parameters.AddWithValue("$id", id);
+                if (cmd.ExecuteNonQuery() == 0)
+                {
+                    tx.Commit();
+                    return null;
+                }
+            }
+
+            AgentProject? renamed = ReadProjectById(connection, tx, id);
+            tx.Commit();
+            return renamed;
+        }
+    }
+
+    /// <summary>
+    /// Archives or un-archives. Never deletes: the project's tasks keep pointing at it, and some
+    /// of that time has already been reported. Archiving takes it out of the picker and leaves
+    /// every measured minute exactly where it was.
+    /// </summary>
+    public AgentProject? SetProjectArchived(long id, bool archived, DateTimeOffset nowUtc)
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = "UPDATE projects SET archived_at_utc = $archived WHERE id = $id;";
+                cmd.Parameters.AddWithValue(
+                    "$archived", archived ? nowUtc.ToUniversalTime().ToString("O") : string.Empty);
+                cmd.Parameters.AddWithValue("$id", id);
+                if (cmd.ExecuteNonQuery() == 0)
+                {
+                    tx.Commit();
+                    return null;
+                }
+            }
+
+            AgentProject? updated = ReadProjectById(connection, tx, id);
+            tx.Commit();
+            return updated;
+        }
+    }
+
+    /// <summary>
+    /// Collapses internal whitespace and clamps the length. Two names that differ only by spacing
+    /// are the same project to a human, so they must be the same project to the unique index too.
+    /// </summary>
+    private static string NormalizeProjectName(string? name)
+    {
+        string trimmed = (name ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        string collapsed = string.Join(' ', trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return collapsed.Length > MaxProjectNameLength
+            ? collapsed[..MaxProjectNameLength].TrimEnd()
+            : collapsed;
+    }
+
+    private const string ProjectColumns = "id, name, created_at_utc, archived_at_utc, order_index";
+
+    private static AgentProject? ReadProjectById(SqliteConnection connection, SqliteTransaction tx, long id)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = $"SELECT {ProjectColumns} FROM projects WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$id", id);
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        return reader.Read() ? MapProjectRow(reader) : null;
+    }
+
+    private static AgentProject? ReadProjectByName(SqliteConnection connection, SqliteTransaction tx, string name)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = $"SELECT {ProjectColumns} FROM projects WHERE name = $name COLLATE NOCASE;";
+        cmd.Parameters.AddWithValue("$name", name);
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        return reader.Read() ? MapProjectRow(reader) : null;
+    }
+
+    private static AgentProject MapProjectRow(SqliteDataReader reader)
+        => new(
+            Id: reader.GetInt64(0),
+            Name: reader.GetString(1),
+            CreatedAtUtc: DateTimeOffset.Parse(reader.GetString(2)),
+            Archived: !string.IsNullOrEmpty(reader.GetString(3)),
+            OrderIndex: reader.GetInt32(4));
+
+    // Step 9a — the project name is resolved in the SELECT rather than by a second call, because
+    // the widget repaints every 4s. A LEFT JOIN, so an untagged task (project_id = 0) and a task
+    // pointing at an archived project both still come back; the name is simply empty for the
+    // former. Every task read goes through TaskSelect so the two cannot drift.
     private const string TaskColumns =
-        "id, title, planned_seconds, state, order_index, created_at_utc, started_at_utc, " +
-        "ended_at_utc, active_seconds, focused_seconds, offtask_seconds, extended_seconds, " +
-        "deferred_until_day";
+        "t.id, t.title, t.planned_seconds, t.state, t.order_index, t.created_at_utc, t.started_at_utc, " +
+        "t.ended_at_utc, t.active_seconds, t.focused_seconds, t.offtask_seconds, t.extended_seconds, " +
+        "t.deferred_until_day, t.project_id, COALESCE(p.name, '')";
+
+    private const string TaskSelect =
+        "SELECT " + TaskColumns + " FROM tasks t LEFT JOIN projects p ON p.id = t.project_id";
 
     private static AgentTask? ReadTaskRow(SqliteConnection connection, SqliteTransaction tx, long id)
     {
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = $"SELECT {TaskColumns} FROM tasks WHERE id = $id;";
+        cmd.CommandText = $"{TaskSelect} WHERE t.id = $id;";
         cmd.Parameters.AddWithValue("$id", id);
         using SqliteDataReader reader = cmd.ExecuteReader();
         return reader.Read() ? MapTaskRow(reader) : null;
@@ -2448,7 +2755,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             FocusedSeconds: reader.GetDouble(9),
             OfftaskSeconds: reader.GetDouble(10),
             ExtendedSeconds: reader.GetInt32(11),
-            DeferredUntilDay: reader.IsDBNull(12) ? string.Empty : reader.GetString(12));
+            DeferredUntilDay: reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
+            ProjectId: reader.IsDBNull(13) ? 0L : reader.GetInt64(13),
+            ProjectName: reader.IsDBNull(14) ? string.Empty : reader.GetString(14));
     }
 
     /// <summary>

@@ -62,7 +62,10 @@ internal static class UserCheckInCoordinator
         bool awayGap = false,
         IReadOnlyList<TaskBoardLine>? board = null,
         // Step 8 — yesterday's closed tasks, shown quietly above today's list on the morning card.
-        IReadOnlyList<TaskBoardLine>? yesterday = null)
+        IReadOnlyList<TaskBoardLine>? yesterday = null,
+        // Step 9a — the projects the picker offers, most-recently-used first. Only the morning
+        // card names tasks, so only the morning prompts carry it; the others are untouched.
+        IReadOnlyList<UserCheckInProject>? projects = null)
     {
         string goalText = (goal?.GoalText ?? string.Empty).Trim();
         string plan = (carriedPlan ?? string.Empty).Trim();
@@ -89,7 +92,8 @@ internal static class UserCheckInCoordinator
                 Tasks: open,
                 CarriedNotice: carriedNotice,
                 Yesterday: lastDay,
-                YesterdaySummary: yesterdaySummary),
+                YesterdaySummary: yesterdaySummary,
+                Projects: projects),
 
             // Part 3 — memory: when last night's plan carried over, open with it (confirm/edit)
             // instead of a blank ask. The plan pre-fills the goal box so confirming is one click.
@@ -99,14 +103,16 @@ internal static class UserCheckInCoordinator
                 Message: line.Length > 0 ? line : $"Last night you planned: “{plan}”. Confirm it or change it below.",
                 PrefillGoalText: plan,
                 Yesterday: lastDay,
-                YesterdaySummary: yesterdaySummary),
+                YesterdaySummary: yesterdaySummary,
+                Projects: projects),
 
             UserCheckInKind.Morning => new UserCheckInPrompt(
                 Kind: UserCheckInKind.Morning,
                 Title: "What's the one thing today?",
                 Message: line.Length > 0 ? line : "Name today's focus and I'll help you protect it.",
                 Yesterday: lastDay,
-                YesterdaySummary: yesterdaySummary),
+                YesterdaySummary: yesterdaySummary,
+                Projects: projects),
 
             // Step 5 — the midday card lists today's tasks with the hours already beside them, so
             // "done" is a tap. The question label changes with it: it is no longer about "the goal".

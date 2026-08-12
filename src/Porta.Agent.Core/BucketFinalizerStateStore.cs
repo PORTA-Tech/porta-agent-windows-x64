@@ -84,6 +84,20 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
     public AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc, string? deferUntilDay = null)
         => _inner.ActOnTask(id, action, nowUtc, deferUntilDay);
 
+    // Step 9a — projects, straight through like every other task call.
+    public AgentTask? CreateTask(string title, int plannedSeconds, DateTimeOffset nowUtc, long projectId)
+        => _inner.CreateTask(title, plannedSeconds, nowUtc, projectId);
+    public AgentProject? CreateProject(string name, DateTimeOffset nowUtc)
+        => _inner.CreateProject(name, nowUtc);
+    public IReadOnlyList<AgentProject> ReadProjects(bool includeArchived = false)
+        => _inner.ReadProjects(includeArchived);
+    public AgentTask? SetTaskProject(long taskId, long projectId)
+        => _inner.SetTaskProject(taskId, projectId);
+    public AgentProject? RenameProject(long id, string name)
+        => _inner.RenameProject(id, name);
+    public AgentProject? SetProjectArchived(long id, bool archived, DateTimeOffset nowUtc)
+        => _inner.SetProjectArchived(id, archived, nowUtc);
+
     public IReadOnlyList<AgentDayTimelineHour> ReadDayTimeline(
         DateTimeOffset fromUtc,
         DateTimeOffset toUtc,

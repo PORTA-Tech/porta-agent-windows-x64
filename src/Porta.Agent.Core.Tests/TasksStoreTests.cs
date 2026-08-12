@@ -184,12 +184,49 @@ public sealed class TasksStoreTests
     {
         RunWithStore((store, dbPath) =>
         {
-            AgentTask ancient = store.CreateTask("ancient", 1800, Now.AddDays(-40))!;
-            store.ActOnTask(ancient.Id, "abandon", Now.AddDays(-40));
+            // Step 9a — retention is 400 days, not 30. Measured first: a task row costs 135 bytes,
+            // three a day, so a year is about 148 KB against the ~800 MB the 5-second capture
+            // pipeline holds. Task history is effectively free and the projects page needs it.
+            AgentTask ancient = store.CreateTask("ancient", 1800, Now.AddDays(-500))!;
+            store.ActOnTask(ancient.Id, "abandon", Now.AddDays(-500));
             store.CreateTask("current", 1800, Now);
 
             _ = store.ReadTasks(Now.AddHours(-1), Now); // read piggybacks the cleanup
             Assert.Equal(1, CountRows(dbPath));
+        });
+    }
+
+    // The point of the change, asserted from the other side: a task closed last quarter is still
+    // on disk. Before 9a it was deleted at 30 days, which capped any project history at a month.
+    [Fact]
+    public void ClosedRowsInsideTheYear_Survive()
+    {
+        RunWithStore((store, dbPath) =>
+        {
+            AgentTask lastQuarter = store.CreateTask("shipped in May", 1800, Now.AddDays(-90))!;
+            store.ActOnTask(lastQuarter.Id, "done", Now.AddDays(-90));
+
+            _ = store.ReadTasks(Now.AddHours(-1), Now);
+
+            Assert.Equal(1, CountRows(dbPath));
+        });
+    }
+
+    // Nothing depends on the sweep for CORRECTNESS: the read filters by state and date itself, so
+    // keeping old rows longer must not make an old closed task reappear on today's card.
+    [Fact]
+    public void KeepingOldRowsLonger_DoesNotPutThemOnTodaysCard()
+    {
+        RunWithStore((store, _) =>
+        {
+            AgentTask lastQuarter = store.CreateTask("shipped in May", 1800, Now.AddDays(-90))!;
+            store.ActOnTask(lastQuarter.Id, "done", Now.AddDays(-90));
+            store.CreateTask("today", 1800, Now);
+
+            IReadOnlyList<AgentTask> today = store.ReadTasks(Now.AddHours(-1), Now);
+
+            Assert.Single(today);
+            Assert.Equal("today", today[0].Title);
         });
     }
 

@@ -412,6 +412,96 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    // ── Step 9a — projects (local only) ──
+
+    public async Task<LocalApiProjectsResponse?> GetProjectsAsync(
+        bool includeArchived = false,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            return await _httpClient.GetFromJsonAsync<LocalApiProjectsResponse>(
+                includeArchived ? "/v1/projects?includeArchived=true" : "/v1/projects",
+                token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LocalApiProjectResponse?> CreateProjectAsync(
+        LocalApiProjectCreateRequest request,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/projects", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiProjectResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LocalApiProjectResponse?> UpdateProjectAsync(
+        LocalApiProjectUpdateRequest request,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/projects/update", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiProjectResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LocalApiTaskActResponse?> SetTaskProjectAsync(
+        LocalApiTaskProjectRequest request,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/tasks/project", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiTaskActResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     // ── Workstream D — conversational check-in goals ──
 
     public async Task<LocalApiDailyGoalResponse?> GetTodayGoalAsync(CancellationToken token = default)

@@ -57,7 +57,13 @@ internal static class UserCheckInTaskPlanner
             accepted.Add(new PlannedMorningTask(
                 Title: title,
                 PlannedSeconds: ClampSeconds(entry!.PlannedSeconds),
-                AlreadyOpen: open.Contains(title)));
+                AlreadyOpen: open.Contains(title),
+                // Step 9a — dedupe still matches on TITLE alone. "Same title, different project"
+                // re-tags the task that is already open rather than creating a twin: two live
+                // tasks with one name would split the day's minutes between them by whichever the
+                // user happened to start, which is exactly the number a client must never be sent.
+                ProjectId: entry.ProjectId,
+                ProjectName: (entry.ProjectName ?? string.Empty).Trim()));
         }
 
         return new MorningTaskPlan(accepted, skipped, JoinTitles(accepted.Select(a => a.Title)));
@@ -103,6 +109,13 @@ internal sealed record MorningTaskPlan(
 
 // AlreadyOpen: a task with this exact title is still pending or active, so it is re-confirmed
 // rather than duplicated.
-internal sealed record PlannedMorningTask(string Title, int PlannedSeconds, bool AlreadyOpen);
+internal sealed record PlannedMorningTask(
+    string Title,
+    int PlannedSeconds,
+    bool AlreadyOpen,
+    // Step 9a — the project the user picked. Id names one that exists; Name carries one typed
+    // into "+ new" for the host to create-or-get. Both empty = untagged, and untagged never nags.
+    long ProjectId = 0,
+    string ProjectName = "");
 
 internal sealed record SkippedMorningTask(string Title, string ReasonCode);

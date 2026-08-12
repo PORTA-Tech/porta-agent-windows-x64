@@ -408,7 +408,27 @@ public sealed record AgentTask(
     // Complaint 3 (2026-08-11) — the goal-day ("yyyy-MM-dd") this task is next due back, set by the
     // close-out card's "Tomorrow". Empty = not deferred. Defaulted so every existing construction
     // and every already-stored row keeps working untouched.
-    string DeferredUntilDay = "");
+    string DeferredUntilDay = "",
+    // Step 9a (2026-08-12) — the project this task belongs to. 0 = untagged, which is a permanent
+    // valid state and never nagged about. ProjectName is denormalised on the read so the widget,
+    // which repaints every 4s, never needs a second call to draw a row.
+    long ProjectId = 0,
+    string ProjectName = "");
+
+/// <summary>
+/// Step 9a — a project. On a card a project is ONLY a name; client, colour and rate belong in
+/// Control Center, because the morning card must not become a form.
+///
+/// Archived rather than deleted: a project's tasks keep pointing at it, so deleting one would
+/// orphan measured time that may already have been reported. Archiving hides it from the picker
+/// and leaves the history intact.
+/// </summary>
+public sealed record AgentProject(
+    long Id,
+    string Name,
+    DateTimeOffset CreatedAtUtc,
+    bool Archived,
+    int OrderIndex);
 
 // Digest redesign (2026-08-11) — one local hour of the day's shape. Seconds only, never a title:
 // this describes WHEN work happened, not what was open. Focus + Active + Away sum to at most 3600;

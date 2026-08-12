@@ -54,6 +54,14 @@ public interface IBrainStateStore
     // LOCAL concept, so the caller resolves it rather than the store guessing from nowUtc.
     AgentTask? ActOnTask(long id, string action, DateTimeOffset nowUtc, string? deferUntilDay = null);
 
+    // Step 9a — projects. LOCAL ONLY: no payload gains a project field until 9b.
+    AgentTask? CreateTask(string title, int plannedSeconds, DateTimeOffset nowUtc, long projectId);
+    AgentProject? CreateProject(string name, DateTimeOffset nowUtc);
+    IReadOnlyList<AgentProject> ReadProjects(bool includeArchived = false);
+    AgentTask? SetTaskProject(long taskId, long projectId);
+    AgentProject? RenameProject(long id, string name);
+    AgentProject? SetProjectArchived(long id, bool archived, DateTimeOffset nowUtc);
+
     // Digest redesign — the day's shape by local hour. localOffset is passed in for the same reason
     // as above: the hour is a local concept and the store holds UTC.
     IReadOnlyList<AgentDayTimelineHour> ReadDayTimeline(

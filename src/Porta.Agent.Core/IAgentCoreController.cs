@@ -70,6 +70,15 @@ public interface IAgentCoreController
     IReadOnlyList<AgentTask> GetRecentTasks(int goalDaysBack);
     AgentTask? ActOnTask(long id, string action);
 
+    // Step 9a — projects, the thing a task belongs to. Ari never guesses one: every value here
+    // came from a tap. LOCAL ONLY — no payload gains a project field until 9b.
+    AgentTask? CreateTask(string title, int plannedSeconds, long projectId);
+    AgentProject? CreateProject(string name);
+    IReadOnlyList<AgentProject> GetProjects(bool includeArchived = false);
+    AgentTask? SetTaskProject(long taskId, long projectId);
+    AgentProject? RenameProject(long id, string name);
+    AgentProject? SetProjectArchived(long id, bool archived);
+
     // Workstream D — conversational check-in goals (goal-day resolved at the 5:00 boundary).
     // Step 3 — taskCount is how many tasks the morning check-in recorded; it drives one ground-truth
     // label per task. Optional, so a caller that only knows about the goal sentence is unchanged.

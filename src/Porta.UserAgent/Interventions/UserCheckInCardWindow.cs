@@ -56,6 +56,11 @@ internal sealed class UserCheckInCardWindow : Window
     private readonly TextBlock _title;
     private readonly TextBlock _message;
     private readonly StackPanel _bodyStack;   // mode-specific content is rebuilt here each ShowPrompt
+    // Step 9a — the card scrolls instead of clipping once it hits MaxHeight. See the constructor.
+    private readonly ScrollViewer _bodyScroll;
+    // Step 9a — the picker currently expanded, or null. Only ONE may be open: measured, three open
+    // at once would be 673 DIPs against a 632 ceiling.
+    private Action? _closeOpenProjectPicker;
     // Visible only when the keyboard grab was refused; see the constructor.
     private readonly TextBlock _focusHint;
     // Where the hint lives when a surface has not claimed it. Step 8 made the card tall enough that
@@ -124,7 +129,22 @@ internal sealed class UserCheckInCardWindow : Window
         };
 
         var stack = new StackPanel { Orientation = Orientation.Vertical };
-        _cardBorder.Child = stack;
+
+        // Step 9a — the card scrolls rather than CLIPS once it reaches MaxHeight. Measured before
+        // building the picker: a three-task card with yesterday's block is 566 DIPs against a 632
+        // ceiling, and content past that used to be cut off silently — with "Start the day", the
+        // last thing in the stack, the first casualty. The picker is bounded so this should never
+        // fire (see MakeProjectPicker), but "should never" is not the same as cannot, and the
+        // button the whole loop depends on must not be reachable only by luck.
+        //
+        // Nothing scrolls on a card that fits, so every existing card looks exactly as it did.
+        _bodyScroll = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = stack
+        };
+        _cardBorder.Child = _bodyScroll;
 
         var headerRow = new Grid();
         headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -235,6 +255,8 @@ internal sealed class UserCheckInCardWindow : Window
         SetBoxAccent(false);
         _focusTarget = null;
         _userInteracted = false;
+        // The previous card's picker belongs to controls that have just left the tree.
+        _closeOpenProjectPicker = null;
         _focusHint.Visibility = Visibility.Collapsed;
         MoveFocusHintTo(_focusHintHome);
         // A previous card may have faded its message out mid-upgrade; make sure this one renders
@@ -492,6 +514,11 @@ internal sealed class UserCheckInCardWindow : Window
         var rowsPanel = new StackPanel { Orientation = Orientation.Vertical };
         _bodyStack.Children.Add(rowsPanel);
 
+        // Step 9a — what the picker offers. Empty list = no picker chip at all, so the very first
+        // morning (before any project exists) still shows only "+ project", and a build with the
+        // feature switched off upstream looks exactly like 1.2.142.
+        IReadOnlyList<UserCheckInProject> projects = prompt.Projects ?? Array.Empty<UserCheckInProject>();
+
         Button addRow = MakeTextButton("+ add", LabelFg);
         addRow.HorizontalAlignment = HorizontalAlignment.Left;
         addRow.Margin = new Thickness(0, 8, 0, 0);
@@ -507,7 +534,8 @@ internal sealed class UserCheckInCardWindow : Window
                 string title = row.Box.Text.Trim();
                 if (title.Length > 0)
                 {
-                    entries.Add(new UserCheckInTaskEntry(title, row.PlannedSeconds));
+                    entries.Add(new UserCheckInTaskEntry(
+                        title, row.PlannedSeconds, row.ProjectId, row.ProjectName));
                 }
             }
 
@@ -620,6 +648,12 @@ internal sealed class UserCheckInCardWindow : Window
             }
 
             HighlightChip(durationChips[0], true);
+
+            // Step 9a — the project picker rides the SAME row as the durations, to their right.
+            // At rest it costs zero height (measured: a three-task card is 566.36 DIPs with or
+            // without the chip), which is the constraint Yadin set.
+            AddProjectPicker(row, durationRow, panel, projects);
+
             panel.Children.Add(durationRow);
             row.Panel = panel;
             rowsPanel.Children.Add(panel);
@@ -696,6 +730,254 @@ internal sealed class UserCheckInCardWindow : Window
         public Button Remove { get; } = MakeRemoveButton();
 
         public StackPanel Panel { get; set; } = new();
+
+        // Step 9a — the project picked on this row. Both empty = untagged, which is the default
+        // and stays the default: Ari never fills either of these in on the user's behalf.
+        // ProjectId names one that already exists; ProjectName carries one typed into "+ new",
+        // which the host resolves through create-or-get so typing it twice cannot make two.
+        public long ProjectId { get; set; }
+
+        public string ProjectName { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Step 9a — the project picker for one morning row.
+    ///
+    /// At rest it is a single chip on the duration row and costs ZERO height, which is the
+    /// constraint that does not move. Expanded it adds a bounded strip beneath: a wrapping list of
+    /// up to six most-recently-used projects plus "+ new".
+    ///
+    /// The bound is the point. Measured on the target display, the card ceiling is 632 DIPs and a
+    /// three-task card with yesterday's block is already 566.36. One wrapped line of chips costs
+    /// 35.6; three lines put the bottom of "Start the day" 12.75 DIPs off the window. So the strip
+    /// is capped at two rows and scrolls inside itself past that — its contribution to the card is
+    /// a constant no matter how many projects exist or how long their names are.
+    /// </summary>
+    private void AddProjectPicker(
+        MorningTaskRow row,
+        Panel durationRow,
+        Panel rowPanel,
+        IReadOnlyList<UserCheckInProject> projects)
+    {
+        Button chip = MakeDashedChip("+ project");
+        durationRow.Children.Add(chip);
+
+        // Collapsed, so at rest this adds nothing at all — not a margin, not a pixel.
+        var pickerHost = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            Visibility = Visibility.Collapsed
+        };
+        rowPanel.Children.Add(pickerHost);
+
+        void Collapse()
+        {
+            pickerHost.Children.Clear();
+            pickerHost.Visibility = Visibility.Collapsed;
+            _closeOpenProjectPicker = null;
+        }
+
+        void Pick(long id, string name)
+        {
+            _userInteracted = true;
+            row.ProjectId = id;
+            row.ProjectName = name;
+            ShowPickedProject(chip, name);
+            Collapse();
+        }
+
+        void OpenNewProjectBox()
+        {
+            pickerHost.Children.Clear();
+            TextBox box = MakeInputBox("Project name");
+            box.Margin = new Thickness(0, 6, 0, 0);
+            box.FontSize = 12;
+
+            // Enter here must NOT start the day. Every other box on this card submits on Enter,
+            // so without swallowing it a user typing a project name would launch the morning with
+            // a half-made project — precisely the class of bug the caret week was lost to.
+            box.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    string typed = box.Text.Trim();
+                    if (typed.Length > 0)
+                    {
+                        // Id 0 with a name = "create or get this one", resolved by the host.
+                        Pick(0, typed);
+                    }
+                    else
+                    {
+                        Collapse();
+                    }
+
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.Escape)
+                {
+                    Collapse();
+                    e.Handled = true;
+                }
+            };
+
+            box.TextChanged += (_, _) => _userInteracted = true;
+            pickerHost.Children.Add(box);
+            ArmFocus(box);
+        }
+
+        void Expand()
+        {
+            // One picker at a time. Three open on a three-task card measures 673 DIPs against a
+            // 632 ceiling, so this is not tidiness — it is the height budget.
+            _closeOpenProjectPicker?.Invoke();
+
+            pickerHost.Children.Clear();
+            var wrap = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+
+            foreach (UserCheckInProject project in projects.Take(MaxPickerProjects))
+            {
+                Button option = MakeChip(project.Name);
+                option.Margin = new Thickness(0, 0, 6, 6);
+                option.MaxWidth = ProjectChipMaxWidth;
+                UserCheckInProject captured = project;
+                option.Click += (_, _) => Pick(captured.Id, captured.Name);
+                wrap.Children.Add(option);
+            }
+
+            // Clearing the tag has to be reachable: untagged is a choice, not an error, so it
+            // gets the same one tap as picking. Only offered once something is picked.
+            if (row.ProjectId != 0 || row.ProjectName.Length > 0)
+            {
+                Button clear = MakeChip("None");
+                clear.Margin = new Thickness(0, 0, 6, 6);
+                clear.Click += (_, _) =>
+                {
+                    _userInteracted = true;
+                    row.ProjectId = 0;
+                    row.ProjectName = string.Empty;
+                    ShowEmptyProject(chip);
+                    Collapse();
+                };
+                wrap.Children.Add(clear);
+            }
+
+            Button addNew = MakeChip("+ new");
+            addNew.Margin = new Thickness(0, 0, 6, 6);
+            addNew.Click += (_, _) =>
+            {
+                _userInteracted = true;
+                OpenNewProjectBox();
+            };
+            wrap.Children.Add(addNew);
+
+            // The bound: two rows of chips, then it scrolls inside itself. This is what makes
+            // "Start the day cannot leave the screen" a property of the layout rather than a hope
+            // about how many projects the user happens to have.
+            var bounded = new ScrollViewer
+            {
+                MaxHeight = PickerMaxHeight,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = wrap
+            };
+
+            pickerHost.Children.Add(bounded);
+            pickerHost.Visibility = Visibility.Visible;
+            _closeOpenProjectPicker = Collapse;
+        }
+
+        chip.Click += (_, _) =>
+        {
+            _userInteracted = true;
+            if (pickerHost.Visibility == Visibility.Visible)
+            {
+                Collapse();
+                return;
+            }
+
+            Expand();
+        };
+    }
+
+    // Six, per Yadin (2026-08-12): beyond that the user manages projects in Control Center. The
+    // list is most-recently-used first, so the week's work floats to the top on its own.
+    private const int MaxPickerProjects = 6;
+
+    // Two chip rows (23.63 each) plus their 6px gutters, measured. Past this the strip scrolls
+    // rather than growing the card.
+    private const double PickerMaxHeight = 60d;
+
+    // A long name is ellipsised, never allowed to push the row wider than it has: the duration row
+    // has 347 DIPs and 1h/2h/3h already use 116.5 of them (measured).
+    private const double ProjectChipMaxWidth = 150d;
+
+    /// <summary>
+    /// The picked state: a single chip carrying the name, in the NEUTRAL selected fill. Never the
+    /// accent — green means finished work and the primary button, and nothing else, ever.
+    /// </summary>
+    private static void ShowPickedProject(Button chip, string name)
+    {
+        chip.Content = name;
+        chip.MaxWidth = ProjectChipMaxWidth;
+        ApplyButtonTemplate(chip, 5d);
+        HighlightChip(chip, selected: true);
+    }
+
+    private static void ShowEmptyProject(Button chip)
+    {
+        chip.Content = "+ project";
+        chip.MaxWidth = double.PositiveInfinity;
+        ApplyDashedTemplate(chip, 5d);
+        chip.Background = Brushes.Transparent;
+        chip.Foreground = new SolidColorBrush(LabelFg);
+    }
+
+    /// <summary>
+    /// The empty state: a DASHED muted chip, so "nothing chosen" reads as an invitation rather
+    /// than as a selection. WPF's Border cannot draw a dashed edge, so the chrome is a Rectangle
+    /// with a dash array instead of the usual templated Border.
+    /// </summary>
+    private static Button MakeDashedChip(string label)
+    {
+        var chip = new Button
+        {
+            Content = label,
+            FontSize = 11,
+            Padding = new Thickness(10, 4, 10, 4),
+            Margin = new Thickness(0, 0, 6, 0),
+            Cursor = Cursors.Hand,
+            Background = Brushes.Transparent,
+            Foreground = new SolidColorBrush(LabelFg),
+            BorderThickness = new Thickness(0)
+        };
+        ApplyDashedTemplate(chip, 5d);
+        return chip;
+    }
+
+    private static void ApplyDashedTemplate(Button button, double radius)
+    {
+        var template = new ControlTemplate(typeof(Button));
+        var root = new FrameworkElementFactory(typeof(Grid));
+
+        var outline = new FrameworkElementFactory(typeof(System.Windows.Shapes.Rectangle));
+        outline.SetValue(System.Windows.Shapes.Shape.StrokeProperty, new SolidColorBrush(CardBorder));
+        outline.SetValue(System.Windows.Shapes.Shape.StrokeThicknessProperty, 1d);
+        outline.SetValue(
+            System.Windows.Shapes.Shape.StrokeDashArrayProperty,
+            new DoubleCollection(new[] { 3d, 2d }));
+        outline.SetValue(System.Windows.Shapes.Rectangle.RadiusXProperty, radius);
+        outline.SetValue(System.Windows.Shapes.Rectangle.RadiusYProperty, radius);
+        outline.SetValue(System.Windows.Shapes.Shape.FillProperty, Brushes.Transparent);
+        root.AppendChild(outline);
+
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        presenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+        presenter.SetBinding(FrameworkElement.MarginProperty, TemplateBinding("Padding"));
+        root.AppendChild(presenter);
+
+        template.VisualTree = root;
+        button.Template = template;
     }
 
     /// <summary>Moves the refusal hint so it sits with the input it is about.</summary>

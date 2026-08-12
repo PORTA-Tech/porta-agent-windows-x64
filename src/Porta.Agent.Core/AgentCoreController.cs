@@ -1807,7 +1807,28 @@ public sealed class AgentCoreController : IAgentCoreController
     // yesterday while today's task list had already emptied itself. Now that the morning check-in
     // creates the tasks, both halves have to answer that question the same way.
     public AgentTask? CreateTask(string title, int plannedSeconds)
-        => _stateStore.CreateTask(title, plannedSeconds, DateTimeOffset.UtcNow);
+        => _stateStore.CreateTask(title, plannedSeconds, DateTimeOffset.UtcNow, projectId: 0);
+
+    // Step 9a — the same call carrying the project the user picked on the card. Ari never guesses
+    // a project, so this is only ever a value the user tapped; 0 means untagged, which is a valid
+    // permanent state and the default.
+    public AgentTask? CreateTask(string title, int plannedSeconds, long projectId)
+        => _stateStore.CreateTask(title, plannedSeconds, DateTimeOffset.UtcNow, projectId);
+
+    public AgentProject? CreateProject(string name)
+        => _stateStore.CreateProject(name, DateTimeOffset.UtcNow);
+
+    public IReadOnlyList<AgentProject> GetProjects(bool includeArchived = false)
+        => _stateStore.ReadProjects(includeArchived);
+
+    public AgentTask? SetTaskProject(long taskId, long projectId)
+        => _stateStore.SetTaskProject(taskId, projectId);
+
+    public AgentProject? RenameProject(long id, string name)
+        => _stateStore.RenameProject(id, name);
+
+    public AgentProject? SetProjectArchived(long id, bool archived)
+        => _stateStore.SetProjectArchived(id, archived, DateTimeOffset.UtcNow);
 
     public IReadOnlyList<AgentTask> GetTodayTasks()
         => _stateStore.ReadTasks(

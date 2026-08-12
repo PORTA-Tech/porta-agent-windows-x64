@@ -605,6 +605,41 @@ internal static class Schema
         EnsureColumnExists(connection, "tasks", "deferred_until_day", "TEXT NOT NULL DEFAULT ''");
     }
 
+    /// <summary>
+    /// Step 9a (2026-08-12) — projects. A real thing a task belongs to, picked by the user and
+    /// never guessed by Ari. Untagged is a valid, permanent state, which is why the task column
+    /// defaults to 0 rather than being nullable: every existing row is already correct and no
+    /// caller anywhere has to handle a null.
+    ///
+    /// The unique index on name is NOT housekeeping. "Nolan" typed twice, or "Nolan" and "nolan",
+    /// would split one client's total in half — the invoice corruption this feature exists to
+    /// prevent, arriving through the back door. NOCASE makes the collision impossible to create.
+    ///
+    /// LOCAL ONLY in 9a. No project field is added to the digest or narrative payloads, so tagging
+    /// a task sends nothing new off the machine. That is the whole point of shipping 9a first.
+    /// </summary>
+    internal static void ApplyProjectsV26(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS projects (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT    NOT NULL,
+                created_at_utc  TEXT    NOT NULL,
+                archived_at_utc TEXT    NOT NULL DEFAULT '',
+                order_index     INTEGER NOT NULL DEFAULT 0,
+                schema_ver      INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_name
+                ON projects(name COLLATE NOCASE);
+            """;
+        cmd.ExecuteNonQuery();
+
+        EnsureColumnExists(connection, "tasks", "project_id", "INTEGER NOT NULL DEFAULT 0");
+    }
+
     internal static void ApplyDailyGoalsV24(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

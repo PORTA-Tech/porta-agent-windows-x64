@@ -286,6 +286,12 @@ public sealed class LocalApiRouteStartupSmokeTests
         public AgentReminder? GetNextReminder() => throw new NotSupportedException();
         public bool AcknowledgeReminder(long id, string action) => throw new NotSupportedException();
         public AgentTask? CreateTask(string title, int plannedSeconds) => throw new NotSupportedException();
+        public AgentTask? CreateTask(string title, int plannedSeconds, long projectId) => throw new NotSupportedException();
+        public AgentProject? CreateProject(string name) => throw new NotSupportedException();
+        public IReadOnlyList<AgentProject> GetProjects(bool includeArchived = false) => throw new NotSupportedException();
+        public AgentTask? SetTaskProject(long taskId, long projectId) => throw new NotSupportedException();
+        public AgentProject? RenameProject(long id, string name) => throw new NotSupportedException();
+        public AgentProject? SetProjectArchived(long id, bool archived) => throw new NotSupportedException();
         public IReadOnlyList<AgentTask> GetTodayTasks() => throw new NotSupportedException();
 
         public IReadOnlyList<AgentTask> GetRecentTasks(int goalDaysBack) => throw new NotSupportedException();

@@ -38,12 +38,31 @@ internal sealed record UserCheckInPrompt(
     // Part 2b — a fixed question label the card renders directly above its answer controls, so the
     // Yes/Partly/Not-yet buttons and the EOD plan box always have a question attached even when the
     // LLM line is odd or the narrative call failed. Empty = no controls (morning uses its own box).
-    string QuestionLabel = "");
+    string QuestionLabel = "",
+    // Step 9a — the projects the picker offers, most-recently-used first. The card renders at most
+    // the first six plus "+ new"; the rest are managed in Control Center. Empty on every card that
+    // does not name a task, and on any older caller.
+    IReadOnlyList<UserCheckInProject>? Projects = null);
 
 // Step 3 — one line of the morning list: what the user intends to do, and how long they tapped for
 // it. The duration is always chosen from the chips, never typed (locked decision 2026-08-07), so a
 // number here is a tap, not free text.
-internal sealed record UserCheckInTaskEntry(string Title, int PlannedSeconds);
+/// <summary>
+/// Step 9a — ProjectId is the project the user PICKED on this row. 0 = untagged, which is the
+/// default, a permanent valid state, and never nagged about. Ari never guesses it.
+///
+/// ProjectName is set INSTEAD of ProjectId when the user typed a new name into "+ new". The card
+/// does no I/O of its own, so it hands the name over and the host resolves it through the store's
+/// create-or-get. That is also why a name typed twice cannot make two projects.
+/// </summary>
+internal sealed record UserCheckInTaskEntry(
+    string Title,
+    int PlannedSeconds,
+    long ProjectId = 0,
+    string ProjectName = "");
+
+// Step 9a — one project as the picker sees it. On a card a project is only a name.
+internal sealed record UserCheckInProject(long Id, string Name);
 
 // Steps 5 + 7 — what the user tapped against one task on the midday or evening card. Done and
 // NotYet are the midday pair; Drop is the evening's "this is not happening" so unfinished work is

@@ -122,7 +122,14 @@ internal static class Migrations
         new(
             Version: 25,
             Name: "tasks_defer_v25",
-            Apply: Schema.ApplyTasksDeferV25)
+            Apply: Schema.ApplyTasksDeferV25),
+        // Step 9a (2026-08-12) — projects a task can belong to. Adds the projects table and
+        // tasks.project_id (0 = untagged). Additive, defaulted, LOCAL ONLY: nothing new leaves
+        // the machine until 9b.
+        new(
+            Version: 26,
+            Name: "projects_v26",
+            Apply: Schema.ApplyProjectsV26)
     ];
 
     internal static void Migrate(SqliteConnection connection)

@@ -1,0 +1,438 @@
+using System.Runtime.ExceptionServices;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using Porta.UserAgent.Interventions;
+
+namespace Porta.UserAgent.Tests;
+
+// Step 9a — the project picker on the morning card.
+//
+// The height numbers below are the ones measured before any of this was built, on the target
+// display (work area 672 DIPs, card ceiling 632, three-task card with yesterday's block 566.36).
+// They are the constraint Yadin set, so they are asserted rather than remembered.
+[Collection(CheckInCardCollection.Name)]
+public sealed class UserCheckInProjectPickerTests
+{
+    // The constraint that does not move: a chip at rest costs NOTHING.
+    [Fact]
+    public void TheProjectChipAtRest_AddsNoHeightAtAll()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(ThreeTaskMorning(projects: 0));
+            window.Show();
+            window.UpdateLayout();
+            double withoutProjects = window.ActualHeight;
+
+            window.ShowPrompt(ThreeTaskMorning(projects: 6));
+            window.UpdateLayout();
+            double withProjects = window.ActualHeight;
+
+            Assert.Equal(withoutProjects, withProjects, precision: 2);
+        });
+    }
+
+    [Fact]
+    public void EveryTaskRowGetsAPicker_AndItStartsEmpty()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(ThreeTaskMorning(projects: 3));
+            window.Show();
+            window.UpdateLayout();
+
+            Assert.Equal(3, ProjectChips(window).Count);
+            Assert.All(ProjectChips(window), c => Assert.Equal("+ project", c.Content));
+        });
+    }
+
+    // Measured: three open at once is 673 DIPs against a 632 ceiling. Opening one closes the rest.
+    [Fact]
+    public void OpeningASecondPicker_ClosesTheFirst()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(ThreeTaskMorning(projects: 3));
+            window.Show();
+            window.UpdateLayout();
+
+            IReadOnlyList<Button> chips = ProjectChips(window);
+            Click(chips[0]);
+            window.UpdateLayout();
+            double oneOpen = window.ActualHeight;
+
+            Click(chips[1]);
+            window.UpdateLayout();
+
+            // Still exactly one strip's worth of extra height, not two.
+            Assert.Equal(oneOpen, window.ActualHeight, precision: 2);
+        });
+    }
+
+    [Fact]
+    public void AnOpenPicker_CostsUnderFortyDips()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(ThreeTaskMorning(projects: 3));
+            window.Show();
+            window.UpdateLayout();
+            double closed = window.ActualHeight;
+
+            Click(ProjectChips(window)[0]);
+            window.UpdateLayout();
+
+            double cost = window.ActualHeight - closed;
+            Assert.InRange(cost, 1d, 40d);
+        });
+    }
+
+    // "Start the day must never leave the screen" — by construction, not by hoping the list is
+    // short. Twelve projects with long names would have wrapped to three rows and pushed the
+    // button 12.75 DIPs off the bottom before the strip was bounded.
+    [Fact]
+    public void WithManyLongProjects_StartTheDayStaysOnScreen()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(ThreeTaskMorning(projects: 12, longNames: true));
+            window.Show();
+            window.UpdateLayout();
+
+            Click(ProjectChips(window)[0]);
+            window.UpdateLayout();
+
+            Button primary = Descendants<Button>(window)
+                .Single(b => (b.Content as string) == "Start the day");
+            Point bottom = primary.TranslatePoint(new Point(0, primary.ActualHeight), window);
+
+            Assert.True(
+                bottom.Y <= window.ActualHeight,
+                $"the primary button is {bottom.Y - window.ActualHeight:F2} DIPs below the window");
+        });
+    }
+
+    [Fact]
+    public void PickingAProject_CollapsesToASingleChipCarryingTheName()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(ThreeTaskMorning(projects: 3));
+            window.Show();
+            window.UpdateLayout();
+
+            Button chip = ProjectChips(window)[0];
+            Click(chip);
+            window.UpdateLayout();
+
+            Click(Descendants<Button>(window).First(b => (b.Content as string) == "Nolan"));
+            window.UpdateLayout();
+
+            Assert.Equal("Nolan", chip.Content);
+            // Collapsed: the options are gone from the tree, not merely hidden behind something.
+            Assert.DoesNotContain(
+                Descendants<Button>(window),
+                b => (b.Content as string) == "+ new");
+        });
+    }
+
+    // Green means finished work and the primary button. A picked project is neutral fill.
+    [Fact]
+    public void APickedProjectChip_IsNeverGreen()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(ThreeTaskMorning(projects: 3));
+            window.Show();
+            window.UpdateLayout();
+
+            Button chip = ProjectChips(window)[0];
+            Click(chip);
+            window.UpdateLayout();
+            Click(Descendants<Button>(window).First(b => (b.Content as string) == "Nolan"));
+            window.UpdateLayout();
+
+            var fill = (SolidColorBrush)chip.Background;
+            Assert.Equal("#FF2E353E", fill.Color.ToString());
+        });
+    }
+
+    [Fact]
+    public void ThePickedProject_ReachesTheResponse()
+    {
+        UserCheckInResponse? captured = null;
+        RunCard(
+            window =>
+            {
+                window.ShowPrompt(ThreeTaskMorning(projects: 3));
+                window.Show();
+                window.UpdateLayout();
+
+                Descendants<TextBox>(window)[0].Text = "Pricing page";
+                Click(ProjectChips(window)[0]);
+                window.UpdateLayout();
+                Click(Descendants<Button>(window).First(b => (b.Content as string) == "Nolan"));
+                window.UpdateLayout();
+
+                Click(Descendants<Button>(window).Single(b => (b.Content as string) == "Start the day"));
+            },
+            response => captured = response);
+
+        Assert.NotNull(captured);
+        UserCheckInTaskEntry entry = captured!.Tasks!.First(t => t.Title == "Pricing page");
+        Assert.Equal(1, entry.ProjectId);
+        Assert.Equal("Nolan", entry.ProjectName);
+    }
+
+    // THE bug this feature could easily have shipped: every other box on this card submits on
+    // Enter, so a project name typed into "+ new" would have started the day half-finished.
+    [Fact]
+    public void EnterInTheNewProjectBox_NamesTheProject_AndDoesNotStartTheDay()
+    {
+        UserCheckInResponse? captured = null;
+        RunCard(
+            window =>
+            {
+                window.ShowPrompt(ThreeTaskMorning(projects: 1));
+                window.Show();
+                window.UpdateLayout();
+
+                Button chip = ProjectChips(window)[0];
+                Click(chip);
+                window.UpdateLayout();
+                Click(Descendants<Button>(window).First(b => (b.Content as string) == "+ new"));
+                window.UpdateLayout();
+
+                TextBox box = Descendants<TextBox>(window)
+                    .Single(t => (t.Tag as string) == "Project name");
+                box.Text = "Northgate";
+                PressEnter(window, box);
+                window.UpdateLayout();
+
+                // The name landed on the chip...
+                Assert.Equal("Northgate", chip.Content);
+            },
+            response => captured = response);
+
+        // ...and the day did NOT start on that keystroke.
+        Assert.Null(captured);
+    }
+
+    [Fact]
+    public void ANewlyTypedProject_TravelsAsANameForTheHostToResolve()
+    {
+        UserCheckInResponse? captured = null;
+        RunCard(
+            window =>
+            {
+                window.ShowPrompt(ThreeTaskMorning(projects: 0));
+                window.Show();
+                window.UpdateLayout();
+
+                Descendants<TextBox>(window)[0].Text = "Pricing page";
+                Click(ProjectChips(window)[0]);
+                window.UpdateLayout();
+                Click(Descendants<Button>(window).First(b => (b.Content as string) == "+ new"));
+                window.UpdateLayout();
+
+                TextBox box = Descendants<TextBox>(window)
+                    .Single(t => (t.Tag as string) == "Project name");
+                box.Text = "Northgate";
+                PressEnter(window, box);
+                window.UpdateLayout();
+
+                Click(Descendants<Button>(window).Single(b => (b.Content as string) == "Start the day"));
+            },
+            response => captured = response);
+
+        UserCheckInTaskEntry entry = captured!.Tasks!.First(t => t.Title == "Pricing page");
+        // Id 0 with a name = "create or get this one", which is what stops a name becoming two.
+        Assert.Equal(0, entry.ProjectId);
+        Assert.Equal("Northgate", entry.ProjectName);
+    }
+
+    [Fact]
+    public void OnceSomethingIsPicked_ClearingItBackToUntaggedIsOneTap()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(ThreeTaskMorning(projects: 2));
+            window.Show();
+            window.UpdateLayout();
+
+            Button chip = ProjectChips(window)[0];
+            Click(chip);
+            window.UpdateLayout();
+            // "None" is not offered while nothing is picked — there is nothing to clear.
+            Assert.DoesNotContain(Descendants<Button>(window), b => (b.Content as string) == "None");
+
+            Click(Descendants<Button>(window).First(b => (b.Content as string) == "Nolan"));
+            window.UpdateLayout();
+            Click(chip);
+            window.UpdateLayout();
+            Click(Descendants<Button>(window).Single(b => (b.Content as string) == "None"));
+            window.UpdateLayout();
+
+            Assert.Equal("+ project", chip.Content);
+        });
+    }
+
+    // Six, per Yadin. Beyond that the user manages projects in Control Center.
+    [Fact]
+    public void ThePickerOffersAtMostSixProjects()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(ThreeTaskMorning(projects: 12));
+            window.Show();
+            window.UpdateLayout();
+
+            Click(ProjectChips(window)[0]);
+            window.UpdateLayout();
+
+            int offered = Descendants<Button>(window)
+                .Count(b => (b.Content as string)?.StartsWith("Project ", StringComparison.Ordinal) == true
+                            || (b.Content as string) == "Nolan");
+            Assert.Equal(6, offered);
+        });
+    }
+
+    private static IReadOnlyList<Button> ProjectChips(DependencyObject root)
+        => Descendants<Button>(root).Where(b => b.Content is "+ project").ToList();
+
+    private static void Click(Button button)
+        => button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+
+    private static void PressEnter(Window window, IInputElement target)
+    {
+        PresentationSource? source = PresentationSource.FromVisual(window);
+        Assert.NotNull(source);
+        target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, Key.Enter)
+        {
+            RoutedEvent = Keyboard.KeyDownEvent
+        });
+    }
+
+    private static UserCheckInPrompt ThreeTaskMorning(int projects, bool longNames = false)
+        => new(
+            UserCheckInKind.Morning,
+            "Today's list — look right?",
+            "Three things. Confirm or change them below.",
+            Tasks: new[]
+            {
+                Line(9, "Pricing page"),
+                Line(10, "Client revisions"),
+                Line(11, "Invoice chase"),
+            },
+            Yesterday: new[]
+            {
+                Line(5, "keep improving the system", "done", 6815d, 7200),
+                Line(6, "writting", "abandoned", 20d, 10800),
+                Line(7, "working on apollo", "abandoned", 0d, 3600),
+            },
+            YesterdaySummary: "You planned three things. You finished one.",
+            Projects: BuildProjects(projects, longNames));
+
+    private static IReadOnlyList<UserCheckInProject> BuildProjects(int count, bool longNames)
+    {
+        var list = new List<UserCheckInProject>();
+        for (int i = 0; i < count; i++)
+        {
+            string name = i == 0
+                ? "Nolan"
+                : longNames
+                    ? $"Project {i} Property Trust Limited"
+                    : $"Project {i}";
+            list.Add(new UserCheckInProject(i + 1, name));
+        }
+
+        return list;
+    }
+
+    private static TaskBoardLine Line(
+        long id, string title, string state = "pending", double measured = 0d, int planned = 3600)
+        => new(id, title, planned, measured, state, DaysCarried: 0, EndedAtLocal: DateTimeOffset.Now.AddDays(-1));
+
+    private static List<DependencyObject> Flatten(DependencyObject root)
+    {
+        var order = new List<DependencyObject>();
+        void Walk(DependencyObject node)
+        {
+            foreach (object? child in LogicalTreeHelper.GetChildren(node))
+            {
+                if (child is DependencyObject d)
+                {
+                    order.Add(d);
+                    Walk(d);
+                }
+            }
+        }
+
+        Walk(root);
+        return order;
+    }
+
+    private static IReadOnlyList<T> Descendants<T>(DependencyObject root)
+        where T : DependencyObject
+        => Flatten(root).OfType<T>().ToList();
+
+    private static void RunCard(Action<UserCheckInCardWindow> body, Action<UserCheckInResponse>? onResponse = null)
+    {
+        RunOnStaThread(() =>
+        {
+            UserCheckInCardWindow.SuppressForegroundAcquisition = true;
+            try
+            {
+                var window = new UserCheckInCardWindow(r => onResponse?.Invoke(r));
+                try
+                {
+                    body(window);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }
+            finally
+            {
+                UserCheckInCardWindow.SuppressForegroundAcquisition = false;
+            }
+        });
+    }
+
+    private static void RunOnStaThread(Action action)
+    {
+        Exception? failure = null;
+        using var completed = new ManualResetEventSlim(false);
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+            finally
+            {
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+                completed.Set();
+            }
+        });
+
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.IsBackground = true;
+        thread.Start();
+
+        Assert.True(completed.Wait(TimeSpan.FromSeconds(20)), "Timed out waiting for the STA card test.");
+        Assert.True(thread.Join(TimeSpan.FromSeconds(5)), "Timed out joining the STA card thread.");
+
+        if (failure != null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+}

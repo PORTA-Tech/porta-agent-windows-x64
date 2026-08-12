@@ -195,6 +195,15 @@ internal sealed class UserDesktopWidgetWindow : Window
     // always wins and title edits stop overriding it. Reset each time the composer opens.
     private bool _taskDurationUserPicked;
     private bool _taskAddOpen;
+    // Step 9a — the compose's project picker. Both zero/empty = untagged, the default.
+    private StackPanel _taskProjectRow = null!;
+    private StackPanel _taskProjectOptionsHost = null!;
+    private WrapPanel _taskProjectOptions = null!;
+    private Button _taskProjectChip = null!;
+    private TextBox? _taskProjectNewBox;
+    private IReadOnlyList<UserDesktopWidgetProject> _projects = Array.Empty<UserDesktopWidgetProject>();
+    private long _taskProjectId;
+    private string _taskProjectName = string.Empty;
     private bool _quickAddOpen;
 
     public UserDesktopWidgetWindow(
@@ -3615,8 +3624,29 @@ internal sealed class UserDesktopWidgetWindow : Window
             Margin = new Thickness(0, 2, 0, 0),
             Visibility = Visibility.Collapsed
         };
+        // Step 9a — the same picker the morning card has, in the compose only. A row of chips that
+        // costs one line when open and nothing when the user ignores it.
+        _taskProjectRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 3, 0, 0)
+        };
+        _taskProjectOptions = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) };
+        _taskProjectOptionsHost = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            Visibility = Visibility.Collapsed
+        };
+        _taskProjectOptionsHost.Children.Add(_taskProjectOptions);
+
+        _taskProjectChip = CreateQuickAddPickerButton("+ project");
+        _taskProjectChip.Click += (_, _) => ToggleTaskProjectPicker();
+        _taskProjectRow.Children.Add(_taskProjectChip);
+
         _taskAddPanel.Children.Add(_taskTitleBox);
         _taskAddPanel.Children.Add(chipRow);
+        _taskAddPanel.Children.Add(_taskProjectRow);
+        _taskAddPanel.Children.Add(_taskProjectOptionsHost);
         _taskAddPanel.Children.Add(_taskAddPreview);
         _taskAddPanel.Children.Add(buttonsRow);
 
@@ -3642,6 +3672,9 @@ internal sealed class UserDesktopWidgetWindow : Window
     private void UpdateTasks(UserDesktopWidgetState state)
     {
         _tasks = state.Tasks ?? Array.Empty<UserDesktopWidgetTaskInfo>();
+        // Step 9a — what the compose's picker offers. Used ONLY there: a task row never shows a
+        // project, because at 96 DIPs the prefix would cost more of the title than it is worth.
+        _projects = state.Projects ?? Array.Empty<UserDesktopWidgetProject>();
         RenderTaskRows();
     }
 
@@ -3841,6 +3874,12 @@ internal sealed class UserDesktopWidgetWindow : Window
         _taskTitleBox.Text = string.Empty;
         _taskDurationMinutes = 0;
         _taskDurationUserPicked = false;
+        // Step 9a — a fresh compose starts untagged. Carrying the last project over would be Ari
+        // guessing, and Ari never guesses a project.
+        _taskProjectId = 0;
+        _taskProjectName = string.Empty;
+        _taskProjectChip.Content = "+ project";
+        CloseTaskProjectPicker();
         RefreshTaskAddPreview();
         _taskAddPanel.Visibility = Visibility.Visible;
         _tasksSection.Visibility = Visibility.Visible;
@@ -3893,8 +3932,113 @@ internal sealed class UserDesktopWidgetWindow : Window
             Kind: "create",
             Id: 0,
             Title: title,
-            PlannedSeconds: _taskDurationMinutes * 60));
+            PlannedSeconds: _taskDurationMinutes * 60,
+            ProjectId: _taskProjectId,
+            ProjectName: _taskProjectName));
         CloseTaskAdd();
+    }
+
+    // ── Step 9a: the compose's project picker ──
+    //
+    // Four at most, because the widget is 200 DIPs wide and a list that wraps three times turns a
+    // glance into a form. The rest are managed in Control Center, same rule as the card.
+    private const int WidgetMaxPickerProjects = 4;
+
+    private void ToggleTaskProjectPicker()
+    {
+        if (_taskProjectOptionsHost.Visibility == Visibility.Visible)
+        {
+            CloseTaskProjectPicker();
+            return;
+        }
+
+        _taskProjectOptions.Children.Clear();
+        _taskProjectNewBox = null;
+
+        foreach (UserDesktopWidgetProject project in _projects.Take(WidgetMaxPickerProjects))
+        {
+            Button option = CreateQuickAddPickerButton(project.Name);
+            option.Margin = new Thickness(0, 0, 3, 3);
+            UserDesktopWidgetProject captured = project;
+            option.Click += (_, _) => PickTaskProject(captured.Id, captured.Name);
+            _taskProjectOptions.Children.Add(option);
+        }
+
+        // Untagged must always be one tap away: it is a choice the user made, not a gap.
+        if (_taskProjectId != 0 || _taskProjectName.Length > 0)
+        {
+            Button clear = CreateQuickAddPickerButton("None");
+            clear.Margin = new Thickness(0, 0, 3, 3);
+            clear.Click += (_, _) => PickTaskProject(0, string.Empty);
+            _taskProjectOptions.Children.Add(clear);
+        }
+
+        Button addNew = CreateQuickAddPickerButton("+ new");
+        addNew.Margin = new Thickness(0, 0, 3, 3);
+        addNew.Click += (_, _) => OpenTaskProjectNewBox();
+        _taskProjectOptions.Children.Add(addNew);
+
+        _taskProjectOptionsHost.Visibility = Visibility.Visible;
+        UpdateWindowHeight();
+    }
+
+    private void CloseTaskProjectPicker()
+    {
+        _taskProjectOptionsHost.Visibility = Visibility.Collapsed;
+        _taskProjectOptions.Children.Clear();
+        _taskProjectNewBox = null;
+        UpdateWindowHeight();
+    }
+
+    private void OpenTaskProjectNewBox()
+    {
+        _taskProjectOptions.Children.Clear();
+        var box = new TextBox
+        {
+            FontSize = 9,
+            Width = 150,
+            Margin = new Thickness(0, 0, 3, 3)
+        };
+
+        // Enter names the project. It must NOT reach the compose's own Enter handler, which would
+        // add the task while the project name is still being typed.
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                string typed = box.Text.Trim();
+                if (typed.Length > 0)
+                {
+                    PickTaskProject(0, typed);
+                }
+                else
+                {
+                    CloseTaskProjectPicker();
+                }
+
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                CloseTaskProjectPicker();
+                e.Handled = true;
+            }
+        };
+
+        _taskProjectNewBox = box;
+        _taskProjectOptions.Children.Add(box);
+        UpdateWindowHeight();
+        Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Input,
+            () => Keyboard.Focus(box));
+    }
+
+    private void PickTaskProject(long id, string name)
+    {
+        _taskProjectId = id;
+        _taskProjectName = name;
+        _taskProjectChip.Content = name.Length > 0 ? name : "+ project";
+        CloseTaskProjectPicker();
     }
 
     // A1: a task is addable only with a non-empty title AND a resolved duration (> 0).

@@ -1469,6 +1469,12 @@
                                     <TextBlock x:Name="SettingsNavFeaturesText" Text="Features" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Border>
+                            <Border x:Name="SettingsNavProjects" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Projects" MouseLeftButtonUp="SettingsSubNav_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavProjectsText" Text="Projects" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
                             <Border x:Name="SettingsNavAppearance" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Appearance" MouseLeftButtonUp="SettingsSubNav_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 3a9 9 0 1 0 0 18A9 9 0 0 0 12 3zm0 2a7 7 0 0 1 0 14V5z" /></Canvas></Viewbox>
@@ -1654,6 +1660,28 @@
                                         </Grid>
                                     </StackPanel>
                                 </Border>
+                            </StackPanel>
+
+                            <!-- Step 9a — projects. A project is only a name; this is where one is
+                                 renamed or put away. Everything here is LOCAL: no project name
+                                 leaves the machine in 9a. -->
+                            <StackPanel x:Name="SettingsSectionProjects" Visibility="Collapsed">
+                                <TextBlock Text="Projects" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
+                                <TextBlock Text="Things your tasks belong to. You pick the project when you name a task — Ari never guesses one, and leaving a task untagged is fine." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <TextBlock Text="NEW PROJECT" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <TextBox x:Name="ProjectNewNameBox" Grid.Column="0" FontSize="13" Padding="8" Margin="0,0,8,0" Background="#12121A" Foreground="{DynamicResource PortaTextPrimaryBrush}" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="1" KeyDown="ProjectNewNameBox_KeyDown" />
+                                            <Button x:Name="ProjectAddButton" Grid.Column="1" Content="Add" FontSize="13" Padding="14,8" Cursor="Hand" Click="ProjectAddButton_Click" />
+                                        </Grid>
+                                        <TextBlock x:Name="ProjectStatusText" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Text="YOUR PROJECTS" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                <StackPanel x:Name="ProjectsList" />
+                                <TextBlock x:Name="ProjectsEmptyText" Text="No projects yet. Add one here, or tap “+ project” on the morning card." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" />
                             </StackPanel>
                         </StackPanel>
                     </ScrollViewer>

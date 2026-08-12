@@ -89,6 +89,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     private static readonly TimeSpan TasksCheckInterval = TimeSpan.FromSeconds(10);
     private DateTimeOffset _lastTasksCheckUtc = DateTimeOffset.MinValue;
     private IReadOnlyList<LocalApiTask> _todayTasks = Array.Empty<LocalApiTask>();
+    // Step 9a — the widget compose's project list. Refreshed far more slowly than tasks: the set
+    // of projects changes when a person decides it does, not every ten seconds.
+    private static readonly TimeSpan ProjectsRefreshInterval = TimeSpan.FromMinutes(2);
+    private DateTimeOffset _lastProjectsRefreshUtc = DateTimeOffset.MinValue;
+    private IReadOnlyList<UserDesktopWidgetProject> _widgetProjects = Array.Empty<UserDesktopWidgetProject>();
     private readonly HashSet<string> _taskExpiryToastedKeys = new(StringComparer.Ordinal);
     // Complaints 4 + 5 — the estimate-expiry ask. The pill currently offered (null = none), the day
     // it belongs to, how many asks have been DELIVERED today, when this expiry was first seen (so a
@@ -421,7 +426,9 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 SignupNudge = _activeSignupNudge,
                 NextReminder = MapNextReminder(),
                 Tasks = MapTodayTasks(),
-                TaskAsk = _activeTaskAsk
+                TaskAsk = _activeTaskAsk,
+                // Step 9a — offered to the "+ task" compose only. Never drawn on a task row.
+                Projects = _widgetProjects
             });
 
         // Refresh Ari context from local API every 30 min
@@ -1441,6 +1448,29 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         _todayTasks = response.Tasks ?? Array.Empty<LocalApiTask>();
 
+        // Step 9a — the compose's picker list, on its own slow cadence. A failure leaves the last
+        // good list in place; the compose then offers "+ new", which still works.
+        if ((nowUtc - _lastProjectsRefreshUtc) >= ProjectsRefreshInterval)
+        {
+            _lastProjectsRefreshUtc = nowUtc;
+            try
+            {
+                LocalApiProjectsResponse? projects = await _localApiClient
+                    .GetProjectsAsync(includeArchived: false)
+                    .ConfigureAwait(false);
+                if (projects is not null)
+                {
+                    _widgetProjects = projects.Projects
+                        .Select(p => new UserDesktopWidgetProject(p.Id, p.Name))
+                        .ToList();
+                }
+            }
+            catch (Exception ex)
+            {
+                UserAgentFileLog.Error("widget_projects_read_failed", ex);
+            }
+        }
+
         RefreshTaskAskAsync(nowUtc, snapshot);
     }
 
@@ -1887,9 +1917,16 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             ? UserCheckInTaskBoard.Yesterday(rows, nowLocal)
             : Array.Empty<TaskBoardLine>();
 
+        // Step 9a — only the morning card names a task, so only it pays for the projects read.
+        // A failure here yields an empty list and the picker simply offers "+ new": the card must
+        // never fail to appear because a picker could not be populated.
+        IReadOnlyList<UserCheckInProject> projects = kind == UserCheckInKind.Morning
+            ? await GetPickerProjectsAsync(token).ConfigureAwait(false)
+            : Array.Empty<UserCheckInProject>();
+
         UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
             kind, goal, metrics, goalResponse.CarriedPlanTomorrow, narrativeLine: null, middaySkipped, awayGap,
-            board, yesterday);
+            board, yesterday, projects);
 
         bool shown = _interventionExecutor.TryShowGatedCheckIn(
             UserCheckInScheduler.MuteClassFor(kind),
@@ -2239,6 +2276,90 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
     /// It costs nothing in invariants: ActOnTask(id, "start") already returns any previously active
     /// task to 'pending' with its accumulated time intact.
     /// </remarks>
+    /// <summary>
+    /// Step 9a — the projects the morning picker offers, most-recently-used first (the store
+    /// orders them). Failure yields an empty list: the picker then offers only "+ new", which is
+    /// exactly the first-ever morning, and the card still appears.
+    /// </summary>
+    private async Task<IReadOnlyList<UserCheckInProject>> GetPickerProjectsAsync(CancellationToken token)
+    {
+        try
+        {
+            LocalApiProjectsResponse? response = await _localApiClient
+                .GetProjectsAsync(includeArchived: false, token)
+                .ConfigureAwait(false);
+
+            return response?.Projects
+                       .Select(p => new UserCheckInProject(p.Id, p.Name))
+                       .ToList()
+                   ?? (IReadOnlyList<UserCheckInProject>)Array.Empty<UserCheckInProject>();
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error("checkin_projects_read_failed", ex);
+            return Array.Empty<UserCheckInProject>();
+        }
+    }
+
+    /// <summary>
+    /// Step 9a — turns what the picker produced into a project id. An id means the user chose one
+    /// that exists; a name means they typed it into "+ new" and the store's create-or-get resolves
+    /// it, so the same name never becomes two projects. Neither = untagged, and untagged is a
+    /// choice Ari never second-guesses.
+    ///
+    /// A failure here yields 0: the task is created untagged rather than not created at all. Losing
+    /// a tag is a nuisance; losing the task loses the day.
+    /// </summary>
+    private async Task<long> ResolveProjectIdAsync(PlannedMorningTask task)
+    {
+        if (task.ProjectId != 0)
+        {
+            return task.ProjectId;
+        }
+
+        if (string.IsNullOrWhiteSpace(task.ProjectName))
+        {
+            return 0;
+        }
+
+        try
+        {
+            LocalApiProjectResponse? created = await _localApiClient
+                .CreateProjectAsync(new LocalApiProjectCreateRequest(SchemaVer: 1, Name: task.ProjectName))
+                .ConfigureAwait(false);
+
+            if (created is { Success: true, Project: not null })
+            {
+                UserAgentFileLog.Info($"checkin_project_resolved id={created.Project.Id}");
+                return created.Project.Id;
+            }
+
+            UserAgentFileLog.Info($"checkin_project_create_failed reason={created?.Reason ?? "no_response"}");
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error("checkin_project_create_failed", ex);
+        }
+
+        return 0;
+    }
+
+    private async Task SetTaskProjectAsync(long taskId, long projectId)
+    {
+        try
+        {
+            LocalApiTaskActResponse? response = await _localApiClient
+                .SetTaskProjectAsync(new LocalApiTaskProjectRequest(
+                    SchemaVer: 1, TaskId: taskId, ProjectId: projectId))
+                .ConfigureAwait(false);
+            UserAgentFileLog.Info($"checkin_task_retagged id={taskId} ok={response?.Success == true}");
+        }
+        catch (Exception ex)
+        {
+            UserAgentFileLog.Error("checkin_task_retag_failed", ex);
+        }
+    }
+
     private async Task<string?> CreateMorningTasksAsync(
         MorningTaskPlan plan,
         IReadOnlyList<LocalApiTask> openTasks)
@@ -2248,6 +2369,11 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         foreach (PlannedMorningTask task in plan.Accepted)
         {
+            // Step 9a — resolve the project BEFORE the task, so a name typed into "+ new" exists
+            // by the time the task points at it. Create-or-get, so the same name typed on two rows
+            // (or on two mornings) is one project and one total.
+            long projectId = await ResolveProjectIdAsync(task).ConfigureAwait(false);
+
             if (task.AlreadyOpen)
             {
                 // Carry-forward: the task already exists, so nothing is created — but it is still a
@@ -2256,6 +2382,14 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 LocalApiTask? existing = openTasks.FirstOrDefault(t =>
                     string.Equals(t.Title.Trim(), task.Title, StringComparison.OrdinalIgnoreCase));
                 UserAgentFileLog.Info($"checkin_morning_task_already_open state={existing?.State ?? "unknown"}");
+
+                // Re-confirming open work with a project picked RE-TAGS it rather than duplicating
+                // it. Only when the user actually picked one: a blank picker on a carried-forward
+                // row means "unchanged", never "clear the tag it already had".
+                if (existing is not null && projectId != 0 && existing.ProjectId != projectId)
+                {
+                    await SetTaskProjectAsync(existing.Id, projectId).ConfigureAwait(false);
+                }
                 if (startId is null && existing is not null
                     && !string.Equals(existing.State, "active", StringComparison.Ordinal))
                 {
@@ -2272,7 +2406,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                     .CreateTaskAsync(new LocalApiTaskCreateRequest(
                         SchemaVer: 1,
                         Title: task.Title,
-                        PlannedSeconds: task.PlannedSeconds))
+                        PlannedSeconds: task.PlannedSeconds,
+                        ProjectId: projectId))
                     .ConfigureAwait(false);
 
                 if (created is { Success: true, Task: not null })

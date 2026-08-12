@@ -1028,6 +1028,7 @@ public partial class MainWindow : Window
         SettingsSectionCalibration.Visibility = Visibility.Collapsed;
         SettingsSectionFeatures.Visibility    = Visibility.Collapsed;
         SettingsSectionAppearance.Visibility  = Visibility.Collapsed;
+        SettingsSectionProjects.Visibility    = Visibility.Collapsed;
 
         var navItems = new[]
         {
@@ -1036,6 +1037,7 @@ public partial class MainWindow : Window
             (SettingsNavCollection,  SettingsNavCollectionText),
             (SettingsNavCalibration, SettingsNavCalibrationText),
             (SettingsNavFeatures,    SettingsNavFeaturesText),
+            (SettingsNavProjects,    SettingsNavProjectsText),
             (SettingsNavAppearance,  SettingsNavAppearanceText),
         };
         var inactiveColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#64748B"));
@@ -1057,6 +1059,12 @@ public partial class MainWindow : Window
             case "Calibration": activeNav = SettingsNavCalibration; activeLabel = SettingsNavCalibrationText; activeSection = SettingsSectionCalibration; break;
             case "Features":    activeNav = SettingsNavFeatures;    activeLabel = SettingsNavFeaturesText;    activeSection = SettingsSectionFeatures;    break;
             case "Appearance":  activeNav = SettingsNavAppearance;  activeLabel = SettingsNavAppearanceText;  activeSection = SettingsSectionAppearance;  break;
+            case "Projects":
+                activeNav = SettingsNavProjects; activeLabel = SettingsNavProjectsText; activeSection = SettingsSectionProjects;
+                // Read on open rather than on every refresh: the list changes when a person
+                // decides it does, and this page is the only thing that shows it.
+                _ = RefreshProjectsAsync();
+                break;
             default:            activeNav = SettingsNavIntensity;   activeLabel = SettingsNavIntensityText;   activeSection = SettingsSectionIntensity;   break;
         }
         activeNav.Background   = activeBg;
