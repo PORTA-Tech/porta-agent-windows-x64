@@ -33,11 +33,17 @@ public partial class MainWindow
     /// </summary>
     private static readonly DateTime ProjectHistoryFloor = new(2026, 08, 12);
 
+    // The agreed card values. These are the same numbers as Themes/ReportTheme.xaml — the rows and
+    // bars below are built in code, so they cannot pick up a Style, and a second palette here is
+    // how the page drifted off the values in the first place.
     private static readonly Color AccentGreen = Color.FromRgb(0x3F, 0xBF, 0x7F);
     private static readonly Color TrackGrey = Color.FromRgb(0x23, 0x29, 0x31);
     private static readonly Color UnfinishedGrey = Color.FromRgb(0x5A, 0x62, 0x6D);
-    private static readonly Color TextPrimary = Color.FromRgb(0xE2, 0xE8, 0xF0);
-    private static readonly Color TextQuiet = Color.FromRgb(0x94, 0xA3, 0xB8);
+    private static readonly Color TextPrimary = Color.FromRgb(0xF2, 0xF4, 0xF7);
+    private static readonly Color TextSecondary = Color.FromRgb(0x8B, 0x92, 0x9E);
+    private static readonly Color TextQuiet = Color.FromRgb(0x6F, 0x78, 0x85);
+    private static readonly Color CardSurface = Color.FromRgb(0x14, 0x17, 0x1C);
+    private static readonly Color Hairline = Color.FromRgb(0x2A, 0x30, 0x38);
 
     private LocalApiReportDraft? _reportDraft;
 
@@ -58,7 +64,8 @@ public partial class MainWindow
                 response?.Projects ?? System.Array.Empty<LocalApiProject>();
 
             ReportProjectPicker.ItemsSource = projects;
-            ReportProjectPicker.DisplayMemberPath = nameof(LocalApiProject.Name);
+            // The picker's ItemTemplate is in the XAML. Setting DisplayMemberPath here as well
+            // throws — WPF allows one or the other, never both.
             ReportProjectPicker.SelectedIndex = projects.Count > 0 ? 0 : -1;
 
             // A week, but never reaching back past the day project history begins: offering a
@@ -189,7 +196,11 @@ public partial class MainWindow
                 // A 2px floor so a day with a little work is visibly different from a day with
                 // none — the same rule the card bars already follow.
                 Height = day.Hours > 0d ? Math.Max(2d, height) : 1d,
-                Background = new SolidColorBrush(day.Hours > 0d ? AccentGreen : TrackGrey),
+                // NOT the accent. Green means work that counted — a finished check, a finished
+                // bar, the primary button. A day bar is the shape of the work, not a completion,
+                // and colouring the whole chart accent is how the rule drifted to seven things
+                // once before.
+                Background = new SolidColorBrush(day.Hours > 0d ? UnfinishedGrey : TrackGrey),
                 CornerRadius = new CornerRadius(2),
                 VerticalAlignment = VerticalAlignment.Bottom
             });
@@ -236,7 +247,21 @@ public partial class MainWindow
     {
         bool excluded = _excludedLines.Contains(line.TaskId);
 
-        var grid = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        // Each line is its own surface, so "the work" reads as a list of things rather than text
+        // floating on the page. An excluded line drops to the page colour: still there, visibly
+        // not part of the report.
+        var row = new Border
+        {
+            Background = new SolidColorBrush(excluded ? Color.FromRgb(0x16, 0x19, 0x1F) : CardSurface),
+            BorderBrush = new SolidColorBrush(Hairline),
+            BorderThickness = new Thickness(0.5),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12, 10, 12, 10),
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+
+        var grid = new Grid();
+        row.Child = grid;
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
@@ -246,8 +271,9 @@ public partial class MainWindow
         var include = new CheckBox
         {
             IsChecked = !excluded,
+            Style = (Style)FindResource("RpCheckBox"),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 10, 0),
+            Margin = new Thickness(0, 0, 12, 0),
             ToolTip = "Leave this line out of the report. The hours are never editable."
         };
         include.Click += (_, _) =>
@@ -273,18 +299,13 @@ public partial class MainWindow
         var labelBox = new TextBox
         {
             Text = line.ClientLabel,
-            FontSize = 13,
-            Padding = new Thickness(8),
-            Background = new SolidColorBrush(Color.FromRgb(0x12, 0x12, 0x1A)),
+            Style = (Style)FindResource("RpInlineEditBox"),
             Foreground = new SolidColorBrush(excluded ? UnfinishedGrey : TextPrimary),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x2A, 0x30, 0x38)),
-            BorderThickness = new Thickness(1),
-            Tag = line.ClientLabel
+            Tag = line.ClientLabel,
+            ToolTip = line.ClientLabel.Length == 0
+                ? "Name this line the way your client should read it."
+                : "Click to rename. Only the label changes — never the hours."
         };
-        if (line.ClientLabel.Length == 0)
-        {
-            labelBox.ToolTip = "Name this line the way your client should read it.";
-        }
 
         void TrySave()
         {
@@ -307,7 +328,29 @@ public partial class MainWindow
             }
         };
         labelBox.LostFocus += (_, _) => TrySave();
-        labelStack.Children.Add(labelBox);
+
+        // An unnamed line is the one thing on this page the user MUST act on, and an empty
+        // borderless box is invisible — there is nothing to see and nothing to aim at. So an
+        // unnamed line carries a prompt in the box, which disappears the moment anything is typed.
+        var labelHost = new Grid();
+        labelHost.Children.Add(labelBox);
+
+        var placeholder = new TextBlock
+        {
+            Text = "Name this line for your client",
+            FontSize = 13,
+            FontStyle = FontStyles.Italic,
+            Foreground = new SolidColorBrush(TextQuiet),
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            Visibility = line.ClientLabel.Length == 0 ? Visibility.Visible : Visibility.Collapsed
+        };
+        labelBox.TextChanged += (_, _) =>
+            placeholder.Visibility = labelBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        labelHost.Children.Add(placeholder);
+
+        labelStack.Children.Add(labelHost);
 
         // The raw title, quietly, so the user can tell which line is which. It never leaves the
         // machine and is never what a client reads.
@@ -319,7 +362,7 @@ public partial class MainWindow
             FontSize = 11,
             Foreground = new SolidColorBrush(TextQuiet),
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(2, 4, 0, 0)
+            Margin = new Thickness(8, 5, 0, 0)
         });
 
         // The user's own diagnostic, never the client's: measured time on this task that carried no
@@ -371,6 +414,39 @@ public partial class MainWindow
         Grid.SetColumn(bar, 2);
         grid.Children.Add(bar);
 
+        // §4 — a check if finished, "in progress" and the hours so far if not. NEVER a time
+        // remaining: the estimate was set by the user for themselves, and a remaining figure in a
+        // client's inbox becomes a commitment nobody made.
+        var right = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        if (line.Finished)
+        {
+            right.Children.Add(new TextBlock
+            {
+                Text = "✓",
+                FontSize = 13,
+                Margin = new Thickness(0, 0, 6, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                // One of the three things allowed to be green.
+                Foreground = new SolidColorBrush(excluded ? UnfinishedGrey : AccentGreen)
+            });
+        }
+        else
+        {
+            right.Children.Add(new TextBlock
+            {
+                Text = "in progress",
+                FontSize = 11,
+                Margin = new Thickness(0, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = new SolidColorBrush(TextQuiet)
+            });
+        }
+
         var hours = new TextBlock
         {
             Text = line.Hours.ToString("0.0", CultureInfo.InvariantCulture) + "h",
@@ -382,10 +458,14 @@ public partial class MainWindow
             FontFamily = new FontFamily("Segoe UI"),
             ToolTip = line.Finished ? "Finished" : "In progress"
         };
-        Grid.SetColumn(hours, 3);
-        grid.Children.Add(hours);
+        // Tabular, so a column of hours lines up on the decimal. A client reads these as a column.
+        System.Windows.Documents.Typography.SetNumeralAlignment(hours, FontNumeralAlignment.Tabular);
+        right.Children.Add(hours);
 
-        return grid;
+        Grid.SetColumn(right, 3);
+        grid.Children.Add(right);
+
+        return row;
     }
 
     /// <summary>
@@ -413,7 +493,11 @@ public partial class MainWindow
 
         if (included.Count == 0)
         {
-            missing.Add("every line is excluded, so there is nothing to report");
+            // Two different situations, and telling the user the wrong one sends them looking for
+            // a checkbox that isn't there.
+            missing.Add(draft.Lines.Count == 0
+                ? "no work is tagged to this project in these dates, so there is nothing to report"
+                : "every line is excluded, so there is nothing to report");
         }
 
         ReportReadinessText.Text = missing.Count == 0

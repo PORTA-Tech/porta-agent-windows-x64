@@ -199,6 +199,14 @@ public partial class MainWindow : Window
         _refreshTimer.Tick += async (_, _) => await RefreshDiagnosticsAsync().ConfigureAwait(true);
         Loaded += async (_, _) =>
         {
+            // The design preview harness renders this window with sample data and no agent. Polling
+            // would overwrite the sample mid-render, and the shared API client is disposed between
+            // states. Same seam, and same reason, as UserCheckInCardWindow.SuppressForegroundAcquisition.
+            if (PreviewMode)
+            {
+                return;
+            }
+
             await RefreshDiagnosticsAsync(manual: true).ConfigureAwait(true);
             _refreshTimer.Start();
         };
@@ -1065,13 +1073,23 @@ public partial class MainWindow : Window
                 activeNav = SettingsNavProjects; activeLabel = SettingsNavProjectsText; activeSection = SettingsSectionProjects;
                 // Read on open rather than on every refresh: the list changes when a person
                 // decides it does, and this page is the only thing that shows it.
-                _ = RefreshProjectsAsync();
+                // Not under the preview harness: the read lands mid-render and replaces the sample
+                // with whatever the live agent holds.
+                if (!PreviewMode)
+                {
+                    _ = RefreshProjectsAsync();
+                }
+
                 break;
             case "Reports":
                 activeNav = SettingsNavReports; activeLabel = SettingsNavReportsText; activeSection = SettingsSectionReports;
                 // Same rule as Projects: read when the page is opened, not on a timer. A report
                 // draft is something a person asks for.
-                _ = OpenReportsPageAsync();
+                if (!PreviewMode)
+                {
+                    _ = OpenReportsPageAsync();
+                }
+
                 break;
             default:            activeNav = SettingsNavIntensity;   activeLabel = SettingsNavIntensityText;   activeSection = SettingsSectionIntensity;   break;
         }

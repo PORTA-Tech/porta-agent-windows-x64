@@ -20,6 +20,16 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // The design preview harness. Handled before the single-instance mutex on purpose: it
+        // renders and exits, and it must not be blocked by, or steal the mutex from, a Control
+        // Center the user already has open.
+        if (ReportsPagePreview.ShouldRun(e.Args))
+        {
+            ReportsPagePreview.Run(e.Args);
+            Shutdown();
+            return;
+        }
+
         ControlCenterActivationTarget startupTarget = ControlCenterActivationRequestStore.ParseArgs(e.Args);
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {

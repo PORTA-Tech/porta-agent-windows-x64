@@ -1,0 +1,232 @@
+using System.IO;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using Porta.Agent.LocalApi;
+
+namespace Porta.ControlCenter;
+
+/// <summary>
+/// Step 10 (2026-08-13) — a preview harness for the Projects and Reports pages, the same idea as
+/// <c>--preview-checkins</c> in the user agent and for the same reason: Yadin judges design from
+/// images, and `Step10_Report_BuildBrief.md` §6 asks for the equivalent of the card harness rather
+/// than a description in prose.
+///
+/// <b>It renders the REAL MainWindow</b>, not a mock-up of it. That is the whole point — a harness
+/// with its own copy of the markup drifts, and then the picture stops being evidence. The window is
+/// constructed but never shown, so nothing in <c>Loaded</c> runs and no agent is needed; the pages
+/// are filled with sample data through the ordinary render paths.
+///
+/// <list type="bullet">
+/// <item><c>--preview-reports --png</c> — writes the PNGs and prints the folder.</item>
+/// </list>
+/// </summary>
+internal static class ReportsPagePreview
+{
+    internal const string Flag = "--preview-reports";
+    internal const string PngFlag = "--png";
+
+    internal static bool ShouldRun(string[] args)
+        => args.Any(a => string.Equals(a, Flag, StringComparison.OrdinalIgnoreCase));
+
+    internal static void Run(string[] args)
+    {
+        string dir = Path.Combine(
+            Path.GetTempPath(),
+            "porta-reports-preview",
+            DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture));
+        Directory.CreateDirectory(dir);
+
+        // Runs inside the Application WPF already created for us; creating a second one throws.
+        // OnExplicitShutdown because each state closes its window, and the default mode would treat
+        // the first close as "the last window went away" and shut the app down mid-run.
+        Application.Current.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        MainWindow.PreviewMode = true;
+        int written = 0;
+
+        foreach (PreviewState state in BuildStates())
+        {
+            // A fresh window per state: these pages are static once rendered, and reusing one
+            // would carry the previous state's rows into the next picture.
+            var window = new MainWindow
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                // Off-screen rather than hidden: a Window that has never been shown has no
+                // realised visual tree, and RenderTargetBitmap renders it as a blank page.
+                Left = -20000,
+                Top = -20000,
+                Width = state.Width,
+                Height = state.Height,
+                ShowInTaskbar = false,
+                WindowState = WindowState.Normal
+            };
+            window.Show();
+
+            // Fill AFTER showing, so nothing the window does on Loaded overwrites the sample.
+            window.ShowPreviewPage(state.Section, state.Fill);
+            Flush(window);
+
+            // Two shots. The window shot shows the page beside the navigation it has to live next
+            // to — which is where "looks like a different application" is actually visible. The
+            // page shot is the whole page at its natural height, uncut.
+            string file = Path.Combine(dir, $"{++written:00}-{Slug(state.Name)}-in-app.png");
+            SaveElementPng((FrameworkElement)window.Content, file);
+            Console.WriteLine(Path.GetFileName(file));
+
+            string pageFile = Path.Combine(dir, $"{written:00}-{Slug(state.Name)}-page.png");
+            SavePagePng(window.PreviewPageBody(state.Section), pageFile);
+            Console.WriteLine(Path.GetFileName(pageFile));
+
+            window.Close();
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"{written} page states written to:");
+        Console.WriteLine(dir);
+    }
+
+    /// <summary>
+    /// Let the dispatcher finish layout and rendering before the bitmap is taken. Without this the
+    /// picture can catch the page mid-arrange, which is a bug report about a design that is fine.
+    /// </summary>
+    private static void Flush(Window window)
+    {
+        window.UpdateLayout();
+        for (int i = 0; i < 3; i++)
+        {
+            window.Dispatcher.Invoke(
+                () => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+        }
+    }
+
+    private static void SaveElementPng(FrameworkElement target, string path)
+    {
+        int w = Math.Max(1, (int)Math.Ceiling(target.ActualWidth));
+        int h = Math.Max(1, (int)Math.Ceiling(target.ActualHeight));
+
+        var bitmap = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(target);
+        Write(bitmap, path);
+    }
+
+    /// <summary>
+    /// The page at its FULL height, off the visual tree's clip. Re-measuring against an unbounded
+    /// height is what gets past the window's scroll viewport; the page is then drawn onto the page
+    /// background so it is not a picture of dark text on transparency.
+    /// </summary>
+    private static void SavePagePng(FrameworkElement page, string path)
+    {
+        const double PageWidth = 760d;
+        const double Pad = 24d;
+
+        // Measure, arrange, then measure AGAIN: text that wraps only reports its true height once
+        // it has been arranged at the final width, so a single pass clips the last line.
+        page.Measure(new Size(PageWidth, double.PositiveInfinity));
+        page.Arrange(new Rect(0, 0, PageWidth, page.DesiredSize.Height));
+        page.UpdateLayout();
+        page.Measure(new Size(PageWidth, double.PositiveInfinity));
+        Size desired = new(PageWidth, Math.Max(page.DesiredSize.Height, page.ActualHeight));
+        page.Arrange(new Rect(0, 0, PageWidth, desired.Height));
+        page.UpdateLayout();
+
+        int w = (int)Math.Ceiling(PageWidth + (Pad * 2));
+        int h = (int)Math.Ceiling(desired.Height + (Pad * 2));
+
+        var visual = new DrawingVisual();
+        using (DrawingContext dc = visual.RenderOpen())
+        {
+            dc.DrawRectangle(
+                new SolidColorBrush(Color.FromRgb(0x0F, 0x11, 0x15)), null, new Rect(0, 0, w, h));
+            dc.DrawRectangle(
+                new VisualBrush(page) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top },
+                null,
+                new Rect(Pad, Pad, PageWidth, desired.Height));
+        }
+
+        var bitmap = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        Write(bitmap, path);
+    }
+
+    private static void Write(RenderTargetBitmap bitmap, string path)
+    {
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using FileStream stream = File.Create(path);
+        encoder.Save(stream);
+    }
+
+    private static string Slug(string name)
+        => new string(name.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray())
+            .Replace("--", "-", StringComparison.Ordinal)
+            .Trim('-');
+
+    private sealed record PreviewState(
+        string Name,
+        string Section,
+        Action<MainWindow> Fill,
+        int Width = 1180,
+        int Height = 900);
+
+    // ── the states ──
+
+    private static IReadOnlyList<PreviewState> BuildStates() =>
+    [
+        new("projects with rows", "Projects", w => w.PreviewFillProjects(SampleProjects)),
+        new("projects empty", "Projects", w => w.PreviewFillProjects([])),
+        new("reports drafted", "Reports", w => w.PreviewFillReport(SampleDraft), Height: 1560),
+        new("reports empty", "Reports", w => w.PreviewFillReport(EmptyDraft), Height: 1080),
+    ];
+
+    private static readonly DateTimeOffset Made = new(2026, 08, 12, 9, 0, 0, TimeSpan.Zero);
+
+    private static IReadOnlyList<LocalApiProject> SampleProjects =>
+    [
+        new(Id: 1, Name: "Nolan", Archived: false, CreatedAtUtc: Made, ClientName: "Nolan Studio"),
+        new(Id: 2, Name: "nolan - chase invoice", Archived: false, CreatedAtUtc: Made),
+        new(Id: 3, Name: "Apollo leads", Archived: false, CreatedAtUtc: Made),
+        new(Id: 4, Name: "Old retainer", Archived: true, CreatedAtUtc: Made),
+    ];
+
+    // Deliberately mixed: one named line, one never named, one finished, one still running, and a
+    // day in the middle with nothing on it. Every state the page has to be honest about.
+    private static LocalApiReportDraft SampleDraft => new(
+        ProjectId: 1,
+        ProjectName: "nolan - chase invoice",
+        ClientName: "Nolan Studio",
+        RangeStartLocal: "2026-08-12",
+        RangeEndLocal: "2026-08-18",
+        TotalHours: 14.2,
+        DaysWorked: 5,
+        LinesFinished: 2,
+        Lines:
+        [
+            new(TaskId: 1, Title: "finish my writting part \"all the way in\"",
+                ClientLabel: "Chapter three — first draft", Finished: true,
+                Hours: 6.2, UnattributedHours: 0.4, UnattributedMeasurable: true),
+            new(TaskId: 2, Title: "continue to improve the system",
+                ClientLabel: "Interview transcripts", Finished: true,
+                Hours: 4.9, UnattributedHours: 0d, UnattributedMeasurable: true),
+            new(TaskId: 3, Title: "working on appolo leads",
+                ClientLabel: "", Finished: false,
+                Hours: 3.1, UnattributedHours: 0d, UnattributedMeasurable: false),
+        ],
+        Days:
+        [
+            new("2026-08-12", 3.7), new("2026-08-13", 5.2), new("2026-08-14", 0.0),
+            new("2026-08-15", 4.6), new("2026-08-16", 0.0), new("2026-08-17", 0.7),
+            new("2026-08-18", 0.0),
+        ]);
+
+    private static LocalApiReportDraft EmptyDraft => new(
+        ProjectId: 1,
+        ProjectName: "Apollo leads",
+        ClientName: "",
+        RangeStartLocal: "2026-08-12",
+        RangeEndLocal: "2026-08-14",
+        TotalHours: 0d,
+        DaysWorked: 0,
+        LinesFinished: 0,
+        Lines: [],
+        Days: [new("2026-08-12", 0d), new("2026-08-13", 0d), new("2026-08-14", 0d)]);
+}

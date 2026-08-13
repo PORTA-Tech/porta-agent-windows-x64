@@ -1,0 +1,688 @@
+<!--
+    Step 10 (2026-08-13) — the design values agreed for the cards, as WPF resources, for the
+    Projects and Reports pages.
+
+    WHY THIS IS A SEPARATE DICTIONARY AND NOT AN EDIT TO THE Porta* BRUSHES: the existing Control
+    Center palette is a different one (#0F0F18 card, #252535 hairline, #F1F5F9 text, and a #16C784
+    green that is NOT the agreed accent). Redefining those keys would restyle every page in the
+    application in one unreviewed change. These pages move to the agreed values; the rest of Control
+    Center is a separate conversation.
+
+    Card       bg #14171C · border 0.5px #2A3038 · radius 12
+    Panel      bg #1A1E26 · radius 12 outer / 8 inner
+    Text       #F2F4F7 primary · #8B929E secondary · #6F7885 muted
+    Section    10px uppercase #6F7885
+    Accent     #3FBF7F, on the primary button and on work that counted. Nothing else, ever.
+    Two weights only, Regular and Medium. Nothing bold. No gradients, no shadows.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:prim="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework">
+
+    <!-- ===================== tokens ===================== -->
+    <SolidColorBrush x:Key="RpCard"        Color="#14171C" />
+    <SolidColorBrush x:Key="RpPanel"       Color="#1A1E26" />
+    <SolidColorBrush x:Key="RpHairline"    Color="#2A3038" />
+    <SolidColorBrush x:Key="RpTextPrimary" Color="#F2F4F7" />
+    <SolidColorBrush x:Key="RpTextSecond"  Color="#8B929E" />
+    <SolidColorBrush x:Key="RpTextMuted"   Color="#6F7885" />
+    <SolidColorBrush x:Key="RpAccent"      Color="#3FBF7F" />
+    <SolidColorBrush x:Key="RpOnAccent"    Color="#0E2A1C" />
+    <SolidColorBrush x:Key="RpTrack"       Color="#232931" />
+    <SolidColorBrush x:Key="RpUnfinished"  Color="#5A626D" />
+    <SolidColorBrush x:Key="RpHover"       Color="#2E353E" />
+
+    <CornerRadius x:Key="RpCornerOuter">12</CornerRadius>
+    <CornerRadius x:Key="RpCornerInner">8</CornerRadius>
+
+    <!-- ===================== text ===================== -->
+
+    <!-- 10px uppercase. WPF cannot letter-space, so the caps are typed literally at the call site;
+         this only carries size, weight and colour so a section label cannot drift. -->
+    <Style x:Key="RpSectionLabel" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextMuted}" />
+        <Setter Property="Margin" Value="0,0,0,10" />
+    </Style>
+
+    <Style x:Key="RpHeadline" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="16" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+    </Style>
+
+    <Style x:Key="RpBody" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextSecond}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style x:Key="RpMeta" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextMuted}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- Figures. Tabular so a column of numbers lines up on the decimal, which is the whole point
+         of showing a client a column of numbers. -->
+    <Style x:Key="RpFigure" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="26" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="TextOptions.TextFormattingMode" Value="Ideal" />
+        <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
+    </Style>
+
+    <!-- ===================== surfaces ===================== -->
+
+    <Style x:Key="RpPanelBorder" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource RpPanel}" />
+        <Setter Property="BorderBrush" Value="{StaticResource RpHairline}" />
+        <Setter Property="BorderThickness" Value="0.5" />
+        <Setter Property="CornerRadius" Value="{StaticResource RpCornerOuter}" />
+        <Setter Property="Padding" Value="16" />
+        <Setter Property="Margin" Value="0,0,0,14" />
+    </Style>
+
+    <Style x:Key="RpCardBorder" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource RpCard}" />
+        <Setter Property="BorderBrush" Value="{StaticResource RpHairline}" />
+        <Setter Property="BorderThickness" Value="0.5" />
+        <Setter Property="CornerRadius" Value="{StaticResource RpCornerInner}" />
+        <Setter Property="Padding" Value="14" />
+    </Style>
+
+    <!-- ===================== buttons ===================== -->
+
+    <!-- THE primary action. Accent fill, dark text on it. One per page. -->
+    <Style x:Key="RpPrimaryButton" TargetType="Button">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Foreground" Value="{StaticResource RpOnAccent}" />
+        <Setter Property="Background" Value="{StaticResource RpAccent}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Padding" Value="16,9" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="{StaticResource RpCornerInner}"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#4ACB8B" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#35A86E" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource RpTrack}" />
+                            <Setter Property="Foreground" Value="{StaticResource RpTextMuted}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Everything that is not the primary action. Never accent. -->
+    <Style x:Key="RpQuietButton" TargetType="Button">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextSecond}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{StaticResource RpHairline}"
+                            BorderThickness="0.5"
+                            CornerRadius="{StaticResource RpCornerInner}"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource RpHover}" />
+                            <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="{StaticResource RpTextMuted}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===================== text input ===================== -->
+
+    <Style x:Key="RpTextBox" TargetType="TextBox">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="Background" Value="{StaticResource RpCard}" />
+        <Setter Property="CaretBrush" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="SelectionBrush" Value="{StaticResource RpHover}" />
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{StaticResource RpHairline}"
+                            BorderThickness="0.5"
+                            CornerRadius="{StaticResource RpCornerInner}"
+                            SnapsToDevicePixels="True">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Margin="{TemplateBinding Padding}"
+                                      VerticalAlignment="Center"
+                                      Focusable="False"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Hidden" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <!-- Focus is a lifted hairline, never a green one: green is reserved. -->
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="#3D4550" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A name that can be corrected, which is not the same thing as a form field. At rest it is
+         the row's text: no border, no fill. The field appears only once you are editing it.
+         A project row that looks like an input invites the reading that it is one. -->
+    <Style x:Key="RpInlineEditBox" TargetType="TextBox">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="CaretBrush" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="SelectionBrush" Value="{StaticResource RpHover}" />
+        <Setter Property="Padding" Value="6,4" />
+        <Setter Property="Cursor" Value="IBeam" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="Transparent"
+                            BorderThickness="0.5"
+                            CornerRadius="6"
+                            SnapsToDevicePixels="True">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Margin="{TemplateBinding Padding}"
+                                      VerticalAlignment="Center"
+                                      Focusable="False"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Hidden" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource RpHairline}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#101319" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="#3D4550" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===================== ComboBox ===================== -->
+
+    <Style x:Key="RpComboItem" TargetType="ComboBoxItem">
+        <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Padding" Value="12,9" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="Bd" Background="Transparent"
+                            Padding="{TemplateBinding Padding}"
+                            CornerRadius="6"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource RpHover}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource RpHover}" />
+                            <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Fully templated: no ToggleButton chrome, no system dropdown, no focus rectangle. -->
+    <Style x:Key="RpComboBox" TargetType="ComboBox">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="Background" Value="{StaticResource RpCard}" />
+        <Setter Property="Padding" Value="12,9" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="ItemContainerStyle" Value="{StaticResource RpComboItem}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBox">
+                    <Grid>
+                        <ToggleButton x:Name="PART_Toggle"
+                                      Focusable="False"
+                                      ClickMode="Press"
+                                      IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Border x:Name="Bd"
+                                            Background="{StaticResource RpCard}"
+                                            BorderBrush="{StaticResource RpHairline}"
+                                            BorderThickness="0.5"
+                                            CornerRadius="{StaticResource RpCornerInner}"
+                                            SnapsToDevicePixels="True">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="30" />
+                                            </Grid.ColumnDefinitions>
+                                            <ContentPresenter Grid.Column="0" />
+                                            <!-- Our own chevron. The stock one is a system glyph. -->
+                                            <Path Grid.Column="1"
+                                                  Data="M0,0 L4.5,4.5 L9,0"
+                                                  Stroke="{StaticResource RpTextMuted}"
+                                                  StrokeThickness="1.3"
+                                                  StrokeEndLineCap="Round"
+                                                  StrokeStartLineCap="Round"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="BorderBrush" Value="#3D4550" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                        </ToggleButton>
+
+                        <ContentPresenter x:Name="ContentSite"
+                                          IsHitTestVisible="False"
+                                          Content="{TemplateBinding SelectionBoxItem}"
+                                          ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                          VerticalAlignment="Center"
+                                          HorizontalAlignment="Left"
+                                          Margin="{TemplateBinding Padding}"
+                                          TextElement.Foreground="{StaticResource RpTextPrimary}"
+                                          TextElement.FontSize="13" />
+
+                        <Popup x:Name="PART_Popup"
+                               Placement="Bottom"
+                               VerticalOffset="4"
+                               IsOpen="{TemplateBinding IsDropDownOpen}"
+                               AllowsTransparency="True"
+                               Focusable="False"
+                               PopupAnimation="Fade">
+                            <Border Background="{StaticResource RpPanel}"
+                                    BorderBrush="{StaticResource RpHairline}"
+                                    BorderThickness="0.5"
+                                    CornerRadius="{StaticResource RpCornerInner}"
+                                    Padding="4"
+                                    MinWidth="{TemplateBinding ActualWidth}"
+                                    MaxHeight="240"
+                                    SnapsToDevicePixels="True">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel IsItemsHost="True" />
+                                </ScrollViewer>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Included / excluded on a report line. The stock CheckBox is a Windows glyph in a system
+         box.
+         NOT accent when checked. Green means exactly three things — the finished check, a finished
+         bar, the primary button — and "this row is switched on" is a control state, not work that
+         counted. It drifted to seven once before; this is the kind of step that does it. -->
+    <Style x:Key="RpCheckBox" TargetType="CheckBox">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Border x:Name="Box" Width="16" Height="16"
+                            Background="Transparent"
+                            BorderBrush="{StaticResource RpUnfinished}"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            SnapsToDevicePixels="True">
+                        <Path x:Name="Tick"
+                              Data="M0,3.4 L2.9,6.2 L8,0.8"
+                              Stroke="{StaticResource RpTextPrimary}"
+                              StrokeThickness="1.8"
+                              StrokeEndLineCap="Round"
+                              StrokeStartLineCap="Round"
+                              StrokeLineJoin="Round"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center"
+                              Visibility="Collapsed" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Box" Property="Background" Value="{StaticResource RpHover}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource RpTextSecond}" />
+                            <Setter TargetName="Tick" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource RpTextSecond}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===================== Calendar (the DatePicker popup) ===================== -->
+
+    <Style x:Key="RpCalendarDayButton" TargetType="prim:CalendarDayButton">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="MinWidth" Value="30" />
+        <Setter Property="MinHeight" Value="28" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="prim:CalendarDayButton">
+                    <Border x:Name="Bd" Background="Transparent" CornerRadius="6"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource RpHover}" />
+                        </Trigger>
+                        <!-- The chosen day is the one place accent earns its keep here: it is the
+                             value, not chrome. -->
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource RpAccent}" />
+                            <Setter Property="Foreground" Value="{StaticResource RpOnAccent}" />
+                        </Trigger>
+                        <Trigger Property="IsInactive" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource RpTextMuted}" />
+                        </Trigger>
+                        <Trigger Property="IsBlackedOut" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource RpTextMuted}" />
+                            <Setter Property="Opacity" Value="0.4" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.35" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="RpCalendarButton" TargetType="prim:CalendarButton">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="MinWidth" Value="42" />
+        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="prim:CalendarButton">
+                    <Border x:Name="Bd" Background="Transparent" CornerRadius="6"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource RpHover}" />
+                        </Trigger>
+                        <!-- CalendarButton is the month/year cell and has no IsSelected; the month
+                             holding the chosen day is HasSelectedDays. -->
+                        <Trigger Property="HasSelectedDays" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource RpAccent}" />
+                            <Setter Property="Foreground" Value="{StaticResource RpOnAccent}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- The month header and the day grid. Replacing this is what removes the white Windows
+         calendar; styling Calendar alone leaves the stock CalendarItem chrome behind. -->
+    <Style x:Key="RpCalendarItem" TargetType="prim:CalendarItem">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="prim:CalendarItem">
+                    <ControlTemplate.Resources>
+                        <DataTemplate x:Key="{x:Static CalendarItem.DayTitleTemplateResourceKey}">
+                            <TextBlock Text="{Binding}" FontSize="10" FontWeight="Medium"
+                                       Foreground="#6F7885"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Margin="0,0,0,4" />
+                        </DataTemplate>
+                        <Style x:Key="RpNavButton" TargetType="Button">
+                            <Setter Property="Foreground" Value="#8B929E" />
+                            <Setter Property="Cursor" Value="Hand" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" Background="Transparent"
+                                                CornerRadius="6" Width="26" Height="26">
+                                            <ContentPresenter HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="#2E353E" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ControlTemplate.Resources>
+
+                    <Border Background="{StaticResource RpPanel}"
+                            BorderBrush="{StaticResource RpHairline}"
+                            BorderThickness="0.5"
+                            CornerRadius="{StaticResource RpCornerInner}"
+                            Padding="10"
+                            SnapsToDevicePixels="True">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="PART_PreviousButton" Grid.Column="0"
+                                        Style="{StaticResource RpNavButton}">
+                                    <Path Data="M5,0 L0,4.5 L5,9" Stroke="#8B929E" StrokeThickness="1.3"
+                                          StrokeEndLineCap="Round" StrokeStartLineCap="Round" />
+                                </Button>
+                                <Button x:Name="PART_HeaderButton" Grid.Column="1"
+                                        Style="{StaticResource RpNavButton}"
+                                        HorizontalAlignment="Center"
+                                        FontSize="12" Foreground="#F2F4F7" />
+                                <Button x:Name="PART_NextButton" Grid.Column="2"
+                                        Style="{StaticResource RpNavButton}">
+                                    <Path Data="M0,0 L5,4.5 L0,9" Stroke="#8B929E" StrokeThickness="1.3"
+                                          StrokeEndLineCap="Round" StrokeStartLineCap="Round" />
+                                </Button>
+                            </Grid>
+
+                            <Grid Grid.Row="1">
+                                <Grid x:Name="PART_MonthView" Visibility="Visible" />
+                                <Grid x:Name="PART_YearView" Visibility="Hidden" />
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <ControlTemplate.Triggers>
+                        <DataTrigger Binding="{Binding DisplayMode, RelativeSource={RelativeSource AncestorType=Calendar}}" Value="Year">
+                            <Setter TargetName="PART_MonthView" Property="Visibility" Value="Hidden" />
+                            <Setter TargetName="PART_YearView" Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding DisplayMode, RelativeSource={RelativeSource AncestorType=Calendar}}" Value="Decade">
+                            <Setter TargetName="PART_MonthView" Property="Visibility" Value="Hidden" />
+                            <Setter TargetName="PART_YearView" Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="RpCalendar" TargetType="Calendar">
+        <Setter Property="Background" Value="{StaticResource RpPanel}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CalendarDayButtonStyle" Value="{StaticResource RpCalendarDayButton}" />
+        <Setter Property="CalendarButtonStyle" Value="{StaticResource RpCalendarButton}" />
+        <Setter Property="CalendarItemStyle" Value="{StaticResource RpCalendarItem}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Calendar">
+                    <StackPanel x:Name="PART_Root" HorizontalAlignment="Center">
+                        <prim:CalendarItem x:Name="PART_CalendarItem"
+                                           Style="{TemplateBinding CalendarItemStyle}" />
+                    </StackPanel>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===================== DatePicker ===================== -->
+
+    <!-- The inner text box carries its OWN stock template with a watermark and a border. Styling
+         the DatePicker alone leaves that behind, which is most of the Windows chrome. -->
+    <Style x:Key="RpDatePickerTextBox" TargetType="prim:DatePickerTextBox">
+        <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="CaretBrush" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="SelectionBrush" Value="{StaticResource RpHover}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="prim:DatePickerTextBox">
+                    <ScrollViewer x:Name="PART_ContentHost"
+                                  VerticalAlignment="Center"
+                                  Focusable="False"
+                                  HorizontalScrollBarVisibility="Hidden"
+                                  VerticalScrollBarVisibility="Hidden" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="RpDatePicker" TargetType="DatePicker">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="CalendarStyle" Value="{StaticResource RpCalendar}" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="DatePicker">
+                    <Border x:Name="Bd"
+                            Background="{StaticResource RpCard}"
+                            BorderBrush="{StaticResource RpHairline}"
+                            BorderThickness="0.5"
+                            CornerRadius="{StaticResource RpCornerInner}"
+                            SnapsToDevicePixels="True">
+                        <Grid x:Name="PART_Root">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <prim:DatePickerTextBox x:Name="PART_TextBox"
+                                                    Grid.Column="0"
+                                                    Style="{StaticResource RpDatePickerTextBox}"
+                                                    Margin="12,9,4,9"
+                                                    VerticalAlignment="Center"
+                                                    Focusable="{TemplateBinding Focusable}" />
+
+                            <!-- Our own calendar mark: a drawn square with two ticks. The stock
+                                 button is a system glyph in a system-chrome button. -->
+                            <Button x:Name="PART_Button"
+                                    Grid.Column="1"
+                                    Focusable="False"
+                                    Cursor="Hand"
+                                    Margin="0,0,8,0"
+                                    VerticalAlignment="Center">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="GlyphBd" Background="Transparent"
+                                                CornerRadius="6" Width="24" Height="24">
+                                            <Canvas Width="13" Height="13"
+                                                    HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center">
+                                                <Rectangle Canvas.Left="0.5" Canvas.Top="1.5"
+                                                           Width="12" Height="11" RadiusX="2" RadiusY="2"
+                                                           Stroke="#8B929E" StrokeThickness="1.1" />
+                                                <Line X1="0.5" Y1="5" X2="12.5" Y2="5"
+                                                      Stroke="#8B929E" StrokeThickness="1.1" />
+                                                <Line X1="3.6" Y1="0" X2="3.6" Y2="3"
+                                                      Stroke="#8B929E" StrokeThickness="1.1"
+                                                      StrokeEndLineCap="Round" />
+                                                <Line X1="9.4" Y1="0" X2="9.4" Y2="3"
+                                                      Stroke="#8B929E" StrokeThickness="1.1"
+                                                      StrokeEndLineCap="Round" />
+                                            </Canvas>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="GlyphBd" Property="Background" Value="{StaticResource RpHover}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+
+                            <Popup x:Name="PART_Popup"
+                                   Placement="Bottom"
+                                   VerticalOffset="4"
+                                   AllowsTransparency="True"
+                                   StaysOpen="False" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="#3D4550" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>

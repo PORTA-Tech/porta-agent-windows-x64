@@ -3,6 +3,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:ctl="clr-namespace:Porta.ControlCenter.Controls"
         Title="Ari"
         Icon="Assets/PortaAppIcon.png"
         Height="820"
@@ -28,6 +29,13 @@
                             UseAeroCaptionButtons="False" />
     </shell:WindowChrome.WindowChrome>
     <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Step 10 — the card design values, for the Projects and Reports pages. Kept
+                     separate on purpose: the Porta* brushes below are a different palette, and
+                     redefining them would restyle every page in one unreviewed change. -->
+                <ResourceDictionary Source="Themes/ReportTheme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
         <!-- Surface / border / text -->
         <SolidColorBrush x:Key="PortaSurfaceBaseBrush" Color="#1C1C2E" />
         <SolidColorBrush x:Key="PortaSurfaceElevatedBrush" Color="#1B1F25" />
@@ -382,6 +390,7 @@
             </Setter>
         </Style>
 
+        </ResourceDictionary>
     </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -1674,20 +1683,25 @@
                             <StackPanel x:Name="SettingsSectionProjects" Visibility="Collapsed">
                                 <TextBlock Text="Projects" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
                                 <TextBlock Text="Things your tasks belong to. You pick the project when you name a task — Ari never guesses one, and leaving a task untagged is fine." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
-                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,12">
+                                <Border Style="{StaticResource RpPanelBorder}">
                                     <StackPanel>
-                                        <TextBlock Text="NEW PROJECT" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <TextBlock Text="NEW PROJECT" Style="{StaticResource RpSectionLabel}" />
                                         <Grid>
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <TextBox x:Name="ProjectNewNameBox" Grid.Column="0" FontSize="13" Padding="8" Margin="0,0,8,0" Background="#12121A" Foreground="{DynamicResource PortaTextPrimaryBrush}" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="1" KeyDown="ProjectNewNameBox_KeyDown" />
-                                            <Button x:Name="ProjectAddButton" Grid.Column="1" Content="Add" FontSize="13" Padding="14,8" Cursor="Hand" Click="ProjectAddButton_Click" />
+                                            <TextBox x:Name="ProjectNewNameBox" Grid.Column="0" Style="{StaticResource RpTextBox}" Margin="0,0,8,0" VerticalAlignment="Center" KeyDown="ProjectNewNameBox_KeyDown" />
+                                            <Button x:Name="ProjectAddButton" Grid.Column="1" Content="Add" Style="{StaticResource RpPrimaryButton}" Click="ProjectAddButton_Click" />
                                         </Grid>
-                                        <TextBlock x:Name="ProjectStatusText" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="ProjectStatusText" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
                                     </StackPanel>
                                 </Border>
-                                <TextBlock Text="YOUR PROJECTS" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
-                                <StackPanel x:Name="ProjectsList" />
-                                <TextBlock x:Name="ProjectsEmptyText" Text="No projects yet. Add one here, or tap “+ project” on the morning card." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" />
+
+                                <Border Style="{StaticResource RpPanelBorder}">
+                                    <StackPanel>
+                                        <TextBlock Text="YOUR PROJECTS" Style="{StaticResource RpSectionLabel}" />
+                                        <StackPanel x:Name="ProjectsList" />
+                                        <TextBlock x:Name="ProjectsEmptyText" Text="No projects yet. Add one above, or tap “+ project” on the morning card when you name a task." Style="{StaticResource RpBody}" />
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
 
                             <!-- Step 10 phase B - the Reports page. Everything here is LOCAL and
@@ -1699,56 +1713,110 @@
                                 <TextBlock Text="Reports" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
                                 <TextBlock Text="A client's account of the work: measured hours, per project, over a range of days. Nothing here is sent anywhere yet - this is the draft, so you can see whether it tells the truth before it can ever leave the machine." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
 
-                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" Padding="0,0,0,16" Margin="0,0,0,16">
+                                <Border Style="{StaticResource RpPanelBorder}">
                                     <StackPanel>
-                                        <TextBlock Text="PROJECT AND RANGE" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <TextBlock Text="PROJECT AND RANGE" Style="{StaticResource RpSectionLabel}" />
                                         <Grid Margin="0,0,0,10">
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <ComboBox x:Name="ReportProjectPicker" Grid.Column="0" FontSize="13" Padding="8" Margin="0,0,8,0" VerticalAlignment="Center" />
-                                            <DatePicker x:Name="ReportFromPicker" Grid.Column="1" FontSize="13" Margin="0,0,8,0" VerticalAlignment="Center" />
-                                            <DatePicker x:Name="ReportToPicker" Grid.Column="2" FontSize="13" Margin="0,0,8,0" VerticalAlignment="Center" />
-                                            <Button x:Name="ReportBuildButton" Grid.Column="3" Content="Build draft" FontSize="13" Padding="14,8" Cursor="Hand" Click="ReportBuildButton_Click" />
+                                            <!-- An explicit ItemTemplate, not DisplayMemberPath: the picker
+                                                 otherwise falls back to the record's ToString() and prints
+                                                 the whole object. It must not depend on one code path
+                                                 having run first. -->
+                                            <ComboBox x:Name="ReportProjectPicker" Grid.Column="0" Style="{StaticResource RpComboBox}" Margin="0,0,8,0" VerticalAlignment="Center">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                            <!-- AriDatePicker, not DatePicker: "8/12/2026" means two different
+                                                 days depending on where the reader lives, and this range ends
+                                                 up on a document about which days were worked. -->
+                                            <ctl:AriDatePicker x:Name="ReportFromPicker" Grid.Column="1" Style="{StaticResource RpDatePicker}" Width="150" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                            <ctl:AriDatePicker x:Name="ReportToPicker" Grid.Column="2" Style="{StaticResource RpDatePicker}" Width="150" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                            <Button x:Name="ReportBuildButton" Grid.Column="3" Content="Build draft" Style="{StaticResource RpPrimaryButton}" VerticalAlignment="Center" Click="ReportBuildButton_Click" />
                                         </Grid>
-                                        <TextBlock x:Name="ReportStatusText" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="ReportStatusText" Style="{StaticResource RpMeta}" />
                                     </StackPanel>
                                 </Border>
 
                                 <StackPanel x:Name="ReportDraftPanel" Visibility="Collapsed">
-                                    <TextBlock x:Name="ReportHeaderText" FontSize="20" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,2" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="ReportRangeText" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" />
 
-                                    <UniformGrid Columns="3" Margin="0,0,0,18">
+                                    <!-- The report itself sits on the card colour, one shade below
+                                         the panels around it, so it reads as the document rather
+                                         than as another section of settings. -->
+                                    <Border Background="{StaticResource RpCard}"
+                                            BorderBrush="{StaticResource RpHairline}"
+                                            BorderThickness="0.5"
+                                            CornerRadius="{StaticResource RpCornerOuter}"
+                                            Padding="20" Margin="0,0,0,14">
                                         <StackPanel>
-                                            <TextBlock x:Name="ReportHoursValue" FontSize="24" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
-                                            <TextBlock Text="HOURS" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,0" />
-                                        </StackPanel>
-                                        <StackPanel>
-                                            <TextBlock x:Name="ReportDaysValue" FontSize="24" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
-                                            <TextBlock Text="DAYS WORKED" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,0" />
-                                        </StackPanel>
-                                        <StackPanel>
-                                            <TextBlock x:Name="ReportDoneValue" FontSize="24" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
-                                            <TextBlock Text="COMPLETED" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,2,0,0" />
-                                        </StackPanel>
-                                    </UniformGrid>
+                                            <TextBlock x:Name="ReportHeaderText" FontSize="22" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" Margin="0,0,0,2" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="ReportRangeText" Style="{StaticResource RpBody}" Margin="0,0,0,18" />
 
-                                    <TextBlock Text="HOURS BY DAY" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
-                                    <StackPanel x:Name="ReportDaysChart" Orientation="Horizontal" Height="92" Margin="0,0,0,6" />
-                                    <TextBlock x:Name="ReportFloorNote" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,18" TextWrapping="Wrap" Visibility="Collapsed" />
+                                            <Border Background="{StaticResource RpPanel}"
+                                                    BorderBrush="{StaticResource RpHairline}"
+                                                    BorderThickness="0.5"
+                                                    CornerRadius="{StaticResource RpCornerInner}"
+                                                    Padding="16,14" Margin="0,0,0,18">
+                                                <UniformGrid Columns="3">
+                                                    <StackPanel>
+                                                        <TextBlock x:Name="ReportHoursValue" Style="{StaticResource RpFigure}" />
+                                                        <TextBlock Text="HOURS" Style="{StaticResource RpSectionLabel}" Margin="0,3,0,0" />
+                                                    </StackPanel>
+                                                    <StackPanel>
+                                                        <TextBlock x:Name="ReportDaysValue" Style="{StaticResource RpFigure}" />
+                                                        <TextBlock Text="DAYS WORKED" Style="{StaticResource RpSectionLabel}" Margin="0,3,0,0" />
+                                                    </StackPanel>
+                                                    <StackPanel>
+                                                        <TextBlock x:Name="ReportDoneValue" Style="{StaticResource RpFigure}" />
+                                                        <TextBlock Text="COMPLETED" Style="{StaticResource RpSectionLabel}" Margin="0,3,0,0" />
+                                                    </StackPanel>
+                                                </UniformGrid>
+                                            </Border>
 
-                                    <TextBlock Text="THE WORK" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
-                                    <StackPanel x:Name="ReportLinesList" />
-                                    <TextBlock x:Name="ReportLinesEmptyText" Text="No measured hours for this project in this range." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" Visibility="Collapsed" />
+                                            <Border Background="{StaticResource RpPanel}"
+                                                    BorderBrush="{StaticResource RpHairline}"
+                                                    BorderThickness="0.5"
+                                                    CornerRadius="{StaticResource RpCornerInner}"
+                                                    Padding="16,14" Margin="0,0,0,18">
+                                                <StackPanel>
+                                                    <TextBlock Text="HOURS BY DAY" Style="{StaticResource RpSectionLabel}" />
+                                                    <StackPanel x:Name="ReportDaysChart" Orientation="Horizontal" Height="92" Margin="0,0,0,2" />
+                                                    <TextBlock x:Name="ReportFloorNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" Visibility="Collapsed" />
+                                                </StackPanel>
+                                            </Border>
 
-                                    <Border Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,18,0,0">
-                                        <StackPanel>
-                                            <TextBlock Text="BEFORE THIS COULD BE SENT" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" />
-                                            <TextBlock x:Name="ReportReadinessText" FontSize="12" Foreground="{DynamicResource PortaTextPrimaryBrush}" TextWrapping="Wrap" />
-                                            <TextBlock Text="Sending is not built yet. When it is, the report will go from your own address, and never without you tapping send." FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                                            <Border Background="{StaticResource RpPanel}"
+                                                    BorderBrush="{StaticResource RpHairline}"
+                                                    BorderThickness="0.5"
+                                                    CornerRadius="{StaticResource RpCornerInner}"
+                                                    Padding="16,14">
+                                                <StackPanel>
+                                                    <TextBlock Text="THE WORK" Style="{StaticResource RpSectionLabel}" />
+                                                    <StackPanel x:Name="ReportLinesList" />
+
+                                                    <!-- An empty state that leaves the user stuck is a
+                                                         dead end. It says what to do next, and where. -->
+                                                    <StackPanel x:Name="ReportLinesEmptyText" Visibility="Collapsed">
+                                                        <TextBlock Text="No measured hours for this project yet." FontSize="13" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
+                                                        <TextBlock Text="Hours arrive here once a task is tagged to this project. Tag one on the morning card when you name the day's work, or from “+ task” on the widget — then work on it as usual and it will show up." Style="{StaticResource RpBody}" Margin="0,6,0,0" />
+                                                        <TextBlock Text="Nothing is counted until a task carries the project, so an untagged day is not lost — it simply belongs to no project." Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
                                         </StackPanel>
                                     </Border>
 
-                                    <TextBlock Text="Time is recorded automatically while the work was actively in progress. Breaks and time away are not included." FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,14,0,0" TextWrapping="Wrap" />
+                                    <Border Style="{StaticResource RpPanelBorder}">
+                                        <StackPanel>
+                                            <TextBlock Text="BEFORE THIS COULD BE SENT" Style="{StaticResource RpSectionLabel}" />
+                                            <TextBlock x:Name="ReportReadinessText" FontSize="12" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
+                                            <TextBlock Text="Sending is not built yet. When it is, the report will go from your own address, and never without you tapping send." Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <TextBlock Text="Time is recorded automatically while the work was actively in progress. Breaks and time away are not included." Style="{StaticResource RpMeta}" Margin="2,0,0,0" />
                                 </StackPanel>
                             </StackPanel>
 

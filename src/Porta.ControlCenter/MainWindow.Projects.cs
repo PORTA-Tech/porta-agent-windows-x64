@@ -54,23 +54,33 @@ public partial class MainWindow
 
     private UIElement BuildProjectRow(LocalApiProject project)
     {
-        var grid = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        // A ROW, not a field. The card surface and the hairline belong to the row; the name inside
+        // it is text until you click into it. See RpInlineEditBox.
+        var row = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x14, 0x17, 0x1C)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x2A, 0x30, 0x38)),
+            BorderThickness = new Thickness(0.5),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+
+        var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.Child = grid;
 
         var nameBox = new TextBox
         {
             Text = project.Name,
-            FontSize = 13,
-            Padding = new Thickness(8),
+            Style = (Style)FindResource("RpInlineEditBox"),
             Margin = new Thickness(0, 0, 8, 0),
             VerticalAlignment = VerticalAlignment.Center,
-            Background = new SolidColorBrush(Color.FromRgb(0x12, 0x12, 0x1A)),
+            ToolTip = "Click to rename",
             Foreground = new SolidColorBrush(project.Archived
-                ? Color.FromRgb(0x64, 0x74, 0x8B)
-                : Color.FromRgb(0xE2, 0xE8, 0xF0)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x2A, 0x30, 0x38)),
-            BorderThickness = new Thickness(1)
+                ? Color.FromRgb(0x6F, 0x78, 0x85)
+                : Color.FromRgb(0xF2, 0xF4, 0xF7))
         };
 
         // Rename on Enter or on losing focus, and only when the text actually changed — so simply
@@ -105,16 +115,15 @@ public partial class MainWindow
         var toggle = new Button
         {
             Content = project.Archived ? "Restore" : "Archive",
-            FontSize = 12,
-            Padding = new Thickness(12, 8, 12, 8),
-            Cursor = Cursors.Hand,
+            // Never the accent: archiving is not the primary action on this page, adding is.
+            Style = (Style)FindResource("RpQuietButton"),
             VerticalAlignment = VerticalAlignment.Center
         };
         toggle.Click += (_, _) => _ = SetProjectArchivedAsync(project.Id, !project.Archived);
         Grid.SetColumn(toggle, 1);
         grid.Children.Add(toggle);
 
-        return grid;
+        return row;
     }
 
     private async Task RenameProjectAsync(long id, string name)
