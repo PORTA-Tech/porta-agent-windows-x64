@@ -280,3 +280,44 @@ digest · scheduled or automatic sending · editing hours, ever.
    an older handover and the control plane is a different repository. Check it there.
 3. **`ANTHROPIC_API_KEY` on Render** is still unconfirmed — unrelated to the report, but it is the
    reason ARI'S TAKE silently omits from the digest.
+
+---
+
+## 10. The unattributed gap — MEASURED 2026-08-13
+
+Read directly out of `C:\ProgramData\PortaAgent\core-state.db`, opened `Mode=ReadOnly`, on
+1.2.150 *(verified — every figure below is a query result, nothing is inferred)*. The brief said
+this needed elevation; it does not. A plain read-only open succeeds under Yadin's own account.
+
+**The answer: 0.58h missing on 4.87h recorded — 10.7%.** Small enough not to change what the
+report means. It under-counts, which is the safe direction and what the honesty line already
+claims. It is not the 40–70% that would have made a client report meaningless.
+
+**The sample is one task on one day**, and that is the whole of what exists:
+
+| | |
+|---|---|
+| Task 15, `continue to improve the system` | started 08:13Z today, still active |
+| Credited by `AttributeBucketToActiveTask` | **5.46 h** |
+| Recorded by `app_usage_rollup` (live rows) | **4.87 h** |
+| Gap — measured on the task, no recognised app | **0.58 h (10.7%)** |
+
+Every other task on the machine is **not measurable**, and the fix above is why that is now said
+rather than printed as a number: ten tasks pre-date the rollup entirely.
+
+### Two findings that matter more than the percentage
+
+**1. There are ZERO projects on this machine.** `SELECT COUNT(*) FROM projects` returns 0, and no
+task has ever carried a `project_id`. So the Reports page shows *"No projects yet"* and **phase B
+has never rendered a single line.** The phase order in §3 exists so B can be lived with before C is
+built — that has not happened, and it cannot until a project exists and work is tagged to it. Task
+15, the one measurable task, is itself untagged and would not appear in any report.
+
+**2. The live rollup began 2026-08-13T08:00Z — today, not 2026-08-12.** The backfill (597 rows,
+2026-07-30 → 2026-08-13T08:00Z) ran when the v27 migration first executed this morning, so the
+rollup code did not run on this machine before then. **`ProjectHistoryFloor` and §2's "project
+history begins 2026-08-12" are both wrong by a day in the optimistic direction.** The honest floor
+today is 2026-08-13T08:00Z for app history, and *nothing at all* for project history.
+
+The capture pipeline itself is healthy and is not the problem: `state_buckets` holds 59,329 rows
+spanning 2026-07-30 → now.
