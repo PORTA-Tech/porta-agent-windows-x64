@@ -61,7 +61,7 @@ public sealed class UserCheckInCardCaretTests
     public void EndOfDay_TheNoteBoxActuallyTakesTheCaret()
         => AssertCaretLands(new UserCheckInPrompt(
             UserCheckInKind.EndOfDay, "Wrapping up", "Wrapping up the day.",
-            QuestionLabel: "Anything to note?"));
+            QuestionLabel: "Anything for tomorrow?"));
 
     // Midday is chips-only, so there is nothing to type into and nothing should be armed. Asserted
     // so "no caret" stays a deliberate state rather than looking like the same failure.
@@ -117,7 +117,7 @@ public sealed class UserCheckInCardCaretTests
     public void EndOfDay_NoteBox_WhenRefused_ShowsTheHintAndTheGreyBorder()
         => AssertRefusedStateVisible(new UserCheckInPrompt(
             UserCheckInKind.EndOfDay, "Wrapping up", "Wrapping up the day.",
-            QuestionLabel: "Anything to note?"));
+            QuestionLabel: "Anything for tomorrow?"));
 
     [Fact]
     public void Midday_WhenRefused_ShowsNothing_BecauseItNeedsNoKeyboard()

@@ -311,9 +311,18 @@ public sealed class UserCheckInCoordinatorTests
         UserCheckInPrompt withoutLlm = UserCheckInCoordinator.BuildPrompt(
             UserCheckInKind.EndOfDay, goal: null, EmptyMetrics(), narrativeLine: "");
 
-        Assert.Equal("Anything to note?", withLlm.QuestionLabel);
-        Assert.Equal("Anything to note?", withoutLlm.QuestionLabel);
-        Assert.DoesNotContain("tomorrow", withLlm.QuestionLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Anything for tomorrow?", withLlm.QuestionLabel);
+        Assert.Equal("Anything for tomorrow?", withoutLlm.QuestionLabel);
+
+        // The guard here used to be "the label must not mention tomorrow", standing in for step 7
+        // having removed "Plan for tomorrow?". That was too blunt once the copy was corrected on
+        // 2026-08-13: with NO tasks at all, unfinished work cannot carry itself, the single box IS
+        // the only way anything reaches tomorrow, and what is typed there is stored as
+        // plan_tomorrow and pre-fills the next morning. Asking about tomorrow there is honest.
+        //
+        // What step 7 actually killed is the old wording, on a day that HAS work. Guard that.
+        Assert.DoesNotContain("Plan for tomorrow", withLlm.QuestionLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Plan for tomorrow", withoutLlm.QuestionLabel, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -322,7 +322,7 @@ public sealed class UserCheckInLoopCardTests
         RunCard(window =>
         {
             window.ShowPrompt(new UserCheckInPrompt(
-                UserCheckInKind.EndOfDay, "Wrapping up", "Quiet day.", QuestionLabel: "Anything to note?"));
+                UserCheckInKind.EndOfDay, "Wrapping up", "Quiet day.", QuestionLabel: "Anything for tomorrow?"));
 
             Assert.Single(Descendants<TextBox>(window));
         });

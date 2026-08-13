@@ -82,7 +82,7 @@ public sealed class UserCheckInCardVisualRulesTests
             Assert.All(
                 Descendants<Button>(window).Where(b => b.Background is SolidColorBrush g && IsGreen(g)),
                 b => Assert.True(
-                    b.Content is "Start the day" or "Save" or "Close the day" or "Good night",
+                    b.Content is "Start the day" or "Save" or "Save for tomorrow" or "Close the day" or "Good night",
                     $"only the primary button may be green; found: {b.Content}"));
         });
     }
@@ -104,7 +104,7 @@ public sealed class UserCheckInCardVisualRulesTests
                 Assert.False(box.Foreground is SolidColorBrush f && IsGreen(f), "input text was green");
             });
 
-            string[] primary = { "Start the day", "Save", "Close the day", "Good night" };
+            string[] primary = { "Start the day", "Save", "Save for tomorrow", "Close the day", "Good night" };
             Assert.All(
                 Descendants<Button>(window).Where(b => !primary.Contains(b.Content as string)),
                 b =>

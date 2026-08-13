@@ -176,9 +176,15 @@ internal static class UserCheckInCoordinator
                 CarriedNotice: carriedNotice.Length > 0 ? carriedNotice : movingNotice,
                 // Step 7 — no longer "Plan for tomorrow?". The evening asks what to do with what is
                 // left, which makes tomorrow's list without opening a new question.
+                // 2026-08-13 — was "Anything to note?", which was a lie about what the box does.
+                // On a day with no tasks the evening card falls back to a single box, and whatever
+                // is typed there is recorded as plan_tomorrow and PRE-FILLS TOMORROW'S MORNING
+                // CARD. It said "note" and behaved as "plan": you would jot a thought and find it
+                // in tomorrow's task box. The copy moved rather than the behaviour, because the
+                // behaviour is the useful half — it is what carries a just-track day forward.
                 QuestionLabel: open.Count > 0
                     ? "What moves to tomorrow?"
-                    : movingNotice.Length > 0 ? "Anything else?" : "Anything to note?"),
+                    : movingNotice.Length > 0 ? "Anything else for tomorrow?" : "Anything for tomorrow?"),
         };
     }
 

@@ -411,6 +411,24 @@ internal sealed class UserCheckInCardWindow : Window
         }
 
         title.Inlines.Add(new System.Windows.Documents.Run(line.Title));
+
+        // Step 9a (2026-08-13) — the project, quietly, AFTER the title. Costs ZERO height by
+        // construction: this TextBlock is NoWrap with character ellipsis, so an extra Run at the
+        // same font size cannot add a line. Measured either way before shipping.
+        //
+        // After rather than before the title, because the ellipsis truncates from the END: with a
+        // prefix the project would survive and eat the task name, and the task name is the thing
+        // the user is about to act on. This way a cramped row loses the context, never the work.
+        if (line.ProjectName.Length > 0)
+        {
+            title.Inlines.Add(new System.Windows.Documents.Run($"  ·  {line.ProjectName}")
+            {
+                // Muted, and one step quieter than a faded title so it never competes with the
+                // task even on a row that is itself faded.
+                Foreground = new SolidColorBrush(LabelFg)
+            });
+        }
+
         Grid.SetColumn(title, 0);
         row.Children.Add(title);
 
@@ -814,8 +832,33 @@ internal sealed class UserCheckInCardWindow : Window
         {
             pickerHost.Children.Clear();
             TextBox box = MakeInputBox("Project name");
-            box.Margin = new Thickness(0, 6, 0, 0);
             box.FontSize = 12;
+
+            // A VISIBLE confirm, added 2026-08-13. The box shipped with Enter as the only way to
+            // commit it, so the only user who could finish naming a project was one who already
+            // knew that. Enter still works and still must not start the day.
+            //
+            // A button rather than commit-on-blur: blur fires when you click ANYTHING, including
+            // "Start the day", so blur-to-commit would race the submit and would also commit a
+            // half-typed name the moment you looked away. A button is the honest version.
+            Button confirm = MakeChip("Add");
+            confirm.Margin = new Thickness(6, 0, 0, 0);
+
+            void Commit()
+            {
+                string typed = box.Text.Trim();
+                if (typed.Length > 0)
+                {
+                    // Id 0 with a name = "create or get this one", resolved by the host.
+                    Pick(0, typed);
+                }
+                else
+                {
+                    Collapse();
+                }
+            }
+
+            confirm.Click += (_, _) => Commit();
 
             // Enter here must NOT start the day. Every other box on this card submits on Enter,
             // so without swallowing it a user typing a project name would launch the morning with
@@ -824,17 +867,7 @@ internal sealed class UserCheckInCardWindow : Window
             {
                 if (e.Key == Key.Enter)
                 {
-                    string typed = box.Text.Trim();
-                    if (typed.Length > 0)
-                    {
-                        // Id 0 with a name = "create or get this one", resolved by the host.
-                        Pick(0, typed);
-                    }
-                    else
-                    {
-                        Collapse();
-                    }
-
+                    Commit();
                     e.Handled = true;
                 }
                 else if (e.Key == Key.Escape)
@@ -845,7 +878,17 @@ internal sealed class UserCheckInCardWindow : Window
             };
 
             box.TextChanged += (_, _) => _userInteracted = true;
-            pickerHost.Children.Add(box);
+
+            // Box and button share one line, so the confirm costs no height over the box alone.
+            var line = new Grid { Margin = new Thickness(0, 6, 0, 0) };
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(box, 0);
+            Grid.SetColumn(confirm, 1);
+            line.Children.Add(box);
+            line.Children.Add(confirm);
+
+            pickerHost.Children.Add(line);
             ArmFocus(box);
         }
 
@@ -1333,11 +1376,13 @@ internal sealed class UserCheckInCardWindow : Window
             // No tasks for the day at all — nothing to close. Keep the old plan box so the evening
             // card is never an empty shell, and so a pre-step-3 day still records something.
             AddQuestionLabel(prompt.QuestionLabel);
-            TextBox planBox = MakeInputBox("Anything to note before you stop?");
+            // The copy says "tomorrow" because that is what happens to it: this text is stored as
+            // plan_tomorrow and pre-fills tomorrow's morning card. It used to say "note".
+            TextBox planBox = MakeInputBox("What's first tomorrow?");
             planBox.TextChanged += (_, _) => _userInteracted = true;
             _bodyStack.Children.Add(planBox);
 
-            Button saveNote = MakePrimaryButton("Save");
+            Button saveNote = MakePrimaryButton("Save for tomorrow");
             saveNote.Click += (_, _) => Respond(new UserCheckInResponse(
                 UserCheckInKind.EndOfDay, planBox.Text.Trim(), Choice: null, Dismissed: false));
             planBox.KeyDown += (_, e) =>

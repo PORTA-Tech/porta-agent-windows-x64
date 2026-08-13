@@ -69,7 +69,8 @@ internal static class UserCheckInTaskBoard
                 DaysCarried: DaysCarried(task.CreatedAtUtc.ToLocalTime(), nowLocal),
                 EndedAtLocal: task.EndedAtUtc?.ToLocalTime(),
                 DeferredUntilDay: deferredUntil,
-                MovedOut: IsMovedOut(deferredUntil, todayGoalDay)));
+                MovedOut: IsMovedOut(deferredUntil, todayGoalDay),
+                ProjectName: (task.ProjectName ?? string.Empty).Trim()));
         }
 
         return board;
@@ -256,7 +257,14 @@ internal sealed record TaskBoardLine(
     string DeferredUntilDay = "",
     // Stamped by BuildBoard, which is the one place that knows what "today" is. Carrying the
     // resolved answer means the card renderers never need a clock of their own.
-    bool MovedOut = false)
+    bool MovedOut = false,
+    // Step 9a (2026-08-13) — the project this task belongs to, for the midday and evening cards to
+    // show quietly beside the title. Empty = untagged, and untagged shows nothing at all.
+    //
+    // The picker stays morning-only: those cards do not NAME tasks, so there is nothing to tag
+    // there. But a project tagged at 09:00 that vanishes by lunchtime is Ari forgetting what the
+    // user told it, which is the exact failure this rebuild exists to end.
+    string ProjectName = "")
 {
     public bool IsOpen => State is "pending" or "active";
 

@@ -195,11 +195,22 @@ internal static class CheckInCardPreview
             Task(10, "Client revisions", "pending"),
             Task(11, "Invoice chase", "pending"),
         ];
+        // Deliberately MIXED: two tagged, one untagged. Untagged is a permanent valid state and
+        // must look like a choice rather than a gap, so the contrast has to be visible here.
         IReadOnlyList<TaskBoardLine> mixedToday =
         [
-            Task(9, "Pricing page", "done", measured: 4020, planned: 7200),
-            Task(10, "Client revisions", "active", measured: 1140, planned: 3600),
+            Task(9, "Pricing page", "done", measured: 4020, planned: 7200, project: "Nolan"),
+            Task(10, "Client revisions", "active", measured: 1140, planned: 3600, project: "Apollo Rebrand"),
             Task(11, "Invoice chase", "pending", measured: 0, planned: 1800),
+        ];
+
+        // The width worst case for the row: a long title AND a long project on the same line.
+        IReadOnlyList<TaskBoardLine> longNamesToday =
+        [
+            Task(9, "Rework the pricing page hero and table", "active",
+                measured: 4020, planned: 7200, project: "Northgate Property Trust"),
+            Task(10, "Client revisions for the Q3 board deck", "pending",
+                measured: 1140, planned: 3600, project: "Apollo Rebrand"),
         ];
         IReadOnlyList<TaskBoardLine> yesterday =
         [
@@ -276,6 +287,13 @@ internal static class CheckInCardPreview
             new("midday with no tasks (chip fallback)",
                 UserCheckInCoordinator.BuildPrompt(UserCheckInKind.Midday, goal, metrics, narrativeLine: "")),
 
+            // The width worst case for the project on a row: long title AND long project name.
+            // Costs zero height (NoWrap + ellipsis); what it costs is title width, so this is the
+            // state to look at before deciding the treatment is quiet enough.
+            new("midday with long titles and long project names",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.Midday, goal, metrics, narrativeLine: "", board: longNamesToday)),
+
             // ── close-out (card four) ──
             new("close-out with open work",
                 UserCheckInCoordinator.BuildPrompt(
@@ -294,6 +312,17 @@ internal static class CheckInCardPreview
             new("evening with today's tasks",
                 UserCheckInCoordinator.BuildPrompt(
                     UserCheckInKind.EndOfDay, goal, metrics, narrativeLine: "", board: mixedToday)),
+
+            // The "Good night" branch: tasks existed and every one of them is closed. Distinct from
+            // "no tasks at all" below, and it was missing from the preview entirely.
+            new("evening with everything finished",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.EndOfDay, goal, metrics, narrativeLine: "",
+                    board:
+                    [
+                        Task(9, "Pricing page", "done", measured: 4020, planned: 7200, project: "Nolan"),
+                        Task(10, "Client revisions", "done", measured: 3300, planned: 3600, project: "Apollo Rebrand"),
+                    ])),
 
             new("evening normal, no tasks",
                 UserCheckInCoordinator.BuildPrompt(
@@ -343,6 +372,9 @@ internal static class CheckInCardPreview
     }
 
     private static TaskBoardLine Task(
-        long id, string title, string state, double measured = 0d, int planned = 3600)
-        => new(id, title, planned, measured, state, DaysCarried: 0, EndedAtLocal: DateTimeOffset.Now.AddDays(-1));
+        long id, string title, string state, double measured = 0d, int planned = 3600,
+        string project = "")
+        => new(id, title, planned, measured, state, DaysCarried: 0,
+            EndedAtLocal: DateTimeOffset.Now.AddDays(-1), DeferredUntilDay: "", MovedOut: false,
+            ProjectName: project);
 }
