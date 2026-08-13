@@ -1282,7 +1282,8 @@ public static class LocalApiEndpointMapping
             LinesFinished: draft.LinesFinished,
             Lines: draft.Lines
                 .Select(l => new LocalApiReportLine(
-                    l.TaskId, l.Title, l.ClientLabel, l.Finished, l.Hours, l.UnattributedHours))
+                    l.TaskId, l.Title, l.ClientLabel, l.Finished, l.Hours,
+                    l.UnattributedHours, l.UnattributedMeasurable))
                 .ToList(),
             Days: draft.Days
                 .Select(d => new LocalApiReportDay(d.DateLocal, d.Hours))

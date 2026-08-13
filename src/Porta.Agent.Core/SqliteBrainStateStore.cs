@@ -3233,7 +3233,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             }
         }
 
-        IReadOnlyDictionary<long, double> attributed = ReadTaskActiveSeconds(perTask.Keys);
+        IReadOnlyDictionary<long, TaskUnattributedInputs> gapInputs = ReadUnattributedInputs(perTask.Keys);
 
         var lines = new List<AgentReportLine>();
         foreach ((long taskId, (string title, string label, bool finished, double seconds)) in
@@ -3241,9 +3241,22 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         {
             double hours = RoundHours(seconds);
 
+            TaskUnattributedInputs inputs = gapInputs.GetValueOrDefault(
+                taskId,
+                new TaskUnattributedInputs(0d, 0d, Measurable: false));
+
+            // Compare like with like. The gap is lifetime-credited minus lifetime-rolled-up, NOT
+            // minus the range-filtered sum: tasks.active_seconds has no time dimension, so
+            // subtracting a windowed number from a lifetime one reports every hour outside the
+            // window as missing app time. That read as a capture-pipeline failure and was not one.
+            //
             // Never negative: the rollup is a subset of what the task was credited, but a task
             // edited or re-tagged between the two reads could invert it for an instant.
-            double unattributed = Math.Max(0d, attributed.GetValueOrDefault(taskId) - seconds);
+            double unattributed = Math.Max(0d, inputs.ActiveSeconds - inputs.LifetimeRollupSeconds);
+
+            // A task with rollup activity outside this range has a gap that belongs partly to
+            // some other report, so it cannot be shown against these hours.
+            bool measurable = inputs.Measurable && Math.Abs(inputs.LifetimeRollupSeconds - seconds) < 0.5d;
 
             lines.Add(new AgentReportLine(
                 TaskId: taskId,
@@ -3251,7 +3264,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                 ClientLabel: label,
                 Finished: finished,
                 Hours: hours,
-                UnattributedHours: RoundHours(unattributed)));
+                UnattributedHours: measurable ? RoundHours(unattributed) : 0d,
+                UnattributedMeasurable: measurable));
         }
 
         // Every day in the range, in order, including the ones with nothing on them.
@@ -3276,29 +3290,98 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     }
 
     /// <summary>
-    /// What each task was credited in total, for the unattributed diagnostic. Read separately and
-    /// deliberately: this number is the user's own, it never reaches a client, and keeping it out
-    /// of the main query keeps that query a straight sum of the rollup.
+    /// The two sides of the unattributed diagnostic, both measured over the task's WHOLE LIFE so
+    /// they are comparable, plus whether comparing them means anything at all.
     /// </summary>
-    private IReadOnlyDictionary<long, double> ReadTaskActiveSeconds(IEnumerable<long> taskIds)
+    private readonly record struct TaskUnattributedInputs(
+        double ActiveSeconds,
+        double LifetimeRollupSeconds,
+        bool Measurable);
+
+    /// <summary>
+    /// What each task was credited in total, and what the rollup recorded for it in total, for the
+    /// unattributed diagnostic. Read separately and deliberately: these numbers are the user's own,
+    /// they never reach a client, and keeping them out of the main query keeps that query a straight
+    /// sum of the rollup over the report's range.
+    ///
+    /// <b>Neither side is filtered by the report's range, and that is the fix</b> (2026-08-13).
+    /// <c>tasks.active_seconds</c> is a running total written by <c>AttributeBucketToActiveTask</c>
+    /// with no time dimension, and no windowed source for it exists — <c>input_signal_windows</c>
+    /// has no task column and a task resumed after a switch looks continuous. So the gap is a
+    /// property of the task, not of the range, and the caller must decide whether it can be shown
+    /// against range-scoped hours.
+    ///
+    /// A task started before the rollup existed is marked NOT measurable: its credited seconds
+    /// include time no rollup row could ever have covered, so the difference would report the
+    /// rollup's own start date as missing app time.
+    /// </summary>
+    private IReadOnlyDictionary<long, TaskUnattributedInputs> ReadUnattributedInputs(IEnumerable<long> taskIds)
     {
-        var result = new Dictionary<long, double>();
+        var result = new Dictionary<long, TaskUnattributedInputs>();
         List<long> ids = taskIds.Distinct().ToList();
         if (ids.Count == 0)
         {
             return result;
         }
 
+        string idList = string.Join(',', ids);
+
         using ReadGateLease _ = AcquireReadGate();
         using var connection = DbOpen.OpenReadConnection(_connectionString);
+
+        // When the rollup began recording on this machine. Backfilled rows are excluded: they are a
+        // reconstruction of the app dimension only, carry task_id = 0, and never cover a task.
+        string rollupEpoch = string.Empty;
+        using (var epochCmd = connection.CreateCommand())
+        {
+            epochCmd.CommandText =
+                "SELECT MIN(hour_start_utc) FROM app_usage_rollup WHERE backfilled = 0;";
+            object? scalar = epochCmd.ExecuteScalar();
+            if (scalar is not null && scalar != DBNull.Value)
+            {
+                rollupEpoch = Convert.ToString(scalar, System.Globalization.CultureInfo.InvariantCulture)
+                    ?? string.Empty;
+            }
+        }
+
+        var lifetimeRollup = new Dictionary<long, double>();
+        using (var rollupCmd = connection.CreateCommand())
+        {
+            rollupCmd.CommandText =
+                $"""
+                SELECT task_id, SUM(active_seconds)
+                FROM app_usage_rollup
+                WHERE task_id IN ({idList}) AND backfilled = 0
+                GROUP BY task_id;
+                """;
+            using SqliteDataReader rollupReader = rollupCmd.ExecuteReader();
+            while (rollupReader.Read())
+            {
+                lifetimeRollup[rollupReader.GetInt64(0)] =
+                    rollupReader.IsDBNull(1) ? 0d : rollupReader.GetDouble(1);
+            }
+        }
+
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
-            $"SELECT id, active_seconds FROM tasks WHERE id IN ({string.Join(',', ids)});";
+            $"SELECT id, active_seconds, started_at_utc FROM tasks WHERE id IN ({idList});";
 
         using SqliteDataReader reader = cmd.ExecuteReader();
         while (reader.Read())
         {
-            result[reader.GetInt64(0)] = reader.GetDouble(1);
+            long taskId = reader.GetInt64(0);
+            string startedAt = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+
+            // Ordinal compare is right: both are round-trip UTC ("O"), which sorts lexically.
+            bool predatesRollup =
+                rollupEpoch.Length == 0
+                || (startedAt.Length > 0
+                    && string.CompareOrdinal(startedAt, rollupEpoch) < 0);
+
+            result[taskId] = new TaskUnattributedInputs(
+                ActiveSeconds: reader.IsDBNull(1) ? 0d : reader.GetDouble(1),
+                LifetimeRollupSeconds: lifetimeRollup.GetValueOrDefault(taskId),
+                Measurable: !predatesRollup);
         }
 
         return result;

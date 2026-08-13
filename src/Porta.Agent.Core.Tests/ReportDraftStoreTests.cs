@@ -168,7 +168,100 @@ public sealed class ReportDraftStoreTests
             AgentReportLine line = Assert.Single(Draft(store, nolan.Id, "2026-08-12", "2026-08-12").Lines);
 
             Assert.Equal(1.0d, line.Hours, precision: 6);
+            Assert.True(line.UnattributedMeasurable);
             Assert.Equal(0.5d, line.UnattributedHours, precision: 6);
+        });
+    }
+
+    /// <summary>
+    /// THE WINDOW MISMATCH (fixed 2026-08-13). The gap was lifetime credited seconds minus the
+    /// RANGE-filtered rollup, so every hour a task worked outside the report was reported as time
+    /// with no recognised app. Here the task works a full hour on each of two days and every one of
+    /// those seconds carried an app: the honest answer for a one-day report is not "1.0h missing",
+    /// it is that the question cannot be answered from this range.
+    ///
+    /// Before the fix this line claimed 1.0h unattributed, which reads as a capture-pipeline
+    /// failure and is not one.
+    /// </summary>
+    [Fact]
+    public void WorkOutsideTheRangeIsNotReportedAsMissingAppTime()
+    {
+        RunWithStore((store, dbPath) =>
+        {
+            AgentProject nolan = store.CreateProject("Nolan", Day1)!;
+            AgentTask task = store.CreateTask("Pricing page", 3600, Day1, nolan.Id)!;
+            store.ActOnTask(task.Id, "start", Day1);
+
+            // Two measured hours, both with an app. Nothing is unattributed anywhere.
+            Accumulate(dbPath, 3600d, Day1);
+            Accumulate(dbPath, 3600d, Day2);
+
+            AgentReportLine dayOne = Assert.Single(Draft(store, nolan.Id, "2026-08-12", "2026-08-12").Lines);
+
+            Assert.Equal(1.0d, dayOne.Hours, precision: 6);
+            Assert.False(dayOne.UnattributedMeasurable);
+            Assert.Equal(0d, dayOne.UnattributedHours, precision: 6);
+
+            // Widen the range to cover the whole task and the two sides line up again, so the
+            // real answer — nothing missing — becomes sayable.
+            AgentReportLine both = Assert.Single(Draft(store, nolan.Id, "2026-08-12", "2026-08-13").Lines);
+
+            Assert.Equal(2.0d, both.Hours, precision: 6);
+            Assert.True(both.UnattributedMeasurable);
+            Assert.Equal(0d, both.UnattributedHours, precision: 6);
+        });
+    }
+
+    /// <summary>
+    /// The other half of the same mismatch. A task that was already running before the rollup
+    /// existed carries credited seconds no rollup row could ever have covered, so subtracting one
+    /// from the other reports the rollup's own start date as missing app time. Not knowable, and it
+    /// must say so rather than print a number.
+    /// </summary>
+    [Fact]
+    public void ATaskOlderThanTheRollupCannotBeMeasured()
+    {
+        RunWithStore((store, dbPath) =>
+        {
+            AgentProject nolan = store.CreateProject("Nolan", Day1)!;
+            AgentTask task = store.CreateTask("Pricing page", 3600, Day1, nolan.Id)!;
+            store.ActOnTask(task.Id, "start", Day1);
+
+            // An hour credited before the rollup was recording anything at all.
+            AttributeOnly(dbPath, 3600d);
+            // ...then the rollup begins, a day after the task started.
+            Accumulate(dbPath, 3600d, Day2);
+
+            AgentReportLine line = Assert.Single(Draft(store, nolan.Id, "2026-08-13", "2026-08-13").Lines);
+
+            Assert.Equal(1.0d, line.Hours, precision: 6);
+            Assert.False(line.UnattributedMeasurable);
+            Assert.Equal(0d, line.UnattributedHours, precision: 6);
+        });
+    }
+
+    /// <summary>
+    /// A zero gap and an unmeasurable one are different claims and must not render the same. This
+    /// is the rule the backfilled rollup rows already carry: a zero means "not known" only when
+    /// something says so.
+    /// </summary>
+    [Fact]
+    public void AnUnmeasurableGapIsNeverReportedAsZeroMissing()
+    {
+        RunWithStore((store, dbPath) =>
+        {
+            AgentProject nolan = store.CreateProject("Nolan", Day1)!;
+            AgentTask task = store.CreateTask("Pricing page", 3600, Day1, nolan.Id)!;
+            store.ActOnTask(task.Id, "start", Day1);
+            Accumulate(dbPath, 3600d, Day1);
+            Accumulate(dbPath, 3600d, Day2);
+
+            AgentReportLine measured = Assert.Single(Draft(store, nolan.Id, "2026-08-12", "2026-08-13").Lines);
+            AgentReportLine unknown = Assert.Single(Draft(store, nolan.Id, "2026-08-12", "2026-08-12").Lines);
+
+            // Same 0.0 on both, and only the flag tells them apart.
+            Assert.Equal(unknown.UnattributedHours, measured.UnattributedHours, precision: 6);
+            Assert.NotEqual(unknown.UnattributedMeasurable, measured.UnattributedMeasurable);
         });
     }
 

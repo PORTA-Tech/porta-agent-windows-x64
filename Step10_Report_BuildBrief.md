@@ -118,10 +118,28 @@ chose it deliberately.
 > never to a client**: *"+0.4h measured on this task with no recognised app — not counted, and never
 > shown to a client."*
 >
-> **How big is that gap in reality? UNMEASURED.** It was attempted on the live database on
-> 2026-08-13 and `C:\ProgramData\PortaAgent\core-state.db` requires elevation to read, which is
-> Yadin's to give. The page shows the real number per line the first time a draft is built. **If it
-> turns out to be material, that is a finding about the capture pipeline, not about the report.**
+> #### THE WINDOW MISMATCH — found and fixed 2026-08-13, before the number was ever read
+>
+> As first built the gap was **lifetime credited seconds minus the RANGE-filtered rollup sum**. Two
+> different periods. `tasks.active_seconds` is a running total written by
+> `AttributeBucketToActiveTask` with no time dimension, while the rollup half was bounded by the
+> report's dates — so **every hour a task worked outside the report was reported as time with no
+> recognised app.** That reads as a capture-pipeline failure and is not one.
+>
+> There is no windowed source for the credited side and inventing one would be inference
+> (`input_signal_windows` has no task column; a task resumed after a switch looks continuous). So
+> the gap is a property of the **task's whole life**, not of the range, and it is only shown when
+> comparing it against range-scoped hours means something. Two guards, both window mismatches:
+>
+> 1. The task has rollup activity **outside** the range → its gap belongs partly to another report.
+> 2. The task was started **before the rollup existed** on this machine → its credited seconds
+>    include time no rollup row could ever have covered.
+>
+> Either one → `unattributed_measurable = false`, and the page says so in words. **A zero alongside
+> it means "not known", never "measured as zero"** — the same rule the backfilled rollup rows carry.
+> Three tests, each verified to fail against the old arithmetic.
+>
+> **How big is the gap in reality? MEASURED 2026-08-13 — see §10.**
 >
 > #### Two smaller decisions worth not re-litigating
 >
@@ -139,14 +157,16 @@ Follow the shape already in the repo. Projects did exactly this in 9a:
   directly *(verified: `MainWindow.Projects.cs:30`)*
 - new endpoints beside the project ones at `LocalApiEndpointMapping.cs:359`
 
-Endpoints, all local:
+Endpoints, all local. **The prefix is `/v1`, not `/api`** — every route hangs off
+`app.MapGroup("/v1")` *(verified: `LocalApiEndpointMapping.cs:131`)*. Only the first two exist
+today; the rest are named here so the shape is visible, and each is built in its own phase:
 
 ```
-GET    /api/reports/draft?projectId=&from=&to=     build a draft from measured hours
-POST   /api/reports/label                          set a task's client-facing label
-POST   /api/reports/send                           record + send (phase C)
-GET    /api/reports                                the local record of what was sent
-DELETE /api/reports/{reportId}                     delete, both sides (phase D)
+GET    /v1/reports/draft?projectId=&from=&to=     BUILT (phase B)  build a draft from measured hours
+POST   /v1/reports/label                          BUILT (phase B)  set a task's client-facing label
+POST   /v1/reports/send                           NOT BUILT — phase C
+GET    /v1/reports                                NOT BUILT — phase D, the local record of what was sent
+DELETE /v1/reports/{reportId}                     NOT BUILT — phase D, delete both sides
 ```
 
 The draft is **derived, never stored** until it is sent. A sent report is a snapshot and is never

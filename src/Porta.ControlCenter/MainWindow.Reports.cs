@@ -325,7 +325,23 @@ public partial class MainWindow
         // The user's own diagnostic, never the client's: measured time on this task that carried no
         // identifiable application, so it is not in the hours beside it. Shown so a report that
         // reads lower than the widget explains itself here rather than in front of a client.
-        if (line.UnattributedHours > 0d)
+        //
+        // Not measurable says so in words rather than printing a zero. A zero here would be read as
+        // "nothing missing", which is a claim, and it is the one this diagnostic exists to avoid
+        // making without evidence.
+        if (!line.UnattributedMeasurable)
+        {
+            labelStack.Children.Add(new TextBlock
+            {
+                Text = "unrecognised-app time can't be measured for this line — some of this task's " +
+                       "work falls outside the dates above, or before Ari started recording it",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(TextQuiet),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(2, 4, 0, 0)
+            });
+        }
+        else if (line.UnattributedHours > 0d)
         {
             labelStack.Children.Add(new TextBlock
             {

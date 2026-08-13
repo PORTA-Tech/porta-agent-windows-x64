@@ -498,7 +498,23 @@ public sealed record AgentReportLine(
     double Hours,
     // USER-SIDE DIAGNOSTIC ONLY, and never rendered into anything a client sees: measured time on
     // this task that carried no identifiable application, so it is absent from the hours above.
-    double UnattributedHours);
+    //
+    // Read <see cref="UnattributedMeasurable"/> FIRST. This is a property of the task's whole life,
+    // not of the report's range, because tasks.active_seconds is a running total with no time
+    // dimension — there is no windowed source for it and inventing one would be inference.
+    double UnattributedHours,
+    // Whether the gap above means anything for THIS report. False = not knowable, and a zero
+    // alongside it means "not known", never "measured as zero" — the same rule the backfilled
+    // rollup rows already carry. Two things make it unknowable, and both are window mismatches:
+    //
+    //   1. The task has rollup activity OUTSIDE this range, so its lifetime gap cannot be
+    //      attributed to the hours shown on this line. Some of it is counted, just not here.
+    //   2. The task was started before the rollup existed on this machine, so its credited
+    //      seconds include time the rollup could never have seen. Comparing the two would
+    //      report the rollup's own start date as missing app time.
+    //
+    // Anything rendering this must say so or omit it. It must never print a number.
+    bool UnattributedMeasurable);
 
 /// <summary>
 /// One day of the range. Days with no work are present with zero hours, never skipped — §4: a chart

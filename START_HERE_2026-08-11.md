@@ -57,8 +57,9 @@ Steps 1–8 and 9a are built, plus the database work in §13–§15.
 > do, from a build script, from a commit message, or from this file. The registry lags several
 > releases and must not be used.
 
-**Installed: `1.2.148+ae2eeb0`** — read off all three exes in `C:\Program Files\Ari` on
-**2026-08-13** *(verified)*. That build is commit `ae2eeb0`, the preview harness.
+**Installed: `1.2.150+c966dc5`** — read off all three exes in `C:\Program Files\Ari` on
+**2026-08-13** *(verified)*. That build is commit `c966dc5`, step 10 phase B. The line above said
+1.2.148 until 2026-08-13; that was the sixth time this field has been wrong. Read the exes.
 
 **1.2.149 is the current build** — 2026-08-13, and it exists because `69beaa5` changed card code
 while the csproj still said 1.2.148, the number already on the machine. It carries the three

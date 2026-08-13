@@ -1014,7 +1014,11 @@ public sealed record LocalApiReportLine(
     [property: JsonPropertyName("hours")] double Hours,
     // User-side diagnostic: measured time on this task with no identifiable application, so it is
     // NOT in the hours above. Never rendered into anything a client sees.
-    [property: JsonPropertyName("unattributed_hours")] double UnattributedHours);
+    //
+    // Read unattributed_measurable FIRST: when it is false this is 0 meaning "not known", never
+    // "measured as zero". The gap is a property of the task's whole life, not of this range.
+    [property: JsonPropertyName("unattributed_hours")] double UnattributedHours,
+    [property: JsonPropertyName("unattributed_measurable")] bool UnattributedMeasurable);
 
 public sealed record LocalApiReportDay(
     [property: JsonPropertyName("date_local")] string DateLocal,
