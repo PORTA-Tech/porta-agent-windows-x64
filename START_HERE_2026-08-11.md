@@ -42,34 +42,47 @@ you'd do each morning, then behaved as if it never asked.
 
 ## 3. Where the project is
 
-Steps 1–8 and 9a are built, plus the database work in §13–§15. **1.2.145 is the current build and
-the ONLY one worth installing** — it carries everything. **READ THE EXES before writing about what
-is installed.** 1.2.137 carried the caret fix; 1.2.138 the four-card timing, close-out card and
+Steps 1–8 and 9a are built, plus the database work in §13–§15.
+
+> ## DO NOT WRITE A VERSION NUMBER INTO THIS FILE FROM MEMORY
+>
+> This file has been wrong about the installed version **five times in three days**, in both
+> directions. Every one of them was fixed in one second by running:
+>
+> ```powershell
+> (Get-Item 'C:\Program Files\Ari\ari.exe').VersionInfo.ProductVersion
+> ```
+>
+> **Read the exes. Every time.** Never infer the installed version from what Yadin said he would
+> do, from a build script, from a commit message, or from this file. The registry lags several
+> releases and must not be used.
+
+**Installed: `1.2.148+ae2eeb0`** — read off all three exes in `C:\Program Files\Ari` on
+**2026-08-13** *(verified)*. That build is commit `ae2eeb0`, the preview harness.
+
+**1.2.149 is the current build** — 2026-08-13, and it exists because `69beaa5` changed card code
+while the csproj still said 1.2.148, the number already on the machine. It carries the three
+changes Yadin approved and had **not** been running: projects shown on midday and evening rows,
+a visible **Add** button on the new-project box, and the honest evening copy.
+
+> **1.2.149 handed over 2026-08-13** — his machine only. No tag, no release, no manifest, nothing
+> to the fleet.
+> `installer\bin\x64\Release\AriAgentInstaller.msi` · 178,110,464 bytes ·
+> ProductVersion read back out of the MSI · payload exes stamped `1.2.149+428f400` ·
+> SHA256 `627E700B58265DAABF568123C4761B272BB16F53A5CD49A1FC44C9135F3125A3`.
+> Gate before building: Core 766/770 with the four documented failures allowed by name, UserAgent
+> 476, Service 134, ControlCenter 80, Runtime 6.
+>
+> **Owed once he installs it:** he has never actually used the Add button or seen projects on the
+> midday and evening rows, because no build carrying them was ever on the machine.
+
+The version history, short: 1.2.137 the caret fix; 1.2.138 the four-card timing, close-out card and
 persisted "Tomorrow"; 1.2.139 the day-adds-up and label-survival fixes; 1.2.140 `dayTimeline`;
-1.2.142 the test-suite cleanups; 1.2.143 step 9a; 1.2.144 added the `primitive_buckets` fix;
-**1.2.145 = all of that plus the hourly app rollup (§14) and the backup constants (§15)**.
-
-**1.2.144 IS INSTALLED** — verified from the exes 2026-08-12 (`1.2.144+861b4c5`, `C:\Program
-Files\Ari`). It went on mid-session, without being mentioned, while 1.2.145 was being built. This
-file has now been wrong about the installed version **four times in two days**, in both directions.
-Every one of them was fixed by reading `ProductVersion` off `C:\Program Files\Ari\ari.exe`, which
-takes a second. **Do that before writing a sentence about what is installed. Never infer it from
-what Yadin said he would do, and never from this file.**
-
-What that means concretely: **the machine has step 9a and the `primitive_buckets` fix** — the
-database is pruning and "delete my local data" is honest again. **What it does not have is the
-rollup, which is the time-sensitive one (see the box below). Install 1.2.145.**
-
-> **The rollup makes installing time-sensitive in a way nothing else here is.** Its backfill can
-> only reach as far as `input_signal_windows` still holds — 14 days, sliding by one every day. Each
-> day 1.2.145 is not installed is a day of per-app history that no later install can recover.
+1.2.142 the test-suite cleanups; 1.2.143 step 9a; 1.2.144 the `primitive_buckets` fix; 1.2.145 the
+hourly app rollup (§14) and the backup constants (§15); 1.2.148 the preview harness.
 
 **Anything before 1.2.140 sends NO `dayTimeline`** — the digest's THE DAY section cannot appear
-until 1.2.140 or later is installed.
-
-**Check the installed version before writing about it — do not assume.** Read `ProductVersion` off
-the exes in `C:\Program Files\Ari`. Yadin installs promptly and does not always say so; assuming he
-hadn't was wrong twice on 2026-08-11. The registry lags several releases and must not be used.
+until 1.2.140 or later is installed. That floor is long since passed.
 
 | Step | State |
 |---|---|
@@ -81,12 +94,14 @@ hadn't was wrong twice on 2026-08-11. The registry lags several releases and mus
 | 6. Carry-forward | **Still never run.** Every task so far has been finished or dropped the same day, so nothing has ever needed to carry. Needs a task left genuinely open overnight. |
 | 7. Evening closes the day | **Confirmed live** 2026-08-09 18:41 |
 | 8. The morning screen | Built and installed. First real sighting 2026-08-11. |
-| 9a. Projects exist, locally | **BUILT 2026-08-12, committed `861b4c5`, built as 1.2.143.** See §12. |
-| 9b, 9c, 10 | Not started. 9b is decided but deliberately deferred — see §12. |
+| 9a. Projects exist, locally | **BUILT 2026-08-12, committed `861b4c5`, first shipped in 1.2.143.** See §12. Projects also show on midday and evening rows as of `69beaa5` / 1.2.149. |
+| 9b, 9c | **RETIRED as phase labels.** They existed to defer one decision — whether client names leave the machine — and choosing "Ari emails a report to a client" made it. See `Step10_Report_Spec.md` §2. |
+| 10. The report | **Specified, not built.** `Step10_Report_Spec.md`. §11.1 answered 2026-08-13; §11.2 is the field-by-field live-data list and is the gate before any code. |
 
 Step 10 remains gated on the week of real use — *has Ari changed what Yadin actually did that
 day?* He knows, and started 9a anyway because it mostly adds information rather than changing the
-loop. **Remind him once if step 10 comes up; do not repeat it.**
+loop. **Remind him once if step 10 comes up; do not repeat it.** On 2026-08-13 he said for the
+first time that he had nothing to complain about, which is when that week can actually start.
 
 ---
 
@@ -589,8 +604,8 @@ install covers both. `installer\bin\x64\Release\AriAgentInstaller.msi`, ProductV
 of the MSI, exes stamped `1.2.144+861b4c5`, SHA256
 `5AF41C0789F60E02E5443431FE8F6E717CDCA577925F1ECE4996AA228E9ABF78`. No tag, no release, no manifest.
 
-*(1.2.143 was 9a alone and **is what is currently installed** — see §3. 1.2.144 adds the database
-fix on top and is the one still to install.)*
+*(1.2.143 was 9a alone. Both are long since installed — see §3 for what is on the machine today,
+and read the exes rather than this line.)*
 
 The brief is `Projects_Step9_Brief.md`; the four answers are `Projects_Step9_Answers.md`; **Yadin's
 decisions are §10 of the brief and supersede everything above them there.**
@@ -898,7 +913,8 @@ corrupting the live database is not — but it is a trade, not a fix.
 
 ## 16. OWED: check the disk on or after 2026-08-19
 
-**Yadin asked to be reminded.** One week after 1.2.145 has been running:
+**Yadin asked to be reminded.** One week after the `primitive_buckets` prune has been running —
+it reached the machine with 1.2.144 on 2026-08-12, so the check is owed from 2026-08-19:
 
 > **If C: is still tight, drop `DatabaseBackupWorker.RetentionDays` from 7 nightly copies to 5.**
 
