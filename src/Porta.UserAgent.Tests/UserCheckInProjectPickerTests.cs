@@ -59,11 +59,11 @@ public sealed class UserCheckInProjectPickerTests
             window.UpdateLayout();
 
             IReadOnlyList<Button> chips = ProjectChips(window);
-            Click(chips[0]);
+            Click(window, chips[0]);
             window.UpdateLayout();
             double oneOpen = window.ActualHeight;
 
-            Click(chips[1]);
+            Click(window, chips[1]);
             window.UpdateLayout();
 
             // Still exactly one strip's worth of extra height, not two.
@@ -81,7 +81,7 @@ public sealed class UserCheckInProjectPickerTests
             window.UpdateLayout();
             double closed = window.ActualHeight;
 
-            Click(ProjectChips(window)[0]);
+            Click(window, ProjectChips(window)[0]);
             window.UpdateLayout();
 
             double cost = window.ActualHeight - closed;
@@ -101,7 +101,7 @@ public sealed class UserCheckInProjectPickerTests
             window.Show();
             window.UpdateLayout();
 
-            Click(ProjectChips(window)[0]);
+            Click(window, ProjectChips(window)[0]);
             window.UpdateLayout();
 
             Button primary = Descendants<Button>(window)
@@ -124,10 +124,10 @@ public sealed class UserCheckInProjectPickerTests
             window.UpdateLayout();
 
             Button chip = ProjectChips(window)[0];
-            Click(chip);
+            Click(window, chip);
             window.UpdateLayout();
 
-            Click(Descendants<Button>(window).First(b => (b.Content as string) == "Nolan"));
+            Click(window, Descendants<Button>(window).First(b => (b.Content as string) == "Nolan"));
             window.UpdateLayout();
 
             Assert.Equal("Nolan", chip.Content);
@@ -149,9 +149,9 @@ public sealed class UserCheckInProjectPickerTests
             window.UpdateLayout();
 
             Button chip = ProjectChips(window)[0];
-            Click(chip);
+            Click(window, chip);
             window.UpdateLayout();
-            Click(Descendants<Button>(window).First(b => (b.Content as string) == "Nolan"));
+            Click(window, Descendants<Button>(window).First(b => (b.Content as string) == "Nolan"));
             window.UpdateLayout();
 
             var fill = (SolidColorBrush)chip.Background;
@@ -171,12 +171,12 @@ public sealed class UserCheckInProjectPickerTests
                 window.UpdateLayout();
 
                 Descendants<TextBox>(window)[0].Text = "Pricing page";
-                Click(ProjectChips(window)[0]);
+                Click(window, ProjectChips(window)[0]);
                 window.UpdateLayout();
-                Click(Descendants<Button>(window).First(b => (b.Content as string) == "Nolan"));
+                Click(window, Descendants<Button>(window).First(b => (b.Content as string) == "Nolan"));
                 window.UpdateLayout();
 
-                Click(Descendants<Button>(window).Single(b => (b.Content as string) == "Start the day"));
+                Click(window, Descendants<Button>(window).Single(b => (b.Content as string) == "Start the day"));
             },
             response => captured = response);
 
@@ -200,9 +200,9 @@ public sealed class UserCheckInProjectPickerTests
                 window.UpdateLayout();
 
                 Button chip = ProjectChips(window)[0];
-                Click(chip);
+                Click(window, chip);
                 window.UpdateLayout();
-                Click(Descendants<Button>(window).First(b => (b.Content as string) == "+ new"));
+                Click(window, Descendants<Button>(window).First(b => (b.Content as string) == "+ new"));
                 window.UpdateLayout();
 
                 TextBox box = Descendants<TextBox>(window)
@@ -232,9 +232,9 @@ public sealed class UserCheckInProjectPickerTests
                 window.UpdateLayout();
 
                 Descendants<TextBox>(window)[0].Text = "Pricing page";
-                Click(ProjectChips(window)[0]);
+                Click(window, ProjectChips(window)[0]);
                 window.UpdateLayout();
-                Click(Descendants<Button>(window).First(b => (b.Content as string) == "+ new"));
+                Click(window, Descendants<Button>(window).First(b => (b.Content as string) == "+ new"));
                 window.UpdateLayout();
 
                 TextBox box = Descendants<TextBox>(window)
@@ -243,7 +243,7 @@ public sealed class UserCheckInProjectPickerTests
                 PressEnter(window, box);
                 window.UpdateLayout();
 
-                Click(Descendants<Button>(window).Single(b => (b.Content as string) == "Start the day"));
+                Click(window, Descendants<Button>(window).Single(b => (b.Content as string) == "Start the day"));
             },
             response => captured = response);
 
@@ -263,16 +263,16 @@ public sealed class UserCheckInProjectPickerTests
             window.UpdateLayout();
 
             Button chip = ProjectChips(window)[0];
-            Click(chip);
+            Click(window, chip);
             window.UpdateLayout();
             // "None" is not offered while nothing is picked — there is nothing to clear.
             Assert.DoesNotContain(Descendants<Button>(window), b => (b.Content as string) == "None");
 
-            Click(Descendants<Button>(window).First(b => (b.Content as string) == "Nolan"));
+            Click(window, Descendants<Button>(window).First(b => (b.Content as string) == "Nolan"));
             window.UpdateLayout();
-            Click(chip);
+            Click(window, chip);
             window.UpdateLayout();
-            Click(Descendants<Button>(window).Single(b => (b.Content as string) == "None"));
+            Click(window, Descendants<Button>(window).Single(b => (b.Content as string) == "None"));
             window.UpdateLayout();
 
             Assert.Equal("+ project", chip.Content);
@@ -289,7 +289,7 @@ public sealed class UserCheckInProjectPickerTests
             window.Show();
             window.UpdateLayout();
 
-            Click(ProjectChips(window)[0]);
+            Click(window, ProjectChips(window)[0]);
             window.UpdateLayout();
 
             int offered = Descendants<Button>(window)
@@ -302,8 +302,10 @@ public sealed class UserCheckInProjectPickerTests
     private static IReadOnlyList<Button> ProjectChips(DependencyObject root)
         => Descendants<Button>(root).Where(b => b.Content is "+ project").ToList();
 
-    private static void Click(Button button)
-        => button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+    // Routed through CardInteraction so every press here is hit-tested first. These tests all
+    // passed on 2026-08-13 against a picker that read as dead, because RaiseEvent skips that.
+    private static void Click(Window window, Button button)
+        => CardInteraction.Press(window, button, (button.Content as string) ?? button.Name);
 
     private static void PressEnter(Window window, IInputElement target)
     {

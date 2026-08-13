@@ -3979,6 +3979,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _taskProjectOptions.Children.Add(addNew);
 
         _taskProjectOptionsHost.Visibility = Visibility.Visible;
+        ShowTaskProjectChipOpen(true);
         UpdateWindowHeight();
     }
 
@@ -3987,7 +3988,20 @@ internal sealed class UserDesktopWidgetWindow : Window
         _taskProjectOptionsHost.Visibility = Visibility.Collapsed;
         _taskProjectOptions.Children.Clear();
         _taskProjectNewBox = null;
+        ShowTaskProjectChipOpen(false);
         UpdateWindowHeight();
+    }
+
+    /// <summary>
+    /// A pressed control must change. The card's picker shipped without this and read as dead
+    /// (2026-08-13); the widget's had the same gap and is closed here rather than waiting for the
+    /// same report from the other surface.
+    /// </summary>
+    private void ShowTaskProjectChipOpen(bool open)
+    {
+        _taskProjectChip.Background = open
+            ? new SolidColorBrush(Color.FromRgb(0x2E, 0x35, 0x3E))
+            : Brushes.Transparent;
     }
 
     private void OpenTaskProjectNewBox()

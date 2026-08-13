@@ -649,12 +649,21 @@ internal sealed class UserCheckInCardWindow : Window
 
             HighlightChip(durationChips[0], true);
 
+            // ORDER IS LOAD-BEARING. The duration row goes in FIRST so the picker lands BENEATH
+            // it, which is what the brief specifies and what the press needs to look like.
+            //
+            // It was the other way round in 1.2.143/1.2.144 and the picker opened ABOVE the row,
+            // between the text box and the chips. Measured on a rendered card: the options landed
+            // 53 px above the chip that was pressed, while the chip itself stayed put and changed
+            // nothing about its appearance — so pressing it looked like it did nothing at all.
+            // That is the whole bug; the handler was always wired.
+            panel.Children.Add(durationRow);
+
             // Step 9a — the project picker rides the SAME row as the durations, to their right.
             // At rest it costs zero height (measured: a three-task card is 566.36 DIPs with or
             // without the chip), which is the constraint Yadin set.
             AddProjectPicker(row, durationRow, panel, projects);
 
-            panel.Children.Add(durationRow);
             row.Panel = panel;
             rowsPanel.Children.Add(panel);
             rows.Add(row);
@@ -770,10 +779,23 @@ internal sealed class UserCheckInCardWindow : Window
         };
         rowPanel.Children.Add(pickerHost);
 
+        // A pressed control MUST change. Without this the chip looked identical open and closed,
+        // and since the card grows upward the chip does not even move on screen — so the only
+        // evidence of the press was elsewhere on the card. "Nothing happened" is what that reads
+        // as, and it is what was reported.
+        //
+        // The neutral fill, never the accent: green means finished work and the primary button.
+        void ShowOpen(bool open)
+        {
+            chip.Background = open ? new SolidColorBrush(ChipSelectedFill) : Brushes.Transparent;
+            chip.Foreground = new SolidColorBrush(open ? ChipSelectedFg : LabelFg);
+        }
+
         void Collapse()
         {
             pickerHost.Children.Clear();
             pickerHost.Visibility = Visibility.Collapsed;
+            ShowOpen(false);
             _closeOpenProjectPicker = null;
         }
 
@@ -782,8 +804,10 @@ internal sealed class UserCheckInCardWindow : Window
             _userInteracted = true;
             row.ProjectId = id;
             row.ProjectName = name;
-            ShowPickedProject(chip, name);
+            // Collapse FIRST: it restores the chip to its rest appearance, so styling the picked
+            // state before it would be immediately undone.
             Collapse();
+            ShowPickedProject(chip, name);
         }
 
         void OpenNewProjectBox()
@@ -855,8 +879,8 @@ internal sealed class UserCheckInCardWindow : Window
                     _userInteracted = true;
                     row.ProjectId = 0;
                     row.ProjectName = string.Empty;
-                    ShowEmptyProject(chip);
                     Collapse();
+                    ShowEmptyProject(chip);
                 };
                 wrap.Children.Add(clear);
             }
@@ -883,6 +907,7 @@ internal sealed class UserCheckInCardWindow : Window
 
             pickerHost.Children.Add(bounded);
             pickerHost.Visibility = Visibility.Visible;
+            ShowOpen(true);
             _closeOpenProjectPicker = Collapse;
         }
 
