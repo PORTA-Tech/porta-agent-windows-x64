@@ -41,7 +41,7 @@ The order exists so the first three phases can be lived with before a single byt
 
 | Phase | What it is | What leaves the machine |
 |---|---|---|
-| **A** | Client-facing labels, project client-facing names, optional rate. Schema v28 | **Nothing** |
+| **A** | Client-facing labels, project client-facing names, optional rate. Schema v28. **BUILT 2026-08-13 — data layer only, no UI, not installed** | **Nothing** |
 | **B** | The Reports page: pick a project and a range, draft, exclude lines, preview the real thing | **Nothing** |
 | **C** | Connect Gmail, confirm-before-send, send from the machine | **The email, to the client** |
 | **D** | The server record, delete-on-both-sides, the setting | **The §12.2 payload** |
@@ -50,9 +50,19 @@ The order exists so the first three phases can be lived with before a single byt
 hours, look at it, and decide it is right before anything is connected. If B looks wrong, C and D
 are wasted work.
 
-### Phase A — the data
+### Phase A — the data. BUILT 2026-08-13
 
-Schema **v28** (v27 is the current head — `Migrations.cs:137`, `app_usage_rollup_v27`).
+> **Done:** schema v28, the four store writes, the models, and 14 tests. **Not done, and not part of
+> phase A:** any endpoint, any UI, anything a user can see. Nothing is reachable from Control Center
+> until phase B, which is deliberate — this phase is the data and the rules that protect it.
+>
+> **Not built into an MSI.** There is nothing to look at yet, so there is nothing to install. The
+> version is bumped to **1.2.150** so the tree no longer claims 1.2.149, which is on his machine.
+>
+> Gate at the time: Core 780/784 with the four documented failures allowed by name, UserAgent 476,
+> Service 132, ControlCenter 80, Runtime 6.
+
+Schema **v28** (v27 was the head — `Migrations.cs:137`, `app_usage_rollup_v27`).
 
 ```sql
 -- Learned once, never asked again. Local, and the raw title/name NEVER leaves.

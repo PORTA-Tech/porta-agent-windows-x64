@@ -2466,6 +2466,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private const int MaxProjects = 200;
     private const int MaxProjectNameLength = 60;
 
+    // Step 10 phase A. A client-facing label is one line in a report, not a description — 120 is
+    // roughly twice the longest of the real titles on this machine and still fits one row.
+    private const int MaxClientLabelLength = 120;
+    private const int MaxCurrencyLength = 8;
+
     /// <summary>
     /// Creates a project, or returns the EXISTING one when the name already exists in any casing.
     /// Create-or-get rather than create-or-fail: the picker's "+ new" is the only caller, and a
@@ -2551,7 +2556,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
             $"""
-            SELECT p.id, p.name, p.created_at_utc, p.archived_at_utc, p.order_index
+            SELECT p.id, p.name, p.created_at_utc, p.archived_at_utc, p.order_index,
+                   p.client_name, p.label_style, p.rate_minor, p.rate_currency
             FROM projects p
             WHERE $includeArchived = 1 OR p.archived_at_utc = ''
             ORDER BY COALESCE(
@@ -2690,6 +2696,140 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     }
 
     /// <summary>
+    /// Step 10 phase A — the client-facing label for one task, given once and then remembered.
+    /// The raw title is NOT touched: it stays exactly as the user typed it, forever, because it is
+    /// the thing they recognise their own work by (Step10_Report_Spec.md §3).
+    ///
+    /// An empty label CLEARS it, which is deliberate. "I have not named this yet" and "I named it
+    /// and want to undo that" are the same state, and a label that could not be removed would be a
+    /// worse trap than one that has to be typed twice.
+    ///
+    /// Nothing here is limited to unfinished or recent tasks: a report is drawn over a date range
+    /// and every line in it can be labelled, however old.
+    /// </summary>
+    public AgentTask? SetTaskClientLabel(long taskId, string label)
+    {
+        string clean = NormalizeClientText(label, MaxClientLabelLength);
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = "UPDATE tasks SET client_label = $label WHERE id = $id;";
+                cmd.Parameters.AddWithValue("$label", clean);
+                cmd.Parameters.AddWithValue("$id", taskId);
+                if (cmd.ExecuteNonQuery() == 0)
+                {
+                    tx.Commit();
+                    return null;
+                }
+            }
+
+            AgentTask? updated = ReadTaskRow(connection, tx, taskId);
+            tx.Commit();
+            return updated;
+        }
+    }
+
+    /// <summary>
+    /// The name a client sees in the report header. Distinct from <c>projects.name</c>, which the
+    /// user typed for themselves on a morning card and which never leaves the machine.
+    ///
+    /// NOT subject to the unique index that <c>name</c> carries, and that is not an oversight: the
+    /// index exists so "Nolan" and "nolan" cannot become two projects and halve one client's total
+    /// (§ the invoice rule, Projects_Step9_Brief). Two different projects legitimately sharing one
+    /// client-facing name — two engagements for the same client — splits nothing, because the hours
+    /// are still totalled per project and reported separately.
+    /// </summary>
+    public AgentProject? SetProjectClientName(long id, string clientName)
+        => UpdateProjectColumn(id, "client_name", NormalizeClientText(clientName, MaxProjectNameLength));
+
+    /// <summary>
+    /// The per-project default: does a NEW task on this project start out wanting a client-facing
+    /// label, or is its raw title fine?
+    ///
+    /// IT CHANGES NOTHING THAT ALREADY EXISTS. Turning it off does not strip labels already written,
+    /// and turning it on does not relabel anything. That is the rule Yadin settled on 2026-08-13
+    /// (§3): a setting must never overwrite words the user wrote for a client. It is enforced here
+    /// by this method touching exactly one column — there is deliberately no code path from the
+    /// default to a task's label.
+    /// </summary>
+    public AgentProject? SetProjectLabelStyle(long id, bool useClientLabels)
+        => UpdateProjectColumn(id, "label_style", useClientLabels ? 1 : 0);
+
+    /// <summary>
+    /// The optional rate, in MINOR units (2500 = 25.00), user-side only. 0 clears it.
+    ///
+    /// Money never leaves this machine and never reaches a client's copy of anything (§7). Ari does
+    /// the multiplication and the user carries the figure into whatever they already invoice with.
+    /// A negative rate is refused rather than stored: it can only be a typo, and the one number
+    /// this product must never get wrong is one that looks like money.
+    /// </summary>
+    public AgentProject? SetProjectRate(long id, long rateMinor, string currency)
+    {
+        if (rateMinor < 0)
+        {
+            return null;
+        }
+
+        AgentProject? updated = UpdateProjectColumn(id, "rate_minor", rateMinor);
+        return updated == null
+            ? null
+            : UpdateProjectColumn(id, "rate_currency", NormalizeClientText(currency, MaxCurrencyLength));
+    }
+
+    /// <summary>
+    /// One column, one project, returning the project as it now stands, or null when there is no
+    /// such row. The column name is never user input — every caller passes a literal.
+    /// </summary>
+    private AgentProject? UpdateProjectColumn(long id, string column, object value)
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using SqliteTransaction tx = BeginImmediateTransaction(connection);
+
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = $"UPDATE projects SET {column} = $value WHERE id = $id;";
+                cmd.Parameters.AddWithValue("$value", value);
+                cmd.Parameters.AddWithValue("$id", id);
+                if (cmd.ExecuteNonQuery() == 0)
+                {
+                    tx.Commit();
+                    return null;
+                }
+            }
+
+            AgentProject? updated = ReadProjectById(connection, tx, id);
+            tx.Commit();
+            return updated;
+        }
+    }
+
+    /// <summary>
+    /// Trims, collapses internal whitespace and clamps. Same treatment as a project name, for the
+    /// same reason: what a client reads should not carry the accidents of how it was typed.
+    /// Unlike a project name an empty result is allowed — it means "not set".
+    /// </summary>
+    private static string NormalizeClientText(string? text, int maxLength)
+    {
+        string trimmed = (text ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        string collapsed = string.Join(' ', trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return collapsed.Length > maxLength ? collapsed[..maxLength].TrimEnd() : collapsed;
+    }
+
+    /// <summary>
     /// Collapses internal whitespace and clamps the length. Two names that differ only by spacing
     /// are the same project to a human, so they must be the same project to the unique index too.
     /// </summary>
@@ -2707,7 +2847,9 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             : collapsed;
     }
 
-    private const string ProjectColumns = "id, name, created_at_utc, archived_at_utc, order_index";
+    private const string ProjectColumns =
+        "id, name, created_at_utc, archived_at_utc, order_index, " +
+        "client_name, label_style, rate_minor, rate_currency";
 
     private static AgentProject? ReadProjectById(SqliteConnection connection, SqliteTransaction tx, long id)
     {
@@ -2735,7 +2877,11 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             Name: reader.GetString(1),
             CreatedAtUtc: DateTimeOffset.Parse(reader.GetString(2)),
             Archived: !string.IsNullOrEmpty(reader.GetString(3)),
-            OrderIndex: reader.GetInt32(4));
+            OrderIndex: reader.GetInt32(4),
+            ClientName: reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
+            UseClientLabels: !reader.IsDBNull(6) && reader.GetInt32(6) != 0,
+            RateMinor: reader.IsDBNull(7) ? 0L : reader.GetInt64(7),
+            RateCurrency: reader.IsDBNull(8) ? string.Empty : reader.GetString(8));
 
     // Step 9a — the project name is resolved in the SELECT rather than by a second call, because
     // the widget repaints every 4s. A LEFT JOIN, so an untagged task (project_id = 0) and a task
@@ -2744,7 +2890,7 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
     private const string TaskColumns =
         "t.id, t.title, t.planned_seconds, t.state, t.order_index, t.created_at_utc, t.started_at_utc, " +
         "t.ended_at_utc, t.active_seconds, t.focused_seconds, t.offtask_seconds, t.extended_seconds, " +
-        "t.deferred_until_day, t.project_id, COALESCE(p.name, '')";
+        "t.deferred_until_day, t.project_id, COALESCE(p.name, ''), t.client_label";
 
     private const string TaskSelect =
         "SELECT " + TaskColumns + " FROM tasks t LEFT JOIN projects p ON p.id = t.project_id";
@@ -2778,7 +2924,8 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
             ExtendedSeconds: reader.GetInt32(11),
             DeferredUntilDay: reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
             ProjectId: reader.IsDBNull(13) ? 0L : reader.GetInt64(13),
-            ProjectName: reader.IsDBNull(14) ? string.Empty : reader.GetString(14));
+            ProjectName: reader.IsDBNull(14) ? string.Empty : reader.GetString(14),
+            ClientLabel: reader.IsDBNull(15) ? string.Empty : reader.GetString(15));
     }
 
     /// <summary>

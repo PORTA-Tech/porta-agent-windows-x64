@@ -62,6 +62,13 @@ public interface IBrainStateStore
     AgentProject? RenameProject(long id, string name);
     AgentProject? SetProjectArchived(long id, bool archived, DateTimeOffset nowUtc);
 
+    // Step 10 phase A (2026-08-13) — what a client is shown, and the user-side rate. Local only:
+    // no payload gains a field from any of these. Step10_Report_Spec.md §3, §7, §12.7.
+    AgentTask? SetTaskClientLabel(long taskId, string label);
+    AgentProject? SetProjectClientName(long id, string clientName);
+    AgentProject? SetProjectLabelStyle(long id, bool useClientLabels);
+    AgentProject? SetProjectRate(long id, long rateMinor, string currency);
+
     // 2026-08-12 — the hourly app rollup, resolved to projects at read time. localOffset is passed
     // in for the same reason ReadDayTimeline takes it: the local hour is a local concept.
     IReadOnlyList<AgentAppUsageHour> ReadAppUsage(

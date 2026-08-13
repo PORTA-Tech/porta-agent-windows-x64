@@ -136,7 +136,13 @@ internal static class Migrations
         new(
             Version: 27,
             Name: "app_usage_rollup_v27",
-            Apply: Schema.ApplyAppUsageRollupV27)
+            Apply: Schema.ApplyAppUsageRollupV27),
+        // Step 10 phase A (2026-08-13) — client-facing labels for tasks and projects, and the
+        // user-side rate. Additive, defaulted, LOCAL ONLY: no payload gains a field in this phase.
+        new(
+            Version: 28,
+            Name: "report_labels_v28",
+            Apply: Schema.ApplyReportLabelsV28)
     ];
 
     internal static void Migrate(SqliteConnection connection)

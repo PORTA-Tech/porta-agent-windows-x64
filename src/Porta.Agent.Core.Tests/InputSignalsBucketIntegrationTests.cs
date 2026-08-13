@@ -236,6 +236,10 @@ public sealed class InputSignalsBucketIntegrationTests
         public AgentTask? SetTaskProject(long taskId, long projectId) => null;
         public AgentProject? RenameProject(long id, string name) => null;
         public AgentProject? SetProjectArchived(long id, bool archived, DateTimeOffset nowUtc) => null;
+        public AgentTask? SetTaskClientLabel(long taskId, string label) => null;
+        public AgentProject? SetProjectClientName(long id, string clientName) => null;
+        public AgentProject? SetProjectLabelStyle(long id, bool useClientLabels) => null;
+        public AgentProject? SetProjectRate(long id, long rateMinor, string currency) => null;
         public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => System.Array.Empty<AgentAppUsageHour>();
 
     public IReadOnlyList<AgentDayTimelineHour> ReadDayTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => Array.Empty<AgentDayTimelineHour>();

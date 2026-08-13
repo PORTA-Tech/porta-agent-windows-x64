@@ -727,6 +727,42 @@ internal static class Schema
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// Step 10 phase A (2026-08-13) — the report's data. Five additive, defaulted columns, and
+    /// <b>NOTHING here leaves the machine</b>: no payload gains a field in this phase, which is
+    /// what makes it shippable on its own.
+    ///
+    /// WHY CLIENT-FACING NAMES EXIST AT ALL. The real task titles on this machine are
+    /// <c>finish my writting part "all the way in"</c> and <c>working on appolo leads</c> — private
+    /// notes with typos, and a title can just as easily name a different client or the reason a day
+    /// went badly. None of that belongs in a paying client's inbox, so the user gives the line a
+    /// client-facing label once and it is remembered forever (Step10_Report_Spec.md §3).
+    ///
+    /// <c>projects.client_name</c> is the same idea for the project itself, and it was nearly
+    /// missed: §4 puts the project name in the report header, in the largest text on the page,
+    /// while the name is typed on a morning card in the same hurry as everything else.
+    ///
+    /// <c>label_style</c> 0 = use the raw title, 1 = ask for a client-facing label. It decides only
+    /// what a NEW task starts as. A label the user has written is never overwritten by this setting
+    /// changing later — see SetProjectLabelStyle.
+    ///
+    /// THE RATE IS MINOR UNITS AND AN INTEGER, deliberately. Money in a float is a rounding error
+    /// waiting to appear next to hours this product exists to make defensible. 0 = no rate set.
+    /// §7: it is shown only to the user in Control Center and <b>must never appear in any payload,
+    /// in any form</b> — a document carrying a money total starts being treated as an invoice.
+    ///
+    /// Empty string means "not set" and 0 means "no rate", matching deferred_until_day and
+    /// project_id: no nullable columns, so no caller anywhere has to handle a null.
+    /// </summary>
+    internal static void ApplyReportLabelsV28(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "tasks", "client_label", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "projects", "client_name", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "projects", "label_style", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "projects", "rate_minor", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "projects", "rate_currency", "TEXT NOT NULL DEFAULT ''");
+    }
+
     internal static void ApplyDailyGoalsV24(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

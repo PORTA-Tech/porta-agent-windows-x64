@@ -97,6 +97,14 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
         => _inner.RenameProject(id, name);
     public AgentProject? SetProjectArchived(long id, bool archived, DateTimeOffset nowUtc)
         => _inner.SetProjectArchived(id, archived, nowUtc);
+    public AgentTask? SetTaskClientLabel(long taskId, string label)
+        => _inner.SetTaskClientLabel(taskId, label);
+    public AgentProject? SetProjectClientName(long id, string clientName)
+        => _inner.SetProjectClientName(id, clientName);
+    public AgentProject? SetProjectLabelStyle(long id, bool useClientLabels)
+        => _inner.SetProjectLabelStyle(id, useClientLabels);
+    public AgentProject? SetProjectRate(long id, long rateMinor, string currency)
+        => _inner.SetProjectRate(id, rateMinor, currency);
     public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(
         DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset)
         => _inner.ReadAppUsage(fromUtc, toUtc, localOffset);

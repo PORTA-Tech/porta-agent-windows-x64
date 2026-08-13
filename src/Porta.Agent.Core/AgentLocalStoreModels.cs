@@ -413,7 +413,12 @@ public sealed record AgentTask(
     // valid state and never nagged about. ProjectName is denormalised on the read so the widget,
     // which repaints every 4s, never needs a second call to draw a row.
     long ProjectId = 0,
-    string ProjectName = "");
+    string ProjectName = "",
+    // Step 10 phase A (2026-08-13) — what a paying client is shown for this line, given once by the
+    // user and then remembered forever. Empty = never given. The raw Title above stays local and is
+    // never replaced by it: the label is for the report, the title is for the person doing the work
+    // (Step10_Report_Spec.md §3).
+    string ClientLabel = "");
 
 /// <summary>
 /// Step 9a — a project. On a card a project is ONLY a name; client, colour and rate belong in
@@ -451,7 +456,21 @@ public sealed record AgentProject(
     string Name,
     DateTimeOffset CreatedAtUtc,
     bool Archived,
-    int OrderIndex);
+    int OrderIndex,
+    // Step 10 phase A (2026-08-13) — the name a client sees in the report header, the largest text
+    // on the page. Empty = never given, and the report must ask before it can be sent rather than
+    // falling back to Name: "nolan - chase invoice" is a plausible thing to type on a morning card
+    // (Step10_Report_Spec.md §12.7).
+    string ClientName = "",
+    // 0 = use the raw title for new tasks, 1 = ask for a client-facing label. Decides only what a
+    // NEW task starts as; a label already written is never overwritten by this changing (§3).
+    bool UseClientLabels = false,
+    // §7 — minor units, integer, and USER-SIDE ONLY. 0 = no rate. Ari does the arithmetic and the
+    // user carries the figure into whatever they already invoice with. This must never reach any
+    // payload: a document with a money total starts being treated as an invoice, and that is a
+    // different product.
+    long RateMinor = 0,
+    string RateCurrency = "");
 
 // Digest redesign (2026-08-11) — one local hour of the day's shape. Seconds only, never a title:
 // this describes WHEN work happened, not what was open. Focus + Active + Away sum to at most 3600;
