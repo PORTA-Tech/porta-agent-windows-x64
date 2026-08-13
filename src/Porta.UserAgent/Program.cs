@@ -7,16 +7,30 @@ using Porta.UserAgent;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
-#if DEBUG
-// DEBUG-ONLY smoke harness (compiled out of Release). Renders each real check-in card variant on
-// demand so the fixed question label + away-aware EOD wrap can be eyeballed without the live
-// scheduler/timeline. See CheckInCardPreview.
-if (Array.Exists(args, static a => string.Equals(a, "--preview-checkins", StringComparison.OrdinalIgnoreCase)))
+// The card preview harness. SHIPPED IN RELEASE since 1.2.146, deliberately.
+//
+// It was DEBUG-only, so the only way to look at a card in the installed build was to wait for the
+// scheduler to fire one. Waiting a day to eyeball a card cost real time twice in the week of
+// 2026-08-11, and the project picker shipped visibly broken partly because nobody could look at it.
+//
+// There is no UI, no button and no shortcut — an exact undocumented flag is the only way in, and
+// anyone able to pass it can already run arbitrary code as this user, so it is not a privilege
+// boundary. It reads nothing, writes nothing, and sends nothing: every prompt is a hardcoded
+// literal and responses are discarded. See CheckInCardPreview.
+//
+// This runs BEFORE the single-instance lease and the host, so it cannot disturb a running agent.
+// The exception hooks are wired first anyway, so a crash in here still leaves a trace.
+if (Array.Exists(args, static a =>
+        string.Equals(a, Porta.UserAgent.Interventions.CheckInCardPreview.Flag, StringComparison.OrdinalIgnoreCase)))
 {
-    Porta.UserAgent.Interventions.CheckInCardPreview.Run();
+    AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
+        UserAgentFileLog.Error("preview_unhandled_exception", eventArgs.ExceptionObject as Exception);
+
+    bool renderPngs = Array.Exists(args, static a =>
+        string.Equals(a, Porta.UserAgent.Interventions.CheckInCardPreview.PngFlag, StringComparison.OrdinalIgnoreCase));
+    Porta.UserAgent.Interventions.CheckInCardPreview.Run(renderPngs);
     return;
 }
-#endif
 
 UserAgentStartupMetadata startupMetadata = UserAgentStartupMetadata.Parse(args);
 AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>

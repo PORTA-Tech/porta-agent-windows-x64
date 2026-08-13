@@ -1,60 +1,167 @@
-#if DEBUG
 namespace Porta.UserAgent.Interventions;
 
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Porta.Agent.LocalApi;
 
-// DEBUG-ONLY smoke harness. Compiled out of the shipped (Release) agent entirely — there is no
-// production surface. Renders the REAL check-in card (UserCheckInCardWindow) built by the REAL
-// coordinator (UserCheckInCoordinator.BuildPrompt), so what you see is pixel-for-pixel what the
-// fleet gets. Used by `Porta.UserAgent.exe --preview-checkins` to eyeball, without fighting the live
-// scheduler/timeline: (1) the fixed question label sits above the buttons/box on midday + EOD, and
-// (2) the away-day EOD reads as the combined wrap, not the generic "Today's goal was …" line.
-//
-// Cards show in sequence; answer or dismiss (✕ / Esc) each to advance to the next. Order:
-//   1) Morning   2) Midday   3) End-of-day (normal)   4) End-of-day (missed-midday + away wrap)
+/// <summary>
+/// The card preview harness. Renders the REAL check-in card (<see cref="UserCheckInCardWindow"/>)
+/// built by the REAL coordinator (<see cref="UserCheckInCoordinator.BuildPrompt"/>), so what you
+/// see is pixel-for-pixel what the fleet gets.
+///
+/// <para><b>Shipped in Release since 1.2.146</b>, behind <c>--preview-checkins</c>. It was
+/// DEBUG-only, which meant the only way to look at a card was to wait for the scheduler to fire
+/// one. Waiting a day to eyeball a card cost real time twice in the week of 2026-08-11, and the
+/// project picker shipped visibly broken partly because nobody could look at it.</para>
+///
+/// <para><b>What it touches: nothing.</b> Every prompt below is hardcoded literals. No database,
+/// no local API, no network, no scheduler. Responses are discarded — answering a preview card
+/// creates no task and records no goal. It returns from Program.cs before the single-instance
+/// lease and before the host starts, so it cannot disturb a running agent.</para>
+///
+/// <para><b>Its log is redirected</b> to the temp folder. The card logs <c>checkin_card_focus</c>
+/// on every show, and this must never enter the live <c>user-agent.log</c> — that file is the
+/// primary instrument for field investigations and has already been misread as field data once.</para>
+///
+/// <para>Two modes:
+/// <list type="bullet">
+/// <item><c>--preview-checkins</c> — shows every state in sequence; answer or dismiss (✕ / Esc) to
+/// advance. Use this to PRESS things: the picker bug of 2026-08-13 was invisible in a static
+/// image.</item>
+/// <item><c>--preview-checkins --png</c> — writes every state to PNGs and prints the folder. Use
+/// this to judge design, the way the 51 card PNGs are judged.</item>
+/// </list></para>
+/// </summary>
 internal static class CheckInCardPreview
 {
-    public static void Run()
+    internal const string Flag = "--preview-checkins";
+    internal const string PngFlag = "--png";
+
+    public static void Run(bool renderPngs)
     {
-        var thread = new Thread(RunStaLoop) { IsBackground = false };
+        // Before anything constructs a card: the preview's own noise must not land in the live log.
+        string logPath = Path.Combine(Path.GetTempPath(), "porta-preview", "preview.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+        UserAgentFileLog.RedirectTo(logPath);
+
+        var thread = new Thread(renderPngs ? RenderAllToPngs : RunStaLoop) { IsBackground = false };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
         thread.Join();
     }
 
+    // ── interactive ──
+
     private static void RunStaLoop()
     {
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-        List<UserCheckInPrompt> prompts = BuildPreviewPrompts();
+        IReadOnlyList<PreviewState> states = BuildStates();
 
         int index = 0;
         UserCheckInCardWindow? card = null;
 
         void ShowNext()
         {
-            if (index >= prompts.Count)
+            if (index >= states.Count)
             {
                 app.Shutdown();
                 return;
             }
 
-            card!.ShowPrompt(prompts[index++]);
+            PreviewState state = states[index++];
+            Console.WriteLine($"[{index}/{states.Count}] {state.Name}");
+            card!.ShowPrompt(state.Prompt);
+            state.AfterShow?.Invoke(card);
         }
 
-        // The card hides itself on answer/dismiss and raises the response; we just advance.
         card = new UserCheckInCardWindow(_ => card!.Dispatcher.BeginInvoke((Action)ShowNext));
 
         app.Startup += (_, _) => ShowNext();
         app.Run();
     }
 
-    private static List<UserCheckInPrompt> BuildPreviewPrompts()
+    // ── PNG sheet ──
+
+    private static void RenderAllToPngs()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "porta-preview", "cards");
+        Directory.CreateDirectory(dir);
+        foreach (string stale in Directory.EnumerateFiles(dir, "*.png"))
+        {
+            File.Delete(stale);
+        }
+
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        IReadOnlyList<PreviewState> states = BuildStates();
+        int written = 0;
+
+        // One window reused across states, exactly as the live agent reuses it — a fresh window per
+        // state would hide anything that only goes wrong on the second show.
+        var card = new UserCheckInCardWindow(_ => { });
+        UserCheckInCardWindow.SuppressForegroundAcquisition = true;
+        try
+        {
+            for (int i = 0; i < states.Count; i++)
+            {
+                PreviewState state = states[i];
+                card.ShowPrompt(state.Prompt);
+                card.UpdateLayout();
+                state.AfterShow?.Invoke(card);
+                card.UpdateLayout();
+
+                string file = Path.Combine(dir, $"{i + 1:00}-{Slug(state.Name)}.png");
+                SavePng(card, file);
+                written++;
+                Console.WriteLine($"{Path.GetFileName(file)}  {card.ActualWidth:F0}x{card.ActualHeight:F0}");
+            }
+        }
+        finally
+        {
+            UserCheckInCardWindow.SuppressForegroundAcquisition = false;
+            card.Close();
+            app.Shutdown();
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"{written} card states written to:");
+        Console.WriteLine(dir);
+    }
+
+    private static void SavePng(Window window, string path)
+    {
+        var bitmap = new RenderTargetBitmap(
+            (int)Math.Ceiling(window.ActualWidth),
+            (int)Math.Ceiling(window.ActualHeight),
+            96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(window);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using FileStream stream = File.Create(path);
+        encoder.Save(stream);
+    }
+
+    private static string Slug(string name)
+        => new string(name.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray())
+            .Replace("--", "-", StringComparison.Ordinal)
+            .Trim('-');
+
+    // ── the states ──
+
+    private sealed record PreviewState(
+        string Name,
+        UserCheckInPrompt Prompt,
+        Action<UserCheckInCardWindow>? AfterShow = null);
+
+    private static IReadOnlyList<PreviewState> BuildStates()
     {
         var goal = new LocalApiDailyGoal(
-            LocalDate: "2026-07-21",
+            LocalDate: "2026-08-13",
             GoalText: "Finish the Q3 board deck",
             TrackingPref: "keep_on_track",
             MiddayAnswer: "",
@@ -74,24 +181,168 @@ internal static class CheckInCardPreview
             DisplayedTrackedTodaySeconds: 5 * 3600,
             MostDistractedHourLabel: "15:00-15:59");
 
-        return new List<UserCheckInPrompt>
-        {
-            // 1) Morning — fresh ask (no fixed label; morning owns its own goal box).
-            UserCheckInCoordinator.BuildPrompt(UserCheckInKind.Morning, goal: null, metrics),
+        IReadOnlyList<UserCheckInProject> projects =
+        [
+            new(1, "Nolan"),
+            new(2, "Apollo Rebrand"),
+            new(3, "Porta"),
+        ];
 
-            // 2) Midday — report line + "Did you get to your goal?" above Yes / Partly / Not-yet.
-            UserCheckInCoordinator.BuildPrompt(UserCheckInKind.Midday, goal, metrics, narrativeLine: ""),
+        IReadOnlyList<TaskBoardLine> oneOpen = [Task(9, "Pricing page", "pending")];
+        IReadOnlyList<TaskBoardLine> threeOpen =
+        [
+            Task(9, "Pricing page", "pending"),
+            Task(10, "Client revisions", "pending"),
+            Task(11, "Invoice chase", "pending"),
+        ];
+        IReadOnlyList<TaskBoardLine> mixedToday =
+        [
+            Task(9, "Pricing page", "done", measured: 4020, planned: 7200),
+            Task(10, "Client revisions", "active", measured: 1140, planned: 3600),
+            Task(11, "Invoice chase", "pending", measured: 0, planned: 1800),
+        ];
+        IReadOnlyList<TaskBoardLine> yesterday =
+        [
+            Task(5, "keep improving the system", "done", measured: 6815, planned: 7200),
+            Task(6, "writting", "abandoned", measured: 20, planned: 10800),
+            Task(7, "working on apollo", "abandoned", measured: 0, planned: 3600),
+        ];
 
-            // 3) End-of-day (normal) — generic "Today's goal was …" + "Plan for tomorrow?" above the box.
-            UserCheckInCoordinator.BuildPrompt(
-                UserCheckInKind.EndOfDay, goal, metrics, narrativeLine: "",
-                middaySkipped: false, awayGap: false),
+        return
+        [
+            // ── morning ──
+            new("morning fresh, no projects yet",
+                UserCheckInCoordinator.BuildPrompt(UserCheckInKind.Morning, null, metrics)),
 
-            // 4) End-of-day (missed midday + away gap) — the combined away-aware wrap fallback copy.
-            UserCheckInCoordinator.BuildPrompt(
-                UserCheckInKind.EndOfDay, goal, metrics, narrativeLine: "",
-                middaySkipped: true, awayGap: true),
-        };
+            new("morning fresh, projects available",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.Morning, null, metrics, projects: projects)),
+
+            new("morning proposed from one open task",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.Morning, null, metrics, board: oneOpen, projects: projects)),
+
+            new("morning three tasks and yesterday (height worst case)",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.Morning, null, metrics,
+                    board: threeOpen, yesterday: yesterday, projects: projects)),
+
+            new("morning carried plan prefill",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.Morning, null, metrics,
+                    carriedPlan: "Ship the pricing page", projects: projects)),
+
+            // The state that shipped broken on 2026-08-13: the options must open BENEATH the chip
+            // and the chip must visibly change. A static list could not have shown either.
+            new("morning PICKER OPEN",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.Morning, null, metrics, board: oneOpen, projects: projects),
+                PressProjectChip),
+
+            new("morning PICKER OPEN on a three-task card",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.Morning, null, metrics,
+                    board: threeOpen, yesterday: yesterday, projects: projects),
+                PressProjectChip),
+
+            new("morning project PICKED",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.Morning, null, metrics, board: oneOpen, projects: projects),
+                window =>
+                {
+                    PressProjectChip(window);
+                    PressButton(window, "Nolan");
+                }),
+
+            new("morning NEW PROJECT box open",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.Morning, null, metrics, board: oneOpen, projects: projects),
+                window =>
+                {
+                    PressProjectChip(window);
+                    PressButton(window, "+ new");
+                }),
+
+            new("morning picker with no projects yet (plus-new only)",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.Morning, null, metrics, board: oneOpen),
+                PressProjectChip),
+
+            // ── midday ──
+            new("midday with today's tasks",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.Midday, goal, metrics, narrativeLine: "", board: mixedToday)),
+
+            new("midday with no tasks (chip fallback)",
+                UserCheckInCoordinator.BuildPrompt(UserCheckInKind.Midday, goal, metrics, narrativeLine: "")),
+
+            // ── close-out (card four) ──
+            new("close-out with open work",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.MiddayClose, goal, metrics, narrativeLine: "", board: mixedToday)),
+
+            new("close-out with nothing open",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.MiddayClose, goal, metrics, narrativeLine: "")),
+
+            new("close-out after a skipped midday",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.MiddayClose, goal, metrics, narrativeLine: "",
+                    middaySkipped: true, board: mixedToday)),
+
+            // ── evening ──
+            new("evening with today's tasks",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.EndOfDay, goal, metrics, narrativeLine: "", board: mixedToday)),
+
+            new("evening normal, no tasks",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.EndOfDay, goal, metrics, narrativeLine: "",
+                    middaySkipped: false, awayGap: false)),
+
+            new("evening missed midday and away gap",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.EndOfDay, goal, metrics, narrativeLine: "",
+                    middaySkipped: true, awayGap: true)),
+        ];
     }
+
+    private static void PressProjectChip(UserCheckInCardWindow window)
+        => PressButton(window, "+ project");
+
+    private static void PressButton(UserCheckInCardWindow window, string content)
+    {
+        Button? button = Descendants<Button>(window)
+            .FirstOrDefault(b => (b.Content as string) == content);
+        button?.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        window.UpdateLayout();
+    }
+
+    private static IReadOnlyList<T> Descendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        var found = new List<T>();
+        void Walk(DependencyObject node)
+        {
+            foreach (object? child in LogicalTreeHelper.GetChildren(node))
+            {
+                if (child is DependencyObject d)
+                {
+                    if (d is T match)
+                    {
+                        found.Add(match);
+                    }
+
+                    Walk(d);
+                }
+            }
+        }
+
+        Walk(root);
+        return found;
+    }
+
+    private static TaskBoardLine Task(
+        long id, string title, string state, double measured = 0d, int planned = 3600)
+        => new(id, title, planned, measured, state, DaysCarried: 0, EndedAtLocal: DateTimeOffset.Now.AddDays(-1));
 }
-#endif
