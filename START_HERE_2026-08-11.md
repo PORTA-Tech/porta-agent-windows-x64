@@ -96,7 +96,7 @@ until 1.2.140 or later is installed. That floor is long since passed.
 | 8. The morning screen | Built and installed. First real sighting 2026-08-11. |
 | 9a. Projects exist, locally | **BUILT 2026-08-12, committed `861b4c5`, first shipped in 1.2.143.** See §12. Projects also show on midday and evening rows as of `69beaa5` / 1.2.149. |
 | 9b, 9c | **RETIRED as phase labels.** They existed to defer one decision — whether client names leave the machine — and choosing "Ari emails a report to a client" made it. See `Step10_Report_Spec.md` §2. |
-| 10. The report | **Specified, not built.** `Step10_Report_Spec.md`. §11.1 answered 2026-08-13; §11.2 is the field-by-field live-data list and is the gate before any code. |
+| 10. The report | **Specified and approved, not built.** `Step10_Report_Spec.md` is fully answered as of 2026-08-13 — field list approved, §12.0 names the third-party-data line. Build brief: `Step10_Report_BuildBrief.md`. Nothing is built yet. |
 
 Step 10 remains gated on the week of real use — *has Ari changed what Yadin actually did that
 day?* He knows, and started 9a anyway because it mostly adds information rather than changing the

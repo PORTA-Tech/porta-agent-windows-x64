@@ -243,6 +243,10 @@ the same infrastructure. That is other companies' client lists and work records,
 That is a responsibility to take on deliberately, not to discover afterwards. So: **a setting,
 default on for Yadin, with its default for everyone else chosen on purpose before release.**
 
+**The setting must say what it is doing in the words of §12.0** — that the recipient is a third
+party who never installed Ari, what is held about them, for how long, and that any single report can
+be deleted on both sides. §12.0 is the fuller statement and it is the one to write from.
+
 ---
 
 ## 11. Still open, to answer when building
@@ -251,11 +255,10 @@ default on for Yadin, with its default for everyone else chosen on purpose befor
    **ANSWERED 2026-08-13** — per task, with a per-project default. Written up in §3.
 2. What exactly goes to the server, field by field, with real example values — the standing rule.
    **DRAFTED 2026-08-13, in §12. Partly settled.**
-   - **Settled:** §12.4 (token and address book local), §12.6 (all four decisions, plus deletion of
-     a single sent report on both sides), §12.7 (the project gets a client-facing name).
-   - **Still owed:** Yadin going through the field list itself — §12.2 and §12.3 — line by line.
-     **No field may be built until he has.** That is the standing rule, and it is the whole of what
-     is left before code.
+   **ANSWERED IN FULL 2026-08-13.** §12.2 and §12.3 approved as drafted; §12.4, §12.6 and §12.7
+   decided; §12.0 names the line the feature crosses. The standing rule is satisfied — **the field
+   list is the approved one, and no field outside it may be added without going through this
+   again.** The build brief is `Step10_Report_BuildBrief.md`.
 3. What the Reports page looks like. Yadin has also noted that some existing Control Center pages
    should be removed; that is a separate conversation when Control Center is worked on.
 
@@ -265,6 +268,50 @@ default on for Yadin, with its default for everyone else chosen on purpose befor
 
 Written 2026-08-13 against the code as it stands at `69beaa5` / 1.2.149. This is the standing rule
 being honoured: **name every live-data write before making it, and wait for the go.**
+
+**§12.2 and §12.3 APPROVED by Yadin, 2026-08-13**, as drafted. Two things he noted rather than
+changed, recorded so they are not quietly reopened later:
+
+- **No raw task titles in the payload — only the labels he wrote.** The private note stays on the
+  machine; what the client is shown is the only thing stored.
+- **No flag for excluded lines.** In his words: *"a record of what I chose not to show a client is
+  itself a thing sitting on a server."* An excluded line is absent, not marked absent.
+
+### 12.0 The line this feature crosses — third-party data
+
+**Named here at Yadin's instruction, 2026-08-13, because it should be written down rather than
+understood.**
+
+Everything Ari has ever held is the user's own data, about themselves. They installed it, they can
+see it, they can delete it, and every argument about privacy in this product so far has been about
+someone's relationship with their own machine.
+
+**The recipient's email address is not that.** It belongs to a person who never installed Ari, never
+agreed to anything, was never asked, and has no way to know the record exists. Today that person is
+Yadin's client. The moment Ari has a second user it is *their* client — other companies' contacts and
+work records, held on Yadin's server.
+
+That is the line. Not the volume of data, and not its sensitivity — the fact that for the first time
+the subject of the data is not the person who chose to run the software.
+
+What follows from it, and none of it is optional:
+
+- **Minimise.** Exactly one address per sent report, because you cannot send without it. The address
+  book stays on the machine (§12.4). There is never a server-side list of a user's clients.
+- **It is used for one thing.** Sending that report. Never analytics, never enrichment, never
+  suggestions, never anything aggregated across users. It does not become a product input.
+- **It is deletable, on both sides, per report** (§12.6.5) — the only way a third party's data can
+  be held indefinitely and still be defensible.
+- **The setting in §10 says this plainly**, in the words above, at the moment it is switched on. Not
+  in a policy document nobody opens.
+- **The answer to "what do you hold about me?" has to be short and true**: one email address and one
+  work report, sent to you by the person you hired, deletable on request.
+
+If a future change would put a third party's data anywhere else — a second field, another table, an
+analytics event, a backup with a different retention — **that is a new decision of the same size as
+this one**, and it gets named the same way before it is built.
+
+---
 
 Read §12.6 first if you only read one part. It is the four decisions; everything above it is the
 detail behind them.
