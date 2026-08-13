@@ -64,7 +64,8 @@ Rules:
   reflects that.
 - Renaming affects reports only. The task keeps its own name locally, forever.
 
-**ANSWERED 2026-08-13 (Yadin): a client-facing label per task, with a per-project default.**
+**ANSWERED 2026-08-13 (Yadin): a client-facing label per task, with a per-project default — and the
+project itself gets a client-facing name too, learned the same way. See §12.7.**
 
 The project carries one setting — *use client-facing labels* or *use the raw title* — and a label on
 a task overrides it. Purely per task means re-labelling every new task forever; purely per project
@@ -138,6 +139,9 @@ rather than "here is my recollection".
   the next report, never a delivered one. Same rule as the digest.
 - **A local record of exactly what was sent**, including the labels, the figures, the recipient and
   the timestamp. Yadin, 2026-08-13: *"there should be."* Without it a challenge cannot be answered.
+- **Any single sent report can be deleted, on the server as well as locally.** Added by Yadin,
+  2026-08-13. Reports are kept indefinitely, which is only defensible while he can end that for any
+  one of them. The rules, including why a half-delete must never report success, are in §12.6.5.
 
 ---
 
@@ -246,8 +250,12 @@ default on for Yadin, with its default for everyone else chosen on purpose befor
 1. ~~Does a project carry a default naming style, or is every client-facing label per task?~~
    **ANSWERED 2026-08-13** — per task, with a per-project default. Written up in §3.
 2. What exactly goes to the server, field by field, with real example values — the standing rule.
-   **DRAFTED 2026-08-13, in §12. Not approved.** Nothing in it may be built until Yadin has gone
-   through it and said yes, and §12.6 lists the four things he actually has to decide.
+   **DRAFTED 2026-08-13, in §12. Partly settled.**
+   - **Settled:** §12.4 (token and address book local), §12.6 (all four decisions, plus deletion of
+     a single sent report on both sides), §12.7 (the project gets a client-facing name).
+   - **Still owed:** Yadin going through the field list itself — §12.2 and §12.3 — line by line.
+     **No field may be built until he has.** That is the standing rule, and it is the whole of what
+     is left before code.
 3. What the Reports page looks like. Yadin has also noted that some existing Control Center pages
    should be removed; that is a separate conversation when Control Center is worked on.
 
@@ -289,9 +297,15 @@ Two things follow that matter more than the table:
 > of them. What it did remove is the guard that stops a project name drifting onto the nightly
 > digest by refactor — and §12.5 recommends the digest stay project-free.
 >
-> If that recommendation is accepted, the right end state is a **narrower test guarding the digest
-> and narrative payloads only**, and it is one small file to write. Not written, because it was not
-> asked for.
+> **Written 2026-08-13 on Yadin's instruction** — the recommendation was accepted and his "delete
+> it" was narrowed by him: `DigestStaysProjectFreeTests`. It walks every payload type reachable
+> from `DailyDigestReportPayload` and `NarrativeRequestPayload` and fails if any of them gains a
+> field mentioning a project, plus a test asserting the walk actually reaches the nested payloads —
+> a walk that quietly reached nothing would pass forever and guard nothing. The report payload is a
+> different root and is deliberately not constrained.
+>
+> **Verified by breaking it:** adding `projectName` to `DigestTaskPayload` fails two of the four
+> tests; removing it again passes all four.
 
 ### 12.2 The report, when the user taps Send
 
@@ -343,7 +357,7 @@ Field by field, and what each one actually discloses:
 | `reportId` | `7f3c1b90-…` | ties the stored snapshot to the local record | nothing |
 | `accountId` / `deviceId` / `machineId` | `acct_9f21c8` | already sent with every payload | nothing new |
 | `sentAtUtc` | `2026-08-20T11:42:07Z` | a dispute is answered with a timestamp | when he was working |
-| `projectName` | `Nolan` | it is the report's headline | **a client's name — new** |
+| `projectName` | `Nolan` | it is the report's headline | **a client's name — new.** The client-facing name per §12.7, never the local one |
 | `rangeStartLocal` / `rangeEndLocal` | `2026-08-12` | the period being billed | the shape of an engagement |
 | `senderName` / `senderEmail` | `Yadin Sela` | the report is *from* the user | his own identity |
 | `recipientEmail` / `recipientName` | `accounts@nolan-studio.com` | you cannot send without it | **a third party who agreed to nothing — new** |
@@ -371,25 +385,27 @@ Each of these is a rule with a reason, not a preference:
 - **Excluded lines.** A line the user excluded is *gone*, not sent with a flag. A flag is a record of
   what he chose not to show a client, sitting on a server.
 
-### 12.4 The address book, and the Gmail permission
+### 12.4 The address book, and the Gmail permission — DECIDED 2026-08-13
 
-These are the two pieces that are not report data, and they should be decided separately from §2's
+These are the two pieces that are not report data, and Yadin decided them separately from §2's
 "the server holds everything".
 
-**The address book — recommend LOCAL ONLY.** It is a list of other people's names and email
-addresses. The send is triggered by the user at the machine, so the server never needs the book, only
-the one address on the report being sent. Keeping it local means a server breach cannot spill a
-client list. Storing it buys convenience across machines, which is worth nothing at one user.
+**The address book — LOCAL ONLY.** It is a list of other people's names and email addresses. The
+send is triggered by the user at the machine, so the server never needs the book, only the one
+address on the report being sent. Keeping it local means a server breach cannot spill a client list.
+Storing it would buy convenience across machines, which is worth nothing at one user.
 
-**The Gmail refresh token — recommend LOCAL ONLY, encrypted, and this is the sharpest one.** A token
-that can send mail as the user is the highest-value secret this product has ever held. Server-side,
-one breach sends mail as every user; the blast radius is not "data leaked" but "mail sent from your
-address". Locally it can go through the same DPAPI path as the device credential (`Secrets`), and it
-costs one real thing: **the report can only be sent while the machine is on** — which is already
-true, because the user must tap Send.
+**The Gmail refresh token — LOCAL ONLY, encrypted like the device credential.** A token that can
+send mail as the user is the highest-value secret this product has ever held. Server-side, one
+breach sends mail as *every* user; the blast radius is not "data leaked" but "mail sent from your
+address". Locally it goes through the same DPAPI path as the device credential (`Secrets`).
 
-If the token is local, the send happens from the machine, and the server receives §12.2 as a
-**record of what was sent**, not as an instruction to send it.
+Yadin, 2026-08-13, on the one cost: *"only sending while my machine is on is not a cost, I have to
+tap Send anyway."*
+
+So **the send happens from the machine**, and the server receives §12.2 as a **record of what was
+sent**, never as an instruction to send it. Nothing server-side can cause an email to leave the
+user's address.
 
 ### 12.5 Two things deliberately NOT proposed
 
@@ -399,25 +415,48 @@ If the token is local, the send happens from the machine, and the server receive
 - **No project list upload.** A project that has never been in a sent report never leaves the
   machine at all. Names arrive at the server only as a consequence of sending a report about them.
 
-### 12.6 The four things Yadin has to decide
+### 12.6 The four decisions — ANSWERED 2026-08-13
 
-1. **The recipient's address on the server — yes or no?** It is the only field belonging to someone
-   who never installed anything. Storing it is what makes "who was this sent to?" answerable in a
-   dispute. Not storing it means the local record answers that instead, and the server holds an
-   anonymous report. *Recommendation: store it — a dispute is exactly when it is needed.*
-2. **Gmail token local or server?** §12.4. *Recommendation: local.*
-3. **Address book local or server?** §12.4. *Recommendation: local.*
-4. **How long does the server keep a sent report?** Forever is defensible — it is the evidence.
-   *Recommendation: keep indefinitely, and say so in the setting from §10, rather than quietly.*
+All four recommendations taken, plus one requirement Yadin added.
 
-### 12.7 A gap in the spec, found while writing this
+1. **The recipient's address is stored on the server.** It is the only field belonging to someone
+   who never installed anything, and storing it is what makes *"who did I send this to?"* answerable.
+   Yadin: *"a dispute is exactly when I need to know who I sent it to."*
+2. **The Gmail token is local**, encrypted like the device credential. §12.4.
+3. **The address book is local.** §12.4.
+4. **A sent report is kept indefinitely**, and the setting in §10 **says so plainly** rather than
+   leaving it to be discovered.
 
-**The project's own name goes to the client and has no client-facing label.** §3 gives every *task*
-a label because raw titles are private notes — but §4 puts the **project name** in the header, large,
-and a project name is typed on a morning card in the same private hurry. `Nolan` is fine. `nolan -
-chase invoice` is not, and nothing in the spec currently stops it reaching the client.
+**5. NEW REQUIREMENT — a specific sent report must be deletable, and that must delete it
+server-side too, not only locally.** Yadin, 2026-08-13.
 
-Two ways to close it, both cheap: give a project an optional client-facing name the same way a task
-gets one, or let the report header be edited once per project and remember it. **Recommend the
-second** — it is the same "learned once, never asked again" mechanism already agreed in §3, and it
-adds no new concept.
+This is the counterweight to keeping reports forever: indefinite retention is defensible only while
+the user can end it for any single report. What it means for the build:
+
+- **`reportId` is what makes deletion possible.** It is already in §12.2; it is now load-bearing.
+- **Deletion is one action with two halves, and it is not done until both have happened.** A local
+  delete that leaves the server copy is exactly the failure `primitive_buckets` already made once —
+  "delete my local data" reported success and left 542 MB behind (`START_HERE_2026-08-11.md` §13.2).
+  **Do not repeat it.** If the server half fails, say so and leave the report listed as still
+  present; never report success on a half-delete.
+- **It deletes the recipient's address with it**, which is the point — that field is a third party's.
+- **It is a real delete, not a flag.** A `deleted = 1` row still holds the client's name, the
+  labels, and the address.
+- **The local record of what was sent (§5) goes too.** Keeping the evidence locally while the user
+  asked for the report to be gone is the same broken promise in the other direction. If that trade
+  is ever considered, it is a decision for Yadin, not a default.
+- The existing "delete my local data" path must cover sent reports as well, on both sides.
+
+### 12.7 The project's own name — CLOSED 2026-08-13
+
+**The gap:** §3 gives every *task* a client-facing label because raw titles are private notes — but
+§4 puts the **project name** in the header, large, and a project name is typed on a morning card in
+the same private hurry. `Nolan` is fine. `nolan - chase invoice` is not, and nothing in the spec
+stopped it reaching the client. Yadin: *"the header is the biggest text a client reads."*
+
+**Decided: a project gets a client-facing name too, learned once, the same mechanism as a task.**
+Asked for the first time the project appears in a report, remembered forever, never asked again,
+editable in Control Center. The project keeps its own name locally, exactly as a task does.
+
+`projectName` in §12.2 is therefore **the client-facing name**, never the local one — the local one
+does not leave the machine at all.
