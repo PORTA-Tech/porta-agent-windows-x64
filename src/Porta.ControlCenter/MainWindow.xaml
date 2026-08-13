@@ -35,6 +35,9 @@
                      separate on purpose: the Porta* brushes below are a different palette, and
                      redefining them would restyle every page in one unreviewed change. -->
                 <ResourceDictionary Source="Themes/ReportTheme.xaml" />
+                <!-- Implicit, and app-wide on purpose: a stock Windows scrollbar beside a themed
+                     page is what made the themed page look like it came from somewhere else. -->
+                <ResourceDictionary Source="Themes/ScrollBarTheme.xaml" />
             </ResourceDictionary.MergedDictionaries>
         <!-- Surface / border / text -->
         <SolidColorBrush x:Key="PortaSurfaceBaseBrush" Color="#1C1C2E" />
