@@ -274,13 +274,24 @@ and none of it was re-checked here. **Confirm it there before relying on it.**
 | Raw task titles, again | narrative payload, `tasks[]` | **No** |
 | The goal sentence, derived from task titles | `daily_stats`, as `goal` | **Yes** — this is the one durable server-side record of typed text today |
 | Per-hour focused/active/away, per-app labels and seconds | digest + `daily_stats` | Partly |
-| **No project name, ever** | — | asserted by `Step9aNothingLeavesTheMachineTests` |
+| **No project name, ever** | — | was asserted by `Step9aNothingLeavesTheMachineTests`, **deleted 2026-08-13** — see below |
 
 Two things follow that matter more than the table:
 
 - **Raw titles already transit the server; they are just not kept.** So the new thing in step 10 is
   not "titles leave" — it is **durable server-side storage**, and a **third party's email address**.
-- **The 2026-08-13 decision retires the no-project-names rule.** That test has to go, deliberately.
+- **The 2026-08-13 decision retires the no-project-names rule**, and the test asserting it was
+  deleted the same day on Yadin's instruction, in its own commit.
+
+> **What that deletion cost, stated plainly.** The test guarded the **digest and narrative**
+> payloads — not the report, which is new and which those assertions never touched. So deleting it
+> unblocked nothing: the report payload in §12.2 could have been added without failing a single one
+> of them. What it did remove is the guard that stops a project name drifting onto the nightly
+> digest by refactor — and §12.5 recommends the digest stay project-free.
+>
+> If that recommendation is accepted, the right end state is a **narrower test guarding the digest
+> and narrative payloads only**, and it is one small file to write. Not written, because it was not
+> asked for.
 
 ### 12.2 The report, when the user taps Send
 
