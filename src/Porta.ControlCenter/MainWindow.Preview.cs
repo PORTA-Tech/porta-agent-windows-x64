@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using Porta.Agent.LocalApi;
 
 namespace Porta.ControlCenter;
@@ -38,6 +39,74 @@ public partial class MainWindow
     /// </summary>
     internal FrameworkElement PreviewPageBody(string settingsSection)
         => settingsSection == "Projects" ? SettingsSectionProjects : SettingsSectionReports;
+
+    /// <summary>
+    /// Open the "from" date picker's calendar and put it in a given mode, so the popup can be
+    /// rendered. The page harness could not see inside a Popup — it is a separate visual tree in
+    /// its own window — which is exactly why a calendar that rendered nothing at all shipped in
+    /// 1.2.151. Anything that only appears on a click needs its own picture.
+    /// </summary>
+    internal System.Windows.Controls.Primitives.Popup PreviewOpenCalendar()
+    {
+        ReportFromPicker.IsDropDownOpen = true;
+        UpdateLayout();
+
+        return (System.Windows.Controls.Primitives.Popup)ReportFromPicker
+            .Template.FindName("PART_Popup", ReportFromPicker);
+    }
+
+    /// <summary>
+    /// Set the calendar's display mode AFTER the popup has finished opening. DatePicker forces
+    /// DisplayMode back to Month as part of opening the drop-down, so setting it in the same breath
+    /// is silently undone — which is how three "different" calendar shots came out identical.
+    /// Returns the mode that actually took, so the harness can report a mismatch instead of writing
+    /// a misleading picture.
+    /// </summary>
+    internal CalendarMode? PreviewSetCalendarMode(
+        System.Windows.Controls.Primitives.Popup popup, CalendarMode mode)
+    {
+        if (popup.Child is not Calendar calendar)
+        {
+            return null;
+        }
+
+        calendar.DisplayMode = mode;
+        calendar.UpdateLayout();
+        UpdateLayout();
+        return calendar.DisplayMode;
+    }
+
+    /// <summary>
+    /// Drive a date through the CALENDAR, the way a person does, then close the drop-down. This is
+    /// the path that broke the format in 1.2.151 and the one a programmatic SelectedDate never
+    /// exercises. Returns what the two fields actually read afterwards.
+    /// </summary>
+    internal void PreviewPickThroughCalendar(DateTime date)
+    {
+        System.Windows.Controls.Primitives.Popup popup = PreviewOpenCalendar();
+        if (popup.Child is Calendar calendar)
+        {
+            calendar.SelectedDate = date;
+            calendar.UpdateLayout();
+        }
+
+        ReportFromPicker.IsDropDownOpen = false;
+        UpdateLayout();
+    }
+
+    /// <summary>
+    /// Read AFTER flushing the dispatcher — the reformat is queued, so reading in the same breath
+    /// as the pick reports the value before it has been corrected.
+    /// </summary>
+    internal (string From, string To) PreviewPickerTexts
+        => (PreviewPickerText(ReportFromPicker), PreviewPickerText(ReportToPicker));
+
+    private static string PreviewPickerText(DatePicker picker)
+        => picker.Template?.FindName("PART_TextBox", picker) is TextBox box
+            ? box.Text
+            : "<no textbox>";
+
+    internal bool PreviewStaleNoticeShown => ReportStaleText.Visibility == Visibility.Visible;
 
     internal void PreviewFillProjects(IReadOnlyList<LocalApiProject> projects)
         => RenderProjects(projects);

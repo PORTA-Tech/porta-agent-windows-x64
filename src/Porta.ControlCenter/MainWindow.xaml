@@ -1735,11 +1735,16 @@
                                             <!-- AriDatePicker, not DatePicker: "8/12/2026" means two different
                                                  days depending on where the reader lives, and this range ends
                                                  up on a document about which days were worked. -->
-                                            <ctl:AriDatePicker x:Name="ReportFromPicker" Grid.Column="1" Style="{StaticResource RpDatePicker}" Width="150" Margin="0,0,8,0" VerticalAlignment="Center" />
-                                            <ctl:AriDatePicker x:Name="ReportToPicker" Grid.Column="2" Style="{StaticResource RpDatePicker}" Width="150" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                            <ctl:AriDatePicker x:Name="ReportFromPicker" Grid.Column="1" Style="{StaticResource RpDatePicker}" Width="150" Margin="0,0,8,0" VerticalAlignment="Center" SelectedDateChanged="ReportRangeChanged" />
+                                            <ctl:AriDatePicker x:Name="ReportToPicker" Grid.Column="2" Style="{StaticResource RpDatePicker}" Width="150" Margin="0,0,8,0" VerticalAlignment="Center" SelectedDateChanged="ReportRangeChanged" />
                                             <Button x:Name="ReportBuildButton" Grid.Column="3" Content="Build draft" Style="{StaticResource RpPrimaryButton}" VerticalAlignment="Center" Click="ReportBuildButton_Click" />
                                         </Grid>
                                         <TextBlock x:Name="ReportStatusText" Style="{StaticResource RpMeta}" />
+                                        <!-- Two different ranges on one screen, with nothing saying
+                                             which one the figures belong to, is the exact ambiguity
+                                             this document cannot carry. -->
+                                        <TextBlock x:Name="ReportStaleText" Style="{StaticResource RpMeta}" Margin="0,6,0,0" Visibility="Collapsed"
+                                                   Text="These dates have changed since the draft below was built, so the figures still belong to the old range. Press Build draft again." />
                                     </StackPanel>
                                 </Border>
 

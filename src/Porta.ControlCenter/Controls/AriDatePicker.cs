@@ -25,6 +25,9 @@ public class AriDatePicker : DatePicker
     private const string UnambiguousFormat = "dd MMM yyyy";
 
     private TextBox? _textBox;
+    private bool _formatting;
+    private bool _pending;
+    private bool _userEditing;
 
     public override void OnApplyTemplate()
     {
@@ -32,16 +35,29 @@ public class AriDatePicker : DatePicker
 
         if (_textBox is not null)
         {
+            _textBox.TextChanged -= OnTextBoxChanged;
             _textBox.LostFocus -= OnTextBoxLostFocus;
+            _textBox.PreviewTextInput -= OnUserEdited;
+            _textBox.PreviewKeyDown -= OnUserEdited;
         }
 
         _textBox = GetTemplateChild("PART_TextBox") as TextBox;
 
         if (_textBox is not null)
         {
-            // The base control rewrites the text itself when focus leaves, after parsing whatever
-            // was typed. Re-apply afterwards or the field reverts to the culture's short date.
+            // TextChanged is the one hook that catches EVERY path, and catching every path is the
+            // whole problem: the base control rewrites this text on selection, on losing focus, on
+            // the popup closing, and again when the drop-down reopens. Hooking only the events we
+            // could think of is what shipped in 1.2.151 — one picker held the format and the other
+            // did not, and both reverted to slashes after using the calendar.
+            _textBox.TextChanged += OnTextBoxChanged;
             _textBox.LostFocus += OnTextBoxLostFocus;
+
+            // Typing, specifically — not merely holding focus. Closing the drop-down hands focus
+            // back to this box, and treating that as "the user is mid-word" is what left one picker
+            // showing slashes after a calendar pick while the other held the format.
+            _textBox.PreviewTextInput += OnUserEdited;
+            _textBox.PreviewKeyDown += OnUserEdited;
         }
 
         ApplyFormat();
@@ -50,14 +66,56 @@ public class AriDatePicker : DatePicker
     protected override void OnSelectedDateChanged(SelectionChangedEventArgs e)
     {
         base.OnSelectedDateChanged(e);
+
+        // The date came from somewhere authoritative — the calendar, or code. Whatever was being
+        // typed is finished with.
+        _userEditing = false;
         ApplyFormat();
     }
 
-    private void OnTextBoxLostFocus(object sender, System.Windows.RoutedEventArgs e) => ApplyFormat();
+    private void OnTextBoxChanged(object sender, System.Windows.RoutedEventArgs e) => ApplyFormat();
 
+    private void OnUserEdited(object sender, System.Windows.RoutedEventArgs e) => _userEditing = true;
+
+    private void OnTextBoxLostFocus(object sender, System.Windows.RoutedEventArgs e)
+    {
+        _userEditing = false;
+        ApplyFormat();
+    }
+
+    /// <summary>
+    /// Queue the rewrite rather than doing it inside the event that asked for it. Writing Text from
+    /// a TextChanged handler re-enters the base control's parse-and-rewrite path synchronously and
+    /// overflows the stack — measured, not guessed. Deferring to the dispatcher breaks the cycle,
+    /// and the pending flag coalesces the burst of changes a single date pick produces.
+    /// </summary>
     private void ApplyFormat()
     {
-        if (_textBox is null)
+        if (_pending)
+        {
+            return;
+        }
+
+        _pending = true;
+        Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Background,
+            new Action(() =>
+            {
+                _pending = false;
+                ApplyFormatCore();
+            }));
+    }
+
+    private void ApplyFormatCore()
+    {
+        if (_textBox is null || _formatting)
+        {
+            return;
+        }
+
+        // Never while the user is mid-word — rewriting under the caret moves it to the end and makes
+        // the field impossible to type in. Having focus is not the same as typing into it.
+        if (_userEditing && _textBox.IsKeyboardFocused)
         {
             return;
         }
@@ -66,11 +124,20 @@ public class AriDatePicker : DatePicker
             ? date.ToString(UnambiguousFormat, CultureInfo.InvariantCulture)
             : string.Empty;
 
-        // Only when it differs: assigning Text re-enters the base control's parse path, and a
-        // needless write there is a loop waiting to be found by someone else.
-        if (!string.Equals(_textBox.Text, text, StringComparison.Ordinal))
+        if (string.Equals(_textBox.Text, text, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // Assigning Text re-enters the base control's parse path, which raises TextChanged again.
+        _formatting = true;
+        try
         {
             _textBox.Text = text;
+        }
+        finally
+        {
+            _formatting = false;
         }
     }
 }

@@ -88,6 +88,31 @@ public partial class MainWindow
     private void ReportBuildButton_Click(object sender, RoutedEventArgs e)
         => _ = BuildReportDraftAsync();
 
+    /// <summary>
+    /// A drafted report keeps showing the range it was BUILT with, which is correct — the figures
+    /// belong to that range. What is not acceptable is showing it beside pickers that now say
+    /// something else, with nothing to tell them apart. Two ranges on one screen, in a document
+    /// about which days were worked, is the one thing this page cannot be.
+    /// </summary>
+    private void ReportRangeChanged(object sender, SelectionChangedEventArgs e) => UpdateReportStaleNotice();
+
+    private void UpdateReportStaleNotice()
+    {
+        if (ReportStaleText is null)
+        {
+            return;
+        }
+
+        bool stale =
+            _reportDraft is { } draft &&
+            ReportFromPicker.SelectedDate is DateTime from &&
+            ReportToPicker.SelectedDate is DateTime to &&
+            (!string.Equals(LocalDate(from), draft.RangeStartLocal, StringComparison.Ordinal) ||
+             !string.Equals(LocalDate(to), draft.RangeEndLocal, StringComparison.Ordinal));
+
+        ReportStaleText.Visibility = stale ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private async Task BuildReportDraftAsync()
     {
         if (ReportProjectPicker.SelectedItem is not LocalApiProject project ||
@@ -165,6 +190,7 @@ public partial class MainWindow
         RenderDaysChart(draft);
         RenderLines(draft);
         RenderReadiness(draft, included);
+        UpdateReportStaleNotice();
     }
 
     /// <summary>

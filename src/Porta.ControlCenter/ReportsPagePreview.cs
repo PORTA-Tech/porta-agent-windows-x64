@@ -1,5 +1,7 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Porta.Agent.LocalApi;
@@ -80,6 +82,71 @@ internal static class ReportsPagePreview
             window.Close();
         }
 
+        // The calendar popup, once per display mode.
+        foreach ((string name, CalendarMode mode) in CalendarStates)
+        {
+            var window = new MainWindow
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -20000,
+                Top = -20000,
+                Width = 1180,
+                Height = 900,
+                ShowInTaskbar = false
+            };
+            window.Show();
+            window.ShowPreviewPage("Reports", w => w.PreviewFillReport(SampleDraft));
+
+            Popup popup = window.PreviewOpenCalendar();
+            Flush(window);
+
+            // Open first, settle, THEN switch mode — the base control resets it while opening.
+            CalendarMode? actual = window.PreviewSetCalendarMode(popup, mode);
+            Flush(window);
+
+            string file = Path.Combine(dir, $"{++written:00}-{Slug(name)}.png");
+            if (popup.Child is FrameworkElement child && child.ActualWidth > 0)
+            {
+                SavePopupPng(child, file);
+                string warn = actual == mode ? "" : $"  !! asked {mode}, got {actual?.ToString() ?? "no calendar"}";
+                Console.WriteLine(
+                    $"{Path.GetFileName(file)}  {child.ActualWidth:F0}x{child.ActualHeight:F0}{warn}");
+            }
+            else
+            {
+                Console.WriteLine($"{Path.GetFileName(file)}  POPUP EMPTY — nothing rendered");
+            }
+
+            window.Close();
+        }
+
+        // Not a picture: the two things that cannot be seen in one. The format must survive a pick
+        // made through the calendar, and a draft whose dates no longer match its pickers must say so.
+        {
+            var window = new MainWindow
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -20000, Top = -20000, Width = 1180, Height = 900, ShowInTaskbar = false
+            };
+            window.Show();
+            window.ShowPreviewPage("Reports", w => w.PreviewFillReport(SampleDraft));
+            Flush(window);
+
+            window.PreviewPickThroughCalendar(new DateTime(2026, 08, 03));
+            Flush(window);
+            (string from, string to) = window.PreviewPickerTexts;
+
+            Console.WriteLine();
+            Console.WriteLine("CHECKS");
+            Console.WriteLine($"  after picking 3 Aug through the calendar:");
+            Console.WriteLine($"    from reads : \"{from}\"   {(from == "03 Aug 2026" ? "OK" : "WRONG")}");
+            Console.WriteLine($"    to reads   : \"{to}\"   {(to == "18 Aug 2026" ? "OK" : "WRONG")}");
+            Console.WriteLine(
+                $"  stale notice shown after the range moved: {window.PreviewStaleNoticeShown} " +
+                $"{(window.PreviewStaleNoticeShown ? "OK" : "WRONG")}");
+            window.Close();
+        }
+
         Console.WriteLine();
         Console.WriteLine($"{written} page states written to:");
         Console.WriteLine(dir);
@@ -148,6 +215,35 @@ internal static class ReportsPagePreview
         Write(bitmap, path);
     }
 
+    /// <summary>
+    /// The popup's child, on the page background with a margin. A popup renders on transparency, so
+    /// without a drawn backdrop the picture is dark text on nothing.
+    /// </summary>
+    private static void SavePopupPng(FrameworkElement child, string path)
+    {
+        const double Pad = 20d;
+        double cw = child.ActualWidth;
+        double ch = child.ActualHeight;
+
+        int w = (int)Math.Ceiling(cw + (Pad * 2));
+        int h = (int)Math.Ceiling(ch + (Pad * 2));
+
+        var visual = new DrawingVisual();
+        using (DrawingContext dc = visual.RenderOpen())
+        {
+            dc.DrawRectangle(
+                new SolidColorBrush(Color.FromRgb(0x0F, 0x11, 0x15)), null, new Rect(0, 0, w, h));
+            dc.DrawRectangle(
+                new VisualBrush(child) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top },
+                null,
+                new Rect(Pad, Pad, cw, ch));
+        }
+
+        var bitmap = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        Write(bitmap, path);
+    }
+
     private static void Write(RenderTargetBitmap bitmap, string path)
     {
         var encoder = new PngBitmapEncoder();
@@ -176,6 +272,16 @@ internal static class ReportsPagePreview
         new("projects empty", "Projects", w => w.PreviewFillProjects([])),
         new("reports drafted", "Reports", w => w.PreviewFillReport(SampleDraft), Height: 1560),
         new("reports empty", "Reports", w => w.PreviewFillReport(EmptyDraft), Height: 1080),
+    ];
+
+    // The popup is a separate visual tree in its own window, so the page shots never contained it.
+    // One picture per display mode, because the header button walks through all three and a broken
+    // year view is just as invisible from the closed state as a broken month view was.
+    private static IReadOnlyList<(string Name, CalendarMode Mode)> CalendarStates =>
+    [
+        ("calendar days", CalendarMode.Month),
+        ("calendar months", CalendarMode.Year),
+        ("calendar years", CalendarMode.Decade),
     ];
 
     private static readonly DateTimeOffset Made = new(2026, 08, 12, 9, 0, 0, TimeSpan.Zero);
