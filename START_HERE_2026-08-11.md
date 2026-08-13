@@ -76,6 +76,24 @@ a visible **Add** button on the new-project box, and the honest evening copy.
 > **Owed once he installs it:** he has never actually used the Add button or seen projects on the
 > midday and evening rows, because no build carrying them was ever on the machine.
 
+> **1.2.150 handed over 2026-08-13** — his machine only. No tag, no release, no manifest.
+> `installer\bin\x64\Release\AriAgentInstaller.msi` · 178,118,656 bytes ·
+> ProductVersion read back out of the MSI · payload exes stamped `1.2.150+c966dc5` ·
+> SHA256 `AD5343D6EA4F6D8160C4ACB88C38A2399D119B9705D6FC7FE68F634720B07ECB`.
+> Gate: Core 790/794 with the four documented failures allowed by name, UserAgent 476, Service 132,
+> ControlCenter 80, Runtime 6.
+>
+> It carries **step 10 phases A and B** — client-facing labels, the project's client-facing name,
+> the user-side rate (schema v28), and the **Reports page** under Settings. Nothing in it sends
+> anything: there is no Send button, no recipient field and no email anywhere. See
+> `Step10_Report_BuildBrief.md`.
+>
+> **The first thing to look at is `unattributed_hours` on the Reports page.** The report counts the
+> app-usage rollup, which skips buckets with no identifiable application, so it can read lower than
+> the widget for the same task. How much lower is **unmeasured** — reading the live database needs
+> elevation. Each line prints the gap. If it is large, that is a finding about the capture pipeline,
+> not the report.
+
 The version history, short: 1.2.137 the caret fix; 1.2.138 the four-card timing, close-out card and
 persisted "Tomorrow"; 1.2.139 the day-adds-up and label-survival fixes; 1.2.140 `dayTimeline`;
 1.2.142 the test-suite cleanups; 1.2.143 step 9a; 1.2.144 the `primitive_buckets` fix; 1.2.145 the
