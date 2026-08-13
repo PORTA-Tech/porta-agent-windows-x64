@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -1829,6 +1829,25 @@ public sealed class AgentCoreController : IAgentCoreController
 
     public AgentProject? SetProjectArchived(long id, bool archived)
         => _stateStore.SetProjectArchived(id, archived, DateTimeOffset.UtcNow);
+
+    public AgentTask? SetTaskClientLabel(long taskId, string label)
+        => _stateStore.SetTaskClientLabel(taskId, label);
+
+    public AgentProject? SetProjectClientName(long id, string clientName)
+        => _stateStore.SetProjectClientName(id, clientName);
+
+    public AgentProject? SetProjectLabelStyle(long id, bool useClientLabels)
+        => _stateStore.SetProjectLabelStyle(id, useClientLabels);
+
+    public AgentProject? SetProjectRate(long id, long rateMinor, string currency)
+        => _stateStore.SetProjectRate(id, rateMinor, currency);
+
+    /// <summary>
+    /// Step 10 phase B — the report draft. The local offset is resolved HERE, the same place
+    /// GetAppUsage resolves it, so no caller has to know the store holds UTC.
+    /// </summary>
+    public AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate)
+        => _stateStore.ReadReportDraft(projectId, fromLocalDate, toLocalDate, DateTimeOffset.Now.Offset);
 
     /// <summary>
     /// 2026-08-12 — the hourly app rollup for a window, already resolved to projects. The local

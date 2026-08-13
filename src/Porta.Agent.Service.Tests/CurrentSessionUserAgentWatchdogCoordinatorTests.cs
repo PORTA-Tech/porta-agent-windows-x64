@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Porta.Agent.Common.UserAgent;
 
@@ -249,6 +249,11 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         public Porta.Agent.Core.AgentTask? SetTaskProject(long taskId, long projectId) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? RenameProject(long id, string name) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? SetProjectArchived(long id, bool archived) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentTask? SetTaskClientLabel(long taskId, string label) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentProject? SetProjectClientName(long id, string clientName) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentProject? SetProjectLabelStyle(long id, bool useClientLabels) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentProject? SetProjectRate(long id, long rateMinor, string currency) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate) => throw new NotSupportedException();
         public IReadOnlyList<Porta.Agent.Core.AgentAppUsageHour> GetAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc) => throw new NotSupportedException();
         public IReadOnlyList<Porta.Agent.Core.AgentTask> GetTodayTasks() => throw new NotSupportedException();
 

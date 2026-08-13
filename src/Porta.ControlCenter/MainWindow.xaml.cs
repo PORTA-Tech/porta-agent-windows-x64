@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -1029,6 +1029,7 @@ public partial class MainWindow : Window
         SettingsSectionFeatures.Visibility    = Visibility.Collapsed;
         SettingsSectionAppearance.Visibility  = Visibility.Collapsed;
         SettingsSectionProjects.Visibility    = Visibility.Collapsed;
+        SettingsSectionReports.Visibility     = Visibility.Collapsed;
 
         var navItems = new[]
         {
@@ -1038,6 +1039,7 @@ public partial class MainWindow : Window
             (SettingsNavCalibration, SettingsNavCalibrationText),
             (SettingsNavFeatures,    SettingsNavFeaturesText),
             (SettingsNavProjects,    SettingsNavProjectsText),
+            (SettingsNavReports,     SettingsNavReportsText),
             (SettingsNavAppearance,  SettingsNavAppearanceText),
         };
         var inactiveColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#64748B"));
@@ -1064,6 +1066,12 @@ public partial class MainWindow : Window
                 // Read on open rather than on every refresh: the list changes when a person
                 // decides it does, and this page is the only thing that shows it.
                 _ = RefreshProjectsAsync();
+                break;
+            case "Reports":
+                activeNav = SettingsNavReports; activeLabel = SettingsNavReportsText; activeSection = SettingsSectionReports;
+                // Same rule as Projects: read when the page is opened, not on a timer. A report
+                // draft is something a person asks for.
+                _ = OpenReportsPageAsync();
                 break;
             default:            activeNav = SettingsNavIntensity;   activeLabel = SettingsNavIntensityText;   activeSection = SettingsSectionIntensity;   break;
         }

@@ -42,7 +42,7 @@ The order exists so the first three phases can be lived with before a single byt
 | Phase | What it is | What leaves the machine |
 |---|---|---|
 | **A** | Client-facing labels, project client-facing names, optional rate. Schema v28. **BUILT 2026-08-13 — data layer only, no UI, not installed** | **Nothing** |
-| **B** | The Reports page: pick a project and a range, draft, exclude lines, preview the real thing | **Nothing** |
+| **B** | The Reports page: pick a project and a range, draft, exclude lines, preview the real thing. **BUILT 2026-08-13, shipped as 1.2.150** | **Nothing** |
 | **C** | Connect Gmail, confirm-before-send, send from the machine | **The email, to the client** |
 | **D** | The server record, delete-on-both-sides, the setting | **The §12.2 payload** |
 
@@ -91,7 +91,45 @@ chose it deliberately.
 - **Re-tagging stays instant and total** — labels hang off the task, so a task moving project takes
   its label with it. Do not copy labels onto a project.
 
-### Phase B — the Reports page
+### Phase B — the Reports page. BUILT 2026-08-13, shipped as 1.2.150
+
+> **Done:** the draft reader, three local endpoints, the Reports page in Control Center, and 10
+> tests. **Not done, and not part of phase B:** sending, a recipient, an email address anywhere.
+> There is deliberately **no Send button on the page** — a control that looked like it might send a
+> client something is the worst thing here to leave to guesswork.
+>
+> #### The decision that had to be made to build it: where the hours come from
+>
+> Two sources exist and they are **not** the same number *(verified by reading both writers)*:
+>
+> - `tasks.active_seconds`, credited by `AttributeBucketToActiveTask` — what the widget shows.
+> - `app_usage_rollup`, accumulated in the same transaction by `AccumulateAppUsageRollup`, which
+>   **skips any bucket with no identifiable application** (`SqliteBrainStateStore.cs:2995`).
+>
+> So the rollup is a subset: equal or lower, never higher.
+>
+> **The report takes everything from the rollup.** Only the rollup has a per-day breakdown, and a
+> report whose daily bars did not sum to its own total is precisely the argument this feature exists
+> to win. Taking line totals from one source and bars from the other would guarantee that failure.
+> Splitting a task's total across days by any other means would be inference, which is forbidden.
+>
+> **The cost, named rather than hidden:** a line can read lower than the widget did for the same
+> task. So each line carries `unattributed_hours` — the gap — **shown on the user's own screen and
+> never to a client**: *"+0.4h measured on this task with no recognised app — not counted, and never
+> shown to a client."*
+>
+> **How big is that gap in reality? UNMEASURED.** It was attempted on the live database on
+> 2026-08-13 and `C:\ProgramData\PortaAgent\core-state.db` requires elevation to read, which is
+> Yadin's to give. The page shows the real number per line the first time a draft is built. **If it
+> turns out to be material, that is a finding about the capture pipeline, not about the report.**
+>
+> #### Two smaller decisions worth not re-litigating
+>
+> - **The total is the sum of the ROUNDED lines**, not a separately rounded grand total, so a client
+>   adding the lines by hand arrives at the number at the top.
+> - **The daily bars carry no printed number.** Per-day and per-line figures are two roundings of the
+>   same seconds and would not add to the same total by hand. The bars are the shape of the work; the
+>   billed figure is the lines.
 
 Follow the shape already in the repo. Projects did exactly this in 9a:
 

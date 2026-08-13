@@ -1,4 +1,4 @@
-using System.Threading.RateLimiting;
+﻿using System.Threading.RateLimiting;
 using System.Runtime.Versioning;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
@@ -382,6 +382,83 @@ public static class LocalApiEndpointMapping
                 : Results.Json(new LocalApiProjectResponse(
                     Success: true, Reason: null, Project: ToApiProject(project),
                     TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
+        // Step 10 phase A/B — the report's own surface. LOCAL ONLY, and there is deliberately no
+        // send endpoint here: sending is phase C, and until it exists nothing built on this can
+        // put anything in front of a client.
+        api.MapPost("/reports/label", (IAgentCoreController controller, LocalApiTaskClientLabelRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiTaskActResponse(
+                    Success: false, Task: null, TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            AgentTask? updated = controller.SetTaskClientLabel(request.TaskId, request.ClientLabel ?? string.Empty);
+            return updated is null
+                ? Results.Json(new LocalApiTaskActResponse(
+                    Success: false, Task: null, TimestampUtc: DateTimeOffset.UtcNow))
+                : Results.Json(new LocalApiTaskActResponse(
+                    Success: true, Task: ToApiTask(updated), TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
+        api.MapPost("/projects/client", (IAgentCoreController controller, LocalApiProjectClientRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(new LocalApiProjectResponse(
+                    Success: false, Reason: "invalid_payload_or_schema", Project: null,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            // Each field applies only when present, so setting a rate cannot clear a client name.
+            AgentProject? updated = null;
+            if (request.ClientName is not null)
+            {
+                updated = controller.SetProjectClientName(request.Id, request.ClientName);
+            }
+
+            if (request.UseClientLabels is { } style)
+            {
+                updated = controller.SetProjectLabelStyle(request.Id, style);
+            }
+
+            if (request.RateMinor is { } rate)
+            {
+                updated = controller.SetProjectRate(request.Id, rate, request.RateCurrency ?? string.Empty);
+                if (updated is null)
+                {
+                    // A negative rate is refused rather than stored. Say so, rather than reporting
+                    // a success that changed nothing.
+                    return Results.Json(new LocalApiProjectResponse(
+                        Success: false, Reason: "invalid_rate", Project: null,
+                        TimestampUtc: DateTimeOffset.UtcNow));
+                }
+            }
+
+            return updated is null
+                ? Results.Json(new LocalApiProjectResponse(
+                    Success: false, Reason: "not_found_or_nothing_to_do", Project: null,
+                    TimestampUtc: DateTimeOffset.UtcNow))
+                : Results.Json(new LocalApiProjectResponse(
+                    Success: true, Reason: null, Project: ToApiProject(updated),
+                    TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
+        api.MapGet("/reports/draft", (IAgentCoreController controller, long? projectId, string? from, string? to) =>
+        {
+            if (projectId is null or 0 || string.IsNullOrWhiteSpace(from) || string.IsNullOrWhiteSpace(to))
+            {
+                return Results.BadRequest(new LocalApiReportDraftResponse(
+                    Success: false, Reason: "project_and_range_required", Draft: null,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            AgentReportDraft draft = controller.GetReportDraft(projectId.Value, from!, to!);
+            return Results.Json(new LocalApiReportDraftResponse(
+                Success: true, Reason: null, Draft: ToApiReportDraft(draft),
+                TimestampUtc: DateTimeOffset.UtcNow));
         });
 
         api.MapPost("/projects/update", (IAgentCoreController controller, LocalApiProjectUpdateRequest? request) =>
@@ -1187,7 +1264,29 @@ public static class LocalApiEndpointMapping
             Id: project.Id,
             Name: project.Name,
             Archived: project.Archived,
-            CreatedAtUtc: project.CreatedAtUtc);
+            CreatedAtUtc: project.CreatedAtUtc,
+            ClientName: project.ClientName,
+            UseClientLabels: project.UseClientLabels,
+            RateMinor: project.RateMinor,
+            RateCurrency: project.RateCurrency);
+
+    private static LocalApiReportDraft ToApiReportDraft(AgentReportDraft draft)
+        => new(
+            ProjectId: draft.ProjectId,
+            ProjectName: draft.ProjectName,
+            ClientName: draft.ClientName,
+            RangeStartLocal: draft.RangeStartLocal,
+            RangeEndLocal: draft.RangeEndLocal,
+            TotalHours: draft.TotalHours,
+            DaysWorked: draft.DaysWorked,
+            LinesFinished: draft.LinesFinished,
+            Lines: draft.Lines
+                .Select(l => new LocalApiReportLine(
+                    l.TaskId, l.Title, l.ClientLabel, l.Finished, l.Hours, l.UnattributedHours))
+                .ToList(),
+            Days: draft.Days
+                .Select(d => new LocalApiReportDay(d.DateLocal, d.Hours))
+                .ToList());
 
     private static LocalApiDailyGoal? ToApiGoal(AgentDailyGoal? goal)
     {

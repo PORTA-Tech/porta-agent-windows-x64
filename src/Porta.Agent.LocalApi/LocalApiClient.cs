@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
@@ -473,6 +473,76 @@ public sealed class LocalApiClient : IDisposable
             using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
             using HttpResponseMessage response = await _httpClient.PostAsync("/v1/projects/update", content, token).ConfigureAwait(false);
             return await response.Content.ReadFromJsonAsync<LocalApiProjectResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // Step 10 phase A/B — labels, the project's client-facing settings, and the report draft.
+    // Localhost only: none of this is a network call off the machine.
+    public async Task<LocalApiTaskActResponse?> SetTaskClientLabelAsync(
+        LocalApiTaskClientLabelRequest request,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/reports/label", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiTaskActResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LocalApiProjectResponse?> UpdateProjectClientAsync(
+        LocalApiProjectClientRequest request,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/projects/client", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiProjectResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LocalApiReportDraftResponse?> GetReportDraftAsync(
+        long projectId,
+        string fromLocalDate,
+        string toLocalDate,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            return await _httpClient.GetFromJsonAsync<LocalApiReportDraftResponse>(
+                $"/v1/reports/draft?projectId={projectId}&from={Uri.EscapeDataString(fromLocalDate)}&to={Uri.EscapeDataString(toLocalDate)}",
+                token).ConfigureAwait(false);
         }
         catch
         {

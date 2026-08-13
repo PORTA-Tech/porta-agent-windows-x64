@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -3126,6 +3126,210 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
 
         return rows;
     }
+
+    /// <summary>
+    /// Step 10 phase B — the report draft for one project over a range of LOCAL dates, inclusive
+    /// at both ends.
+    ///
+    /// EVERY NUMBER COMES FROM THE SAME PLACE, which is the whole design. Lines and daily bars are
+    /// two decompositions of one set of rollup rows, so they cannot tell different stories. See
+    /// <see cref="AgentReportDraft"/> for why that source is the rollup and what it costs.
+    ///
+    /// THE PROJECT IS RESOLVED AT READ TIME through tasks.project_id, so re-tagging a task moves
+    /// its whole history between reports instantly — the same contract ReadAppUsage already has.
+    /// Rows from the backfill can never appear here: they carry task_id = 0, so they belong to no
+    /// task and therefore to no project. That is why project history genuinely begins 2026-08-12.
+    ///
+    /// HOURS ARE ROUNDED TO ONE DECIMAL, once, here — the language of timesheets (§4). The total is
+    /// the sum of the rounded LINES rather than a separately rounded grand total, so a client adding
+    /// the lines by hand gets the number at the top. Daily hours are rounded the same way but are
+    /// deliberately NOT summed into anything: the bars are the shape of the work, and the billed
+    /// figure is the lines.
+    /// </summary>
+    public AgentReportDraft ReadReportDraft(
+        long projectId,
+        string fromLocalDate,
+        string toLocalDate,
+        TimeSpan localOffset)
+    {
+        if (!DateTime.TryParseExact(
+                fromLocalDate, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime from) ||
+            !DateTime.TryParseExact(
+                toLocalDate, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime to) ||
+            to < from)
+        {
+            return EmptyDraft(projectId, fromLocalDate, toLocalDate);
+        }
+
+        var fromUtc = new DateTimeOffset(from, localOffset);
+        var toUtc = new DateTimeOffset(to.AddDays(1), localOffset);
+
+        var perTask = new Dictionary<long, (string Title, string Label, bool Finished, double Seconds)>();
+        var perDay = new Dictionary<string, double>();
+        string projectName = string.Empty;
+        string clientName = string.Empty;
+
+        using (ReadGateLease _ = AcquireReadGate())
+        using (var connection = DbOpen.OpenReadConnection(_connectionString))
+        {
+            using (var project = connection.CreateCommand())
+            {
+                project.CommandText = "SELECT name, client_name FROM projects WHERE id = $id;";
+                project.Parameters.AddWithValue("$id", projectId);
+                using SqliteDataReader projectReader = project.ExecuteReader();
+                if (projectReader.Read())
+                {
+                    projectName = projectReader.GetString(0);
+                    clientName = projectReader.IsDBNull(1) ? string.Empty : projectReader.GetString(1);
+                }
+            }
+
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT r.hour_start_utc,
+                       r.task_id,
+                       t.title,
+                       t.client_label,
+                       t.state,
+                       r.active_seconds
+                FROM app_usage_rollup r
+                INNER JOIN tasks t ON t.id = r.task_id
+                WHERE r.hour_start_utc >= $from
+                  AND r.hour_start_utc <  $to
+                  AND t.project_id = $project
+                  AND r.task_id <> 0;
+                """;
+            cmd.Parameters.AddWithValue("$from", HourStartUtc(fromUtc));
+            cmd.Parameters.AddWithValue("$to", toUtc.ToUniversalTime().ToString("O"));
+            cmd.Parameters.AddWithValue("$project", projectId);
+
+            using SqliteDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                if (!DateTimeOffset.TryParse(
+                        reader.GetString(0),
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.RoundtripKind,
+                        out DateTimeOffset hourUtc))
+                {
+                    continue;
+                }
+
+                long taskId = reader.GetInt64(1);
+                double seconds = reader.GetDouble(5);
+                string localDate = hourUtc.ToOffset(localOffset).ToString("yyyy-MM-dd");
+
+                perDay[localDate] = perDay.GetValueOrDefault(localDate) + seconds;
+
+                (string Title, string Label, bool Finished, double Seconds) line =
+                    perTask.GetValueOrDefault(
+                        taskId,
+                        (reader.GetString(2),
+                         reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                         string.Equals(reader.GetString(4), "done", StringComparison.OrdinalIgnoreCase),
+                         0d));
+                perTask[taskId] = line with { Seconds = line.Seconds + seconds };
+            }
+        }
+
+        IReadOnlyDictionary<long, double> attributed = ReadTaskActiveSeconds(perTask.Keys);
+
+        var lines = new List<AgentReportLine>();
+        foreach ((long taskId, (string title, string label, bool finished, double seconds)) in
+                 perTask.OrderByDescending(p => p.Value.Seconds).ThenBy(p => p.Key))
+        {
+            double hours = RoundHours(seconds);
+
+            // Never negative: the rollup is a subset of what the task was credited, but a task
+            // edited or re-tagged between the two reads could invert it for an instant.
+            double unattributed = Math.Max(0d, attributed.GetValueOrDefault(taskId) - seconds);
+
+            lines.Add(new AgentReportLine(
+                TaskId: taskId,
+                Title: title,
+                ClientLabel: label,
+                Finished: finished,
+                Hours: hours,
+                UnattributedHours: RoundHours(unattributed)));
+        }
+
+        // Every day in the range, in order, including the ones with nothing on them.
+        var days = new List<AgentReportDay>();
+        for (DateTime day = from; day <= to; day = day.AddDays(1))
+        {
+            string key = day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            days.Add(new AgentReportDay(key, RoundHours(perDay.GetValueOrDefault(key))));
+        }
+
+        return new AgentReportDraft(
+            ProjectId: projectId,
+            ProjectName: projectName,
+            ClientName: clientName,
+            RangeStartLocal: fromLocalDate,
+            RangeEndLocal: toLocalDate,
+            TotalHours: SumHours(lines.Select(l => l.Hours)),
+            DaysWorked: days.Count(d => d.Hours > 0d),
+            LinesFinished: lines.Count(l => l.Finished),
+            Lines: lines,
+            Days: days);
+    }
+
+    /// <summary>
+    /// What each task was credited in total, for the unattributed diagnostic. Read separately and
+    /// deliberately: this number is the user's own, it never reaches a client, and keeping it out
+    /// of the main query keeps that query a straight sum of the rollup.
+    /// </summary>
+    private IReadOnlyDictionary<long, double> ReadTaskActiveSeconds(IEnumerable<long> taskIds)
+    {
+        var result = new Dictionary<long, double>();
+        List<long> ids = taskIds.Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return result;
+        }
+
+        using ReadGateLease _ = AcquireReadGate();
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            $"SELECT id, active_seconds FROM tasks WHERE id IN ({string.Join(',', ids)});";
+
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            result[reader.GetInt64(0)] = reader.GetDouble(1);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Decimal hours to one place — <c>6.2h</c>, not <c>6h 12m</c> (§4). That is the language of
+    /// the timesheet the client is checking this against.
+    /// </summary>
+    private static double RoundHours(double seconds)
+        => Math.Round(seconds / 3600d, 1, MidpointRounding.AwayFromZero);
+
+    /// <summary>
+    /// The total of already-rounded figures. Shared so that the page, the preview and anything that
+    /// later builds a payload cannot each total the same report differently.
+    /// </summary>
+    public static double SumHours(IEnumerable<double> hours)
+        => Math.Round(hours.Sum(), 1, MidpointRounding.AwayFromZero);
+
+    private static AgentReportDraft EmptyDraft(long projectId, string fromLocalDate, string toLocalDate)
+        => new(
+            ProjectId: projectId,
+            ProjectName: string.Empty,
+            ClientName: string.Empty,
+            RangeStartLocal: fromLocalDate,
+            RangeEndLocal: toLocalDate,
+            TotalHours: 0d,
+            DaysWorked: 0,
+            LinesFinished: 0,
+            Lines: Array.Empty<AgentReportLine>(),
+            Days: Array.Empty<AgentReportDay>());
 
     // ── Workstream D: conversational check-in goals (one row per local goal-day) ──
 

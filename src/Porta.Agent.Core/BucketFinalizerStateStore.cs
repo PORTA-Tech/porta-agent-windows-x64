@@ -1,4 +1,4 @@
-using Porta.Agent.Core.Buckets;
+﻿using Porta.Agent.Core.Buckets;
 
 namespace Porta.Agent.Core;
 
@@ -105,6 +105,8 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
         => _inner.SetProjectLabelStyle(id, useClientLabels);
     public AgentProject? SetProjectRate(long id, long rateMinor, string currency)
         => _inner.SetProjectRate(id, rateMinor, currency);
+    public AgentReportDraft ReadReportDraft(long projectId, string fromLocalDate, string toLocalDate, TimeSpan localOffset)
+        => _inner.ReadReportDraft(projectId, fromLocalDate, toLocalDate, localOffset);
     public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(
         DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset)
         => _inner.ReadAppUsage(fromUtc, toUtc, localOffset);

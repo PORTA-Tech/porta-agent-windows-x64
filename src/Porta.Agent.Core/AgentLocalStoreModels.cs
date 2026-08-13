@@ -451,6 +451,61 @@ public sealed record AgentAppUsageHour(
     double ActiveSeconds,
     bool Backfilled);
 
+/// <summary>
+/// Step 10 phase B (2026-08-13) — a report as it stands before anyone has looked at it. DERIVED,
+/// never stored: the stored thing is the snapshot taken at the moment of sending, and re-deriving
+/// this tomorrow may legitimately give a different answer because re-tagging is allowed at any time.
+///
+/// <b>Every number here comes from <c>app_usage_rollup</c></b>, resolved to a project at read time
+/// through <c>tasks.project_id</c>. That is not a preference: the rollup is the only record with a
+/// per-day breakdown, and a report whose daily bars did not sum to its own total is the exact defect
+/// this product exists to avoid. Taking the line totals from one source and the bars from another
+/// would guarantee it.
+///
+/// <b>It can therefore read LOWER than the widget for the same task</b>, and never higher: a bucket
+/// with no identifiable application gets no rollup row (<c>AccumulateAppUsageRollup</c>) while the
+/// task itself is still credited. The difference per line is carried as
+/// <see cref="AgentReportLine.UnattributedHours"/> — <b>shown to the user, never to the client</b> —
+/// so a report that disagrees with the widget explains itself on screen instead of being discovered
+/// by a client. Under-counting is the safe direction and is what the honesty line already claims.
+/// </summary>
+public sealed record AgentReportDraft(
+    long ProjectId,
+    // The local name, for the user's own screen. It never leaves the machine.
+    string ProjectName,
+    // What a client would see in the header. Empty = never given, and the report cannot be sent
+    // until it is: the alternative is falling back to a name typed on a morning card.
+    string ClientName,
+    string RangeStartLocal,
+    string RangeEndLocal,
+    // The sum of the ROUNDED line hours, so the arithmetic on the page checks out by hand. A total
+    // computed from raw seconds can differ from its own visible lines by a tenth, and "your figures
+    // do not add up" is a conversation this document exists to prevent.
+    double TotalHours,
+    int DaysWorked,
+    int LinesFinished,
+    IReadOnlyList<AgentReportLine> Lines,
+    IReadOnlyList<AgentReportDay> Days);
+
+/// <summary>One line of the report: one task, its client-facing label, and its measured hours.</summary>
+public sealed record AgentReportLine(
+    long TaskId,
+    // The raw title, for the user's screen only, so they can tell which line is which. Never sent.
+    string Title,
+    // What the client reads. Empty = not named yet, and the report cannot be sent until it is.
+    string ClientLabel,
+    bool Finished,
+    double Hours,
+    // USER-SIDE DIAGNOSTIC ONLY, and never rendered into anything a client sees: measured time on
+    // this task that carried no identifiable application, so it is absent from the hours above.
+    double UnattributedHours);
+
+/// <summary>
+/// One day of the range. Days with no work are present with zero hours, never skipped — §4: a chart
+/// that hides empty days is the kind of thing a client notices, and it costs trust permanently.
+/// </summary>
+public sealed record AgentReportDay(string DateLocal, double Hours);
+
 public sealed record AgentProject(
     long Id,
     string Name,

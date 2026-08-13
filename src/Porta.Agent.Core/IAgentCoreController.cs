@@ -1,4 +1,4 @@
-namespace Porta.Agent.Core;
+﻿namespace Porta.Agent.Core;
 
 public interface IAgentCoreController
 {
@@ -78,6 +78,13 @@ public interface IAgentCoreController
     AgentTask? SetTaskProject(long taskId, long projectId);
     AgentProject? RenameProject(long id, string name);
     AgentProject? SetProjectArchived(long id, bool archived);
+    // Step 10 phase A/B (2026-08-13) — what a client is shown, the user-side rate, and the report
+    // draft. All local: no payload gains a field from any of these.
+    AgentTask? SetTaskClientLabel(long taskId, string label);
+    AgentProject? SetProjectClientName(long id, string clientName);
+    AgentProject? SetProjectLabelStyle(long id, bool useClientLabels);
+    AgentProject? SetProjectRate(long id, long rateMinor, string currency);
+    AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate);
 
     // 2026-08-12 — hourly per-app time, resolved to projects at read time. The grain the projects
     // page will read, and the only record of it that outlives the 14-day capture window.

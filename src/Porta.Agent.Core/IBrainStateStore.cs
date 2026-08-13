@@ -69,6 +69,13 @@ public interface IBrainStateStore
     AgentProject? SetProjectLabelStyle(long id, bool useClientLabels);
     AgentProject? SetProjectRate(long id, long rateMinor, string currency);
 
+    // Step 10 phase B (2026-08-13) — the report as it stands, derived and never stored. Local only.
+    AgentReportDraft ReadReportDraft(
+        long projectId,
+        string fromLocalDate,
+        string toLocalDate,
+        TimeSpan localOffset);
+
     // 2026-08-12 — the hourly app rollup, resolved to projects at read time. localOffset is passed
     // in for the same reason ReadDayTimeline takes it: the local hour is a local concept.
     IReadOnlyList<AgentAppUsageHour> ReadAppUsage(

@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 using Porta.Agent.Common.Contracts;
 using Porta.Agent.Core;
 
@@ -977,7 +977,66 @@ public sealed record LocalApiProject(
     [property: JsonPropertyName("id")] long Id,
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("archived")] bool Archived,
-    [property: JsonPropertyName("created_at_utc")] DateTimeOffset CreatedAtUtc);
+    [property: JsonPropertyName("created_at_utc")] DateTimeOffset CreatedAtUtc,
+    // Step 10 phase A — the client-facing name, the per-project label default, and the user-side
+    // rate. This travels on localhost only; none of it is on any payload that leaves the machine,
+    // and the rate must never be.
+    [property: JsonPropertyName("client_name")] string ClientName = "",
+    [property: JsonPropertyName("use_client_labels")] bool UseClientLabels = false,
+    [property: JsonPropertyName("rate_minor")] long RateMinor = 0,
+    [property: JsonPropertyName("rate_currency")] string RateCurrency = "");
+
+// Step 10 phase A — naming one line for a client. The raw title is never sent here and never
+// changes; this sets the label beside it.
+public sealed record LocalApiTaskClientLabelRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("task_id")] long TaskId,
+    [property: JsonPropertyName("client_label")] string? ClientLabel);
+
+// Step 10 phase A — the project's client-facing settings. Each field is applied only when present,
+// so setting a rate cannot accidentally clear a client name.
+public sealed record LocalApiProjectClientRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("client_name")] string? ClientName,
+    [property: JsonPropertyName("use_client_labels")] bool? UseClientLabels,
+    [property: JsonPropertyName("rate_minor")] long? RateMinor,
+    [property: JsonPropertyName("rate_currency")] string? RateCurrency);
+
+// Step 10 phase B — the report as it stands. DERIVED on every request and never stored: the stored
+// thing is the snapshot taken when it is sent.
+public sealed record LocalApiReportLine(
+    [property: JsonPropertyName("task_id")] long TaskId,
+    // The raw title, for the user's own screen so they can tell the lines apart. Never leaves.
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("client_label")] string ClientLabel,
+    [property: JsonPropertyName("finished")] bool Finished,
+    [property: JsonPropertyName("hours")] double Hours,
+    // User-side diagnostic: measured time on this task with no identifiable application, so it is
+    // NOT in the hours above. Never rendered into anything a client sees.
+    [property: JsonPropertyName("unattributed_hours")] double UnattributedHours);
+
+public sealed record LocalApiReportDay(
+    [property: JsonPropertyName("date_local")] string DateLocal,
+    [property: JsonPropertyName("hours")] double Hours);
+
+public sealed record LocalApiReportDraft(
+    [property: JsonPropertyName("project_id")] long ProjectId,
+    [property: JsonPropertyName("project_name")] string ProjectName,
+    [property: JsonPropertyName("client_name")] string ClientName,
+    [property: JsonPropertyName("range_start_local")] string RangeStartLocal,
+    [property: JsonPropertyName("range_end_local")] string RangeEndLocal,
+    [property: JsonPropertyName("total_hours")] double TotalHours,
+    [property: JsonPropertyName("days_worked")] int DaysWorked,
+    [property: JsonPropertyName("lines_finished")] int LinesFinished,
+    [property: JsonPropertyName("lines")] IReadOnlyList<LocalApiReportLine> Lines,
+    [property: JsonPropertyName("days")] IReadOnlyList<LocalApiReportDay> Days);
+
+public sealed record LocalApiReportDraftResponse(
+    bool Success,
+    string? Reason,
+    LocalApiReportDraft? Draft,
+    DateTimeOffset TimestampUtc);
 
 public sealed record LocalApiProjectsResponse(
     IReadOnlyList<LocalApiProject> Projects,

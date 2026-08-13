@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using Porta.Agent.Core.Buckets;
 
 namespace Porta.Agent.Core.Tests;
@@ -181,6 +181,8 @@ public sealed class BucketRecomputeRulesTests
         public AgentProject? SetProjectClientName(long id, string clientName) => null;
         public AgentProject? SetProjectLabelStyle(long id, bool useClientLabels) => null;
         public AgentProject? SetProjectRate(long id, long rateMinor, string currency) => null;
+        public AgentReportDraft ReadReportDraft(long projectId, string fromLocalDate, string toLocalDate, TimeSpan localOffset)
+            => new(projectId, "", "", fromLocalDate, toLocalDate, 0d, 0, 0, System.Array.Empty<AgentReportLine>(), System.Array.Empty<AgentReportDay>());
         public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => System.Array.Empty<AgentAppUsageHour>();
 
     public IReadOnlyList<AgentDayTimelineHour> ReadDayTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => Array.Empty<AgentDayTimelineHour>();
