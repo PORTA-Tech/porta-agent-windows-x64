@@ -145,24 +145,92 @@ rather than "here is my recollection".
 
 ---
 
-## 6. Sending — as the user, not as Ari
+## 6. Sending — Resend, in the user's name
 
-**Yadin's decision: the report sends genuinely from the user's own address**, not from
-`ari@useporta.com`. A document adjacent to an invoice arriving from a domain the client has never
-heard of is a trust problem before a word is read.
+**REVISED 2026-08-14 (Yadin). This supersedes the Gmail decision below it.** Sending goes through
+**Resend**, which the product already uses for the nightly digest. Not Gmail OAuth.
 
-This means connecting the user's email account (Gmail OAuth for this machine). Consequences to be
-named plainly in the UI at the moment of connecting:
+What the client sees:
 
-- **Ari would hold permission to send mail from the user's account.** That is a real permission and
-  the user must grant it deliberately.
-- Replies then reach the user naturally, because the mail genuinely is from them. **The reply-routing
-  question disappears** — Yadin was right about this and the earlier suggestion of "from Ari with
-  reply-to" is dropped.
+| Field | Value |
+|---|---|
+| From name | **The user's own name** — whoever they are, per user |
+| From address | `reports@useporta.com` |
+| Reply-to | **The user's own email address** — per user |
+
+So the client reads the user's name first, and hitting reply reaches that user. The domain underneath
+is Ari's.
+
+**`reports@`, not `ari@`.** Same domain — `useporta.com`, verified 2026-08-14 from the live digest
+in Yadin's inbox. A separate mailbox because mail providers score sending addresses separately: if
+the nightly digest is ever marked as spam, client reports must not inherit that reputation, and vice
+versa. `ari@useporta.com` stays as it is for the digest.
+
+**Why this replaced Gmail.** Resend cannot send *from* `@gmail.com` — nobody can, without controlling
+Google's domain; a service claiming otherwise is spoofing and the mail lands in spam. The only
+genuine "from the user's address" route was Gmail OAuth, and its true cost was:
+
+- `gmail.send` is a **sensitive scope**. In testing mode Google expires the refresh token every
+  **7 days**, so the user reconnects weekly.
+- Only manually-listed test users can connect at all until the app passes **Google verification** —
+  consent-screen review, scope justification, a demo video — which takes weeks.
+- Ari would hold a token able to send mail as the user. The most valuable secret the product has
+  ever held.
+
+Resend costs none of that, works today, and needs **nothing from the user** — no console, no consent
+screen, no reconnect. Verified 2026-08-14; see the sources in the Cowork thread.
+
+**The trade Yadin accepted:** the address is not literally the user's. If a client ever remarks on
+the domain, that is the signal the Gmail work is worth doing — and by then it will be known to be.
+
+**One consequence to watch as it grows:** every user's reports ride Yadin's domain reputation. At 18
+installs this is nothing. If one user's reports were ever marked as spam it would affect everyone's.
+
+### 6a. Where the send happens — and why this merges C and D
+
+**The control plane sends it, not the machine.** The Resend key lives on the server and must never
+reach a user's machine, so the agent cannot call Resend directly.
+
+That collapses the phase split: the report payload has to reach the server before it can be sent, so
+**the server record (phase D) and the send (phase C) are the same trip.** Build them together.
+
+The local-only encrypted Gmail token decision (§12.6.2) is **moot** and can be struck — there is no
+token.
 
 **Address book.** Ari remembers client addresses so they aren't retyped. Editable at any time. The
 risk is not storing a wrong address, it is *sending* to one — which cannot be undone. So:
 **a confirmation step before sending that shows the recipient address in full.**
+
+### 6b. The confirm screen — DECIDED 2026-08-14
+
+**All three addresses on one screen, each editable in place, remembered after the first time, never
+asked again.** Yadin: the confirm step exists to show the recipient in full, so it is already the
+right place for the other two — the same learned-once pattern as the client-facing project name
+(§12.7).
+
+| Shown | Comes from | Edited |
+|---|---|---|
+| **From name** | the account's `displayName` | in place; the edit updates the account profile |
+| **From address** | the constant `reports@useporta.com` | not editable — it is the product's |
+| **Reply-to** | the account's `primaryEmail` | in place; the edit updates the account profile |
+| **To** | the client picked from the address book | in place |
+
+**An edit writes to the account profile, not to a local override.** That is what keeps §12.2 free of
+sender fields: there is one copy of the user's identity, the server's, and the confirm screen is a
+view onto it. A local override would recreate exactly the two-copies-that-disagree problem removing
+`senderName` was meant to solve.
+
+**No email-verification flow.** Yadin, 2026-08-14: it is a feature of its own and would block the
+first send by weeks. The address is shown plainly instead — *"if it's wrong I'll see it"* — which is
+the same principle already accepted for the recipient's address, and the recipient's is the one that
+cannot be undone.
+
+**One hard block, not a warning: a `@porta.internal` address can never be Reply-to.** The identity
+service assigns `displaced-<accountId>@porta.internal` when two accounts collide on an email
+(`identityController.ts:79`), so a profile can hold a synthetic address that no one reads. A client
+replying to it is a **guaranteed silent failure** — the reply goes nowhere and neither party learns
+that it did. That is not a judgement for the user to make on a confirm screen. **Refuse the send and
+say why.**
 
 ---
 
@@ -354,10 +422,18 @@ Two things follow that matter more than the table:
 > **Verified by breaking it:** adding `projectName` to `DigestTaskPayload` fails two of the four
 > tests; removing it again passes all four.
 
-### 12.2 The report, when the user taps Send
+### 12.2 The report, when the user taps Send — APPROVED 2026-08-14
 
-One POST, at the moment of sending, never on a schedule. Real values, from this machine — the
-project name and the client are illustrative, everything else is the true shape.
+One POST, at the moment of sending, never on a schedule.
+
+**REVISED 2026-08-14 for the server-side send, and approved as revised.** Two fields left and one was
+renamed; nothing was added.
+
+> **Every value below is a placeholder.** No name, address or domain belonging to any particular user
+> appears anywhere in the product — enforced by `NoPersonalIdentifiersShipTests`, which also scans
+> comments and sample payloads for email-shaped literals, precisely because *"an address in a comment
+> is an address someone pastes into code later"* (Yadin, 2026-08-14). The founder's own address was
+> in this block until that date; it is a placeholder now for the same reason.
 
 ```json
 {
@@ -365,16 +441,14 @@ project name and the client are illustrative, everything else is the true shape.
   "accountId":             "acct_9f21c8",
   "deviceId":              "dev_4c7a1e",
   "machineId":             "mach_1b93f0",
-  "sentAtUtc":             "2026-08-20T11:42:07.0000000+00:00",
+  "requestedAtUtc":        "2026-08-20T11:42:07.0000000+00:00",
   "timezoneOffsetMinutes": 240,
 
-  "projectName":           "Nolan",
+  "projectName":           "Nolan Studio",
   "rangeStartLocal":       "2026-08-12",
   "rangeEndLocal":         "2026-08-19",
 
-  "senderName":            "Yadin Sela",
-  "senderEmail":           "insideporta2@gmail.com",
-  "recipientEmail":        "accounts@nolan-studio.com",
+  "recipientEmail":        "accounts@example-client.test",
   "recipientName":         "Nolan Studio",
 
   "totalHours":            18.4,
@@ -397,17 +471,30 @@ project name and the client are illustrative, everything else is the true shape.
 }
 ```
 
+**What the server adds, and why it is not in the payload.** The From name is the account's
+`displayName`, the Reply-to is its `primaryEmail`, and the From address is the constant
+`reports@useporta.com`. All three are resolved server-side at send time from the account profile the
+control plane already holds and already uses to address the nightly digest.
+
+`senderName` and `senderEmail` were in the draft and are **gone**: two copies of an identity can
+disagree, and a client asserting its own sender identity is worse than a server reading its own
+record. One source, no drift.
+
+**`sentAtUtc` became `requestedAtUtc`** for the same reason. The agent no longer knows when the mail
+went — it knows when it asked. The server records when Resend accepted, and a dispute is answered by
+the timestamp of a real delivery.
+
 Field by field, and what each one actually discloses:
 
 | Field | Example | Why it must leave | What it reveals |
 |---|---|---|---|
 | `reportId` | `7f3c1b90-…` | ties the stored snapshot to the local record | nothing |
 | `accountId` / `deviceId` / `machineId` | `acct_9f21c8` | already sent with every payload | nothing new |
-| `sentAtUtc` | `2026-08-20T11:42:07Z` | a dispute is answered with a timestamp | when he was working |
-| `projectName` | `Nolan` | it is the report's headline | **a client's name — new.** The client-facing name per §12.7, never the local one |
+| `requestedAtUtc` | `2026-08-20T11:42:07Z` | the server's own `sentAtUtc` is what answers a dispute; this is when the machine asked | when the user was working |
+| `projectName` | `Nolan Studio` | it is the report's headline | **a client's name — new.** The client-facing name per §12.7, never the local one |
 | `rangeStartLocal` / `rangeEndLocal` | `2026-08-12` | the period being billed | the shape of an engagement |
-| `senderName` / `senderEmail` | `Yadin Sela` | the report is *from* the user | his own identity |
-| `recipientEmail` / `recipientName` | `accounts@nolan-studio.com` | you cannot send without it | **a third party who agreed to nothing — new** |
+| ~~`senderName` / `senderEmail`~~ | — | **REMOVED 2026-08-14.** The server resolves both from the account profile | — |
+| `recipientEmail` / `recipientName` | `accounts@example-client.test` | you cannot send without it | **a third party who agreed to nothing — new** |
 | `totalHours` … `tasksTotal` | `18.4`, `5`, `4`, `5` | the three figures at the top | hours billed |
 | `lines[].clientLabel` | `Chapter three — first draft` | the body of the report | **what he was hired to do — new** |
 | `lines[].finished` / `hours` | `true`, `6.2` | the check and the number | delivery against hours |
@@ -437,22 +524,49 @@ Each of these is a rule with a reason, not a preference:
 These are the two pieces that are not report data, and Yadin decided them separately from §2's
 "the server holds everything".
 
-**The address book — LOCAL ONLY.** It is a list of other people's names and email addresses. The
-send is triggered by the user at the machine, so the server never needs the book, only the one
-address on the report being sent. Keeping it local means a server breach cannot spill a client list.
-Storing it would buy convenience across machines, which is worth nothing at one user.
+**The address book — LOCAL ONLY.** It is a list of other people's names and email addresses. Only
+the one address on the report being sent ever leaves. Keeping the book local means a server breach
+cannot spill a client list. Storing it would buy convenience across machines, which is worth nothing
+at one user. **Unchanged by the Resend decision.**
 
-**The Gmail refresh token — LOCAL ONLY, encrypted like the device credential.** A token that can
-send mail as the user is the highest-value secret this product has ever held. Server-side, one
-breach sends mail as *every* user; the blast radius is not "data leaked" but "mail sent from your
-address". Locally it goes through the same DPAPI path as the device credential (`Secrets`).
-
-Yadin, 2026-08-13, on the one cost: *"only sending while my machine is on is not a cost, I have to
-tap Send anyway."*
-
-So **the send happens from the machine**, and the server receives §12.2 as a **record of what was
-sent**, never as an instruction to send it. Nothing server-side can cause an email to leave the
-user's address.
+> ### REVERSED 2026-08-14 — the send moved to the server
+>
+> Everything struck through below was true while Gmail OAuth was the plan. Resend's API key lives on
+> the server and must never reach a user's machine, so the control plane sends (§6a). **This is the
+> guarantee that decision cost, written down rather than quietly dropped, so the next person sees
+> what was given up and not only what was chosen.**
+>
+> ~~**The Gmail refresh token — LOCAL ONLY, encrypted like the device credential.** A token that can
+> send mail as the user is the highest-value secret this product has ever held. Server-side, one
+> breach sends mail as *every* user; the blast radius is not "data leaked" but "mail sent from your
+> address". Locally it goes through the same DPAPI path as the device credential (`Secrets`).~~
+>
+> ~~Yadin, 2026-08-13, on the one cost: *"only sending while my machine is on is not a cost, I have
+> to tap Send anyway."*~~
+>
+> ~~So **the send happens from the machine**, and the server receives §12.2 as a **record of what was
+> sent**, never as an instruction to send it. **Nothing server-side can cause an email to leave the
+> user's address.**~~
+>
+> **What is lost.** That last sentence was a structural guarantee: no server bug, no server breach,
+> and no compromised admin could put a document in a client's inbox, because the server had no means
+> to send one. It does now. That is a bigger cost than the `reports@useporta.com` domain in the From
+> line, and it is the real price of dropping Gmail — not the address.
+>
+> **What replaces it**, since a guarantee cannot be replaced by an intention. Three bounds, approved
+> 2026-08-14, and each is a property to be tested rather than a rule to be remembered:
+>
+> 1. **The server never originates a send.** It sends only on an authenticated request from the
+>    user's own device carrying that report. No schedule, no queue that retries by itself, no admin
+>    path, no endpoint that takes a `reportId` and sends it again.
+> 2. **`reportId` is the idempotency key, and the same id never sends twice.** A network retry after
+>    a send that actually succeeded would otherwise put a second copy in a client's inbox, and there
+>    is no recalling it.
+> 3. **The send is recorded before it is attempted.** A crash mid-send leaves evidence rather than a
+>    silent gap, which is the only way "did it go?" is answerable afterwards.
+>
+> The Gmail route remains the honest version of "from the user's address" and is worth doing when a
+> client ever remarks on the domain (§6). At that point this guarantee comes back.
 
 ### 12.5 Two things deliberately NOT proposed
 
@@ -469,7 +583,9 @@ All four recommendations taken, plus one requirement Yadin added.
 1. **The recipient's address is stored on the server.** It is the only field belonging to someone
    who never installed anything, and storing it is what makes *"who did I send this to?"* answerable.
    Yadin: *"a dispute is exactly when I need to know who I sent it to."*
-2. **The Gmail token is local**, encrypted like the device credential. §12.4.
+2. ~~**The Gmail token is local**, encrypted like the device credential. §12.4.~~
+   **STRUCK 2026-08-14** — sending moved to Resend on the server, so there is no token to hold,
+   nowhere to hold it, and nothing to encrypt. What the reversal cost is written into §12.4.
 3. **The address book is local.** §12.4.
 4. **A sent report is kept indefinitely**, and the setting in §10 **says so plainly** rather than
    leaving it to be discovered.
