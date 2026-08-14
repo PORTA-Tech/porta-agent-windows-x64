@@ -763,6 +763,110 @@ internal static class Schema
         EnsureColumnExists(connection, "projects", "rate_currency", "TEXT NOT NULL DEFAULT ''");
     }
 
+    /// <summary>
+    /// Step 10 phase C/D (2026-08-14) — the address book, and the local record of what was sent.
+    ///
+    /// <b>The address book is LOCAL ONLY (§12.4).</b> It is a list of other people's names and
+    /// addresses; only the one address on the report being sent ever leaves. A server-side book would
+    /// mean one breach spills every user's client list, and it buys convenience across machines that
+    /// is worth nothing at one user.
+    ///
+    /// <b>The sent record exists so a challenge can be answered (§5).</b> It holds exactly what was
+    /// sent — the labels, the figures, the recipient, the timestamp — because the draft is derived
+    /// and re-deriving it tomorrow may legitimately give a different answer once work is re-tagged.
+    /// A sent report is a snapshot and is never regenerated.
+    ///
+    /// <b>Why the lines and days are copied rather than referenced.</b> Pointing at <c>tasks</c>
+    /// would mean a re-tag or a rename silently rewrites history that has already been sent to a
+    /// client, which is the one thing this table exists to prevent. Rows here are dead copies on
+    /// purpose.
+    ///
+    /// <c>server_state</c> is how "delete on both sides" stays honest (§12.6.5): a local row whose
+    /// server half has not been confirmed deleted is still LISTED AS PRESENT rather than reported as
+    /// gone. Never report success on a half-delete.
+    /// </summary>
+    internal static void ApplyReportSendingV29(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            CREATE TABLE IF NOT EXISTS report_recipients (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                name           TEXT    NOT NULL DEFAULT '',
+                email          TEXT    NOT NULL,
+                created_at_utc TEXT    NOT NULL,
+                last_used_utc  TEXT    NOT NULL DEFAULT '',
+                schema_ver     INTEGER NOT NULL DEFAULT 1
+            );
+
+            -- Same reasoning as idx_projects_name: two rows differing only in case are one client
+            -- split in two, and here it would also mean the address book quietly holds duplicates
+            -- of a third party's address.
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_report_recipients_email
+                ON report_recipients(email COLLATE NOCASE);
+
+            CREATE TABLE IF NOT EXISTS sent_reports (
+                report_id         TEXT    PRIMARY KEY,
+                project_id        INTEGER NOT NULL DEFAULT 0,
+                project_name      TEXT    NOT NULL DEFAULT '',
+                client_name       TEXT    NOT NULL DEFAULT '',
+                range_start_local TEXT    NOT NULL,
+                range_end_local   TEXT    NOT NULL,
+                recipient_name    TEXT    NOT NULL DEFAULT '',
+                recipient_email   TEXT    NOT NULL,
+                -- What the client actually saw in the From and Reply-to lines, as resolved at send
+                -- time. Recorded, never sent: the payload carries no sender fields (§12.2), but a
+                -- dispute asks "who did this appear to come from?" and the answer has to exist.
+                from_name         TEXT    NOT NULL DEFAULT '',
+                reply_to          TEXT    NOT NULL DEFAULT '',
+                total_hours       REAL    NOT NULL DEFAULT 0,
+                days_worked       INTEGER NOT NULL DEFAULT 0,
+                lines_finished    INTEGER NOT NULL DEFAULT 0,
+                lines_total       INTEGER NOT NULL DEFAULT 0,
+                requested_at_utc  TEXT    NOT NULL,
+                -- Written by the server and stored back on success. Empty until then, which is what
+                -- makes a crash mid-send visible instead of silent.
+                sent_at_utc       TEXT    NOT NULL DEFAULT '',
+                -- pending | sent | failed. 'pending' means recorded-but-unconfirmed, and it exists
+                -- because the record is written BEFORE the attempt.
+                send_state        TEXT    NOT NULL DEFAULT 'pending',
+                send_error        TEXT    NOT NULL DEFAULT '',
+                -- present | delete_pending. A local delete whose server half failed stays
+                -- delete_pending and the report stays listed. §12.6.5.
+                server_state      TEXT    NOT NULL DEFAULT 'present',
+                schema_ver        INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_sent_reports_requested
+                ON sent_reports(requested_at_utc);
+
+            CREATE TABLE IF NOT EXISTS sent_report_lines (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id    TEXT    NOT NULL,
+                line_id      TEXT    NOT NULL,
+                client_label TEXT    NOT NULL,
+                finished     INTEGER NOT NULL DEFAULT 0,
+                hours        REAL    NOT NULL DEFAULT 0,
+                order_index  INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_sent_report_lines_report
+                ON sent_report_lines(report_id);
+
+            CREATE TABLE IF NOT EXISTS sent_report_days (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id   TEXT    NOT NULL,
+                date_local  TEXT    NOT NULL,
+                hours       REAL    NOT NULL DEFAULT 0,
+                order_index INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_sent_report_days_report
+                ON sent_report_days(report_id);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
     internal static void ApplyDailyGoalsV24(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

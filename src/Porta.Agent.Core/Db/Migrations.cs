@@ -142,7 +142,14 @@ internal static class Migrations
         new(
             Version: 28,
             Name: "report_labels_v28",
-            Apply: Schema.ApplyReportLabelsV28)
+            Apply: Schema.ApplyReportLabelsV28),
+        // Step 10 phase C/D (2026-08-14) — the address book and the local record of what was sent.
+        // The book is local only; the record is a dead snapshot so a re-tag can never rewrite what a
+        // client has already received.
+        new(
+            Version: 29,
+            Name: "report_sending_v29",
+            Apply: Schema.ApplyReportSendingV29)
     ];
 
     internal static void Migrate(SqliteConnection connection)
