@@ -1020,6 +1020,86 @@ public sealed record LocalApiReportLine(
     [property: JsonPropertyName("unattributed_hours")] double UnattributedHours,
     [property: JsonPropertyName("unattributed_measurable")] bool UnattributedMeasurable);
 
+// Step 10 phase C/D — the address book. LOCAL ONLY: these travel over localhost and never leave the
+// machine. Only the one address on the report being sent is ever uploaded.
+public sealed record LocalApiReportRecipient(
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("email")] string Email,
+    [property: JsonPropertyName("last_used_utc")] string LastUsedUtc);
+
+public sealed record LocalApiReportRecipientsResponse(
+    [property: JsonPropertyName("recipients")] IReadOnlyList<LocalApiReportRecipient> Recipients);
+
+public sealed record LocalApiReportRecipientRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("email")] string? Email);
+
+// The confirm step asks for this before it can decide what to show: who the user appears to be, and
+// whether this client has been sent to before (which is what makes the preview mandatory or not).
+public sealed record LocalApiSendContext(
+    [property: JsonPropertyName("from_name")] string FromName,
+    [property: JsonPropertyName("from_address")] string FromAddress,
+    [property: JsonPropertyName("reply_to")] string ReplyTo,
+    [property: JsonPropertyName("identity_resolved")] bool IdentityResolved,
+    [property: JsonPropertyName("preview_required")] bool PreviewRequired);
+
+public sealed record LocalApiReportSendRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("project_id")] long ProjectId,
+    [property: JsonPropertyName("from")] string From,
+    [property: JsonPropertyName("to")] string To,
+    [property: JsonPropertyName("recipient_email")] string? RecipientEmail,
+    [property: JsonPropertyName("recipient_name")] string? RecipientName,
+    // Overrides typed on the confirm screen. Empty means "use the account profile as it stands".
+    [property: JsonPropertyName("from_name")] string? FromName,
+    [property: JsonPropertyName("reply_to")] string? ReplyTo,
+    [property: JsonPropertyName("excluded_task_ids")] IReadOnlyList<long>? ExcludedTaskIds,
+    // Proof the user looked at the rendered email. Mandatory for a first send to a new client.
+    [property: JsonPropertyName("previewed")] bool Previewed);
+
+public sealed record LocalApiReportSendResponse(
+    [property: JsonPropertyName("success")] bool Success,
+    [property: JsonPropertyName("report_id")] string ReportId,
+    // Refusal codes from ReportSendPreflight, so the UI supplies the sentences.
+    [property: JsonPropertyName("refusals")] IReadOnlyList<string> Refusals,
+    [property: JsonPropertyName("reason")] string? Reason,
+    [property: JsonPropertyName("sent_at_utc")] string? SentAtUtc);
+
+public sealed record LocalApiSentReportLine(
+    [property: JsonPropertyName("line_id")] string LineId,
+    [property: JsonPropertyName("client_label")] string ClientLabel,
+    [property: JsonPropertyName("finished")] bool Finished,
+    [property: JsonPropertyName("hours")] double Hours);
+
+public sealed record LocalApiSentReport(
+    [property: JsonPropertyName("report_id")] string ReportId,
+    [property: JsonPropertyName("client_name")] string ClientName,
+    [property: JsonPropertyName("range_start_local")] string RangeStartLocal,
+    [property: JsonPropertyName("range_end_local")] string RangeEndLocal,
+    [property: JsonPropertyName("recipient_name")] string RecipientName,
+    [property: JsonPropertyName("recipient_email")] string RecipientEmail,
+    [property: JsonPropertyName("from_name")] string FromName,
+    [property: JsonPropertyName("reply_to")] string ReplyTo,
+    [property: JsonPropertyName("total_hours")] double TotalHours,
+    [property: JsonPropertyName("requested_at_utc")] string RequestedAtUtc,
+    [property: JsonPropertyName("sent_at_utc")] string SentAtUtc,
+    [property: JsonPropertyName("send_state")] string SendState,
+    [property: JsonPropertyName("send_error")] string SendError,
+    [property: JsonPropertyName("server_state")] string ServerState,
+    [property: JsonPropertyName("lines")] IReadOnlyList<LocalApiSentReportLine> Lines);
+
+public sealed record LocalApiSentReportsResponse(
+    [property: JsonPropertyName("reports")] IReadOnlyList<LocalApiSentReport> Reports);
+
+public sealed record LocalApiReportPreviewResponse(
+    [property: JsonPropertyName("success")] bool Success,
+    // A path to a temp file holding the SERVER's rendering. Written locally, opened in the browser,
+    // and deleted afterwards — it carries a client's name and hours.
+    [property: JsonPropertyName("html_path")] string? HtmlPath,
+    [property: JsonPropertyName("reason")] string? Reason);
+
 public sealed record LocalApiReportDay(
     [property: JsonPropertyName("date_local")] string DateLocal,
     [property: JsonPropertyName("hours")] double Hours);

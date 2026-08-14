@@ -522,6 +522,53 @@ public sealed record AgentReportLine(
 /// </summary>
 public sealed record AgentReportDay(string DateLocal, double Hours);
 
+/// <summary>
+/// Step 10 phase C/D — one entry in the address book. LOCAL ONLY (§12.4): a list of other people's
+/// names and addresses, and only the one address on the report being sent ever leaves the machine.
+/// </summary>
+public sealed record AgentReportRecipient(
+    long Id,
+    string Name,
+    string Email,
+    DateTimeOffset CreatedAtUtc,
+    string LastUsedUtc);
+
+/// <summary>
+/// Step 10 phase C/D — the local record of a report that was sent (§5). Without it a challenge
+/// cannot be answered, and it is a DEAD COPY: re-tagging or re-labelling afterwards changes the next
+/// report, never a delivered one.
+///
+/// <c>FromName</c> and <c>ReplyTo</c> are recorded but never sent — the payload carries no sender
+/// fields (§12.2), yet a dispute asks "who did this appear to come from?" and the answer has to
+/// exist somewhere.
+/// </summary>
+public sealed record AgentSentReport(
+    string ReportId,
+    long ProjectId,
+    string ProjectName,
+    string ClientName,
+    string RangeStartLocal,
+    string RangeEndLocal,
+    string RecipientName,
+    string RecipientEmail,
+    string FromName,
+    string ReplyTo,
+    double TotalHours,
+    int DaysWorked,
+    int LinesFinished,
+    int LinesTotal,
+    DateTimeOffset RequestedAtUtc,
+    string SentAtUtc,
+    /// <summary>pending | sent | failed. 'pending' is recorded-but-unconfirmed.</summary>
+    string SendState,
+    string SendError,
+    /// <summary>present | delete_pending. A half-delete stays listed as present (§12.6.5).</summary>
+    string ServerState,
+    IReadOnlyList<AgentSentReportLine> Lines,
+    IReadOnlyList<AgentReportDay> Days);
+
+public sealed record AgentSentReportLine(string LineId, string ClientLabel, bool Finished, double Hours);
+
 public sealed record AgentProject(
     long Id,
     string Name,

@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Porta.Agent.LocalApi;
@@ -107,6 +108,87 @@ public partial class MainWindow
             : "<no textbox>";
 
     internal bool PreviewStaleNoticeShown => ReportStaleText.Visibility == Visibility.Visible;
+
+    /// <summary>
+    /// The confirm step (§6b), filled the way the real send path will fill it. Rendered before it is
+    /// wired up, because every UI surface this week has needed a second pass and this is the last
+    /// screen before a client sees anything.
+    /// </summary>
+    internal void PreviewFillConfirm(
+        string fromName,
+        string replyTo,
+        string recipientEmail,
+        string recipientName,
+        Porta.Agent.Core.Outputs.ReportSendVerdict verdict,
+        LocalApiReportDraft draft)
+    {
+        ReportDraftPanel.Visibility = Visibility.Collapsed;
+        ReportConfirmPanel.Visibility = Visibility.Visible;
+
+        ReportConfirmSubtitle.Text =
+            "Check the addresses. Sending cannot be undone, and this is the last screen before your " +
+            "client sees the report.";
+
+        ConfirmFromNameBox.Text = fromName;
+        ConfirmReplyToBox.Text = replyTo;
+        ConfirmToBox.Text = recipientName.Length > 0
+            ? $"{recipientName} · {recipientEmail}"
+            : recipientEmail;
+
+        ConfirmDocumentHeadline.Text = draft.ClientName.Length > 0 ? draft.ClientName : draft.ProjectName;
+        ConfirmDocumentRange.Text =
+            $"{FriendlyDate(draft.RangeStartLocal)} – {FriendlyDate(draft.RangeEndLocal)}";
+        ConfirmDocumentFigures.Text =
+            $"{draft.TotalHours.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}h   ·   " +
+            $"{draft.DaysWorked} days worked   ·   " +
+            $"{draft.LinesFinished} of {draft.Lines.Count} completed";
+
+        bool refused = !verdict.CanSend;
+        ConfirmRefusalPanel.Visibility = refused ? Visibility.Visible : Visibility.Collapsed;
+        ConfirmSendButton.IsEnabled = !refused;
+
+        if (refused)
+        {
+            ConfirmRefusalText.Text = string.Join(
+                "\n",
+                verdict.Refusals.Select(RefusalSentence).Select(s => "· " + s));
+            ConfirmRefusalHelp.Text =
+                "Fix it above and this clears. Nothing has been sent.";
+            ConfirmSendNote.Text = string.Empty;
+        }
+        else
+        {
+            ConfirmSendNote.Text = "Goes out immediately. There is no undo.";
+        }
+
+        UpdateLayout();
+    }
+
+    /// <summary>
+    /// The words for each refusal. The rule lives in <c>ReportSendPreflight</c> as a code; the
+    /// sentence lives here, where the user reads it.
+    /// </summary>
+    private static string RefusalSentence(Porta.Agent.Core.Outputs.ReportSendRefusal refusal)
+        => refusal switch
+        {
+            Porta.Agent.Core.Outputs.ReportSendRefusal.DocumentNotReady =>
+                "the report still has something unnamed — go back to the draft",
+            Porta.Agent.Core.Outputs.ReportSendRefusal.FromNameMissing =>
+                "your name is empty, so the report would arrive from nobody",
+            // The one that is a refusal rather than a warning. Say what would actually happen,
+            // not that a rule was violated.
+            Porta.Agent.Core.Outputs.ReportSendRefusal.ReplyToIsSynthetic =>
+                "Reply-to is an internal Ari address that cannot receive mail. If your client " +
+                "replied, the reply would vanish and neither of you would know. Put your own " +
+                "email address in Reply-to.",
+            Porta.Agent.Core.Outputs.ReportSendRefusal.ReplyToInvalid =>
+                "Reply-to is not an email address, so replies would go nowhere",
+            Porta.Agent.Core.Outputs.ReportSendRefusal.RecipientIsSynthetic =>
+                "the recipient is an internal Ari address, not a real client",
+            Porta.Agent.Core.Outputs.ReportSendRefusal.RecipientInvalid =>
+                "the recipient is not an email address",
+            _ => "something is not right yet"
+        };
 
     internal void PreviewFillProjects(IReadOnlyList<LocalApiProject> projects)
         => RenderProjects(projects);

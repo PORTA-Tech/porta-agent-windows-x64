@@ -42,6 +42,25 @@ public sealed class NoPersonalIdentifiersShipTests
     ];
 
     /// <summary>
+    /// Domains at which an address CANNOT belong to a real person, so a literal one is a placeholder
+    /// by construction rather than by intention.
+    ///
+    /// <c>.test</c>, <c>.example</c>, <c>.invalid</c> and <c>.localhost</c> are reserved by RFC 2606
+    /// and can never be registered or delivered to. <c>porta.internal</c> is the synthetic domain the
+    /// identity service assigns on an email collision — it is non-deliverable by design, which is
+    /// precisely why it is a hard refusal as a Reply-to.
+    ///
+    /// This was added 2026-08-14 after the guard failed on the preview harness's own sample data.
+    /// The harness ships inside the product assembly, so exempting the file would have left a real
+    /// address able to hide there. Narrowing the rule to "no address that could belong to anyone"
+    /// keeps the guard pointed at the actual risk.
+    /// </summary>
+    private static readonly string[] UndeliverableDomains =
+    [
+        ".test", ".example", ".invalid", ".localhost", "porta.internal"
+    ];
+
+    /// <summary>
     /// The founder's real identifiers, named here so the guard is explicit. This file is the test
     /// fixture they are allowed to live in.
     /// </summary>
@@ -128,8 +147,11 @@ public sealed class NoPersonalIdentifiersShipTests
             foreach (Match match in EmailShaped.Matches(raw))
             {
                 string found = match.Value;
-                bool allowed = AllowedProductAddresses.Any(
-                    a => string.Equals(a, found, StringComparison.OrdinalIgnoreCase));
+                bool allowed =
+                    AllowedProductAddresses.Any(
+                        a => string.Equals(a, found, StringComparison.OrdinalIgnoreCase))
+                    || UndeliverableDomains.Any(
+                        d => found.EndsWith(d, StringComparison.OrdinalIgnoreCase));
 
                 if (!allowed)
                 {
@@ -168,6 +190,27 @@ public sealed class NoPersonalIdentifiersShipTests
         // The name scan is comment-blind by design; prove it is actually reading a file that HAS an
         // attribution comment, so "no offenders" is not "nothing was looked at".
         Assert.Contains(sources, s => s.Raw.Contains("Yadin", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The undeliverable-domain allowance must not become a way to smuggle a real address in. A
+    /// deliverable domain still fails even when it looks like sample data.
+    /// </summary>
+    [Fact]
+    public void TheUndeliverableAllowanceDoesNotExcuseARealDomain()
+    {
+        // Reserved by RFC 2606 — cannot be registered, cannot receive mail.
+        Assert.EndsWith(".test", "accounts@example-client.test", StringComparison.Ordinal);
+
+        // ...but a real domain is not excused just for looking like an example, and this is the
+        // shape the scan must still reject.
+        const string Deliverable = "someone@example-company.com";
+        Assert.DoesNotContain(
+            UndeliverableDomains,
+            d => Deliverable.EndsWith(d, StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            AllowedProductAddresses,
+            a => string.Equals(a, Deliverable, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

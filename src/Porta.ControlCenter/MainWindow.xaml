@@ -1826,6 +1826,104 @@
 
                                     <TextBlock Text="Time is recorded automatically while the work was actively in progress. Breaks and time away are not included." Style="{StaticResource RpMeta}" Margin="2,0,0,0" />
                                 </StackPanel>
+
+                                <!-- §6b — the confirm step. The last thing the user sees before a
+                                     client does, so all three addresses are here in full and each is
+                                     editable in place. Sending to a wrong address cannot be undone,
+                                     which is the whole reason this screen exists. -->
+                                <StackPanel x:Name="ReportConfirmPanel" Visibility="Collapsed">
+                                    <Border Background="{StaticResource RpCard}"
+                                            BorderBrush="{StaticResource RpHairline}"
+                                            BorderThickness="0.5"
+                                            CornerRadius="{StaticResource RpCornerOuter}"
+                                            Padding="20" Margin="0,0,0,14">
+                                        <StackPanel>
+                                            <TextBlock Text="Send this report" FontSize="18" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" Margin="0,0,0,3" />
+                                            <TextBlock x:Name="ReportConfirmSubtitle" Style="{StaticResource RpBody}" Margin="0,0,0,18" />
+
+                                            <!-- THE EMAIL. A list of labelled values, not a form of
+                                                 boxes: at rest each one reads as text and the field
+                                                 appears on click. Same lesson as the project rows. -->
+                                            <Border Background="{StaticResource RpPanel}"
+                                                    BorderBrush="{StaticResource RpHairline}"
+                                                    BorderThickness="0.5"
+                                                    CornerRadius="{StaticResource RpCornerInner}"
+                                                    Padding="16,14" Margin="0,0,0,12">
+                                                <StackPanel>
+                                                    <TextBlock Text="THE EMAIL" Style="{StaticResource RpSectionLabel}" />
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="96" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                        </Grid.RowDefinitions>
+
+                                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="From name" FontSize="12" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" Margin="0,0,0,2" />
+                                                        <TextBox x:Name="ConfirmFromNameBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource RpInlineEditBox}" Margin="0,0,0,2" />
+
+                                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="From" FontSize="12" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" Margin="0,0,0,2" />
+                                                        <!-- Deliberately not a field: it is the
+                                                             product's address, not the user's. -->
+                                                        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="6,0,0,2">
+                                                            <TextBlock Text="reports@useporta.com" FontSize="13" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" />
+                                                            <TextBlock Text="fixed" Style="{StaticResource RpMeta}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                                        </StackPanel>
+
+                                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Reply-to" FontSize="12" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" Margin="0,0,0,2" />
+                                                        <TextBox x:Name="ConfirmReplyToBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource RpInlineEditBox}" Margin="0,0,0,2" />
+
+                                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="To" FontSize="12" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" />
+                                                        <TextBox x:Name="ConfirmToBox" Grid.Row="3" Grid.Column="1" Style="{StaticResource RpInlineEditBox}" />
+                                                    </Grid>
+
+                                                    <TextBlock Text="Your client reads your name first, and replying reaches you. Changes here are remembered — you won't be asked again." Style="{StaticResource RpMeta}" Margin="6,12,0,0" />
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- What they receive, so the envelope and the document
+                                                 are checked on the same screen. -->
+                                            <Border Background="{StaticResource RpPanel}"
+                                                    BorderBrush="{StaticResource RpHairline}"
+                                                    BorderThickness="0.5"
+                                                    CornerRadius="{StaticResource RpCornerInner}"
+                                                    Padding="16,14">
+                                                <StackPanel>
+                                                    <TextBlock Text="WHAT THEY RECEIVE" Style="{StaticResource RpSectionLabel}" />
+                                                    <TextBlock x:Name="ConfirmDocumentHeadline" FontSize="14" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
+                                                    <TextBlock x:Name="ConfirmDocumentRange" Style="{StaticResource RpBody}" Margin="0,3,0,0" />
+                                                    <TextBlock x:Name="ConfirmDocumentFigures" FontSize="13" Foreground="{StaticResource RpTextPrimary}" Margin="0,8,0,0" Typography.NumeralAlignment="Tabular" />
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- The refusal. Structure and words rather than a new colour:
+                                         the agreed palette has no error red, and inventing one here
+                                         would be the fourth thing green drifted into. -->
+                                    <Border x:Name="ConfirmRefusalPanel" Style="{StaticResource RpPanelBorder}" Visibility="Collapsed">
+                                        <StackPanel>
+                                            <TextBlock Text="CAN'T SEND YET" Style="{StaticResource RpSectionLabel}" />
+                                            <TextBlock x:Name="ConfirmRefusalText" FontSize="13" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="ConfirmRefusalHelp" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Grid Margin="0,4,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button x:Name="ConfirmCancelButton" Grid.Column="0" Content="Back to the draft" Style="{StaticResource RpQuietButton}" />
+                                        <TextBlock x:Name="ConfirmSendNote" Grid.Column="1" Style="{StaticResource RpMeta}" VerticalAlignment="Center" Margin="12,0,12,0" TextAlignment="Right" />
+                                        <Button x:Name="ConfirmSendButton" Grid.Column="2" Content="Send report" Style="{StaticResource RpPrimaryButton}" />
+                                    </Grid>
+                                </StackPanel>
                             </StackPanel>
 
                         </StackPanel>

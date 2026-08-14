@@ -4,6 +4,8 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Porta.Agent.Core;
+using Porta.Agent.Core.Outputs;
 using Porta.Agent.LocalApi;
 
 namespace Porta.ControlCenter;
@@ -272,7 +274,68 @@ internal static class ReportsPagePreview
         new("projects empty", "Projects", w => w.PreviewFillProjects([])),
         new("reports drafted", "Reports", w => w.PreviewFillReport(SampleDraft), Height: 1560),
         new("reports empty", "Reports", w => w.PreviewFillReport(EmptyDraft), Height: 1080),
+
+        // §6b, both states. Every value is a placeholder — the real ones come from that user's own
+        // account profile and the client they picked.
+        new("confirm ready", "Reports", w =>
+        {
+            w.PreviewFillReport(ReadyDraft);
+            w.PreviewFillConfirm(
+                "A Real Person", "person@example.test",
+                "accounts@example-client.test", "Nolan Studio",
+                Preflight("A Real Person", "person@example.test", "accounts@example-client.test"),
+                ReadyDraft);
+        }, Height: 1080),
+
+        new("confirm refused synthetic replyto", "Reports", w =>
+        {
+            w.PreviewFillReport(ReadyDraft);
+            w.PreviewFillConfirm(
+                "A Real Person", "displaced-acct_9f21c8@porta.internal",
+                "accounts@example-client.test", "Nolan Studio",
+                Preflight("A Real Person", "displaced-acct_9f21c8@porta.internal", "accounts@example-client.test"),
+                ReadyDraft);
+        }, Height: 1080),
     ];
+
+    private static ReportSendVerdict Preflight(string from, string replyTo, string recipient)
+        => ReportSendPreflight.Evaluate(ToAgentDraft(ReadyDraft), null, from, replyTo, recipient);
+
+    /// <summary>
+    /// The preflight works on the agent-core draft; the page holds the local-API shape. The harness
+    /// converts rather than duplicating the rules, so the picture shows the real verdict.
+    /// </summary>
+    private static AgentReportDraft ToAgentDraft(LocalApiReportDraft d)
+        => new(
+            d.ProjectId, d.ProjectName, d.ClientName, d.RangeStartLocal, d.RangeEndLocal,
+            d.TotalHours, d.DaysWorked, d.LinesFinished,
+            d.Lines.Select(l => new AgentReportLine(
+                l.TaskId, l.Title, l.ClientLabel, l.Finished, l.Hours,
+                l.UnattributedHours, l.UnattributedMeasurable)).ToList(),
+            d.Days.Select(x => new AgentReportDay(x.DateLocal, x.Hours)).ToList());
+
+    /// <summary>Every line named, so the confirm screen is reached on its merits.</summary>
+    private static LocalApiReportDraft ReadyDraft => new(
+        ProjectId: 1,
+        ProjectName: "nolan - chase invoice",
+        ClientName: "Nolan Studio",
+        RangeStartLocal: "2026-08-12",
+        RangeEndLocal: "2026-08-18",
+        TotalHours: 14.2,
+        DaysWorked: 5,
+        LinesFinished: 2,
+        Lines:
+        [
+            new(1, "finish my writting part \"all the way in\"", "Chapter three — first draft", true, 6.2, 0.4, true),
+            new(2, "continue to improve the system", "Interview transcripts", true, 4.9, 0d, true),
+            new(3, "working on appolo leads", "Structural edit, part one", false, 3.1, 0d, false),
+        ],
+        Days:
+        [
+            new("2026-08-12", 3.7), new("2026-08-13", 5.2), new("2026-08-14", 0.0),
+            new("2026-08-15", 4.6), new("2026-08-16", 0.0), new("2026-08-17", 0.7),
+            new("2026-08-18", 0.0),
+        ]);
 
     // The popup is a separate visual tree in its own window, so the page shots never contained it.
     // One picture per display mode, because the header button walks through all three and a broken

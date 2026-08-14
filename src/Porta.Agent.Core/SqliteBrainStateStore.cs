@@ -13,7 +13,7 @@ using Porta.Agent.Core.Security;
 
 namespace Porta.Agent.Core;
 
-public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDbWriter
+public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDbWriter
 {
     private const int DefaultRetentionDays = 14;
     private const int DefaultEventCooldownSeconds = 20;
@@ -804,6 +804,20 @@ public sealed class SqliteBrainStateStore : IBrainStateStore, IBucketFinalizerDb
                     -- them with everything else the user typed.
                     DELETE FROM projects;
                     DELETE FROM daily_goals;
+                    -- Step 10 phase C/D: the address book and every sent report. §12.6.5 requires
+                    -- this path to cover sent reports, and the address book is a list of OTHER
+                    -- PEOPLE'S names and addresses — the only data in this product whose subject
+                    -- never installed it (§12.0). "Delete my local data" leaving a client list
+                    -- behind is the primitive_buckets defect wearing different clothes.
+                    --
+                    -- NOTE the honest limit: this deletes the LOCAL half. Server-side copies of
+                    -- sent reports are deleted per report through the both-sides path, because a
+                    -- local button cannot promise anything about a server it may not be able to
+                    -- reach. Never report success for the server half from here.
+                    DELETE FROM sent_report_lines;
+                    DELETE FROM sent_report_days;
+                    DELETE FROM sent_reports;
+                    DELETE FROM report_recipients;
                     DELETE FROM sqlite_sequence;
                     """;
                 cmd.ExecuteNonQuery();
