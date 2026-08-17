@@ -418,7 +418,27 @@ public sealed record AgentTask(
     // user and then remembered forever. Empty = never given. The raw Title above stays local and is
     // never replaced by it: the label is for the report, the title is for the person doing the work
     // (Step10_Report_Spec.md §3).
-    string ClientLabel = "");
+    string ClientLabel = "",
+    // Phase 1.1 (2026-08-17) — the fields a client report is made of. All defaulted, so every
+    // existing construction keeps compiling and every already-stored row keeps working.
+    //
+    // Status is a SEPARATE axis from State above. State is execution: pending / active / done /
+    // abandoned, where 'active' means the timer is running right now. Status is where the task
+    // stands for a reader — a task can be in progress all week with its timer stopped. Four-way
+    // status is what makes a report readable; done-or-not is a timesheet.
+    string Status = "planned",
+    DateTimeOffset? CompletedAtUtc = null,
+    // Optional, a goal-day key. "The single most reassuring line a client reads."
+    string ExpectedFinishDay = "",
+    // What came of it, in one line, written by the USER. The report's body is built from these and
+    // from nothing else — never from app usage, focus or activity data.
+    string ResultLine = "",
+    // "The word blocked without a reason is worse than silence."
+    string BlockedReason = "",
+    // 1-8, assigned in fixed order within a project and never recycled. 0 = no slot, which the
+    // renderer folds into one neutral "Other" slice. The INDEX, never the hex: the palette lives
+    // in the renderer so it can change in one place.
+    int ColourSlot = 0);
 
 /// <summary>
 /// Step 9a — a project. On a card a project is ONLY a name; client, colour and rate belong in

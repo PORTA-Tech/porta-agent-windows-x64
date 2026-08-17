@@ -178,6 +178,7 @@ public sealed class BucketRecomputeRulesTests
         public AgentProject? RenameProject(long id, string name) => null;
         public AgentProject? SetProjectArchived(long id, bool archived, DateTimeOffset nowUtc) => null;
         public AgentTask? SetTaskClientLabel(long taskId, string label) => null;
+        public AgentTask? SetTaskReportFields(long taskId, string? status, string? resultLine, string? blockedReason, string? expectedFinishDay) => null;
         public AgentProject? SetProjectClientName(long id, string clientName) => null;
         public AgentProject? SetProjectLabelStyle(long id, bool useClientLabels) => null;
         public AgentProject? SetProjectRate(long id, long rateMinor, string currency) => null;

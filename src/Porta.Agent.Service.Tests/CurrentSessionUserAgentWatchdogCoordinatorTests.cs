@@ -250,6 +250,7 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         public Porta.Agent.Core.AgentProject? RenameProject(long id, string name) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? SetProjectArchived(long id, bool archived) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentTask? SetTaskClientLabel(long taskId, string label) => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentTask? SetTaskReportFields(long taskId, string? status, string? resultLine, string? blockedReason, string? expectedFinishDay) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? SetProjectClientName(long id, string clientName) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? SetProjectLabelStyle(long id, bool useClientLabels) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? SetProjectRate(long id, long rateMinor, string currency) => throw new NotSupportedException();

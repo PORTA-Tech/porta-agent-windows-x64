@@ -81,6 +81,18 @@ public interface IAgentCoreController
     // Step 10 phase A/B (2026-08-13) — what a client is shown, the user-side rate, and the report
     // draft. All local: no payload gains a field from any of these.
     AgentTask? SetTaskClientLabel(long taskId, string label);
+
+    /// Phase 1.1 + 1.3 (2026-08-17) — the reporting fields, written in ONE call.
+    /// Consolidated on purpose: status, its blocked reason, the result line and the expected
+    /// finish are edited together on the report draft, and four separate round trips is four
+    /// chances for them to disagree. Any argument left null is left unchanged.
+    AgentTask? SetTaskReportFields(
+        long taskId,
+        string? status,
+        string? resultLine,
+        string? blockedReason,
+        string? expectedFinishDay);
+
     AgentProject? SetProjectClientName(long id, string clientName);
     AgentProject? SetProjectLabelStyle(long id, bool useClientLabels);
     AgentProject? SetProjectRate(long id, long rateMinor, string currency);

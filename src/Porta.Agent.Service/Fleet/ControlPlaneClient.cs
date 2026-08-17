@@ -203,6 +203,41 @@ internal sealed class ControlPlaneClient : IDisposable
     /// The agent never re-renders this locally. One renderer for preview and for send, or the
     /// preview becomes a promise the product breaks quietly.
     /// </summary>
+    /// <summary>
+    /// Phase 0.2 — read this account's own display name and email back from the server.
+    ///
+    /// Data coming IN, not out: the agent asks who it is so the confirm screen can show the truth
+    /// instead of two blank boxes. Nothing is sent but the account id the machine already holds.
+    /// Fail-soft — a null leaves the boxes empty, which is where they were before.
+    /// </summary>
+    public async Task<ReportSenderResult?> GetReportSenderAsync(string accountId, CancellationToken token)
+    {
+        if (_httpClient is null || string.IsNullOrWhiteSpace(accountId))
+        {
+            return null;
+        }
+
+        try
+        {
+            using HttpResponseMessage response = await _httpClient
+                .GetAsync($"api/reports/sender?accountId={Uri.EscapeDataString(accountId)}", token)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content
+                .ReadFromJsonAsync<ReportSenderResult>(JsonOptions, token)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<ReportPreviewResult?> PostReportPreviewAsync(
         ReportSendPayload payload,
         CancellationToken token)

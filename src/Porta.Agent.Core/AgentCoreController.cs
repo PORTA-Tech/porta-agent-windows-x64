@@ -1833,6 +1833,9 @@ public sealed class AgentCoreController : IAgentCoreController
     public AgentTask? SetTaskClientLabel(long taskId, string label)
         => _stateStore.SetTaskClientLabel(taskId, label);
 
+    public AgentTask? SetTaskReportFields(long taskId, string? status, string? resultLine, string? blockedReason, string? expectedFinishDay)
+        => _stateStore.SetTaskReportFields(taskId, status, resultLine, blockedReason, expectedFinishDay);
+
     public AgentProject? SetProjectClientName(long id, string clientName)
         => _stateStore.SetProjectClientName(id, clientName);
 

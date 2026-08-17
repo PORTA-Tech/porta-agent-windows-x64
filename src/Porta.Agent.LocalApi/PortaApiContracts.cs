@@ -993,6 +993,19 @@ public sealed record LocalApiTaskClientLabelRequest(
     [property: JsonPropertyName("task_id")] long TaskId,
     [property: JsonPropertyName("client_label")] string? ClientLabel);
 
+// Phase 1.1 + 1.3 (2026-08-17) — the reporting fields on a task. Every field is nullable and a
+// null leaves that column alone, so the same request sets a result line on its own, a status on
+// its own, or all of them together from the report draft.
+public sealed record LocalApiTaskReportFieldsRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("task_id")] long TaskId,
+    // planned | in_progress | done | blocked. Anything else is refused rather than stored.
+    [property: JsonPropertyName("status")] string? Status,
+    // What came of it, in one line, written by the user. The report body is built from these.
+    [property: JsonPropertyName("result_line")] string? ResultLine,
+    [property: JsonPropertyName("blocked_reason")] string? BlockedReason,
+    [property: JsonPropertyName("expected_finish_day")] string? ExpectedFinishDay);
+
 // Step 10 phase A — the project's client-facing settings. Each field is applied only when present,
 // so setting a rate cannot accidentally clear a client name.
 public sealed record LocalApiProjectClientRequest(

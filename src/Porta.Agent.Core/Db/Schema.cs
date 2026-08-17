@@ -891,6 +891,105 @@ internal static class Schema
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// Phase 0.1 + 1.1 + 1.2 (2026-08-17) — everything the client report needs recorded, in one
+    /// step because they ship together and a half-applied set is worse than either half.
+    ///
+    /// <b>task_day_hours is the one that cannot wait.</b> The report's main chart splits each day
+    /// by the task the hours went to, and that cross is not stored anywhere honest today.
+    /// <c>app_usage_rollup</c> looks like it holds it — it is keyed
+    /// <c>(hour_start_utc, task_id, app_hash)</c> — but <c>AccumulateAppUsageRollup</c> returns
+    /// early on a bucket with no identifiable application, so it is LOSSY by an unmeasured amount.
+    /// That loss is already visible as <c>unattributed_hours</c> on the Reports page. A per-day
+    /// split derived from it would not add up to the per-task totals the widget shows, which is
+    /// exactly the kind of number a client's invoice must never contain.
+    ///
+    /// So this table records the same buckets with NO app condition, in the same transaction as
+    /// the attribution itself, and it therefore cannot disagree with <c>tasks.active_seconds</c>.
+    ///
+    /// <b>No backfill, deliberately.</b> The days before this ships have no honest per-day split,
+    /// and reconstructing one from the lossy rollup would invent it. The day dimension genuinely
+    /// begins today, the same way the project dimension genuinely began on 2026-08-12 (§14).
+    /// </summary>
+    internal static void ApplyReportContentV30(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            -- 0.1 — hours per task, per DAY. Local only.
+            --
+            -- Keyed by local_date, not a UTC hour: the chart's unit is a day, and in this product a
+            -- day is the 05:00-boundary goal day that daily_goals and tasks.deferred_until_day
+            -- already use. A UTC key would let the report's days disagree with the check-in cards'
+            -- days at the boundary, and a client reading "you worked Tuesday" must mean the same
+            -- Tuesday the user remembers.
+            --
+            -- No project_id, for the reason app_usage_rollup has none: re-tagging a task must stay
+            -- instant and total, so the project is resolved from tasks.project_id at READ time.
+            CREATE TABLE IF NOT EXISTS task_day_hours (
+                local_date       TEXT    NOT NULL,
+                task_id          INTEGER NOT NULL,
+                active_seconds   REAL    NOT NULL DEFAULT 0,
+                focused_seconds  REAL    NOT NULL DEFAULT 0,
+                offtask_seconds  REAL    NOT NULL DEFAULT 0,
+                schema_ver       INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (local_date, task_id)
+            ) WITHOUT ROWID;
+
+            CREATE INDEX IF NOT EXISTS ix_task_day_hours_task
+                ON task_day_hours(task_id);
+            """;
+        cmd.ExecuteNonQuery();
+
+        // 1.1 — the task record grows.
+        //
+        // status is a SEPARATE axis from the existing `state`, not a replacement for it. `state`
+        // is execution — pending / active / done / abandoned, where 'active' means the timer is
+        // running right now. `status` is where the task stands for a reader: a task can be "in
+        // progress" all week while its timer is stopped. Collapsing the two would make the widget
+        // and the report fight over one column.
+        EnsureColumnExists(connection, "tasks", "status", "TEXT NOT NULL DEFAULT 'planned'");
+        EnsureColumnExists(connection, "tasks", "completed_at_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "tasks", "expected_finish_day", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "tasks", "result_line", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "tasks", "blocked_reason", "TEXT NOT NULL DEFAULT ''");
+
+        // The SLOT INDEX, never the hex. The palette belongs to the renderer so it can be changed
+        // in one place; a stored hex would freeze today's palette into every historical task.
+        // 1-8 assigned in fixed order within a project and never recycled; 0 means no slot, which
+        // the renderer folds into the neutral "Other" slice.
+        EnsureColumnExists(connection, "tasks", "colour_slot", "INTEGER NOT NULL DEFAULT 0");
+
+        // Seed status from the execution state that already exists, so tasks recorded before today
+        // do not all read as "planned" in the first report.
+        using (var seed = connection.CreateCommand())
+        {
+            seed.CommandText =
+                """
+                UPDATE tasks SET status =
+                    CASE state
+                        WHEN 'done'   THEN 'done'
+                        WHEN 'active' THEN 'in_progress'
+                        ELSE 'planned'
+                    END
+                WHERE status = 'planned';
+
+                -- completed_at is a fact we already hold for closed tasks.
+                UPDATE tasks SET completed_at_utc = ended_at_utc
+                WHERE state = 'done' AND ended_at_utc <> '' AND completed_at_utc = '';
+                """;
+            seed.ExecuteNonQuery();
+        }
+
+        // 1.2 — the project record grows. recipients is a JSON array of addresses and is LOCAL
+        // ONLY (§12.4): the address book never leaves the machine, and only the one address on a
+        // report being sent ever does.
+        EnsureColumnExists(connection, "projects", "status", "TEXT NOT NULL DEFAULT 'active'");
+        EnsureColumnExists(connection, "projects", "start_day", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "projects", "completion_day", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "projects", "recipients", "TEXT NOT NULL DEFAULT ''");
+    }
+
     internal static void ApplyContractSchemaV3(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

@@ -293,6 +293,7 @@ public sealed class LocalApiRouteStartupSmokeTests
         public AgentProject? RenameProject(long id, string name) => throw new NotSupportedException();
         public AgentProject? SetProjectArchived(long id, bool archived) => throw new NotSupportedException();
         public AgentTask? SetTaskClientLabel(long taskId, string label) => throw new NotSupportedException();
+        public AgentTask? SetTaskReportFields(long taskId, string? status, string? resultLine, string? blockedReason, string? expectedFinishDay) => throw new NotSupportedException();
         public AgentProject? SetProjectClientName(long id, string clientName) => throw new NotSupportedException();
         public AgentProject? SetProjectLabelStyle(long id, bool useClientLabels) => throw new NotSupportedException();
         public AgentProject? SetProjectRate(long id, long rateMinor, string currency) => throw new NotSupportedException();

@@ -455,6 +455,14 @@ internal sealed record ReportPreviewResult(
     [property: JsonPropertyName("replyTo")] string? ReplyTo,
     [property: JsonPropertyName("reason")] string? Reason);
 
+/// Phase 0.2 — the account's own sender identity, read back from the server that owns it.
+internal sealed record ReportSenderResult(
+    [property: JsonPropertyName("success")] bool Success,
+    [property: JsonPropertyName("fromName")] string? FromName,
+    [property: JsonPropertyName("fromAddress")] string? FromAddress,
+    [property: JsonPropertyName("replyTo")] string? ReplyTo,
+    [property: JsonPropertyName("reason")] string? Reason);
+
 internal sealed record ReportSendResult(
     [property: JsonPropertyName("success")] bool Success,
     [property: JsonPropertyName("reportId")] string? ReportId,

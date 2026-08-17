@@ -474,6 +474,15 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                     tx,
                     Time.bucketSeconds,
                     derivedSession.AttentionSegmentKind);
+                // ...and onto the per-task-per-day table (phase 0.1), which is the grain the
+                // report's main chart needs and the one thing here that takes EVERY attributed
+                // bucket, not only those with a recognised application.
+                AccumulateTaskDayHours(
+                    connection,
+                    tx,
+                    Time.bucketSeconds,
+                    derivedSession.AttentionSegmentKind,
+                    mapped.StartUtc);
                 // ...and onto the hourly app rollup, which is the only record of this that
                 // survives the 14-day prune. Same transaction, same inputs, so the two cannot
                 // drift apart.
@@ -788,6 +797,10 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                     -- The app rollup is per-application time the user produced. It goes with
                     -- everything else they typed and everything else that watched them.
                     DELETE FROM app_usage_rollup;
+                    -- Phase 0.1. Added to this list in the SAME commit that created the table,
+                    -- because the one lesson primitive_buckets already cost is that a capture
+                    -- table missing from here turns "delete my local data" into a false report.
+                    DELETE FROM task_day_hours;
                     DELETE FROM events;
                     DELETE FROM interventions;
                     DELETE FROM system_changes;
@@ -2331,6 +2344,8 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 id = (long)(cmd.ExecuteScalar() ?? 0L);
             }
 
+            AssignColourSlot(connection, tx, id);
+
             AgentTask? created = ReadTaskRow(connection, tx, id);
             tx.Commit();
             return created;
@@ -2424,9 +2439,20 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                     break;
                 case "done":
                 case "abandon":
+                    // Phase 1.1 — the reporting status and completed_at move WITH the execution
+                    // state, in the same statement. Two columns updated in two places is how they
+                    // start disagreeing, and a report that says "in progress" about a task the user
+                    // ticked off is worse than one that says nothing.
+                    //
+                    // Only 'done' sets completed_at and status='done'. An abandoned task is not a
+                    // completion and must never be reported as one; it keeps whatever status it had.
                     cmd.CommandText =
                         """
-                        UPDATE tasks SET state = $state, ended_at_utc = $now
+                        UPDATE tasks
+                        SET state = $state,
+                            ended_at_utc = $now,
+                            status = CASE WHEN $state = 'done' THEN 'done' ELSE status END,
+                            completed_at_utc = CASE WHEN $state = 'done' THEN $now ELSE completed_at_utc END
                         WHERE id = $id AND state IN ('pending','active');
                         """;
                     cmd.Parameters.AddWithValue("$state", verb == "done" ? "done" : "abandoned");
@@ -2904,12 +2930,25 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
     private const string TaskColumns =
         "t.id, t.title, t.planned_seconds, t.state, t.order_index, t.created_at_utc, t.started_at_utc, " +
         "t.ended_at_utc, t.active_seconds, t.focused_seconds, t.offtask_seconds, t.extended_seconds, " +
-        "t.deferred_until_day, t.project_id, COALESCE(p.name, ''), t.client_label";
+        "t.deferred_until_day, t.project_id, COALESCE(p.name, ''), t.client_label, " +
+        // Phase 1.1 (2026-08-17) — added HERE rather than in a second query, for the same reason
+        // the project name is: every task read goes through TaskSelect, so a caller cannot get a
+        // task that is missing its status or its colour.
+        "t.status, t.completed_at_utc, t.expected_finish_day, t.result_line, t.blocked_reason, t.colour_slot";
 
     private const string TaskSelect =
         "SELECT " + TaskColumns + " FROM tasks t LEFT JOIN projects p ON p.id = t.project_id";
 
-    private static AgentTask? ReadTaskRow(SqliteConnection connection, SqliteTransaction tx, long id)
+    private AgentTask? ReadTaskById(long id)
+    {
+        lock (_gate)
+        {
+            using SqliteConnection connection = DbOpen.OpenConnection(_dbPath);
+            return ReadTaskRow(connection, null, id);
+        }
+    }
+
+    private static AgentTask? ReadTaskRow(SqliteConnection connection, SqliteTransaction? tx, long id)
     {
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
@@ -2939,7 +2978,15 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
             DeferredUntilDay: reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
             ProjectId: reader.IsDBNull(13) ? 0L : reader.GetInt64(13),
             ProjectName: reader.IsDBNull(14) ? string.Empty : reader.GetString(14),
-            ClientLabel: reader.IsDBNull(15) ? string.Empty : reader.GetString(15));
+            ClientLabel: reader.IsDBNull(15) ? string.Empty : reader.GetString(15),
+            Status: reader.IsDBNull(16) ? "planned" : reader.GetString(16),
+            CompletedAtUtc: reader.IsDBNull(17) || reader.GetString(17).Length == 0
+                ? null
+                : DateTimeOffset.Parse(reader.GetString(17)),
+            ExpectedFinishDay: reader.IsDBNull(18) ? string.Empty : reader.GetString(18),
+            ResultLine: reader.IsDBNull(19) ? string.Empty : reader.GetString(19),
+            BlockedReason: reader.IsDBNull(20) ? string.Empty : reader.GetString(20),
+            ColourSlot: reader.IsDBNull(21) ? 0 : reader.GetInt32(21));
     }
 
     /// <summary>
@@ -2949,6 +2996,221 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
     /// else (focus, meeting, context excursion) counts as focused. One row update per 5s
     /// bucket, only while a task is active.
     /// </summary>
+    /// <summary>
+    /// Phase 1.1 (2026-08-17) — give the task its colour slot.
+    ///
+    /// <b>A task keeps its colour in every chart, list and table, permanently. That is a design
+    /// rule, not a preference</b> (Yadin, 2026-08-17), and it is why this is decided once, at
+    /// creation, and stored — rather than computed at render time from a task's position in some
+    /// list, which would shuffle every colour the moment a task was added or removed.
+    ///
+    /// THE SLOT INDEX, NEVER THE HEX. The palette lives in the renderer so it can be changed in one
+    /// place; a stored hex would freeze today's eight colours into every historical task.
+    ///
+    /// <b>Never recycled.</b> The next slot is MAX + 1 within the project, so deleting the task
+    /// holding slot 3 leaves slot 3 permanently retired rather than handing it to a newcomer — a
+    /// reused colour would silently re-label a task in an already-sent report.
+    ///
+    /// Past eight, the slot is 0. That is not a failure: 0 means "no slot", and the renderer folds
+    /// every 0 into one neutral grey slice labelled Other while the table underneath still lists
+    /// every task by name with its own hours. Nothing wraps and no ninth colour is invented, on
+    /// Yadin's instruction — the eight-colour order passed a colourblind separation check for
+    /// adjacent marks, and a ninth would break the property the order exists to guarantee.
+    ///
+    /// Untagged tasks (project 0) get no slot: colour identifies a task within one project's
+    /// charts, and there is no chart for the untagged pile.
+    /// </summary>
+    private const int ColourSlotCount = 8;
+
+    /// <summary>
+    /// Phase 1.3 (2026-08-17) — the one line that says what came of a task.
+    ///
+    /// <b>This is the difference between activity and accomplishment</b>, and it is the only text
+    /// the report's body is built from. One line, on purpose: if it takes more than a sentence
+    /// nobody writes it twice, so the prompt asks once, when a task is marked done, and never
+    /// per-day. A daily per-task prompt was considered and rejected as too much typing.
+    ///
+    /// For a task still in progress or blocked at report time the line is typed on the report
+    /// draft instead — same column, different moment.
+    /// </summary>
+    public AgentTask? SetTaskReportFields(
+        long taskId,
+        string? status,
+        string? resultLine,
+        string? blockedReason,
+        string? expectedFinishDay)
+    {
+        string? normalizedStatus = status is null
+            ? null
+            : status.Trim().ToLowerInvariant() switch
+            {
+                "planned" => "planned",
+                "in_progress" => "in_progress",
+                "done" => "done",
+                "blocked" => "blocked",
+                _ => null
+            };
+
+        // A status was asked for and it was not one of the four. Refuse rather than storing a
+        // value the report cannot group by.
+        if (status is not null && normalizedStatus is null)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            using SqliteConnection connection = DbOpen.OpenConnection(_dbPath);
+            using var cmd = connection.CreateCommand();
+            // COALESCE on a null parameter leaves the column untouched, so one call can set any
+            // subset. completed_at follows status rather than being passed in: it is a fact about
+            // when, not a field to be typed, and the two must never disagree.
+            cmd.CommandText =
+                """
+                UPDATE tasks
+                SET status           = COALESCE($status, status),
+                    result_line      = COALESCE($result, result_line),
+                    expected_finish_day = COALESCE($expected, expected_finish_day),
+                    blocked_reason   = CASE
+                        WHEN COALESCE($status, status) <> 'blocked' THEN ''
+                        ELSE COALESCE($reason, blocked_reason) END,
+                    completed_at_utc = CASE
+                        WHEN COALESCE($status, status) = 'done' AND completed_at_utc = '' THEN $now
+                        WHEN COALESCE($status, status) <> 'done' THEN ''
+                        ELSE completed_at_utc END
+                WHERE id = $id;
+                """;
+            cmd.Parameters.AddWithValue("$id", taskId);
+            cmd.Parameters.AddWithValue("$status", (object?)normalizedStatus ?? DBNull.Value);
+            cmd.Parameters.AddWithValue(
+                "$result",
+                resultLine is null ? DBNull.Value : NormalizeOneLine(resultLine, MaxResultLineLength));
+            cmd.Parameters.AddWithValue(
+                "$reason",
+                blockedReason is null ? DBNull.Value : NormalizeOneLine(blockedReason, MaxResultLineLength));
+            cmd.Parameters.AddWithValue(
+                "$expected",
+                expectedFinishDay is null ? DBNull.Value : (object)expectedFinishDay.Trim());
+            cmd.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+            cmd.ExecuteNonQuery();
+        }
+
+        return ReadTaskById(taskId);
+    }
+
+    public AgentTask? SetTaskResultLine(long id, string resultLine)
+        => UpdateTaskColumn(id, "result_line", NormalizeOneLine(resultLine, MaxResultLineLength));
+
+    /// <summary>
+    /// Phase 1.1 — the four-way reporting status, and the reason when it is blocked.
+    ///
+    /// "The word blocked without a reason is worse than silence", so the reason is written in the
+    /// same call. Moving off blocked clears it rather than leaving a stale explanation attached to
+    /// a task that is running again.
+    /// </summary>
+    public AgentTask? SetTaskStatus(long id, string status, string blockedReason)
+    {
+        string normalized = (status ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "planned" => "planned",
+            "in_progress" => "in_progress",
+            "done" => "done",
+            "blocked" => "blocked",
+            _ => string.Empty
+        };
+
+        if (normalized.Length == 0)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            using SqliteConnection connection = DbOpen.OpenConnection(_dbPath);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText =
+                """
+                UPDATE tasks
+                SET status = $status,
+                    blocked_reason = CASE WHEN $status = 'blocked' THEN $reason ELSE '' END,
+                    completed_at_utc = CASE
+                        WHEN $status = 'done' AND completed_at_utc = '' THEN $now
+                        WHEN $status <> 'done' THEN ''
+                        ELSE completed_at_utc END
+                WHERE id = $id;
+                """;
+            cmd.Parameters.AddWithValue("$id", id);
+            cmd.Parameters.AddWithValue("$status", normalized);
+            cmd.Parameters.AddWithValue("$reason", NormalizeOneLine(blockedReason, MaxResultLineLength));
+            cmd.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+            cmd.ExecuteNonQuery();
+        }
+
+        return ReadTaskById(id);
+    }
+
+    /// <summary>Phase 1.1 — the optional expected finish, a goal-day key. Empty clears it.</summary>
+    public AgentTask? SetTaskExpectedFinish(long id, string expectedFinishDay)
+        => UpdateTaskColumn(id, "expected_finish_day", (expectedFinishDay ?? string.Empty).Trim());
+
+    private const int MaxResultLineLength = 280;
+
+    /// <summary>One line means one line: newlines collapse rather than being stored and rendered.</summary>
+    private static string NormalizeOneLine(string? value, int maxLength)
+    {
+        string flattened = (value ?? string.Empty)
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+
+        while (flattened.Contains("  ", StringComparison.Ordinal))
+        {
+            flattened = flattened.Replace("  ", " ", StringComparison.Ordinal);
+        }
+
+        return flattened.Length > maxLength ? flattened[..maxLength] : flattened;
+    }
+
+    private AgentTask? UpdateTaskColumn(long id, string column, string value)
+    {
+        lock (_gate)
+        {
+            using SqliteConnection connection = DbOpen.OpenConnection(_dbPath);
+            using var cmd = connection.CreateCommand();
+            // Column name is a compile-time constant at every call site, never user input.
+            cmd.CommandText = $"UPDATE tasks SET {column} = $value WHERE id = $id;";
+            cmd.Parameters.AddWithValue("$id", id);
+            cmd.Parameters.AddWithValue("$value", value);
+            cmd.ExecuteNonQuery();
+        }
+
+        return ReadTaskById(id);
+    }
+
+    private static void AssignColourSlot(SqliteConnection connection, SqliteTransaction tx, long taskId)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            UPDATE tasks
+            SET colour_slot = (
+                SELECT CASE
+                    WHEN t.project_id = 0 THEN 0
+                    WHEN COALESCE(MAX(peer.colour_slot), 0) >= $max THEN 0
+                    ELSE COALESCE(MAX(peer.colour_slot), 0) + 1
+                END
+                FROM tasks t
+                LEFT JOIN tasks peer ON peer.project_id = t.project_id AND peer.id <> t.id
+                WHERE t.id = $id
+            )
+            WHERE id = $id;
+            """;
+        cmd.Parameters.AddWithValue("$id", taskId);
+        cmd.Parameters.AddWithValue("$max", ColourSlotCount);
+        cmd.ExecuteNonQuery();
+    }
+
     internal static void AttributeBucketToActiveTask(
         SqliteConnection connection,
         SqliteTransaction tx,
@@ -2971,6 +3233,70 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 offtask_seconds = offtask_seconds + $offtask
             WHERE state = 'active';
             """;
+        cmd.Parameters.AddWithValue("$seconds", bucketSeconds);
+        cmd.Parameters.AddWithValue("$focused", offtask ? 0d : bucketSeconds);
+        cmd.Parameters.AddWithValue("$offtask", offtask ? bucketSeconds : 0d);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Phase 0.1 (2026-08-17) — the same bucket, landed on the per-task-per-DAY table.
+    ///
+    /// <b>Why this is not <see cref="AccumulateAppUsageRollup"/>.</b> That one drops any bucket
+    /// with no identifiable application, so it undercounts by an unmeasured amount — the gap the
+    /// Reports page already shows as <c>unattributed_hours</c>. A per-day chart built from it would
+    /// not sum to <c>tasks.active_seconds</c>, and a client's document cannot carry two totals for
+    /// the same work. This one takes every bucket the task attribution took, on exactly the same
+    /// condition, so the two are the same measurement at two grains.
+    ///
+    /// <b>The day is the 05:00-boundary GOAL day</b>, resolved from the BUCKET's own timestamp and
+    /// never from "now" — the day the work happened, keyed the same way as <c>daily_goals</c>.
+    ///
+    /// This must stay in the bucket transaction, immediately beside the attribution. Like the app
+    /// rollup, it cannot be reconstructed afterwards: tasks record only their first start and their
+    /// close, so a task switched away from and resumed looks continuous, and splitting that across
+    /// days later would invent the number.
+    /// </summary>
+    internal static void AccumulateTaskDayHours(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        double bucketSeconds,
+        string? attentionSegmentKind,
+        string? bucketStartUtcRaw)
+    {
+        // Same gate as AttributeBucketToActiveTask, and deliberately NO app condition.
+        if (bucketSeconds <= 0d || AttentionSegmentKinds.IsAway(attentionSegmentKind))
+        {
+            return;
+        }
+
+        if (!DateTimeOffset.TryParse(
+                bucketStartUtcRaw,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out DateTimeOffset bucketStart))
+        {
+            return;
+        }
+
+        string localDay = AgentCoreController.GoalDay(bucketStart.ToLocalTime());
+        bool offtask = AttentionSegmentKinds.IsDistraction(attentionSegmentKind);
+
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        // Only the ACTIVE task, matching the attribution exactly. Time not on a task is not
+        // recorded here: this table answers "which task did this day's hours go to", and time on
+        // no task has no answer to give.
+        cmd.CommandText =
+            """
+            INSERT INTO task_day_hours (local_date, task_id, active_seconds, focused_seconds, offtask_seconds)
+            SELECT $day, id, $seconds, $focused, $offtask FROM tasks WHERE state = 'active'
+            ON CONFLICT(local_date, task_id) DO UPDATE SET
+                active_seconds  = active_seconds  + excluded.active_seconds,
+                focused_seconds = focused_seconds + excluded.focused_seconds,
+                offtask_seconds = offtask_seconds + excluded.offtask_seconds;
+            """;
+        cmd.Parameters.AddWithValue("$day", localDay);
         cmd.Parameters.AddWithValue("$seconds", bucketSeconds);
         cmd.Parameters.AddWithValue("$focused", offtask ? 0d : bucketSeconds);
         cmd.Parameters.AddWithValue("$offtask", offtask ? bucketSeconds : 0d);

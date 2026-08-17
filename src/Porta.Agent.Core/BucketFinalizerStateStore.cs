@@ -99,6 +99,9 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
         => _inner.SetProjectArchived(id, archived, nowUtc);
     public AgentTask? SetTaskClientLabel(long taskId, string label)
         => _inner.SetTaskClientLabel(taskId, label);
+
+    public AgentTask? SetTaskReportFields(long taskId, string? status, string? resultLine, string? blockedReason, string? expectedFinishDay)
+        => _inner.SetTaskReportFields(taskId, status, resultLine, blockedReason, expectedFinishDay);
     public AgentProject? SetProjectClientName(long id, string clientName)
         => _inner.SetProjectClientName(id, clientName);
     public AgentProject? SetProjectLabelStyle(long id, bool useClientLabels)

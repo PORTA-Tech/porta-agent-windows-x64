@@ -38,7 +38,25 @@ internal sealed class ReportGateway : IReportGateway
         _identityLinkStore = identityLinkStore;
     }
 
-    public Task<ReportGatewayIdentity> ReadIdentityAsync(CancellationToken token)
+    /// <summary>
+    /// Phase 0.2 (2026-08-17) — the sender identity now ARRIVES FILLED.
+    ///
+    /// It used to return From name and Reply-to as empty strings, because §12.2 put sender identity
+    /// on the server so there would be exactly one copy of it. That reasoning was right and is
+    /// unchanged. What was missing was a way to READ that copy: the local preflight refuses an
+    /// empty From name and an empty Reply-to, and the confirm screen prefills from here, so both
+    /// boxes arrived blank and every send was refused until the user typed their own details. It
+    /// worked for whoever knew what to type and dead-ended everyone else.
+    ///
+    /// <b>The server is still the only source.</b> These values are fetched for DISPLAY — so the
+    /// confirm screen shows what the client will actually see — and they still never travel on the
+    /// report payload; the server resolves them again at send time from the same account profile.
+    /// There is no second copy to drift, only a window onto the first.
+    ///
+    /// Fail-soft: an unreachable server leaves the fields empty, which is exactly where they were
+    /// before this existed. The preflight guard is untouched.
+    /// </summary>
+    public async Task<ReportGatewayIdentity> ReadIdentityAsync(CancellationToken token)
     {
         LocalIdentityLinkSnapshot identity = _identityLinkStore.GetCurrent();
 
@@ -47,17 +65,39 @@ internal sealed class ReportGateway : IReportGateway
             && !string.IsNullOrWhiteSpace(identity.AccountId)
             && !string.IsNullOrWhiteSpace(identity.DeviceId);
 
-        // The From name and Reply-to are the SERVER's to resolve, from the account profile it
-        // already holds and already uses to address the digest. This machine reports what it knows
-        // about itself and nothing about who the user is — that is what keeps the payload free of
-        // sender fields and keeps one copy of the identity rather than two.
-        return Task.FromResult(new ReportGatewayIdentity(
+        string fromName = string.Empty;
+        string replyTo = string.Empty;
+
+        if (linked && _client.IsEnabled)
+        {
+            try
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                cts.CancelAfter(CallBudget);
+
+                ReportSenderResult? sender = await _client
+                    .GetReportSenderAsync(identity.AccountId!, cts.Token)
+                    .ConfigureAwait(false);
+
+                if (sender is { Success: true })
+                {
+                    fromName = sender.FromName ?? string.Empty;
+                    replyTo = sender.ReplyTo ?? string.Empty;
+                }
+            }
+            catch
+            {
+                // Leave them empty. The confirm screen says so and the user can still type.
+            }
+        }
+
+        return new ReportGatewayIdentity(
             AccountId: identity.AccountId ?? string.Empty,
             DeviceId: identity.DeviceId ?? string.Empty,
             MachineId: MachineFingerprint.Current,
-            FromName: string.Empty,
-            ReplyTo: string.Empty,
-            Resolved: linked));
+            FromName: fromName,
+            ReplyTo: replyTo,
+            Resolved: linked);
     }
 
     public async Task<ReportGatewayPreview> PreviewAsync(string reportJson, CancellationToken token)

@@ -149,7 +149,14 @@ internal static class Migrations
         new(
             Version: 29,
             Name: "report_sending_v29",
-            Apply: Schema.ApplyReportSendingV29)
+            Apply: Schema.ApplyReportSendingV29),
+        // Phase 0.1 + 1.1 + 1.2 (2026-08-17) — hours per task per DAY, plus the task and project
+        // fields the client report is made of. Additive, defaulted, LOCAL ONLY. The day table has
+        // no backfill on purpose: see ApplyReportContentV30.
+        new(
+            Version: 30,
+            Name: "report_content_v30",
+            Apply: Schema.ApplyReportContentV30)
     ];
 
     internal static void Migrate(SqliteConnection connection)

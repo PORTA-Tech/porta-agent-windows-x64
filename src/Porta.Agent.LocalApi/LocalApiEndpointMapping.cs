@@ -406,6 +406,31 @@ public static class LocalApiEndpointMapping
                     Success: true, Task: ToApiTask(updated), TimestampUtc: DateTimeOffset.UtcNow));
         });
 
+        // Phase 1.1 + 1.3 (2026-08-17) — the reporting fields. One route, because status, its
+        // reason, the result line and the expected finish are edited together and four routes is
+        // four chances for them to disagree.
+        api.MapPost("/tasks/report-fields", (IAgentCoreController controller, LocalApiTaskReportFieldsRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1 || request.TaskId <= 0)
+            {
+                return Results.BadRequest(new LocalApiTaskActResponse(
+                    Success: false, Task: null, TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            AgentTask? updated = controller.SetTaskReportFields(
+                request.TaskId,
+                request.Status,
+                request.ResultLine,
+                request.BlockedReason,
+                request.ExpectedFinishDay);
+
+            return updated is null
+                ? Results.Json(new LocalApiTaskActResponse(
+                    Success: false, Task: null, TimestampUtc: DateTimeOffset.UtcNow))
+                : Results.Json(new LocalApiTaskActResponse(
+                    Success: true, Task: ToApiTask(updated), TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
         api.MapPost("/projects/client", (IAgentCoreController controller, LocalApiProjectClientRequest? request) =>
         {
             if (request is null || request.SchemaVer != 1)
