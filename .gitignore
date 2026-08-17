@@ -22,3 +22,6 @@ _debug-*
 
 # Test runner output — never tracked (swept in by a stray `git add -A` on 2026-08-07).
 src/**/TestResults/
+
+# WPF writes a temporary project file beside the real one during builds. Build noise.
+*_wpftmp.csproj
