@@ -1825,6 +1825,24 @@
                                     </Border>
 
                                     <TextBlock Text="Time is recorded automatically while the work was actively in progress. Breaks and time away are not included." Style="{StaticResource RpMeta}" Margin="2,0,0,0" />
+
+                                    <!-- Phase C — who it goes to. Deliberately a step BEFORE the
+                                         confirm screen rather than a Send button that fires: the
+                                         address is chosen here, checked there. -->
+                                    <Border Style="{StaticResource RpPanelBorder}" Margin="0,14,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="SEND TO" Style="{StaticResource RpSectionLabel}" />
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <ComboBox x:Name="ReportRecipientPicker" Grid.Column="0" Style="{StaticResource RpComboBox}" IsEditable="True" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                                <Button x:Name="ReportSendToButton" Grid.Column="1" Content="Continue" Style="{StaticResource RpPrimaryButton}" VerticalAlignment="Center" Click="ReportSendToButton_Click" />
+                                            </Grid>
+                                            <TextBlock x:Name="ReportRecipientNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" Text="Type a client's email, or pick one you've sent to before. Nothing is sent until you confirm." />
+                                        </StackPanel>
+                                    </Border>
                                 </StackPanel>
 
                                 <!-- §6b — the confirm step. The last thing the user sees before a
@@ -1919,9 +1937,12 @@
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <Button x:Name="ConfirmCancelButton" Grid.Column="0" Content="Back to the draft" Style="{StaticResource RpQuietButton}" />
-                                        <TextBlock x:Name="ConfirmSendNote" Grid.Column="1" Style="{StaticResource RpMeta}" VerticalAlignment="Center" Margin="12,0,12,0" TextAlignment="Right" />
-                                        <Button x:Name="ConfirmSendButton" Grid.Column="2" Content="Send report" Style="{StaticResource RpPrimaryButton}" />
+                                        <Button x:Name="ConfirmCancelButton" Grid.Column="0" Content="Back to the draft" Style="{StaticResource RpQuietButton}" Click="ConfirmCancelButton_Click" />
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                            <TextBlock x:Name="ConfirmSendNote" Style="{StaticResource RpMeta}" VerticalAlignment="Center" Margin="0,0,12,0" TextAlignment="Right" />
+                                            <Button x:Name="ConfirmPreviewButton" Content="Preview what they receive" Style="{StaticResource RpQuietButton}" Click="ConfirmPreviewButton_Click" />
+                                        </StackPanel>
+                                        <Button x:Name="ConfirmSendButton" Grid.Column="2" Content="Send report" Style="{StaticResource RpPrimaryButton}" Click="ConfirmSendButton_Click" />
                                     </Grid>
                                 </StackPanel>
                             </StackPanel>

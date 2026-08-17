@@ -191,6 +191,7 @@ public partial class MainWindow
         RenderLines(draft);
         RenderReadiness(draft, included);
         UpdateReportStaleNotice();
+        _ = LoadRecipientsAsync();
     }
 
     /// <summary>

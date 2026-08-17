@@ -123,6 +123,74 @@ internal sealed class LocalApiContractFakeStore : IBrainStateStore, IInputSignal
         => new(projectId, "", "", fromLocalDate, toLocalDate, 0d, 0, 0, System.Array.Empty<AgentReportLine>(), System.Array.Empty<AgentReportDay>());
     public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => System.Array.Empty<AgentAppUsageHour>();
 
+    // Step 10 phase C/D — a real in-memory address book and sent-report list, not throwing stubs,
+    // so the local-API contract tests can exercise the routes rather than skirting them.
+    private readonly List<AgentReportRecipient> _recipients = [];
+    private readonly List<AgentSentReport> _sentReports = [];
+
+    public IReadOnlyList<AgentReportRecipient> ReadRecipients() => _recipients;
+
+    public AgentReportRecipient? UpsertRecipient(string name, string email, DateTimeOffset nowUtc)
+    {
+        string trimmed = (email ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+        {
+            return null;
+        }
+
+        _recipients.RemoveAll(r => string.Equals(r.Email, trimmed, StringComparison.OrdinalIgnoreCase));
+        var added = new AgentReportRecipient(_recipients.Count + 1, name ?? string.Empty, trimmed, nowUtc, string.Empty);
+        _recipients.Add(added);
+        return added;
+    }
+
+    public bool DeleteRecipient(long id) => _recipients.RemoveAll(r => r.Id == id) > 0;
+
+    public void MarkRecipientUsed(string email, DateTimeOffset nowUtc) { }
+
+    public bool HasSentToRecipientBefore(string email)
+        => _sentReports.Any(r =>
+            string.Equals(r.RecipientEmail, email, StringComparison.OrdinalIgnoreCase)
+            && r.SendState == "sent");
+
+    public bool RecordSentReport(AgentSentReport report)
+    {
+        if (_sentReports.Any(r => r.ReportId == report.ReportId))
+        {
+            return false;
+        }
+
+        _sentReports.Add(report);
+        return true;
+    }
+
+    public void MarkSentReportOutcome(string reportId, bool sent, string sentAtUtc, string error)
+    {
+        int i = _sentReports.FindIndex(r => r.ReportId == reportId);
+        if (i >= 0)
+        {
+            _sentReports[i] = _sentReports[i] with
+            {
+                SendState = sent ? "sent" : "failed",
+                SentAtUtc = sentAtUtc,
+                SendError = error
+            };
+        }
+    }
+
+    public IReadOnlyList<AgentSentReport> ReadSentReports() => _sentReports;
+
+    public void MarkSentReportDeletePending(string reportId)
+    {
+        int i = _sentReports.FindIndex(r => r.ReportId == reportId);
+        if (i >= 0)
+        {
+            _sentReports[i] = _sentReports[i] with { ServerState = "delete_pending" };
+        }
+    }
+
+    public bool DeleteSentReportLocally(string reportId) => _sentReports.RemoveAll(r => r.ReportId == reportId) > 0;
+
     public IReadOnlyList<AgentDayTimelineHour> ReadDayTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => Array.Empty<AgentDayTimelineHour>();
     public AgentDailyGoal? UpsertMorningGoal(string localDate, string goalText, string trackingPref, DateTimeOffset nowUtc) => null;
     public AgentDailyGoal? GetDailyGoal(string localDate) => null;

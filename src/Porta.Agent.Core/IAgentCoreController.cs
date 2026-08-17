@@ -86,6 +86,28 @@ public interface IAgentCoreController
     AgentProject? SetProjectRate(long id, long rateMinor, string currency);
     AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate);
 
+    // Step 10 phase C/D — the address book (local only) and the record of what was sent.
+    IReadOnlyList<AgentReportRecipient> GetRecipients();
+
+    AgentReportRecipient? UpsertRecipient(string name, string email);
+
+    bool DeleteRecipient(long id);
+
+    bool HasSentToRecipientBefore(string email);
+
+    IReadOnlyList<AgentSentReport> GetSentReports();
+
+    /// <summary>Written BEFORE a send is attempted. False = this reportId is already recorded.</summary>
+    bool RecordSentReport(AgentSentReport report);
+
+    void MarkSentReportOutcome(string reportId, bool sent, string sentAtUtc, string error);
+
+    void MarkSentReportDeletePending(string reportId);
+
+    bool DeleteSentReportLocally(string reportId);
+
+    void MarkRecipientUsed(string email);
+
     // 2026-08-12 — hourly per-app time, resolved to projects at read time. The grain the projects
     // page will read, and the only record of it that outlives the 14-day capture window.
     IReadOnlyList<AgentAppUsageHour> GetAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc);

@@ -107,6 +107,30 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
         => _inner.SetProjectRate(id, rateMinor, currency);
     public AgentReportDraft ReadReportDraft(long projectId, string fromLocalDate, string toLocalDate, TimeSpan localOffset)
         => _inner.ReadReportDraft(projectId, fromLocalDate, toLocalDate, localOffset);
+
+    // Step 10 phase C/D — straight delegation, like everything else on this decorator.
+    public IReadOnlyList<AgentReportRecipient> ReadRecipients() => _inner.ReadRecipients();
+
+    public AgentReportRecipient? UpsertRecipient(string name, string email, DateTimeOffset nowUtc)
+        => _inner.UpsertRecipient(name, email, nowUtc);
+
+    public bool DeleteRecipient(long id) => _inner.DeleteRecipient(id);
+
+    public void MarkRecipientUsed(string email, DateTimeOffset nowUtc)
+        => _inner.MarkRecipientUsed(email, nowUtc);
+
+    public bool HasSentToRecipientBefore(string email) => _inner.HasSentToRecipientBefore(email);
+
+    public bool RecordSentReport(AgentSentReport report) => _inner.RecordSentReport(report);
+
+    public void MarkSentReportOutcome(string reportId, bool sent, string sentAtUtc, string error)
+        => _inner.MarkSentReportOutcome(reportId, sent, sentAtUtc, error);
+
+    public IReadOnlyList<AgentSentReport> ReadSentReports() => _inner.ReadSentReports();
+
+    public void MarkSentReportDeletePending(string reportId) => _inner.MarkSentReportDeletePending(reportId);
+
+    public bool DeleteSentReportLocally(string reportId) => _inner.DeleteSentReportLocally(reportId);
     public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(
         DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset)
         => _inner.ReadAppUsage(fromUtc, toUtc, localOffset);

@@ -120,6 +120,18 @@ public sealed class NarrativeGatewayTests
         public Porta.Agent.Core.AgentProject? SetProjectLabelStyle(long id, bool useClientLabels) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? SetProjectRate(long id, long rateMinor, string currency) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate) => throw new NotSupportedException();
+
+    // Step 10 phase C/D — inert stubs, same reasoning as above.
+    public IReadOnlyList<AgentReportRecipient> GetRecipients() => System.Array.Empty<AgentReportRecipient>();
+    public AgentReportRecipient? UpsertRecipient(string name, string email) => null;
+    public bool DeleteRecipient(long id) => false;
+    public bool HasSentToRecipientBefore(string email) => false;
+    public IReadOnlyList<AgentSentReport> GetSentReports() => System.Array.Empty<AgentSentReport>();
+    public bool RecordSentReport(AgentSentReport report) => false;
+    public void MarkSentReportOutcome(string reportId, bool sent, string sentAtUtc, string error) { }
+    public void MarkSentReportDeletePending(string reportId) { }
+    public bool DeleteSentReportLocally(string reportId) => false;
+    public void MarkRecipientUsed(string email) { }
         public IReadOnlyList<Porta.Agent.Core.AgentAppUsageHour> GetAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc) => throw new NotSupportedException();
         public IReadOnlyList<Porta.Agent.Core.AgentTask> GetTodayTasks() => throw new NotSupportedException();
 

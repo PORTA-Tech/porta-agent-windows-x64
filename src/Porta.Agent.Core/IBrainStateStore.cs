@@ -76,6 +76,31 @@ public interface IBrainStateStore
         string toLocalDate,
         TimeSpan localOffset);
 
+    // Step 10 phase C/D (2026-08-14) — the address book and the record of what was sent.
+    // The book is LOCAL ONLY: nothing here uploads it, and only the one address on the report
+    // being sent ever leaves the machine (§12.4).
+    IReadOnlyList<AgentReportRecipient> ReadRecipients();
+
+    AgentReportRecipient? UpsertRecipient(string name, string email, DateTimeOffset nowUtc);
+
+    bool DeleteRecipient(long id);
+
+    void MarkRecipientUsed(string email, DateTimeOffset nowUtc);
+
+    bool HasSentToRecipientBefore(string email);
+
+    /// <summary>Written BEFORE the send is attempted. False = this reportId already exists.</summary>
+    bool RecordSentReport(AgentSentReport report);
+
+    void MarkSentReportOutcome(string reportId, bool sent, string sentAtUtc, string error);
+
+    IReadOnlyList<AgentSentReport> ReadSentReports();
+
+    void MarkSentReportDeletePending(string reportId);
+
+    /// <summary>Runs ONLY after the server half succeeded. Never report success on a half-delete.</summary>
+    bool DeleteSentReportLocally(string reportId);
+
     // 2026-08-12 — the hourly app rollup, resolved to projects at read time. localOffset is passed
     // in for the same reason ReadDayTimeline takes it: the local hour is a local concept.
     IReadOnlyList<AgentAppUsageHour> ReadAppUsage(

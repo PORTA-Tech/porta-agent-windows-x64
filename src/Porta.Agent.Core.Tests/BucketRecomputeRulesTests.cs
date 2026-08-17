@@ -185,6 +185,19 @@ public sealed class BucketRecomputeRulesTests
             => new(projectId, "", "", fromLocalDate, toLocalDate, 0d, 0, 0, System.Array.Empty<AgentReportLine>(), System.Array.Empty<AgentReportDay>());
         public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => System.Array.Empty<AgentAppUsageHour>();
 
+        // Step 10 phase C/D — this fake exists to exercise bucket recompute, not reports. Inert
+        // stubs, so a report method silently doing nothing here can never be mistaken for coverage.
+        public IReadOnlyList<AgentReportRecipient> ReadRecipients() => System.Array.Empty<AgentReportRecipient>();
+        public AgentReportRecipient? UpsertRecipient(string name, string email, DateTimeOffset nowUtc) => null;
+        public bool DeleteRecipient(long id) => false;
+        public void MarkRecipientUsed(string email, DateTimeOffset nowUtc) { }
+        public bool HasSentToRecipientBefore(string email) => false;
+        public bool RecordSentReport(AgentSentReport report) => false;
+        public void MarkSentReportOutcome(string reportId, bool sent, string sentAtUtc, string error) { }
+        public IReadOnlyList<AgentSentReport> ReadSentReports() => System.Array.Empty<AgentSentReport>();
+        public void MarkSentReportDeletePending(string reportId) { }
+        public bool DeleteSentReportLocally(string reportId) => false;
+
     public IReadOnlyList<AgentDayTimelineHour> ReadDayTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => Array.Empty<AgentDayTimelineHour>();
         public AgentDailyGoal? UpsertMorningGoal(string localDate, string goalText, string trackingPref, DateTimeOffset nowUtc) => null;
         public AgentDailyGoal? GetDailyGoal(string localDate) => null;

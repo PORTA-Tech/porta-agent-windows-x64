@@ -92,6 +92,8 @@ internal sealed class AgentService : IHostedService, IDisposable
         // Part 5 — /v1/narrative: the user agent's card asks here; this forwards to the control
         // plane where the LLM + key live. Fail-soft to null (template) at every layer.
         services.AddSingleton<INarrativeGateway, NarrativeGateway>();
+        // Step 10 phase C/D — client reports. The server sends; this machine asks it to.
+        services.AddSingleton<IReportGateway, ReportGateway>();
         services.AddSingleton<AriContextCache>();
         services.AddSingleton<IAriContextProvider>(sp => sp.GetRequiredService<AriContextCache>());
         services.AddSingleton<ControlPlaneReporterStateStore>();

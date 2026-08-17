@@ -1849,6 +1849,31 @@ public sealed class AgentCoreController : IAgentCoreController
     public AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate)
         => _stateStore.ReadReportDraft(projectId, fromLocalDate, toLocalDate, DateTimeOffset.Now.Offset);
 
+    // Step 10 phase C/D — pass-through to the store. The rules live in ReportSendPreflight and in
+    // the endpoint that orchestrates them; nothing is decided here.
+    public IReadOnlyList<AgentReportRecipient> GetRecipients() => _stateStore.ReadRecipients();
+
+    public AgentReportRecipient? UpsertRecipient(string name, string email)
+        => _stateStore.UpsertRecipient(name, email, DateTimeOffset.UtcNow);
+
+    public bool DeleteRecipient(long id) => _stateStore.DeleteRecipient(id);
+
+    public bool HasSentToRecipientBefore(string email) => _stateStore.HasSentToRecipientBefore(email);
+
+    public IReadOnlyList<AgentSentReport> GetSentReports() => _stateStore.ReadSentReports();
+
+    public bool RecordSentReport(AgentSentReport report) => _stateStore.RecordSentReport(report);
+
+    public void MarkSentReportOutcome(string reportId, bool sent, string sentAtUtc, string error)
+        => _stateStore.MarkSentReportOutcome(reportId, sent, sentAtUtc, error);
+
+    public void MarkSentReportDeletePending(string reportId)
+        => _stateStore.MarkSentReportDeletePending(reportId);
+
+    public bool DeleteSentReportLocally(string reportId) => _stateStore.DeleteSentReportLocally(reportId);
+
+    public void MarkRecipientUsed(string email) => _stateStore.MarkRecipientUsed(email, DateTimeOffset.UtcNow);
+
     /// <summary>
     /// 2026-08-12 — the hourly app rollup for a window, already resolved to projects. The local
     /// offset is resolved HERE, the same place GoalDay resolves the local day, so callers never

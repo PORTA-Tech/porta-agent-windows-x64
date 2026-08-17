@@ -254,6 +254,19 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         public Porta.Agent.Core.AgentProject? SetProjectLabelStyle(long id, bool useClientLabels) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? SetProjectRate(long id, long rateMinor, string currency) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate) => throw new NotSupportedException();
+
+        // Step 10 phase C/D — this controller is deliberately unusable; the watchdog tests never
+        // touch reports, and throwing keeps it that way rather than quietly returning empties.
+        public IReadOnlyList<Porta.Agent.Core.AgentReportRecipient> GetRecipients() => throw new NotSupportedException();
+        public Porta.Agent.Core.AgentReportRecipient? UpsertRecipient(string name, string email) => throw new NotSupportedException();
+        public bool DeleteRecipient(long id) => throw new NotSupportedException();
+        public bool HasSentToRecipientBefore(string email) => throw new NotSupportedException();
+        public IReadOnlyList<Porta.Agent.Core.AgentSentReport> GetSentReports() => throw new NotSupportedException();
+        public bool RecordSentReport(Porta.Agent.Core.AgentSentReport report) => throw new NotSupportedException();
+        public void MarkSentReportOutcome(string reportId, bool sent, string sentAtUtc, string error) => throw new NotSupportedException();
+        public void MarkSentReportDeletePending(string reportId) => throw new NotSupportedException();
+        public bool DeleteSentReportLocally(string reportId) => throw new NotSupportedException();
+        public void MarkRecipientUsed(string email) => throw new NotSupportedException();
         public IReadOnlyList<Porta.Agent.Core.AgentAppUsageHour> GetAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc) => throw new NotSupportedException();
         public IReadOnlyList<Porta.Agent.Core.AgentTask> GetTodayTasks() => throw new NotSupportedException();
 

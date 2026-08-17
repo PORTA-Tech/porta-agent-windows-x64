@@ -4,9 +4,12 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
 using Porta.Agent.Core;
+using Porta.Agent.Core.Outputs;
 using Porta.Agent.Core.Security;
 using Porta.Agent.Common.Identity;
 using Porta.Agent.LocalApi.Mappers;
@@ -459,6 +462,191 @@ public static class LocalApiEndpointMapping
             return Results.Json(new LocalApiReportDraftResponse(
                 Success: true, Reason: null, Draft: ToApiReportDraft(draft),
                 TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
+        // ── Step 10 phase C/D — the address book, the confirm step, and sending ────────────────
+        //
+        // The address book is LOCAL. These routes read and write local SQLite and nothing else;
+        // there is no route that uploads the book (§12.4).
+
+        api.MapGet("/reports/recipients", (IAgentCoreController controller) =>
+            Results.Json(new LocalApiReportRecipientsResponse(
+                controller.GetRecipients()
+                    .Select(r => new LocalApiReportRecipient(r.Id, r.Name, r.Email, r.LastUsedUtc))
+                    .ToList())));
+
+        api.MapPost("/reports/recipients", (IAgentCoreController controller, LocalApiReportRecipientRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1 || string.IsNullOrWhiteSpace(request.Email))
+            {
+                return Results.BadRequest(new { success = false, reason = "invalid_payload_or_schema" });
+            }
+
+            AgentReportRecipient? saved = controller.UpsertRecipient(request.Name ?? string.Empty, request.Email!);
+            return saved is null
+                ? Results.BadRequest(new { success = false, reason = "invalid_email" })
+                : Results.Json(new { success = true, recipient = new LocalApiReportRecipient(
+                    saved.Id, saved.Name, saved.Email, saved.LastUsedUtc) });
+        });
+
+        api.MapDelete("/reports/recipients/{id:long}", (IAgentCoreController controller, long id) =>
+            Results.Json(new { success = controller.DeleteRecipient(id) }));
+
+        // What the confirm screen needs before it can decide what to show. The From name and
+        // Reply-to are the SERVER's to resolve — this only reports whether identity is linked and
+        // whether the preview is mandatory for this recipient.
+        api.MapGet("/reports/send-context", async (
+            [FromServices] IReportGateway gateway, [FromServices] IAgentCoreController controller, string? recipientEmail, CancellationToken token) =>
+        {
+            ReportGatewayIdentity identity = await gateway.ReadIdentityAsync(token).ConfigureAwait(false);
+
+            // Mandatory for a first send to a new client, optional afterwards. A failed attempt does
+            // not discharge it: HasSentToRecipientBefore counts only send_state = 'sent'.
+            bool previewRequired =
+                string.IsNullOrWhiteSpace(recipientEmail)
+                || !controller.HasSentToRecipientBefore(recipientEmail!);
+
+            return Results.Json(new LocalApiSendContext(
+                FromName: identity.FromName,
+                FromAddress: "reports@useporta.com",
+                ReplyTo: identity.ReplyTo,
+                IdentityResolved: identity.Resolved,
+                PreviewRequired: previewRequired));
+        });
+
+        api.MapGet("/reports/sent", (IAgentCoreController controller) =>
+            Results.Json(new LocalApiSentReportsResponse(
+                controller.GetSentReports().Select(ToApiSentReport).ToList())));
+
+        api.MapPost("/reports/preview", async (
+            IAgentCoreController controller,
+            [FromServices] IReportGateway gateway,
+            LocalApiReportSendRequest? request,
+            CancellationToken token) =>
+        {
+            LocalApiReportPreviewResponse bad(string reason)
+                => new(Success: false, HtmlPath: null, Reason: reason);
+
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(bad("invalid_payload_or_schema"));
+            }
+
+            ReportSendAssembly assembly = AssembleReport(controller, request);
+            if (!assembly.Ok)
+            {
+                return Results.Json(bad(assembly.Reason!));
+            }
+
+            ReportGatewayPreview preview = await gateway
+                .PreviewAsync(assembly.Json!, token)
+                .ConfigureAwait(false);
+
+            if (!preview.Success || string.IsNullOrWhiteSpace(preview.Html))
+            {
+                return Results.Json(bad(preview.Reason ?? "preview_failed"));
+            }
+
+            // Written to a temp file and opened in the browser rather than rendered in-app. It
+            // carries a client's name and hours, so it is deleted after being opened — see
+            // ReportPreviewFile.
+            string path = ReportPreviewFile.Write(preview.Html!);
+            return Results.Json(new LocalApiReportPreviewResponse(true, path, null));
+        });
+
+        // THE SEND. Three bounds from §12.4 are enforced here and on the server, and the order of
+        // the statements below IS the third one: the local record is written before anything is
+        // attempted, so a crash mid-send leaves evidence rather than a silence.
+        api.MapPost("/reports/send", async (
+            IAgentCoreController controller,
+            [FromServices] IReportGateway gateway,
+            LocalApiReportSendRequest? request,
+            CancellationToken token) =>
+        {
+            LocalApiReportSendResponse bad(string reason, IReadOnlyList<string>? refusals = null)
+                => new(Success: false, ReportId: string.Empty, Refusals: refusals ?? [], Reason: reason, SentAtUtc: null);
+
+            if (request is null || request.SchemaVer != 1)
+            {
+                return Results.BadRequest(bad("invalid_payload_or_schema"));
+            }
+
+            ReportSendAssembly assembly = AssembleReport(controller, request);
+            if (!assembly.Ok)
+            {
+                return Results.Json(bad(assembly.Reason!, assembly.Refusals));
+            }
+
+            // Mandatory preview for a first send to a new client. Checked server-side of the UI, so
+            // a caller cannot skip it by talking to the local API directly.
+            if (!request.Previewed && !controller.HasSentToRecipientBefore(assembly.RecipientEmail!))
+            {
+                return Results.Json(bad("preview_required"));
+            }
+
+            // Bound 3 — RECORD FIRST. If this returns false the id already exists, which means this
+            // is a retry of something already recorded and must not be sent again.
+            if (!controller.RecordSentReport(assembly.Record!))
+            {
+                return Results.Json(bad("already_recorded"));
+            }
+
+            ReportGatewayOutcome outcome = await gateway.SendAsync(assembly.Json!, token).ConfigureAwait(false);
+
+            if (outcome.Unknown)
+            {
+                // We do not know, so we do not claim. The record stays 'pending' and the user is
+                // told the truth — a "failed" here would invite a retry, and the retry is what puts
+                // a second copy in a client's inbox.
+                return Results.Json(new LocalApiReportSendResponse(
+                    Success: false, ReportId: assembly.ReportId!, Refusals: [],
+                    Reason: "unknown", SentAtUtc: null));
+            }
+
+            controller.MarkSentReportOutcome(
+                assembly.ReportId!, outcome.Sent, outcome.SentAtUtc ?? string.Empty, outcome.Reason ?? string.Empty);
+
+            if (!outcome.Sent)
+            {
+                return Results.Json(bad(outcome.Reason ?? "send_failed"));
+            }
+
+            controller.MarkRecipientUsed(assembly.RecipientEmail!);
+
+            return Results.Json(new LocalApiReportSendResponse(
+                Success: true, ReportId: assembly.ReportId!, Refusals: [],
+                Reason: null, SentAtUtc: outcome.SentAtUtc));
+        });
+
+        // DELETE ON BOTH SIDES. The server half runs FIRST and the local half only if it succeeded,
+        // so a failure leaves the report listed as present. Never report success on a half-delete —
+        // that is the primitive_buckets failure and it must not happen twice in one product.
+        api.MapDelete("/reports/{reportId}", async (
+            IAgentCoreController controller,
+            [FromServices] IReportGateway gateway,
+            string reportId,
+            CancellationToken token) =>
+        {
+            if (string.IsNullOrWhiteSpace(reportId))
+            {
+                return Results.BadRequest(new { success = false, reason = "report_id_required" });
+            }
+
+            controller.MarkSentReportDeletePending(reportId);
+
+            bool serverDeleted = await gateway.DeleteAsync(reportId, token).ConfigureAwait(false);
+            if (!serverDeleted)
+            {
+                return Results.Json(new
+                {
+                    success = false,
+                    reason = "server_delete_failed",
+                    note = "The server copy is still there, so the report is still listed."
+                });
+            }
+
+            controller.DeleteSentReportLocally(reportId);
+            return Results.Json(new { success = true });
         });
 
         api.MapPost("/projects/update", (IAgentCoreController controller, LocalApiProjectUpdateRequest? request) =>
@@ -1288,6 +1476,129 @@ public static class LocalApiEndpointMapping
             Days: draft.Days
                 .Select(d => new LocalApiReportDay(d.DateLocal, d.Hours))
                 .ToList());
+
+    private static LocalApiSentReport ToApiSentReport(AgentSentReport r)
+        => new(
+            r.ReportId, r.ClientName, r.RangeStartLocal, r.RangeEndLocal,
+            r.RecipientName, r.RecipientEmail, r.FromName, r.ReplyTo, r.TotalHours,
+            r.RequestedAtUtc.ToString("O"), r.SentAtUtc, r.SendState, r.SendError, r.ServerState,
+            r.Lines.Select(l => new LocalApiSentReportLine(l.LineId, l.ClientLabel, l.Finished, l.Hours)).ToList());
+
+    /// <summary>
+    /// Build the approved payload (§12.2) and run every rule on the way. Both the preview route and
+    /// the send route call this, so a preview can never show something the send would refuse.
+    ///
+    /// The excluded lines are dropped here, not flagged: an excluded line is absent from the payload
+    /// (§12.3), and its hours leave the total, which is why the total is recomputed from what
+    /// remains rather than carried over from the draft.
+    /// </summary>
+    private static ReportSendAssembly AssembleReport(
+        IAgentCoreController controller,
+        LocalApiReportSendRequest request)
+    {
+        static ReportSendAssembly Fail(string reason, IReadOnlyList<string>? refusals = null)
+            => new(false, reason, refusals, null, null, null, null);
+
+        if (request.ProjectId <= 0 || string.IsNullOrWhiteSpace(request.From) || string.IsNullOrWhiteSpace(request.To))
+        {
+            return Fail("project_and_range_required");
+        }
+
+        string recipientEmail = (request.RecipientEmail ?? string.Empty).Trim();
+        string fromName = (request.FromName ?? string.Empty).Trim();
+        string replyTo = (request.ReplyTo ?? string.Empty).Trim();
+
+        AgentReportDraft draft = controller.GetReportDraft(request.ProjectId, request.From, request.To);
+        IReadOnlyCollection<long> excluded = request.ExcludedTaskIds ?? [];
+
+        // THE GATE. Document and envelope both, and every reason at once so the screen can list them
+        // rather than making the user fix one and discover the next.
+        ReportSendVerdict verdict = ReportSendPreflight.Evaluate(
+            draft, excluded, fromName, replyTo, recipientEmail);
+
+        if (!verdict.CanSend)
+        {
+            return Fail("refused", verdict.Refusals.Select(r => r.ToString()).ToList());
+        }
+
+        List<AgentReportLine> included = draft.Lines
+            .Where(l => !excluded.Contains(l.TaskId))
+            .ToList();
+
+        // The total is the sum of the ROUNDED lines, so a client adding them by hand arrives at the
+        // figure at the top. Never a separately rounded grand total.
+        double total = Math.Round(included.Sum(l => l.Hours), 1, MidpointRounding.AwayFromZero);
+
+        string reportId = Guid.NewGuid().ToString();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        var lines = included
+            .Select((l, i) => new { Line = l, Id = $"l{i + 1}" })
+            .ToList();
+
+        var payload = new
+        {
+            reportId,
+            accountId = string.Empty,
+            deviceId = string.Empty,
+            machineId = Environment.MachineName,
+            requestedAtUtc = now.ToString("O"),
+            timezoneOffsetMinutes = (int)DateTimeOffset.Now.Offset.TotalMinutes,
+            // The CLIENT-FACING name (§12.7). The local one never leaves the machine.
+            projectName = draft.ClientName,
+            rangeStartLocal = draft.RangeStartLocal,
+            rangeEndLocal = draft.RangeEndLocal,
+            recipientEmail,
+            recipientName = (request.RecipientName ?? string.Empty).Trim(),
+            totalHours = total,
+            daysWorked = draft.DaysWorked,
+            tasksCompleted = included.Count(l => l.Finished),
+            tasksTotal = included.Count,
+            lines = lines.Select(x => new
+            {
+                lineId = x.Id,
+                clientLabel = x.Line.ClientLabel,
+                finished = x.Line.Finished,
+                hours = x.Line.Hours
+            }).ToList(),
+            // Days with 0.0 are KEPT — §4 requires gaps to be drawable.
+            daily = draft.Days.Select(d => new { dateLocal = d.DateLocal, hours = d.Hours }).ToList()
+        };
+
+        var record = new AgentSentReport(
+            ReportId: reportId,
+            ProjectId: request.ProjectId,
+            ProjectName: draft.ProjectName,
+            ClientName: draft.ClientName,
+            RangeStartLocal: draft.RangeStartLocal,
+            RangeEndLocal: draft.RangeEndLocal,
+            RecipientName: (request.RecipientName ?? string.Empty).Trim(),
+            RecipientEmail: recipientEmail,
+            FromName: fromName,
+            ReplyTo: replyTo,
+            TotalHours: total,
+            DaysWorked: draft.DaysWorked,
+            LinesFinished: included.Count(l => l.Finished),
+            LinesTotal: included.Count,
+            RequestedAtUtc: now,
+            SentAtUtc: string.Empty,
+            SendState: "pending",
+            SendError: string.Empty,
+            ServerState: "present",
+            Lines: lines
+                .Select(x => new AgentSentReportLine(x.Id, x.Line.ClientLabel, x.Line.Finished, x.Line.Hours))
+                .ToList(),
+            Days: draft.Days);
+
+        return new ReportSendAssembly(
+            Ok: true,
+            Reason: null,
+            Refusals: null,
+            Json: JsonSerializer.Serialize(payload),
+            ReportId: reportId,
+            RecipientEmail: recipientEmail,
+            Record: record);
+    }
 
     private static LocalApiDailyGoal? ToApiGoal(AgentDailyGoal? goal)
     {

@@ -550,6 +550,134 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    // ── Step 10 phase C/D — the address book, the confirm step, sending, and delete ──────────
+    //
+    // All of these are HTTP calls to the local agent. The send and the delete are the two that end
+    // up at the control plane, because the Resend key must never reach this machine (spec §6a).
+
+    public async Task<LocalApiReportRecipientsResponse?> GetRecipientsAsync(CancellationToken token = default)
+        => await GetJsonAsync<LocalApiReportRecipientsResponse>("/v1/reports/recipients", token).ConfigureAwait(false);
+
+    public async Task<LocalApiSendContext?> GetSendContextAsync(string recipientEmail, CancellationToken token = default)
+        => await GetJsonAsync<LocalApiSendContext>(
+            $"/v1/reports/send-context?recipientEmail={Uri.EscapeDataString(recipientEmail ?? string.Empty)}",
+            token).ConfigureAwait(false);
+
+    public async Task<LocalApiSentReportsResponse?> GetSentReportsAsync(CancellationToken token = default)
+        => await GetJsonAsync<LocalApiSentReportsResponse>("/v1/reports/sent", token).ConfigureAwait(false);
+
+    public async Task<bool> SaveRecipientAsync(string name, string email, CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return false;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using HttpResponseMessage response = await _httpClient
+                .PostAsJsonAsync("/v1/reports/recipients", new LocalApiReportRecipientRequest(1, name, email), token)
+                .ConfigureAwait(false);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Render what the client would receive. Returns the path to a temp HTML file, which the caller
+    /// opens and then deletes — it holds a client's name and hours.
+    /// </summary>
+    public async Task<LocalApiReportPreviewResponse?> PreviewReportAsync(
+        LocalApiReportSendRequest request,
+        CancellationToken token = default)
+        => await PostJsonAsync<LocalApiReportPreviewResponse>("/v1/reports/preview", request, token).ConfigureAwait(false);
+
+    /// <summary>
+    /// Send. A null return means the local agent could not be reached at all — nothing was recorded
+    /// and nothing was sent. A response with Success=false and Reason="unknown" means something very
+    /// different: the request reached the server and the outcome is not known, so the caller must
+    /// NOT invite a retry.
+    /// </summary>
+    public async Task<LocalApiReportSendResponse?> SendReportAsync(
+        LocalApiReportSendRequest request,
+        CancellationToken token = default)
+        => await PostJsonAsync<LocalApiReportSendResponse>("/v1/reports/send", request, token).ConfigureAwait(false);
+
+    public async Task<bool> DeleteSentReportAsync(string reportId, CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings() || string.IsNullOrWhiteSpace(reportId))
+        {
+            return false;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using HttpResponseMessage response = await _httpClient
+                .DeleteAsync($"/v1/reports/{Uri.EscapeDataString(reportId)}", token)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return false;
+            }
+
+            // The route answers 200 with success=false when the SERVER half failed, and that is the
+            // half-delete case: the report is still there and must stay listed.
+            using System.IO.Stream stream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+            using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: token).ConfigureAwait(false);
+            return document.RootElement.TryGetProperty("success", out JsonElement success) && success.GetBoolean();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<T?> GetJsonAsync<T>(string route, CancellationToken token)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return default;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            return await _httpClient.GetFromJsonAsync<T>(route, token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return default;
+        }
+    }
+
+    private async Task<T?> PostJsonAsync<T>(string route, object body, CancellationToken token)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return default;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using HttpResponseMessage response = await _httpClient
+                .PostAsJsonAsync(route, body, token)
+                .ConfigureAwait(false);
+
+            return await response.Content.ReadFromJsonAsync<T>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return default;
+        }
+    }
+
     public async Task<LocalApiTaskActResponse?> SetTaskProjectAsync(
         LocalApiTaskProjectRequest request,
         CancellationToken token = default)

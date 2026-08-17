@@ -242,6 +242,19 @@ public sealed class InputSignalsBucketIntegrationTests
         public AgentProject? SetProjectRate(long id, long rateMinor, string currency) => null;
         public AgentReportDraft ReadReportDraft(long projectId, string fromLocalDate, string toLocalDate, TimeSpan localOffset)
             => new(projectId, "", "", fromLocalDate, toLocalDate, 0d, 0, 0, System.Array.Empty<AgentReportLine>(), System.Array.Empty<AgentReportDay>());
+
+    // Step 10 phase C/D — inert stubs. This fake exists for other behaviour; reports are covered by
+    // their own suites, and returning empties here keeps that boundary obvious.
+    public IReadOnlyList<AgentReportRecipient> ReadRecipients() => System.Array.Empty<AgentReportRecipient>();
+    public AgentReportRecipient? UpsertRecipient(string name, string email, DateTimeOffset nowUtc) => null;
+    public bool DeleteRecipient(long id) => false;
+    public void MarkRecipientUsed(string email, DateTimeOffset nowUtc) { }
+    public bool HasSentToRecipientBefore(string email) => false;
+    public bool RecordSentReport(AgentSentReport report) => false;
+    public void MarkSentReportOutcome(string reportId, bool sent, string sentAtUtc, string error) { }
+    public IReadOnlyList<AgentSentReport> ReadSentReports() => System.Array.Empty<AgentSentReport>();
+    public void MarkSentReportDeletePending(string reportId) { }
+    public bool DeleteSentReportLocally(string reportId) => false;
         public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => System.Array.Empty<AgentAppUsageHour>();
 
     public IReadOnlyList<AgentDayTimelineHour> ReadDayTimeline(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => Array.Empty<AgentDayTimelineHour>();

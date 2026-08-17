@@ -398,3 +398,66 @@ internal sealed record AppCategoryResolveRequestPayload(
 internal sealed record AppCategoryResolveResultPayload(
     [property: JsonPropertyName("mappings")] Dictionary<string, string>? Mappings,
     [property: JsonPropertyName("pending")] List<string>? Pending);
+
+// ── Step 10 phase C/D (2026-08-14): the client report ────────────────────────────────────────────
+//
+// THE APPROVED FIELD LIST, and nothing outside it (spec §12.2). It is closed: no field is added
+// here without going through the standing rule again.
+//
+// Notably ABSENT, and deliberately: senderName and senderEmail. The control plane resolves both
+// from the account profile it already holds, because two copies of an identity can disagree and a
+// client asserting its own sender identity is the worse of the two failures. Also absent: the rate
+// or any money, the raw task title, focus quality, pressure, distraction, app names, plannedSeconds
+// or anything remaining, and any flag for an excluded line — an excluded line is gone, not marked.
+//
+// This root is deliberately NOT walked by DigestStaysProjectFreeTests: the digest must stay
+// project-free, and the report is the one payload that carries a project name on purpose.
+internal sealed record ReportLinePayload(
+    [property: JsonPropertyName("lineId")] string LineId,
+    [property: JsonPropertyName("clientLabel")] string ClientLabel,
+    [property: JsonPropertyName("finished")] bool Finished,
+    [property: JsonPropertyName("hours")] double Hours);
+
+// A day with 0.0 hours is SENT, never omitted: §4 requires days not worked to appear as gaps, and a
+// gap the payload does not carry cannot be drawn.
+internal sealed record ReportDayPayload(
+    [property: JsonPropertyName("dateLocal")] string DateLocal,
+    [property: JsonPropertyName("hours")] double Hours);
+
+internal sealed record ReportSendPayload(
+    [property: JsonPropertyName("reportId")] string ReportId,
+    [property: JsonPropertyName("accountId")] string AccountId,
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("machineId")] string MachineId,
+    // When the MACHINE asked. The server records when Resend accepted, and that is the timestamp
+    // that answers a dispute.
+    [property: JsonPropertyName("requestedAtUtc")] string RequestedAtUtc,
+    [property: JsonPropertyName("timezoneOffsetMinutes")] int TimezoneOffsetMinutes,
+    // The client-facing project name (§12.7), never the local one.
+    [property: JsonPropertyName("projectName")] string ProjectName,
+    [property: JsonPropertyName("rangeStartLocal")] string RangeStartLocal,
+    [property: JsonPropertyName("rangeEndLocal")] string RangeEndLocal,
+    [property: JsonPropertyName("recipientEmail")] string RecipientEmail,
+    [property: JsonPropertyName("recipientName")] string RecipientName,
+    [property: JsonPropertyName("totalHours")] double TotalHours,
+    [property: JsonPropertyName("daysWorked")] int DaysWorked,
+    [property: JsonPropertyName("tasksCompleted")] int TasksCompleted,
+    [property: JsonPropertyName("tasksTotal")] int TasksTotal,
+    [property: JsonPropertyName("lines")] IReadOnlyList<ReportLinePayload> Lines,
+    [property: JsonPropertyName("daily")] IReadOnlyList<ReportDayPayload> Daily);
+
+internal sealed record ReportPreviewResult(
+    [property: JsonPropertyName("success")] bool Success,
+    [property: JsonPropertyName("subject")] string? Subject,
+    [property: JsonPropertyName("html")] string? Html,
+    [property: JsonPropertyName("fromName")] string? FromName,
+    [property: JsonPropertyName("fromAddress")] string? FromAddress,
+    [property: JsonPropertyName("replyTo")] string? ReplyTo,
+    [property: JsonPropertyName("reason")] string? Reason);
+
+internal sealed record ReportSendResult(
+    [property: JsonPropertyName("success")] bool Success,
+    [property: JsonPropertyName("reportId")] string? ReportId,
+    // The SERVER's timestamp — the one that corresponds to a real delivery.
+    [property: JsonPropertyName("sentAtUtc")] string? SentAtUtc,
+    [property: JsonPropertyName("reason")] string? Reason);

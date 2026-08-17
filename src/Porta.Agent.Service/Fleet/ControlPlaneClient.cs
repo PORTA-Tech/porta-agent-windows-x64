@@ -196,6 +196,117 @@ internal sealed class ControlPlaneClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// Step 10 phase C/D — ask the control plane to render the report exactly as the client would
+    /// receive it. Renders, sends nothing.
+    ///
+    /// The agent never re-renders this locally. One renderer for preview and for send, or the
+    /// preview becomes a promise the product breaks quietly.
+    /// </summary>
+    public async Task<ReportPreviewResult?> PostReportPreviewAsync(
+        ReportSendPayload payload,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+
+        if (_httpClient is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(
+                "api/reports/preview",
+                payload,
+                JsonOptions,
+                token).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content
+                .ReadFromJsonAsync<ReportPreviewResult>(JsonOptions, token)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Send the report. The server composes and sends it, because the Resend key must never reach
+    /// this machine (spec §6a).
+    ///
+    /// <b>A null return is NOT "not sent".</b> It means the outcome is unknown — the request may
+    /// have been delivered and acted on before the connection dropped. The caller must leave the
+    /// local record as pending rather than reporting a failure, because "it failed" would invite a
+    /// retry that could put a second copy in a client's inbox. The server's idempotency on
+    /// <c>reportId</c> is the backstop; not lying to the user is the first line.
+    /// </summary>
+    public async Task<ReportSendResult?> PostReportSendAsync(
+        ReportSendPayload payload,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+
+        if (_httpClient is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using HttpResponseMessage response = await _httpClient.PostAsJsonAsync(
+                "api/reports/send",
+                payload,
+                JsonOptions,
+                token).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content
+                .ReadFromJsonAsync<ReportSendResult>(JsonOptions, token)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Delete the server's copy. Called BEFORE the local copy is removed, so a failure here leaves
+    /// the report listed as present rather than reported as gone (§12.6.5) — the
+    /// <c>primitive_buckets</c> failure must not happen twice in one product.
+    /// </summary>
+    public async Task<bool> DeleteReportAsync(string reportId, string accountId, CancellationToken token)
+    {
+        if (_httpClient is null || string.IsNullOrWhiteSpace(reportId))
+        {
+            return false;
+        }
+
+        try
+        {
+            using HttpResponseMessage response = await _httpClient.DeleteAsync(
+                $"api/reports/{Uri.EscapeDataString(reportId)}?accountId={Uri.EscapeDataString(accountId)}",
+                token).ConfigureAwait(false);
+
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<bool> PostMachineActionEventsAsync(
         IReadOnlyList<MachineActionEventPayload> events,
         CancellationToken token)

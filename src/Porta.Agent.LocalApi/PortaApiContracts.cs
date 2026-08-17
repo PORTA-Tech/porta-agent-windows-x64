@@ -1255,6 +1255,47 @@ public sealed record LocalApiNarrativeResponse(
 /// Served by the agent service (which owns the control-plane channel). Null = use the template;
 /// implementations must never throw and must respect the caller's cancellation budget.
 /// </summary>
+/// <summary>
+/// Step 10 phase C/D — the seam between the local API and the control plane for client reports.
+///
+/// The same shape as <see cref="INarrativeGateway"/> and for the same reason: these are the only
+/// local routes that do not end at local SQLite. Sending lives on the server because the Resend key
+/// must never reach this machine (spec §6a).
+///
+/// Implementations must never throw. A failure is a reason code.
+/// </summary>
+public interface IReportGateway
+{
+    /// <summary>Render what the client would receive. Sends nothing.</summary>
+    Task<ReportGatewayPreview> PreviewAsync(string reportJson, CancellationToken token);
+
+    /// <summary>
+    /// Send it. <see cref="ReportGatewayOutcome.Unknown"/> means the outcome could not be
+    /// established — the request may have been acted on before the connection dropped — and the
+    /// caller must NOT present that as a failure, because a failure invites a retry and a retry
+    /// could put a second copy in a client's inbox.
+    /// </summary>
+    Task<ReportGatewayOutcome> SendAsync(string reportJson, CancellationToken token);
+
+    /// <summary>Delete the server's copy. False means it is still there.</summary>
+    Task<bool> DeleteAsync(string reportId, CancellationToken token);
+
+    /// <summary>Who this machine's account appears to be, for the confirm screen.</summary>
+    Task<ReportGatewayIdentity> ReadIdentityAsync(CancellationToken token);
+}
+
+public sealed record ReportGatewayPreview(bool Success, string? Html, string? Subject, string? Reason);
+
+public sealed record ReportGatewayOutcome(bool Sent, bool Unknown, string? SentAtUtc, string? Reason);
+
+public sealed record ReportGatewayIdentity(
+    string AccountId,
+    string DeviceId,
+    string MachineId,
+    string FromName,
+    string ReplyTo,
+    bool Resolved);
+
 public interface INarrativeGateway
 {
     Task<string?> GetNarrativeLineAsync(string kind, string? userText, CancellationToken token);
