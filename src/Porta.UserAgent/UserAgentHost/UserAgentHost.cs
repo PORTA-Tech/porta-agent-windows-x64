@@ -1573,7 +1573,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                     TaskId: expired.Id,
                     TaskTitle: expired.Title,
                     PlannedSeconds: expired.PlannedSeconds,
-                    Body: $"\"{expired.Title}\" has had the {FormatBudget(budgetSeconds)} you gave it.");
+                    // Phase 4.3 (2026-08-17) — reads back the ESTIMATE the user actually gave,
+                    // never the budget. The budget is planned + extended, and every +15 inflated
+                    // it, so this sentence used to claim a plan that was never made: press it four
+                    // times on a 2h task and Ari said "the 3h you gave it". The +15 is gone, but
+                    // tasks created before this build still carry extended_seconds, so the honest
+                    // source is PlannedSeconds and it always was.
+                    Body: $"\"{expired.Title}\" has had the {FormatBudget(expired.PlannedSeconds)} you gave it.");
                 UserAgentFileLog.Info(
                     $"task_ask kind=pill id={expired.Id} budget_s={budgetSeconds} reason={decision.Reason}");
                 break;

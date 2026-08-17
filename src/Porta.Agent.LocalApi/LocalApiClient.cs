@@ -504,6 +504,13 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    /// <summary>Phase 1.1 + 1.3 — the reporting fields. A null field leaves that column alone.</summary>
+    public async Task<LocalApiTaskActResponse?> SetTaskReportFieldsAsync(
+        LocalApiTaskReportFieldsRequest request,
+        CancellationToken token = default)
+        => await PostJsonAsync<LocalApiTaskActResponse>("/v1/tasks/report-fields", request, token)
+            .ConfigureAwait(false);
+
     public async Task<LocalApiProjectResponse?> UpdateProjectClientAsync(
         LocalApiProjectClientRequest request,
         CancellationToken token = default)

@@ -183,6 +183,11 @@ internal sealed class UserDesktopWidgetWindow : Window
     private StackPanel _tasksSection = null!;
     private StackPanel _tasksRows = null!;
     private StackPanel _taskAddPanel = null!;
+    // Phase 1.3 — the result prompt. One line, asked once, after the task is already done.
+    private StackPanel _resultPanel = null!;
+    private TextBox _resultBox = null!;
+    private TextBlock _resultCaption = null!;
+    private long _resultTaskId;
     private TextBox _taskTitleBox = null!;
     private TextBlock _taskAddPreview = null!;
     private Button _taskAddButton = null!;
@@ -2828,10 +2833,11 @@ internal sealed class UserDesktopWidgetWindow : Window
                 severity: UserDesktopWidgetMessageSeverity.Info,
                 primaryAction: UserDesktopWidgetAction.TaskAskDone,
                 primaryLabel: "Done",
-                secondaryAction: UserDesktopWidgetAction.TaskAskExtend,
-                secondaryLabel: "+15",
-                tertiaryAction: UserDesktopWidgetAction.TaskAskSwitched,
-                tertiaryLabel: "Switched");
+                // Phase 4.3 — the "+15" secondary is gone. It was the thing that made this very
+                // card lie: the body reads back the BUDGET as "the time you gave it", and every
+                // +15 inflated that budget, so the card claimed an estimate the user never made.
+                secondaryAction: UserDesktopWidgetAction.TaskAskSwitched,
+                secondaryLabel: "Switched");
             return;
         }
 
@@ -3667,6 +3673,8 @@ internal sealed class UserDesktopWidgetWindow : Window
         _tasksSection.Children.Add(header);
         _tasksSection.Children.Add(_tasksRows);
         _tasksSection.Children.Add(_taskAddPanel);
+        BuildResultPrompt();
+        _tasksSection.Children.Add(_resultPanel);
     }
 
     private void UpdateTasks(UserDesktopWidgetState state)
@@ -3695,7 +3703,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         // Collapsed by default when empty: the header (with "+ task") only appears once
         // the user has tasks OR opened the compose — an empty section must not add noise.
-        _tasksSection.Visibility = shown > 0 || _taskAddOpen || _quickAddOpen
+        _tasksSection.Visibility = shown > 0 || _taskAddOpen || _quickAddOpen || _resultTaskId != 0
             ? Visibility.Visible
             : Visibility.Collapsed;
         UpdateWindowHeight();
@@ -3753,12 +3761,14 @@ internal sealed class UserDesktopWidgetWindow : Window
             {
                 Button done = CreateQuickAddPickerButton("✓");
                 done.Click += (_, _) => SendTaskCommand("done", task);
-                Button extend = CreateQuickAddPickerButton("+15");
-                extend.Click += (_, _) => SendTaskCommand("extend", task);
+                // Phase 4.3 (2026-08-17) — the +15 is GONE. It never edited a measurement, but it
+                // moved the BUDGET, and the budget is what the estimate-expiry ask reads back to
+                // the user as "the time you gave it" — so pressing it twice made Ari claim a plan
+                // that was never made. If you want to keep working on a task, that is a new timer
+                // starting now, not fifteen invented minutes added to the past.
                 Button abandon = CreateQuickAddPickerButton("✕");
                 abandon.Click += (_, _) => SendTaskCommand("abandon", task);
                 row.Children.Add(done);
-                row.Children.Add(extend);
                 row.Children.Add(abandon);
                 break;
             }
@@ -3817,6 +3827,132 @@ internal sealed class UserDesktopWidgetWindow : Window
         // control can't be clicked again). The 10s poll remains authoritative and reconciles.
         _tasks = ComputeOptimisticTaskState(kind, task.Id, _tasks);
         RenderTaskRows();
+
+        // Phase 1.3 — the task is ALREADY done by the time this opens. The prompt is additive and
+        // never a gate: closing it, ignoring it, or typing nothing all leave the task complete.
+        if (string.Equals(kind, "done", StringComparison.Ordinal))
+        {
+            OpenResultPrompt(task.Id, task.Title);
+        }
+    }
+
+    /// <summary>
+    /// Phase 1.3 (2026-08-17) — "what came of it", in one line.
+    ///
+    /// <b>A single-line TextBox, never a text area.</b> A box that looks like it wants a paragraph
+    /// gets a paragraph the first time and nothing ever after; a box the width of a sentence gets a
+    /// sentence. AcceptsReturn stays false so Enter saves rather than adding a line.
+    ///
+    /// <b>It cannot block and it cannot nag.</b> Done has already completed the task before this
+    /// appears. Skip closes it, Enter saves it, and it never reopens for the same task in this
+    /// session — a prompt that comes back is a prompt people learn to dread.
+    ///
+    /// The line is editable later on the report draft, so skipping costs nothing permanent.
+    /// </summary>
+    private void BuildResultPrompt()
+    {
+        _resultPanel = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            Margin = new Thickness(0, 2, 0, 0),
+            Visibility = Visibility.Collapsed
+        };
+
+        _resultCaption = new TextBlock
+        {
+            FontSize = 9,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 0, 0, 2)
+        };
+
+        _resultBox = new TextBox
+        {
+            FontSize = 10,
+            // One line. Not a text area, deliberately — see the summary above.
+            AcceptsReturn = false,
+            MaxLength = 280,
+            Background = new SolidColorBrush(Color.FromRgb(0x0F, 0x11, 0x14)),
+            Foreground = new SolidColorBrush(Color.FromRgb(0xED, 0xEF, 0xF3)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x41, 0x50)),
+            BorderThickness = new Thickness(1),
+            CaretBrush = new SolidColorBrush(Color.FromRgb(0x16, 0xC7, 0x84)),
+            Padding = new Thickness(4, 2, 4, 2)
+        };
+        _resultBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                ConfirmResultPrompt();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                CloseResultPrompt();
+                e.Handled = true;
+            }
+        };
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 3, 0, 0)
+        };
+        Button save = CreateQuickAddPickerButton("Save");
+        save.Click += (_, _) => ConfirmResultPrompt();
+        // Named "Skip", not "Cancel": there is nothing to cancel, the task is already done.
+        Button skip = CreateQuickAddPickerButton("Skip");
+        skip.Click += (_, _) => CloseResultPrompt();
+        buttons.Children.Add(save);
+        buttons.Children.Add(skip);
+
+        _resultPanel.Children.Add(_resultCaption);
+        _resultPanel.Children.Add(_resultBox);
+        _resultPanel.Children.Add(buttons);
+    }
+
+    private void OpenResultPrompt(long taskId, string title)
+    {
+        if (taskId <= 0)
+        {
+            return;
+        }
+
+        _resultTaskId = taskId;
+        _resultCaption.Text = $"What came of \"{title}\"?";
+        // Always blank, never prefilled with a previous line: one line per task per REPORT, so a
+        // task ticked again overwrites rather than appending, and the user sees what they are
+        // replacing on the report draft rather than here.
+        _resultBox.Text = string.Empty;
+        _resultPanel.Visibility = Visibility.Visible;
+        RenderTaskRows();
+        UpdateWindowHeight();
+        _resultBox.Focus();
+    }
+
+    private void ConfirmResultPrompt()
+    {
+        long taskId = _resultTaskId;
+        string line = _resultBox.Text.Trim();
+
+        // An empty save is a skip. Sending an empty line would blank a line typed earlier.
+        if (taskId > 0 && line.Length > 0)
+        {
+            _taskCommandRequested?.Invoke(new UserDesktopWidgetTaskCommand(
+                Kind: "result", Id: taskId, Title: line, PlannedSeconds: 0));
+        }
+
+        CloseResultPrompt();
+    }
+
+    private void CloseResultPrompt()
+    {
+        _resultTaskId = 0;
+        _resultBox.Text = string.Empty;
+        _resultPanel.Visibility = Visibility.Collapsed;
+        RenderTaskRows();
+        UpdateWindowHeight();
     }
 
     // Pure optimistic next-state for a task action, mirroring the store's transitions:
@@ -4189,8 +4325,9 @@ internal sealed class UserDesktopWidgetWindow : Window
             return;
         }
 
-        // Suppress re-showing THIS estimate. A +15 changes the budget, so the AskId changes with it
-        // and the next expiry of the same task is a new question.
+        // Suppress re-showing THIS estimate. The AskId is task + budget, so it only changes if the
+        // estimate itself does — which, since the +15 was removed, means it does not change at all
+        // for a running task. Asked once, answered once.
         _resolvedTaskAskId = ask.AskId;
 
         switch (action)
@@ -4198,11 +4335,6 @@ internal sealed class UserDesktopWidgetWindow : Window
             case UserDesktopWidgetAction.TaskAskDone:
                 _taskCommandRequested?.Invoke(new UserDesktopWidgetTaskCommand(
                     Kind: "done", Id: ask.TaskId, Title: ask.TaskTitle, PlannedSeconds: ask.PlannedSeconds));
-                break;
-
-            case UserDesktopWidgetAction.TaskAskExtend:
-                _taskCommandRequested?.Invoke(new UserDesktopWidgetTaskCommand(
-                    Kind: "extend", Id: ask.TaskId, Title: ask.TaskTitle, PlannedSeconds: ask.PlannedSeconds));
                 break;
 
             case UserDesktopWidgetAction.TaskAskSwitched:

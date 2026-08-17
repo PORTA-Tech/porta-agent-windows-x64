@@ -1223,6 +1223,26 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 return;
             }
 
+            // Phase 1.3 — the result line. Saved through the endpoint built in 1.3, on its own,
+            // AFTER the task was already completed by the "done" that opened the prompt. A failure
+            // here loses a sentence, never the completion.
+            if (string.Equals(command.Kind, "result", StringComparison.Ordinal))
+            {
+                LocalApiTaskActResponse? saved = await _actionClient.SetTaskReportFieldsAsync(
+                    new LocalApiTaskReportFieldsRequest(
+                        SchemaVer: 1,
+                        TaskId: command.Id,
+                        Status: null,
+                        ResultLine: command.Title,
+                        BlockedReason: null,
+                        ExpectedFinishDay: null)).ConfigureAwait(false);
+
+                UserAgentFileLog.Info(saved is { Success: true }
+                    ? $"task_result_saved id={command.Id} chars={command.Title.Length}"
+                    : $"task_result_save_failed id={command.Id}");
+                return;
+            }
+
             LocalApiTaskActResponse? response = await _actionClient.ActOnTaskAsync(new LocalApiTaskActRequest(
                 SchemaVer: 1,
                 Id: command.Id,
