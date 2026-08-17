@@ -27,6 +27,7 @@ public partial class MainWindow
     private string _confirmRecipientName = string.Empty;
     private bool _confirmPreviewed;
     private bool _confirmSending;
+    private string _previewFilePath = string.Empty;
 
     /// <summary>
     /// Load the address book into the picker. Local only — this list never leaves the machine
@@ -118,6 +119,9 @@ public partial class MainWindow
         _confirmRecipientEmail = (recipientEmail ?? string.Empty).Trim();
         _confirmRecipientName = (recipientName ?? string.Empty).Trim();
         _confirmPreviewed = false;
+        _previewFilePath = string.Empty;
+        ConfirmPreviewPathText.Visibility = Visibility.Collapsed;
+        ConfirmPreviewPathText.Text = string.Empty;
 
         LocalApiSendContext? context = await _apiClient
             .GetSendContextAsync(_confirmRecipientEmail)
@@ -226,13 +230,21 @@ public partial class MainWindow
     /// </summary>
     private async Task PreviewReportAsync()
     {
+        // CLEAR THE LAST FAILURE FIRST. The panel used to persist across attempts, so a refusal from
+        // an earlier press — "Reply-to is not an email address", back when the box was still empty —
+        // stayed on screen after the user had fixed it and the next preview had succeeded. A stale
+        // reason is worse than no reason: it sends you to fix something that is already right.
+        ConfirmRefusalPanel.Visibility = Visibility.Collapsed;
+        ConfirmRefusalText.Text = string.Empty;
+        ConfirmRefusalHelp.Text = string.Empty;
+        ConfirmPreviewPathText.Visibility = Visibility.Collapsed;
         ConfirmSendNote.Text = "Rendering…";
 
         LocalApiReportPreviewResponse? preview = await _apiClient
             .PreviewReportAsync(BuildSendRequest())
             .ConfigureAwait(true);
 
-        if (preview is null || !preview.Success || string.IsNullOrWhiteSpace(preview.HtmlPath))
+        if (preview is null || !preview.Success || string.IsNullOrWhiteSpace(preview.Html))
         {
             ConfirmRefusalPanel.Visibility = Visibility.Visible;
             ConfirmRefusalText.Text = "· " + PreviewFailureSentence(preview?.Reason, preview?.Refusals);
@@ -241,16 +253,52 @@ public partial class MainWindow
             return;
         }
 
+        // WRITTEN HERE, IN CONTROL CENTER'S OWN TEMP, because this is the process that has to open
+        // it. The agent used to write it as LocalSystem into C:\Windows\SystemTemp, where the user
+        // could neither read nor open it.
+        string path;
+        try
+        {
+            path = ReportPreviewFile.Write(preview.Html!);
+        }
+        catch (Exception ex)
+        {
+            ConfirmRefusalPanel.Visibility = Visibility.Visible;
+            ConfirmRefusalText.Text = "· the email rendered, but Ari couldn't save it to open it";
+            ConfirmRefusalHelp.Text = ex.Message + " Nothing has been sent.";
+            ConfirmSendNote.Text = string.Empty;
+            return;
+        }
+
         try
         {
             // The browser, not an embedded view: it is the closest thing to what a client's mail
             // client will do with the same HTML, and it needs no new dependency.
-            Process.Start(new ProcessStartInfo(preview.HtmlPath!) { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
         }
         catch
         {
-            ConfirmSendNote.Text = "Couldn't open your browser. The file is at " + preview.HtmlPath;
-            return;
+            // A browser that will not open must not become a dead end. It used to `return` here
+            // WITHOUT setting _confirmPreviewed, so Send stayed disabled for the rest of the
+            // session with no way forward — the report was rendered and unsendable at the same
+            // time. Explorer is the fallback; if that fails too, the path is shown and the user can
+            // open it by hand, which still satisfies "look at it before a client does".
+            try
+            {
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"")
+                {
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+                // Nothing else to try; the path below is the escape.
+            }
+
+            _previewFilePath = path;
+            ConfirmSendNote.Text = "Couldn't open your browser — the email is saved at the path below.";
+            ConfirmPreviewPathText.Text = path;
+            ConfirmPreviewPathText.Visibility = Visibility.Visible;
         }
 
         _confirmPreviewed = true;

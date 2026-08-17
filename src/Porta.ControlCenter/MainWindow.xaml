@@ -1947,6 +1947,15 @@
                                         </StackPanel>
                                     </Border>
 
+                                    <!-- Only ever shown when the browser refused to open. It wraps on
+                                         its own row rather than sharing the button row, where a long
+                                         path squeezed the buttons off the edge. -->
+                                    <TextBlock x:Name="ConfirmPreviewPathText"
+                                               Style="{StaticResource RpMeta}"
+                                               Margin="2,8,2,0"
+                                               TextWrapping="Wrap"
+                                               Visibility="Collapsed" />
+
                                     <Grid Margin="0,4,0,0">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />

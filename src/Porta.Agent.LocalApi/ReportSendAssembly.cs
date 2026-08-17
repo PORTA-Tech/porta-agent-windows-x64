@@ -33,7 +33,10 @@ internal static partial class LocalApiEndpointMapping_ReportAssembly
 /// temp directory indefinitely. Old previews are swept on every write, which also covers the case
 /// where the process died before it could delete its own.
 /// </summary>
-internal static class ReportPreviewFile
+/// PUBLIC, and called from Control Center rather than from the agent. The process that OPENS the
+/// file has to be the one that WRITES it: the agent is a LocalSystem service, so its temp directory
+/// is C:\Windows\SystemTemp and nothing it writes there can be opened by the signed-in user.
+public static class ReportPreviewFile
 {
     private const string FolderName = "porta-report-preview";
 

@@ -1095,9 +1095,12 @@ public sealed record LocalApiSentReportsResponse(
 
 public sealed record LocalApiReportPreviewResponse(
     [property: JsonPropertyName("success")] bool Success,
-    // A path to a temp file holding the SERVER's rendering. Written locally, opened in the browser,
-    // and deleted afterwards — it carries a client's name and hours.
-    [property: JsonPropertyName("html_path")] string? HtmlPath,
+    // THE HTML ITSELF, not a path to it. It used to be a path, and the agent wrote the file — but
+    // the agent is a SERVICE running as LocalSystem, so Path.GetTempPath() there is
+    // C:\Windows\SystemTemp, which Control Center (running as the user) cannot read or open. The
+    // render succeeded, the file existed, and "Preview what they receive" failed every time with a
+    // path the user could not open. Whoever is going to OPEN the file must be the one to WRITE it.
+    [property: JsonPropertyName("html")] string? Html,
     [property: JsonPropertyName("reason")] string? Reason,
     // WHICH refusals, not just that there were some. The preflight already computed this list and
     // the preview response threw it away, so every local refusal — an unnamed project, an empty

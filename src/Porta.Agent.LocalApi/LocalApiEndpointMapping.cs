@@ -525,7 +525,7 @@ public static class LocalApiEndpointMapping
             CancellationToken token) =>
         {
             LocalApiReportPreviewResponse bad(string reason, IReadOnlyList<string>? refusals = null)
-                => new(Success: false, HtmlPath: null, Reason: reason, Refusals: refusals);
+                => new(Success: false, Html: null, Reason: reason, Refusals: refusals);
 
             if (request is null || request.SchemaVer != 1)
             {
@@ -549,11 +549,12 @@ public static class LocalApiEndpointMapping
                 return Results.Json(bad(preview.Reason ?? "preview_failed"));
             }
 
-            // Written to a temp file and opened in the browser rather than rendered in-app. It
-            // carries a client's name and hours, so it is deleted after being opened — see
-            // ReportPreviewFile.
-            string path = ReportPreviewFile.Write(preview.Html!);
-            return Results.Json(new LocalApiReportPreviewResponse(true, path, null));
+            // Hand the HTML back rather than writing it here. This runs inside the SERVICE, as
+            // LocalSystem, so a file written here lands in C:\Windows\SystemTemp and the user's
+            // Control Center cannot open it — which is exactly how "Preview what they receive"
+            // failed while the render itself was succeeding. Control Center writes it into the
+            // user's own temp and opens it there.
+            return Results.Json(new LocalApiReportPreviewResponse(true, preview.Html, null));
         });
 
         // THE SEND. Three bounds from §12.4 are enforced here and on the server, and the order of
