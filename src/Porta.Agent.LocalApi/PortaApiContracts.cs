@@ -1098,7 +1098,13 @@ public sealed record LocalApiReportPreviewResponse(
     // A path to a temp file holding the SERVER's rendering. Written locally, opened in the browser,
     // and deleted afterwards — it carries a client's name and hours.
     [property: JsonPropertyName("html_path")] string? HtmlPath,
-    [property: JsonPropertyName("reason")] string? Reason);
+    [property: JsonPropertyName("reason")] string? Reason,
+    // WHICH refusals, not just that there were some. The preflight already computed this list and
+    // the preview response threw it away, so every local refusal — an unnamed project, an empty
+    // From name, a bad Reply-to, five distinct causes — arrived at the UI as the single word
+    // "refused" and printed one generic sentence. The send response has carried its refusals from
+    // the start; this is the same field, on the route the user actually hits first.
+    [property: JsonPropertyName("refusals")] IReadOnlyList<string>? Refusals = null);
 
 public sealed record LocalApiReportDay(
     [property: JsonPropertyName("date_local")] string DateLocal,

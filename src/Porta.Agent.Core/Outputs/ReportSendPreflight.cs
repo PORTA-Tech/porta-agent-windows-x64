@@ -81,7 +81,12 @@ public static class ReportSendPreflight
             Refusals: refusals);
     }
 
-    private static bool IsSynthetic(string? address)
+    /// <summary>
+    /// PUBLIC so the SEND TO box can apply the same rule before it lets the user walk forward.
+    /// It only checked for a non-empty string, so a bare name was accepted as an address and the
+    /// refusal did not arrive until the confirm screen — two screens away from the typo.
+    /// </summary>
+    public static bool IsSynthetic(string? address)
         => address is not null
            && address.Trim().EndsWith(SyntheticDomain, StringComparison.OrdinalIgnoreCase);
 
@@ -89,8 +94,14 @@ public static class ReportSendPreflight
     /// Deliberately shallow. Full RFC validation rejects addresses that genuinely deliver, and the
     /// real protection is §6b showing the address in full so the user sees it. This catches the empty
     /// and the obviously-not-an-address cases, nothing cleverer.
+    ///
+    /// <b>This is the same rule as <c>looksLikeAddress</c> in the control plane's reportsController,
+    /// character for character</b> — at-sign present, exactly one, not first, not last, a dot after
+    /// it that is not immediately after it, no trailing dot, no whitespace. They must not drift: a
+    /// value this accepts and the server rejects is a refusal the user cannot act on, arriving after
+    /// a round trip. PUBLIC for the same reason as <see cref="IsSynthetic"/>.
     /// </summary>
-    private static bool LooksLikeAddress(string? address)
+    public static bool LooksLikeAddress(string? address)
     {
         if (string.IsNullOrWhiteSpace(address))
         {

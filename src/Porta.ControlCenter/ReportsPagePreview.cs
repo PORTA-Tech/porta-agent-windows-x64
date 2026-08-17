@@ -154,6 +154,12 @@ internal static class ReportsPagePreview
                 Console.WriteLine($"    {(ok ? "OK  " : "FAIL")} {check}  —  {detail}");
             }
 
+            Console.WriteLine("  the gate in front of confirm, and the words on a failure:");
+            foreach ((string check, bool ok, string detail) in window.PreviewSendGateChecks())
+            {
+                Console.WriteLine($"    {(ok ? "OK  " : "FAIL")} {check}  —  {detail}");
+            }
+
             window.Close();
         }
 

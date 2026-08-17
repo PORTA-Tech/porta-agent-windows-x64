@@ -135,7 +135,21 @@ public partial class MainWindow
             ? $"{recipientName} · {recipientEmail}"
             : recipientEmail;
 
-        ConfirmDocumentHeadline.Text = draft.ClientName.Length > 0 ? draft.ClientName : draft.ProjectName;
+        // Same rule as the live confirm screen.
+        ConfirmSenderNote.Text =
+            string.IsNullOrWhiteSpace(fromName) || string.IsNullOrWhiteSpace(replyTo)
+                ? "Ari couldn't read your name and email from your account, so fill them in here. "
+                  + "They are what your client sees and replies to."
+                : "Your client reads your name first, and replying reaches you. Changes here are "
+                  + "remembered — you won't be asked again.";
+
+        // Same rule as the live confirm screen: a missing client-facing name must look missing.
+        ConfirmDocumentHeadline.Text = draft.ClientName.Length > 0
+            ? draft.ClientName
+            : "This project has no name your client will recognise";
+        ConfirmDocumentHeadline.Foreground = draft.ClientName.Length > 0
+            ? (System.Windows.Media.Brush)FindResource("RpTextPrimary")
+            : (System.Windows.Media.Brush)FindResource("RpTextMuted");
         ConfirmDocumentRange.Text =
             $"{FriendlyDate(draft.RangeStartLocal)} – {FriendlyDate(draft.RangeEndLocal)}";
         ConfirmDocumentFigures.Text =
@@ -228,6 +242,88 @@ public partial class MainWindow
     /// does not sit over the field. It also checks the PROJECT picker still has no editable part,
     /// which is the guard that the shared style was left alone rather than "fixed" for both.
     /// </summary>
+    /// <summary>
+    /// Step 10 (2026-08-17) — the gate in front of the confirm screen, and the words on a failure.
+    ///
+    /// Both are things a picture cannot show and both cost real time when wrong: a bare name walked
+    /// through SEND TO as if it were an address, and every distinct failure printed the same
+    /// sentence. These assert the rule and the vocabulary rather than the appearance.
+    /// </summary>
+    internal IReadOnlyList<(string Check, bool Ok, string Detail)> PreviewSendGateChecks()
+    {
+        var results = new List<(string, bool, string)>();
+
+        // --- SEND TO applies the server's address rule, not "is it non-empty" -----------------
+        foreach ((string typed, bool shouldPass) in new[]
+                 {
+                     ("Joel", false),
+                     ("Joel Nolan", false),
+                     ("joel@", false),
+                     ("joel@example", false),
+                     ("two@at@example.test", false),
+                     ("joel@example.test.", false),
+                     ("displaced-acct@porta.internal", false),
+                     ("joel@example.test", true)
+                 })
+        {
+            bool accepted = Porta.Agent.Core.Outputs.ReportSendPreflight.LooksLikeAddress(typed)
+                            && !Porta.Agent.Core.Outputs.ReportSendPreflight.IsSynthetic(typed);
+            results.Add(($"SEND TO {(shouldPass ? "accepts" : "rejects")} \"{typed}\"",
+                accepted == shouldPass, accepted ? "accepted" : "rejected"));
+        }
+
+        // The handler itself, not just the rule: a rejected value must not open the confirm screen.
+        ReportConfirmPanel.Visibility = Visibility.Collapsed;
+        ReportRecipientPicker.Text = "Joel";
+        ReportSendToButton_Click(this, new RoutedEventArgs());
+        results.Add(("a bare name does not open the confirm screen",
+            ReportConfirmPanel.Visibility != Visibility.Visible,
+            ReportRecipientNote.Text));
+        ReportRecipientPicker.Text = string.Empty;
+
+        // --- every reason is named, and an unknown one prints its code ------------------------
+        string[] reasons =
+        [
+            "refused", "invalid_payload_or_schema", "project_and_range_required", "invalid_report",
+            "preview_failed", "unreachable", "error", "account_id_required", "account_not_found",
+            "from_name_missing", "reply_to_synthetic", "reply_to_invalid", "recipient_invalid",
+            "client_disabled:no_credential"
+        ];
+
+        int unnamed = 0;
+        foreach (string r in reasons)
+        {
+            string sentence = PreviewFailureSentence(r, null);
+            // "Named" means it produced something other than the bare generic fallback.
+            if (sentence.StartsWith("the email couldn't be rendered (reason:", StringComparison.Ordinal))
+            {
+                unnamed++;
+            }
+        }
+
+        results.Add(($"preview names all {reasons.Length} known reasons", unnamed == 0,
+            unnamed == 0 ? "all named" : $"{unnamed} fell through to the generic sentence"));
+
+        string unknown = PreviewFailureSentence("some_new_server_reason", null);
+        results.Add(("an unknown reason prints its raw code",
+            unknown.Contains("some_new_server_reason", StringComparison.Ordinal), unknown));
+
+        string refusedList = PreviewFailureSentence("refused", new[] { "DocumentNotReady", "FromNameMissing" });
+        results.Add(("\"refused\" resolves to the actual refusals",
+            refusedList.Contains("unnamed", StringComparison.Ordinal)
+            && refusedList.Contains("nobody", StringComparison.Ordinal), refusedList));
+
+        string sendUnknown = SendFailureSentence("some_new_send_reason", null);
+        results.Add(("send: an unknown reason prints its raw code",
+            sendUnknown.Contains("some_new_send_reason", StringComparison.Ordinal), sendUnknown));
+
+        string newRefusal = PreviewFailureSentence("refused", new[] { "SomeFutureRefusal" });
+        results.Add(("an unmapped refusal code is printed, not swallowed",
+            newRefusal.Contains("SomeFutureRefusal", StringComparison.Ordinal), newRefusal));
+
+        return results;
+    }
+
     internal IReadOnlyList<(string Check, bool Ok, string Detail)> PreviewSendToCaretChecks()
     {
         var results = new List<(string, bool, string)>();

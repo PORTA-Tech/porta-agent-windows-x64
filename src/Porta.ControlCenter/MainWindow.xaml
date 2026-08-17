@@ -1910,7 +1910,12 @@
                                                         <TextBox x:Name="ConfirmToBox" Grid.Row="3" Grid.Column="1" Style="{StaticResource RpInlineEditBox}" />
                                                     </Grid>
 
-                                                    <TextBlock Text="Your client reads your name first, and replying reaches you. Changes here are remembered — you won't be asked again." Style="{StaticResource RpMeta}" Margin="6,12,0,0" />
+                                                    <!-- Set in OpenReportConfirmAsync: it says something
+                                                         different when Ari could not read the account's
+                                                         name and email, because then these two boxes
+                                                         arrive blank and the send is refused until
+                                                         they are filled in. -->
+                                                    <TextBlock x:Name="ConfirmSenderNote" Style="{StaticResource RpMeta}" Margin="6,12,0,0" />
                                                 </StackPanel>
                                             </Border>
 

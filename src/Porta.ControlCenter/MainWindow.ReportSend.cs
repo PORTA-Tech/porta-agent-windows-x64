@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
+using Porta.Agent.Core.Outputs;
 using Porta.Agent.LocalApi;
 
 /// <summary>
@@ -64,6 +65,15 @@ public partial class MainWindow
         return (string.Empty, value);
     }
 
+    /// <summary>
+    /// The gate in front of the confirm screen.
+    ///
+    /// It used to check only that the box was not empty, so a bare name walked straight through as
+    /// if it were an address and the refusal did not arrive until two screens later, from the
+    /// preflight, phrased as a send failure. The rule here is now
+    /// <see cref="ReportSendPreflight.LooksLikeAddress"/> — the same one the preflight and the
+    /// control plane apply — so a typo is caught in the box the user is still looking at.
+    /// </summary>
     private void ReportSendToButton_Click(object sender, RoutedEventArgs e)
     {
         (string name, string email) = ParseRecipient(ReportRecipientPicker.Text);
@@ -71,6 +81,25 @@ public partial class MainWindow
         if (email.Length == 0)
         {
             ReportRecipientNote.Text = "Type the client's email address first.";
+            return;
+        }
+
+        // The one that is a hard block rather than a typo: a @porta.internal address is Ari's own
+        // and can never receive mail, so a report sent there is silently lost.
+        if (ReportSendPreflight.IsSynthetic(email))
+        {
+            ReportRecipientNote.Text =
+                $"“{email}” is an internal Ari address, not a real client — mail sent there goes nowhere.";
+            return;
+        }
+
+        if (!ReportSendPreflight.LooksLikeAddress(email))
+        {
+            // No example address here, deliberately: NoPersonalIdentifiersShipTests fails the build
+            // on any email-shaped literal in shipped code, because an address in a string is an
+            // address someone pastes into a payload later.
+            ReportRecipientNote.Text =
+                $"“{email}” isn't an email address — it needs an @ with the client's domain after it.";
             return;
         }
 
@@ -103,11 +132,37 @@ public partial class MainWindow
 
         ConfirmFromNameBox.Text = context?.FromName ?? string.Empty;
         ConfirmReplyToBox.Text = context?.ReplyTo ?? string.Empty;
+
+        // THE AGENT CANNOT READ THE ACCOUNT PROFILE. ReportGateway.ReadIdentityAsync returns both of
+        // these as empty by design — §12.2 put the sender identity on the server so there is only one
+        // copy of it — but the local preflight refuses an empty From name and an empty Reply-to, and
+        // the confirm screen sources both from the agent. So they arrive blank, every time, and the
+        // send is refused until the user fills them in. Saying so is the difference between a form
+        // that looks broken and one the user can finish. See the note handed over with 1.2.155: the
+        // durable fix is for the agent to learn these once, and that is a decision, not a tidy-up.
+        bool senderUnknown =
+            string.IsNullOrWhiteSpace(ConfirmFromNameBox.Text)
+            || string.IsNullOrWhiteSpace(ConfirmReplyToBox.Text);
+
+        ConfirmSenderNote.Text = senderUnknown
+            ? "Ari couldn't read your name and email from your account, so fill them in here. "
+              + "They are what your client sees and replies to."
+            : "Your client reads your name first, and replying reaches you. Changes here are "
+              + "remembered — you won't be asked again.";
         ConfirmToBox.Text = _confirmRecipientName.Length > 0
             ? $"{_confirmRecipientName} · {_confirmRecipientEmail}"
             : _confirmRecipientEmail;
 
-        ConfirmDocumentHeadline.Text = draft.ClientName.Length > 0 ? draft.ClientName : draft.ProjectName;
+        // NEVER fall back to the local project name. It made a missing client-facing name look
+        // identical to a set one on the last screen before a client sees the document — and the
+        // local name is the private one ("nolan - chase invoice"), which is the exact thing §12.7
+        // exists to keep out of the header. A missing name now says so.
+        ConfirmDocumentHeadline.Text = draft.ClientName.Length > 0
+            ? draft.ClientName
+            : "This project has no name your client will recognise";
+        ConfirmDocumentHeadline.Foreground = draft.ClientName.Length > 0
+            ? (System.Windows.Media.Brush)FindResource("RpTextPrimary")
+            : (System.Windows.Media.Brush)FindResource("RpTextMuted");
         ConfirmDocumentRange.Text = $"{FriendlyDate(draft.RangeStartLocal)} – {FriendlyDate(draft.RangeEndLocal)}";
         ConfirmDocumentFigures.Text =
             $"{draft.TotalHours.ToString("0.0", CultureInfo.InvariantCulture)}h   ·   " +
@@ -180,7 +235,7 @@ public partial class MainWindow
         if (preview is null || !preview.Success || string.IsNullOrWhiteSpace(preview.HtmlPath))
         {
             ConfirmRefusalPanel.Visibility = Visibility.Visible;
-            ConfirmRefusalText.Text = "· " + PreviewFailureSentence(preview?.Reason);
+            ConfirmRefusalText.Text = "· " + PreviewFailureSentence(preview?.Reason, preview?.Refusals);
             ConfirmRefusalHelp.Text = "Nothing has been sent.";
             ConfirmSendNote.Text = string.Empty;
             return;
@@ -267,18 +322,62 @@ public partial class MainWindow
         ConfirmSendNote.Text = string.Empty;
     }
 
-    private static string PreviewFailureSentence(string? reason)
-        => reason switch
+    /// <summary>
+    /// EVERY reason either side can return, and the raw code when one is not listed.
+    ///
+    /// The old version listed four and sent everything else to "the email couldn't be rendered".
+    /// That single sentence stood for at least five distinct failures — most of them local refusals
+    /// that never reached the server at all — and a failure that cannot be identified costs an hour
+    /// every time it appears. The fallback now prints the code, so an unlisted reason is a five
+    /// second lookup instead of an investigation.
+    /// </summary>
+    private static string PreviewFailureSentence(string? reason, IReadOnlyList<string>? refusals)
+    {
+        // "refused" means the local preflight stopped it before the server was ever asked. The list
+        // is the answer; the word on its own is not.
+        if (refusals is { Count: > 0 })
         {
-            "reply_to_synthetic" =>
-                "Reply-to is an internal Ari address that cannot receive mail. If your client " +
-                "replied, the reply would vanish and neither of you would know.",
-            "from_name_missing" => "your name is empty, so the report would arrive from nobody",
-            "account_not_found" => "Ari can't find your account, so it can't tell a client who this is from",
-            "unreachable" or "client_disabled" => "Ari couldn't reach the server to render the email",
-            _ => "the email couldn't be rendered"
-        };
+            return string.Join("; ", refusals.Select(RefusalCodeSentence));
+        }
 
+        return reason switch
+        {
+            // --- local, from the agent -------------------------------------------------------
+            "refused" =>
+                "Ari stopped this before asking the server, but didn't say which rule — "
+                + "check the draft and the three addresses (reason: refused, no detail)",
+            "invalid_payload_or_schema" => "Ari and Control Center disagree about the request format (reason: invalid_payload_or_schema)",
+            "project_and_range_required" => "the project or the date range is missing (reason: project_and_range_required)",
+            "invalid_report" => "the report couldn't be assembled from this draft (reason: invalid_report)",
+            "preview_failed" => "the server accepted the request but returned no email (reason: preview_failed)",
+            "unreachable" => "Ari couldn't reach the server to render the email (reason: unreachable)",
+            "error" => "something failed inside Ari while rendering (reason: error)",
+
+            // --- server, from the control plane ----------------------------------------------
+            "account_id_required" => "this machine sent no account id, so the server refused (reason: account_id_required)",
+            "account_not_found" => "the server has no account for this machine (reason: account_not_found)",
+            "from_name_missing" =>
+                "your account has no display name on the server, so the report would arrive from nobody "
+                + "(reason: from_name_missing)",
+            "reply_to_synthetic" =>
+                "Reply-to on your account is an internal Ari address that cannot receive mail. If your "
+                + "client replied, the reply would vanish and neither of you would know "
+                + "(reason: reply_to_synthetic)",
+            "reply_to_invalid" => "Reply-to on your account is not an email address (reason: reply_to_invalid)",
+            "recipient_invalid" => "the recipient isn't a working email address (reason: recipient_invalid)",
+
+            null or "" => "the email couldn't be rendered, and no reason was given",
+
+            // client_disabled carries its own why after a colon, so print it whole.
+            _ when reason.StartsWith("client_disabled", StringComparison.Ordinal) =>
+                $"Ari's connection to the server is switched off ({reason})",
+
+            // NEVER a bare generic sentence again.
+            _ => $"the email couldn't be rendered (reason: {reason})"
+        };
+    }
+
+    /// <summary>Same contract as <see cref="PreviewFailureSentence"/>: name everything, print the code otherwise.</summary>
     private static string SendFailureSentence(string? reason, IReadOnlyList<string>? refusals)
     {
         if (refusals is { Count: > 0 })
@@ -288,15 +387,47 @@ public partial class MainWindow
 
         return reason switch
         {
-            "preview_required" => "look at the email first — this is the first report to this client",
-            "already_recorded" => "this report has already been recorded, so it was not sent again",
-            "already_sent" => "this report was already sent, so it was not sent a second time",
-            "send_failed" => "the mail service rejected it",
-            "recipient_invalid" => "the recipient isn't a working email address",
-            _ => "it couldn't be sent"
+            // --- local ------------------------------------------------------------------------
+            "refused" =>
+                "Ari stopped this before asking the server, but didn't say which rule "
+                + "(reason: refused, no detail)",
+            "preview_required" => "look at the email first — this is the first report to this client (reason: preview_required)",
+            "already_recorded" => "this report has already been recorded, so it was not sent again (reason: already_recorded)",
+            "invalid_payload_or_schema" => "Ari and Control Center disagree about the request format (reason: invalid_payload_or_schema)",
+            "project_and_range_required" => "the project or the date range is missing (reason: project_and_range_required)",
+            "invalid_report" => "the report couldn't be assembled from this draft (reason: invalid_report)",
+            "unreachable" => "Ari couldn't reach the server (reason: unreachable)",
+            "error" => "something failed inside Ari while sending (reason: error)",
+
+            // --- server -----------------------------------------------------------------------
+            "already_sent" => "this report was already sent, so it was not sent a second time (reason: already_sent)",
+            "send_failed" => "the mail service rejected it (reason: send_failed)",
+            "missing_required_fields" => "the request reached the server without everything it needs (reason: missing_required_fields)",
+            "account_id_required" => "this machine sent no account id, so the server refused (reason: account_id_required)",
+            "account_not_found" => "the server has no account for this machine (reason: account_not_found)",
+            "from_name_missing" =>
+                "your account has no display name on the server, so the report would arrive from nobody "
+                + "(reason: from_name_missing)",
+            "reply_to_synthetic" =>
+                "Reply-to on your account is an internal Ari address that cannot receive mail "
+                + "(reason: reply_to_synthetic)",
+            "reply_to_invalid" => "Reply-to on your account is not an email address (reason: reply_to_invalid)",
+            "recipient_invalid" => "the recipient isn't a working email address (reason: recipient_invalid)",
+            "not_your_report" => "the server does not have this report under your account (reason: not_your_report)",
+
+            null or "" => "it couldn't be sent, and no reason was given",
+
+            _ when reason.StartsWith("client_disabled", StringComparison.Ordinal) =>
+                $"Ari's connection to the server is switched off ({reason})",
+
+            _ => $"it couldn't be sent (reason: {reason})"
         };
     }
 
+    /// <summary>
+    /// The local preflight's codes. The fallback prints the code rather than swallowing it, for the
+    /// same reason as above — a new refusal added to the enum must never render as silence.
+    /// </summary>
     private static string RefusalCodeSentence(string code)
         => code switch
         {
@@ -306,7 +437,9 @@ public partial class MainWindow
             "RecipientIsSynthetic" => "the recipient is an internal Ari address, not a real client",
             "RecipientInvalid" => "the recipient is not an email address",
             "FromNameMissing" => "your name is empty, so the report would arrive from nobody",
-            "DocumentNotReady" => "the report still has something unnamed — go back to the draft",
-            _ => code
+            "DocumentNotReady" =>
+                "the report still has something unnamed — the project needs a name your client will "
+                + "recognise, and so does every line. Go back to the draft",
+            _ => $"refused: {code}"
         };
 }

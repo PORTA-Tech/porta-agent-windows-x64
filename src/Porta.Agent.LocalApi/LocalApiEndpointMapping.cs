@@ -524,8 +524,8 @@ public static class LocalApiEndpointMapping
             LocalApiReportSendRequest? request,
             CancellationToken token) =>
         {
-            LocalApiReportPreviewResponse bad(string reason)
-                => new(Success: false, HtmlPath: null, Reason: reason);
+            LocalApiReportPreviewResponse bad(string reason, IReadOnlyList<string>? refusals = null)
+                => new(Success: false, HtmlPath: null, Reason: reason, Refusals: refusals);
 
             if (request is null || request.SchemaVer != 1)
             {
@@ -535,7 +535,9 @@ public static class LocalApiEndpointMapping
             ReportSendAssembly assembly = AssembleReport(controller, request);
             if (!assembly.Ok)
             {
-                return Results.Json(bad(assembly.Reason!));
+                // Carry the refusal list, not just the word "refused". Without it the UI cannot tell
+                // an unnamed project from an empty From name, and the user is told to fix "something".
+                return Results.Json(bad(assembly.Reason!, assembly.Refusals));
             }
 
             ReportGatewayPreview preview = await gateway
