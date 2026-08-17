@@ -68,6 +68,7 @@ public partial class MainWindow
 
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.Child = grid;
 
@@ -110,6 +111,84 @@ public partial class MainWindow
         Grid.SetColumn(nameBox, 0);
         grid.Children.Add(nameBox);
 
+        // §12.7 — the client-facing name. The header is the biggest text a client reads, and the
+        // local name is typed on a morning card in the same private hurry as a task title: "nolan -
+        // chase invoice" is a plausible local name and an unsendable header.
+        //
+        // The whole stack behind this existed and had NO on-screen box, so ClientName could only
+        // ever be empty, ReportSendReadiness always answered CanSend=false, and no report could be
+        // sent at all. This label is the last link.
+        // DELIBERATELY NOT PREFILLED FROM project.Name. Ari never guesses what a client is shown —
+        // a guessed header is exactly the private-note leak this field exists to prevent. Empty
+        // until the user types it, and the Reports page says so rather than inventing one.
+        var clientBox = new TextBox
+        {
+            Text = project.ClientName,
+            Style = (Style)FindResource("RpInlineEditBox"),
+            Margin = new Thickness(0, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Background = Brushes.Transparent,
+            ToolTip = "The name at the top of a report. Blank means this project cannot be reported yet.",
+            Foreground = new SolidColorBrush(project.Archived
+                ? Color.FromRgb(0x6F, 0x78, 0x85)
+                : Color.FromRgb(0xF2, 0xF4, 0xF7))
+        };
+
+        // The label lives INSIDE the empty field rather than beside it. Beside it, the same four
+        // words repeat on every row and become furniture the eye stops reading; inside, the words
+        // are only ever on screen for a project that actually still needs them, and they vanish the
+        // moment one is typed. Same rule as omitting an empty digest section: never explain a thing
+        // that is not on the page.
+        var clientHint = new TextBlock
+        {
+            Text = "Name the client sees",
+            FontSize = 13,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x6F, 0x78, 0x85)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(6, 0, 0, 0),
+            IsHitTestVisible = false,
+            Visibility = project.ClientName.Length == 0 ? Visibility.Visible : Visibility.Collapsed
+        };
+
+        // IsHitTestVisible=false above is what keeps this from becoming the SEND TO bug in another
+        // place: the hint sits over the field, so if it could take a click the field beneath it
+        // could never take the caret.
+        clientBox.TextChanged += (_, _) =>
+            clientHint.Visibility = clientBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var clientCell = new Grid();
+        clientCell.Children.Add(clientHint);
+        clientCell.Children.Add(clientBox);
+
+        // Same shape as the rename above: write on Enter or on losing focus, and only when the text
+        // actually changed, so clicking through the page never issues a write. Unlike the local
+        // name, EMPTY IS ALLOWED — clearing it is how a user says "this one isn't ready to send",
+        // and refusing that would strand a name they no longer want on a client's document.
+        void TryRenameClient()
+        {
+            string typed = clientBox.Text.Trim();
+            if (string.Equals(typed, project.ClientName, System.StringComparison.Ordinal))
+            {
+                clientBox.Text = project.ClientName;
+                return;
+            }
+
+            _ = SetProjectClientNameAsync(project.Id, typed);
+        }
+
+        clientBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                TryRenameClient();
+                e.Handled = true;
+            }
+        };
+        clientBox.LostFocus += (_, _) => TryRenameClient();
+
+        Grid.SetColumn(clientCell, 1);
+        grid.Children.Add(clientCell);
+
         // Archive, never delete. The project's tasks keep pointing at it and some of that time has
         // already been reported; deleting would orphan measured minutes.
         var toggle = new Button
@@ -120,10 +199,39 @@ public partial class MainWindow
             VerticalAlignment = VerticalAlignment.Center
         };
         toggle.Click += (_, _) => _ = SetProjectArchivedAsync(project.Id, !project.Archived);
-        Grid.SetColumn(toggle, 1);
+        Grid.SetColumn(toggle, 2);
         grid.Children.Add(toggle);
 
         return row;
+    }
+
+    /// <summary>
+    /// Writes the client-facing name (§12.7). Only <c>ClientName</c> is sent: every other field on
+    /// the request is null so the endpoint's apply-only-when-present rule leaves the label default
+    /// and the rate untouched. The rate in particular must never be disturbed from here — it is the
+    /// one number on this page that looks like money.
+    /// </summary>
+    private async Task SetProjectClientNameAsync(long id, string clientName)
+    {
+        LocalApiProjectResponse? response = await _apiClient
+            .UpdateProjectClientAsync(new LocalApiProjectClientRequest(
+                SchemaVer: 1,
+                Id: id,
+                ClientName: clientName,
+                UseClientLabels: null,
+                RateMinor: null,
+                RateCurrency: null))
+            .ConfigureAwait(true);
+
+        ProjectStatusText.Text = response switch
+        {
+            { Success: true } when clientName.Length == 0 =>
+                "Cleared. This project can't be reported until a client-facing name is set.",
+            { Success: true } => $"Your client will see “{clientName}”.",
+            _ => "Couldn't save that — the agent didn't accept it."
+        };
+
+        await RefreshProjectsAsync().ConfigureAwait(true);
     }
 
     private async Task RenameProjectAsync(long id, string name)

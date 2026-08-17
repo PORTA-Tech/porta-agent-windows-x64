@@ -507,7 +507,7 @@ public partial class MainWindow
 
         if (draft.ClientName.Length == 0)
         {
-            missing.Add("the project needs a client-facing name — it is the biggest text on the page");
+            missing.Add("this project needs a name your client will recognise — it is the biggest text on the page. Set it on the Projects page, under “Name the client sees”");
         }
 
         int unnamed = included.Count(l => l.ClientLabel.Length == 0);
@@ -530,6 +530,14 @@ public partial class MainWindow
         ReportReadinessText.Text = missing.Count == 0
             ? "Nothing. Every line is named and the hours are measured."
             : string.Join("\n", missing.Select(m => "· " + m));
+
+        // Reflects what is actually true right now. The line under this panel used to be a
+        // hardcoded "sending is not built yet", which survived the build of sending and left the
+        // page claiming the feature did not exist.
+        ReportReadinessNote.Text = missing.Count == 0
+            ? "The report goes out from your own name and address. It never sends until you tap send."
+            : "Sending is ready and waiting on the above. The report goes out from your own name "
+              + "and address, and never without you tapping send.";
     }
 
     private async Task SetLineLabelAsync(long taskId, string label)

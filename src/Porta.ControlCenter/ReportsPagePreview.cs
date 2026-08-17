@@ -146,6 +146,14 @@ internal static class ReportsPagePreview
             Console.WriteLine(
                 $"  stale notice shown after the range moved: {window.PreviewStaleNoticeShown} " +
                 $"{(window.PreviewStaleNoticeShown ? "OK" : "WRONG")}");
+
+            // The one thing no picture can show. See MainWindow.PreviewSendToCaretChecks.
+            Console.WriteLine("  SEND TO can actually be typed into:");
+            foreach ((string check, bool ok, string detail) in window.PreviewSendToCaretChecks())
+            {
+                Console.WriteLine($"    {(ok ? "OK  " : "FAIL")} {check}  —  {detail}");
+            }
+
             window.Close();
         }
 

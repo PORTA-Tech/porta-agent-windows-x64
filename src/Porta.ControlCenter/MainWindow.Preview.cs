@@ -213,4 +213,70 @@ public partial class MainWindow
         ReportStatusText.Text = string.Empty;
         RenderReportDraft();
     }
+
+    /// <summary>
+    /// Step 10 (2026-08-17) — SEND TO, CHECKED RATHER THAN LOOKED AT.
+    ///
+    /// A picture cannot show a caret. The field rendered perfectly while being impossible to type
+    /// into, because <c>RpComboBox</c> had no <c>PART_EditableTextBox</c> and <c>IsEditable="True"</c>
+    /// is silently inert without it — a screenshot of that bug and a screenshot of the fix are the
+    /// same image. This is the same test gap that let the caret bug through in §5: every focus test
+    /// asserted which control was armed and none asserted that the caret actually arrives.
+    ///
+    /// So this asserts the mechanism, not the appearance:
+    /// the part exists, it can take focus and text, the text reaches the ComboBox, and the chevron
+    /// does not sit over the field. It also checks the PROJECT picker still has no editable part,
+    /// which is the guard that the shared style was left alone rather than "fixed" for both.
+    /// </summary>
+    internal IReadOnlyList<(string Check, bool Ok, string Detail)> PreviewSendToCaretChecks()
+    {
+        var results = new List<(string, bool, string)>();
+
+        ReportRecipientPicker.ApplyTemplate();
+        var edit = ReportRecipientPicker.Template
+            .FindName("PART_EditableTextBox", ReportRecipientPicker) as TextBox;
+
+        results.Add(("PART_EditableTextBox exists", edit is not null,
+            edit is null ? "missing — typing is impossible by construction" : "found"));
+
+        if (edit is not null)
+        {
+            results.Add(("field accepts input", !edit.IsReadOnly && edit.Focusable && edit.IsHitTestVisible,
+                $"readonly={edit.IsReadOnly} focusable={edit.Focusable} hittest={edit.IsHitTestVisible}"));
+
+            bool took = edit.Focus();
+            results.Add(("caret lands in the field", took && edit.IsKeyboardFocused,
+                $"Focus()={took} keyboardFocused={edit.IsKeyboardFocused}"));
+
+            edit.Text = "accounts@example-client.test";
+            results.Add(("typed text reaches the ComboBox",
+                ReportRecipientPicker.Text == "accounts@example-client.test",
+                $"picker.Text=\"{ReportRecipientPicker.Text}\""));
+
+            // ParseRecipient is what Continue actually calls; prove the typed value survives it.
+            (string name, string email) = ParseRecipient(ReportRecipientPicker.Text);
+            results.Add(("Continue would accept it", email.Length > 0,
+                $"name=\"{name}\" email=\"{email}\""));
+
+            edit.Text = string.Empty;
+        }
+
+        // The chevron must be its own 30-DIP column. In RpComboBox it spans the control, which is
+        // why every click there opens the list instead of landing a caret.
+        var toggle = ReportRecipientPicker.Template
+            .FindName("PART_Toggle", ReportRecipientPicker) as System.Windows.Controls.Primitives.ToggleButton;
+        results.Add(("chevron does not cover the field",
+            toggle is not null && Grid.GetColumn(toggle) == 1 && Grid.GetColumnSpan(toggle) == 1,
+            toggle is null ? "PART_Toggle missing" : $"column={Grid.GetColumn(toggle)} span={Grid.GetColumnSpan(toggle)}"));
+
+        // The shared style must NOT have gained an editable part: the project picker is correct as
+        // it is, and must stay untypable.
+        ReportProjectPicker.ApplyTemplate();
+        bool projectStillPlain = ReportProjectPicker.Template
+            .FindName("PART_EditableTextBox", ReportProjectPicker) is null;
+        results.Add(("project picker left alone (RpComboBox untouched)", projectStillPlain,
+            projectStillPlain ? "no editable part, as intended" : "shared style was modified"));
+
+        return results;
+    }
 }

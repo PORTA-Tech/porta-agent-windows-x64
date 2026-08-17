@@ -1707,11 +1707,14 @@
                                 </Border>
                             </StackPanel>
 
-                            <!-- Step 10 phase B - the Reports page. Everything here is LOCAL and
-                                 DERIVED: the draft is rebuilt on every request and nothing is
-                                 stored. There is deliberately NO send button, because sending is
-                                 phase C and does not exist; a control that looked like it might
-                                 send is the worst thing on this page to leave to guesswork. -->
+                            <!-- Step 10 — the Reports page. The DRAFT is local and derived: rebuilt
+                                 on every request, never stored. The stored thing is the snapshot
+                                 taken when a report is actually sent.
+
+                                 Sending is BUILT (phase C/D). The draft leads to SEND TO, which
+                                 leads to the confirm screen, where the Send button lives. It sits
+                                 there and not here on purpose: the address is chosen on one screen
+                                 and checked on the next, because a send cannot be undone. -->
                             <StackPanel x:Name="SettingsSectionReports" Visibility="Collapsed">
                                 <TextBlock Text="Reports" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
                                 <TextBlock Text="A client's account of the work: measured hours, per project, over a range of days. Nothing here is sent anywhere yet - this is the draft, so you can see whether it tells the truth before it can ever leave the machine." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
@@ -1818,9 +1821,13 @@
 
                                     <Border Style="{StaticResource RpPanelBorder}">
                                         <StackPanel>
-                                            <TextBlock Text="BEFORE THIS COULD BE SENT" Style="{StaticResource RpSectionLabel}" />
+                                            <TextBlock Text="BEFORE THIS CAN BE SENT" Style="{StaticResource RpSectionLabel}" />
                                             <TextBlock x:Name="ReportReadinessText" FontSize="12" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
-                                            <TextBlock Text="Sending is not built yet. When it is, the report will go from your own address, and never without you tapping send." Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
+                                            <!-- Set in RenderReadiness. It was hardcoded to "sending
+                                                 is not built yet" and stayed that way after sending
+                                                 was built, so the page told the user the feature did
+                                                 not exist while it did. Never hardcode state here. -->
+                                            <TextBlock x:Name="ReportReadinessNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
                                         </StackPanel>
                                     </Border>
 
@@ -1837,7 +1844,11 @@
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <ComboBox x:Name="ReportRecipientPicker" Grid.Column="0" Style="{StaticResource RpComboBox}" IsEditable="True" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                                <!-- RpComboBoxEditable, NOT RpComboBox: the shared
+                                                     style has no PART_EditableTextBox, so
+                                                     IsEditable there is inert and the field can
+                                                     never take a caret. -->
+                                                <ComboBox x:Name="ReportRecipientPicker" Grid.Column="0" Style="{StaticResource RpComboBoxEditable}" Margin="0,0,8,0" VerticalAlignment="Center" />
                                                 <Button x:Name="ReportSendToButton" Grid.Column="1" Content="Continue" Style="{StaticResource RpPrimaryButton}" VerticalAlignment="Center" Click="ReportSendToButton_Click" />
                                             </Grid>
                                             <TextBlock x:Name="ReportRecipientNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" Text="Type a client's email, or pick one you've sent to before. Nothing is sent until you confirm." />

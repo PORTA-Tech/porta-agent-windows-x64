@@ -1539,9 +1539,14 @@ public static class LocalApiEndpointMapping
         var payload = new
         {
             reportId,
+            // LEFT EMPTY ON PURPOSE, AND FILLED BY ReportGateway.StampIdentity BEFORE THE POST.
+            // Identity lives in the link store on the service side, not here. These three were
+            // empty and stayed empty all the way to the server, which reads accountId from the body
+            // and refuses without it — so preview and send both answered 400 and no report could
+            // leave. machineId is opaque (MachineFingerprint), never the Windows computer name.
             accountId = string.Empty,
             deviceId = string.Empty,
-            machineId = Environment.MachineName,
+            machineId = string.Empty,
             requestedAtUtc = now.ToString("O"),
             timezoneOffsetMinutes = (int)DateTimeOffset.Now.Offset.TotalMinutes,
             // The CLIENT-FACING name (§12.7). The local one never leaves the machine.

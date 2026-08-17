@@ -360,6 +360,123 @@
         </Setter>
     </Style>
 
+    <!-- An editable picker: type an address, or pick one used before.
+
+         SEPARATE FROM RpComboBox ON PURPOSE, NOT COPIED FROM IT BY ACCIDENT. RpComboBox is the
+         project picker and is correct as it is; it has no PART_EditableTextBox, which is the exact
+         part WPF requires before IsEditable="True" does anything at all. Setting IsEditable on a
+         template without that part is silently inert — the control renders a chevron, takes a click
+         on the dropdown, and can never take a caret. That was the SEND TO bug. Editing the shared
+         style to fix it would have put the project picker at risk for nothing, since the project
+         picker must not be typable.
+
+         Three things here are load-bearing and none of them are cosmetic:
+           1. PART_EditableTextBox, named exactly, is what makes typing possible.
+           2. The ToggleButton is 30 DIPs in its OWN column. In RpComboBox it spans the whole
+              control, so every click opens the list. Here a click on the text lands a caret.
+           3. Nothing sits over the text with IsHitTestVisible="False". The text area IS the
+              TextBox, so it takes the click itself rather than a presenter swallowing it. -->
+    <Style x:Key="RpComboBoxEditable" TargetType="ComboBox">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{StaticResource RpTextPrimary}" />
+        <Setter Property="Background" Value="{StaticResource RpCard}" />
+        <Setter Property="IsEditable" Value="True" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="ItemContainerStyle" Value="{StaticResource RpComboItem}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBox">
+                    <Border x:Name="Bd"
+                            Background="{StaticResource RpCard}"
+                            BorderBrush="{StaticResource RpHairline}"
+                            BorderThickness="0.5"
+                            CornerRadius="{StaticResource RpCornerInner}"
+                            SnapsToDevicePixels="True">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="30" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Style="{x:Null}" so no implicit TextBox style in the page can
+                                 reintroduce a border or a background inside the field. -->
+                            <TextBox x:Name="PART_EditableTextBox"
+                                     Grid.Column="0"
+                                     Style="{x:Null}"
+                                     Background="Transparent"
+                                     Foreground="{StaticResource RpTextPrimary}"
+                                     CaretBrush="{StaticResource RpTextPrimary}"
+                                     SelectionBrush="{StaticResource RpHover}"
+                                     BorderThickness="0"
+                                     FontSize="13"
+                                     Padding="12,9"
+                                     Cursor="IBeam"
+                                     Focusable="True"
+                                     VerticalContentAlignment="Center"
+                                     HorizontalScrollBarVisibility="Hidden"
+                                     VerticalScrollBarVisibility="Hidden"
+                                     IsReadOnly="{TemplateBinding IsReadOnly}" />
+
+                            <!-- The chevron alone. Focusable=False so opening the list never steals
+                                 the caret out of the field beside it. -->
+                            <ToggleButton x:Name="PART_Toggle"
+                                          Grid.Column="1"
+                                          Focusable="False"
+                                          ClickMode="Press"
+                                          Cursor="Hand"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="Transparent" SnapsToDevicePixels="True">
+                                            <Path Data="M0,0 L4.5,4.5 L9,0"
+                                                  Stroke="{StaticResource RpTextMuted}"
+                                                  StrokeThickness="1.3"
+                                                  StrokeEndLineCap="Round"
+                                                  StrokeStartLineCap="Round"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                                        </Border>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+
+                            <Popup x:Name="PART_Popup"
+                                   Grid.ColumnSpan="2"
+                                   Placement="Bottom"
+                                   VerticalOffset="4"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   PopupAnimation="Fade">
+                                <Border Background="{StaticResource RpPanel}"
+                                        BorderBrush="{StaticResource RpHairline}"
+                                        BorderThickness="0.5"
+                                        CornerRadius="{StaticResource RpCornerInner}"
+                                        Padding="4"
+                                        MinWidth="{TemplateBinding ActualWidth}"
+                                        MaxHeight="240"
+                                        SnapsToDevicePixels="True">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <StackPanel IsItemsHost="True" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="#3D4550" />
+                        </Trigger>
+                        <!-- Focus is a lifted hairline, never a green one: green is reserved. -->
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="#3D4550" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Included / excluded on a report line. The stock CheckBox is a Windows glyph in a system
          box.
          NOT accent when checked. Green means exactly three things — the finished check, a finished

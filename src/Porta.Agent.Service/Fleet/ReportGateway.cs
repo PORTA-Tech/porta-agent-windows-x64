@@ -54,7 +54,7 @@ internal sealed class ReportGateway : IReportGateway
         return Task.FromResult(new ReportGatewayIdentity(
             AccountId: identity.AccountId ?? string.Empty,
             DeviceId: identity.DeviceId ?? string.Empty,
-            MachineId: Environment.MachineName,
+            MachineId: MachineFingerprint.Current,
             FromName: string.Empty,
             ReplyTo: string.Empty,
             Resolved: linked));
@@ -184,13 +184,43 @@ internal sealed class ReportGateway : IReportGateway
         }
     }
 
-    private static ReportSendPayload? Deserialize(string reportJson)
+    /// <summary>
+    /// THE ONE CHOKE POINT where a report payload becomes identified, so preview and send cannot
+    /// disagree about who is asking.
+    ///
+    /// The local API assembles the document — it knows the hours, the labels and the recipient — but
+    /// it does not know the identity, and it must not: the identity lives in the link store on this
+    /// side. It therefore writes empty strings for the three id fields and this fills them in.
+    /// Before this existed the empties travelled all the way to the server, which reads
+    /// <c>accountId</c> from the body and refuses without it, so BOTH <c>/reports/preview</c> and
+    /// <c>/reports/send</c> answered 400 and no report could ever leave.
+    /// </summary>
+    private ReportSendPayload StampIdentity(ReportSendPayload payload)
+    {
+        LocalIdentityLinkSnapshot identity = _identityLinkStore.GetCurrent();
+
+        return payload with
+        {
+            AccountId = identity.AccountId ?? string.Empty,
+            DeviceId = identity.DeviceId ?? string.Empty,
+            // Never Environment.MachineName. See MachineFingerprint.
+            MachineId = MachineFingerprint.Current
+        };
+    }
+
+    private ReportSendPayload? Deserialize(string reportJson)
     {
         try
         {
-            return string.IsNullOrWhiteSpace(reportJson)
-                ? null
-                : JsonSerializer.Deserialize<ReportSendPayload>(reportJson, JsonOptions);
+            if (string.IsNullOrWhiteSpace(reportJson))
+            {
+                return null;
+            }
+
+            ReportSendPayload? payload =
+                JsonSerializer.Deserialize<ReportSendPayload>(reportJson, JsonOptions);
+
+            return payload is null ? null : StampIdentity(payload);
         }
         catch
         {
