@@ -2943,7 +2943,7 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
     {
         lock (_gate)
         {
-            using SqliteConnection connection = DbOpen.OpenConnection(_dbPath);
+            using SqliteConnection connection = DbOpen.OpenConnection(_connectionString);
             return ReadTaskRow(connection, null, id);
         }
     }
@@ -3060,7 +3060,7 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
 
         lock (_gate)
         {
-            using SqliteConnection connection = DbOpen.OpenConnection(_dbPath);
+            using SqliteConnection connection = DbOpen.OpenConnection(_connectionString);
             using var cmd = connection.CreateCommand();
             // COALESCE on a null parameter leaves the column untouched, so one call can set any
             // subset. completed_at follows status rather than being passed in: it is a fact about
@@ -3126,7 +3126,7 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
 
         lock (_gate)
         {
-            using SqliteConnection connection = DbOpen.OpenConnection(_dbPath);
+            using SqliteConnection connection = DbOpen.OpenConnection(_connectionString);
             using var cmd = connection.CreateCommand();
             cmd.CommandText =
                 """
@@ -3175,7 +3175,7 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
     {
         lock (_gate)
         {
-            using SqliteConnection connection = DbOpen.OpenConnection(_dbPath);
+            using SqliteConnection connection = DbOpen.OpenConnection(_connectionString);
             using var cmd = connection.CreateCommand();
             // Column name is a compile-time constant at every call site, never user input.
             cmd.CommandText = $"UPDATE tasks SET {column} = $value WHERE id = $id;";
@@ -3300,6 +3300,50 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         cmd.Parameters.AddWithValue("$seconds", bucketSeconds);
         cmd.Parameters.AddWithValue("$focused", offtask ? 0d : bucketSeconds);
         cmd.Parameters.AddWithValue("$offtask", offtask ? bucketSeconds : 0d);
+        cmd.ExecuteNonQuery();
+
+        PromoteActiveTaskToInProgress(connection, tx, bucketStart);
+    }
+
+    /// <summary>
+    /// 2026-08-18 — the moment time lands on a task, that task is in progress.
+    ///
+    /// WHY THIS EXISTS. The v30 seed set `status` once, from whatever task was `state='active'` at
+    /// the instant the migration ran, and that seed only ever fires at startup. Every task created
+    /// afterwards defaults to 'planned' and nothing moved it, so genuinely in-flight work appeared
+    /// under a "Planned" heading in a client's report — which is worse than saying nothing, because
+    /// it reads as work not yet begun.
+    ///
+    /// This is a MEASURED fact, not a guess. It runs only where time was actually attributed: past
+    /// the same bucketSeconds &gt; 0 and not-away gate above, off the same active task, inside the
+    /// same transaction. If the hours are real then the work is in progress, so the two can never
+    /// disagree.
+    ///
+    /// Deliberately narrow:
+    ///   - 'planned' is the ONLY status it will move. 'done' and 'blocked' are statements the user
+    ///     made, and a background timer must never overwrite one. A task marked blocked whose timer
+    ///     is still running stays blocked and says so.
+    ///   - started_at_utc is filled only when EMPTY, and from the bucket's own timestamp rather
+    ///     than "now", so a bucket landing late dates the start to when the work happened. An
+    ///     existing start is never rewritten — never edit time already measured.
+    ///   - Idempotent. After the first bucket the WHERE clause stops matching, so this costs one
+    ///     no-op UPDATE per bucket thereafter and can never double-apply.
+    /// </summary>
+    private static void PromoteActiveTaskToInProgress(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        DateTimeOffset bucketStart)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            """
+            UPDATE tasks
+            SET status = 'in_progress',
+                started_at_utc = CASE WHEN started_at_utc = '' THEN $at ELSE started_at_utc END
+            WHERE state = 'active' AND status = 'planned';
+            """;
+        cmd.Parameters.AddWithValue("$at", bucketStart.ToUniversalTime().ToString("O"));
         cmd.ExecuteNonQuery();
     }
 
