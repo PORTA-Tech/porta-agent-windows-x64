@@ -238,6 +238,13 @@ public partial class MainWindow
         RenderProjectsPage(projects);
     }
 
+    /// <summary>The Tasks page at a chosen filter, so a broken filter is visible in a picture.</summary>
+    internal void PreviewFillTasks(IReadOnlyList<LocalApiTaskRow> tasks, string filter)
+    {
+        _taskFilter = filter;
+        RenderTasksPage(tasks);
+    }
+
     internal void PreviewFillReport(LocalApiReportDraft draft)
     {
         // Sample projects in the picker too, so the picture never shows whatever the live agent

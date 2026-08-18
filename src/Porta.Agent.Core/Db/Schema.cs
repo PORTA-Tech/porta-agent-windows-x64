@@ -1031,6 +1031,22 @@ internal static class Schema
         // Same for the frequency default that shipped in 1.2.161 on fresh installs only.
         + "UPDATE projects SET reporting_frequency = '' WHERE reporting_frequency = 'none';";
 
+    /// <summary>
+    /// Phase 3 rebuilt (2026-08-18) — archiving a sent report.
+    ///
+    /// The Reports page offered an Archived tab with nothing behind it: there was no flag, no
+    /// action, and no storage, so archiving appeared to do nothing and the tab was permanently
+    /// empty. This is the column that makes it real.
+    ///
+    /// LOCAL AND COSMETIC. Archiving hides a report from this machine's list and nothing else: the
+    /// permanent link a client already has keeps working, exactly as before, because a report that
+    /// has been read cannot be withdrawn.
+    /// </summary>
+    internal static void ApplySentReportArchiveV32(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "sent_reports", "archived_at_utc", "TEXT NOT NULL DEFAULT ''");
+    }
+
     internal static void ApplyContractSchemaV3(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

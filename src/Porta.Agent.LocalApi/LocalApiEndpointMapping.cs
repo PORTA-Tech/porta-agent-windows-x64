@@ -520,7 +520,8 @@ public static class LocalApiEndpointMapping
                     TaskId: t.TaskId, Label: t.Label, Status: t.Status,
                     ProjectName: t.ProjectName, IsUntagged: t.IsUntagged, Dates: t.Dates,
                     Hours: t.Hours, ColourSlot: t.ColourSlot, ResultLine: t.ResultLine,
-                    LastWorkedDay: t.LastWorkedDay, ExpectedFinishDay: t.ExpectedFinishDay)).ToList(),
+                    LastWorkedDay: t.LastWorkedDay, ExpectedFinishDay: t.ExpectedFinishDay,
+                    DeferredUntilDay: t.DeferredUntilDay)).ToList(),
                 DateTimeOffset.UtcNow)));
 
         api.MapGet("/reports/draft", (IAgentCoreController controller, long? projectId, string? from, string? to) =>
@@ -586,6 +587,17 @@ public static class LocalApiEndpointMapping
                 ReplyTo: identity.ReplyTo,
                 IdentityResolved: identity.Resolved,
                 PreviewRequired: previewRequired));
+        });
+
+        api.MapPost("/reports/sent/archive", (IAgentCoreController controller, LocalApiSentReportArchiveRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1 || string.IsNullOrWhiteSpace(request.ReportId))
+            {
+                return Results.BadRequest(new LocalApiAckResponse(false, "invalid_payload_or_schema", DateTimeOffset.UtcNow));
+            }
+
+            bool ok = controller.SetSentReportArchived(request.ReportId, request.Archived);
+            return Results.Json(new LocalApiAckResponse(ok, ok ? "archived" : "not_found", DateTimeOffset.UtcNow));
         });
 
         api.MapGet("/reports/sent", (IAgentCoreController controller) =>
@@ -1667,7 +1679,8 @@ public static class LocalApiEndpointMapping
             r.ReportId, r.ClientName, r.RangeStartLocal, r.RangeEndLocal,
             r.RecipientName, r.RecipientEmail, r.FromName, r.ReplyTo, r.TotalHours,
             r.RequestedAtUtc.ToString("O"), r.SentAtUtc, r.SendState, r.SendError, r.ServerState,
-            r.Lines.Select(l => new LocalApiSentReportLine(l.LineId, l.ClientLabel, l.Finished, l.Hours)).ToList());
+            r.Lines.Select(l => new LocalApiSentReportLine(l.LineId, l.ClientLabel, l.Finished, l.Hours)).ToList(),
+            r.Archived);
 
     /// <summary>
     /// Build the approved payload (§12.2) and run every rule on the way. Both the preview route and

@@ -108,14 +108,27 @@ public partial class MainWindow
     private bool MatchesFilter(LocalApiTaskRow t) => _taskFilter switch
     {
         "all" => true,
-        "prog" => t.Status == "in_progress",
+
+        // "Time recorded against them, and you have not marked them finished" — the filter's own
+        // description, which is what it now does. It used to require status == 'in_progress', a
+        // value almost nothing carries, so the tab was empty while real work was underway.
+        "prog" => t.Status != "done" && t.Status != "blocked" && t.Hours > 0,
+
         "block" => t.Status == "blocked",
         "done" => t.Status == "done",
-        // Upcoming is a start date AHEAD of today. Ari never starts these for you.
-        "upcoming" => t.Status == "planned" && IsAhead(t.ExpectedFinishDay, t.LastWorkedDay),
-        "week" => WorkedWithin(t, 7) || t.Status is "in_progress" or "blocked",
-        _ => WorkedWithin(t, 0) || t.Status is "in_progress" or "blocked"
+
+        // A task you POSTPONED is the main thing that belongs here, and it was the one thing this
+        // could not see: it read the expected-finish date and never the deferred-until day, so
+        // "not today, tomorrow" vanished from every filter instead of appearing under Upcoming.
+        "upcoming" => t.Status != "done" && IsAhead(t.DeferredUntilDay, t.ExpectedFinishDay),
+
+        "week" => WorkedWithin(t, 7) || IsOpen(t),
+        _ => WorkedWithin(t, 0) || IsOpen(t)
     };
+
+    /// <summary>Still open: not finished, and not parked for a later day.</summary>
+    private static bool IsOpen(LocalApiTaskRow t)
+        => t.Status != "done" && !IsAhead(t.DeferredUntilDay, t.ExpectedFinishDay);
 
     private static bool WorkedWithin(LocalApiTaskRow t, int days)
         => System.DateTime.TryParseExact(
@@ -125,14 +138,24 @@ public partial class MainWindow
                out System.DateTime d)
            && (System.DateTime.Now.Date - d.Date).TotalDays <= days;
 
-    private static bool IsAhead(string expected, string lastWorked)
-        => lastWorked.Length == 0
-           && System.DateTime.TryParseExact(
-                  expected, "yyyy-MM-dd",
-                  System.Globalization.CultureInfo.InvariantCulture,
-                  System.Globalization.DateTimeStyles.None,
-                  out System.DateTime d)
-           && d.Date > System.DateTime.Now.Date;
+    /// <summary>True if either day is set and lands after today. Deferral wins when both are.</summary>
+    private static bool IsAhead(params string[] days)
+    {
+        foreach (string day in days)
+        {
+            if (System.DateTime.TryParseExact(
+                    day, "yyyy-MM-dd",
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None,
+                    out System.DateTime d)
+                && d.Date > System.DateTime.Now.Date)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private UIElement BuildTaskRow(LocalApiTaskRow t)
     {
@@ -193,7 +216,11 @@ public partial class MainWindow
         Grid.SetColumn(tag, 3);
         grid.Children.Add(tag);
 
-        TextBlock dates = PageKit.Text(t.Dates, 12.5, PageKit.Ink3);
+        TextBlock dates = PageKit.Text(
+            t.DeferredUntilDay.Length > 0 && IsAhead(t.DeferredUntilDay)
+                ? $"put off to {FriendlyDay(t.DeferredUntilDay)}"
+                : t.Dates,
+            12.5, PageKit.Ink3);
         dates.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(dates, 4);
         grid.Children.Add(dates);

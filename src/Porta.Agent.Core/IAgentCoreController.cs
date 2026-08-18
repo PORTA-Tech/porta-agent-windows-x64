@@ -132,6 +132,9 @@ public interface IAgentCoreController
 
     IReadOnlyList<AgentSentReport> GetSentReports();
 
+    /// <summary>Phase 3 rebuilt — hide a sent report from this machine's list. The link still works.</summary>
+    bool SetSentReportArchived(string reportId, bool archived);
+
     /// <summary>Written BEFORE a send is attempted. False = this reportId is already recorded.</summary>
     bool RecordSentReport(AgentSentReport report);
 

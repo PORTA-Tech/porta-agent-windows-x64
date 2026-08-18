@@ -81,15 +81,15 @@ public partial class MainWindow
         }));
         ReportsPageHost.Children.Add(tabs);
 
+        // Sent and Archived are the same list split by one flag. They were both hardcoded empty
+        // states before, so archiving appeared to do nothing and the tab was permanently blank.
         ReportsPageHost.Children.Add(_reportTab switch
         {
             "ready" => PageKit.Card(PageKit.Empty(
-                "Nothing approved and waiting.",
-                "A report you have reviewed sits here until you tap send. Ari never sends it for you.")),
-            "arch" => PageKit.Card(PageKit.Empty(
-                "Nothing archived.",
-                "Archiving hides an old report from this list. The link a client already has keeps working.")),
-            _ => BuildSentList(sent)
+                "Nothing waiting to be sent.",
+                "A report is written and sent in one step, so nothing parks here yet.")),
+            "arch" => BuildSentList(sent.Where(r => r.Archived).ToList(), archivedView: true),
+            _ => BuildSentList(sent.Where(r => !r.Archived).ToList(), archivedView: false)
         });
     }
 
@@ -141,13 +141,17 @@ public partial class MainWindow
         return PageKit.Card(body, topMargin: 22);
     }
 
-    private UIElement BuildSentList(IReadOnlyList<LocalApiSentReport> sent)
+    private UIElement BuildSentList(IReadOnlyList<LocalApiSentReport> sent, bool archivedView)
     {
         if (sent.Count == 0)
         {
-            return PageKit.Card(PageKit.Empty(
-                "Nothing sent yet.",
-                "A report you send keeps its own permanent link, frozen exactly as the client saw it."));
+            return PageKit.Card(archivedView
+                ? PageKit.Empty(
+                    "Nothing archived.",
+                    "Archiving hides an old report from the Sent list. The link a client already has keeps working.")
+                : PageKit.Empty(
+                    "Nothing sent yet.",
+                    "A report you send keeps its own permanent link, frozen exactly as the client saw it."));
         }
 
         var list = new StackPanel();
@@ -158,13 +162,13 @@ public partial class MainWindow
                 list.Children.Add(PageKit.Hair());
             }
 
-            list.Children.Add(BuildSentRow(sent[i]));
+            list.Children.Add(BuildSentRow(sent[i], archivedView));
         }
 
         return PageKit.Card(list);
     }
 
-    private UIElement BuildSentRow(LocalApiSentReport r)
+    private UIElement BuildSentRow(LocalApiSentReport r, bool archivedView)
     {
         var grid = new Grid { Margin = new Thickness(26, 18, 26, 18) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -196,6 +200,16 @@ public partial class MainWindow
             links.Children.Add(PageKit.Text("link not stored locally", 12.5, PageKit.Ink3));
         }
 
+        // The action that made the Archived tab a lie. It is local and cosmetic: it hides the row
+        // here and the client's link keeps working, because a report somebody has read cannot be
+        // withdrawn.
+        {
+            links.Children.Add(PageKit.Text("    ", 12.5, PageKit.Ink3));
+            links.Children.Add(PageKit.Link(
+                archivedView ? "Restore" : "Archive",
+                () => _ = ArchiveSentReportAsync(r.ReportId, !archivedView)));
+        }
+
         right.Children.Add(links);
         right.Children.Add(PageKit.Text(
             // An unknown outcome is NEVER shown as a failure.
@@ -219,6 +233,12 @@ public partial class MainWindow
         }
 
         return string.Join("  ·  ", parts);
+    }
+
+    private async Task ArchiveSentReportAsync(string reportId, bool archived)
+    {
+        await _apiClient.ArchiveSentReportAsync(reportId, archived).ConfigureAwait(true);
+        await OpenReportsPageV2Async().ConfigureAwait(true);
     }
 
     private static void OpenExternal(string url)

@@ -288,7 +288,7 @@ internal static class ReportsPagePreview
         Id: 1, Name: "PORTA", Archived: false, CreatedAtUtc: DateTimeOffset.Now.AddDays(-30),
         ClientName: "PORTA SYSTEM", UseClientLabels: true, RateMinor: 0, RateCurrency: "",
         Status: "active", StartDay: "2026-08-12", CompletionDay: "",
-        Recipients: ["yadinmpesse@gmail.com"], ReportingFrequency: "week",
+        Recipients: ["client@example.test"], ReportingFrequency: "week",
         TotalTasks: 4, DoneTasks: 3, BlockedTasks: 1, InProgressTasks: 1, Hours: 7.7,
         StatusReason: "Set to active because you worked on it today.",
         StartDayReason: "Your first recorded work on this project.",
@@ -318,11 +318,27 @@ internal static class ReportsPagePreview
         DaysWorked: 0, LastWorkedLabel: "no work recorded yet", LastSentLabel: "",
         NextReportDue: "", Tasks: []);
 
+    /// The shapes Yadin's own database holds, including the two that were invisible: a task he put
+    /// off until tomorrow, and one with recorded time that he has not marked finished.
+    private static readonly LocalApiTaskRow[] SampleTasks =
+    [
+        new(1, "Work on phase 3, the pages", "planned", "PORTA", false, "from 18 Aug", 3.9, 2,
+            "Navigation restructured and the projects page built.", "2026-08-18", "", ""),
+        new(2, "Add the task page", "blocked", "PORTA", false, "held 1 day", 0.9, 5,
+            "Waiting on the design being agreed.", "2026-08-17", "", ""),
+        new(3, "daily weekly digest email", "planned", "", true, "—", 0, 0, "", "", "",
+            DateTime.Now.AddDays(1).ToString("yyyy-MM-dd")),
+        new(4, "Finish the send button", "done", "PORTA", false, "17 Aug", 1.7, 4, "", "2026-08-17", "", "")
+    ];
+
     private static IReadOnlyList<PreviewState> BuildStates() =>
     [
         // Phase 3 rebuilt — the two states that matter on this page, and the drawer open on each.
         // "no work" is here because a project nobody has touched is the state the page got wrong
         // three builds running: four zeroes and a row of dashes instead of one useful sentence.
+        new("tasks upcoming", "Tasks", w => w.PreviewFillTasks(SampleTasks, "upcoming"), Height: 900),
+        new("tasks in progress", "Tasks", w => w.PreviewFillTasks(SampleTasks, "prog"), Height: 900),
+        new("tasks blocked", "Tasks", w => w.PreviewFillTasks(SampleTasks, "block"), Height: 900),
         new("projects with work", "Projects", w => w.PreviewFillProjects([ProjectWithWork]), Height: 1500),
         new("projects with work drawer open", "Projects",
             w => w.PreviewFillProjectsWithDrawer([ProjectWithWork]), Height: 1900),

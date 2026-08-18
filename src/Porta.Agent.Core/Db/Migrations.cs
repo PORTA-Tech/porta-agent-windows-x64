@@ -163,7 +163,13 @@ internal static class Migrations
         new(
             Version: 31,
             Name: "derived_project_fields_v31",
-            Apply: Schema.ApplyDerivedProjectFieldsV31)
+            Apply: Schema.ApplyDerivedProjectFieldsV31),
+        // Phase 3 rebuilt — archiving a sent report, which the Reports page offered with nothing
+        // behind it. Its own step, never an edit to a shipped one.
+        new(
+            Version: 32,
+            Name: "sent_report_archive_v32",
+            Apply: Schema.ApplySentReportArchiveV32)
     ];
 
     internal static void Migrate(SqliteConnection connection)

@@ -1885,6 +1885,9 @@ public sealed class AgentCoreController : IAgentCoreController
 
     public IReadOnlyList<AgentSentReport> GetSentReports() => _stateStore.ReadSentReports();
 
+    public bool SetSentReportArchived(string reportId, bool archived)
+        => _stateStore.SetSentReportArchived(reportId, archived);
+
     public bool RecordSentReport(AgentSentReport report) => _stateStore.RecordSentReport(report);
 
     public void MarkSentReportOutcome(string reportId, bool sent, string sentAtUtc, string error)

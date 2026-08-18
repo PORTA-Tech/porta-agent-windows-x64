@@ -267,6 +267,24 @@ public sealed partial class SqliteBrainStateStore
         }
     }
 
+    /// <summary>
+    /// Phase 3 rebuilt — archive or restore a sent report. LOCAL AND COSMETIC: this hides the row
+    /// from this machine's list and nothing more. The permanent link a client already has keeps
+    /// working, because a report somebody has read cannot be withdrawn.
+    /// </summary>
+    public bool SetSentReportArchived(string reportId, bool archived)
+    {
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "UPDATE sent_reports SET archived_at_utc = $at WHERE report_id = $id;";
+            cmd.Parameters.AddWithValue("$id", reportId);
+            cmd.Parameters.AddWithValue("$at", archived ? DateTimeOffset.UtcNow.ToString("O") : string.Empty);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
     public IReadOnlyList<AgentSentReport> ReadSentReports()
     {
         var reports = new List<AgentSentReport>();
@@ -321,7 +339,7 @@ public sealed partial class SqliteBrainStateStore
                 SELECT report_id, project_id, project_name, client_name, range_start_local,
                        range_end_local, recipient_name, recipient_email, from_name, reply_to,
                        total_hours, days_worked, lines_finished, lines_total, requested_at_utc,
-                       sent_at_utc, send_state, send_error, server_state
+                       sent_at_utc, send_state, send_error, server_state, archived_at_utc
                 FROM sent_reports
                 ORDER BY requested_at_utc DESC;
                 """;
@@ -349,6 +367,7 @@ public sealed partial class SqliteBrainStateStore
                     SendState: reader.GetString(16),
                     SendError: reader.GetString(17),
                     ServerState: reader.GetString(18),
+                    Archived: reader.GetString(19).Length > 0,
                     Lines: lines.GetValueOrDefault(id, []),
                     Days: days.GetValueOrDefault(id, [])));
             }

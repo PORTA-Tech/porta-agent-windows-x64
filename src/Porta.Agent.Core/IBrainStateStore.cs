@@ -131,6 +131,9 @@ public interface IBrainStateStore
 
     IReadOnlyList<AgentSentReport> ReadSentReports();
 
+    /// <summary>Phase 3 rebuilt — hide a sent report from this machine's list. The link still works.</summary>
+    bool SetSentReportArchived(string reportId, bool archived);
+
     void MarkSentReportDeletePending(string reportId);
 
     /// <summary>Runs ONLY after the server half succeeded. Never report success on a half-delete.</summary>

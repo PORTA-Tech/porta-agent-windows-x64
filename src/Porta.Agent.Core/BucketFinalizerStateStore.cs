@@ -151,6 +151,9 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
 
     public IReadOnlyList<AgentSentReport> ReadSentReports() => _inner.ReadSentReports();
 
+    public bool SetSentReportArchived(string reportId, bool archived)
+        => _inner.SetSentReportArchived(reportId, archived);
+
     public void MarkSentReportDeletePending(string reportId) => _inner.MarkSentReportDeletePending(reportId);
 
     public bool DeleteSentReportLocally(string reportId) => _inner.DeleteSentReportLocally(reportId);

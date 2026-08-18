@@ -557,6 +557,32 @@ public sealed class LocalApiClient : IDisposable
     }
 
     /// <summary>Phase 3 rebuilt — the Tasks page's one list.</summary>
+    /// <summary>Phase 3 rebuilt — hide a sent report from this machine's list.</summary>
+    public async Task<LocalApiAckResponse?> ArchiveSentReportAsync(
+        string reportId, bool archived, CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(
+                JsonSerializer.Serialize(new LocalApiSentReportArchiveRequest(1, reportId, archived)),
+                Encoding.UTF8, "application/json");
+            using HttpResponseMessage response =
+                await _httpClient.PostAsync("/v1/reports/sent/archive", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiAckResponse>(cancellationToken: token)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<LocalApiTaskRowsResponse?> GetTaskRowsAsync(CancellationToken token = default)
     {
         if (!HasRuntimeSettings())

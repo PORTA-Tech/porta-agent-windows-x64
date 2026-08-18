@@ -199,7 +199,16 @@ public partial class MainWindow
         stack.Children.Add(PageKit.Hair());
         var actions = new WrapPanel { Margin = new Thickness(26, 16, 26, 18) };
         bool canReport = p.ClientName.Trim().Length > 0 && (p.Recipients?.Count ?? 0) > 0;
-        Button build = PageKit.PrimaryButton("Build a report", () => ShowSection(UiSection.Reports));
+        Button build = PageKit.PrimaryButton("Build a report", () =>
+        {
+            // Navigating is not the same as LOADING. This showed the Reports section and never
+            // populated it, so the button led to a blank page every single time.
+            ShowSection(UiSection.Reports);
+            if (!PreviewMode)
+            {
+                _ = OpenReportsPageV2Async();
+            }
+        });
         if (!canReport)
         {
             // Disabled rather than hidden: a missing button is a mystery, a disabled one with a
@@ -273,7 +282,7 @@ public partial class MainWindow
             "Who should receive the report?",
             "Your client's email address. Their reply comes straight back to you, not to Ari.",
             string.Join(", ", p.Recipients ?? new List<string>()),
-            "name@theircompany.com",
+            "name@their-company.example",
             v => _ = SetProjectEngagementAsync(p.Id, recipients: SplitAddresses(v))));
 
         // 3

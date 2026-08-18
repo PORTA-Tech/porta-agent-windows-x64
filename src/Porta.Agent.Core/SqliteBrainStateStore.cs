@@ -3463,7 +3463,8 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 ColourSlot: reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
                 ResultLine: reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
                 LastWorkedDay: lastDay,
-                ExpectedFinishDay: reader.IsDBNull(11) ? string.Empty : reader.GetString(11)));
+                ExpectedFinishDay: reader.IsDBNull(11) ? string.Empty : reader.GetString(11),
+                DeferredUntilDay: reader.IsDBNull(12) ? string.Empty : reader.GetString(12)));
         }
 
         return rows;
@@ -3476,7 +3477,7 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         + "  COALESCE((SELECT SUM(r.active_seconds) FROM app_usage_rollup r WHERE r.task_id = t.id), 0), "
         + "  t.colour_slot, t.result_line, "
         + "  COALESCE((SELECT MAX(d.local_date) FROM task_day_hours d WHERE d.task_id = t.id), ''), "
-        + "  COALESCE(p.name, ''), t.project_id, t.expected_finish_day "
+        + "  COALESCE(p.name, ''), t.project_id, t.expected_finish_day, t.deferred_until_day "
         + "FROM tasks t LEFT JOIN projects p ON p.id = t.project_id "
         + "WHERE t.state <> 'abandoned' "
         + "ORDER BY CASE t.status WHEN 'blocked' THEN 0 WHEN 'in_progress' THEN 1 "

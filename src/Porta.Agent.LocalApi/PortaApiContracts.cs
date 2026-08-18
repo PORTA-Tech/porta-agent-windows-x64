@@ -1035,7 +1035,8 @@ public sealed record LocalApiTaskRow(
     [property: JsonPropertyName("colour_slot")] int ColourSlot,
     [property: JsonPropertyName("result_line")] string ResultLine,
     [property: JsonPropertyName("last_worked_day")] string LastWorkedDay,
-    [property: JsonPropertyName("expected_finish_day")] string ExpectedFinishDay);
+    [property: JsonPropertyName("expected_finish_day")] string ExpectedFinishDay,
+    [property: JsonPropertyName("deferred_until_day")] string DeferredUntilDay = "");
 
 public sealed record LocalApiTaskRowsResponse(
     [property: JsonPropertyName("tasks")] IReadOnlyList<LocalApiTaskRow> Tasks,
@@ -1193,7 +1194,15 @@ public sealed record LocalApiSentReport(
     [property: JsonPropertyName("send_state")] string SendState,
     [property: JsonPropertyName("send_error")] string SendError,
     [property: JsonPropertyName("server_state")] string ServerState,
-    [property: JsonPropertyName("lines")] IReadOnlyList<LocalApiSentReportLine> Lines);
+    [property: JsonPropertyName("lines")] IReadOnlyList<LocalApiSentReportLine> Lines,
+    [property: JsonPropertyName("archived")] bool Archived = false);
+
+// Phase 3 rebuilt — archive or restore a sent report. Local and cosmetic; the client's link is
+// untouched, because a report somebody has read cannot be withdrawn.
+public sealed record LocalApiSentReportArchiveRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("report_id")] string ReportId,
+    [property: JsonPropertyName("archived")] bool Archived);
 
 public sealed record LocalApiSentReportsResponse(
     [property: JsonPropertyName("reports")] IReadOnlyList<LocalApiSentReport> Reports);

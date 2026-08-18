@@ -610,7 +610,9 @@ public sealed record AgentSentReport(
     /// <summary>present | delete_pending. A half-delete stays listed as present (§12.6.5).</summary>
     string ServerState,
     IReadOnlyList<AgentSentReportLine> Lines,
-    IReadOnlyList<AgentReportDay> Days);
+    IReadOnlyList<AgentReportDay> Days,
+    /// <summary>Hidden from this machine's list. The client's link is unaffected.</summary>
+    bool Archived = false);
 
 public sealed record AgentSentReportLine(string LineId, string ClientLabel, bool Finished, double Hours);
 
@@ -708,7 +710,10 @@ public sealed record AgentProjectTaskRow(
 public sealed record AgentTaskRow(
     long TaskId, string Label, string Status, string ProjectName, bool IsUntagged,
     string Dates, double Hours, int ColourSlot, string ResultLine,
-    string LastWorkedDay, string ExpectedFinishDay);
+    string LastWorkedDay, string ExpectedFinishDay,
+    // The day a task was PUT OFF to, from the close-out card's "Tomorrow". Nothing read this, which
+    // is why a postponed task disappeared from every filter instead of appearing under Upcoming.
+    string DeferredUntilDay = "");
 
 // Digest redesign (2026-08-11) — one local hour of the day's shape. Seconds only, never a title:
 // this describes WHEN work happened, not what was open. Focus + Active + Away sum to at most 3600;
