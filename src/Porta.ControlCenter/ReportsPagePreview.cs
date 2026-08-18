@@ -282,9 +282,53 @@ internal static class ReportsPagePreview
 
     // ── the states ──
 
+    /// A project with real work behind it: figures, a progress bar, tasks with their fixed colours,
+    /// one task still missing the line about what came of it.
+    private static readonly LocalApiProject ProjectWithWork = new(
+        Id: 1, Name: "PORTA", Archived: false, CreatedAtUtc: DateTimeOffset.Now.AddDays(-30),
+        ClientName: "PORTA SYSTEM", UseClientLabels: true, RateMinor: 0, RateCurrency: "",
+        Status: "active", StartDay: "2026-08-12", CompletionDay: "",
+        Recipients: ["yadinmpesse@gmail.com"], ReportingFrequency: "week",
+        TotalTasks: 4, DoneTasks: 3, BlockedTasks: 1, InProgressTasks: 1, Hours: 7.7,
+        StatusReason: "Set to active because you worked on it today.",
+        StartDayReason: "Your first recorded work on this project.",
+        RecipientsReason: "Taken from where you last sent. Stays on this machine.",
+        DaysWorked: 4, LastWorkedLabel: "worked on today", LastSentLabel: "Last sent 18 Aug",
+        NextReportDue: "Friday",
+        Tasks:
+        [
+            new(1, "Work on phase 2, the report", "done", "14 – 18 Aug", 2.0, 1,
+                "Report sending works end to end and the page renders at a permanent link."),
+            new(2, "Finish the send button in the control center", "done", "17 Aug", 1.7, 4, ""),
+            new(3, "Work on phase 3, the pages", "in_progress", "from 18 Aug", 1.3, 2,
+                "Navigation restructured and the projects page built."),
+            new(4, "Add the task page", "blocked", "held 1 day", 0.9, 5,
+                "Waiting on the design being agreed.")
+        ]);
+
+    /// A project nobody has worked on yet, and with neither of the two things a report needs.
+    /// This is the state that must NOT read as four zeroes and a row of dashes.
+    private static readonly LocalApiProject ProjectWithNoWork = new(
+        Id: 2, Name: "WRITTING", Archived: false, CreatedAtUtc: DateTimeOffset.Now.AddDays(-3),
+        ClientName: "", UseClientLabels: false, RateMinor: 0, RateCurrency: "",
+        Status: "active", StartDay: "", CompletionDay: "",
+        Recipients: [], ReportingFrequency: "week",
+        TotalTasks: 0, DoneTasks: 0, BlockedTasks: 0, InProgressTasks: 0, Hours: 0,
+        StatusReason: "No recorded work yet.", StartDayReason: "", RecipientsReason: "",
+        DaysWorked: 0, LastWorkedLabel: "no work recorded yet", LastSentLabel: "",
+        NextReportDue: "", Tasks: []);
+
     private static IReadOnlyList<PreviewState> BuildStates() =>
     [
-        new("projects with rows", "Projects", w => w.PreviewFillProjects(SampleProjects)),
+        // Phase 3 rebuilt — the two states that matter on this page, and the drawer open on each.
+        // "no work" is here because a project nobody has touched is the state the page got wrong
+        // three builds running: four zeroes and a row of dashes instead of one useful sentence.
+        new("projects with work", "Projects", w => w.PreviewFillProjects([ProjectWithWork]), Height: 1500),
+        new("projects with work drawer open", "Projects",
+            w => w.PreviewFillProjectsWithDrawer([ProjectWithWork]), Height: 1900),
+        new("projects no work", "Projects", w => w.PreviewFillProjects([ProjectWithNoWork]), Height: 1100),
+        new("projects no work drawer open", "Projects",
+            w => w.PreviewFillProjectsWithDrawer([ProjectWithNoWork]), Height: 1700),
         new("projects empty", "Projects", w => w.PreviewFillProjects([])),
         new("reports drafted", "Reports", w => w.PreviewFillReport(SampleDraft), Height: 1560),
         new("reports empty", "Reports", w => w.PreviewFillReport(EmptyDraft), Height: 1080),

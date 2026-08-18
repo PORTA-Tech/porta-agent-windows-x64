@@ -27,8 +27,23 @@ public partial class MainWindow
     /// </summary>
     internal void ShowPreviewPage(string settingsSection, Action<MainWindow> fill)
     {
-        ShowSection(UiSection.Settings);
-        ShowSettingsSection(settingsSection);
+        // Phase 3 rebuilt — Projects and Tasks are MAIN pages now, not settings sections. Routing
+        // them through Settings is why every projects render came out byte-identical and every
+        // page shot came out blank: the panel being photographed was never made visible.
+        switch (settingsSection)
+        {
+            case "Projects":
+                ShowSection(UiSection.Projects);
+                break;
+            case "Tasks":
+                ShowSection(UiSection.Tasks);
+                break;
+            default:
+                ShowSection(UiSection.Settings);
+                ShowSettingsSection(settingsSection);
+                break;
+        }
+
         fill(this);
         UpdateLayout();
     }
@@ -39,7 +54,12 @@ public partial class MainWindow
     /// window is asked to be.
     /// </summary>
     internal FrameworkElement PreviewPageBody(string settingsSection)
-        => settingsSection == "Projects" ? ProjectsPanel : ReportsPanel;
+        => settingsSection switch
+        {
+            "Projects" => ProjectsPageHost,
+            "Tasks" => TasksPageHost,
+            _ => ReportsPanel
+        };
 
     /// <summary>
     /// Open the "from" date picker's calendar and put it in a given mode, so the popup can be
@@ -206,6 +226,17 @@ public partial class MainWindow
 
     internal void PreviewFillProjects(IReadOnlyList<LocalApiProject> projects)
         => RenderProjectsPage(projects);
+
+    /// <summary>The same page with every drawer open, so the form itself can be looked at.</summary>
+    internal void PreviewFillProjectsWithDrawer(IReadOnlyList<LocalApiProject> projects)
+    {
+        foreach (LocalApiProject p in projects)
+        {
+            _openProjectDrawers.Add(p.Id);
+        }
+
+        RenderProjectsPage(projects);
+    }
 
     internal void PreviewFillReport(LocalApiReportDraft draft)
     {

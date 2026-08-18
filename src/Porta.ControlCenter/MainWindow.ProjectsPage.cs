@@ -26,7 +26,7 @@ public partial class MainWindow
 
     private static readonly (string Key, string Label)[] StatusOptions =
     {
-        ("active", "Active"), ("paused", "Paused"), ("complete", "Complete")
+        ("active", "Active"), ("paused", "Paused"), ("complete", "Finished")
     };
 
     private static readonly (string Key, string Label)[] FrequencyOptions =
@@ -136,20 +136,31 @@ public partial class MainWindow
         body.Children.Add(PageKit.Text(
             StatusLabel(p.Status), 12.5, StatusInk(p.Status), margin: new Thickness(0, 14, 0, 0)));
 
-        // ── The four figures.
-        var figures = new WrapPanel { Margin = new Thickness(0, 18, 0, 0) };
-        figures.Children.Add(PageKit.Figure($"{p.DoneTasks} / {p.TotalTasks}", "tasks complete"));
-        figures.Children.Add(PageKit.Figure(
-            p.Hours > 0 ? $"{p.Hours:0.#}h" : "—",
-            p.DaysWorked == 1 ? "over 1 day" : $"over {p.DaysWorked} days"));
-        figures.Children.Add(PageKit.Figure(
-            p.BlockedTasks > 0 ? p.BlockedTasks.ToString() : "—", "blocked",
-            p.BlockedTasks > 0 ? PageKit.Stop : (System.Windows.Media.Color?)null));
-        figures.Children.Add(PageKit.Figure(
-            p.NextReportDue.Length > 0 ? p.NextReportDue : "—", "next report"));
-        body.Children.Add(figures);
-
-        body.Children.Add(PageKit.ProgressBar(p.DoneTasks, p.TotalTasks));
+        // ── Behaviour 1. A project nobody has worked on yet must not answer with "0 / 0 tasks
+        // complete · over 0 days" and a row of dashes. Four zeroes and four dashes read as a
+        // broken page, not as an empty one, and they tell the user nothing about what to do.
+        if (p.TotalTasks == 0 && p.Hours <= 0)
+        {
+            body.Children.Add(PageKit.Text(
+                $"No work recorded on this project yet. Start a task, tag it to {p.Name}, and it "
+                + "will appear here.",
+                13, PageKit.Ink2, margin: new Thickness(0, 18, 0, 0), wrap: true));
+        }
+        else
+        {
+            var figures = new WrapPanel { Margin = new Thickness(0, 18, 0, 0) };
+            figures.Children.Add(PageKit.Figure($"{p.DoneTasks} / {p.TotalTasks}", "tasks complete"));
+            figures.Children.Add(PageKit.Figure(
+                p.Hours > 0 ? $"{p.Hours:0.#}h" : "—",
+                p.DaysWorked == 1 ? "over 1 day" : $"over {p.DaysWorked} days"));
+            figures.Children.Add(PageKit.Figure(
+                p.BlockedTasks > 0 ? p.BlockedTasks.ToString() : "—", "blocked",
+                p.BlockedTasks > 0 ? PageKit.Stop : (System.Windows.Media.Color?)null));
+            figures.Children.Add(PageKit.Figure(
+                p.NextReportDue.Length > 0 ? p.NextReportDue : "—", "next report"));
+            body.Children.Add(figures);
+            body.Children.Add(PageKit.ProgressBar(p.DoneTasks, p.TotalTasks));
+        }
 
         // ── One quiet line of facts, and the way into the form.
         var facts = new WrapPanel { Margin = new Thickness(0, 16, 0, 0) };
@@ -187,7 +198,17 @@ public partial class MainWindow
         // ── The actions.
         stack.Children.Add(PageKit.Hair());
         var actions = new WrapPanel { Margin = new Thickness(26, 16, 26, 18) };
-        actions.Children.Add(PageKit.PrimaryButton("Build a report", () => ShowSection(UiSection.Reports)));
+        bool canReport = p.ClientName.Trim().Length > 0 && (p.Recipients?.Count ?? 0) > 0;
+        Button build = PageKit.PrimaryButton("Build a report", () => ShowSection(UiSection.Reports));
+        if (!canReport)
+        {
+            // Disabled rather than hidden: a missing button is a mystery, a disabled one with a
+            // reason under it is an instruction.
+            build.IsEnabled = false;
+            build.Opacity = 0.4;
+        }
+
+        actions.Children.Add(build);
         actions.Children.Add(PageKit.GhostButton("Archive", () => _ = SetProjectArchivedAsync(p.Id, true)));
         if (p.LastSentLabel.Length > 0)
         {
@@ -197,6 +218,14 @@ public partial class MainWindow
         }
 
         stack.Children.Add(actions);
+
+        if (!canReport)
+        {
+            stack.Children.Add(PageKit.Text(
+                "Add the name your client sees and an address to send to.",
+                12.5, PageKit.Ink3, margin: new Thickness(26, 0, 26, 18), wrap: true));
+        }
+
         return PageKit.Card(stack);
     }
 
@@ -217,77 +246,101 @@ public partial class MainWindow
         }
     }
 
+    /// <summary>
+    /// Every label is a plain question in sentence case, and the explanation sits ABOVE the input.
+    /// No field is presented without saying what it is for before the user reaches it — reading a
+    /// hint underneath, after you have already typed, is reading it too late.
+    ///
+    /// The first two fields come first because they are the only two that block a report.
+    /// </summary>
     private UIElement BuildProjectDrawer(LocalApiProject p)
     {
-        var drawer = new StackPanel { Margin = new Thickness(0, 20, 0, 0) };
+        var drawer = new StackPanel { Margin = new Thickness(0, 22, 0, 0) };
 
-        // ── ASKED. Only the user can say this, so its hint is amber when it is still missing.
-        drawer.Children.Add(PageKit.FieldLabel("Name the client sees"));
-        drawer.Children.Add(EditBox(p.ClientName, "The name at the top of a report",
+        // 1 — the one thing that makes a report possible at all.
+        drawer.Children.Add(Field(
+            "What should your client call this project?",
+            $"This is the title on the report they receive. Your own name for it, {p.Name}, stays on "
+            + "this machine and they never see it.",
+            // NEVER prefilled from the local name. Prefilling it with the private name is exactly
+            // the leak this field exists to prevent, and it defeats the whole purpose of asking.
+            p.ClientName,
+            "e.g. Website redesign",
             v => _ = SetProjectClientNameAsync(p.Id, v)));
-        drawer.Children.Add(PageKit.Hint("Only you can say this. Ari never invents it.",
-            asked: p.ClientName.Trim().Length == 0));
 
-        // ── DERIVED. Overriding one stops Ari deriving it, permanently.
-        drawer.Children.Add(Spacer());
-        drawer.Children.Add(PageKit.FieldLabel("Status"));
-        drawer.Children.Add(PageKit.Segmented(StatusOptions, p.Status,
-            key => _ = SetProjectEngagementAsync(p.Id, status: key)));
-        if (p.StatusReason.Length > 0)
-        {
-            drawer.Children.Add(PageKit.Hint(p.StatusReason, asked: false));
-        }
+        // 2 — the other blocker.
+        drawer.Children.Add(Field(
+            "Who should receive the report?",
+            "Your client's email address. Their reply comes straight back to you, not to Ari.",
+            string.Join(", ", p.Recipients ?? new List<string>()),
+            "name@theircompany.com",
+            v => _ = SetProjectEngagementAsync(p.Id, recipients: SplitAddresses(v))));
 
-        drawer.Children.Add(Spacer());
-        var dates = new Grid();
-        dates.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        dates.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var startCell = new StackPanel { Margin = new Thickness(0, 0, 13, 0) };
-        startCell.Children.Add(PageKit.FieldLabel("Started"));
-        startCell.Children.Add(EditBox(p.StartDay, "yyyy-mm-dd",
-            v => _ = SetProjectEngagementAsync(p.Id, startDay: v)));
-        startCell.Children.Add(PageKit.Hint(
-            p.StartDayReason.Length > 0 ? p.StartDayReason : "Your first recorded work on this project.",
-            asked: false));
-        Grid.SetColumn(startCell, 0);
-        dates.Children.Add(startCell);
-
-        var endCell = new StackPanel();
-        endCell.Children.Add(PageKit.FieldLabel("Completed"));
-        endCell.Children.Add(EditBox(p.CompletionDay, "yyyy-mm-dd",
-            v => _ = SetProjectEngagementAsync(p.Id, completionDay: v)));
-        // ASKED: a completion date is a claim, and Ari must never make it.
-        endCell.Children.Add(PageKit.Hint("Only you can say a project is done.", asked: true));
-        Grid.SetColumn(endCell, 1);
-        dates.Children.Add(endCell);
-        drawer.Children.Add(dates);
-
-        drawer.Children.Add(Spacer());
-        drawer.Children.Add(PageKit.FieldLabel("Report every"));
+        // 3
+        drawer.Children.Add(Question("How often should Ari write a report for this?",
+            "Ari writes the draft and tells you it's ready. It never sends it. You do."));
         drawer.Children.Add(PageKit.Segmented(FrequencyOptions, p.ReportingFrequency,
             key => _ = SetProjectEngagementAsync(p.Id, reportingFrequency: key)));
+        drawer.Children.Add(Gap());
 
-        drawer.Children.Add(Spacer());
-        drawer.Children.Add(PageKit.FieldLabel("Report goes to"));
-        drawer.Children.Add(EditBox(string.Join(", ", p.Recipients ?? new List<string>()),
-            "nobody yet",
-            v => _ = SetProjectEngagementAsync(p.Id, recipients: SplitAddresses(v))));
-        drawer.Children.Add(PageKit.Hint(
-            p.RecipientsReason.Length > 0 ? p.RecipientsReason : "Stays on this machine.",
-            asked: false));
+        // 4
+        drawer.Children.Add(Question("Is this project running?",
+            "Ari sets this from your recent work. Change it if it's wrong."));
+        drawer.Children.Add(PageKit.Segmented(StatusOptions, p.Status,
+            key => _ = SetProjectEngagementAsync(p.Id, status: key)));
+        drawer.Children.Add(Gap());
+
+        // 5
+        drawer.Children.Add(Field(
+            "When did work on this begin?",
+            "Filled in from your first recorded work. Change it if the project really started earlier.",
+            p.StartDay,
+            "no work recorded yet",
+            v => _ = SetProjectEngagementAsync(p.Id, startDay: v)));
+
+        // 6 — asked, never decided.
+        drawer.Children.Add(Field(
+            "Has it finished?",
+            "Leave this empty while the project is still running. Ari never decides this for you.",
+            p.CompletionDay,
+            "still running",
+            v => _ = SetProjectEngagementAsync(p.Id, completionDay: v)));
 
         return drawer;
     }
+
+    /// <summary>A plain question and the sentence that explains it, both above the input.</summary>
+    private static UIElement Question(string question, string help)
+    {
+        var s = new StackPanel { Margin = new Thickness(0, 0, 0, 9) };
+        s.Children.Add(PageKit.Text(question, 13.5, PageKit.Ink, FontWeights.Medium, wrap: true));
+        s.Children.Add(PageKit.Text(help, 12.5, PageKit.Ink2,
+            margin: new Thickness(0, 5, 0, 0), wrap: true));
+        return s;
+    }
+
+    private UIElement Field(string question, string help, string value, string placeholder,
+                            System.Action<string> onCommit)
+    {
+        var s = new StackPanel { Margin = new Thickness(0, 0, 0, 22) };
+        s.Children.Add(Question(question, help));
+        s.Children.Add(PlaceholderBox(value, placeholder, onCommit));
+        return s;
+    }
+
+    private static UIElement Gap() => new Border { Height = 22 };
 
     private UIElement BuildProjectTaskRow(LocalApiProjectTask t)
     {
         var grid = new Grid { Margin = PageKit.RowPad };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+        // The fixed columns are sized so the LAST one still lands inside the card. Hours were
+        // dropping off the right edge entirely, which silently removed the one number on the row
+        // that says how much work it was.
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(104) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
 
         UIElement swatch = PageKit.Swatch(t.ColourSlot);
         Grid.SetColumn(swatch, 0);
@@ -354,7 +407,7 @@ public partial class MainWindow
     private static string StatusLabel(string status) => status switch
     {
         "paused" => "Paused",
-        "complete" => "Complete",
+        "complete" => "Finished",
         _ => "Active"
     };
 
@@ -383,6 +436,27 @@ public partial class MainWindow
             : day;
 
     private static UIElement Spacer() => new Border { Height = 18 };
+
+    /// <summary>
+    /// A field with a real placeholder. The placeholder says what an EMPTY field means — "still
+    /// running", "no work recorded yet" — so an empty box is an answer rather than a gap.
+    /// </summary>
+    private UIElement PlaceholderBox(string value, string placeholder, System.Action<string> onCommit)
+    {
+        TextBox box = EditBox(value, placeholder, onCommit);
+        TextBlock ghost = PageKit.Text(placeholder, 13, PageKit.Ink3);
+        ghost.Margin = new Thickness(12, 0, 0, 0);
+        ghost.IsHitTestVisible = false;
+        ghost.VerticalAlignment = VerticalAlignment.Center;
+        ghost.Visibility = value.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        box.TextChanged += (_, _) =>
+            ghost.Visibility = box.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var grid = new Grid();
+        grid.Children.Add(box);
+        grid.Children.Add(ghost);
+        return grid;
+    }
 
     /// <summary>A field that writes on Enter or on losing focus, and only when it actually changed.</summary>
     private TextBox EditBox(string value, string placeholder, System.Action<string> onCommit)
