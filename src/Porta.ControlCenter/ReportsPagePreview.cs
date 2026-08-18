@@ -340,6 +340,17 @@ internal static class ReportsPagePreview
         new(4, "Finish the send button", "done", "PORTA", false, "17 Aug", 1.7, 4, "", "2026-08-17", "", "")
     ];
 
+    /// Yadin's actual situation on 18 Aug: his real project archived and invisible, beside the
+    /// replacement he had to make because he could not get the first one back.
+    private static readonly LocalApiProject ArchivedRealProject = new(
+        Id: 1, Name: "PORTA", Archived: true, CreatedAtUtc: DateTimeOffset.Now.AddDays(-30),
+        ClientName: "PORTA SYSTEM", UseClientLabels: true, RateMinor: 0, RateCurrency: "",
+        Status: "active", StartDay: "2026-08-12", CompletionDay: "",
+        Recipients: [], ReportingFrequency: "week",
+        TotalTasks: 6, DoneTasks: 5, BlockedTasks: 0, InProgressTasks: 1, Hours: 7.7,
+        StatusReason: "", StartDayReason: "", RecipientsReason: "",
+        DaysWorked: 4, LastWorkedLabel: "", LastSentLabel: "", NextReportDue: "", Tasks: []);
+
     private static IReadOnlyList<PreviewState> BuildStates() =>
     [
         // Phase 3 rebuilt — the two states that matter on this page, and the drawer open on each.
@@ -351,6 +362,8 @@ internal static class ReportsPagePreview
         new("step2 builder from build-a-report", "Reports",
             w => Console.WriteLine("     WALK: " + w.PreviewWalkBuildAReport([ProjectWithWork], SampleDraft)),
             Height: 1560),
+        new("projects archived recoverable", "Projects",
+            w => w.PreviewFillProjects([ProjectWithWork, ArchivedRealProject]), Height: 1500),
         new("projects with work", "Projects", w => w.PreviewFillProjects([ProjectWithWork]), Height: 1500),
         new("projects with work drawer open", "Projects",
             w => w.PreviewFillProjectsWithDrawer([ProjectWithWork]), Height: 1900),

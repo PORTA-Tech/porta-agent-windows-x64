@@ -27,6 +27,12 @@ public partial class MainWindow
     /// <summary>Shown under the drawer when something the user typed could not be read.</summary>
     private string _projectFieldNotice = string.Empty;
 
+    /// <summary>True while the "what do you call it" box is open.</summary>
+    private bool _addingProject;
+
+    /// <summary>Archive asks once. It is one click beside the primary action.</summary>
+    private long _confirmingArchiveFor;
+
     private static readonly (string Key, string Label)[] StatusOptions =
     {
         ("active", "Active"), ("paused", "Paused"), ("complete", "Finished")
@@ -42,7 +48,9 @@ public partial class MainWindow
         try
         {
             LocalApiProjectsResponse? response = await _apiClient
-                .GetProjectsAsync(includeArchived: false)
+                // Archived projects are LISTED, not hidden. Loading only the active ones made one
+                // click on Archive permanently remove a project from the app with no way back.
+                .GetProjectsAsync(includeArchived: true)
                 .ConfigureAwait(true);
 
             RenderProjectsPage(response?.Projects ?? System.Array.Empty<LocalApiProject>());
@@ -71,11 +79,25 @@ public partial class MainWindow
         Grid.SetColumn(titles, 0);
         header.Children.Add(titles);
 
-        Button add = PageKit.GhostButton("New project", () => _ = CreateProjectFromPageAsync());
+        Button add = PageKit.GhostButton(
+            _addingProject ? "Cancel" : "New project",
+            () => { _addingProject = !_addingProject; _ = RefreshProjectsAsync(); });
         add.VerticalAlignment = VerticalAlignment.Top;
         Grid.SetColumn(add, 1);
         header.Children.Add(add);
         ProjectsPageHost.Children.Add(header);
+
+        // Creating one used to make a project called "New project" with no way to rename it, so
+        // every project was stuck with that name forever. It asks now.
+        if (_addingProject)
+        {
+            var box = new StackPanel { Margin = PageKit.CardPad };
+            box.Children.Add(Question(
+                "What do you call this project?",
+                "Your own name, for you. Your client never sees it — you give them a title separately."));
+            box.Children.Add(PlaceholderBox(string.Empty, "e.g. PORTA", v => _ = CreateProjectFromPageAsync(v)));
+            ProjectsPageHost.Children.Add(PageKit.Card(box));
+        }
 
         if (projects is null)
         {
@@ -106,6 +128,11 @@ public partial class MainWindow
 
     private UIElement BuildProjectCard(LocalApiProject p)
     {
+        if (p.Archived)
+        {
+            return BuildArchivedRow(p);
+        }
+
         var stack = new StackPanel();
         bool missingClientName = p.ClientName.Trim().Length == 0;
 
@@ -223,7 +250,29 @@ public partial class MainWindow
         }
 
         actions.Children.Add(build);
-        actions.Children.Add(PageKit.GhostButton("Archive", () => _ = SetProjectArchivedAsync(p.Id, true)));
+        if (_confirmingArchiveFor == p.Id)
+        {
+            actions.Children.Add(PageKit.GhostButton("Yes, archive it", () =>
+            {
+                _confirmingArchiveFor = 0;
+                _ = SetProjectArchivedAsync(p.Id, true);
+            }));
+            actions.Children.Add(PageKit.GhostButton("Keep it", () =>
+            {
+                _confirmingArchiveFor = 0;
+                _ = RefreshProjectsAsync();
+            }));
+        }
+        else
+        {
+            // It sits one click from the primary action, and it used to take a project out of the
+            // app with nothing asking and nothing to undo it.
+            actions.Children.Add(PageKit.GhostButton("Archive", () =>
+            {
+                _confirmingArchiveFor = p.Id;
+                _ = RefreshProjectsAsync();
+            }));
+        }
         if (p.LastSentLabel.Length > 0)
         {
             var last = PageKit.Text(p.LastSentLabel, 11.5, PageKit.Ink3);
@@ -241,6 +290,33 @@ public partial class MainWindow
         }
 
         return PageKit.Card(stack);
+    }
+
+    /// <summary>
+    /// An archived project, still visible and one click from coming back. It keeps its tasks and
+    /// its hours the whole time — archiving only ever hid it.
+    /// </summary>
+    private UIElement BuildArchivedRow(LocalApiProject p)
+    {
+        var grid = new Grid { Margin = PageKit.CardPad };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var left = new StackPanel();
+        left.Children.Add(PageKit.Text(
+            p.ClientName.Trim().Length > 0 ? p.ClientName : p.Name, 15, PageKit.Ink2, FontWeights.Medium));
+        left.Children.Add(PageKit.Text(
+            $"Archived · {p.Name} · {p.TotalTasks} {(p.TotalTasks == 1 ? "task" : "tasks")} kept",
+            12.5, PageKit.Ink3, margin: new Thickness(0, 4, 0, 0)));
+        Grid.SetColumn(left, 0);
+        grid.Children.Add(left);
+
+        Button restore = PageKit.GhostButton("Restore", () => _ = SetProjectArchivedAsync(p.Id, false));
+        restore.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(restore, 1);
+        grid.Children.Add(restore);
+
+        return PageKit.Card(grid);
     }
 
     private static IEnumerable<string> ProjectFacts(LocalApiProject p)
@@ -270,6 +346,15 @@ public partial class MainWindow
     private UIElement BuildProjectDrawer(LocalApiProject p)
     {
         var drawer = new StackPanel { Margin = new Thickness(0, 22, 0, 0) };
+
+        // 0 — your own name for it. Not in the original six because it was assumed to exist
+        // already; a project created from this page had no way to be renamed at all without it.
+        drawer.Children.Add(Field(
+            "What do you call this project?",
+            "Your own name, for you. Your client never sees it.",
+            p.Name,
+            "e.g. PORTA",
+            v => _ = RenameProjectAsync(p.Id, v)));
 
         // 1 — the one thing that makes a report possible at all.
         drawer.Children.Add(Field(
@@ -514,16 +599,49 @@ public partial class MainWindow
         return box;
     }
 
-    private async Task CreateProjectFromPageAsync()
+    private async Task CreateProjectFromPageAsync(string name)
     {
+        string clean = name.Trim();
+        if (clean.Length == 0)
+        {
+            return;
+        }
+
         LocalApiProjectResponse? response = await _apiClient
-            .CreateProjectAsync(new LocalApiProjectCreateRequest(SchemaVer: 1, Name: "New project"))
+            .CreateProjectAsync(new LocalApiProjectCreateRequest(SchemaVer: 1, Name: clean))
             .ConfigureAwait(true);
+
+        _addingProject = false;
 
         if (response is { Success: true, Project: not null })
         {
+            // Naming one that already exists — including an archived one — brings that project
+            // back rather than making a second with the same name, which is what the store does.
             _openProjectDrawers.Add(response.Project.Id);
         }
+        else
+        {
+            _projectFieldNotice = $"Couldn't create “{clean}”.";
+        }
+
+        await RefreshProjectsAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Renames the LOCAL name — the small line under the headline. Without this a project created
+    /// from this page could never be renamed, so it kept whatever it was called forever.
+    /// </summary>
+    private async Task RenameProjectAsync(long id, string name)
+    {
+        if (name.Trim().Length == 0)
+        {
+            return;
+        }
+
+        await _apiClient
+            .UpdateProjectAsync(new LocalApiProjectUpdateRequest(
+                SchemaVer: 1, Id: id, Name: name.Trim(), Archived: null))
+            .ConfigureAwait(true);
 
         await RefreshProjectsAsync().ConfigureAwait(true);
     }
