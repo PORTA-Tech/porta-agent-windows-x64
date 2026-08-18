@@ -100,6 +100,43 @@ internal sealed class ReportGateway : IReportGateway
             Resolved: linked);
     }
 
+    /// <summary>
+    /// Phase 1.4 — the summary draft. Fail-soft in every direction: an unreachable server, a
+    /// refusal, a missing key and a malformed reply all return null, and the caller builds the
+    /// draft with an empty summary and says so. This must never be able to block a send.
+    /// </summary>
+    public async Task<string?> DraftSummaryAsync(string factsJson, CancellationToken token)
+    {
+        try
+        {
+            if (!_client.IsEnabled || string.IsNullOrWhiteSpace(factsJson))
+            {
+                return null;
+            }
+
+            object? payload = JsonSerializer.Deserialize<object>(factsJson, JsonOptions);
+            if (payload is null)
+            {
+                return null;
+            }
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            cts.CancelAfter(CallBudget);
+
+            ReportSummaryResult? result = await _client
+                .PostReportSummaryAsync(payload, cts.Token)
+                .ConfigureAwait(false);
+
+            return result is { Success: true } && !string.IsNullOrWhiteSpace(result.Summary)
+                ? result.Summary!.Trim()
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<ReportGatewayPreview> PreviewAsync(string reportJson, CancellationToken token)
     {
         try
@@ -179,7 +216,7 @@ internal sealed class ReportGateway : IReportGateway
 
             if (result.Success)
             {
-                return new ReportGatewayOutcome(true, false, result.SentAtUtc, null);
+                return new ReportGatewayOutcome(true, false, result.SentAtUtc, null, result.ReportUrl);
             }
 
             // The server answered and declined. "already_sent" is its idempotency guard speaking:

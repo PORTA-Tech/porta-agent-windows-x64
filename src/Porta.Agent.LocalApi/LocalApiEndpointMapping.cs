@@ -543,6 +543,61 @@ public static class LocalApiEndpointMapping
             Results.Json(new LocalApiSentReportsResponse(
                 controller.GetSentReports().Select(ToApiSentReport).ToList())));
 
+        // Phase 1.4 / 2b — ask Ari for the summary paragraph.
+        //
+        // ONLY the approved facts leave: the client-facing project name and, per included line, the
+        // client-facing label, status, hours and the user's own result. Built here, field by field,
+        // so nothing else can ride along — the same enforcement shape as the send payload.
+        //
+        // FAIL-SOFT BY CONSTRUCTION. Every failure path returns success:false with a reason and the
+        // draft is built with an empty summary; nothing here can block a send.
+        api.MapPost("/reports/summary", async (
+            IAgentCoreController controller,
+            [FromServices] IReportGateway gateway,
+            LocalApiReportSummaryRequest? request,
+            CancellationToken token) =>
+        {
+            if (request is null || request.SchemaVer != 1 || request.ProjectId <= 0)
+            {
+                return Results.BadRequest(new LocalApiReportSummaryResponse(false, null, "invalid_payload_or_schema"));
+            }
+
+            AgentReportDraft draft = controller.GetReportDraft(request.ProjectId, request.From, request.To);
+            IReadOnlyCollection<long> excluded = request.ExcludedTaskIds ?? [];
+
+            var facts = new
+            {
+                accountId = string.Empty,
+                projectName = draft.ClientName,
+                rangeStartLocal = draft.RangeStartLocal,
+                rangeEndLocal = draft.RangeEndLocal,
+                tasks = draft.Lines
+                    .Where(l => !excluded.Contains(l.TaskId) && l.ClientLabel.Length > 0)
+                    .Select(l => new
+                    {
+                        clientLabel = l.ClientLabel,
+                        status = l.Status,
+                        hours = l.Hours,
+                        result = l.ResultLine,
+                        blockedReason = l.BlockedReason
+                    })
+                    .ToList()
+            };
+
+            if (facts.tasks.Count == 0)
+            {
+                return Results.Json(new LocalApiReportSummaryResponse(false, null, "nothing_to_summarise"));
+            }
+
+            string? summary = await gateway
+                .DraftSummaryAsync(JsonSerializer.Serialize(facts), token)
+                .ConfigureAwait(false);
+
+            return summary is null
+                ? Results.Json(new LocalApiReportSummaryResponse(false, null, "draft_unavailable"))
+                : Results.Json(new LocalApiReportSummaryResponse(true, summary, null));
+        });
+
         api.MapPost("/reports/preview", async (
             IAgentCoreController controller,
             [FromServices] IReportGateway gateway,
@@ -643,7 +698,7 @@ public static class LocalApiEndpointMapping
 
             return Results.Json(new LocalApiReportSendResponse(
                 Success: true, ReportId: assembly.ReportId!, Refusals: [],
-                Reason: null, SentAtUtc: outcome.SentAtUtc));
+                Reason: null, SentAtUtc: outcome.SentAtUtc, ReportUrl: outcome.ReportUrl));
         });
 
         // DELETE ON BOTH SIDES. The server half runs FIRST and the local half only if it succeeded,
@@ -1499,7 +1554,8 @@ public static class LocalApiEndpointMapping
             Lines: draft.Lines
                 .Select(l => new LocalApiReportLine(
                     l.TaskId, l.Title, l.ClientLabel, l.Finished, l.Hours,
-                    l.UnattributedHours, l.UnattributedMeasurable))
+                    l.UnattributedHours, l.UnattributedMeasurable,
+                    l.Status, l.Dates, l.ResultLine, l.BlockedReason, l.ExpectedFinishDay, l.ColourSlot))
                 .ToList(),
             Days: draft.Days
                 .Select(d => new LocalApiReportDay(d.DateLocal, d.Hours))
@@ -1587,15 +1643,44 @@ public static class LocalApiEndpointMapping
             daysWorked = draft.DaysWorked,
             tasksCompleted = included.Count(l => l.Finished),
             tasksTotal = included.Count,
+            // ── The approved field list, and nothing outside it (Yadin, 2026-08-17) ──────────
+            // Raw titles are absent, as they have always been. plannedSeconds, focus, pressure,
+            // distraction, app names and per-app seconds are absent and must stay absent.
             lines = lines.Select(x => new
             {
                 lineId = x.Id,
                 clientLabel = x.Line.ClientLabel,
                 finished = x.Line.Finished,
-                hours = x.Line.Hours
+                hours = x.Line.Hours,
+                status = x.Line.Status,
+                dates = x.Line.Dates,
+                result = x.Line.ResultLine,
+                blockedReason = x.Line.BlockedReason,
+                // CONDITION 1: whatever the user typed, or empty. Never inferred here or anywhere.
+                expectedFinish = x.Line.ExpectedFinishDay,
+                colourSlot = x.Line.ColourSlot
             }).ToList(),
+            // The user's approved paragraph. Empty when Ari could not draft one and the user wrote
+            // nothing — the page omits the section rather than apologising for it.
+            summary = (request.Summary ?? string.Empty).Trim(),
             // Days with 0.0 are KEPT — §4 requires gaps to be drawable.
-            daily = draft.Days.Select(d => new { dateLocal = d.DateLocal, hours = d.Hours }).ToList()
+            // Days with 0.0 are KEPT (§4): a gap the payload does not carry cannot be drawn.
+            // `segments` is the per-task split from task_day_hours — the whole reason phase 0.1
+            // started recording. lineId matches the lines above so the page can colour each slice;
+            // a day recorded before 0.1 shipped has a total and no segments, and renders plain.
+            daily = draft.Days.Select(d => new
+            {
+                dateLocal = d.DateLocal,
+                hours = d.Hours,
+                segments = (d.Segments ?? Array.Empty<AgentReportDaySegment>())
+                    .Select(s => new
+                    {
+                        lineId = lines.FirstOrDefault(x => x.Line.TaskId == s.TaskId)?.Id ?? string.Empty,
+                        hours = s.Hours
+                    })
+                    .Where(s => s.lineId.Length > 0)
+                    .ToList()
+            }).ToList()
         };
 
         var record = new AgentSentReport(

@@ -238,6 +238,30 @@ internal sealed class ControlPlaneClient : IDisposable
         }
     }
 
+    /// <summary>Phase 1.4 — ask the server to draft the summary. Fail-soft; null = no draft.</summary>
+    public async Task<ReportSummaryResult?> PostReportSummaryAsync(object payload, CancellationToken token)
+    {
+        if (_httpClient is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using HttpResponseMessage response = await _httpClient
+                .PostAsJsonAsync("api/reports/summary", payload, JsonOptions, token)
+                .ConfigureAwait(false);
+
+            return response.IsSuccessStatusCode
+                ? await response.Content.ReadFromJsonAsync<ReportSummaryResult>(JsonOptions, token).ConfigureAwait(false)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<ReportPreviewResult?> PostReportPreviewAsync(
         ReportSendPayload payload,
         CancellationToken token)

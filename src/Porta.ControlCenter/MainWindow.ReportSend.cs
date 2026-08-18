@@ -28,6 +28,7 @@ public partial class MainWindow
     private bool _confirmPreviewed;
     private bool _confirmSending;
     private string _previewFilePath = string.Empty;
+    private string _sentReportUrl = string.Empty;
 
     /// <summary>
     /// Load the address book into the picker. Local only — this list never leaves the machine
@@ -214,7 +215,32 @@ public partial class MainWindow
             FromName: ConfirmFromNameBox.Text.Trim(),
             ReplyTo: ConfirmReplyToBox.Text.Trim(),
             ExcludedTaskIds: _excludedLines.ToList(),
-            Previewed: _confirmPreviewed);
+            Previewed: _confirmPreviewed,
+            // Whatever the user left in the box. Ari drafted it; the user owns it.
+            Summary: ReportSummaryBox.Text.Trim());
+
+    /// <summary>
+    /// Phase 2b — copy the permanent link. The clipboard is the whole point: the user sends it
+    /// wherever they like, and the report needs no email at all.
+    /// </summary>
+    private void ReportCopyLinkButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_sentReportUrl.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(_sentReportUrl);
+            ReportStatusText.Text = "Link copied. Anyone with it can open the report.";
+        }
+        catch
+        {
+            // The clipboard can be held by another process. The link is on screen either way.
+            ReportStatusText.Text = "Couldn't reach the clipboard — the link is shown above.";
+        }
+    }
 
     private void ConfirmCancelButton_Click(object sender, RoutedEventArgs e)
     {
@@ -340,6 +366,15 @@ public partial class MainWindow
             ReportStatusText.Text =
                 $"Sent to {_confirmRecipientEmail}. A record is kept on this machine, and the report " +
                 "can be deleted from both sides later.";
+
+            // Phase 2b — the permanent link, offered for copying so a user can send it through
+            // WhatsApp or Slack without an email at all.
+            _sentReportUrl = response.ReportUrl ?? string.Empty;
+            if (_sentReportUrl.Length > 0)
+            {
+                ReportLinkText.Text = _sentReportUrl;
+                ReportLinkRow.Visibility = Visibility.Visible;
+            }
 
             // Remember the client so the address is never retyped.
             _ = _apiClient.SaveRecipientAsync(_confirmRecipientName, _confirmRecipientEmail);

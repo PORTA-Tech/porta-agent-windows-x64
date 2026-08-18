@@ -1031,7 +1031,15 @@ public sealed record LocalApiReportLine(
     // Read unattributed_measurable FIRST: when it is false this is 0 meaning "not known", never
     // "measured as zero". The gap is a property of the task's whole life, not of this range.
     [property: JsonPropertyName("unattributed_hours")] double UnattributedHours,
-    [property: JsonPropertyName("unattributed_measurable")] bool UnattributedMeasurable);
+    [property: JsonPropertyName("unattributed_measurable")] bool UnattributedMeasurable,
+    // Phase 2b — the fields the draft screen has to SHOW before send (condition 2) and the payload
+    // has to carry. Local DTO: this crosses localhost only.
+    [property: JsonPropertyName("status")] string Status = "planned",
+    [property: JsonPropertyName("dates")] string Dates = "",
+    [property: JsonPropertyName("result_line")] string ResultLine = "",
+    [property: JsonPropertyName("blocked_reason")] string BlockedReason = "",
+    [property: JsonPropertyName("expected_finish_day")] string ExpectedFinishDay = "",
+    [property: JsonPropertyName("colour_slot")] int ColourSlot = 0);
 
 // Step 10 phase C/D — the address book. LOCAL ONLY: these travel over localhost and never leave the
 // machine. Only the one address on the report being sent is ever uploaded.
@@ -1070,7 +1078,24 @@ public sealed record LocalApiReportSendRequest(
     [property: JsonPropertyName("reply_to")] string? ReplyTo,
     [property: JsonPropertyName("excluded_task_ids")] IReadOnlyList<long>? ExcludedTaskIds,
     // Proof the user looked at the rendered email. Mandatory for a first send to a new client.
-    [property: JsonPropertyName("previewed")] bool Previewed);
+    [property: JsonPropertyName("previewed")] bool Previewed,
+    // Phase 2b — the summary the USER approved. Ari drafts it, the user edits or replaces it, and
+    // whatever is here at send time is what goes out. Empty is valid and omits the section.
+    [property: JsonPropertyName("summary")] string? Summary = null);
+
+// Phase 1.4 / 2b — ask Ari for the summary paragraph. The agent assembles the facts from the draft
+// and the control plane calls the model; nothing here is stored.
+public sealed record LocalApiReportSummaryRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("project_id")] long ProjectId,
+    [property: JsonPropertyName("from")] string From,
+    [property: JsonPropertyName("to")] string To,
+    [property: JsonPropertyName("excluded_task_ids")] IReadOnlyList<long>? ExcludedTaskIds);
+
+public sealed record LocalApiReportSummaryResponse(
+    [property: JsonPropertyName("success")] bool Success,
+    [property: JsonPropertyName("summary")] string? Summary,
+    [property: JsonPropertyName("reason")] string? Reason);
 
 public sealed record LocalApiReportSendResponse(
     [property: JsonPropertyName("success")] bool Success,
@@ -1078,7 +1103,9 @@ public sealed record LocalApiReportSendResponse(
     // Refusal codes from ReportSendPreflight, so the UI supplies the sentences.
     [property: JsonPropertyName("refusals")] IReadOnlyList<string> Refusals,
     [property: JsonPropertyName("reason")] string? Reason,
-    [property: JsonPropertyName("sent_at_utc")] string? SentAtUtc);
+    [property: JsonPropertyName("sent_at_utc")] string? SentAtUtc,
+    // Phase 2b — the permanent link, so the app can offer copy-link rather than inventing the URL.
+    [property: JsonPropertyName("report_url")] string? ReportUrl = null);
 
 public sealed record LocalApiSentReportLine(
     [property: JsonPropertyName("line_id")] string LineId,
@@ -1302,13 +1329,20 @@ public interface IReportGateway
     /// <summary>Delete the server's copy. False means it is still there.</summary>
     Task<bool> DeleteAsync(string reportId, CancellationToken token);
 
+    /// <summary>
+    /// Phase 1.4 — ask Ari to draft the summary. Null on ANY failure: a draft that cannot be
+    /// written must leave the user typing their own, never block the flow.
+    /// </summary>
+    Task<string?> DraftSummaryAsync(string factsJson, CancellationToken token);
+
     /// <summary>Who this machine's account appears to be, for the confirm screen.</summary>
     Task<ReportGatewayIdentity> ReadIdentityAsync(CancellationToken token);
 }
 
 public sealed record ReportGatewayPreview(bool Success, string? Html, string? Subject, string? Reason);
 
-public sealed record ReportGatewayOutcome(bool Sent, bool Unknown, string? SentAtUtc, string? Reason);
+// ReportUrl is the permanent link, returned so the app can offer copy-link without inventing it.
+public sealed record ReportGatewayOutcome(bool Sent, bool Unknown, string? SentAtUtc, string? Reason, string? ReportUrl = null);
 
 public sealed record ReportGatewayIdentity(
     string AccountId,

@@ -598,6 +598,13 @@ public sealed class LocalApiClient : IDisposable
     /// Render what the client would receive. Returns the path to a temp HTML file, which the caller
     /// opens and then deletes — it holds a client's name and hours.
     /// </summary>
+    /// <summary>Phase 1.4 — ask Ari for the summary. Null or success:false leaves it empty.</summary>
+    public async Task<LocalApiReportSummaryResponse?> DraftReportSummaryAsync(
+        LocalApiReportSummaryRequest request,
+        CancellationToken token = default)
+        => await PostJsonAsync<LocalApiReportSummaryResponse>("/v1/reports/summary", request, token)
+            .ConfigureAwait(false);
+
     public async Task<LocalApiReportPreviewResponse?> PreviewReportAsync(
         LocalApiReportSendRequest request,
         CancellationToken token = default)

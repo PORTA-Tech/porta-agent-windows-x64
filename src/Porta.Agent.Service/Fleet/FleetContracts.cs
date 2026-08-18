@@ -416,13 +416,27 @@ internal sealed record ReportLinePayload(
     [property: JsonPropertyName("lineId")] string LineId,
     [property: JsonPropertyName("clientLabel")] string ClientLabel,
     [property: JsonPropertyName("finished")] bool Finished,
+    [property: JsonPropertyName("hours")] double Hours,
+    // Phase 2b, approved 2026-08-17. These must be DECLARED here or they are silently dropped:
+    // the gateway round-trips the payload through this record on its way to the server.
+    [property: JsonPropertyName("status")] string Status = "planned",
+    [property: JsonPropertyName("dates")] string Dates = "",
+    [property: JsonPropertyName("result")] string Result = "",
+    [property: JsonPropertyName("blockedReason")] string BlockedReason = "",
+    [property: JsonPropertyName("expectedFinish")] string ExpectedFinish = "",
+    [property: JsonPropertyName("colourSlot")] int ColourSlot = 0);
+
+/// Phase 2b — one task's share of one day, from task_day_hours.
+internal sealed record ReportDaySegmentPayload(
+    [property: JsonPropertyName("lineId")] string LineId,
     [property: JsonPropertyName("hours")] double Hours);
 
 // A day with 0.0 hours is SENT, never omitted: §4 requires days not worked to appear as gaps, and a
 // gap the payload does not carry cannot be drawn.
 internal sealed record ReportDayPayload(
     [property: JsonPropertyName("dateLocal")] string DateLocal,
-    [property: JsonPropertyName("hours")] double Hours);
+    [property: JsonPropertyName("hours")] double Hours,
+    [property: JsonPropertyName("segments")] IReadOnlyList<ReportDaySegmentPayload>? Segments = null);
 
 internal sealed record ReportSendPayload(
     [property: JsonPropertyName("reportId")] string ReportId,
@@ -444,7 +458,9 @@ internal sealed record ReportSendPayload(
     [property: JsonPropertyName("tasksCompleted")] int TasksCompleted,
     [property: JsonPropertyName("tasksTotal")] int TasksTotal,
     [property: JsonPropertyName("lines")] IReadOnlyList<ReportLinePayload> Lines,
-    [property: JsonPropertyName("daily")] IReadOnlyList<ReportDayPayload> Daily);
+    [property: JsonPropertyName("daily")] IReadOnlyList<ReportDayPayload> Daily,
+    // Phase 2b — the paragraph the USER approved. Empty omits the section on the page.
+    [property: JsonPropertyName("summary")] string Summary = "");
 
 internal sealed record ReportPreviewResult(
     [property: JsonPropertyName("success")] bool Success,
@@ -463,9 +479,17 @@ internal sealed record ReportSenderResult(
     [property: JsonPropertyName("replyTo")] string? ReplyTo,
     [property: JsonPropertyName("reason")] string? Reason);
 
+/// Phase 1.4 / 2b — the drafted paragraph, or a reason it could not be drafted.
+internal sealed record ReportSummaryResult(
+    [property: JsonPropertyName("success")] bool Success,
+    [property: JsonPropertyName("summary")] string? Summary,
+    [property: JsonPropertyName("reason")] string? Reason);
+
 internal sealed record ReportSendResult(
     [property: JsonPropertyName("success")] bool Success,
     [property: JsonPropertyName("reportId")] string? ReportId,
+    // Phase 2b — the permanent link, so the app can offer copy-link without inventing the URL.
+    [property: JsonPropertyName("reportUrl")] string? ReportUrl,
     // The SERVER's timestamp — the one that corresponds to a real delivery.
     [property: JsonPropertyName("sentAtUtc")] string? SentAtUtc,
     [property: JsonPropertyName("reason")] string? Reason);

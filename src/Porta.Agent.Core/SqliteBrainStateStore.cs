@@ -3506,6 +3506,12 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
 
         var perTask = new Dictionary<long, (string Title, string Label, bool Finished, double Seconds)>();
         var perDay = new Dictionary<string, double>();
+        // Phase 2b — the per-task-per-day split, keyed (localDate -> taskId -> seconds). Read from
+        // task_day_hours, which is the honest source: app_usage_rollup drops any bucket with no
+        // identifiable application, so a day chart built from it would not sum to its own totals.
+        var perDayTask = new Dictionary<string, Dictionary<long, double>>();
+        // The six approved per-task fields, read once from tasks rather than joined per rollup row.
+        var taskFields = new Dictionary<long, (string Status, string Dates, string Result, string Blocked, string Expected, int Slot)>();
         string projectName = string.Empty;
         string clientName = string.Empty;
 
@@ -3571,6 +3577,70 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                          0d));
                 perTask[taskId] = line with { Seconds = line.Seconds + seconds };
             }
+
+            // ── Phase 2b: the per-day split, from the table that records every attributed bucket.
+            using (var dayCmd = connection.CreateCommand())
+            {
+                dayCmd.CommandText =
+                    """
+                    SELECT d.local_date, d.task_id, d.active_seconds
+                    FROM task_day_hours d
+                    INNER JOIN tasks t ON t.id = d.task_id
+                    WHERE d.local_date >= $fromDay
+                      AND d.local_date <= $toDay
+                      AND t.project_id = $project
+                      AND d.task_id <> 0;
+                    """;
+                dayCmd.Parameters.AddWithValue("$fromDay", fromLocalDate);
+                dayCmd.Parameters.AddWithValue("$toDay", toLocalDate);
+                dayCmd.Parameters.AddWithValue("$project", projectId);
+
+                using SqliteDataReader dayReader = dayCmd.ExecuteReader();
+                while (dayReader.Read())
+                {
+                    string localDate = dayReader.GetString(0);
+                    long taskId = dayReader.GetInt64(1);
+                    double seconds = dayReader.GetDouble(2);
+
+                    if (!perDayTask.TryGetValue(localDate, out Dictionary<long, double>? byTask))
+                    {
+                        byTask = new Dictionary<long, double>();
+                        perDayTask[localDate] = byTask;
+                    }
+
+                    byTask[taskId] = byTask.GetValueOrDefault(taskId) + seconds;
+                }
+            }
+
+            // ── Phase 2b: the six approved per-task fields, straight off the tasks row.
+            using (var fieldCmd = connection.CreateCommand())
+            {
+                fieldCmd.CommandText =
+                    """
+                    SELECT id, status, completed_at_utc, started_at_utc, result_line,
+                           blocked_reason, expected_finish_day, colour_slot
+                    FROM tasks
+                    WHERE project_id = $project;
+                    """;
+                fieldCmd.Parameters.AddWithValue("$project", projectId);
+
+                using SqliteDataReader fieldReader = fieldCmd.ExecuteReader();
+                while (fieldReader.Read())
+                {
+                    long taskId = fieldReader.GetInt64(0);
+                    string status = fieldReader.IsDBNull(1) ? "planned" : fieldReader.GetString(1);
+                    string completed = fieldReader.IsDBNull(2) ? string.Empty : fieldReader.GetString(2);
+                    string started = fieldReader.IsDBNull(3) ? string.Empty : fieldReader.GetString(3);
+
+                    taskFields[taskId] = (
+                        Status: status,
+                        Dates: DescribeTaskDates(status, started, completed, localOffset),
+                        Result: fieldReader.IsDBNull(4) ? string.Empty : fieldReader.GetString(4),
+                        Blocked: fieldReader.IsDBNull(5) ? string.Empty : fieldReader.GetString(5),
+                        Expected: fieldReader.IsDBNull(6) ? string.Empty : fieldReader.GetString(6),
+                        Slot: fieldReader.IsDBNull(7) ? 0 : fieldReader.GetInt32(7));
+                }
+            }
         }
 
         IReadOnlyDictionary<long, TaskUnattributedInputs> gapInputs = ReadUnattributedInputs(perTask.Keys);
@@ -3598,6 +3668,9 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
             // some other report, so it cannot be shown against these hours.
             bool measurable = inputs.Measurable && Math.Abs(inputs.LifetimeRollupSeconds - seconds) < 0.5d;
 
+            (string Status, string Dates, string Result, string Blocked, string Expected, int Slot) f =
+                taskFields.GetValueOrDefault(taskId, ("planned", string.Empty, string.Empty, string.Empty, string.Empty, 0));
+
             lines.Add(new AgentReportLine(
                 TaskId: taskId,
                 Title: title,
@@ -3605,7 +3678,15 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 Finished: finished,
                 Hours: hours,
                 UnattributedHours: measurable ? RoundHours(unattributed) : 0d,
-                UnattributedMeasurable: measurable));
+                UnattributedMeasurable: measurable,
+                Status: f.Status,
+                Dates: f.Dates,
+                ResultLine: f.Result,
+                BlockedReason: f.Blocked,
+                // CONDITION 1: read straight from what the user typed. Never derived, never filled
+                // from an estimate, a velocity or anything else.
+                ExpectedFinishDay: f.Expected,
+                ColourSlot: f.Slot));
         }
 
         // Every day in the range, in order, including the ones with nothing on them.
@@ -3613,7 +3694,21 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         for (DateTime day = from; day <= to; day = day.AddDays(1))
         {
             string key = day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-            days.Add(new AgentReportDay(key, RoundHours(perDay.GetValueOrDefault(key))));
+
+            // Segments come from task_day_hours and therefore only exist for days recorded since
+            // phase 0.1 shipped. An older day has a total but no split, and renders as one plain
+            // column rather than a stacked one — which is true, where inventing a split would not be.
+            List<AgentReportDaySegment>? segments = null;
+            if (perDayTask.TryGetValue(key, out Dictionary<long, double>? byTask))
+            {
+                segments = byTask
+                    .Where(p => p.Value > 0d)
+                    .OrderByDescending(p => p.Value)
+                    .Select(p => new AgentReportDaySegment(p.Key, RoundHours(p.Value)))
+                    .ToList();
+            }
+
+            days.Add(new AgentReportDay(key, RoundHours(perDay.GetValueOrDefault(key)), segments));
         }
 
         return new AgentReportDraft(
@@ -3627,6 +3722,56 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
             LinesFinished: lines.Count(l => l.Finished),
             Lines: lines,
             Days: days);
+    }
+
+    /// <summary>
+    /// Phase 2b — the dates line as the report should READ them, not as timestamps.
+    ///
+    /// "14 Aug", "from 17 Aug", "held from 15 Aug" — the shapes in the agreed mockup. Built from
+    /// facts the task already holds (started_at, completed_at, status) and nothing inferred: a task
+    /// with no start recorded says nothing rather than guessing one.
+    /// </summary>
+    private static string DescribeTaskDates(
+        string status,
+        string startedAtUtc,
+        string completedAtUtc,
+        TimeSpan localOffset)
+    {
+        static string Short(string raw, TimeSpan offset)
+            => DateTimeOffset.TryParse(
+                   raw,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   System.Globalization.DateTimeStyles.RoundtripKind,
+                   out DateTimeOffset value)
+                ? value.ToOffset(offset).ToString("d MMM", System.Globalization.CultureInfo.InvariantCulture)
+                : string.Empty;
+
+        string started = Short(startedAtUtc, localOffset);
+        string completed = Short(completedAtUtc, localOffset);
+
+        if (string.Equals(status, "done", StringComparison.OrdinalIgnoreCase))
+        {
+            if (started.Length > 0 && completed.Length > 0)
+            {
+                return string.Equals(started, completed, StringComparison.Ordinal)
+                    ? completed
+                    : $"{started} – {completed}";
+            }
+
+            return completed.Length > 0 ? completed : started;
+        }
+
+        if (string.Equals(status, "blocked", StringComparison.OrdinalIgnoreCase))
+        {
+            return started.Length > 0 ? $"held from {started}" : string.Empty;
+        }
+
+        if (string.Equals(status, "in_progress", StringComparison.OrdinalIgnoreCase))
+        {
+            return started.Length > 0 ? $"from {started}" : string.Empty;
+        }
+
+        return started.Length > 0 ? $"from {started}" : string.Empty;
     }
 
     /// <summary>

@@ -148,6 +148,10 @@ public partial class MainWindow
             _reportDraft = response.Draft;
             ReportStatusText.Text = string.Empty;
             RenderReportDraft();
+
+            // Fire and forget: the draft is already on screen and usable, and the summary upgrades
+            // it in place whenever it arrives. It must never be something the user waits behind.
+            _ = DraftSummaryAsync();
         }
         catch
         {
@@ -190,6 +194,8 @@ public partial class MainWindow
         RenderDaysChart(draft);
         RenderLines(draft);
         RenderReadiness(draft, included);
+        // CONDITION 2 — surfaced beside readiness, before anything can be sent.
+        RenderClientSeesPanel(included);
         UpdateReportStaleNotice();
         _ = LoadRecipientsAsync();
     }
@@ -501,6 +507,121 @@ public partial class MainWindow
     /// page: an unnamed line or an unnamed project is the difference between a report and a leak
     /// of somebody's private notes.
     /// </summary>
+    /// <summary>
+    /// Phase 1.4 / 2b — Ari's draft of the summary, fetched when the draft is built.
+    ///
+    /// It appears ALREADY WRITTEN so the user edits rather than faces a blank box, and whatever is
+    /// in the box at send time is what goes out. Every failure path leaves the box empty and says
+    /// so in one quiet line: an unreachable server, no key, a refusal, or nothing worth summarising.
+    /// It never blocks a send — an empty summary simply omits the section on the client's page.
+    ///
+    /// It does NOT overwrite text the user has already typed. A draft that clobbers your own
+    /// sentence the moment you rebuild the range would be worse than no draft at all.
+    /// </summary>
+    private async Task DraftSummaryAsync()
+    {
+        if (_reportDraft is not { } draft)
+        {
+            return;
+        }
+
+        if (ReportSummaryBox.Text.Trim().Length > 0)
+        {
+            ReportSummaryNote.Text = "Your own summary. Ari won't overwrite it.";
+            return;
+        }
+
+        ReportSummaryNote.Text = "Ari is writing a draft…";
+
+        LocalApiReportSummaryResponse? response = await _apiClient
+            .DraftReportSummaryAsync(new LocalApiReportSummaryRequest(
+                SchemaVer: 1,
+                ProjectId: draft.ProjectId,
+                From: draft.RangeStartLocal,
+                To: draft.RangeEndLocal,
+                ExcludedTaskIds: _excludedLines.ToList()))
+            .ConfigureAwait(true);
+
+        if (response is { Success: true, Summary: { Length: > 0 } summary })
+        {
+            ReportSummaryBox.Text = summary;
+            ReportSummaryNote.Text = "Ari's draft, from your result lines. Edit or replace it — it sends as it reads.";
+            return;
+        }
+
+        ReportSummaryBox.Text = string.Empty;
+        ReportSummaryNote.Text = response?.Reason switch
+        {
+            "nothing_to_summarise" =>
+                "No result lines yet, so there is nothing for Ari to summarise. Write your own, or leave it out.",
+            "draft_unavailable" =>
+                "Ari couldn't write a draft this time. Write your own, or leave it out — the report sends either way.",
+            _ =>
+                "Ari couldn't write a draft. Write your own, or leave it out — the report sends either way."
+        };
+    }
+
+    /// <summary>
+    /// CONDITION 2 (Yadin, 2026-08-17) — everything collected days ago that is about to go out.
+    ///
+    /// Expected finish and blocked reason are both typed at a moment that is not this one, and both
+    /// can embarrass someone if they travel unread — a blocked reason in particular often names the
+    /// recipient as the blocker. So they are shown plainly, in the order the client reads them
+    /// (completed, in progress, blocked), before anything can be sent.
+    /// </summary>
+    private void RenderClientSeesPanel(IReadOnlyList<LocalApiReportLine> included)
+    {
+        ReportClientSeesList.Children.Clear();
+
+        string[] order = ["done", "in_progress", "blocked"];
+        List<LocalApiReportLine> notable = included
+            .Where(l => l.ExpectedFinishDay.Length > 0 || l.BlockedReason.Length > 0)
+            .OrderBy(l => Array.IndexOf(order, l.Status))
+            .ToList();
+
+        if (notable.Count == 0)
+        {
+            ReportClientSeesPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        foreach (LocalApiReportLine line in notable)
+        {
+            var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+            row.Children.Add(new TextBlock
+            {
+                Text = line.ClientLabel.Length > 0 ? line.ClientLabel : line.Title,
+                FontSize = 13,
+                Foreground = (System.Windows.Media.Brush)FindResource("RpTextPrimary"),
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            if (line.BlockedReason.Length > 0)
+            {
+                row.Children.Add(new TextBlock
+                {
+                    Text = $"Blocked: {line.BlockedReason}",
+                    Style = (Style)FindResource("RpBody"),
+                    Margin = new Thickness(0, 3, 0, 0)
+                });
+            }
+
+            if (line.ExpectedFinishDay.Length > 0)
+            {
+                row.Children.Add(new TextBlock
+                {
+                    Text = $"Expected to finish {FriendlyDate(line.ExpectedFinishDay)}",
+                    Style = (Style)FindResource("RpBody"),
+                    Margin = new Thickness(0, 3, 0, 0)
+                });
+            }
+
+            ReportClientSeesList.Children.Add(row);
+        }
+
+        ReportClientSeesPanel.Visibility = Visibility.Visible;
+    }
+
     private void RenderReadiness(LocalApiReportDraft draft, IReadOnlyList<LocalApiReportLine> included)
     {
         var missing = new List<string>();

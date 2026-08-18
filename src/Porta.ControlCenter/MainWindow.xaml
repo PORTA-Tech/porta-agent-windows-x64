@@ -1819,6 +1819,35 @@
                                         </StackPanel>
                                     </Border>
 
+                                    <!-- Phase 1.4 / 2b — Ari's draft, editable. It appears already
+                                         written; the user edits or replaces it; whatever is here at
+                                         send time is what goes out. Empty is valid and omits the
+                                         section on the client's page. -->
+                                    <Border Style="{StaticResource RpPanelBorder}">
+                                        <StackPanel>
+                                            <TextBlock Text="SUMMARY" Style="{StaticResource RpSectionLabel}" />
+                                            <TextBox x:Name="ReportSummaryBox"
+                                                     Style="{StaticResource RpTextBox}"
+                                                     AcceptsReturn="True"
+                                                     TextWrapping="Wrap"
+                                                     MinHeight="86"
+                                                     VerticalScrollBarVisibility="Auto" />
+                                            <TextBlock x:Name="ReportSummaryNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- CONDITION 2 (Yadin, 2026-08-17). Both of these can embarrass
+                                         someone if they go out unread, and a blocked reason often
+                                         names the recipient. Shown in the order the client reads
+                                         them, before anything can be sent. -->
+                                    <Border x:Name="ReportClientSeesPanel" Style="{StaticResource RpPanelBorder}" Visibility="Collapsed">
+                                        <StackPanel>
+                                            <TextBlock Text="WHAT THE CLIENT WILL READ" Style="{StaticResource RpSectionLabel}" />
+                                            <StackPanel x:Name="ReportClientSeesList" />
+                                            <TextBlock Text="Collected earlier, going out now. Change any of it on the task before you send." Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
                                     <Border Style="{StaticResource RpPanelBorder}">
                                         <StackPanel>
                                             <TextBlock Text="BEFORE THIS CAN BE SENT" Style="{StaticResource RpSectionLabel}" />
@@ -1852,6 +1881,13 @@
                                                 <Button x:Name="ReportSendToButton" Grid.Column="1" Content="Continue" Style="{StaticResource RpPrimaryButton}" VerticalAlignment="Center" Click="ReportSendToButton_Click" />
                                             </Grid>
                                             <TextBlock x:Name="ReportRecipientNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" Text="Type a client's email, or pick one you've sent to before. Nothing is sent until you confirm." />
+                                            <!-- Phase 2b — the link, so it can go through WhatsApp
+                                                 or Slack without an email at all. Only ever visible
+                                                 after a send has actually produced one. -->
+                                            <StackPanel x:Name="ReportLinkRow" Orientation="Horizontal" Margin="0,10,0,0" Visibility="Collapsed">
+                                                <Button x:Name="ReportCopyLinkButton" Content="Copy link" Style="{StaticResource RpQuietButton}" Click="ReportCopyLinkButton_Click" />
+                                                <TextBlock x:Name="ReportLinkText" Style="{StaticResource RpMeta}" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="420" />
+                                            </StackPanel>
                                         </StackPanel>
                                     </Border>
                                 </StackPanel>
