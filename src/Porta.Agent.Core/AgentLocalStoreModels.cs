@@ -666,6 +666,33 @@ public sealed record AgentProjectStats(
     int InProgressTasks,
     double Hours);
 
+// Phase 3 rebuilt (2026-08-18) — one project as the Projects page draws it.
+//
+// Carries the EFFECTIVE value of each derived field plus whether it was derived, because the page
+// shows those two states differently: a derived value gets a quiet grey reason under it, and a
+// field only the user can answer gets an amber one. Project holds the raw stored row underneath,
+// so the page can still tell "stored empty" from "derived to this".
+//
+// There is no percentage here and there must never be one: progress is DoneTasks of TotalTasks,
+// and tasks are not equal in size.
+public sealed record AgentProjectCard(
+    AgentProject Project,
+    AgentProjectStats Stats,
+    string Status,
+    bool StatusIsDerived,
+    string StatusReason,
+    string StartDay,
+    bool StartDayIsDerived,
+    string StartDayReason,
+    IReadOnlyList<string> Recipients,
+    bool RecipientsAreDerived,
+    string RecipientsReason,
+    string ReportingFrequency,
+    bool ReportingFrequencyIsDerived,
+    int DaysWorked,
+    string LastWorkedDay,
+    string NextReportDue);
+
 // Digest redesign (2026-08-11) — one local hour of the day's shape. Seconds only, never a title:
 // this describes WHEN work happened, not what was open. Focus + Active + Away sum to at most 3600;
 // an hour that recorded nothing is ABSENT rather than zero, because "nothing recorded" (machine off)

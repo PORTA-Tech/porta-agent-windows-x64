@@ -156,7 +156,14 @@ internal static class Migrations
         new(
             Version: 30,
             Name: "report_content_v30",
-            Apply: Schema.ApplyReportContentV30)
+            Apply: Schema.ApplyReportContentV30),
+        // Phase 3 rebuilt (2026-08-18) — the column 1.2.161 tried to add inside step 30 and so
+        // never delivered to an existing database, plus the derived/asked reset. See
+        // ApplyDerivedProjectFieldsV31 for why editing a shipped step was the mistake.
+        new(
+            Version: 31,
+            Name: "derived_project_fields_v31",
+            Apply: Schema.ApplyDerivedProjectFieldsV31)
     ];
 
     internal static void Migrate(SqliteConnection connection)

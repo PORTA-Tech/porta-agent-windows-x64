@@ -989,12 +989,47 @@ internal static class Schema
         EnsureColumnExists(connection, "projects", "completion_day", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(connection, "projects", "recipients", "TEXT NOT NULL DEFAULT ''");
 
-        // Phase 3.2 (2026-08-18) — how often this project is reported on. A statement of intent,
-        // read by the Projects page and by nothing else: no scheduler reads it and none ever will,
-        // because the report never sends automatically. Additive with a default, so every existing
-        // row keeps working and nothing already recorded changes value.
-        EnsureColumnExists(connection, "projects", "reporting_frequency", "TEXT NOT NULL DEFAULT 'none'");
     }
+
+    /// <summary>
+    /// Phase 3 rebuilt (2026-08-18) — the derived/asked split, and the repair of a shipped mistake.
+    ///
+    /// THE MISTAKE, so it is not repeated. 1.2.161 added projects.reporting_frequency INSIDE
+    /// ApplyReportContentV30. A migration step runs once; a database already at v30 never ran it
+    /// again, so the column was created only on a brand-new database. Every existing install then
+    /// asked for a column that was not there, and every project read threw — which broke the
+    /// Projects page, creating a project, renaming, archiving, and tagging a task to a project.
+    /// Tests missed it because a test database is always built from nothing.
+    ///
+    /// A COLUMN ADDED IN A LATER RELEASE NEEDS ITS OWN STEP. Never edit a step that has shipped.
+    ///
+    /// THE DERIVED/ASKED SPLIT. Four project fields are now DERIVED on read rather than stored:
+    /// status, start day, recipients and reporting frequency. Empty means "Ari works it out"; any
+    /// stored value means the user overrode it and Ari must stop deriving that field forever.
+    ///
+    /// So this step clears the status the v30 default put there. That default was never a choice
+    /// anybody made, and leaving it would pin every existing project to Active permanently — the
+    /// derived "paused after N days with no work" could then never appear. Approved by Yadin,
+    /// 2026-08-18, after confirming no project on his machine had ever had a field set by hand.
+    ///
+    /// There is deliberately NO background job anywhere that rewrites these columns. A job like
+    /// that would silently undo an override, which is the one thing this design must never do.
+    /// </summary>
+    internal static void ApplyDerivedProjectFieldsV31(SqliteConnection connection)
+    {
+        // The column 1.2.161 failed to deliver to existing installs.
+        EnsureColumnExists(connection, "projects", "reporting_frequency", "TEXT NOT NULL DEFAULT ''");
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = DerivedProjectFieldsResetSql;
+        cmd.ExecuteNonQuery();
+    }
+
+    private const string DerivedProjectFieldsResetSql =
+        // 'active' here is the v30 column default, not an answer anyone gave. Empty means derive.
+        "UPDATE projects SET status = '' WHERE status = 'active'; "
+        // Same for the frequency default that shipped in 1.2.161 on fresh installs only.
+        + "UPDATE projects SET reporting_frequency = '' WHERE reporting_frequency = 'none';";
 
     internal static void ApplyContractSchemaV3(SqliteConnection connection)
     {

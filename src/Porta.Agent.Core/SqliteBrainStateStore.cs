@@ -2568,8 +2568,12 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 cmd.Transaction = tx;
                 cmd.CommandText =
                     """
-                    INSERT INTO projects (name, created_at_utc, archived_at_utc, order_index)
-                    VALUES ($name, $created, '', (SELECT COALESCE(MAX(order_index), 0) + 1 FROM projects));
+                    -- status is written EMPTY on purpose. Empty means "Ari derives this"; the
+                    -- column's own default of 'active' predates the derived/asked split and would
+                    -- pin every new project to active forever, so it is overridden here rather
+                    -- than relied on. See ReadProjectCards.
+                    INSERT INTO projects (name, created_at_utc, archived_at_utc, order_index, status)
+                    VALUES ($name, $created, '', (SELECT COALESCE(MAX(order_index), 0) + 1 FROM projects), '');
                     SELECT last_insert_rowid();
                     """;
                 cmd.Parameters.AddWithValue("$name", clean);
@@ -2925,18 +2929,36 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
     // the same thing, and an unknown value would silently vanish from a grouping.
 
     internal static readonly string[] ProjectStatuses = { "active", "paused", "complete" };
-    internal static readonly string[] ReportingFrequencies = { "none", "weekly", "fortnightly", "monthly" };
+    // The mockup's segmented control: Day / Week / Two weeks / Month. Empty means derive, which
+    // resolves to weekly.
+    internal static readonly string[] ReportingFrequencies = { "day", "week", "fortnight", "month" };
 
+    // EMPTY IS PRESERVED, and that is the whole mechanism. Empty means "Ari derives this"; a stored
+    // value means the user overrode it. Folding empty up to a default here would erase the
+    // difference and pin every project to that default forever — which is exactly what the v30
+    // column default did before step 31 cleared it.
     private static string NormalizeProjectStatus(string? value)
     {
         string trimmed = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return System.Array.IndexOf(ProjectStatuses, trimmed) >= 0 ? trimmed : "active";
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        // An unrecognised value is treated as no answer rather than kept, so it can never reach a
+        // grouping in a client's report as a status nothing knows how to render.
+        return System.Array.IndexOf(ProjectStatuses, trimmed) >= 0 ? trimmed : string.Empty;
     }
 
     private static string NormalizeReportingFrequency(string? value)
     {
         string trimmed = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return System.Array.IndexOf(ReportingFrequencies, trimmed) >= 0 ? trimmed : "none";
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return System.Array.IndexOf(ReportingFrequencies, trimmed) >= 0 ? trimmed : string.Empty;
     }
 
     /// <summary>
@@ -3111,6 +3133,216 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         + "   INNER JOIN tasks t ON t.id = r.task_id "
         + "  WHERE t.project_id = $id AND r.task_id <> 0);";
 
+
+    // ── Phase 3 rebuilt (2026-08-18) — derived and asked ───────────────────────────────────────
+    //
+    // Every project field is one of two kinds, and they behave differently on purpose:
+    //
+    //   DERIVED — Ari works it out from measured work, and the user can override it. Status, start
+    //   day, recipients and reporting frequency. Computed HERE, on read. Never written to the
+    //   database by anything automatic.
+    //
+    //   ASKED — only the user can say it and Ari never invents it. The client-facing name, whether
+    //   a project is complete and when, the result line on a task, and why something is blocked.
+    //
+    // THE OVERRIDE RULE. An empty column means "derive". The moment a value is stored, that value
+    // wins permanently and derivation stops for that field. There is deliberately NO background job
+    // that rewrites these columns, because such a job would silently undo a choice the user made —
+    // and a user who finds their setting reverted stops trusting every other setting on the page.
+
+    /// <summary>Days without recorded work before a derived status reads as paused.</summary>
+    private const int PausedAfterIdleDays = 7;
+
+    /// <summary>
+    /// Everything the Projects page draws for one project: the effective value of each field, and
+    /// whether that value was derived or given. The page needs both — it shows a grey reason under
+    /// a derived field and an amber one under a field only the user can answer.
+    /// </summary>
+    public IReadOnlyList<AgentProjectCard> ReadProjectCards(bool includeArchived = false)
+    {
+        IReadOnlyList<AgentProject> projects = ReadProjects(includeArchived);
+        var cards = new List<AgentProjectCard>(projects.Count);
+
+        foreach (AgentProject project in projects)
+        {
+            AgentProjectStats stats = ReadProjectStats(project.Id);
+            (string FirstDay, string LastDay, int DaysWorked) span = ReadProjectWorkSpan(project.Id);
+
+            // STATUS. Complete is only ever something the user said, so a derived status is only
+            // ever active or paused, and it is decided by whether work has actually happened.
+            bool statusGiven = project.Status.Length > 0;
+            string status = statusGiven ? project.Status : DeriveStatus(span.LastDay);
+            string statusWhy = statusGiven
+                ? string.Empty
+                : DescribeStatusReason(span.LastDay);
+
+            // START. The first day work was recorded against it. Not the day the project row was
+            // created, which is when somebody typed a name, not when the engagement began.
+            bool startGiven = project.StartDay.Length > 0;
+            string startDay = startGiven ? project.StartDay : span.FirstDay;
+            string startWhy = startGiven || startDay.Length == 0
+                ? string.Empty
+                : "Your first recorded work on this project.";
+
+            // RECIPIENTS. Where a report for this project was last actually sent.
+            bool recipientsGiven = (project.Recipients?.Count ?? 0) > 0;
+            IReadOnlyList<string> recipients = recipientsGiven
+                ? project.Recipients!
+                : ReadLastSentRecipients(project.Id);
+            string recipientsWhy = recipientsGiven || recipients.Count == 0
+                ? string.Empty
+                : "Taken from where you last sent. Stays on this machine.";
+
+            // FREQUENCY. Weekly until told otherwise. Nothing schedules a send off this and nothing
+            // ever will; it is what makes "next report due" mean anything.
+            bool frequencyGiven = project.ReportingFrequency.Length > 0;
+            string frequency = frequencyGiven ? project.ReportingFrequency : "week";
+
+            cards.Add(new AgentProjectCard(
+                Project: project,
+                Stats: stats,
+                Status: status,
+                StatusIsDerived: !statusGiven,
+                StatusReason: statusWhy,
+                StartDay: startDay,
+                StartDayIsDerived: !startGiven,
+                StartDayReason: startWhy,
+                Recipients: recipients,
+                RecipientsAreDerived: !recipientsGiven,
+                RecipientsReason: recipientsWhy,
+                ReportingFrequency: frequency,
+                ReportingFrequencyIsDerived: !frequencyGiven,
+                DaysWorked: span.DaysWorked,
+                LastWorkedDay: span.LastDay,
+                NextReportDue: DescribeNextReportDue(frequency, span.LastDay)));
+        }
+
+        return cards;
+    }
+
+    private static string DeriveStatus(string lastWorkedDay)
+    {
+        if (lastWorkedDay.Length == 0)
+        {
+            // Never worked on. Still active: a project you have only just made is one you intend to
+            // do, and calling it paused on day one would be a judgement nobody asked for.
+            return "active";
+        }
+
+        return IdleDays(lastWorkedDay) >= PausedAfterIdleDays ? "paused" : "active";
+    }
+
+    private static string DescribeStatusReason(string lastWorkedDay)
+    {
+        if (lastWorkedDay.Length == 0)
+        {
+            return "No recorded work yet.";
+        }
+
+        int idle = IdleDays(lastWorkedDay);
+        if (idle <= 0)
+        {
+            return "Set to active because you worked on it today.";
+        }
+
+        return idle >= PausedAfterIdleDays
+            ? $"Set to paused after {idle} days with no work."
+            : $"Set to active because you worked on it {(idle == 1 ? "yesterday" : $"{idle} days ago")}.";
+    }
+
+    private static int IdleDays(string lastWorkedDay)
+        => DateTime.TryParseExact(
+               lastWorkedDay,
+               "yyyy-MM-dd",
+               System.Globalization.CultureInfo.InvariantCulture,
+               System.Globalization.DateTimeStyles.None,
+               out DateTime last)
+            ? Math.Max(0, (int)(DateTime.Now.Date - last.Date).TotalDays)
+            : 0;
+
+    /// <summary>
+    /// When the next report is due, from the frequency and the last day worked. A statement about
+    /// the rhythm the user agreed, never a trigger: nothing sends on its own.
+    /// </summary>
+    private static string DescribeNextReportDue(string frequency, string lastWorkedDay)
+    {
+        int every = frequency switch
+        {
+            "day" => 1,
+            "fortnight" => 14,
+            "month" => 30,
+            _ => 7
+        };
+
+        if (!DateTime.TryParseExact(
+                lastWorkedDay,
+                "yyyy-MM-dd",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,
+                out DateTime last))
+        {
+            return string.Empty;
+        }
+
+        DateTime due = last.Date.AddDays(every);
+        if (due < DateTime.Now.Date)
+        {
+            return "overdue";
+        }
+
+        return due == DateTime.Now.Date
+            ? "today"
+            : due.ToString("dddd", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>First and last day work was recorded against a project, and how many days had any.</summary>
+    private (string FirstDay, string LastDay, int DaysWorked) ReadProjectWorkSpan(long projectId)
+    {
+        using ReadGateLease _ = AcquireReadGate();
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = ProjectWorkSpanSql;
+        cmd.Parameters.AddWithValue("$id", projectId);
+
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        if (!reader.Read() || reader.IsDBNull(0))
+        {
+            return (string.Empty, string.Empty, 0);
+        }
+
+        return (reader.GetString(0), reader.GetString(1), reader.GetInt32(2));
+    }
+
+    private const string ProjectWorkSpanSql =
+        "SELECT MIN(d), MAX(d), COUNT(*) FROM ("
+        + "  SELECT substr(r.hour_start_utc, 1, 10) AS d"
+        + "    FROM app_usage_rollup r"
+        + "    INNER JOIN tasks t ON t.id = r.task_id"
+        + "   WHERE t.project_id = $id AND r.task_id <> 0"
+        + "   GROUP BY d"
+        + "  HAVING SUM(r.active_seconds) > 0);";
+
+    /// <summary>
+    /// Where a report for this project was last actually sent. Derived, and LOCAL: this reads the
+    /// machine's own record of what it sent, not any server listing.
+    /// </summary>
+    private IReadOnlyList<string> ReadLastSentRecipients(long projectId)
+    {
+        using ReadGateLease _ = AcquireReadGate();
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = LastSentRecipientSql;
+        cmd.Parameters.AddWithValue("$id", projectId);
+
+        object? value = cmd.ExecuteScalar();
+        string address = (value as string ?? string.Empty).Trim();
+        return address.Length == 0 ? System.Array.Empty<string>() : new[] { address };
+    }
+
+    private const string LastSentRecipientSql =
+        "SELECT recipient_email FROM sent_reports "
+        + "WHERE project_id = $id AND send_state = 'sent' AND recipient_email <> '' "
+        + "ORDER BY sent_at_utc DESC LIMIT 1;";
 
     private static AgentProject MapProjectRow(SqliteDataReader reader)
         => new(

@@ -14,18 +14,19 @@ public sealed class ProjectEngagementTests
     private static readonly DateTimeOffset Now = new(2026, 08, 18, 09, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void AProjectStartsActive_WithNothingElseClaimed()
+    public void AProjectStartsWithEverythingUnanswered()
     {
         RunWithStore(store =>
         {
             AgentProject project = store.CreateProject("Kestrel", Now)!;
 
-            // Active is the only safe default: a project you just made is one you are doing.
-            Assert.Equal("active", project.Status);
+            // Phase 3 rebuilt: the stored value is EMPTY, meaning "Ari derives this". Active is
+            // what it derives to, and that lives in ReadProjectCards rather than in the column.
+            Assert.Equal(string.Empty, project.Status);
             // Everything else is a statement the user has not made yet, so it says nothing.
             Assert.Equal(string.Empty, project.StartDay);
             Assert.Equal(string.Empty, project.CompletionDay);
-            Assert.Equal("none", project.ReportingFrequency);
+            Assert.Equal(string.Empty, project.ReportingFrequency);
             Assert.Empty(project.Recipients ?? Array.Empty<string>());
         });
     }
@@ -43,13 +44,13 @@ public sealed class ProjectEngagementTests
                 startDay: "2026-08-01",
                 completionDay: "2026-09-30",
                 recipients: new[] { "client@example.com", "cc@example.com" },
-                reportingFrequency: "fortnightly");
+                reportingFrequency: "fortnight");
 
             Assert.NotNull(saved);
             Assert.Equal("paused", saved!.Status);
             Assert.Equal("2026-08-01", saved.StartDay);
             Assert.Equal("2026-09-30", saved.CompletionDay);
-            Assert.Equal("fortnightly", saved.ReportingFrequency);
+            Assert.Equal("fortnight", saved.ReportingFrequency);
             Assert.Equal(new[] { "client@example.com", "cc@example.com" }, saved.Recipients);
 
             // And it survives a re-read, rather than only living in the returned object.
@@ -66,7 +67,7 @@ public sealed class ProjectEngagementTests
         {
             AgentProject project = store.CreateProject("Kestrel", Now)!;
             store.SetProjectEngagement(
-                project.Id, "active", "2026-08-01", "", new[] { "client@example.com" }, "weekly");
+                project.Id, "active", "2026-08-01", "", new[] { "client@example.com" }, "week");
 
             // The page saves the field that changed. A status change must not blank a date, and it
             // must not clear a recipient list somebody typed.
@@ -76,7 +77,7 @@ public sealed class ProjectEngagementTests
 
             Assert.Equal("complete", afterStatus!.Status);
             Assert.Equal("2026-08-01", afterStatus.StartDay);
-            Assert.Equal("weekly", afterStatus.ReportingFrequency);
+            Assert.Equal("week", afterStatus.ReportingFrequency);
             Assert.Equal(new[] { "client@example.com" }, afterStatus.Recipients);
         });
     }
@@ -113,7 +114,8 @@ public sealed class ProjectEngagementTests
             Assert.Null(store.SetProjectEngagement(project.Id, status: "archived"));
             Assert.Null(store.SetProjectEngagement(project.Id, reportingFrequency: "daily"));
 
-            Assert.Equal("active", store.ReadProjects(true).Single(p => p.Id == project.Id).Status);
+            // Refused, so the column still says nothing and the field still derives.
+            Assert.Equal(string.Empty, store.ReadProjects(true).Single(p => p.Id == project.Id).Status);
         });
     }
 
