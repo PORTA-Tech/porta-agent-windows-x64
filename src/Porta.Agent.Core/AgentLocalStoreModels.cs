@@ -534,13 +534,38 @@ public sealed record AgentReportLine(
     //      report the rollup's own start date as missing app time.
     //
     // Anything rendering this must say so or omit it. It must never print a number.
-    bool UnattributedMeasurable);
+    bool UnattributedMeasurable,
+    // ── Phase 2b, approved by Yadin 2026-08-17 ────────────────────────────────────────────────
+    // planned | in_progress | done | blocked. What groups the work on the client's page.
+    string Status = "planned",
+    // As the report should read them: "14 – 17 Aug", "from 17 Aug", "held from 15 Aug".
+    string Dates = "",
+    // The user's own sentence. Empty is a first-class state and the page omits the line entirely.
+    string ResultLine = "",
+    // Shown as a flag under a blocked task. Often names the RECIPIENT as the blocker, which is why
+    // the draft screen has to show it before send.
+    string BlockedReason = "",
+    // CONDITION 1 (Yadin, 2026-08-17): typed by the user or empty. Ari never infers this, never
+    // suggests it, and never fills it from an estimate or a velocity. A guessed date in a client's
+    // hands is the promise §4 refused; a typed one is the user's own commitment.
+    string ExpectedFinishDay = "",
+    // 1-8, permanent. 0 = no slot, which the renderer folds into the neutral "Other" slice.
+    int ColourSlot = 0);
 
 /// <summary>
 /// One day of the range. Days with no work are present with zero hours, never skipped — §4: a chart
 /// that hides empty days is the kind of thing a client notices, and it costs trust permanently.
 /// </summary>
-public sealed record AgentReportDay(string DateLocal, double Hours);
+public sealed record AgentReportDay(
+    string DateLocal,
+    double Hours,
+    // Phase 2b (2026-08-17) — the per-task split of this day, from task_day_hours. This is the
+    // grain phase 0.1 started recording and the only reason the day chart can exist. Empty for any
+    // day before that table existed, which renders as a plain column rather than a stacked one.
+    IReadOnlyList<AgentReportDaySegment>? Segments = null);
+
+/// <summary>Phase 2b — one task's share of one day.</summary>
+public sealed record AgentReportDaySegment(long TaskId, double Hours);
 
 /// <summary>
 /// Step 10 phase C/D — one entry in the address book. LOCAL ONLY (§12.4): a list of other people's
