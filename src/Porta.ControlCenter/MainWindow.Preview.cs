@@ -205,7 +205,7 @@ public partial class MainWindow
         };
 
     internal void PreviewFillProjects(IReadOnlyList<LocalApiProject> projects)
-        => RenderProjects(projects);
+        => RenderProjectsPage(projects);
 
     internal void PreviewFillReport(LocalApiReportDraft draft)
     {

@@ -981,19 +981,15 @@
                      half-built list that has to be relearned. -->
                 <ScrollViewer x:Name="TasksPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled" CanContentScroll="False"
-                              IsManipulationEnabled="True" PanningMode="VerticalOnly">
-                    <StackPanel Margin="20,20,20,32">
-                        <TextBlock Text="Tasks" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                        <TextBlock Text="One list of everything, with filters for today, this week, in progress, blocked and complete."
-                                   FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,24" TextWrapping="Wrap" />
-                        <Border Style="{StaticResource RpPanelBorder}">
-                            <StackPanel>
-                                <TextBlock Text="NOT BUILT YET" Style="{StaticResource RpSectionLabel}" />
-                                <TextBlock Style="{StaticResource RpBody}" TextWrapping="Wrap"
-                                           Text="This page is next. Your tasks are being recorded and nothing is waiting on it — you can still see them on Today and inside each project." />
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
+                              IsManipulationEnabled="True" PanningMode="VerticalOnly"
+                              Background="#0E1013">
+                    <StackPanel x:Name="TasksPageHost" Margin="40,30,40,40" />
+                </ScrollViewer>
+                <ScrollViewer x:Name="ReportsPageV2Panel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled" CanContentScroll="False"
+                              IsManipulationEnabled="True" PanningMode="VerticalOnly"
+                              Background="#0E1013">
+                    <StackPanel x:Name="ReportsPageHost" Margin="40,30,40,40" />
                 </ScrollViewer>
 
                 <!-- Phase 3.2 (2026-08-18) — Projects, promoted out of Settings.
@@ -1004,27 +1000,9 @@
                      change. Everything on this page is LOCAL. -->
                 <ScrollViewer x:Name="ProjectsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled" CanContentScroll="False"
-                              IsManipulationEnabled="True" PanningMode="VerticalOnly">
-                    <StackPanel Margin="20,20,20,32">
-                        <TextBlock Text="Projects" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                        <TextBlock Text="What your tasks belong to, and what a client is shown. You pick the project when you name a task — Ari never guesses one, and leaving a task untagged is fine."
-                                   FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,24" TextWrapping="Wrap" />
-
-                        <Border Style="{StaticResource RpPanelBorder}">
-                            <StackPanel>
-                                <TextBlock Text="NEW PROJECT" Style="{StaticResource RpSectionLabel}" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <TextBox x:Name="ProjectNewNameBox" Grid.Column="0" Style="{StaticResource RpTextBox}" Margin="0,0,8,0" VerticalAlignment="Center" KeyDown="ProjectNewNameBox_KeyDown" />
-                                    <Button x:Name="ProjectAddButton" Grid.Column="1" Content="Add" Style="{StaticResource RpPrimaryButton}" Click="ProjectAddButton_Click" />
-                                </Grid>
-                                <TextBlock x:Name="ProjectStatusText" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
-                            </StackPanel>
-                        </Border>
-
-                        <StackPanel x:Name="ProjectsList" Margin="0,4,0,0" />
-                        <TextBlock x:Name="ProjectsEmptyText" Text="No projects yet. Add one above, or tap “+ project” on the morning card when you name a task." Style="{StaticResource RpBody}" />
-                    </StackPanel>
+                              IsManipulationEnabled="True" PanningMode="VerticalOnly"
+                              Background="#0E1013">
+                    <StackPanel x:Name="ProjectsPageHost" Margin="40,30,40,40" />
                 </ScrollViewer>
 
 

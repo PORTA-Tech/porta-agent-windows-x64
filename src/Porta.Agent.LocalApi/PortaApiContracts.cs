@@ -998,10 +998,50 @@ public sealed record LocalApiProject(
     [property: JsonPropertyName("done_tasks")] int DoneTasks = 0,
     [property: JsonPropertyName("blocked_tasks")] int BlockedTasks = 0,
     [property: JsonPropertyName("in_progress_tasks")] int InProgressTasks = 0,
-    [property: JsonPropertyName("hours")] double Hours = 0);
+    [property: JsonPropertyName("hours")] double Hours = 0,
+    // Phase 3 rebuilt — the derived values and the reason for each, so the page can show a quiet
+    // grey hint where Ari worked something out and an amber one where only the user can answer.
+    [property: JsonPropertyName("status_reason")] string StatusReason = "",
+    [property: JsonPropertyName("start_day_reason")] string StartDayReason = "",
+    [property: JsonPropertyName("recipients_reason")] string RecipientsReason = "",
+    [property: JsonPropertyName("days_worked")] int DaysWorked = 0,
+    [property: JsonPropertyName("last_worked_label")] string LastWorkedLabel = "",
+    [property: JsonPropertyName("last_sent_label")] string LastSentLabel = "",
+    [property: JsonPropertyName("next_report_due")] string NextReportDue = "",
+    [property: JsonPropertyName("tasks")] IReadOnlyList<LocalApiProjectTask>? Tasks = null);
+
+// Phase 3 rebuilt — one task as the Projects page draws it. The colour slot is the SAME one the
+// report and every chart use, so a task is one colour everywhere for life.
+public sealed record LocalApiProjectTask(
+    [property: JsonPropertyName("task_id")] long TaskId,
+    [property: JsonPropertyName("label")] string Label,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("dates")] string Dates,
+    [property: JsonPropertyName("hours")] double Hours,
+    [property: JsonPropertyName("colour_slot")] int ColourSlot,
+    [property: JsonPropertyName("result_line")] string ResultLine);
 
 // Phase 3.2 — saving the engagement fields. Every field is nullable and a null means "leave this
 // one alone", so the page saves the field that changed and never the whole record.
+// Phase 3 rebuilt (2026-08-18) — the Tasks page's list.
+public sealed record LocalApiTaskRow(
+    [property: JsonPropertyName("task_id")] long TaskId,
+    [property: JsonPropertyName("label")] string Label,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("project_name")] string ProjectName,
+    [property: JsonPropertyName("is_untagged")] bool IsUntagged,
+    [property: JsonPropertyName("dates")] string Dates,
+    [property: JsonPropertyName("hours")] double Hours,
+    [property: JsonPropertyName("colour_slot")] int ColourSlot,
+    [property: JsonPropertyName("result_line")] string ResultLine,
+    [property: JsonPropertyName("last_worked_day")] string LastWorkedDay,
+    [property: JsonPropertyName("expected_finish_day")] string ExpectedFinishDay);
+
+public sealed record LocalApiTaskRowsResponse(
+    [property: JsonPropertyName("tasks")] IReadOnlyList<LocalApiTaskRow> Tasks,
+    [property: JsonPropertyName("timestamp_utc")] DateTimeOffset TimestampUtc);
+
+
 public sealed record LocalApiProjectEngagementRequest(
     [property: JsonPropertyName("schema_ver")] int SchemaVer,
     [property: JsonPropertyName("id")] long Id,

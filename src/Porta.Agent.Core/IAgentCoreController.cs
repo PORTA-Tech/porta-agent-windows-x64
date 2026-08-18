@@ -111,6 +111,14 @@ public interface IAgentCoreController
 
     /// <summary>Phase 3.2 — task counts and hours for one project. Progress is a count, never a percentage.</summary>
     AgentProjectStats ReadProjectStats(long projectId);
+    /// <summary>Phase 3 rebuilt — the projects page's cards, with every derived value resolved.</summary>
+    IReadOnlyList<AgentProjectCard> ReadProjectCards(bool includeArchived = false);
+
+    /// <summary>Phase 3 rebuilt — the work inside one project.</summary>
+    IReadOnlyList<AgentProjectTaskRow> ReadProjectTasks(long projectId);
+
+    /// <summary>Phase 3 rebuilt — every task, for the Tasks page.</summary>
+    IReadOnlyList<AgentTaskRow> ReadAllTaskRows();
     AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate);
 
     // Step 10 phase C/D — the address book (local only) and the record of what was sent.

@@ -95,6 +95,14 @@ public interface IBrainStateStore
 
     /// <summary>Phase 3.2 — task counts and hours for one project. Progress is a count, never a percentage.</summary>
     AgentProjectStats ReadProjectStats(long projectId);
+    /// <summary>Phase 3 rebuilt — the projects page's cards, with every derived value resolved.</summary>
+    IReadOnlyList<AgentProjectCard> ReadProjectCards(bool includeArchived = false);
+
+    /// <summary>Phase 3 rebuilt — the work inside one project.</summary>
+    IReadOnlyList<AgentProjectTaskRow> ReadProjectTasks(long projectId);
+
+    /// <summary>Phase 3 rebuilt — every task, for the Tasks page.</summary>
+    IReadOnlyList<AgentTaskRow> ReadAllTaskRows();
 
     // Step 10 phase B (2026-08-13) — the report as it stands, derived and never stored. Local only.
     AgentReportDraft ReadReportDraft(

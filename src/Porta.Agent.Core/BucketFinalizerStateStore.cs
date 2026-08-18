@@ -120,6 +120,14 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
 
     public AgentProjectStats ReadProjectStats(long projectId)
         => _inner.ReadProjectStats(projectId);
+    public IReadOnlyList<AgentProjectCard> ReadProjectCards(bool includeArchived = false)
+        => _inner.ReadProjectCards(includeArchived);
+
+    public IReadOnlyList<AgentProjectTaskRow> ReadProjectTasks(long projectId)
+        => _inner.ReadProjectTasks(projectId);
+
+    public IReadOnlyList<AgentTaskRow> ReadAllTaskRows()
+        => _inner.ReadAllTaskRows();
     public AgentReportDraft ReadReportDraft(long projectId, string fromLocalDate, string toLocalDate, TimeSpan localOffset)
         => _inner.ReadReportDraft(projectId, fromLocalDate, toLocalDate, localOffset);
 

@@ -691,7 +691,24 @@ public sealed record AgentProjectCard(
     bool ReportingFrequencyIsDerived,
     int DaysWorked,
     string LastWorkedDay,
-    string NextReportDue);
+    string NextReportDue,
+    // "no work in 9 days" — the fact behind a paused status, said in the quiet line rather than
+    // only inside the drawer.
+    string LastWorkedLabel = "",
+    // "Last sent 18 Aug", or empty when this project has never been reported on.
+    string LastSentLabel = "");
+
+// Phase 3 rebuilt (2026-08-18) — one task as the Projects page lists it inside a project.
+public sealed record AgentProjectTaskRow(
+    long TaskId, string Label, string Status, string Dates,
+    double Hours, int ColourSlot, string ResultLine);
+
+// Phase 3 rebuilt — one task as the Tasks page lists it. Untagged work is included and marked,
+// because it can never reach a client report and hiding it would make that invisible.
+public sealed record AgentTaskRow(
+    long TaskId, string Label, string Status, string ProjectName, bool IsUntagged,
+    string Dates, double Hours, int ColourSlot, string ResultLine,
+    string LastWorkedDay, string ExpectedFinishDay);
 
 // Digest redesign (2026-08-11) — one local hour of the day's shape. Seconds only, never a title:
 // this describes WHEN work happened, not what was open. Focus + Active + Away sum to at most 3600;

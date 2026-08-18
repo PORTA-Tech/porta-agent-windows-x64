@@ -1856,6 +1856,14 @@ public sealed class AgentCoreController : IAgentCoreController
 
     public AgentProjectStats ReadProjectStats(long projectId)
         => _stateStore.ReadProjectStats(projectId);
+    public IReadOnlyList<AgentProjectCard> ReadProjectCards(bool includeArchived = false)
+        => _stateStore.ReadProjectCards(includeArchived);
+
+    public IReadOnlyList<AgentProjectTaskRow> ReadProjectTasks(long projectId)
+        => _stateStore.ReadProjectTasks(projectId);
+
+    public IReadOnlyList<AgentTaskRow> ReadAllTaskRows()
+        => _stateStore.ReadAllTaskRows();
 
     /// <summary>
     /// Step 10 phase B — the report draft. The local offset is resolved HERE, the same place

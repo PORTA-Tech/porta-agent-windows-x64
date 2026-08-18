@@ -556,6 +556,26 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    /// <summary>Phase 3 rebuilt — the Tasks page's one list.</summary>
+    public async Task<LocalApiTaskRowsResponse?> GetTaskRowsAsync(CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            return await _httpClient.GetFromJsonAsync<LocalApiTaskRowsResponse>("/v1/tasks/rows", token)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<LocalApiReportDraftResponse?> GetReportDraftAsync(
         long projectId,
         string fromLocalDate,

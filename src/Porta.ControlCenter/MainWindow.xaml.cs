@@ -121,6 +121,7 @@ public partial class MainWindow : Window
         Tasks,
         Projects,
         Reports,
+        SendFlow,
         States,
         Account,
         Settings,
@@ -991,6 +992,10 @@ public partial class MainWindow : Window
     private void TasksNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Tasks);
+        if (!PreviewMode)
+        {
+            _ = RefreshTasksPageAsync();
+        }
     }
 
     private void ProjectsNavButton_Click(object sender, RoutedEventArgs e)
@@ -1010,7 +1015,7 @@ public partial class MainWindow : Window
         ShowSection(UiSection.Reports);
         if (!PreviewMode)
         {
-            _ = OpenReportsPageAsync();
+            _ = OpenReportsPageV2Async();
         }
     }
 
@@ -1097,6 +1102,7 @@ public partial class MainWindow : Window
                 activeNav = SettingsNavTracking; activeLabel = SettingsNavTrackingText; activeSection = SettingsSectionTracking;
                 ResetTrackingSections();
                 break;
+
             default:            activeNav = SettingsNavIntensity;   activeLabel = SettingsNavIntensityText;   activeSection = SettingsSectionIntensity;   break;
         }
         activeNav.Background   = activeBg;
@@ -1462,7 +1468,10 @@ public partial class MainWindow : Window
         TimelinePanel.Visibility = section == UiSection.Timeline ? Visibility.Visible : Visibility.Collapsed;
         TasksPanel.Visibility = section == UiSection.Tasks ? Visibility.Visible : Visibility.Collapsed;
         ProjectsPanel.Visibility = section == UiSection.Projects ? Visibility.Visible : Visibility.Collapsed;
-        ReportsPanel.Visibility = section == UiSection.Reports ? Visibility.Visible : Visibility.Collapsed;
+        // Phase 3 rebuilt — Reports is now the HISTORY page and what is waiting. ReportsPanel is
+        // the send flow, unchanged, reached from "Review and send" on that page.
+        ReportsPageV2Panel.Visibility = section == UiSection.Reports ? Visibility.Visible : Visibility.Collapsed;
+        ReportsPanel.Visibility = section == UiSection.SendFlow ? Visibility.Visible : Visibility.Collapsed;
         StatesPanel.Visibility = Visibility.Collapsed;
         AccountPanel.Visibility = section == UiSection.Account ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = section == UiSection.Settings ? Visibility.Visible : Visibility.Collapsed;
@@ -1475,6 +1484,7 @@ public partial class MainWindow : Window
             UiSection.Tasks => "Tasks",
             UiSection.Projects => "Projects",
             UiSection.Reports => "Reports",
+            UiSection.SendFlow => "Reports",
             UiSection.States => "System",
             UiSection.Account => "Account",
             UiSection.Settings => "Settings",
@@ -1486,7 +1496,7 @@ public partial class MainWindow : Window
         ApplyNavState(TimelineNavButton, section == UiSection.Timeline);
         ApplyNavState(TasksNavButton, section == UiSection.Tasks);
         ApplyNavState(ProjectsNavButton, section == UiSection.Projects);
-        ApplyNavState(ReportsNavButton, section == UiSection.Reports);
+        ApplyNavState(ReportsNavButton, section is UiSection.Reports or UiSection.SendFlow);
         ApplyNavState(StatesNavButton, false);
         ApplyNavState(AccountNavButton, section == UiSection.Account);
         ApplyNavState(SettingsNavButton, section == UiSection.Settings);

@@ -3214,10 +3214,49 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 ReportingFrequencyIsDerived: !frequencyGiven,
                 DaysWorked: span.DaysWorked,
                 LastWorkedDay: span.LastDay,
-                NextReportDue: DescribeNextReportDue(frequency, span.LastDay)));
+                NextReportDue: DescribeNextReportDue(frequency, span.LastDay),
+                LastWorkedLabel: DescribeLastWorked(span.LastDay),
+                LastSentLabel: ReadLastSentLabel(project.Id)));
         }
 
         return cards;
+    }
+
+    private static string DescribeLastWorked(string lastWorkedDay)
+    {
+        if (lastWorkedDay.Length == 0)
+        {
+            return "no work recorded yet";
+        }
+
+        int idle = IdleDays(lastWorkedDay);
+        return idle switch
+        {
+            <= 0 => "worked on today",
+            1 => "worked on yesterday",
+            _ => $"no work in {idle} days"
+        };
+    }
+
+    /// <summary>"Last sent 18 Aug", from this machine's own record. Empty if never reported on.</summary>
+    private string ReadLastSentLabel(long projectId)
+    {
+        using ReadGateLease _ = AcquireReadGate();
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            "SELECT sent_at_utc FROM sent_reports WHERE project_id = $id AND send_state = 'sent' "
+            + "ORDER BY sent_at_utc DESC LIMIT 1;";
+        cmd.Parameters.AddWithValue("$id", projectId);
+
+        object? value = cmd.ExecuteScalar();
+        return DateTimeOffset.TryParse(
+                   value as string ?? string.Empty,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   System.Globalization.DateTimeStyles.RoundtripKind,
+                   out DateTimeOffset sent)
+            ? $"Last sent {sent.ToLocalTime():d MMM}"
+            : string.Empty;
     }
 
     private static string DeriveStatus(string lastWorkedDay)
@@ -3343,6 +3382,105 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         "SELECT recipient_email FROM sent_reports "
         + "WHERE project_id = $id AND send_state = 'sent' AND recipient_email <> '' "
         + "ORDER BY sent_at_utc DESC LIMIT 1;";
+
+    /// <summary>
+    /// Phase 3 rebuilt (2026-08-18) — the work inside a project, as the Projects page lists it.
+    ///
+    /// Label is the CLIENT-FACING one where it exists, falling back to the raw title, because this
+    /// row is a preview of what a client reads. Colour slot is the same one the report uses, so a
+    /// task is one colour in every place it appears, for life.
+    /// </summary>
+    public IReadOnlyList<AgentProjectTaskRow> ReadProjectTasks(long projectId)
+    {
+        using ReadGateLease _ = AcquireReadGate();
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = ProjectTaskRowsSql;
+        cmd.Parameters.AddWithValue("$id", projectId);
+
+        var rows = new List<AgentProjectTaskRow>();
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            string status = reader.IsDBNull(2) ? "planned" : reader.GetString(2);
+            rows.Add(new AgentProjectTaskRow(
+                TaskId: reader.GetInt64(0),
+                Label: reader.GetString(1),
+                Status: status,
+                Dates: DescribeTaskDates(
+                    status,
+                    reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                    reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                    DateTimeOffset.Now.Offset),
+                Hours: Math.Round((reader.IsDBNull(5) ? 0d : reader.GetDouble(5)) / 3600d, 1),
+                ColourSlot: reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
+                ResultLine: reader.IsDBNull(7) ? string.Empty : reader.GetString(7)));
+        }
+
+        return rows;
+    }
+
+    private const string ProjectTaskRowsSql =
+        "SELECT t.id, "
+        + "  CASE WHEN t.client_label <> '' THEN t.client_label ELSE t.title END, "
+        + "  t.status, t.started_at_utc, t.completed_at_utc, "
+        + "  COALESCE((SELECT SUM(r.active_seconds) FROM app_usage_rollup r WHERE r.task_id = t.id), 0), "
+        + "  t.colour_slot, t.result_line "
+        + "FROM tasks t WHERE t.project_id = $id "
+        + "ORDER BY CASE t.status WHEN 'blocked' THEN 0 WHEN 'in_progress' THEN 1 "
+        + "                       WHEN 'planned' THEN 2 ELSE 3 END, t.id DESC;";
+
+    /// <summary>
+    /// Phase 3 rebuilt — every task, for the Tasks page. One list, filtered by the caller.
+    /// Untagged work is INCLUDED and says so: it can never reach a client report, and hiding it
+    /// would make that invisible rather than obvious.
+    /// </summary>
+    public IReadOnlyList<AgentTaskRow> ReadAllTaskRows()
+    {
+        using ReadGateLease _ = AcquireReadGate();
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = AllTaskRowsSql;
+
+        var rows = new List<AgentTaskRow>();
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            string status = reader.IsDBNull(2) ? "planned" : reader.GetString(2);
+            string lastDay = reader.IsDBNull(8) ? string.Empty : reader.GetString(8);
+            rows.Add(new AgentTaskRow(
+                TaskId: reader.GetInt64(0),
+                Label: reader.GetString(1),
+                Status: status,
+                ProjectName: reader.IsDBNull(9) ? string.Empty : reader.GetString(9),
+                IsUntagged: reader.GetInt64(10) == 0,
+                Dates: DescribeTaskDates(
+                    status,
+                    reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                    reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                    DateTimeOffset.Now.Offset),
+                Hours: Math.Round((reader.IsDBNull(5) ? 0d : reader.GetDouble(5)) / 3600d, 1),
+                ColourSlot: reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
+                ResultLine: reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
+                LastWorkedDay: lastDay,
+                ExpectedFinishDay: reader.IsDBNull(11) ? string.Empty : reader.GetString(11)));
+        }
+
+        return rows;
+    }
+
+    private const string AllTaskRowsSql =
+        "SELECT t.id, "
+        + "  CASE WHEN t.client_label <> '' THEN t.client_label ELSE t.title END, "
+        + "  t.status, t.started_at_utc, t.completed_at_utc, "
+        + "  COALESCE((SELECT SUM(r.active_seconds) FROM app_usage_rollup r WHERE r.task_id = t.id), 0), "
+        + "  t.colour_slot, t.result_line, "
+        + "  COALESCE((SELECT MAX(d.local_date) FROM task_day_hours d WHERE d.task_id = t.id), ''), "
+        + "  COALESCE(p.name, ''), t.project_id, t.expected_finish_day "
+        + "FROM tasks t LEFT JOIN projects p ON p.id = t.project_id "
+        + "WHERE t.state <> 'abandoned' "
+        + "ORDER BY CASE t.status WHEN 'blocked' THEN 0 WHEN 'in_progress' THEN 1 "
+        + "                       WHEN 'planned' THEN 2 ELSE 3 END, t.id DESC;";
 
     private static AgentProject MapProjectRow(SqliteDataReader reader)
         => new(

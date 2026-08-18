@@ -364,8 +364,8 @@ public static class LocalApiEndpointMapping
         // value that arrives here came from the user tapping something.
         api.MapGet("/projects", (IAgentCoreController controller, bool? includeArchived) =>
             new LocalApiProjectsResponse(
-                Projects: controller.GetProjects(includeArchived ?? false)
-                    .Select(p => ToApiProject(p, controller.ReadProjectStats(p.Id)))
+                Projects: controller.ReadProjectCards(includeArchived ?? false)
+                    .Select(card => ToApiProject(card, controller.ReadProjectTasks(card.Project.Id)))
                     .ToList()!,
                 TimestampUtc: DateTimeOffset.UtcNow));
 
@@ -511,6 +511,17 @@ public static class LocalApiEndpointMapping
                     Success: true, Reason: null, Project: ToApiProject(updated),
                     TimestampUtc: DateTimeOffset.UtcNow));
         });
+
+        // Phase 3 rebuilt (2026-08-18) — the Tasks page's one list. Untagged work is included and
+        // flagged: it can never reach a client report, and hiding it would make that invisible.
+        api.MapGet("/tasks/rows", (IAgentCoreController controller) =>
+            Results.Json(new LocalApiTaskRowsResponse(
+                controller.ReadAllTaskRows().Select(t => new LocalApiTaskRow(
+                    TaskId: t.TaskId, Label: t.Label, Status: t.Status,
+                    ProjectName: t.ProjectName, IsUntagged: t.IsUntagged, Dates: t.Dates,
+                    Hours: t.Hours, ColourSlot: t.ColourSlot, ResultLine: t.ResultLine,
+                    LastWorkedDay: t.LastWorkedDay, ExpectedFinishDay: t.ExpectedFinishDay)).ToList(),
+                DateTimeOffset.UtcNow)));
 
         api.MapGet("/reports/draft", (IAgentCoreController controller, long? projectId, string? from, string? to) =>
         {
@@ -1568,9 +1579,8 @@ public static class LocalApiEndpointMapping
                 ProjectName: task.ProjectName);
     }
 
-    // Phase 3.2 — stats are OPTIONAL here. The list endpoint passes them because the Projects page
-    // draws the counts; the single-project responses after a rename or a save do not, because the
-    // page already holds them and a second set of queries per keystroke would be waste.
+    // A single-project response after a rename or a save. The page refreshes the whole list
+    // afterwards, so this deliberately carries no derived values and no task rows.
     private static LocalApiProject ToApiProject(AgentProject project, AgentProjectStats? stats = null)
         => new(
             Id: project.Id,
@@ -1591,6 +1601,46 @@ public static class LocalApiEndpointMapping
             BlockedTasks: stats?.BlockedTasks ?? 0,
             InProgressTasks: stats?.InProgressTasks ?? 0,
             Hours: stats?.Hours ?? 0d);
+
+    /// <summary>
+    /// Phase 3 rebuilt — a project as the Projects page needs it: the EFFECTIVE value of every
+    /// derived field, the reason Ari gives for each, and the work inside it.
+    /// </summary>
+    private static LocalApiProject ToApiProject(AgentProjectCard card, IReadOnlyList<AgentProjectTaskRow> tasks)
+        => new(
+            Id: card.Project.Id,
+            Name: card.Project.Name,
+            Archived: card.Project.Archived,
+            CreatedAtUtc: card.Project.CreatedAtUtc,
+            ClientName: card.Project.ClientName,
+            UseClientLabels: card.Project.UseClientLabels,
+            RateMinor: card.Project.RateMinor,
+            RateCurrency: card.Project.RateCurrency,
+            Status: card.Status,
+            StartDay: card.StartDay,
+            CompletionDay: card.Project.CompletionDay,
+            Recipients: card.Recipients,
+            ReportingFrequency: card.ReportingFrequency,
+            TotalTasks: card.Stats.TotalTasks,
+            DoneTasks: card.Stats.DoneTasks,
+            BlockedTasks: card.Stats.BlockedTasks,
+            InProgressTasks: card.Stats.InProgressTasks,
+            Hours: card.Stats.Hours,
+            StatusReason: card.StatusReason,
+            StartDayReason: card.StartDayReason,
+            RecipientsReason: card.RecipientsReason,
+            DaysWorked: card.DaysWorked,
+            LastWorkedLabel: card.LastWorkedLabel,
+            LastSentLabel: card.LastSentLabel,
+            NextReportDue: card.NextReportDue,
+            Tasks: tasks.Select(t => new LocalApiProjectTask(
+                TaskId: t.TaskId,
+                Label: t.Label,
+                Status: t.Status,
+                Dates: t.Dates,
+                Hours: t.Hours,
+                ColourSlot: t.ColourSlot,
+                ResultLine: t.ResultLine)).ToList());
 
     private static LocalApiReportDraft ToApiReportDraft(AgentReportDraft draft)
         => new(
