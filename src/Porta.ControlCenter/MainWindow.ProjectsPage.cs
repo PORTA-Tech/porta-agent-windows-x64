@@ -24,6 +24,9 @@ public partial class MainWindow
 {
     private readonly HashSet<long> _openProjectDrawers = new();
 
+    /// <summary>Shown under the drawer when something the user typed could not be read.</summary>
+    private string _projectFieldNotice = string.Empty;
+
     private static readonly (string Key, string Label)[] StatusOptions =
     {
         ("active", "Active"), ("paused", "Paused"), ("complete", "Finished")
@@ -201,12 +204,14 @@ public partial class MainWindow
         bool canReport = p.ClientName.Trim().Length > 0 && (p.Recipients?.Count ?? 0) > 0;
         Button build = PageKit.PrimaryButton("Build a report", () =>
         {
-            // Navigating is not the same as LOADING. This showed the Reports section and never
-            // populated it, so the button led to a blank page every single time.
-            ShowSection(UiSection.Reports);
+            // Straight into the DRAFT BUILDER — the screen with the range, the preview and the
+            // send confirm. It used to open the Reports history page, which builds nothing: the
+            // button was named for one thing and did another, and landed on whichever tab happened
+            // to be selected. Opening a history list is not building a report.
+            ShowSection(UiSection.SendFlow);
             if (!PreviewMode)
             {
-                _ = OpenReportsPageV2Async();
+                _ = OpenReportBuilderForAsync(p.Id);
             }
         });
         if (!canReport)
@@ -305,7 +310,7 @@ public partial class MainWindow
             "Filled in from your first recorded work. Change it if the project really started earlier.",
             p.StartDay,
             "no work recorded yet",
-            v => _ = SetProjectEngagementAsync(p.Id, startDay: v)));
+            v => _ = SetProjectDayAsync(p.Id, v, isStart: true)));
 
         // 6 — asked, never decided.
         drawer.Children.Add(Field(
@@ -313,7 +318,13 @@ public partial class MainWindow
             "Leave this empty while the project is still running. Ari never decides this for you.",
             p.CompletionDay,
             "still running",
-            v => _ = SetProjectEngagementAsync(p.Id, completionDay: v)));
+            v => _ = SetProjectDayAsync(p.Id, v, isStart: false)));
+
+        if (_projectFieldNotice.Length > 0)
+        {
+            drawer.Children.Add(PageKit.Text(
+                _projectFieldNotice, 12.5, PageKit.Warn, margin: new Thickness(0, 0, 0, 6), wrap: true));
+        }
 
         return drawer;
     }
@@ -544,6 +555,46 @@ public partial class MainWindow
             .ConfigureAwait(true);
 
         await RefreshProjectsAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Opens the draft builder already pointed at the project the user pressed the button on.
+    /// Landing on the builder with a different project selected is its own small betrayal.
+    /// </summary>
+    private async Task OpenReportBuilderForAsync(long projectId)
+    {
+        await OpenReportsPageAsync().ConfigureAwait(true);
+
+        if (ReportProjectPicker.ItemsSource is IEnumerable<LocalApiProject> items)
+        {
+            int index = items.ToList().FindIndex(x => x.Id == projectId);
+            if (index >= 0)
+            {
+                ReportProjectPicker.SelectedIndex = index;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Saves one of the two dates, and NEVER blanks the field in silence. If the store cannot read
+    /// what was typed it says so and leaves the text where it is, so the user can correct it rather
+    /// than watch it disappear.
+    /// </summary>
+    private async Task SetProjectDayAsync(long id, string typed, bool isStart)
+    {
+        if (typed.Trim().Length > 0
+            && !Porta.Agent.Core.SqliteBrainStateStore.TryParseDayKey(typed, out _))
+        {
+            _projectFieldNotice = $"Couldn't read “{typed.Trim()}” as a date. Try 18 Aug 2026, or 2026-08-18.";
+            await RefreshProjectsAsync().ConfigureAwait(true);
+            return;
+        }
+
+        _projectFieldNotice = string.Empty;
+        await SetProjectEngagementAsync(
+            id,
+            startDay: isStart ? typed : null,
+            completionDay: isStart ? null : typed).ConfigureAwait(true);
     }
 
     private async Task SetProjectArchivedAsync(long id, bool archived)

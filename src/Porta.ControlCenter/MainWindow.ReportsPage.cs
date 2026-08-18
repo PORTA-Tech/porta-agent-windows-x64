@@ -124,7 +124,7 @@ public partial class MainWindow
             ShowSection(UiSection.SendFlow);
             if (!PreviewMode)
             {
-                _ = OpenReportsPageAsync();
+                _ = OpenReportBuilderForAsync(p.Id);
             }
         }));
         if (missingLines > 0)

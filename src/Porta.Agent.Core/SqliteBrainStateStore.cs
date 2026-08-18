@@ -2965,23 +2965,64 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
     /// A goal-day key or empty. Anything else becomes empty rather than being stored: these two
     /// dates are printed to a client, and a half-typed date is worse than no date.
     /// </summary>
-    private static string NormalizeDayKey(string? value)
+    /// <summary>
+    /// The forms a person actually types a date in. Accepting only "2026-08-18" and silently
+    /// storing empty for everything else is why these fields felt DEAD: you typed "18 Aug", it
+    /// vanished on blur, and nothing said why.
+    ///
+    /// Stored canonically as yyyy-MM-dd either way. Anything genuinely unreadable is still refused,
+    /// but it is refused OUT LOUD by the caller rather than blanked.
+    /// </summary>
+    private static readonly string[] DayKeyFormats =
     {
+        "yyyy-MM-dd", "yyyy/MM/dd", "dd-MM-yyyy", "dd/MM/yyyy", "d/M/yyyy", "d-M-yyyy",
+        "d MMM yyyy", "d MMMM yyyy", "MMM d yyyy", "MMMM d yyyy", "d MMM", "d MMMM"
+    };
+
+    public static bool TryParseDayKey(string? value, out string dayKey)
+    {
+        dayKey = string.Empty;
         string trimmed = (value ?? string.Empty).Trim();
         if (trimmed.Length == 0)
         {
-            return string.Empty;
+            // Empty is a valid, permanent answer: the project has not finished, or work has not
+            // started. It is never an error.
+            return true;
         }
 
-        return DateTime.TryParseExact(
-            trimmed,
-            "yyyy-MM-dd",
-            System.Globalization.CultureInfo.InvariantCulture,
-            System.Globalization.DateTimeStyles.None,
-            out _)
-            ? trimmed
-            : string.Empty;
+        foreach (string format in DayKeyFormats)
+        {
+            if (DateTime.TryParseExact(
+                    trimmed, format,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None,
+                    out DateTime exact))
+            {
+                // "d MMM" carries no year, so it means the current one rather than year 1.
+                if (exact.Year == 1)
+                {
+                    exact = new DateTime(DateTime.Now.Year, exact.Month, exact.Day);
+                }
+
+                dayKey = exact.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+                return true;
+            }
+        }
+
+        // Last resort: whatever this machine's own locale considers a date.
+        if (DateTime.TryParse(
+                trimmed, System.Globalization.CultureInfo.CurrentCulture,
+                System.Globalization.DateTimeStyles.None, out DateTime loose))
+        {
+            dayKey = loose.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        return false;
     }
+
+    private static string NormalizeDayKey(string? value)
+        => TryParseDayKey(value, out string dayKey) ? dayKey : string.Empty;
 
     /// <summary>
     /// The per-project recipient list, stored as a JSON array on the project row.

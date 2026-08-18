@@ -81,6 +81,15 @@ internal static class ReportsPagePreview
             SavePagePng(window.PreviewPageBody(state.Section), pageFile);
             Console.WriteLine(Path.GetFileName(pageFile));
 
+            if (state.Name.Contains("drawer open", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("  -- field probe --");
+                foreach (string line in window.PreviewProbeProjectFields())
+                {
+                    Console.WriteLine("     " + line);
+                }
+            }
+
             window.Close();
         }
 
@@ -339,6 +348,9 @@ internal static class ReportsPagePreview
         new("tasks upcoming", "Tasks", w => w.PreviewFillTasks(SampleTasks, "upcoming"), Height: 900),
         new("tasks in progress", "Tasks", w => w.PreviewFillTasks(SampleTasks, "prog"), Height: 900),
         new("tasks blocked", "Tasks", w => w.PreviewFillTasks(SampleTasks, "block"), Height: 900),
+        new("step2 builder from build-a-report", "Reports",
+            w => Console.WriteLine("     WALK: " + w.PreviewWalkBuildAReport([ProjectWithWork], SampleDraft)),
+            Height: 1560),
         new("projects with work", "Projects", w => w.PreviewFillProjects([ProjectWithWork]), Height: 1500),
         new("projects with work drawer open", "Projects",
             w => w.PreviewFillProjectsWithDrawer([ProjectWithWork]), Height: 1900),

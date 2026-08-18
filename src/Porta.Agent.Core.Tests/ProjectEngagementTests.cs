@@ -120,19 +120,35 @@ public sealed class ProjectEngagementTests
     }
 
     [Fact]
-    public void AHalfTypedDateIsStoredAsNothing_NeverAsItself()
+    public void ADateIsAcceptedInTheFormsAPersonActuallyTypes()
     {
         RunWithStore(store =>
         {
             AgentProject project = store.CreateProject("Kestrel", Now)!;
 
-            AgentProject? saved = store.SetProjectEngagement(project.Id, startDay: "2026-8");
-            // A date printed to a paying client is either real or absent.
-            Assert.Equal(string.Empty, saved!.StartDay);
-
-            saved = store.SetProjectEngagement(project.Id, startDay: "not a date");
-            Assert.Equal(string.Empty, saved!.StartDay);
+            // Accepting only "2026-08-18" is why these fields felt dead: you typed "18 Aug 2026",
+            // it was silently stored as empty, and the box came back blank with no explanation.
+            foreach (string typed in new[] { "2026-08-18", "18 Aug 2026", "18/08/2026", "18 August 2026" })
+            {
+                AgentProject? saved = store.SetProjectEngagement(project.Id, startDay: typed);
+                Assert.Equal("2026-08-18", saved!.StartDay);
+            }
         });
+    }
+
+    [Fact]
+    public void SomethingUnreadableIsRefused_AndTheCallerCanTellTheDifference()
+    {
+        // The page needs to distinguish "empty on purpose" from "I could not read that", because
+        // one is a valid answer and the other has to be said out loud instead of blanking a field.
+        Assert.True(SqliteBrainStateStore.TryParseDayKey("", out string empty));
+        Assert.Equal(string.Empty, empty);
+
+        Assert.False(SqliteBrainStateStore.TryParseDayKey("not a date", out _));
+        Assert.False(SqliteBrainStateStore.TryParseDayKey("banana", out _));
+
+        Assert.True(SqliteBrainStateStore.TryParseDayKey("18 Aug 2026", out string parsed));
+        Assert.Equal("2026-08-18", parsed);
     }
 
     [Fact]

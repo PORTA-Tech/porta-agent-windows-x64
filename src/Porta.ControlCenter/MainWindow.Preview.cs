@@ -38,6 +38,12 @@ public partial class MainWindow
             case "Tasks":
                 ShowSection(UiSection.Tasks);
                 break;
+            case "Reports":
+                // The send flow lives in its own section now. Routing it through Settings landed
+                // on Intensity, so the confirm screen rendered the wrong page entirely and could
+                // not be reviewed at all.
+                ShowSection(UiSection.SendFlow);
+                break;
             default:
                 ShowSection(UiSection.Settings);
                 ShowSettingsSection(settingsSection);
@@ -53,6 +59,80 @@ public partial class MainWindow
     /// to the work area, so a long report is cut off in a full-window shot no matter how tall the
     /// window is asked to be.
     /// </summary>
+    /// <summary>
+    /// Answers "is this field actually clickable and typeable", which reading the code cannot.
+    /// Hit-tests the centre of every TextBox on the Projects page and reports which element the
+    /// click would really land on, plus whether the box can take focus and keyboard input.
+    /// </summary>
+    internal IReadOnlyList<string> PreviewProbeProjectFields()
+    {
+        var report = new List<string>();
+        foreach (TextBox box in FindVisualChildren<TextBox>(ProjectsPageHost))
+        {
+            Point centre = box.TranslatePoint(
+                new Point(box.ActualWidth / 2, box.ActualHeight / 2), ProjectsPageHost);
+            IInputElement? hit = ProjectsPageHost.InputHitTest(centre);
+            bool focused = box.Focus();
+
+            report.Add(string.Join("  |  ",
+                $"box=\"{(box.Tag as string ?? "?")}\"",
+                $"size={box.ActualWidth:0}x{box.ActualHeight:0}",
+                $"hit={(hit?.GetType().Name ?? "NOTHING")}",
+                $"clickReachesBox={ReferenceEquals(hit, box)}",
+                $"focusable={box.Focusable}",
+                $"readOnly={box.IsReadOnly}",
+                $"tookFocus={focused}"));
+        }
+
+        return report;
+    }
+
+    private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
+    {
+        int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (T nested in FindVisualChildren<T>(child))
+            {
+                yield return nested;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Walks the real path a person takes: press Build a report on a project, land in the DRAFT
+    /// BUILDER with that project and a range already set. Returns what the builder is actually
+    /// showing, so "it opened" can be checked rather than assumed.
+    /// </summary>
+    internal string PreviewWalkBuildAReport(IReadOnlyList<LocalApiProject> projects, LocalApiReportDraft draft)
+    {
+        RenderProjectsPage(projects);
+
+        // Exactly what the button's handler does.
+        ShowSection(UiSection.SendFlow);
+        ReportProjectPicker.ItemsSource = projects;
+        ReportProjectPicker.SelectedIndex = 0;
+        ReportFromPicker.SelectedDate = DateTime.Today.AddDays(-6);
+        ReportToPicker.SelectedDate = DateTime.Today;
+        PreviewFillReport(draft);
+        UpdateLayout();
+
+        var picked = ReportProjectPicker.SelectedItem as LocalApiProject;
+        return string.Join("  |  ",
+            $"section=SendFlow",
+            $"builderVisible={ReportsPanel.Visibility}",
+            $"historyVisible={ReportsPageV2Panel.Visibility}",
+            $"project={picked?.ClientName ?? "NONE"}",
+            $"range={ReportFromPicker.SelectedDate:yyyy-MM-dd}..{ReportToPicker.SelectedDate:yyyy-MM-dd}",
+            $"draftLines={draft.Lines.Count}");
+    }
+
     internal FrameworkElement PreviewPageBody(string settingsSection)
         => settingsSection switch
         {
