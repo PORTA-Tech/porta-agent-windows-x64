@@ -297,6 +297,18 @@ public sealed class LocalApiRouteStartupSmokeTests
         public AgentProject? SetProjectClientName(long id, string clientName) => throw new NotSupportedException();
         public AgentProject? SetProjectLabelStyle(long id, bool useClientLabels) => throw new NotSupportedException();
         public AgentProject? SetProjectRate(long id, long rateMinor, string currency) => throw new NotSupportedException();
+
+        public AgentProject? SetProjectEngagement(long id, string? status, string? startDay, string? completionDay, IReadOnlyList<string>? recipients, string? reportingFrequency) => null;
+
+        public AgentProjectStats ReadProjectStats(long projectId) => new(projectId, 0, 0, 0, 0, 0d);
+
+        public IReadOnlyList<AgentProjectCard> ReadProjectCards(bool includeArchived = false) => System.Array.Empty<AgentProjectCard>();
+
+        public IReadOnlyList<AgentProjectTaskRow> ReadProjectTasks(long projectId) => System.Array.Empty<AgentProjectTaskRow>();
+
+        public IReadOnlyList<AgentTaskRow> ReadAllTaskRows() => System.Array.Empty<AgentTaskRow>();
+
+        public bool SetSentReportArchived(string reportId, bool archived) => false;
         public AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate) => throw new NotSupportedException();
 
     // Step 10 phase C/D — inert stubs, same reasoning as above.

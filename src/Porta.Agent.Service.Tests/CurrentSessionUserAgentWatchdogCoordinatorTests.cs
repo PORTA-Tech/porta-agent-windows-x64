@@ -254,6 +254,18 @@ public sealed class CurrentSessionUserAgentWatchdogCoordinatorTests
         public Porta.Agent.Core.AgentProject? SetProjectClientName(long id, string clientName) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? SetProjectLabelStyle(long id, bool useClientLabels) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentProject? SetProjectRate(long id, long rateMinor, string currency) => throw new NotSupportedException();
+
+        public Porta.Agent.Core.AgentProject? SetProjectEngagement(long id, string? status, string? startDay, string? completionDay, IReadOnlyList<string>? recipients, string? reportingFrequency) => throw new NotSupportedException();
+
+        public Porta.Agent.Core.AgentProjectStats ReadProjectStats(long projectId) => throw new NotSupportedException();
+
+        public IReadOnlyList<Porta.Agent.Core.AgentProjectCard> ReadProjectCards(bool includeArchived = false) => throw new NotSupportedException();
+
+        public IReadOnlyList<Porta.Agent.Core.AgentProjectTaskRow> ReadProjectTasks(long projectId) => throw new NotSupportedException();
+
+        public IReadOnlyList<Porta.Agent.Core.AgentTaskRow> ReadAllTaskRows() => throw new NotSupportedException();
+
+        public bool SetSentReportArchived(string reportId, bool archived) => throw new NotSupportedException();
         public Porta.Agent.Core.AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate) => throw new NotSupportedException();
 
         // Step 10 phase C/D — this controller is deliberately unusable; the watchdog tests never
