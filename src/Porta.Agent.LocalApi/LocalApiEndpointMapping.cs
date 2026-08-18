@@ -364,7 +364,9 @@ public static class LocalApiEndpointMapping
         // value that arrives here came from the user tapping something.
         api.MapGet("/projects", (IAgentCoreController controller, bool? includeArchived) =>
             new LocalApiProjectsResponse(
-                Projects: controller.GetProjects(includeArchived ?? false).Select(ToApiProject).ToList()!,
+                Projects: controller.GetProjects(includeArchived ?? false)
+                    .Select(p => ToApiProject(p, controller.ReadProjectStats(p.Id)))
+                    .ToList()!,
                 TimestampUtc: DateTimeOffset.UtcNow));
 
         api.MapPost("/projects", (IAgentCoreController controller, LocalApiProjectCreateRequest? request) =>
@@ -429,6 +431,42 @@ public static class LocalApiEndpointMapping
                     Success: false, Task: null, TimestampUtc: DateTimeOffset.UtcNow))
                 : Results.Json(new LocalApiTaskActResponse(
                     Success: true, Task: ToApiTask(updated), TimestampUtc: DateTimeOffset.UtcNow));
+        });
+
+        // Phase 3.2 (2026-08-18) — the Projects page saves the engagement fields here.
+        //
+        // These columns were added by the v30 migration and then had no setter at all, which is why
+        // the report could describe a date range but never say where that range sat inside the job.
+        //
+        // LOCAL ONLY, and the recipient list especially: it is stored on the project row on this
+        // machine, and only the single address on a report actually being sent ever leaves it.
+        api.MapPost("/projects/engagement", (IAgentCoreController controller, LocalApiProjectEngagementRequest? request) =>
+        {
+            if (request is null || request.SchemaVer != 1 || request.Id <= 0)
+            {
+                return Results.BadRequest(new LocalApiProjectResponse(
+                    Success: false, Reason: "invalid_payload_or_schema", Project: null,
+                    TimestampUtc: DateTimeOffset.UtcNow));
+            }
+
+            AgentProject? updated = controller.SetProjectEngagement(
+                request.Id,
+                request.Status,
+                request.StartDay,
+                request.CompletionDay,
+                request.Recipients,
+                request.ReportingFrequency);
+
+            // Null means the store refused a value it does not recognise. Refusing is deliberate:
+            // an unknown status would group wrongly in the report rather than fail visibly here.
+            return updated is null
+                ? Results.BadRequest(new LocalApiProjectResponse(
+                    Success: false, Reason: "not_found_or_invalid_value", Project: null,
+                    TimestampUtc: DateTimeOffset.UtcNow))
+                : Results.Json(new LocalApiProjectResponse(
+                    Success: true, Reason: null,
+                    Project: ToApiProject(updated, controller.ReadProjectStats(updated.Id)),
+                    TimestampUtc: DateTimeOffset.UtcNow));
         });
 
         api.MapPost("/projects/client", (IAgentCoreController controller, LocalApiProjectClientRequest? request) =>
@@ -1530,7 +1568,10 @@ public static class LocalApiEndpointMapping
                 ProjectName: task.ProjectName);
     }
 
-    private static LocalApiProject ToApiProject(AgentProject project)
+    // Phase 3.2 — stats are OPTIONAL here. The list endpoint passes them because the Projects page
+    // draws the counts; the single-project responses after a rename or a save do not, because the
+    // page already holds them and a second set of queries per keystroke would be waste.
+    private static LocalApiProject ToApiProject(AgentProject project, AgentProjectStats? stats = null)
         => new(
             Id: project.Id,
             Name: project.Name,
@@ -1539,7 +1580,17 @@ public static class LocalApiEndpointMapping
             ClientName: project.ClientName,
             UseClientLabels: project.UseClientLabels,
             RateMinor: project.RateMinor,
-            RateCurrency: project.RateCurrency);
+            RateCurrency: project.RateCurrency,
+            Status: project.Status,
+            StartDay: project.StartDay,
+            CompletionDay: project.CompletionDay,
+            Recipients: project.Recipients ?? System.Array.Empty<string>(),
+            ReportingFrequency: project.ReportingFrequency,
+            TotalTasks: stats?.TotalTasks ?? 0,
+            DoneTasks: stats?.DoneTasks ?? 0,
+            BlockedTasks: stats?.BlockedTasks ?? 0,
+            InProgressTasks: stats?.InProgressTasks ?? 0,
+            Hours: stats?.Hours ?? 0d);
 
     private static LocalApiReportDraft ToApiReportDraft(AgentReportDraft draft)
         => new(

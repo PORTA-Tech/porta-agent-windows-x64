@@ -81,6 +81,21 @@ public interface IBrainStateStore
     AgentProject? SetProjectLabelStyle(long id, bool useClientLabels);
     AgentProject? SetProjectRate(long id, long rateMinor, string currency);
 
+    /// <summary>
+    /// Phase 3.2 — the engagement fields behind the Projects page. A null argument leaves that
+    /// column untouched, so one field can be saved without sending the whole record back.
+    /// </summary>
+    AgentProject? SetProjectEngagement(
+        long id,
+        string? status = null,
+        string? startDay = null,
+        string? completionDay = null,
+        IReadOnlyList<string>? recipients = null,
+        string? reportingFrequency = null);
+
+    /// <summary>Phase 3.2 — task counts and hours for one project. Progress is a count, never a percentage.</summary>
+    AgentProjectStats ReadProjectStats(long projectId);
+
     // Step 10 phase B (2026-08-13) — the report as it stands, derived and never stored. Local only.
     AgentReportDraft ReadReportDraft(
         long projectId,

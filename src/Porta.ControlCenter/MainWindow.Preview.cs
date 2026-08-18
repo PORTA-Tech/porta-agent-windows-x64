@@ -39,7 +39,7 @@ public partial class MainWindow
     /// window is asked to be.
     /// </summary>
     internal FrameworkElement PreviewPageBody(string settingsSection)
-        => settingsSection == "Projects" ? SettingsSectionProjects : SettingsSectionReports;
+        => settingsSection == "Projects" ? ProjectsPanel : ReportsPanel;
 
     /// <summary>
     /// Open the "from" date picker's calendar and put it in a given mode, so the popup can be

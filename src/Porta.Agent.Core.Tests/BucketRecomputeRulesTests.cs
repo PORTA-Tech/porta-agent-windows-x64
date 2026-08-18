@@ -182,6 +182,8 @@ public sealed class BucketRecomputeRulesTests
         public AgentProject? SetProjectClientName(long id, string clientName) => null;
         public AgentProject? SetProjectLabelStyle(long id, bool useClientLabels) => null;
         public AgentProject? SetProjectRate(long id, long rateMinor, string currency) => null;
+        public AgentProject? SetProjectEngagement(long id, string? status, string? startDay, string? completionDay, IReadOnlyList<string>? recipients, string? reportingFrequency) => null;
+        public AgentProjectStats ReadProjectStats(long projectId) => new(projectId, 0, 0, 0, 0, 0d);
         public AgentReportDraft ReadReportDraft(long projectId, string fromLocalDate, string toLocalDate, TimeSpan localOffset)
             => new(projectId, "", "", fromLocalDate, toLocalDate, 0d, 0, 0, System.Array.Empty<AgentReportLine>(), System.Array.Empty<AgentReportDay>());
         public IReadOnlyList<AgentAppUsageHour> ReadAppUsage(DateTimeOffset fromUtc, DateTimeOffset toUtc, TimeSpan localOffset) => System.Array.Empty<AgentAppUsageHour>();

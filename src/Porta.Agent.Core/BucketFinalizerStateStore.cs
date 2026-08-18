@@ -108,6 +108,18 @@ public sealed class BucketFinalizerStateStore : IBrainStateStore, IBucketFinaliz
         => _inner.SetProjectLabelStyle(id, useClientLabels);
     public AgentProject? SetProjectRate(long id, long rateMinor, string currency)
         => _inner.SetProjectRate(id, rateMinor, currency);
+
+    public AgentProject? SetProjectEngagement(
+        long id,
+        string? status,
+        string? startDay,
+        string? completionDay,
+        IReadOnlyList<string>? recipients,
+        string? reportingFrequency)
+        => _inner.SetProjectEngagement(id, status, startDay, completionDay, recipients, reportingFrequency);
+
+    public AgentProjectStats ReadProjectStats(long projectId)
+        => _inner.ReadProjectStats(projectId);
     public AgentReportDraft ReadReportDraft(long projectId, string fromLocalDate, string toLocalDate, TimeSpan localOffset)
         => _inner.ReadReportDraft(projectId, fromLocalDate, toLocalDate, localOffset);
 

@@ -469,20 +469,7 @@
                             <TextBlock Text="Today" FontSize="13" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
-                    <Button x:Name="TimelineNavButton" Style="{StaticResource NavButtonStyle}" Click="TimelineNavButton_Click">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
-                                <Canvas Width="24" Height="24">
-                                    <Path Fill="Transparent"
-                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                                          StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                          Data="M4 19L8 13l4 4 4-8 4 4" />
-                                </Canvas>
-                            </Viewbox>
-                            <TextBlock Text="History" FontSize="13" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="InterventionsNavButton" Style="{StaticResource NavButtonStyle}" Click="InterventionsNavButton_Click">
+                    <Button x:Name="TasksNavButton" Style="{StaticResource NavButtonStyle}" Click="TasksNavButton_Click">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
                                 <Canvas Width="24" Height="24">
@@ -492,10 +479,10 @@
                                           Data="M13 3L5 14h7l-1 7 9-11h-7z" />
                                 </Canvas>
                             </Viewbox>
-                            <TextBlock Text="Actions" FontSize="13" VerticalAlignment="Center" />
+                            <TextBlock Text="Tasks" FontSize="13" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
-                    <Button x:Name="InputsNavButton" Style="{StaticResource NavButtonStyle}" Click="InputsNavButton_Click">
+                    <Button x:Name="ProjectsNavButton" Style="{StaticResource NavButtonStyle}" Click="ProjectsNavButton_Click">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
                                 <Canvas Width="24" Height="24">
@@ -505,19 +492,25 @@
                                           Data="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7zm10-3a3 3 0 1 1 0 6 3 3 0 0 1 0-6z" />
                                 </Canvas>
                             </Viewbox>
-                            <TextBlock Text="Tracking" FontSize="13" VerticalAlignment="Center" />
+                            <TextBlock Text="Projects" FontSize="13" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="ReportsNavButton" Style="{StaticResource NavButtonStyle}" Click="ReportsNavButton_Click">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
+                                <Canvas Width="24" Height="24">
+                                    <Path Fill="Transparent"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          Data="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm3 9h7m-7 4h7m-7-8h3" />
+                                </Canvas>
+                            </Viewbox>
+                            <TextBlock Text="Reports" FontSize="13" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                     <Button x:Name="StatesNavButton" Style="{StaticResource NavButtonStyle}" Click="StatesNavButton_Click" Visibility="Collapsed">
                         <TextBlock Text="Advanced" FontSize="13" VerticalAlignment="Center" />
                     </Button>
-                </StackPanel>
-
-                <!-- Divider -->
-                <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource PortaDividerBrush}" Margin="16,6,16,6" />
-
-                <!-- Secondary nav -->
-                <StackPanel DockPanel.Dock="Top">
                     <Button x:Name="SettingsNavButton" Style="{StaticResource NavButtonStyle}" Click="SettingsNavButton_Click">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
@@ -529,6 +522,26 @@
                                 </Canvas>
                             </Viewbox>
                             <TextBlock Text="Settings" FontSize="13" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <!-- Divider -->
+                <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource PortaDividerBrush}" Margin="16,6,16,6" />
+
+                <!-- Secondary nav -->
+                <StackPanel DockPanel.Dock="Top">
+                    <Button x:Name="TimelineNavButton" Style="{StaticResource NavButtonStyle}" Click="TimelineNavButton_Click">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Viewbox Width="15" Height="15" Margin="0,0,9,0" VerticalAlignment="Center">
+                                <Canvas Width="24" Height="24">
+                                    <Path Fill="Transparent"
+                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                          StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          Data="M4 19L8 13l4 4 4-8 4 4" />
+                                </Canvas>
+                            </Viewbox>
+                            <TextBlock Text="History" FontSize="13" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                     <Button x:Name="AccountNavButton" Style="{StaticResource NavButtonStyle}" Click="AccountNavButton_Click">
@@ -962,10 +975,609 @@
                         <TextBlock x:Name="DebugFooterText" Margin="0,6,0,0" Foreground="#F59E0B" FontFamily="Consolas" FontSize="11" Text="" Visibility="Collapsed" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>
-                <ScrollViewer x:Name="InputsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"
+                <!-- Phase 3.1 (2026-08-18) — Tasks. A SHELL this session, deliberately.
+                     The nav is being made final now so it is only learned once; the page behind
+                     this entry is built in its own session. An honest empty state beats a
+                     half-built list that has to be relearned. -->
+                <ScrollViewer x:Name="TasksPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled" CanContentScroll="False"
                               IsManipulationEnabled="True" PanningMode="VerticalOnly">
                     <StackPanel Margin="20,20,20,32">
+                        <TextBlock Text="Tasks" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
+                        <TextBlock Text="One list of everything, with filters for today, this week, in progress, blocked and complete."
+                                   FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,24" TextWrapping="Wrap" />
+                        <Border Style="{StaticResource RpPanelBorder}">
+                            <StackPanel>
+                                <TextBlock Text="NOT BUILT YET" Style="{StaticResource RpSectionLabel}" />
+                                <TextBlock Style="{StaticResource RpBody}" TextWrapping="Wrap"
+                                           Text="This page is next. Your tasks are being recorded and nothing is waiting on it — you can still see them on Today and inside each project." />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- Phase 3.2 (2026-08-18) — Projects, promoted out of Settings.
+                     A project is the ENGAGEMENT: who it is for, whether it is running, when it
+                     started, when it finished, who its reports go to, and how often. The rows and
+                     every field editor inside them are built in MainWindow.Projects.cs, because a
+                     project's shape is data and repeating it in markup would mean two places to
+                     change. Everything on this page is LOCAL. -->
+                <ScrollViewer x:Name="ProjectsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled" CanContentScroll="False"
+                              IsManipulationEnabled="True" PanningMode="VerticalOnly">
+                    <StackPanel Margin="20,20,20,32">
+                        <TextBlock Text="Projects" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
+                        <TextBlock Text="What your tasks belong to, and what a client is shown. You pick the project when you name a task — Ari never guesses one, and leaving a task untagged is fine."
+                                   FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,24" TextWrapping="Wrap" />
+
+                        <Border Style="{StaticResource RpPanelBorder}">
+                            <StackPanel>
+                                <TextBlock Text="NEW PROJECT" Style="{StaticResource RpSectionLabel}" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBox x:Name="ProjectNewNameBox" Grid.Column="0" Style="{StaticResource RpTextBox}" Margin="0,0,8,0" VerticalAlignment="Center" KeyDown="ProjectNewNameBox_KeyDown" />
+                                    <Button x:Name="ProjectAddButton" Grid.Column="1" Content="Add" Style="{StaticResource RpPrimaryButton}" Click="ProjectAddButton_Click" />
+                                </Grid>
+                                <TextBlock x:Name="ProjectStatusText" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel x:Name="ProjectsList" Margin="0,4,0,0" />
+                        <TextBlock x:Name="ProjectsEmptyText" Text="No projects yet. Add one above, or tap “+ project” on the morning card when you name a task." Style="{StaticResource RpBody}" />
+                    </StackPanel>
+                </ScrollViewer>
+
+
+                <!-- Phase 3.1 (2026-08-18) — Reports, promoted out of Settings. The send flow
+                     is unchanged; only where it lives has changed. The Drafts / Ready / Sent /
+                     Archived history is a separate session and is deliberately not started. -->
+                <ScrollViewer x:Name="ReportsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled" CanContentScroll="False"
+                              IsManipulationEnabled="True" PanningMode="VerticalOnly">
+                    <StackPanel Margin="20,20,20,32">
+                            <!-- Step 10 — the Reports page. The DRAFT is local and derived: rebuilt
+                                 on every request, never stored. The stored thing is the snapshot
+                                 taken when a report is actually sent.
+
+                                 Sending is BUILT (phase C/D). The draft leads to SEND TO, which
+                                 leads to the confirm screen, where the Send button lives. It sits
+                                 there and not here on purpose: the address is chosen on one screen
+                                 and checked on the next, because a send cannot be undone. -->
+                                <TextBlock Text="Reports" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
+                                <TextBlock Text="A client's account of the work: measured hours, per project, over a range of days. Nothing here is sent anywhere yet - this is the draft, so you can see whether it tells the truth before it can ever leave the machine." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
+
+                                <Border Style="{StaticResource RpPanelBorder}">
+                                    <StackPanel>
+                                        <TextBlock Text="PROJECT AND RANGE" Style="{StaticResource RpSectionLabel}" />
+                                        <Grid Margin="0,0,0,10">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <!-- An explicit ItemTemplate, not DisplayMemberPath: the picker
+                                                 otherwise falls back to the record's ToString() and prints
+                                                 the whole object. It must not depend on one code path
+                                                 having run first. -->
+                                            <ComboBox x:Name="ReportProjectPicker" Grid.Column="0" Style="{StaticResource RpComboBox}" Margin="0,0,8,0" VerticalAlignment="Center">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                            <!-- AriDatePicker, not DatePicker: "8/12/2026" means two different
+                                                 days depending on where the reader lives, and this range ends
+                                                 up on a document about which days were worked. -->
+                                            <ctl:AriDatePicker x:Name="ReportFromPicker" Grid.Column="1" Style="{StaticResource RpDatePicker}" Width="150" Margin="0,0,8,0" VerticalAlignment="Center" SelectedDateChanged="ReportRangeChanged" />
+                                            <ctl:AriDatePicker x:Name="ReportToPicker" Grid.Column="2" Style="{StaticResource RpDatePicker}" Width="150" Margin="0,0,8,0" VerticalAlignment="Center" SelectedDateChanged="ReportRangeChanged" />
+                                            <Button x:Name="ReportBuildButton" Grid.Column="3" Content="Build draft" Style="{StaticResource RpPrimaryButton}" VerticalAlignment="Center" Click="ReportBuildButton_Click" />
+                                        </Grid>
+                                        <TextBlock x:Name="ReportStatusText" Style="{StaticResource RpMeta}" />
+                                        <!-- Two different ranges on one screen, with nothing saying
+                                             which one the figures belong to, is the exact ambiguity
+                                             this document cannot carry. -->
+                                        <TextBlock x:Name="ReportStaleText" Style="{StaticResource RpMeta}" Margin="0,6,0,0" Visibility="Collapsed"
+                                                   Text="These dates have changed since the draft below was built, so the figures still belong to the old range. Press Build draft again." />
+                                    </StackPanel>
+                                </Border>
+
+                                <StackPanel x:Name="ReportDraftPanel" Visibility="Collapsed">
+
+                                    <!-- The report itself sits on the card colour, one shade below
+                                         the panels around it, so it reads as the document rather
+                                         than as another section of settings. -->
+                                    <Border Background="{StaticResource RpCard}"
+                                            BorderBrush="{StaticResource RpHairline}"
+                                            BorderThickness="0.5"
+                                            CornerRadius="{StaticResource RpCornerOuter}"
+                                            Padding="20" Margin="0,0,0,14">
+                                        <StackPanel>
+                                            <TextBlock x:Name="ReportHeaderText" FontSize="22" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" Margin="0,0,0,2" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="ReportRangeText" Style="{StaticResource RpBody}" Margin="0,0,0,18" />
+
+                                            <Border Background="{StaticResource RpPanel}"
+                                                    BorderBrush="{StaticResource RpHairline}"
+                                                    BorderThickness="0.5"
+                                                    CornerRadius="{StaticResource RpCornerInner}"
+                                                    Padding="16,14" Margin="0,0,0,18">
+                                                <UniformGrid Columns="3">
+                                                    <StackPanel>
+                                                        <TextBlock x:Name="ReportHoursValue" Style="{StaticResource RpFigure}" />
+                                                        <TextBlock Text="HOURS" Style="{StaticResource RpSectionLabel}" Margin="0,3,0,0" />
+                                                    </StackPanel>
+                                                    <StackPanel>
+                                                        <TextBlock x:Name="ReportDaysValue" Style="{StaticResource RpFigure}" />
+                                                        <TextBlock Text="DAYS WORKED" Style="{StaticResource RpSectionLabel}" Margin="0,3,0,0" />
+                                                    </StackPanel>
+                                                    <StackPanel>
+                                                        <TextBlock x:Name="ReportDoneValue" Style="{StaticResource RpFigure}" />
+                                                        <TextBlock Text="COMPLETED" Style="{StaticResource RpSectionLabel}" Margin="0,3,0,0" />
+                                                    </StackPanel>
+                                                </UniformGrid>
+                                            </Border>
+
+                                            <Border Background="{StaticResource RpPanel}"
+                                                    BorderBrush="{StaticResource RpHairline}"
+                                                    BorderThickness="0.5"
+                                                    CornerRadius="{StaticResource RpCornerInner}"
+                                                    Padding="16,14" Margin="0,0,0,18">
+                                                <StackPanel>
+                                                    <TextBlock Text="HOURS BY DAY" Style="{StaticResource RpSectionLabel}" />
+                                                    <StackPanel x:Name="ReportDaysChart" Orientation="Horizontal" Height="92" Margin="0,0,0,2" />
+                                                    <TextBlock x:Name="ReportFloorNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" Visibility="Collapsed" />
+                                                </StackPanel>
+                                            </Border>
+
+                                            <Border Background="{StaticResource RpPanel}"
+                                                    BorderBrush="{StaticResource RpHairline}"
+                                                    BorderThickness="0.5"
+                                                    CornerRadius="{StaticResource RpCornerInner}"
+                                                    Padding="16,14">
+                                                <StackPanel>
+                                                    <TextBlock Text="THE WORK" Style="{StaticResource RpSectionLabel}" />
+                                                    <StackPanel x:Name="ReportLinesList" />
+
+                                                    <!-- An empty state that leaves the user stuck is a
+                                                         dead end. It says what to do next, and where. -->
+                                                    <StackPanel x:Name="ReportLinesEmptyText" Visibility="Collapsed">
+                                                        <TextBlock Text="No measured hours for this project yet." FontSize="13" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
+                                                        <TextBlock Text="Hours arrive here once a task is tagged to this project. Tag one on the morning card when you name the day's work, or from “+ task” on the widget — then work on it as usual and it will show up." Style="{StaticResource RpBody}" Margin="0,6,0,0" />
+                                                        <TextBlock Text="Nothing is counted until a task carries the project, so an untagged day is not lost — it simply belongs to no project." Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Phase 1.4 / 2b — Ari's draft, editable. It appears already
+                                         written; the user edits or replaces it; whatever is here at
+                                         send time is what goes out. Empty is valid and omits the
+                                         section on the client's page. -->
+                                    <Border Style="{StaticResource RpPanelBorder}">
+                                        <StackPanel>
+                                            <TextBlock Text="SUMMARY" Style="{StaticResource RpSectionLabel}" />
+                                            <TextBox x:Name="ReportSummaryBox"
+                                                     Style="{StaticResource RpTextBox}"
+                                                     AcceptsReturn="True"
+                                                     TextWrapping="Wrap"
+                                                     MinHeight="86"
+                                                     VerticalScrollBarVisibility="Auto" />
+                                            <TextBlock x:Name="ReportSummaryNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- CONDITION 2 (Yadin, 2026-08-17). Both of these can embarrass
+                                         someone if they go out unread, and a blocked reason often
+                                         names the recipient. Shown in the order the client reads
+                                         them, before anything can be sent. -->
+                                    <Border x:Name="ReportClientSeesPanel" Style="{StaticResource RpPanelBorder}" Visibility="Collapsed">
+                                        <StackPanel>
+                                            <TextBlock Text="WHAT THE CLIENT WILL READ" Style="{StaticResource RpSectionLabel}" />
+                                            <StackPanel x:Name="ReportClientSeesList" />
+                                            <TextBlock Text="Collected earlier, going out now. Change any of it on the task before you send." Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource RpPanelBorder}">
+                                        <StackPanel>
+                                            <TextBlock Text="BEFORE THIS CAN BE SENT" Style="{StaticResource RpSectionLabel}" />
+                                            <TextBlock x:Name="ReportReadinessText" FontSize="12" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
+                                            <!-- Set in RenderReadiness. It was hardcoded to "sending
+                                                 is not built yet" and stayed that way after sending
+                                                 was built, so the page told the user the feature did
+                                                 not exist while it did. Never hardcode state here. -->
+                                            <TextBlock x:Name="ReportReadinessNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <TextBlock Text="Time is recorded automatically while the work was actively in progress. Breaks and time away are not included." Style="{StaticResource RpMeta}" Margin="2,0,0,0" />
+
+                                    <!-- Phase C — who it goes to. Deliberately a step BEFORE the
+                                         confirm screen rather than a Send button that fires: the
+                                         address is chosen here, checked there. -->
+                                    <Border Style="{StaticResource RpPanelBorder}" Margin="0,14,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="SEND TO" Style="{StaticResource RpSectionLabel}" />
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <!-- RpComboBoxEditable, NOT RpComboBox: the shared
+                                                     style has no PART_EditableTextBox, so
+                                                     IsEditable there is inert and the field can
+                                                     never take a caret. -->
+                                                <ComboBox x:Name="ReportRecipientPicker" Grid.Column="0" Style="{StaticResource RpComboBoxEditable}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                                <Button x:Name="ReportSendToButton" Grid.Column="1" Content="Continue" Style="{StaticResource RpPrimaryButton}" VerticalAlignment="Center" Click="ReportSendToButton_Click" />
+                                            </Grid>
+                                            <TextBlock x:Name="ReportRecipientNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" Text="Type a client's email, or pick one you've sent to before. Nothing is sent until you confirm." />
+                                            <!-- Phase 2b — the link, so it can go through WhatsApp
+                                                 or Slack without an email at all. Only ever visible
+                                                 after a send has actually produced one. -->
+                                            <StackPanel x:Name="ReportLinkRow" Orientation="Horizontal" Margin="0,10,0,0" Visibility="Collapsed">
+                                                <Button x:Name="ReportCopyLinkButton" Content="Copy link" Style="{StaticResource RpQuietButton}" Click="ReportCopyLinkButton_Click" />
+                                                <TextBlock x:Name="ReportLinkText" Style="{StaticResource RpMeta}" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="420" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+
+                                <!-- §6b — the confirm step. The last thing the user sees before a
+                                     client does, so all three addresses are here in full and each is
+                                     editable in place. Sending to a wrong address cannot be undone,
+                                     which is the whole reason this screen exists. -->
+                                <StackPanel x:Name="ReportConfirmPanel" Visibility="Collapsed">
+                                    <Border Background="{StaticResource RpCard}"
+                                            BorderBrush="{StaticResource RpHairline}"
+                                            BorderThickness="0.5"
+                                            CornerRadius="{StaticResource RpCornerOuter}"
+                                            Padding="20" Margin="0,0,0,14">
+                                        <StackPanel>
+                                            <TextBlock Text="Send this report" FontSize="18" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" Margin="0,0,0,3" />
+                                            <TextBlock x:Name="ReportConfirmSubtitle" Style="{StaticResource RpBody}" Margin="0,0,0,18" />
+
+                                            <!-- THE EMAIL. A list of labelled values, not a form of
+                                                 boxes: at rest each one reads as text and the field
+                                                 appears on click. Same lesson as the project rows. -->
+                                            <Border Background="{StaticResource RpPanel}"
+                                                    BorderBrush="{StaticResource RpHairline}"
+                                                    BorderThickness="0.5"
+                                                    CornerRadius="{StaticResource RpCornerInner}"
+                                                    Padding="16,14" Margin="0,0,0,12">
+                                                <StackPanel>
+                                                    <TextBlock Text="THE EMAIL" Style="{StaticResource RpSectionLabel}" />
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="96" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                        </Grid.RowDefinitions>
+
+                                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="From name" FontSize="12" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" Margin="0,0,0,2" />
+                                                        <TextBox x:Name="ConfirmFromNameBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource RpInlineEditBox}" Margin="0,0,0,2" />
+
+                                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="From" FontSize="12" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" Margin="0,0,0,2" />
+                                                        <!-- Deliberately not a field: it is the
+                                                             product's address, not the user's. -->
+                                                        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="6,0,0,2">
+                                                            <TextBlock Text="reports@useporta.com" FontSize="13" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" />
+                                                            <TextBlock Text="fixed" Style="{StaticResource RpMeta}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                                        </StackPanel>
+
+                                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Reply-to" FontSize="12" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" Margin="0,0,0,2" />
+                                                        <TextBox x:Name="ConfirmReplyToBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource RpInlineEditBox}" Margin="0,0,0,2" />
+
+                                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="To" FontSize="12" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" />
+                                                        <TextBox x:Name="ConfirmToBox" Grid.Row="3" Grid.Column="1" Style="{StaticResource RpInlineEditBox}" />
+                                                    </Grid>
+
+                                                    <!-- Set in OpenReportConfirmAsync: it says something
+                                                         different when Ari could not read the account's
+                                                         name and email, because then these two boxes
+                                                         arrive blank and the send is refused until
+                                                         they are filled in. -->
+                                                    <TextBlock x:Name="ConfirmSenderNote" Style="{StaticResource RpMeta}" Margin="6,12,0,0" />
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- What they receive, so the envelope and the document
+                                                 are checked on the same screen. -->
+                                            <Border Background="{StaticResource RpPanel}"
+                                                    BorderBrush="{StaticResource RpHairline}"
+                                                    BorderThickness="0.5"
+                                                    CornerRadius="{StaticResource RpCornerInner}"
+                                                    Padding="16,14">
+                                                <StackPanel>
+                                                    <TextBlock Text="WHAT THEY RECEIVE" Style="{StaticResource RpSectionLabel}" />
+                                                    <TextBlock x:Name="ConfirmDocumentHeadline" FontSize="14" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
+                                                    <TextBlock x:Name="ConfirmDocumentRange" Style="{StaticResource RpBody}" Margin="0,3,0,0" />
+                                                    <TextBlock x:Name="ConfirmDocumentFigures" FontSize="13" Foreground="{StaticResource RpTextPrimary}" Margin="0,8,0,0" Typography.NumeralAlignment="Tabular" />
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- The refusal. Structure and words rather than a new colour:
+                                         the agreed palette has no error red, and inventing one here
+                                         would be the fourth thing green drifted into. -->
+                                    <Border x:Name="ConfirmRefusalPanel" Style="{StaticResource RpPanelBorder}" Visibility="Collapsed">
+                                        <StackPanel>
+                                            <TextBlock Text="CAN'T SEND YET" Style="{StaticResource RpSectionLabel}" />
+                                            <TextBlock x:Name="ConfirmRefusalText" FontSize="13" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="ConfirmRefusalHelp" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Only ever shown when the browser refused to open. It wraps on
+                                         its own row rather than sharing the button row, where a long
+                                         path squeezed the buttons off the edge. -->
+                                    <TextBlock x:Name="ConfirmPreviewPathText"
+                                               Style="{StaticResource RpMeta}"
+                                               Margin="2,8,2,0"
+                                               TextWrapping="Wrap"
+                                               Visibility="Collapsed" />
+
+                                    <Grid Margin="0,4,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button x:Name="ConfirmCancelButton" Grid.Column="0" Content="Back to the draft" Style="{StaticResource RpQuietButton}" Click="ConfirmCancelButton_Click" />
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                            <TextBlock x:Name="ConfirmSendNote" Style="{StaticResource RpMeta}" VerticalAlignment="Center" Margin="0,0,12,0" TextAlignment="Right" />
+                                            <Button x:Name="ConfirmPreviewButton" Content="Preview what they receive" Style="{StaticResource RpQuietButton}" Click="ConfirmPreviewButton_Click" />
+                                        </StackPanel>
+                                        <Button x:Name="ConfirmSendButton" Grid.Column="2" Content="Send report" Style="{StaticResource RpPrimaryButton}" Click="ConfirmSendButton_Click" />
+                                    </Grid>
+                                </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+
+
+                <Grid x:Name="SettingsPanel" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="168" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Background="{DynamicResource PortaTitleBarBrush}" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,1,0">
+                        <StackPanel Margin="12,20,12,12">
+                            <TextBlock Text="Settings" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="4,0,0,20" />
+                            <Border x:Name="SettingsNavIntensity" Background="#17171F" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Intensity" MouseLeftButtonUp="SettingsSubNav_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#E2E8F0" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 19.5c1-3.5 5-4.5 5-9a6 6 0 0 0-12 0c0 4.5 4 5.5 5 9zm0 0v2.5m-1-2h2" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavIntensityText" Text="Intensity" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="SettingsNavPrivacy" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Privacy" MouseLeftButtonUp="SettingsSubNav_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 2l7 4v6c0 5-3.5 9-7 10C8.5 21 5 17 5 12V6l7-4z" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavPrivacyText" Text="Privacy" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="SettingsNavCollection" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Collection" MouseLeftButtonUp="SettingsSubNav_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M6 4h4v16H6zm8 0h4v16h-4z" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavCollectionText" Text="Collection" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="SettingsNavCalibration" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Calibration" MouseLeftButtonUp="SettingsSubNav_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3 12h4l3 8 4-16 3 8h4" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavCalibrationText" Text="Calibration" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="SettingsNavFeatures" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Features" MouseLeftButtonUp="SettingsSubNav_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M5 12h2m10 0h2M12 5v2m0 10v2M7.05 7.05l1.41 1.41m7.08 7.08l1.41 1.41M7.05 16.95l1.41-1.41M15.54 8.46l1.41-1.41" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavFeaturesText" Text="Features" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="SettingsNavActions" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Actions" MouseLeftButtonUp="SettingsSubNav_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M13 3L5 14h7l-1 7 9-11h-7z" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavActionsText" Text="Actions" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="SettingsNavTracking" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Tracking" MouseLeftButtonUp="SettingsSubNav_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7zm10-3a3 3 0 1 1 0 6 3 3 0 0 1 0-6z" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavTrackingText" Text="Tracking" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="SettingsNavAppearance" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Appearance" MouseLeftButtonUp="SettingsSubNav_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 3a9 9 0 1 0 0 18A9 9 0 0 0 12 3zm0 2a7 7 0 0 1 0 14V5z" /></Canvas></Viewbox>
+                                    <TextBlock x:Name="SettingsNavAppearanceText" Text="Appearance" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                    <ScrollViewer x:Name="SettingsContentScrollViewer" Grid.Column="1" VerticalScrollBarVisibility="Auto" Background="{DynamicResource PortaContentHeaderBrush}">
+                        <StackPanel Margin="20,20,20,28">
+                            <Slider x:Name="IntensitySlider" Minimum="0" Maximum="2" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="IntensitySlider_ValueChanged" Visibility="Collapsed" />
+                            <TextBlock x:Name="IntensityValueText" Visibility="Collapsed" Text="Balanced" />
+                            <StackPanel x:Name="SettingsSectionIntensity" Visibility="Visible">
+                                <TextBlock Text="Intensity" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
+                                <TextBlock Text="Controls how actively Ari intervenes when it detects focus or overload patterns." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <UniformGrid x:Name="IntensityCardGrid" Columns="3" Margin="0,0,0,12">
+                                    <Border x:Name="IntensityLightCard" CornerRadius="10" Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Margin="0,0,6,0" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="0">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityLightIcon" Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 19.5c1-3.5 5-4.5 5-9a6 6 0 0 0-12 0c0 4.5 4 5.5 5 9zm0 0v2.5m-1-2h2" /></Canvas></Viewbox>
+                                            <TextBlock Text="Light" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" HorizontalAlignment="Center" />
+                                            <TextBlock Text="Gentle signals only" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border x:Name="IntensityBalancedCard" CornerRadius="10" Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Margin="0,0,6,0" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="1">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityBalancedIcon" Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M4 10h16M4 14h16M7 7l-3 3 3 3M17 7l3 3-3 3" /></Canvas></Viewbox>
+                                            <TextBlock Text="Balanced" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" HorizontalAlignment="Center" />
+                                            <TextBlock Text="Recommended default" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border x:Name="IntensityDeepCard" CornerRadius="10" Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="2">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityDeepIcon" Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M15.5 5C16.5 5 18 6.5 18 10s-2 5-3.5 5H12m-3.5-10C7.5 5 6 6.5 6 10s2 5 3.5 5H12m0 0v4m0-14v.5" /></Canvas></Viewbox>
+                                            <TextBlock Text="Deep" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" HorizontalAlignment="Center" />
+                                            <TextBlock Text="Full intervention mode" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </UniformGrid>
+                            </StackPanel>
+                            <StackPanel x:Name="SettingsSectionPrivacy" Visibility="Collapsed">
+                                <TextBlock Text="Privacy" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
+                                <TextBlock Text="Control what Ari observes and how much context it stores." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="OBSERVATION LEVEL" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center"><TextBlock Text="Privacy mode" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="How much context Ari captures per session" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" /></StackPanel>
+                                            <Border Grid.Column="1" Background="#0D1117" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Width="160" VerticalAlignment="Center">
+                                                <ComboBox x:Name="PrivacyLevelComboBox" Style="{StaticResource DarkComboBoxStyle}" SelectionChanged="PrivacyLevelComboBox_SelectionChanged">
+                                                    <ComboBoxItem Content="Minimal" />
+                                                    <ComboBoxItem Content="Standard" Background="#0D1117" />
+                                                    <ComboBoxItem Content="Detailed" Background="#0D1117" />
+                                                </ComboBox>
+                                            </Border>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="BROWSER CONTEXT" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                                <TextBlock Text="Read browser tab titles" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
+                                                <TextBlock Text="Lets Ari tell work sites (GitHub, docs) from distractions (YouTube, social) so your focus vs. distraction split is accurate. Titles are read on this device only — never stored or sent. Ari keeps only the category." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <CheckBox x:Name="BrowserTitleReadingToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="BrowserTitleReadingToggle_Click" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16">
+                                    <StackPanel>
+                                        <TextBlock Text="DATA CONTROLS" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <WrapPanel Margin="0,0,0,10"><Button Content="Revoke consent" Padding="12,7" Margin="0,0,8,0" Click="RevokeConsentFromSettingsButton_Click" Foreground="#F87171" BorderBrush="#7F1D1D" /></WrapPanel>
+                                        <Border BorderBrush="#1E293B" BorderThickness="0,1,0,0" Padding="0,10,0,0"><TextBlock Text="Revoking consent stops all data collection immediately. Existing data is deleted within 24 hours." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" /></Border>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                            <StackPanel x:Name="SettingsSectionCollection" Visibility="Collapsed">
+                                <TextBlock Text="Collection" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
+                                <TextBlock Text="Pause or schedule downtime for Ari's background monitoring." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="PAUSE CONTROLS" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <WrapPanel>
+                                            <Button Content="Pause now" Padding="12,7" Margin="0,0,8,6" Click="PauseButton_Click" />
+                                            <Button x:Name="SchedulePauseToggleButton" Content="Schedule pause" Padding="12,7" Margin="0,0,8,6" Click="SchedulePauseToggleButton_Click" />
+                                            <Button Content="Resume now" Padding="12,7" Margin="0,0,8,6" Click="ResumeFromSettingsButton_Click" />
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
+                                <Border x:Name="SchedulePausePanel" Visibility="Collapsed" Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="SCHEDULE A PAUSE" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <TextBlock Text="Pause until" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" />
+                                        <WrapPanel>
+                                            <Border Style="{StaticResource RoundedInputChromeStyle}" Width="160" Margin="0,0,8,0"><DatePicker x:Name="PauseUntilDatePicker" Background="Transparent" BorderThickness="0" /></Border>
+                                            <Border Style="{StaticResource RoundedInputChromeStyle}" Width="110" Margin="0,0,8,0"><ComboBox x:Name="PauseUntilTimeComboBox" ItemContainerStyle="{StaticResource ReadableSettingsComboItemStyle}" Foreground="#111827" Background="Transparent" BorderThickness="0" /></Border>
+                                            <Button Content="Pause until selected time" Padding="12,6" Click="PauseUntilSelectedButton_Click" />
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock x:Name="SettingsStatusText" Text="Settings status: Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,4,0,0" />
+                            </StackPanel>
+                            <StackPanel x:Name="SettingsSectionCalibration" Visibility="Collapsed">
+                                <TextBlock Text="Calibration" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
+                                <TextBlock Text="Reset Ari's baseline model to reflect your current work patterns." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Baseline snapshot" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Recalibrating takes a few minutes. Ari observes your normal patterns and adjusts its thresholds. You can keep working while it runs." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,4,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <Button Grid.Column="1" Content="Recalibrate" Padding="14,8" VerticalAlignment="Center" Click="RecalibrateBaselineButton_Click" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                                <WrapPanel Margin="0,4,0,0"><Button Content="Apply controls" Padding="12,7" Margin="0,0,10,0" Click="SaveSettingsButton_Click" /></WrapPanel>
+                            </StackPanel>
+                            <StackPanel x:Name="SettingsSectionAppearance" Visibility="Collapsed">
+                                <TextBlock Text="Appearance" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
+                                <TextBlock Text="Customize how the Control Center and widget look." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="THEME" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                                <TextBlock Text="Light mode" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
+                                                <TextBlock Text="Switch between dark (default) and light interface" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <CheckBox x:Name="AppearanceLightModeToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="AppearanceLightModeToggle_Click" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="DESKTOP WIDGET" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                                <TextBlock Text="Show desktop widget" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
+                                                <TextBlock Text="Turning this off hides the widget permanently. The widget's own hide button only hides it until tomorrow." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <CheckBox x:Name="DesktopWidgetVisibleToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="DesktopWidgetVisibleToggle_Click" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                            <StackPanel x:Name="SettingsSectionFeatures" Visibility="Collapsed">
+                                <TextBlock Text="Features" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
+                                <TextBlock Text="Toggle individual Ari capabilities on or off." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="MODE" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Suggestions only" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Ari recommends actions but makes no system changes" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <CheckBox x:Name="SettingsSuggestionsOnlyToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsSuggestionsOnlyToggle_Click" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16">
+                                    <StackPanel>
+                                        <TextBlock Text="INTERVENTION CATEGORIES" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
+                                        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Notification reduction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Suppress non-critical alerts during focus periods" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <CheckBox x:Name="SettingsNotificationToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
+                                        </Grid>
+                                        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Focus mode nudge" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Prompt to enter focus mode after context switching" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <CheckBox x:Name="SettingsFocusModeToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
+                                        </Grid>
+                                        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Animation reduction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Reduce motion when sustained high load is detected" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <CheckBox x:Name="SettingsAnimationToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
+                                        </Grid>
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Temporary app restriction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Block distracting apps during deep work sessions" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
+                                            <CheckBox x:Name="SettingsAppRestrictionToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+
+                            <!-- Phase 3.1 — Tracking lives in Settings now. It is configuration:
+                                 what Ari watches and what it keeps. Not daily work. -->
+                            <StackPanel x:Name="SettingsSectionTracking" Visibility="Collapsed">
                         <!-- hidden compat -->
                         <TextBlock x:Name="TrackingCollectionSummaryText" Visibility="Collapsed" Text="" />
 
@@ -1319,17 +1931,11 @@
                             </StackPanel>
                         </Border>
 
-                    </StackPanel>
-                </ScrollViewer>
+                            </StackPanel>
 
-                <ScrollViewer x:Name="InterventionsPanel"
-                              Visibility="Collapsed"
-                              VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled"
-                              CanContentScroll="False"
-                              IsManipulationEnabled="True"
-                              PanningMode="VerticalOnly">
-                    <StackPanel Margin="20,20,20,32">
+                            <!-- Phase 3.1 — Actions lives in Settings now, for the same reason:
+                                 it is what Ari is allowed to do, which is a setting. -->
+                            <StackPanel x:Name="SettingsSectionActions" Visibility="Collapsed">
 
                         <TextBlock Text="Ari's actions" FontSize="16" FontWeight="SemiBold"
                                    Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,16" />
@@ -1440,572 +2046,6 @@
                             <CheckBox x:Name="InterventionAppRestrictionToggle" Click="InterventionCategoryToggle_Click" />
                         </StackPanel>
 
-                    </StackPanel>
-                </ScrollViewer>
-
-                <Grid x:Name="SettingsPanel" Visibility="Collapsed">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="168" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Border Grid.Column="0" Background="{DynamicResource PortaTitleBarBrush}" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,1,0">
-                        <StackPanel Margin="12,20,12,12">
-                            <TextBlock Text="Settings" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="4,0,0,20" />
-                            <Border x:Name="SettingsNavIntensity" Background="#17171F" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Intensity" MouseLeftButtonUp="SettingsSubNav_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#E2E8F0" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 19.5c1-3.5 5-4.5 5-9a6 6 0 0 0-12 0c0 4.5 4 5.5 5 9zm0 0v2.5m-1-2h2" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavIntensityText" Text="Intensity" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
-                            <Border x:Name="SettingsNavPrivacy" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Privacy" MouseLeftButtonUp="SettingsSubNav_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 2l7 4v6c0 5-3.5 9-7 10C8.5 21 5 17 5 12V6l7-4z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavPrivacyText" Text="Privacy" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
-                            <Border x:Name="SettingsNavCollection" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Collection" MouseLeftButtonUp="SettingsSubNav_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M6 4h4v16H6zm8 0h4v16h-4z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavCollectionText" Text="Collection" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
-                            <Border x:Name="SettingsNavCalibration" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Calibration" MouseLeftButtonUp="SettingsSubNav_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3 12h4l3 8 4-16 3 8h4" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavCalibrationText" Text="Calibration" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
-                            <Border x:Name="SettingsNavFeatures" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Features" MouseLeftButtonUp="SettingsSubNav_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M5 12h2m10 0h2M12 5v2m0 10v2M7.05 7.05l1.41 1.41m7.08 7.08l1.41 1.41M7.05 16.95l1.41-1.41M15.54 8.46l1.41-1.41" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavFeaturesText" Text="Features" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
-                            <Border x:Name="SettingsNavProjects" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Projects" MouseLeftButtonUp="SettingsSubNav_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavProjectsText" Text="Projects" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
-                            <Border x:Name="SettingsNavReports" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Reports" MouseLeftButtonUp="SettingsSubNav_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm3 9h7m-7 4h7m-7-8h3" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavReportsText" Text="Reports" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
-                            <Border x:Name="SettingsNavAppearance" Background="Transparent" CornerRadius="8" Cursor="Hand" Padding="10,8" Margin="0,0,0,2" Tag="Appearance" MouseLeftButtonUp="SettingsSubNav_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <Viewbox Width="15" Height="15" Margin="0,0,8,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 3a9 9 0 1 0 0 18A9 9 0 0 0 12 3zm0 2a7 7 0 0 1 0 14V5z" /></Canvas></Viewbox>
-                                    <TextBlock x:Name="SettingsNavAppearanceText" Text="Appearance" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
-                    </Border>
-                    <ScrollViewer x:Name="SettingsContentScrollViewer" Grid.Column="1" VerticalScrollBarVisibility="Auto" Background="{DynamicResource PortaContentHeaderBrush}">
-                        <StackPanel Margin="20,20,20,28">
-                            <Slider x:Name="IntensitySlider" Minimum="0" Maximum="2" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="IntensitySlider_ValueChanged" Visibility="Collapsed" />
-                            <TextBlock x:Name="IntensityValueText" Visibility="Collapsed" Text="Balanced" />
-                            <StackPanel x:Name="SettingsSectionIntensity" Visibility="Visible">
-                                <TextBlock Text="Intensity" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Controls how actively Ari intervenes when it detects focus or overload patterns." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
-                                <UniformGrid x:Name="IntensityCardGrid" Columns="3" Margin="0,0,0,12">
-                                    <Border x:Name="IntensityLightCard" CornerRadius="10" Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Margin="0,0,6,0" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="0">
-                                        <StackPanel HorizontalAlignment="Center">
-                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityLightIcon" Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M12 19.5c1-3.5 5-4.5 5-9a6 6 0 0 0-12 0c0 4.5 4 5.5 5 9zm0 0v2.5m-1-2h2" /></Canvas></Viewbox>
-                                            <TextBlock Text="Light" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" HorizontalAlignment="Center" />
-                                            <TextBlock Text="Gentle signals only" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,2,0,0" />
-                                        </StackPanel>
-                                    </Border>
-                                    <Border x:Name="IntensityBalancedCard" CornerRadius="10" Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Margin="0,0,6,0" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="1">
-                                        <StackPanel HorizontalAlignment="Center">
-                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityBalancedIcon" Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M4 10h16M4 14h16M7 7l-3 3 3 3M17 7l3 3-3 3" /></Canvas></Viewbox>
-                                            <TextBlock Text="Balanced" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" HorizontalAlignment="Center" />
-                                            <TextBlock Text="Recommended default" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,2,0,0" />
-                                        </StackPanel>
-                                    </Border>
-                                    <Border x:Name="IntensityDeepCard" CornerRadius="10" Background="{DynamicResource PortaCardBrush}" BorderBrush="{DynamicResource PortaCardBorderBrush}" BorderThickness="1" Padding="14" Cursor="Hand" MouseLeftButtonUp="IntensityCard_Click" Tag="2">
-                                        <StackPanel HorizontalAlignment="Center">
-                                            <Viewbox Width="22" Height="22" Margin="0,0,0,8" HorizontalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="IntensityDeepIcon" Fill="Transparent" Stroke="#94A3B8" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M15.5 5C16.5 5 18 6.5 18 10s-2 5-3.5 5H12m-3.5-10C7.5 5 6 6.5 6 10s2 5 3.5 5H12m0 0v4m0-14v.5" /></Canvas></Viewbox>
-                                            <TextBlock Text="Deep" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" HorizontalAlignment="Center" />
-                                            <TextBlock Text="Full intervention mode" FontSize="11" Foreground="{DynamicResource PortaTextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,2,0,0" />
-                                        </StackPanel>
-                                    </Border>
-                                </UniformGrid>
-                            </StackPanel>
-                            <StackPanel x:Name="SettingsSectionPrivacy" Visibility="Collapsed">
-                                <TextBlock Text="Privacy" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Control what Ari observes and how much context it stores." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
-                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
-                                    <StackPanel>
-                                        <TextBlock Text="OBSERVATION LEVEL" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
-                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center"><TextBlock Text="Privacy mode" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="How much context Ari captures per session" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" /></StackPanel>
-                                            <Border Grid.Column="1" Background="#0D1117" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Width="160" VerticalAlignment="Center">
-                                                <ComboBox x:Name="PrivacyLevelComboBox" Style="{StaticResource DarkComboBoxStyle}" SelectionChanged="PrivacyLevelComboBox_SelectionChanged">
-                                                    <ComboBoxItem Content="Minimal" />
-                                                    <ComboBoxItem Content="Standard" Background="#0D1117" />
-                                                    <ComboBoxItem Content="Detailed" Background="#0D1117" />
-                                                </ComboBox>
-                                            </Border>
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
-                                    <StackPanel>
-                                        <TextBlock Text="BROWSER CONTEXT" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
-                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
-                                                <TextBlock Text="Read browser tab titles" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
-                                                <TextBlock Text="Lets Ari tell work sites (GitHub, docs) from distractions (YouTube, social) so your focus vs. distraction split is accurate. Titles are read on this device only — never stored or sent. Ari keeps only the category." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" />
-                                            </StackPanel>
-                                            <CheckBox x:Name="BrowserTitleReadingToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="BrowserTitleReadingToggle_Click" />
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16">
-                                    <StackPanel>
-                                        <TextBlock Text="DATA CONTROLS" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
-                                        <WrapPanel Margin="0,0,0,10"><Button Content="Revoke consent" Padding="12,7" Margin="0,0,8,0" Click="RevokeConsentFromSettingsButton_Click" Foreground="#F87171" BorderBrush="#7F1D1D" /></WrapPanel>
-                                        <Border BorderBrush="#1E293B" BorderThickness="0,1,0,0" Padding="0,10,0,0"><TextBlock Text="Revoking consent stops all data collection immediately. Existing data is deleted within 24 hours." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" TextWrapping="Wrap" /></Border>
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
-                            <StackPanel x:Name="SettingsSectionCollection" Visibility="Collapsed">
-                                <TextBlock Text="Collection" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Pause or schedule downtime for Ari's background monitoring." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
-                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
-                                    <StackPanel>
-                                        <TextBlock Text="PAUSE CONTROLS" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
-                                        <WrapPanel>
-                                            <Button Content="Pause now" Padding="12,7" Margin="0,0,8,6" Click="PauseButton_Click" />
-                                            <Button x:Name="SchedulePauseToggleButton" Content="Schedule pause" Padding="12,7" Margin="0,0,8,6" Click="SchedulePauseToggleButton_Click" />
-                                            <Button Content="Resume now" Padding="12,7" Margin="0,0,8,6" Click="ResumeFromSettingsButton_Click" />
-                                        </WrapPanel>
-                                    </StackPanel>
-                                </Border>
-                                <Border x:Name="SchedulePausePanel" Visibility="Collapsed" Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
-                                    <StackPanel>
-                                        <TextBlock Text="SCHEDULE A PAUSE" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
-                                        <TextBlock Text="Pause until" FontSize="13" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,8" />
-                                        <WrapPanel>
-                                            <Border Style="{StaticResource RoundedInputChromeStyle}" Width="160" Margin="0,0,8,0"><DatePicker x:Name="PauseUntilDatePicker" Background="Transparent" BorderThickness="0" /></Border>
-                                            <Border Style="{StaticResource RoundedInputChromeStyle}" Width="110" Margin="0,0,8,0"><ComboBox x:Name="PauseUntilTimeComboBox" ItemContainerStyle="{StaticResource ReadableSettingsComboItemStyle}" Foreground="#111827" Background="Transparent" BorderThickness="0" /></Border>
-                                            <Button Content="Pause until selected time" Padding="12,6" Click="PauseUntilSelectedButton_Click" />
-                                        </WrapPanel>
-                                    </StackPanel>
-                                </Border>
-                                <TextBlock x:Name="SettingsStatusText" Text="Settings status: Not available" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,4,0,0" />
-                            </StackPanel>
-                            <StackPanel x:Name="SettingsSectionCalibration" Visibility="Collapsed">
-                                <TextBlock Text="Calibration" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Reset Ari's baseline model to reflect your current work patterns." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
-                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
-                                    <StackPanel>
-                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Baseline snapshot" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Recalibrating takes a few minutes. Ari observes your normal patterns and adjusts its thresholds. You can keep working while it runs." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,4,0,0" TextWrapping="Wrap" /></StackPanel>
-                                            <Button Grid.Column="1" Content="Recalibrate" Padding="14,8" VerticalAlignment="Center" Click="RecalibrateBaselineButton_Click" />
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-                                <WrapPanel Margin="0,4,0,0"><Button Content="Apply controls" Padding="12,7" Margin="0,0,10,0" Click="SaveSettingsButton_Click" /></WrapPanel>
-                            </StackPanel>
-                            <StackPanel x:Name="SettingsSectionAppearance" Visibility="Collapsed">
-                                <TextBlock Text="Appearance" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Customize how the Control Center and widget look." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
-                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
-                                    <StackPanel>
-                                        <TextBlock Text="THEME" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
-                                                <TextBlock Text="Light mode" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
-                                                <TextBlock Text="Switch between dark (default) and light interface" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" />
-                                            </StackPanel>
-                                            <CheckBox x:Name="AppearanceLightModeToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="AppearanceLightModeToggle_Click" />
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
-                                    <StackPanel>
-                                        <TextBlock Text="DESKTOP WIDGET" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
-                                                <TextBlock Text="Show desktop widget" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" />
-                                                <TextBlock Text="Turning this off hides the widget permanently. The widget's own hide button only hides it until tomorrow." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" />
-                                            </StackPanel>
-                                            <CheckBox x:Name="DesktopWidgetVisibleToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="DesktopWidgetVisibleToggle_Click" />
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
-                            <StackPanel x:Name="SettingsSectionFeatures" Visibility="Collapsed">
-                                <TextBlock Text="Features" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Toggle individual Ari capabilities on or off." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
-                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16" Margin="0,0,0,10">
-                                    <StackPanel>
-                                        <TextBlock Text="MODE" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
-                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Suggestions only" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Ari recommends actions but makes no system changes" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
-                                            <CheckBox x:Name="SettingsSuggestionsOnlyToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsSuggestionsOnlyToggle_Click" />
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-                                <Border Background="Transparent" BorderBrush="{DynamicResource PortaDividerBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="0,0,0,16">
-                                    <StackPanel>
-                                        <TextBlock Text="INTERVENTION CATEGORIES" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,10" />
-                                        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Notification reduction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Suppress non-critical alerts during focus periods" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
-                                            <CheckBox x:Name="SettingsNotificationToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
-                                        </Grid>
-                                        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Focus mode nudge" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Prompt to enter focus mode after context switching" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
-                                            <CheckBox x:Name="SettingsFocusModeToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
-                                        </Grid>
-                                        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Animation reduction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Reduce motion when sustained high load is detected" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
-                                            <CheckBox x:Name="SettingsAnimationToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
-                                        </Grid>
-                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock Text="Temporary app restriction" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" /><TextBlock Text="Block distracting apps during deep work sessions" FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap" /></StackPanel>
-                                            <CheckBox x:Name="SettingsAppRestrictionToggle" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}" Click="SettingsCategoryToggle_Click" />
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
-
-                            <!-- Step 9a — projects. A project is only a name; this is where one is
-                                 renamed or put away. Everything here is LOCAL: no project name
-                                 leaves the machine in 9a. -->
-                            <StackPanel x:Name="SettingsSectionProjects" Visibility="Collapsed">
-                                <TextBlock Text="Projects" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="Things your tasks belong to. You pick the project when you name a task — Ari never guesses one, and leaving a task untagged is fine." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
-                                <Border Style="{StaticResource RpPanelBorder}">
-                                    <StackPanel>
-                                        <TextBlock Text="NEW PROJECT" Style="{StaticResource RpSectionLabel}" />
-                                        <Grid>
-                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <TextBox x:Name="ProjectNewNameBox" Grid.Column="0" Style="{StaticResource RpTextBox}" Margin="0,0,8,0" VerticalAlignment="Center" KeyDown="ProjectNewNameBox_KeyDown" />
-                                            <Button x:Name="ProjectAddButton" Grid.Column="1" Content="Add" Style="{StaticResource RpPrimaryButton}" Click="ProjectAddButton_Click" />
-                                        </Grid>
-                                        <TextBlock x:Name="ProjectStatusText" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Style="{StaticResource RpPanelBorder}">
-                                    <StackPanel>
-                                        <TextBlock Text="YOUR PROJECTS" Style="{StaticResource RpSectionLabel}" />
-                                        <StackPanel x:Name="ProjectsList" />
-                                        <TextBlock x:Name="ProjectsEmptyText" Text="No projects yet. Add one above, or tap “+ project” on the morning card when you name a task." Style="{StaticResource RpBody}" />
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
-
-                            <!-- Step 10 — the Reports page. The DRAFT is local and derived: rebuilt
-                                 on every request, never stored. The stored thing is the snapshot
-                                 taken when a report is actually sent.
-
-                                 Sending is BUILT (phase C/D). The draft leads to SEND TO, which
-                                 leads to the confirm screen, where the Send button lives. It sits
-                                 there and not here on purpose: the address is chosen on one screen
-                                 and checked on the next, because a send cannot be undone. -->
-                            <StackPanel x:Name="SettingsSectionReports" Visibility="Collapsed">
-                                <TextBlock Text="Reports" FontSize="15" FontWeight="Medium" Foreground="{DynamicResource PortaTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="A client's account of the work: measured hours, per project, over a range of days. Nothing here is sent anywhere yet - this is the draft, so you can see whether it tells the truth before it can ever leave the machine." FontSize="12" Foreground="{DynamicResource PortaTextSecondaryBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
-
-                                <Border Style="{StaticResource RpPanelBorder}">
-                                    <StackPanel>
-                                        <TextBlock Text="PROJECT AND RANGE" Style="{StaticResource RpSectionLabel}" />
-                                        <Grid Margin="0,0,0,10">
-                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <!-- An explicit ItemTemplate, not DisplayMemberPath: the picker
-                                                 otherwise falls back to the record's ToString() and prints
-                                                 the whole object. It must not depend on one code path
-                                                 having run first. -->
-                                            <ComboBox x:Name="ReportProjectPicker" Grid.Column="0" Style="{StaticResource RpComboBox}" Margin="0,0,8,0" VerticalAlignment="Center">
-                                                <ComboBox.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                                                    </DataTemplate>
-                                                </ComboBox.ItemTemplate>
-                                            </ComboBox>
-                                            <!-- AriDatePicker, not DatePicker: "8/12/2026" means two different
-                                                 days depending on where the reader lives, and this range ends
-                                                 up on a document about which days were worked. -->
-                                            <ctl:AriDatePicker x:Name="ReportFromPicker" Grid.Column="1" Style="{StaticResource RpDatePicker}" Width="150" Margin="0,0,8,0" VerticalAlignment="Center" SelectedDateChanged="ReportRangeChanged" />
-                                            <ctl:AriDatePicker x:Name="ReportToPicker" Grid.Column="2" Style="{StaticResource RpDatePicker}" Width="150" Margin="0,0,8,0" VerticalAlignment="Center" SelectedDateChanged="ReportRangeChanged" />
-                                            <Button x:Name="ReportBuildButton" Grid.Column="3" Content="Build draft" Style="{StaticResource RpPrimaryButton}" VerticalAlignment="Center" Click="ReportBuildButton_Click" />
-                                        </Grid>
-                                        <TextBlock x:Name="ReportStatusText" Style="{StaticResource RpMeta}" />
-                                        <!-- Two different ranges on one screen, with nothing saying
-                                             which one the figures belong to, is the exact ambiguity
-                                             this document cannot carry. -->
-                                        <TextBlock x:Name="ReportStaleText" Style="{StaticResource RpMeta}" Margin="0,6,0,0" Visibility="Collapsed"
-                                                   Text="These dates have changed since the draft below was built, so the figures still belong to the old range. Press Build draft again." />
-                                    </StackPanel>
-                                </Border>
-
-                                <StackPanel x:Name="ReportDraftPanel" Visibility="Collapsed">
-
-                                    <!-- The report itself sits on the card colour, one shade below
-                                         the panels around it, so it reads as the document rather
-                                         than as another section of settings. -->
-                                    <Border Background="{StaticResource RpCard}"
-                                            BorderBrush="{StaticResource RpHairline}"
-                                            BorderThickness="0.5"
-                                            CornerRadius="{StaticResource RpCornerOuter}"
-                                            Padding="20" Margin="0,0,0,14">
-                                        <StackPanel>
-                                            <TextBlock x:Name="ReportHeaderText" FontSize="22" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" Margin="0,0,0,2" TextWrapping="Wrap" />
-                                            <TextBlock x:Name="ReportRangeText" Style="{StaticResource RpBody}" Margin="0,0,0,18" />
-
-                                            <Border Background="{StaticResource RpPanel}"
-                                                    BorderBrush="{StaticResource RpHairline}"
-                                                    BorderThickness="0.5"
-                                                    CornerRadius="{StaticResource RpCornerInner}"
-                                                    Padding="16,14" Margin="0,0,0,18">
-                                                <UniformGrid Columns="3">
-                                                    <StackPanel>
-                                                        <TextBlock x:Name="ReportHoursValue" Style="{StaticResource RpFigure}" />
-                                                        <TextBlock Text="HOURS" Style="{StaticResource RpSectionLabel}" Margin="0,3,0,0" />
-                                                    </StackPanel>
-                                                    <StackPanel>
-                                                        <TextBlock x:Name="ReportDaysValue" Style="{StaticResource RpFigure}" />
-                                                        <TextBlock Text="DAYS WORKED" Style="{StaticResource RpSectionLabel}" Margin="0,3,0,0" />
-                                                    </StackPanel>
-                                                    <StackPanel>
-                                                        <TextBlock x:Name="ReportDoneValue" Style="{StaticResource RpFigure}" />
-                                                        <TextBlock Text="COMPLETED" Style="{StaticResource RpSectionLabel}" Margin="0,3,0,0" />
-                                                    </StackPanel>
-                                                </UniformGrid>
-                                            </Border>
-
-                                            <Border Background="{StaticResource RpPanel}"
-                                                    BorderBrush="{StaticResource RpHairline}"
-                                                    BorderThickness="0.5"
-                                                    CornerRadius="{StaticResource RpCornerInner}"
-                                                    Padding="16,14" Margin="0,0,0,18">
-                                                <StackPanel>
-                                                    <TextBlock Text="HOURS BY DAY" Style="{StaticResource RpSectionLabel}" />
-                                                    <StackPanel x:Name="ReportDaysChart" Orientation="Horizontal" Height="92" Margin="0,0,0,2" />
-                                                    <TextBlock x:Name="ReportFloorNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" Visibility="Collapsed" />
-                                                </StackPanel>
-                                            </Border>
-
-                                            <Border Background="{StaticResource RpPanel}"
-                                                    BorderBrush="{StaticResource RpHairline}"
-                                                    BorderThickness="0.5"
-                                                    CornerRadius="{StaticResource RpCornerInner}"
-                                                    Padding="16,14">
-                                                <StackPanel>
-                                                    <TextBlock Text="THE WORK" Style="{StaticResource RpSectionLabel}" />
-                                                    <StackPanel x:Name="ReportLinesList" />
-
-                                                    <!-- An empty state that leaves the user stuck is a
-                                                         dead end. It says what to do next, and where. -->
-                                                    <StackPanel x:Name="ReportLinesEmptyText" Visibility="Collapsed">
-                                                        <TextBlock Text="No measured hours for this project yet." FontSize="13" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
-                                                        <TextBlock Text="Hours arrive here once a task is tagged to this project. Tag one on the morning card when you name the day's work, or from “+ task” on the widget — then work on it as usual and it will show up." Style="{StaticResource RpBody}" Margin="0,6,0,0" />
-                                                        <TextBlock Text="Nothing is counted until a task carries the project, so an untagged day is not lost — it simply belongs to no project." Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
-                                                    </StackPanel>
-                                                </StackPanel>
-                                            </Border>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <!-- Phase 1.4 / 2b — Ari's draft, editable. It appears already
-                                         written; the user edits or replaces it; whatever is here at
-                                         send time is what goes out. Empty is valid and omits the
-                                         section on the client's page. -->
-                                    <Border Style="{StaticResource RpPanelBorder}">
-                                        <StackPanel>
-                                            <TextBlock Text="SUMMARY" Style="{StaticResource RpSectionLabel}" />
-                                            <TextBox x:Name="ReportSummaryBox"
-                                                     Style="{StaticResource RpTextBox}"
-                                                     AcceptsReturn="True"
-                                                     TextWrapping="Wrap"
-                                                     MinHeight="86"
-                                                     VerticalScrollBarVisibility="Auto" />
-                                            <TextBlock x:Name="ReportSummaryNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
-                                        </StackPanel>
-                                    </Border>
-
-                                    <!-- CONDITION 2 (Yadin, 2026-08-17). Both of these can embarrass
-                                         someone if they go out unread, and a blocked reason often
-                                         names the recipient. Shown in the order the client reads
-                                         them, before anything can be sent. -->
-                                    <Border x:Name="ReportClientSeesPanel" Style="{StaticResource RpPanelBorder}" Visibility="Collapsed">
-                                        <StackPanel>
-                                            <TextBlock Text="WHAT THE CLIENT WILL READ" Style="{StaticResource RpSectionLabel}" />
-                                            <StackPanel x:Name="ReportClientSeesList" />
-                                            <TextBlock Text="Collected earlier, going out now. Change any of it on the task before you send." Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
-                                        </StackPanel>
-                                    </Border>
-
-                                    <Border Style="{StaticResource RpPanelBorder}">
-                                        <StackPanel>
-                                            <TextBlock Text="BEFORE THIS CAN BE SENT" Style="{StaticResource RpSectionLabel}" />
-                                            <TextBlock x:Name="ReportReadinessText" FontSize="12" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
-                                            <!-- Set in RenderReadiness. It was hardcoded to "sending
-                                                 is not built yet" and stayed that way after sending
-                                                 was built, so the page told the user the feature did
-                                                 not exist while it did. Never hardcode state here. -->
-                                            <TextBlock x:Name="ReportReadinessNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
-                                        </StackPanel>
-                                    </Border>
-
-                                    <TextBlock Text="Time is recorded automatically while the work was actively in progress. Breaks and time away are not included." Style="{StaticResource RpMeta}" Margin="2,0,0,0" />
-
-                                    <!-- Phase C — who it goes to. Deliberately a step BEFORE the
-                                         confirm screen rather than a Send button that fires: the
-                                         address is chosen here, checked there. -->
-                                    <Border Style="{StaticResource RpPanelBorder}" Margin="0,14,0,0">
-                                        <StackPanel>
-                                            <TextBlock Text="SEND TO" Style="{StaticResource RpSectionLabel}" />
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <!-- RpComboBoxEditable, NOT RpComboBox: the shared
-                                                     style has no PART_EditableTextBox, so
-                                                     IsEditable there is inert and the field can
-                                                     never take a caret. -->
-                                                <ComboBox x:Name="ReportRecipientPicker" Grid.Column="0" Style="{StaticResource RpComboBoxEditable}" Margin="0,0,8,0" VerticalAlignment="Center" />
-                                                <Button x:Name="ReportSendToButton" Grid.Column="1" Content="Continue" Style="{StaticResource RpPrimaryButton}" VerticalAlignment="Center" Click="ReportSendToButton_Click" />
-                                            </Grid>
-                                            <TextBlock x:Name="ReportRecipientNote" Style="{StaticResource RpMeta}" Margin="0,8,0,0" Text="Type a client's email, or pick one you've sent to before. Nothing is sent until you confirm." />
-                                            <!-- Phase 2b — the link, so it can go through WhatsApp
-                                                 or Slack without an email at all. Only ever visible
-                                                 after a send has actually produced one. -->
-                                            <StackPanel x:Name="ReportLinkRow" Orientation="Horizontal" Margin="0,10,0,0" Visibility="Collapsed">
-                                                <Button x:Name="ReportCopyLinkButton" Content="Copy link" Style="{StaticResource RpQuietButton}" Click="ReportCopyLinkButton_Click" />
-                                                <TextBlock x:Name="ReportLinkText" Style="{StaticResource RpMeta}" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="420" />
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </Border>
-                                </StackPanel>
-
-                                <!-- §6b — the confirm step. The last thing the user sees before a
-                                     client does, so all three addresses are here in full and each is
-                                     editable in place. Sending to a wrong address cannot be undone,
-                                     which is the whole reason this screen exists. -->
-                                <StackPanel x:Name="ReportConfirmPanel" Visibility="Collapsed">
-                                    <Border Background="{StaticResource RpCard}"
-                                            BorderBrush="{StaticResource RpHairline}"
-                                            BorderThickness="0.5"
-                                            CornerRadius="{StaticResource RpCornerOuter}"
-                                            Padding="20" Margin="0,0,0,14">
-                                        <StackPanel>
-                                            <TextBlock Text="Send this report" FontSize="18" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" Margin="0,0,0,3" />
-                                            <TextBlock x:Name="ReportConfirmSubtitle" Style="{StaticResource RpBody}" Margin="0,0,0,18" />
-
-                                            <!-- THE EMAIL. A list of labelled values, not a form of
-                                                 boxes: at rest each one reads as text and the field
-                                                 appears on click. Same lesson as the project rows. -->
-                                            <Border Background="{StaticResource RpPanel}"
-                                                    BorderBrush="{StaticResource RpHairline}"
-                                                    BorderThickness="0.5"
-                                                    CornerRadius="{StaticResource RpCornerInner}"
-                                                    Padding="16,14" Margin="0,0,0,12">
-                                                <StackPanel>
-                                                    <TextBlock Text="THE EMAIL" Style="{StaticResource RpSectionLabel}" />
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="96" />
-                                                            <ColumnDefinition Width="*" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <Grid.RowDefinitions>
-                                                            <RowDefinition Height="Auto" />
-                                                            <RowDefinition Height="Auto" />
-                                                            <RowDefinition Height="Auto" />
-                                                            <RowDefinition Height="Auto" />
-                                                        </Grid.RowDefinitions>
-
-                                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="From name" FontSize="12" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" Margin="0,0,0,2" />
-                                                        <TextBox x:Name="ConfirmFromNameBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource RpInlineEditBox}" Margin="0,0,0,2" />
-
-                                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="From" FontSize="12" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" Margin="0,0,0,2" />
-                                                        <!-- Deliberately not a field: it is the
-                                                             product's address, not the user's. -->
-                                                        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="6,0,0,2">
-                                                            <TextBlock Text="reports@useporta.com" FontSize="13" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" />
-                                                            <TextBlock Text="fixed" Style="{StaticResource RpMeta}" Margin="8,0,0,0" VerticalAlignment="Center" />
-                                                        </StackPanel>
-
-                                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Reply-to" FontSize="12" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" Margin="0,0,0,2" />
-                                                        <TextBox x:Name="ConfirmReplyToBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource RpInlineEditBox}" Margin="0,0,0,2" />
-
-                                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="To" FontSize="12" Foreground="{StaticResource RpTextSecond}" VerticalAlignment="Center" />
-                                                        <TextBox x:Name="ConfirmToBox" Grid.Row="3" Grid.Column="1" Style="{StaticResource RpInlineEditBox}" />
-                                                    </Grid>
-
-                                                    <!-- Set in OpenReportConfirmAsync: it says something
-                                                         different when Ari could not read the account's
-                                                         name and email, because then these two boxes
-                                                         arrive blank and the send is refused until
-                                                         they are filled in. -->
-                                                    <TextBlock x:Name="ConfirmSenderNote" Style="{StaticResource RpMeta}" Margin="6,12,0,0" />
-                                                </StackPanel>
-                                            </Border>
-
-                                            <!-- What they receive, so the envelope and the document
-                                                 are checked on the same screen. -->
-                                            <Border Background="{StaticResource RpPanel}"
-                                                    BorderBrush="{StaticResource RpHairline}"
-                                                    BorderThickness="0.5"
-                                                    CornerRadius="{StaticResource RpCornerInner}"
-                                                    Padding="16,14">
-                                                <StackPanel>
-                                                    <TextBlock Text="WHAT THEY RECEIVE" Style="{StaticResource RpSectionLabel}" />
-                                                    <TextBlock x:Name="ConfirmDocumentHeadline" FontSize="14" FontWeight="Medium" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
-                                                    <TextBlock x:Name="ConfirmDocumentRange" Style="{StaticResource RpBody}" Margin="0,3,0,0" />
-                                                    <TextBlock x:Name="ConfirmDocumentFigures" FontSize="13" Foreground="{StaticResource RpTextPrimary}" Margin="0,8,0,0" Typography.NumeralAlignment="Tabular" />
-                                                </StackPanel>
-                                            </Border>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <!-- The refusal. Structure and words rather than a new colour:
-                                         the agreed palette has no error red, and inventing one here
-                                         would be the fourth thing green drifted into. -->
-                                    <Border x:Name="ConfirmRefusalPanel" Style="{StaticResource RpPanelBorder}" Visibility="Collapsed">
-                                        <StackPanel>
-                                            <TextBlock Text="CAN'T SEND YET" Style="{StaticResource RpSectionLabel}" />
-                                            <TextBlock x:Name="ConfirmRefusalText" FontSize="13" Foreground="{StaticResource RpTextPrimary}" TextWrapping="Wrap" />
-                                            <TextBlock x:Name="ConfirmRefusalHelp" Style="{StaticResource RpMeta}" Margin="0,8,0,0" />
-                                        </StackPanel>
-                                    </Border>
-
-                                    <!-- Only ever shown when the browser refused to open. It wraps on
-                                         its own row rather than sharing the button row, where a long
-                                         path squeezed the buttons off the edge. -->
-                                    <TextBlock x:Name="ConfirmPreviewPathText"
-                                               Style="{StaticResource RpMeta}"
-                                               Margin="2,8,2,0"
-                                               TextWrapping="Wrap"
-                                               Visibility="Collapsed" />
-
-                                    <Grid Margin="0,4,0,0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <Button x:Name="ConfirmCancelButton" Grid.Column="0" Content="Back to the draft" Style="{StaticResource RpQuietButton}" Click="ConfirmCancelButton_Click" />
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                            <TextBlock x:Name="ConfirmSendNote" Style="{StaticResource RpMeta}" VerticalAlignment="Center" Margin="0,0,12,0" TextAlignment="Right" />
-                                            <Button x:Name="ConfirmPreviewButton" Content="Preview what they receive" Style="{StaticResource RpQuietButton}" Click="ConfirmPreviewButton_Click" />
-                                        </StackPanel>
-                                        <Button x:Name="ConfirmSendButton" Grid.Column="2" Content="Send report" Style="{StaticResource RpPrimaryButton}" Click="ConfirmSendButton_Click" />
-                                    </Grid>
-                                </StackPanel>
                             </StackPanel>
 
                         </StackPanel>

@@ -1845,6 +1845,18 @@ public sealed class AgentCoreController : IAgentCoreController
     public AgentProject? SetProjectRate(long id, long rateMinor, string currency)
         => _stateStore.SetProjectRate(id, rateMinor, currency);
 
+    public AgentProject? SetProjectEngagement(
+        long id,
+        string? status,
+        string? startDay,
+        string? completionDay,
+        IReadOnlyList<string>? recipients,
+        string? reportingFrequency)
+        => _stateStore.SetProjectEngagement(id, status, startDay, completionDay, recipients, reportingFrequency);
+
+    public AgentProjectStats ReadProjectStats(long projectId)
+        => _stateStore.ReadProjectStats(projectId);
+
     /// <summary>
     /// Step 10 phase B — the report draft. The local offset is resolved HERE, the same place
     /// GetAppUsage resolves it, so no caller has to know the store holds UTC.

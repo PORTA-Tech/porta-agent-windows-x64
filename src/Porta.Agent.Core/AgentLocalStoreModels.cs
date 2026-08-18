@@ -633,7 +633,38 @@ public sealed record AgentProject(
     // payload: a document with a money total starts being treated as an invoice, and that is a
     // different product.
     long RateMinor = 0,
-    string RateCurrency = "");
+    string RateCurrency = "",
+    // Phase 3.2 (2026-08-18) — the engagement, as opposed to the work inside it. These columns were
+    // added by the v30 migration and then had no reader and no setter for a day, which is why the
+    // report could say what happened in a range but never where that range sat inside the job.
+    //
+    // Status is active | paused | complete. Paused is a real and different thing from complete: a
+    // client who has gone quiet is not a client whose work is finished, and a report should not
+    // imply it was.
+    string Status = "active",
+    // Goal-day keys ("yyyy-MM-dd") or empty. Typed by the user, never inferred: Ari does not get to
+    // decide when an engagement began, and a guess here would be printed to a paying client.
+    string StartDay = "",
+    string CompletionDay = "",
+    // The addresses this project's reports go to, LOCAL ONLY. Stored as a JSON array of strings on
+    // the project row. The address book table beside it is the machine-wide list of everyone ever
+    // written to; this is the subset that belongs to THIS engagement.
+    IReadOnlyList<string>? Recipients = null,
+    // none | weekly | fortnightly | monthly. A statement of intent only — nothing schedules a send
+    // off it and nothing ever will, because the report never sends automatically.
+    string ReportingFrequency = "none");
+
+// Phase 3.2 (2026-08-18) — what the Projects page shows about one project.
+//
+// Progress is a COUNT, DoneTasks of TotalTasks, and there is deliberately no percentage field for
+// anyone to bind to: tasks are not equal in size, and a percentage claims they are.
+public sealed record AgentProjectStats(
+    long ProjectId,
+    int TotalTasks,
+    int DoneTasks,
+    int BlockedTasks,
+    int InProgressTasks,
+    double Hours);
 
 // Digest redesign (2026-08-11) — one local hour of the day's shape. Seconds only, never a title:
 // this describes WHEN work happened, not what was open. Focus + Active + Away sum to at most 3600;

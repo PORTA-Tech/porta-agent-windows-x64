@@ -533,6 +533,29 @@ public sealed class LocalApiClient : IDisposable
         }
     }
 
+    /// <summary>Phase 3.2 — saves the engagement fields from the Projects page.</summary>
+    public async Task<LocalApiProjectResponse?> UpdateProjectEngagementAsync(
+        LocalApiProjectEngagementRequest request,
+        CancellationToken token = default)
+    {
+        if (!HasRuntimeSettings())
+        {
+            return null;
+        }
+
+        try
+        {
+            RefreshEndpointBinding();
+            using var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await _httpClient.PostAsync("/v1/projects/engagement", content, token).ConfigureAwait(false);
+            return await response.Content.ReadFromJsonAsync<LocalApiProjectResponse>(cancellationToken: token).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<LocalApiReportDraftResponse?> GetReportDraftAsync(
         long projectId,
         string fromLocalDate,

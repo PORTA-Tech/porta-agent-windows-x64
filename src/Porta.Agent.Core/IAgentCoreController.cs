@@ -96,6 +96,21 @@ public interface IAgentCoreController
     AgentProject? SetProjectClientName(long id, string clientName);
     AgentProject? SetProjectLabelStyle(long id, bool useClientLabels);
     AgentProject? SetProjectRate(long id, long rateMinor, string currency);
+
+    /// <summary>
+    /// Phase 3.2 — the engagement fields behind the Projects page. A null argument leaves that
+    /// column untouched, so one field can be saved without sending the whole record back.
+    /// </summary>
+    AgentProject? SetProjectEngagement(
+        long id,
+        string? status = null,
+        string? startDay = null,
+        string? completionDay = null,
+        IReadOnlyList<string>? recipients = null,
+        string? reportingFrequency = null);
+
+    /// <summary>Phase 3.2 — task counts and hours for one project. Progress is a count, never a percentage.</summary>
+    AgentProjectStats ReadProjectStats(long projectId);
     AgentReportDraft GetReportDraft(long projectId, string fromLocalDate, string toLocalDate);
 
     // Step 10 phase C/D — the address book (local only) and the record of what was sent.

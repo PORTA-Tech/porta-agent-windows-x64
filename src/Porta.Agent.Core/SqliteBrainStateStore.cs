@@ -2596,8 +2596,7 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         using var cmd = connection.CreateCommand();
         cmd.CommandText =
             $"""
-            SELECT p.id, p.name, p.created_at_utc, p.archived_at_utc, p.order_index,
-                   p.client_name, p.label_style, p.rate_minor, p.rate_currency
+            SELECT {ProjectColumnsQualified}
             FROM projects p
             WHERE $includeArchived = 1 OR p.archived_at_utc = ''
             ORDER BY COALESCE(
@@ -2887,9 +2886,17 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
             : collapsed;
     }
 
+    // Every project read goes through this list, for the same reason TaskColumns exists: three
+    // queries feed one mapper, and when only one of them gained the phase 3.2 columns the other two
+    // threw on ordinal 9 the moment a project was created. One list, so they cannot drift.
     private const string ProjectColumns =
         "id, name, created_at_utc, archived_at_utc, order_index, " +
-        "client_name, label_style, rate_minor, rate_currency";
+        "client_name, label_style, rate_minor, rate_currency, " +
+        "status, start_day, completion_day, recipients, reporting_frequency";
+
+    /// <summary>The same list, qualified for the one query that joins. Derived, never retyped.</summary>
+    private static readonly string ProjectColumnsQualified =
+        string.Join(", ", ProjectColumns.Split(',').Select(col => "p." + col.Trim()));
 
     private static AgentProject? ReadProjectById(SqliteConnection connection, SqliteTransaction tx, long id)
     {
@@ -2911,6 +2918,200 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         return reader.Read() ? MapProjectRow(reader) : null;
     }
 
+    // ── Phase 3.2 (2026-08-18) — the engagement fields ────────────────────────────────────────
+    //
+    // Everything below normalises on the way IN and on the way OUT. The report groups and prints
+    // these values, so a stray "Active " or "COMPLETE" would show a client two statuses that are
+    // the same thing, and an unknown value would silently vanish from a grouping.
+
+    internal static readonly string[] ProjectStatuses = { "active", "paused", "complete" };
+    internal static readonly string[] ReportingFrequencies = { "none", "weekly", "fortnightly", "monthly" };
+
+    private static string NormalizeProjectStatus(string? value)
+    {
+        string trimmed = (value ?? string.Empty).Trim().ToLowerInvariant();
+        return System.Array.IndexOf(ProjectStatuses, trimmed) >= 0 ? trimmed : "active";
+    }
+
+    private static string NormalizeReportingFrequency(string? value)
+    {
+        string trimmed = (value ?? string.Empty).Trim().ToLowerInvariant();
+        return System.Array.IndexOf(ReportingFrequencies, trimmed) >= 0 ? trimmed : "none";
+    }
+
+    /// <summary>
+    /// A goal-day key or empty. Anything else becomes empty rather than being stored: these two
+    /// dates are printed to a client, and a half-typed date is worse than no date.
+    /// </summary>
+    private static string NormalizeDayKey(string? value)
+    {
+        string trimmed = (value ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return DateTime.TryParseExact(
+            trimmed,
+            "yyyy-MM-dd",
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out _)
+            ? trimmed
+            : string.Empty;
+    }
+
+    /// <summary>
+    /// The per-project recipient list, stored as a JSON array on the project row.
+    ///
+    /// LOCAL ONLY. This is the subset of the machine's address book that belongs to this
+    /// engagement; only the one address on a report actually being sent ever leaves the machine.
+    /// A row written before this existed holds an empty string, which is not valid JSON, so the
+    /// parse fails soft to an empty list rather than throwing on every project read.
+    /// </summary>
+    private static IReadOnlyList<string> ParseRecipients(string? raw)
+    {
+        string trimmed = (raw ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+        {
+            return System.Array.Empty<string>();
+        }
+
+        try
+        {
+            string[]? parsed = System.Text.Json.JsonSerializer.Deserialize<string[]>(trimmed);
+            if (parsed is null)
+            {
+                return System.Array.Empty<string>();
+            }
+
+            return parsed
+                .Select(a => (a ?? string.Empty).Trim())
+                .Where(a => a.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return System.Array.Empty<string>();
+        }
+    }
+
+    /// <summary>
+    /// Phase 3.2 — the one setter behind the Projects page. Every argument is nullable and a null
+    /// leaves that column exactly as it was, so the page can save one field without sending the
+    /// whole record back and risking clobbering something edited elsewhere.
+    ///
+    /// Completion date and status are deliberately NOT tied together. Marking a project complete
+    /// does not invent a completion date, and typing a date does not declare it finished: both are
+    /// statements the user makes, and inferring one from the other would print a date to a paying
+    /// client that nobody chose.
+    /// </summary>
+    public AgentProject? SetProjectEngagement(
+        long id,
+        string? status = null,
+        string? startDay = null,
+        string? completionDay = null,
+        IReadOnlyList<string>? recipients = null,
+        string? reportingFrequency = null)
+    {
+        if (status is not null
+            && System.Array.IndexOf(ProjectStatuses, status.Trim().ToLowerInvariant()) < 0)
+        {
+            return null;
+        }
+
+        if (reportingFrequency is not null
+            && System.Array.IndexOf(ReportingFrequencies, reportingFrequency.Trim().ToLowerInvariant()) < 0)
+        {
+            return null;
+        }
+
+        string? recipientsJson = recipients is null
+            ? null
+            : System.Text.Json.JsonSerializer.Serialize(
+                recipients
+                    .Select(a => (a ?? string.Empty).Trim())
+                    .Where(a => a.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray());
+
+        lock (_gate)
+        {
+            using var connection = DbOpen.OpenConnection(_connectionString);
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = ProjectEngagementUpdateSql;
+            cmd.Parameters.AddWithValue("$id", id);
+            cmd.Parameters.AddWithValue(
+                "$status", status is null ? DBNull.Value : NormalizeProjectStatus(status));
+            cmd.Parameters.AddWithValue(
+                "$start", startDay is null ? DBNull.Value : NormalizeDayKey(startDay));
+            cmd.Parameters.AddWithValue(
+                "$completion", completionDay is null ? DBNull.Value : NormalizeDayKey(completionDay));
+            cmd.Parameters.AddWithValue(
+                "$recipients", recipientsJson is null ? DBNull.Value : recipientsJson);
+            cmd.Parameters.AddWithValue(
+                "$frequency",
+                reportingFrequency is null ? DBNull.Value : NormalizeReportingFrequency(reportingFrequency));
+            cmd.ExecuteNonQuery();
+        }
+
+        return ReadProjects(includeArchived: true).FirstOrDefault(p => p.Id == id);
+    }
+
+    private const string ProjectEngagementUpdateSql =
+        "UPDATE projects "
+        + "SET status = COALESCE($status, status), "
+        + "    start_day = COALESCE($start, start_day), "
+        + "    completion_day = COALESCE($completion, completion_day), "
+        + "    recipients = COALESCE($recipients, recipients), "
+        + "    reporting_frequency = COALESCE($frequency, reporting_frequency) "
+        + "WHERE id = $id;";
+
+    /// <summary>
+    /// Phase 3.2 — the counts the Projects page shows for one project.
+    ///
+    /// Progress is DoneTasks out of TotalTasks and never a percentage: tasks are not equal in size,
+    /// and a percentage claims they are. The page prints "3 of 8 tasks complete".
+    ///
+    /// Hours come from app_usage_rollup, the same source the report's table and headline use, so a
+    /// project cannot be worth one number here and another in the document.
+    /// </summary>
+    public AgentProjectStats ReadProjectStats(long projectId)
+    {
+        using ReadGateLease _ = AcquireReadGate();
+        using var connection = DbOpen.OpenReadConnection(_connectionString);
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = ProjectStatsSql;
+        cmd.Parameters.AddWithValue("$id", projectId);
+
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        if (!reader.Read())
+        {
+            return new AgentProjectStats(projectId, 0, 0, 0, 0, 0d);
+        }
+
+        return new AgentProjectStats(
+            ProjectId: projectId,
+            TotalTasks: reader.GetInt32(0),
+            DoneTasks: reader.GetInt32(1),
+            BlockedTasks: reader.GetInt32(2),
+            InProgressTasks: reader.GetInt32(3),
+            Hours: Math.Round(reader.GetDouble(4) / 3600d, 1));
+    }
+
+    private const string ProjectStatsSql =
+        "SELECT "
+        + "(SELECT COUNT(*) FROM tasks WHERE project_id = $id), "
+        + "(SELECT COUNT(*) FROM tasks WHERE project_id = $id AND status = 'done'), "
+        + "(SELECT COUNT(*) FROM tasks WHERE project_id = $id AND status = 'blocked'), "
+        + "(SELECT COUNT(*) FROM tasks WHERE project_id = $id AND status = 'in_progress'), "
+        + "(SELECT COALESCE(SUM(r.active_seconds), 0) FROM app_usage_rollup r "
+        + "   INNER JOIN tasks t ON t.id = r.task_id "
+        + "  WHERE t.project_id = $id AND r.task_id <> 0);";
+
+
     private static AgentProject MapProjectRow(SqliteDataReader reader)
         => new(
             Id: reader.GetInt64(0),
@@ -2921,7 +3122,12 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
             ClientName: reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
             UseClientLabels: !reader.IsDBNull(6) && reader.GetInt32(6) != 0,
             RateMinor: reader.IsDBNull(7) ? 0L : reader.GetInt64(7),
-            RateCurrency: reader.IsDBNull(8) ? string.Empty : reader.GetString(8));
+            RateCurrency: reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
+            Status: NormalizeProjectStatus(reader.IsDBNull(9) ? null : reader.GetString(9)),
+            StartDay: reader.IsDBNull(10) ? string.Empty : reader.GetString(10),
+            CompletionDay: reader.IsDBNull(11) ? string.Empty : reader.GetString(11),
+            Recipients: ParseRecipients(reader.IsDBNull(12) ? null : reader.GetString(12)),
+            ReportingFrequency: NormalizeReportingFrequency(reader.IsDBNull(13) ? null : reader.GetString(13)));
 
     // Step 9a — the project name is resolved in the SELECT rather than by a second call, because
     // the widget repaints every 4s. A LEFT JOIN, so an untagged task (project_id = 0) and a task

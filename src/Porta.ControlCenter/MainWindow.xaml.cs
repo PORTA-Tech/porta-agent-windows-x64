@@ -115,8 +115,12 @@ public partial class MainWindow : Window
     {
         Overview,
         Timeline,
-        Interventions,
-        Inputs,
+        // Phase 3.1 (2026-08-18) — the five main pages are Today, Tasks, Projects, Reports,
+        // Settings. Interventions and Inputs are no longer sections of their own: they are
+        // sub-sections of Settings, because what Ari may do and what Ari watches are configuration.
+        Tasks,
+        Projects,
+        Reports,
         States,
         Account,
         Settings,
@@ -286,10 +290,13 @@ public partial class MainWindow : Window
                 section = UiSection.Timeline;
                 return true;
             case ControlCenterActivationTarget.Actions:
-                section = UiSection.Interventions;
+                // Phase 3.1 — Actions and Tracking are sub-sections of Settings now. An older
+                // widget build can still ask for them by name, so both resolve to Settings rather
+                // than being dropped, and the sub-section is opened once the page is shown.
+                section = UiSection.Settings;
                 return true;
             case ControlCenterActivationTarget.Tracking:
-                section = UiSection.Inputs;
+                section = UiSection.Settings;
                 return true;
             case ControlCenterActivationTarget.Settings:
                 section = UiSection.Settings;
@@ -981,9 +988,30 @@ public partial class MainWindow : Window
         PopulateTimeline(GetSelectedHistoryTimeline());
     }
 
-    private void InterventionsNavButton_Click(object sender, RoutedEventArgs e)
+    private void TasksNavButton_Click(object sender, RoutedEventArgs e)
     {
-        ShowSection(UiSection.Interventions);
+        ShowSection(UiSection.Tasks);
+    }
+
+    private void ProjectsNavButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowSection(UiSection.Projects);
+        // Read when the page is opened, never on a timer: the project list changes when a person
+        // decides it does. Not under the preview harness, where a live read would land mid-render
+        // and replace the sample data with whatever this machine happens to hold.
+        if (!PreviewMode)
+        {
+            _ = RefreshProjectsAsync();
+        }
+    }
+
+    private void ReportsNavButton_Click(object sender, RoutedEventArgs e)
+    {
+        ShowSection(UiSection.Reports);
+        if (!PreviewMode)
+        {
+            _ = OpenReportsPageAsync();
+        }
     }
 
     private void ActionsSuggestionsTabButton_Click(object sender, RoutedEventArgs e)
@@ -996,14 +1024,6 @@ public partial class MainWindow : Window
     {
         _actionsView = ActionsView.Changes;
         UpdateActionsTabControls();
-    }
-
-    private void InputsNavButton_Click(object sender, RoutedEventArgs e)
-    {
-        // Reset accordion to all-closed every time the user navigates to Tracking
-        _openTrackingSection = null;
-        SetTrackingSection(string.Empty); // collapses all, opens none
-        ShowSection(UiSection.Inputs);
     }
 
     private void StatesNavButton_Click(object sender, RoutedEventArgs e)
@@ -1036,8 +1056,8 @@ public partial class MainWindow : Window
         SettingsSectionCalibration.Visibility = Visibility.Collapsed;
         SettingsSectionFeatures.Visibility    = Visibility.Collapsed;
         SettingsSectionAppearance.Visibility  = Visibility.Collapsed;
-        SettingsSectionProjects.Visibility    = Visibility.Collapsed;
-        SettingsSectionReports.Visibility     = Visibility.Collapsed;
+        SettingsSectionActions.Visibility     = Visibility.Collapsed;
+        SettingsSectionTracking.Visibility    = Visibility.Collapsed;
 
         var navItems = new[]
         {
@@ -1046,8 +1066,8 @@ public partial class MainWindow : Window
             (SettingsNavCollection,  SettingsNavCollectionText),
             (SettingsNavCalibration, SettingsNavCalibrationText),
             (SettingsNavFeatures,    SettingsNavFeaturesText),
-            (SettingsNavProjects,    SettingsNavProjectsText),
-            (SettingsNavReports,     SettingsNavReportsText),
+            (SettingsNavActions,     SettingsNavActionsText),
+            (SettingsNavTracking,    SettingsNavTrackingText),
             (SettingsNavAppearance,  SettingsNavAppearanceText),
         };
         var inactiveColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#64748B"));
@@ -1069,27 +1089,13 @@ public partial class MainWindow : Window
             case "Calibration": activeNav = SettingsNavCalibration; activeLabel = SettingsNavCalibrationText; activeSection = SettingsSectionCalibration; break;
             case "Features":    activeNav = SettingsNavFeatures;    activeLabel = SettingsNavFeaturesText;    activeSection = SettingsSectionFeatures;    break;
             case "Appearance":  activeNav = SettingsNavAppearance;  activeLabel = SettingsNavAppearanceText;  activeSection = SettingsSectionAppearance;  break;
-            case "Projects":
-                activeNav = SettingsNavProjects; activeLabel = SettingsNavProjectsText; activeSection = SettingsSectionProjects;
-                // Read on open rather than on every refresh: the list changes when a person
-                // decides it does, and this page is the only thing that shows it.
-                // Not under the preview harness: the read lands mid-render and replaces the sample
-                // with whatever the live agent holds.
-                if (!PreviewMode)
-                {
-                    _ = RefreshProjectsAsync();
-                }
-
+            case "Actions":
+                activeNav = SettingsNavActions; activeLabel = SettingsNavActionsText; activeSection = SettingsSectionActions;
+                UpdateActionsTabControls();
                 break;
-            case "Reports":
-                activeNav = SettingsNavReports; activeLabel = SettingsNavReportsText; activeSection = SettingsSectionReports;
-                // Same rule as Projects: read when the page is opened, not on a timer. A report
-                // draft is something a person asks for.
-                if (!PreviewMode)
-                {
-                    _ = OpenReportsPageAsync();
-                }
-
+            case "Tracking":
+                activeNav = SettingsNavTracking; activeLabel = SettingsNavTrackingText; activeSection = SettingsSectionTracking;
+                ResetTrackingSections();
                 break;
             default:            activeNav = SettingsNavIntensity;   activeLabel = SettingsNavIntensityText;   activeSection = SettingsSectionIntensity;   break;
         }
@@ -1180,7 +1186,8 @@ public partial class MainWindow : Window
                 OpenNowOverloadDetail();
                 break;
             case "current-status":
-                ShowSection(UiSection.Interventions);
+                ShowSection(UiSection.Settings);
+                ShowSettingsSection("Actions");
                 break;
             case "overload":
                 OpenNowOverloadDetail();
@@ -1453,9 +1460,9 @@ public partial class MainWindow : Window
         bool showSystem = section == UiSection.Diagnostics || section == UiSection.States;
         OverviewPanel.Visibility = section == UiSection.Overview ? Visibility.Visible : Visibility.Collapsed;
         TimelinePanel.Visibility = section == UiSection.Timeline ? Visibility.Visible : Visibility.Collapsed;
-        InterventionsPanel.Visibility = section == UiSection.Interventions ? Visibility.Visible : Visibility.Collapsed;
-        InputsPanel.Visibility = section == UiSection.Inputs ? Visibility.Visible : Visibility.Collapsed;
-        if (section == UiSection.Inputs) ResetTrackingSections();
+        TasksPanel.Visibility = section == UiSection.Tasks ? Visibility.Visible : Visibility.Collapsed;
+        ProjectsPanel.Visibility = section == UiSection.Projects ? Visibility.Visible : Visibility.Collapsed;
+        ReportsPanel.Visibility = section == UiSection.Reports ? Visibility.Visible : Visibility.Collapsed;
         StatesPanel.Visibility = Visibility.Collapsed;
         AccountPanel.Visibility = section == UiSection.Account ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = section == UiSection.Settings ? Visibility.Visible : Visibility.Collapsed;
@@ -1465,8 +1472,9 @@ public partial class MainWindow : Window
         {
             UiSection.Overview => "Today",
             UiSection.Timeline => "History",
-            UiSection.Interventions => "Actions",
-            UiSection.Inputs => "Tracking",
+            UiSection.Tasks => "Tasks",
+            UiSection.Projects => "Projects",
+            UiSection.Reports => "Reports",
             UiSection.States => "System",
             UiSection.Account => "Account",
             UiSection.Settings => "Settings",
@@ -1476,8 +1484,9 @@ public partial class MainWindow : Window
 
         ApplyNavState(OverviewNavButton, section == UiSection.Overview);
         ApplyNavState(TimelineNavButton, section == UiSection.Timeline);
-        ApplyNavState(InterventionsNavButton, section == UiSection.Interventions);
-        ApplyNavState(InputsNavButton, section == UiSection.Inputs);
+        ApplyNavState(TasksNavButton, section == UiSection.Tasks);
+        ApplyNavState(ProjectsNavButton, section == UiSection.Projects);
+        ApplyNavState(ReportsNavButton, section == UiSection.Reports);
         ApplyNavState(StatesNavButton, false);
         ApplyNavState(AccountNavButton, section == UiSection.Account);
         ApplyNavState(SettingsNavButton, section == UiSection.Settings);
@@ -1488,10 +1497,7 @@ public partial class MainWindow : Window
             SetWhyDrawerVisible(false);
         }
 
-        if (section == UiSection.Interventions)
-        {
-            UpdateActionsTabControls();
-        }
+
     }
 
     private void UpdateActionsTabControls()
@@ -5771,8 +5777,9 @@ public partial class MainWindow : Window
     private void InitializeUnifiedScrollBehavior()
     {
         RegisterUnifiedScroll(OverviewPanel);
-        RegisterUnifiedScroll(InputsPanel);
-        RegisterUnifiedScroll(InterventionsPanel);
+        RegisterUnifiedScroll(TasksPanel);
+        RegisterUnifiedScroll(ProjectsPanel);
+        RegisterUnifiedScroll(ReportsPanel);
         RegisterUnifiedScroll(ActionDetailsScrollViewer);
         RegisterUnifiedScroll(SettingsContentScrollViewer);
         RegisterUnifiedScroll(StatesPanel);

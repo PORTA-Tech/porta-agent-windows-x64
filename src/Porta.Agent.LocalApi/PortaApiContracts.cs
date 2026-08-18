@@ -984,7 +984,32 @@ public sealed record LocalApiProject(
     [property: JsonPropertyName("client_name")] string ClientName = "",
     [property: JsonPropertyName("use_client_labels")] bool UseClientLabels = false,
     [property: JsonPropertyName("rate_minor")] long RateMinor = 0,
-    [property: JsonPropertyName("rate_currency")] string RateCurrency = "");
+    [property: JsonPropertyName("rate_currency")] string RateCurrency = "",
+    // Phase 3.2 (2026-08-18) — the engagement, as opposed to the work inside it. Localhost only;
+    // none of this is on any payload that leaves the machine, and the recipient list especially.
+    [property: JsonPropertyName("status")] string Status = "active",
+    [property: JsonPropertyName("start_day")] string StartDay = "",
+    [property: JsonPropertyName("completion_day")] string CompletionDay = "",
+    [property: JsonPropertyName("recipients")] IReadOnlyList<string>? Recipients = null,
+    [property: JsonPropertyName("reporting_frequency")] string ReportingFrequency = "none",
+    // Counts, computed server-side so the page cannot arrive at a different number than the report.
+    // There is no percentage here on purpose: tasks are not equal in size.
+    [property: JsonPropertyName("total_tasks")] int TotalTasks = 0,
+    [property: JsonPropertyName("done_tasks")] int DoneTasks = 0,
+    [property: JsonPropertyName("blocked_tasks")] int BlockedTasks = 0,
+    [property: JsonPropertyName("in_progress_tasks")] int InProgressTasks = 0,
+    [property: JsonPropertyName("hours")] double Hours = 0);
+
+// Phase 3.2 — saving the engagement fields. Every field is nullable and a null means "leave this
+// one alone", so the page saves the field that changed and never the whole record.
+public sealed record LocalApiProjectEngagementRequest(
+    [property: JsonPropertyName("schema_ver")] int SchemaVer,
+    [property: JsonPropertyName("id")] long Id,
+    [property: JsonPropertyName("status")] string? Status,
+    [property: JsonPropertyName("start_day")] string? StartDay,
+    [property: JsonPropertyName("completion_day")] string? CompletionDay,
+    [property: JsonPropertyName("recipients")] IReadOnlyList<string>? Recipients,
+    [property: JsonPropertyName("reporting_frequency")] string? ReportingFrequency);
 
 // Step 10 phase A — naming one line for a client. The raw title is never sent here and never
 // changes; this sets the label beside it.

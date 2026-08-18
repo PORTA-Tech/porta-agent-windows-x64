@@ -988,6 +988,12 @@ internal static class Schema
         EnsureColumnExists(connection, "projects", "start_day", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(connection, "projects", "completion_day", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(connection, "projects", "recipients", "TEXT NOT NULL DEFAULT ''");
+
+        // Phase 3.2 (2026-08-18) — how often this project is reported on. A statement of intent,
+        // read by the Projects page and by nothing else: no scheduler reads it and none ever will,
+        // because the report never sends automatically. Additive with a default, so every existing
+        // row keeps working and nothing already recorded changes value.
+        EnsureColumnExists(connection, "projects", "reporting_frequency", "TEXT NOT NULL DEFAULT 'none'");
     }
 
     internal static void ApplyContractSchemaV3(SqliteConnection connection)

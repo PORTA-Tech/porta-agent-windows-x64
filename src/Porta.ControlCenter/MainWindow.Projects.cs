@@ -66,11 +66,16 @@ public partial class MainWindow
             Margin = new Thickness(0, 0, 0, 8)
         };
 
+        // Phase 3.2 — the card is now a header line plus the engagement beneath it, so a project's
+        // name and what a project actually IS are one object on screen rather than two pages.
+        var card = new StackPanel();
+        row.Child = card;
+
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        row.Child = grid;
+        card.Children.Add(grid);
 
         var nameBox = new TextBox
         {
@@ -202,6 +207,13 @@ public partial class MainWindow
         Grid.SetColumn(toggle, 2);
         grid.Children.Add(toggle);
 
+        // An archived project keeps its history and its report links, but it is not an engagement
+        // anyone is running, so the fields that describe one are not offered on it.
+        if (!project.Archived)
+        {
+            card.Children.Add(BuildProjectDetails(project));
+        }
+
         return row;
     }
 
@@ -307,4 +319,326 @@ public partial class MainWindow
 
         await RefreshProjectsAsync().ConfigureAwait(true);
     }
+
+    // ── Phase 3.2 (2026-08-18) — the engagement, under each project ────────────────────────────
+    //
+    // The row above is what a project IS CALLED. Everything below is what a project IS: whether it
+    // is running, when it began, when it ended, who its reports go to, and how it is going.
+    //
+    // These columns were added by the v30 migration and then had no setter for a day, which is why
+    // the report could describe a date range but never say where that range sat inside the job.
+    //
+    // Every control here writes only the field it owns. The endpoint applies a field only when it
+    // is present, so editing a date can never disturb a status and clearing recipients can never
+    // clear a start date.
+
+    private static readonly (string Key, string Label)[] ProjectStatusChoices =
+    {
+        ("active", "Active"),
+        ("paused", "Paused"),
+        ("complete", "Complete")
+    };
+
+    private static readonly (string Key, string Label)[] ProjectFrequencyChoices =
+    {
+        ("none", "Not set"),
+        ("weekly", "Weekly"),
+        ("fortnightly", "Fortnightly"),
+        ("monthly", "Monthly")
+    };
+
+    private UIElement BuildProjectDetails(LocalApiProject project)
+    {
+        var stack = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+
+        stack.Children.Add(new Border
+        {
+            Height = 0.5,
+            Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x30, 0x38)),
+            Margin = new Thickness(0, 0, 0, 10)
+        });
+
+        // ── How it is going. A COUNT, never a percentage: tasks are not equal in size, and a
+        // percentage claims they are. Blocked is called out separately because it is the one number
+        // on this page that means somebody has to do something.
+        stack.Children.Add(BuildProjectProgressLine(project));
+
+        // ── Status
+        stack.Children.Add(SectionLabel("STATUS"));
+        var statusRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
+        foreach ((string key, string label) in ProjectStatusChoices)
+        {
+            statusRow.Children.Add(ChoiceChip(
+                label,
+                selected: string.Equals(project.Status, key, System.StringComparison.Ordinal),
+                onClick: () => _ = SetProjectEngagementAsync(project.Id, status: key)));
+        }
+
+        stack.Children.Add(statusRow);
+
+        // ── The two dates. Typed, never inferred: Ari does not get to decide when an engagement
+        // began, and a guess here is printed to a paying client.
+        var dates = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        dates.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        dates.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        UIElement startCell = LabelledDayBox(
+            "STARTED",
+            project.StartDay,
+            value => _ = SetProjectEngagementAsync(project.Id, startDay: value));
+        Grid.SetColumn(startCell, 0);
+        dates.Children.Add(startCell);
+
+        UIElement endCell = LabelledDayBox(
+            "COMPLETED",
+            project.CompletionDay,
+            value => _ = SetProjectEngagementAsync(project.Id, completionDay: value));
+        Grid.SetColumn(endCell, 1);
+        dates.Children.Add(endCell);
+        stack.Children.Add(dates);
+
+        // ── Reporting frequency. A statement of intent and nothing more: no scheduler reads it and
+        // none ever will, because the report never sends automatically. Ari drafts, you tap.
+        stack.Children.Add(SectionLabel("REPORT EVERY"));
+        var freqRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
+        foreach ((string key, string label) in ProjectFrequencyChoices)
+        {
+            freqRow.Children.Add(ChoiceChip(
+                label,
+                selected: string.Equals(project.ReportingFrequency, key, System.StringComparison.Ordinal),
+                onClick: () => _ = SetProjectEngagementAsync(project.Id, reportingFrequency: key)));
+        }
+
+        stack.Children.Add(freqRow);
+        stack.Children.Add(new TextBlock
+        {
+            Text = "A reminder of the rhythm you agreed. Nothing sends on its own — you always tap send.",
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x6F, 0x78, 0x85)),
+            Margin = new Thickness(0, 0, 0, 12)
+        });
+
+        // ── Recipients. LOCAL ONLY. This list lives on this machine; only the single address on a
+        // report actually being sent ever leaves it.
+        stack.Children.Add(SectionLabel("REPORTS GO TO"));
+        var recipientBox = new TextBox
+        {
+            Text = string.Join(", ", project.Recipients ?? new List<string>()),
+            Style = (Style)FindResource("RpTextBox"),
+            ToolTip = "Separate addresses with a comma. Stored on this machine only.",
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+
+        void SaveRecipients()
+        {
+            string[] typed = recipientBox.Text
+                .Split(new[] { ',', ';' }, System.StringSplitOptions.RemoveEmptyEntries)
+                .Select(a => a.Trim())
+                .Where(a => a.Length > 0)
+                .ToArray();
+
+            // Only on an actual change, so clicking through the page never issues a write.
+            if (typed.SequenceEqual(project.Recipients ?? new List<string>(), System.StringComparer.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _ = SetProjectEngagementAsync(project.Id, recipients: typed);
+        }
+
+        recipientBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                SaveRecipients();
+                e.Handled = true;
+            }
+        };
+        recipientBox.LostFocus += (_, _) => SaveRecipients();
+        stack.Children.Add(recipientBox);
+
+        return stack;
+    }
+
+    /// <summary>
+    /// "3 of 8 tasks complete · 1 blocked · 12.4h". A COUNT and never a percentage — Yadin's rule,
+    /// and the reason is that tasks are not equal in size, so a percentage would be a claim the
+    /// data cannot support.
+    /// </summary>
+    private static UIElement BuildProjectProgressLine(LocalApiProject project)
+    {
+        var parts = new List<string>();
+
+        parts.Add(project.TotalTasks == 0
+            ? "No tasks yet"
+            : $"{project.DoneTasks} of {project.TotalTasks} {(project.TotalTasks == 1 ? "task" : "tasks")} complete");
+
+        if (project.InProgressTasks > 0)
+        {
+            parts.Add($"{project.InProgressTasks} in progress");
+        }
+
+        if (project.Hours > 0)
+        {
+            parts.Add($"{project.Hours:0.#}h");
+        }
+
+        var line = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
+        line.Children.Add(new TextBlock
+        {
+            Text = string.Join("  ·  ", parts),
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Color.FromRgb(0xC3, 0xCA, 0xD4)),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        // Blocked is the one count that means somebody has to do something, so it is not folded
+        // into the sentence above and it is the only thing on this row allowed to be red.
+        if (project.BlockedTasks > 0)
+        {
+            line.Children.Add(new TextBlock
+            {
+                Text = $"  ·  {project.BlockedTasks} blocked",
+                FontSize = 12,
+                FontWeight = FontWeights.Medium,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xF8, 0x71, 0x71)),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+        }
+
+        return line;
+    }
+
+    private static TextBlock SectionLabel(string text)
+        => new()
+        {
+            Text = text,
+            FontSize = 10,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x6F, 0x78, 0x85)),
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+
+    /// <summary>
+    /// A date the user types, or leaves empty. Empty is a valid permanent answer and is never
+    /// filled in from anything Ari knows: a project with no completion date is simply one that has
+    /// not finished, and inventing a date would print it to a client.
+    /// </summary>
+    private UIElement LabelledDayBox(string label, string value, System.Action<string> onCommit)
+    {
+        var cell = new StackPanel { Margin = new Thickness(0, 0, 8, 0) };
+        cell.Children.Add(SectionLabel(label));
+
+        var box = new TextBox
+        {
+            Text = value,
+            Style = (Style)FindResource("RpTextBox"),
+            ToolTip = "Year-month-day, for example 2026-08-18. Leave empty if it has not happened."
+        };
+
+        var hint = new TextBlock
+        {
+            Text = "yyyy-mm-dd",
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x50, 0x58, 0x64)),
+            Margin = new Thickness(9, 0, 0, 0),
+            IsHitTestVisible = false,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = value.Length == 0 ? Visibility.Visible : Visibility.Collapsed
+        };
+        box.TextChanged += (_, _) =>
+            hint.Visibility = box.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        void Commit()
+        {
+            string typed = box.Text.Trim();
+            if (string.Equals(typed, value, System.StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            // The store refuses anything that is not a real yyyy-MM-dd and stores empty instead, so
+            // a half-typed date is never kept. Saying so here is kinder than silently blanking it.
+            if (typed.Length > 0
+                && !System.DateTime.TryParseExact(
+                       typed,
+                       "yyyy-MM-dd",
+                       System.Globalization.CultureInfo.InvariantCulture,
+                       System.Globalization.DateTimeStyles.None,
+                       out _))
+            {
+                ProjectStatusText.Text = "That date needs to look like 2026-08-18. Nothing was saved.";
+                box.Text = value;
+                return;
+            }
+
+            onCommit(typed);
+        }
+
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                Commit();
+                e.Handled = true;
+            }
+        };
+        box.LostFocus += (_, _) => Commit();
+
+        var overlay = new Grid();
+        overlay.Children.Add(box);
+        overlay.Children.Add(hint);
+        cell.Children.Add(overlay);
+        return cell;
+    }
+
+    /// <summary>One of a small fixed set. Selected state is a filled chip, never a tick beside a word.</summary>
+    private Button ChoiceChip(string label, bool selected, System.Action onClick)
+    {
+        var button = new Button
+        {
+            Content = label,
+            Style = (Style)FindResource(selected ? "RpPrimaryButton" : "RpQuietButton"),
+            Margin = new Thickness(0, 0, 6, 6)
+        };
+        button.Click += (_, _) => onClick();
+        return button;
+    }
+
+    /// <summary>
+    /// Phase 3.2 — writes ONE engagement field. Everything not passed stays null, and the endpoint
+    /// applies a field only when it is present, so saving a status can never disturb a date and
+    /// saving a date can never disturb the recipient list.
+    /// </summary>
+    private async Task SetProjectEngagementAsync(
+        long id,
+        string? status = null,
+        string? startDay = null,
+        string? completionDay = null,
+        IReadOnlyList<string>? recipients = null,
+        string? reportingFrequency = null)
+    {
+        LocalApiProjectResponse? response = await _apiClient
+            .UpdateProjectEngagementAsync(new LocalApiProjectEngagementRequest(
+                SchemaVer: 1,
+                Id: id,
+                Status: status,
+                StartDay: startDay,
+                CompletionDay: completionDay,
+                Recipients: recipients,
+                ReportingFrequency: reportingFrequency))
+            .ConfigureAwait(true);
+
+        if (response is not { Success: true })
+        {
+            // Never claim a save that did not happen.
+            ProjectStatusText.Text = "Couldn't save that — the agent didn't answer. Nothing was changed.";
+            return;
+        }
+
+        ProjectStatusText.Text = "Saved.";
+        await RefreshProjectsAsync().ConfigureAwait(true);
+    }
+
 }
