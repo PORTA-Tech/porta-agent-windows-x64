@@ -124,6 +124,19 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly Button _menuButton;
     private readonly Popup _menuPopup;
     private readonly Button _hideWidgetButton;
+    private readonly Button _hideOneHourButton;
+    private readonly Button _hideTwoHoursButton;
+
+    // The task title's slot. Named because phase 4.4 has to measure against the same number the
+    // title is laid out to; two copies of 96 would drift and the overflow test would go wrong.
+    private const double TaskTitleWidth = 96d;
+
+    // How far past the end of an overflowing title the hover scroll travels, so the last glyph
+    // clears the clip edge instead of ending flush against it.
+    private const double TitleScrollTrailingPad = 2d;
+
+    private static readonly FontFamily WidgetFontFamily =
+        new("Segoe UI Variable Text, Segoe UI Variable, Segoe UI");
     private readonly Button _pauseFifteenButton;
     private readonly Button _pauseHourButton;
     private readonly Button _resumeButton;
@@ -334,7 +347,7 @@ internal sealed class UserDesktopWidgetWindow : Window
                 Color = Color.FromRgb(0, 0, 0)
             }
         };
-        FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI Variable, Segoe UI");
+        FontFamily = WidgetFontFamily;
         TextOptions.SetTextFormattingMode(_rootBorder, TextFormattingMode.Display);
         TextOptions.SetTextRenderingMode(_rootBorder, TextRenderingMode.ClearType);
         _rootBorder.PreviewMouseLeftButtonDown += BeginDragFromSurface;
@@ -1135,10 +1148,15 @@ internal sealed class UserDesktopWidgetWindow : Window
         _menuPopup.Child = popupChrome;
 
         popupStack.Children.Add(CreateMenuSectionLabel("Control Center"));
+        // Phase 4.1 (2026-08-18) — the four main pages, in the order the Control Center sidebar
+        // lists them, then History below as the sidebar has it. Actions and Tracking are gone
+        // from here: since phase 3.1 they are sub-sections of Settings, and a menu entry that
+        // opens a settings page under its old name teaches the wrong shape of the app.
         popupStack.Children.Add(CreateMenuButton("Today", UserDesktopWidgetAction.OpenNow));
+        popupStack.Children.Add(CreateMenuButton("Tasks", UserDesktopWidgetAction.OpenTasks));
+        popupStack.Children.Add(CreateMenuButton("Projects", UserDesktopWidgetAction.OpenProjects));
+        popupStack.Children.Add(CreateMenuButton("Reports", UserDesktopWidgetAction.OpenReports));
         popupStack.Children.Add(CreateMenuButton("History", UserDesktopWidgetAction.OpenHistory));
-        popupStack.Children.Add(CreateMenuButton("Actions", UserDesktopWidgetAction.OpenActions));
-        popupStack.Children.Add(CreateMenuButton("Tracking", UserDesktopWidgetAction.OpenTracking));
         popupStack.Children.Add(CreateMenuButton("Add reminder", UserDesktopWidgetAction.ReminderOpenQuickAdd));
         popupStack.Children.Add(CreateMenuButton("Settings", UserDesktopWidgetAction.OpenSettings));
         popupStack.Children.Add(CreateMenuSeparator());
@@ -1151,6 +1169,13 @@ internal sealed class UserDesktopWidgetWindow : Window
         popupStack.Children.Add(_resumeButton);
         popupStack.Children.Add(CreateMenuSeparator());
         popupStack.Children.Add(CreateMenuButton("Reset position", UserDesktopWidgetAction.ResetPosition));
+        // Phase 4.2 (2026-08-18) — the short hides come first, because the common case is an
+        // interruption and not the end of the day. Each button says how long it lasts, and the
+        // notification that follows says the clock time it comes back at.
+        _hideOneHourButton = CreateMenuButton("Hide for 1 hour", UserDesktopWidgetAction.HideOneHour);
+        _hideTwoHoursButton = CreateMenuButton("Hide for 2 hours", UserDesktopWidgetAction.HideTwoHours);
+        popupStack.Children.Add(_hideOneHourButton);
+        popupStack.Children.Add(_hideTwoHoursButton);
         // "until tomorrow" is the contract (Workstream 3) — the button must say it, so
         // hiding never reads as "gone forever" and the morning return never feels like a bug.
         _hideWidgetButton = CreateMenuButton("Hide until tomorrow", UserDesktopWidgetAction.HideWidget);
@@ -3716,7 +3741,9 @@ internal sealed class UserDesktopWidgetWindow : Window
         var title = new TextBlock
         {
             FontSize = 9,
-            MaxWidth = 96,
+            // Set explicitly rather than inherited: phase 4.4 measures this TextBlock before it
+            // joins the tree, and a detached measure would use the default face and mis-size it.
+            FontFamily = WidgetFontFamily,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = new SolidColorBrush(closed
@@ -3737,7 +3764,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             Foreground = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
             Text = BuildTaskDetailText(task)
         };
-        row.Children.Add(title);
+        row.Children.Add(BuildTaskTitleHost(title));
         row.Children.Add(detail);
 
         switch (task.State)
@@ -3775,6 +3802,109 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
 
         return row;
+    }
+
+    /// <summary>
+    /// Phase 4.4 (2026-08-18) — long task names. A title has 96 DIPs and real ones outgrow it, so
+    /// the row used to end in an ellipsis with no way to read the rest.
+    ///
+    /// <para>Two halves, and the cheap one is load-bearing: an overflowing title always gets a
+    /// tooltip carrying the whole name, which works with no motion, no timing and no hover skill.
+    /// On top of that, hovering scrolls the title right to left so the tail can be read in place.
+    /// The scroll runs ONLY while the pointer is over the title — never as ambient motion on a
+    /// widget that sits on top of the user's work all day.</para>
+    ///
+    /// <para>A title that fits is returned untouched: no clip host, no tooltip, no handlers.</para>
+    /// </summary>
+    private static UIElement BuildTaskTitleHost(TextBlock title)
+    {
+        title.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        double natural = title.DesiredSize.Width;
+
+        if (!ShouldScrollTaskTitle(natural, TaskTitleWidth))
+        {
+            title.MaxWidth = TaskTitleWidth;
+            return title;
+        }
+
+        // A CANVAS, not a Grid or a StackPanel. Both of those measure a child against their own
+        // width, which would pin the title at 96 DIPs — the text past the edge would never be laid
+        // out, and sliding it left would reveal blank space instead of the rest of the name. A
+        // Canvas measures its children unconstrained, so the title exists at full width and the
+        // Canvas's own clip is what hides the tail until the pointer arrives.
+        title.Width = TaskTitleWidth; // ellipsis at rest; widened on hover
+        var slide = new TranslateTransform();
+        title.RenderTransform = slide;
+
+        var host = new Canvas
+        {
+            Width = TaskTitleWidth,
+            Height = title.DesiredSize.Height,
+            ClipToBounds = true,
+            VerticalAlignment = VerticalAlignment.Center,
+            Background = Brushes.Transparent, // hit-testable, so hover works over the gaps too
+            ToolTip = title.Text
+        };
+        host.Children.Add(title);
+
+        double overflow = natural - TaskTitleWidth;
+        Duration duration = new(ComputeTaskTitleScrollDuration(overflow));
+
+        host.MouseEnter += (_, _) =>
+        {
+            // Drop the ellipsis and let the title take its full width, otherwise there is
+            // nothing past the clip edge to scroll into view.
+            title.Width = natural;
+            title.TextTrimming = TextTrimming.None;
+
+            // From is set EXPLICITLY. A DoubleAnimation without From starts at the property's
+            // current value, which is what produced the widget strip bug fixed in 1.2.114.
+            var animation = new DoubleAnimation
+            {
+                From = 0d,
+                // Two DIPs past the end. Stopping exactly at -overflow puts the final glyph flush
+                // against the clip edge, where a fractional advance width can shave a sliver off
+                // the last character — the one the user hovered in order to read.
+                To = -(overflow + TitleScrollTrailingPad),
+                Duration = duration,
+                // A pointer crossing the row on its way somewhere else must not start anything.
+                BeginTime = TimeSpan.FromMilliseconds(400),
+                AutoReverse = true,
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+            };
+            slide.BeginAnimation(TranslateTransform.XProperty, animation);
+        };
+
+        host.MouseLeave += (_, _) =>
+        {
+            // Hand the property back before resetting it: an animation left in place would hold
+            // the value and the title would stay parked wherever the pointer left it.
+            slide.BeginAnimation(TranslateTransform.XProperty, null);
+            slide.X = 0d;
+            title.Width = TaskTitleWidth;
+            title.TextTrimming = TextTrimming.CharacterEllipsis;
+        };
+
+        return host;
+    }
+
+    /// <summary>
+    /// Whether a title overflows its slot. The half-DIP tolerance keeps a title that measures a
+    /// hair under the limit from being given a tooltip and a scroll it does not need.
+    /// </summary>
+    internal static bool ShouldScrollTaskTitle(double naturalWidth, double availableWidth)
+        => naturalWidth > availableWidth + 0.5d;
+
+    /// <summary>
+    /// How long one pass takes: a constant reading SPEED, not a constant duration, so a slightly
+    /// long title does not crawl and a very long one does not race. Clamped at both ends.
+    /// </summary>
+    internal static TimeSpan ComputeTaskTitleScrollDuration(double overflowPixels)
+    {
+        const double DipsPerSecond = 34d;
+        double seconds = Math.Abs(overflowPixels) / DipsPerSecond;
+        return TimeSpan.FromSeconds(Math.Clamp(seconds, 0.6d, 6d));
     }
 
     // The honest line. Active: countdown + live off-task. Done: plan vs. reality,

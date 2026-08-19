@@ -7,6 +7,57 @@ namespace Porta.UserAgent.Tests;
 
 public sealed class UserDesktopWidgetPresenterTests
 {
+    // ── Phase 4.2 — "Show when it returns" ─────────────────────────────────────────────────
+    // The hide is only half the feature; the user has to be told when the widget comes back,
+    // in clock time, or a timed hide is indistinguishable from the widget having crashed.
+
+    /// <summary>
+    /// A wall-clock local time, whatever zone the machine or CI runner is in. The store hands the
+    /// presenter values already carrying the local offset, so this matches what production passes
+    /// — and the assertions below stay true in Dubai and on a UTC build agent alike.
+    /// </summary>
+    private static DateTimeOffset LocalAt(int day, int hour, int minute)
+    {
+        DateTime wall = new(2026, 08, day, hour, minute, 0, DateTimeKind.Unspecified);
+        return new DateTimeOffset(wall, TimeZoneInfo.Local.GetUtcOffset(wall));
+    }
+
+    [Fact]
+    public void HiddenUntilMessage_NamesTheClockTime()
+    {
+        Assert.Equal(
+            "Hidden until 9:15 PM.",
+            UserDesktopWidgetPresenter.BuildHiddenUntilMessage(LocalAt(18, 21, 15), string.Empty));
+    }
+
+    [Fact]
+    public void HiddenUntilMessage_DropsLeadingZeroAndKeepsMinutes()
+    {
+        Assert.Equal(
+            "Hidden until 5:00 AM.",
+            UserDesktopWidgetPresenter.BuildHiddenUntilMessage(LocalAt(19, 5, 0), string.Empty));
+    }
+
+    [Fact]
+    public void HiddenUntilMessage_AppendsTheSettingsTrailerForTheDailyHide()
+    {
+        Assert.Equal(
+            "Hidden until 5:00 AM. Turn it off for good in Settings.",
+            UserDesktopWidgetPresenter.BuildHiddenUntilMessage(
+                LocalAt(19, 5, 0), "Turn it off for good in Settings."));
+    }
+
+    [Fact]
+    public void HiddenUntilMessage_WithNoReturnTime_DoesNotInventOne()
+    {
+        // Permanently disabled, or a store read that failed. Saying nothing about the return is
+        // honest; naming a time the widget will not honour is not.
+        Assert.Equal("Widget hidden.", UserDesktopWidgetPresenter.BuildHiddenUntilMessage(null, string.Empty));
+        Assert.Equal(
+            "Widget hidden.",
+            UserDesktopWidgetPresenter.BuildHiddenUntilMessage(DateTimeOffset.MaxValue, string.Empty));
+    }
+
     [Fact]
     public async Task HeartbeatHealthCheck_TreatsCrossThreadWindowAsUnhealthyWithoutThrowing()
     {

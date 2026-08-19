@@ -30,6 +30,14 @@ public partial class App : Application
             return;
         }
 
+        // Same placement, same reason: it opens each page the way the widget does and exits.
+        if (ActivationRoutePreview.ShouldRun(e.Args))
+        {
+            ActivationRoutePreview.Run(e.Args);
+            Shutdown();
+            return;
+        }
+
         ControlCenterActivationTarget startupTarget = ControlCenterActivationRequestStore.ParseArgs(e.Args);
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {

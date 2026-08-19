@@ -20,7 +20,19 @@ internal enum UserDesktopWidgetAction
     OpenTracking,
     OpenHealth,
     OpenSettings,
+    // Phase 4.1 (2026-08-18) — the widget menu lists the pages that exist. Actions and Tracking
+    // became sub-sections of Settings in phase 3.1, so the menu offers the four main pages
+    // instead. The two old actions stay in this enum: an installed Control Center still answers
+    // them, and dropping them would break a widget/Control Center straddle mid-upgrade.
+    OpenTasks,
+    OpenProjects,
+    OpenReports,
     HideWidget,
+    // Phase 4.2 (2026-08-18) — timed hides. "Until tomorrow" was the only option, so a
+    // ten-minute interruption cost the rest of the day. Both are still bounded: nothing the
+    // widget can do makes it permanently invisible — that stays a Control Center setting.
+    HideOneHour,
+    HideTwoHours,
     RetryCritical,
     PauseFifteenMinutes,
     PauseOneHour,

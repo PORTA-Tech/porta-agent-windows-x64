@@ -67,6 +67,11 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
     // Workstream 3 — last hidden state this presenter acted on. Null until first observed,
     // so a normal start never fires the "widget is back" affordance.
     private bool? _lastHiddenObserved;
+
+    // Phase 4.2 — the mode of the hide currently in force, so the comeback message can tell a
+    // timed return from the morning one. Read while still hidden: the store deletes its file the
+    // moment the hide expires, so after the flip there is nothing left to ask.
+    private string _lastHiddenMode = string.Empty;
     private bool _disposed;
 
     public UserDesktopWidgetPresenter(UserDesktopWidgetRollout? rollout = null)
@@ -134,7 +139,14 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
         bool hidden = _visibilityStore.IsHidden();
         bool? previous = _lastHiddenObserved;
+        string expiredMode = _lastHiddenMode;
         _lastHiddenObserved = hidden;
+        // Phase 4.2 — capture the mode WHILE hidden. Once the hide expires the file is gone, so
+        // the flip below has to be explained from what was last seen, not from what is left.
+        // Read once per hide episode, not once per tick: this runs on the 2s maintenance loop.
+        _lastHiddenMode = hidden
+            ? (_lastHiddenMode.Length == 0 ? _visibilityStore.ReadMode(DateTimeOffset.Now) : _lastHiddenMode)
+            : string.Empty;
         if (previous is null || previous == hidden)
         {
             return;
@@ -147,11 +159,48 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
         }
 
         // Boundary return (the widget itself has no un-hide affordance, so a hidden→visible
-        // transition here is always the daily comeback, never a user click). Quiet, one-time:
-        // a new day starts, the widget is simply present again.
+        // transition here is always the timer or the morning coming round, never a user click).
+        // Quiet, one-time: the widget is simply present again.
         _ = TryDispatchToWidget(static window => window.ShowWidgetIfHidden(), out _);
-        _ = TryShow("Ari", "New day — the widget is back. Hide it again anytime from its menu.", out _);
-        UserAgentFileLog.Info("desktop_widget_daily_return");
+        bool timed = string.Equals(
+            expiredMode, UserDesktopWidgetVisibilityStore.DurationMode, StringComparison.Ordinal);
+        _ = TryShow(
+            "Ari",
+            timed
+                ? "The widget is back. Hide it again anytime from its menu."
+                : "New day — the widget is back. Hide it again anytime from its menu.",
+            out _);
+        UserAgentFileLog.Info(timed ? "desktop_widget_timed_return" : "desktop_widget_daily_return");
+    }
+
+    /// <summary>
+    /// Phase 4.2 — one path for every hide the widget can perform: record what the store decided,
+    /// take the surface down, and tell the user the clock time it comes back at.
+    /// </summary>
+    private void ApplyHide(string mode, DateTimeOffset? until, string trailer)
+    {
+        _lastHiddenObserved = true;
+        _lastHiddenMode = mode;
+        _ = TryDispatchToWidget(static window => window.HideWidget(), out _);
+        _ = TryShowSystemNotification("Ari", BuildHiddenUntilMessage(until, trailer));
+    }
+
+    /// <summary>
+    /// "Hidden until 9:15 PM." — the return time in the user's own clock. A hide with no readable
+    /// return time is described without one rather than with a guess.
+    /// </summary>
+    internal static string BuildHiddenUntilMessage(DateTimeOffset? until, string trailer)
+    {
+        // Invariant culture on purpose: "9:15 PM" is the agreed wording, and a runner or machine
+        // whose culture has no AM/PM designator must not turn it into "Hidden until 21:15 ."
+        string head = until is { } moment && moment != DateTimeOffset.MaxValue
+            ? string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                "Hidden until {0:h:mm tt}.",
+                moment.ToLocalTime())
+            : "Widget hidden.";
+
+        return string.IsNullOrWhiteSpace(trailer) ? head : $"{head} {trailer.Trim()}";
     }
 
     internal void MaintainWidgetSurface()
@@ -1028,6 +1077,33 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
 
                 break;
 
+            // Phase 4.1 (2026-08-18) — the three pages the menu gained. Each is a main page in
+            // Control Center since phase 3.1, so the widget opens it directly rather than routing
+            // through Settings.
+            case UserDesktopWidgetAction.OpenTasks:
+                if (!TryOpenControlCenter("tasks"))
+                {
+                    _ = TryShow("Tracking limited", "Control Center is not available on this device.", out _);
+                }
+
+                break;
+
+            case UserDesktopWidgetAction.OpenProjects:
+                if (!TryOpenControlCenter("projects"))
+                {
+                    _ = TryShow("Tracking limited", "Control Center is not available on this device.", out _);
+                }
+
+                break;
+
+            case UserDesktopWidgetAction.OpenReports:
+                if (!TryOpenControlCenter("reports"))
+                {
+                    _ = TryShow("Tracking limited", "Control Center is not available on this device.", out _);
+                }
+
+                break;
+
             case UserDesktopWidgetAction.OpenSettings:
                 if (!TryOpenControlCenter("settings"))
                 {
@@ -1056,9 +1132,27 @@ internal sealed class UserDesktopWidgetPresenter : IUserInterventionPresenter, I
                 // Hide means hide for TODAY (Workstream 3): back at the next 5:00 local.
                 // Permanent hide lives only in Control Center → Settings.
                 _visibilityStore.Hide();
-                _lastHiddenObserved = true;
-                _ = TryDispatchToWidget(static window => window.HideWidget(), out _);
-                _ = TryShowSystemNotification("Ari", "Widget hidden until tomorrow morning. Turn it off for good in Settings.");
+                ApplyHide(
+                    UserDesktopWidgetVisibilityStore.TodayMode,
+                    _visibilityStore.HiddenUntil(DateTimeOffset.Now),
+                    "Turn it off for good in Settings.");
+                break;
+
+            // Phase 4.2 (2026-08-18) — the timed hides. The notification names the clock time the
+            // widget comes back, read back out of the store rather than recomputed here, so the
+            // promise and the behaviour cannot drift apart.
+            case UserDesktopWidgetAction.HideOneHour:
+                ApplyHide(
+                    UserDesktopWidgetVisibilityStore.DurationMode,
+                    _visibilityStore.HideFor(TimeSpan.FromHours(1), DateTimeOffset.Now),
+                    string.Empty);
+                break;
+
+            case UserDesktopWidgetAction.HideTwoHours:
+                ApplyHide(
+                    UserDesktopWidgetVisibilityStore.DurationMode,
+                    _visibilityStore.HideFor(TimeSpan.FromHours(2), DateTimeOffset.Now),
+                    string.Empty);
                 break;
 
             case UserDesktopWidgetAction.RetryCritical:

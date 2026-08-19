@@ -546,11 +546,50 @@ public sealed class UserDesktopWidgetWindowTests : IDisposable
             Assert.Contains("Control Center", popupText, StringComparison.Ordinal);
             Assert.Contains("Today", popupText, StringComparison.Ordinal);
             Assert.Contains("History", popupText, StringComparison.Ordinal);
-            Assert.Contains("Actions", popupText, StringComparison.Ordinal);
-            Assert.Contains("Tracking", popupText, StringComparison.Ordinal);
             Assert.Contains("Settings", popupText, StringComparison.Ordinal);
-            // Aligned to shipping: the widget menu builds Today/History/Actions/Tracking/Settings.
-            // The 'System' route is part of the unshipped widget/nav redesign.
+
+            // Phase 4.1 (2026-08-18) — the menu now lists the four main pages. This test was the
+            // thing that caught the change, which is the point of it: the labels ARE the contract.
+            Assert.Contains("Tasks", popupText, StringComparison.Ordinal);
+            Assert.Contains("Projects", popupText, StringComparison.Ordinal);
+            Assert.Contains("Reports", popupText, StringComparison.Ordinal);
+
+            // And Actions and Tracking are gone. Asserted as absence, not just dropped from the
+            // list above: a menu entry that reopens a page under its pre-phase-3 name is exactly
+            // the regression this guards.
+            Assert.DoesNotContain("Actions", popupText, StringComparison.Ordinal);
+            Assert.DoesNotContain("Tracking", popupText, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void Menu_OffersTheShortHidesAboveHideUntilTomorrow()
+    {
+        RunOnStaThread(() =>
+        {
+            using TempDirectoryScope tempDirectory = new();
+            var window = new UserDesktopWidgetWindow(
+                _ => { },
+                _ => { },
+                new UserDesktopWidgetPlacementStore(Path.Combine(tempDirectory.Path, "widget-placement.json")));
+            Popup popup = GetPrivateField<Popup>(window, "_menuPopup");
+
+            string popupText = ReadAllText(popup.Child);
+
+            // Phase 4.2 — the order is the requirement, not just the presence: the two short hides
+            // sit ABOVE "Hide until tomorrow", which becomes third.
+            int oneHour = popupText.IndexOf("Hide for 1 hour", StringComparison.Ordinal);
+            int twoHours = popupText.IndexOf("Hide for 2 hours", StringComparison.Ordinal);
+            int tomorrow = popupText.IndexOf("Hide until tomorrow", StringComparison.Ordinal);
+
+            Assert.True(oneHour >= 0, "the 1-hour hide is missing from the menu");
+            Assert.True(twoHours >= 0, "the 2-hour hide is missing from the menu");
+            Assert.True(tomorrow >= 0, "the until-tomorrow hide is missing from the menu");
+            Assert.True(oneHour < twoHours, "1 hour must come before 2 hours");
+            Assert.True(twoHours < tomorrow, "until tomorrow must be third");
+
+            window.AllowCloseForShutdown();
+            window.Close();
         });
     }
 
@@ -1025,6 +1064,63 @@ public sealed class UserDesktopWidgetWindowTests : IDisposable
         {
             ExceptionDispatchInfo.Capture(failure).Throw();
         }
+    }
+
+    // ── Phase 4.4 — long task names ────────────────────────────────────────────────────────
+    // The decision to scroll, and the speed it scrolls at. Both are pure, so they are the part
+    // worth pinning: a hover animation cannot be asserted on, but "does this title even
+    // overflow" and "how long does one pass take" can.
+
+    [Fact]
+    public void TitleThatFits_IsNotScrolled()
+    {
+        Assert.False(UserDesktopWidgetWindow.ShouldScrollTaskTitle(40d, 96d));
+        Assert.False(UserDesktopWidgetWindow.ShouldScrollTaskTitle(95.9d, 96d));
+    }
+
+    [Fact]
+    public void TitleExactlyFilling_IsNotScrolled()
+    {
+        // Dead on the limit is not overflow: there is nothing hidden to reveal, and a tooltip
+        // repeating a fully visible name is noise.
+        Assert.False(UserDesktopWidgetWindow.ShouldScrollTaskTitle(96d, 96d));
+        Assert.False(UserDesktopWidgetWindow.ShouldScrollTaskTitle(96.4d, 96d));
+    }
+
+    [Fact]
+    public void TitleThatOverflows_IsScrolled()
+    {
+        Assert.True(UserDesktopWidgetWindow.ShouldScrollTaskTitle(96.6d, 96d));
+        Assert.True(UserDesktopWidgetWindow.ShouldScrollTaskTitle(240d, 96d));
+    }
+
+    [Fact]
+    public void ScrollDuration_GrowsWithOverflow()
+    {
+        // Constant speed, not constant duration: twice the hidden text takes twice as long.
+        TimeSpan shorter = UserDesktopWidgetWindow.ComputeTaskTitleScrollDuration(40d);
+        TimeSpan longer = UserDesktopWidgetWindow.ComputeTaskTitleScrollDuration(80d);
+
+        Assert.True(longer > shorter);
+        Assert.Equal(longer.TotalSeconds, shorter.TotalSeconds * 2d, precision: 3);
+    }
+
+    [Fact]
+    public void ScrollDuration_IsClampedAtBothEnds()
+    {
+        // A hair of overflow must not flick past unreadably, and a pathological title must not
+        // take a minute to come back — the pointer is being held still the whole time.
+        Assert.Equal(0.6d, UserDesktopWidgetWindow.ComputeTaskTitleScrollDuration(1d).TotalSeconds, precision: 3);
+        Assert.Equal(6d, UserDesktopWidgetWindow.ComputeTaskTitleScrollDuration(9000d).TotalSeconds, precision: 3);
+    }
+
+    [Fact]
+    public void ScrollDuration_IsAlwaysPositive()
+    {
+        // Guards a zero/negative Duration, which WPF treats as "jump to the end" — the title
+        // would snap instead of scrolling.
+        Assert.True(UserDesktopWidgetWindow.ComputeTaskTitleScrollDuration(0d) > TimeSpan.Zero);
+        Assert.True(UserDesktopWidgetWindow.ComputeTaskTitleScrollDuration(-50d) > TimeSpan.Zero);
     }
 
     private sealed class TempDirectoryScope : IDisposable

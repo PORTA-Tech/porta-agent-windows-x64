@@ -1396,11 +1396,9 @@ public partial class MainWindow
         return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(normalized.ToLowerInvariant());
     }
 
-    private async void AccountNavButton_Click(object sender, RoutedEventArgs e)
+    private void AccountNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Account);
-        ShowAccountSection(AccountSurfaceSection.Summary); // default to "Signed in as" on every open
-        await RefreshAccountSurfaceAsync(force: true).ConfigureAwait(true);
     }
 
     private async Task<bool> TrySignInAsync(string userId, string password)

@@ -133,7 +133,6 @@ public partial class MainWindow
             {
                 _taskFilter = "done";
                 ShowSection(UiSection.Tasks);
-                _ = RefreshTasksPageAsync();
             }));
         }
 

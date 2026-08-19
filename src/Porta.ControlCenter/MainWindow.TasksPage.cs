@@ -300,7 +300,6 @@ public partial class MainWindow
     {
         _editingResultLineFor = taskId;
         ShowSection(UiSection.Tasks);
-        _ = RefreshTasksPageAsync();
     }
 
     private async Task SaveResultLineAsync(long taskId, string line)

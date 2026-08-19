@@ -299,6 +299,16 @@ public partial class MainWindow : Window
             case ControlCenterActivationTarget.Tracking:
                 section = UiSection.Settings;
                 return true;
+            // Phase 4.1 — opened straight from the widget menu, as main pages.
+            case ControlCenterActivationTarget.Tasks:
+                section = UiSection.Tasks;
+                return true;
+            case ControlCenterActivationTarget.Projects:
+                section = UiSection.Projects;
+                return true;
+            case ControlCenterActivationTarget.Reports:
+                section = UiSection.Reports;
+                return true;
             case ControlCenterActivationTarget.Settings:
                 section = UiSection.Settings;
                 return true;
@@ -816,11 +826,7 @@ public partial class MainWindow : Window
 
     private void TimelineNavButton_Click(object sender, RoutedEventArgs e)
     {
-        // Default to Day view, today's data — never show an empty page
-        _historyPeriod = HistoryPeriod.Day;
-        _historyRange = HistoryRange.Today;
         ShowSection(UiSection.Timeline);
-        PopulateTimeline(_todayTimeline ?? GetSelectedHistoryTimeline());
     }
 
     private void HistoryTabDay_Click(object sender, MouseButtonEventArgs e)
@@ -992,31 +998,16 @@ public partial class MainWindow : Window
     private void TasksNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Tasks);
-        if (!PreviewMode)
-        {
-            _ = RefreshTasksPageAsync();
-        }
     }
 
     private void ProjectsNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Projects);
-        // Read when the page is opened, never on a timer: the project list changes when a person
-        // decides it does. Not under the preview harness, where a live read would land mid-render
-        // and replace the sample data with whatever this machine happens to hold.
-        if (!PreviewMode)
-        {
-            _ = RefreshProjectsAsync();
-        }
     }
 
     private void ReportsNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Reports);
-        if (!PreviewMode)
-        {
-            _ = OpenReportsPageV2Async();
-        }
     }
 
     private void ActionsSuggestionsTabButton_Click(object sender, RoutedEventArgs e)
@@ -1044,7 +1035,6 @@ public partial class MainWindow : Window
     private void SettingsNavButton_Click(object sender, RoutedEventArgs e)
     {
         ShowSection(UiSection.Settings);
-        ShowSettingsSection("Intensity");
     }
 
     private void SettingsSubNav_Click(object sender, MouseButtonEventArgs e)
@@ -1219,10 +1209,9 @@ public partial class MainWindow : Window
 
     private void OpenNowFocusDetail()
     {
-        _historyRange = HistoryRange.Today;
+        // ShowSection opens History on Day/today and populates it; this only scrolls to the part
+        // that was asked for.
         ShowSection(UiSection.Timeline);
-        UpdateHistoryControls();
-        PopulateTimeline(GetSelectedHistoryTimeline());
         ScrollIntoViewDeferred(HistoryCoordinateScrollViewer);
     }
 
@@ -1507,7 +1496,89 @@ public partial class MainWindow : Window
             SetWhyDrawerVisible(false);
         }
 
+        LoadSection(section);
+    }
 
+    /// <summary>
+    /// Everything a section needs in order to have CONTENT, not just a frame.
+    ///
+    /// <para>This used to live in each nav button's Click handler, which meant showing a section
+    /// and loading it were two different things that only happened to travel together. Anything
+    /// that reached a section by another route — <see cref="HandleExternalActivation"/>, which is
+    /// how the widget menu opens a page — got the frame and no content. That was not only the
+    /// three pages phase 4.1 added: History, Settings and Account were reachable from the widget
+    /// and empty for the same reason (2026-08-19).</para>
+    ///
+    /// <para>So it lives HERE, at the bottom of <see cref="ShowSection"/>. There is one path. A
+    /// caller cannot show a section without loading it, and a new entry point cannot forget to,
+    /// because there is nothing left to forget. Anything a section needs on open belongs in this
+    /// switch and nowhere else.</para>
+    ///
+    /// <para><see cref="UiSection.SendFlow"/> is deliberately absent: it opens ON a specific
+    /// report, so its caller passes an id. It has no "just open it" state to load, and every
+    /// route into it already supplies one.</para>
+    /// </summary>
+    private void LoadSection(UiSection section)
+    {
+        switch (section)
+        {
+            case UiSection.Timeline:
+                // Day view, today's data. Never an empty page.
+                _historyPeriod = HistoryPeriod.Day;
+                _historyRange = HistoryRange.Today;
+                UpdateHistoryControls();
+                PopulateTimeline(_todayTimeline ?? GetSelectedHistoryTimeline());
+                break;
+
+            case UiSection.Settings:
+                ShowSettingsSection("Intensity");
+                break;
+
+            case UiSection.Account:
+                ShowAccountSection(AccountSurfaceSection.Summary); // "Signed in as" on every open
+                if (!PreviewMode)
+                {
+                    _ = RefreshAccountSurfaceAsync(force: true);
+                }
+
+                break;
+
+            case UiSection.Tasks:
+                if (!PreviewMode)
+                {
+                    _ = RefreshTasksPageAsync();
+                }
+
+                break;
+
+            case UiSection.Projects:
+                // Read when the page is opened, never on a timer: the project list changes when a
+                // person decides it does. Not under the preview harness, where a live read would
+                // land mid-render and replace the sample data with whatever this machine holds.
+                if (!PreviewMode)
+                {
+                    _ = RefreshProjectsAsync();
+                }
+
+                break;
+
+            case UiSection.Reports:
+                if (!PreviewMode)
+                {
+                    _ = OpenReportsPageV2Async();
+                }
+
+                break;
+
+            // Overview and Diagnostics are fed by the 2-second refresh timer rather than by an
+            // open, so they have content whether they were opened by a click or by the widget.
+            case UiSection.Overview:
+            case UiSection.Diagnostics:
+            case UiSection.States:
+            case UiSection.SendFlow:
+            default:
+                break;
+        }
     }
 
     private void UpdateActionsTabControls()

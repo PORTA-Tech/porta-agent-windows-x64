@@ -484,8 +484,10 @@ public partial class MainWindow
             return;
         }
 
+        // ShowSection puts the Account page on Summary and refreshes it; this only adds the
+        // overlay on top. PopulateAccountSurface reads _updateOverlayOpen, so the refresh
+        // landing later still renders with the overlay open.
         ShowSection(UiSection.Account);
-        _activeAccountSection = AccountSurfaceSection.Summary;
         _updateOverlayOpen = true;
         PopulateAccountSurface();
         Activate();

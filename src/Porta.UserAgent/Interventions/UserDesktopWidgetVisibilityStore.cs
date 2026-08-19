@@ -10,12 +10,20 @@ using System.Text.Json;
 /// the widget back — no user can put the widget into a permanently-invisible state from
 /// the widget itself. Permanent hide exists only as the Control Center Settings toggle,
 /// which writes a separate flag file this store also respects.
+///
+/// <para>Phase 4.2 (2026-08-18) adds fixed-duration hides (1h, 2h). Same invariant, tighter:
+/// a duration hide stores the moment it ends, so it is bounded by construction and cannot
+/// outlive its own clock even across a restart. The "today" mode is unchanged, and a file
+/// written by an older build has no <c>UntilUtc</c>, so it keeps reading as "today".</para>
 /// </summary>
 internal sealed class UserDesktopWidgetVisibilityStore
 {
     // The day boundary. 5:00 local, not midnight: a hide at 23:30 should last through the
     // whole night, and late-night workers still count "tonight" as today.
     private const int DayBoundaryHour = 5;
+
+    internal const string TodayMode = "today";
+    internal const string DurationMode = "duration";
 
     private readonly string _path;
     private readonly string _legacyPath;
@@ -31,50 +39,98 @@ internal sealed class UserDesktopWidgetVisibilityStore
 
     public bool IsHidden() => IsHidden(DateTimeOffset.Now);
 
-    public bool IsHidden(DateTimeOffset nowLocal)
+    public bool IsHidden(DateTimeOffset nowLocal) => HiddenUntil(nowLocal) is not null;
+
+    /// <summary>
+    /// The moment the widget comes back, or null when it is not hidden. This is the single read
+    /// both visibility and the "Hidden until 9:15 PM" copy go through, so the time the user is
+    /// told can never disagree with the time the widget actually returns. Permanently disabled
+    /// reports <see cref="DateTimeOffset.MaxValue"/> — hidden, with no return to name.
+    /// </summary>
+    public DateTimeOffset? HiddenUntil(DateTimeOffset nowLocal)
     {
         try
         {
             if (File.Exists(_permanentPath))
             {
-                return true;
+                return DateTimeOffset.MaxValue;
             }
 
             MigrateLegacyFlagIfPresent(nowLocal);
 
             if (!File.Exists(_path))
             {
-                return false;
+                return null;
             }
 
-            DateTimeOffset? hiddenAtUtc = ReadHiddenAtUtc();
-            if (hiddenAtUtc is not { } hiddenAt)
+            HiddenDocument? doc = ReadDocument();
+            if (doc is null || !DateTimeOffset.TryParse(doc.HiddenAtUtc, out DateTimeOffset hiddenAt))
             {
                 // Unreadable state must fail toward VISIBLE — a corrupt file must never
                 // become a permanent hide.
                 TryDelete(_path);
-                return false;
+                return null;
             }
 
             DateTimeOffset hiddenAtLocal = hiddenAt.ToOffset(nowLocal.Offset);
-            if (nowLocal >= NextBoundary(hiddenAtLocal))
+
+            // A duration hide carries its own end. It is only honoured when that end parses AND
+            // is not further out than the "today" boundary would have been — so a hand-edited or
+            // corrupted UntilUtc cannot buy more silence than the widget's own worst case.
+            DateTimeOffset boundary = NextBoundary(hiddenAtLocal);
+            DateTimeOffset until = boundary;
+            if (string.Equals(doc.Mode, DurationMode, StringComparison.Ordinal)
+                && DateTimeOffset.TryParse(doc.UntilUtc, out DateTimeOffset parsedUntil))
             {
-                TryDelete(_path); // lazy cleanup — the store IS the daily reset
-                return false;
+                DateTimeOffset untilLocal = parsedUntil.ToOffset(nowLocal.Offset);
+                until = untilLocal < boundary ? untilLocal : boundary;
             }
 
-            return true;
+            if (nowLocal >= until)
+            {
+                TryDelete(_path); // lazy cleanup — the store IS the reset, daily or timed
+                return null;
+            }
+
+            return until;
         }
         catch
         {
-            return false;
+            return null;
         }
+    }
+
+    /// <summary>The mode of the hide currently in force: "today", "duration", or "" when visible.</summary>
+    public string ReadMode(DateTimeOffset nowLocal)
+    {
+        if (HiddenUntil(nowLocal) is null)
+        {
+            return string.Empty;
+        }
+
+        return ReadDocument()?.Mode is DurationMode ? DurationMode : TodayMode;
     }
 
     /// <summary>Hide for today: records the moment; visibility returns at the next 5:00 local.</summary>
     public void Hide() => Hide(DateTimeOffset.Now);
 
-    public void Hide(DateTimeOffset nowLocal)
+    public void Hide(DateTimeOffset nowLocal) => Write(nowLocal, TodayMode, until: null);
+
+    /// <summary>
+    /// Phase 4.2 — hide for a fixed span. Returns the moment the widget comes back, which is the
+    /// span from now, or the "today" boundary if that arrives first: a 2-hour hide at 04:30 ends
+    /// at 05:00 with the rest of the morning, never at 06:30.
+    /// </summary>
+    public DateTimeOffset HideFor(TimeSpan duration, DateTimeOffset nowLocal)
+    {
+        DateTimeOffset boundary = NextBoundary(nowLocal);
+        DateTimeOffset requested = nowLocal + duration;
+        DateTimeOffset until = requested < boundary ? requested : boundary;
+        Write(nowLocal, DurationMode, until);
+        return until;
+    }
+
+    private void Write(DateTimeOffset nowLocal, string mode, DateTimeOffset? until)
     {
         try
         {
@@ -87,7 +143,8 @@ internal sealed class UserDesktopWidgetVisibilityStore
             string json = JsonSerializer.Serialize(new HiddenDocument
             {
                 HiddenAtUtc = nowLocal.ToUniversalTime().ToString("O"),
-                Mode = "today"
+                Mode = mode,
+                UntilUtc = until?.ToUniversalTime().ToString("O") ?? string.Empty
             });
             File.WriteAllText(_path, json);
         }
@@ -132,17 +189,12 @@ internal sealed class UserDesktopWidgetVisibilityStore
         TryDelete(_legacyPath);
     }
 
-    private DateTimeOffset? ReadHiddenAtUtc()
+    private HiddenDocument? ReadDocument()
     {
         try
         {
             HiddenDocument? doc = JsonSerializer.Deserialize<HiddenDocument>(File.ReadAllText(_path));
-            if (doc is null || string.IsNullOrWhiteSpace(doc.HiddenAtUtc))
-            {
-                return null;
-            }
-
-            return DateTimeOffset.TryParse(doc.HiddenAtUtc, out DateTimeOffset parsed) ? parsed : null;
+            return doc is null || string.IsNullOrWhiteSpace(doc.HiddenAtUtc) ? null : doc;
         }
         catch
         {
@@ -186,6 +238,10 @@ internal sealed class UserDesktopWidgetVisibilityStore
     private sealed class HiddenDocument
     {
         public string HiddenAtUtc { get; set; } = string.Empty;
-        public string Mode { get; set; } = "today";
+        public string Mode { get; set; } = TodayMode;
+
+        // Phase 4.2 — set only for a duration hide. Absent in files written by earlier builds,
+        // which therefore keep reading as "today".
+        public string UntilUtc { get; set; } = string.Empty;
     }
 }

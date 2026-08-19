@@ -12,7 +12,12 @@ internal enum ControlCenterActivationTarget
     Tracking,
     Settings,
     Health,
-    Account
+    Account,
+    // Phase 4.1 (2026-08-18) — the widget menu opens these three by name. They are main pages
+    // since phase 3.1; before this the widget had no way to ask for any of them.
+    Tasks,
+    Projects,
+    Reports
 }
 
 internal static class ControlCenterActivationRequestStore
@@ -123,6 +128,9 @@ internal static class ControlCenterActivationRequestStore
             "history" or "timeline" => ControlCenterActivationTarget.History,
             "actions" or "interventions" => ControlCenterActivationTarget.Actions,
             "tracking" or "inputs" => ControlCenterActivationTarget.Tracking,
+            "tasks" => ControlCenterActivationTarget.Tasks,
+            "projects" => ControlCenterActivationTarget.Projects,
+            "reports" => ControlCenterActivationTarget.Reports,
             "controls" or "settings" => ControlCenterActivationTarget.Settings,
             "health" or "system" or "diagnostics" => ControlCenterActivationTarget.Health,
             "account" or "signin" or "sign-in" => ControlCenterActivationTarget.Account,
