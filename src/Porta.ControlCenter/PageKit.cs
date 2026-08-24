@@ -302,4 +302,25 @@ internal static class PageKit
         t.MouseLeftButtonUp += (_, _) => onClick();
         return t;
     }
+
+    /// <summary>
+    /// Chat 5 (2026-08-24) — a line of CONTENT that is also the way to edit itself.
+    ///
+    /// The result line used to render as plain text with no handler, and the only route to the
+    /// editor was the amber link shown when the line was EMPTY. So the moment a line was saved the
+    /// editor became unreachable: no double click, no context menu, nothing. A typo in the one
+    /// sentence a client reads was permanent.
+    ///
+    /// It keeps the colour and wrapping of the text it replaces, because it is still the line and
+    /// must not start shouting for attention. The hand cursor and the tooltip are the affordance —
+    /// the same ones <see cref="Link"/> uses.
+    /// </summary>
+    internal static TextBlock EditableLine(string text, Color colour, System.Action onClick, string tooltip)
+    {
+        TextBlock t = Text(text, 12.5, colour, margin: new Thickness(0, 4, 0, 0), wrap: true);
+        t.Cursor = System.Windows.Input.Cursors.Hand;
+        t.ToolTip = tooltip;
+        t.MouseLeftButtonUp += (_, _) => onClick();
+        return t;
+    }
 }

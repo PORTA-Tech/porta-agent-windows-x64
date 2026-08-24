@@ -457,11 +457,16 @@ public partial class MainWindow
         // The result line sits UNDER the name. Where it was skipped, the amber control that
         // recovers it — right now a skipped line can never be recovered, which is a hole in a
         // client's report.
+        // Chat 5 (2026-08-24) — same fix as the Tasks page, because this was the same bug: a saved
+        // line rendered as plain text and the editor was reachable only while it was empty. It
+        // routes to the same editor, which lives on the Tasks page.
         if (t.ResultLine.Trim().Length > 0)
         {
-            names.Children.Add(PageKit.Text(t.ResultLine, 12.5,
+            names.Children.Add(PageKit.EditableLine(
+                t.ResultLine,
                 t.Status == "blocked" ? PageKit.Stop : PageKit.Ink2,
-                margin: new Thickness(0, 4, 0, 0), wrap: true));
+                () => OpenResultLineEditor(t.TaskId, t.Label),
+                "Click to edit the line the client reads."));
         }
         else
         {

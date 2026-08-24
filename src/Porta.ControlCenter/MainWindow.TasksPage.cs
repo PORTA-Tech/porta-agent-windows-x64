@@ -23,6 +23,13 @@ public partial class MainWindow
     private string _taskFilter = "today";
     private long _editingResultLineFor;
 
+    // Chat 5 — which row has its project picker open, and the projects it offers. The list is read
+    // alongside the tasks so the picker can never show a stale set, and it is empty rather than
+    // absent when the read fails: a picker with nothing in it says so, where a missing picker would
+    // look like the feature is gone.
+    private long _assigningProjectFor;
+    private IReadOnlyList<LocalApiProject> _taskPageProjects = System.Array.Empty<LocalApiProject>();
+
     private static readonly (string Key, string Label)[] TaskFilters =
     {
         ("today", "Today"), ("week", "This week"), ("upcoming", "Upcoming"),
@@ -49,6 +56,21 @@ public partial class MainWindow
         try
         {
             LocalApiTaskRowsResponse? response = await _apiClient.GetTaskRowsAsync().ConfigureAwait(true);
+
+            // Chat 5 — the projects the "give it a project" picker offers. A failure here must not
+            // take the page down with it: the tasks are the page, and an empty picker is a smaller
+            // problem than no page at all.
+            try
+            {
+                LocalApiProjectsResponse? projects = await _apiClient.GetProjectsAsync().ConfigureAwait(true);
+                _taskPageProjects = projects?.Projects?.Where(p => !p.Archived).ToList()
+                    ?? (IReadOnlyList<LocalApiProject>)System.Array.Empty<LocalApiProject>();
+            }
+            catch
+            {
+                _taskPageProjects = System.Array.Empty<LocalApiProject>();
+            }
+
             RenderTasksPage(response?.Tasks ?? System.Array.Empty<LocalApiTaskRow>());
         }
         catch
@@ -134,25 +156,35 @@ public partial class MainWindow
         var names = new StackPanel();
         names.Children.Add(PageKit.Text(t.Label, 14, PageKit.Ink));
 
-        if (t.ResultLine.Trim().Length > 0)
+        // Chat 5 (2026-08-24) — see TaskRowAffordances for what each of these is and why.
+        TaskRowAffordances offers = TaskRowAffordances.For(t);
+
+        if (offers.EditableResultLine)
         {
-            names.Children.Add(PageKit.Text(
-                t.ResultLine, 12.5,
+            names.Children.Add(PageKit.EditableLine(
+                t.ResultLine,
                 t.Status == "blocked" ? PageKit.Stop
                     : t.IsUntagged ? PageKit.Ink3 : PageKit.Ink2,
-                margin: new Thickness(0, 4, 0, 0), wrap: true));
+                () => OpenResultLineEditor(t.TaskId, t.Label),
+                "Click to edit the line the client reads."));
         }
-        else if (t.IsUntagged)
-        {
-            names.Children.Add(PageKit.Text(
-                "No project, so it can never appear in a client report.",
-                12.5, PageKit.Ink3, margin: new Thickness(0, 4, 0, 0), wrap: true));
-        }
-        else
+        else if (offers.PromptForMissingLine)
         {
             names.Children.Add(PageKit.Link(
                 "No line about what came of this ›",
                 () => OpenResultLineEditor(t.TaskId, t.Label),
+                PageKit.Warn));
+        }
+
+        if (offers.OfferProject)
+        {
+            names.Children.Add(PageKit.Text(
+                "No project, so it can never appear in a client report.",
+                12.5, PageKit.Ink3, margin: new Thickness(0, 4, 0, 0), wrap: true));
+
+            names.Children.Add(PageKit.Link(
+                _assigningProjectFor == t.TaskId ? "Pick a project below ›" : "Give it a project ›",
+                () => ToggleProjectAssign(t.TaskId),
                 PageKit.Warn));
         }
 
@@ -197,7 +229,70 @@ public partial class MainWindow
             outer.Children.Add(BuildResultLineEditor(t));
         }
 
+        if (_assigningProjectFor == t.TaskId)
+        {
+            outer.Children.Add(BuildProjectAssignPanel(t));
+        }
+
         return outer;
+    }
+
+    /// <summary>
+    /// Chat 5 — the project picker behind "give it a project". Deliberately the projects that
+    /// already exist and nothing else: creating one is the Projects page's job, and a text box here
+    /// would be a second way to make a project that could quietly make a duplicate.
+    ///
+    /// No cap on how many are listed. The widget's picker truncates because a card is 380px wide;
+    /// this is a full page and hiding a project the user is looking for would be the same dead end
+    /// in a new place.
+    /// </summary>
+    private UIElement BuildProjectAssignPanel(LocalApiTaskRow t)
+    {
+        var panel = new StackPanel { Margin = new Thickness(48, 0, 26, 16) };
+        panel.Children.Add(PageKit.FieldLabel("Which project does this belong to"));
+
+        if (_taskPageProjects.Count == 0)
+        {
+            panel.Children.Add(PageKit.Text(
+                "No projects yet. Make one on the Projects page and it will appear here.",
+                12.5, PageKit.Ink3, margin: new Thickness(0, 4, 0, 0), wrap: true));
+            return panel;
+        }
+
+        var chips = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+        foreach (LocalApiProject project in _taskPageProjects)
+        {
+            long id = project.Id;
+            Button chip = PageKit.GhostButton(project.Name, () => _ = AssignProjectAsync(t.TaskId, id));
+            // Room underneath as well as beside: with no cap on the list these wrap onto a second
+            // row, and the default margin leaves the rows touching.
+            chip.Margin = new Thickness(0, 0, 9, 9);
+            chips.Children.Add(chip);
+        }
+
+        panel.Children.Add(chips);
+        return panel;
+    }
+
+    private void ToggleProjectAssign(long taskId)
+    {
+        _assigningProjectFor = _assigningProjectFor == taskId ? 0 : taskId;
+        _ = RefreshTasksPageAsync();
+    }
+
+    private async Task AssignProjectAsync(long taskId, long projectId)
+    {
+        await _apiClient
+            .SetTaskProjectAsync(new LocalApiTaskProjectRequest(
+                SchemaVer: 1, TaskId: taskId, ProjectId: projectId))
+            .ConfigureAwait(true);
+
+        _assigningProjectFor = 0;
+
+        // Straight into the line editor: assigning a project is only ever a step towards writing
+        // the line, and making the user find the row again would be the dead end in two parts.
+        _editingResultLineFor = taskId;
+        await RefreshTasksPageAsync().ConfigureAwait(true);
     }
 
     /// <summary>

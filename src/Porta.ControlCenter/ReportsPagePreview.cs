@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -340,6 +340,26 @@ internal static class ReportsPagePreview
         new(4, "Finish the send button", "done", "PORTA", false, "17 Aug", 1.7, 4, "", "2026-08-17", "", "")
     ];
 
+    /// Chat 5 — the two rows the result-line fixes are about. The first has a saved line, which
+    /// used to be plain text with no way back into the editor. The second is untagged, which used
+    /// to be a flat "it can never appear in a client report" and nothing else.
+    private static readonly LocalApiTaskRow[] ResultLineSample =
+    [
+        new(20, "Rewrite the onboarding email", "done", "Northbridge", false, "20 Aug", 1.4, 1,
+            "Sent to the client for sign-off, with the new pricing section included.",
+            "2026-08-20", "", ""),
+        new(21, "Notes from the Tuesday call", "in_progress", "", true, "22 Aug", 0.6, 0,
+            "", "2026-08-22", "", ""),
+        new(22, "Landing page copy", "in_progress", "Northbridge", false, "from 22 Aug", 2.2, 2,
+            "", "2026-08-22", "", "")
+    ];
+
+    /// Chat 5 — the projects the "give it a project" picker offers. Archived ones are dropped
+    /// here because the live read drops them too; a picture that offers a project the page would
+    /// not is not evidence of anything.
+    private static IReadOnlyList<LocalApiProject> PickerProjects =>
+        SampleProjects.Where(p => !p.Archived).ToList();
+
     /// Chat 4 — the task that used to vanish between the tabs. "Pricing page" still carries the
     /// future finish day it had while it was upcoming, which is what kept it stuck there; it has
     /// been moved to in_progress and has no measured hours yet, which is what kept it out of the
@@ -373,6 +393,18 @@ internal static class ReportsPagePreview
         new("tasks upcoming", "Tasks", w => w.PreviewFillTasks(SampleTasks, "upcoming"), Height: 900),
         new("tasks in progress", "Tasks", w => w.PreviewFillTasks(SampleTasks, "prog"), Height: 900),
         new("tasks blocked", "Tasks", w => w.PreviewFillTasks(SampleTasks, "block"), Height: 900),
+
+        // Chat 5 (2026-08-24) — the line a client reads, and the two dead ends around it.
+        // Row 1 has a SAVED line: it is now clickable and reopens the editor prefilled, which was
+        // impossible before. Row 2 is UNTAGGED and now offers a project instead of just saying no.
+        new("tasks CHAT 5 — saved line is editable, untagged offers a project", "Tasks",
+            w => w.PreviewFillTasksWithPanelOpen(ResultLineSample, "all", PickerProjects), Height: 900),
+        new("tasks CHAT 5 — the editor reopened on a SAVED line", "Tasks",
+            w => w.PreviewFillTasksWithPanelOpen(ResultLineSample, "all", PickerProjects, editingLineFor: 20),
+            Height: 1000),
+        new("tasks CHAT 5 — the project picker on an untagged task", "Tasks",
+            w => w.PreviewFillTasksWithPanelOpen(ResultLineSample, "all", PickerProjects, assigningProjectFor: 21),
+            Height: 1000),
 
         // Chat 4 (2026-08-24) — the move that used to lose a task. "Pricing page" has been moved
         // out of Upcoming to In progress and has NO measured hours yet, which is exactly the state

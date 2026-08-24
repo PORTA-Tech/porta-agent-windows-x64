@@ -325,6 +325,26 @@ public partial class MainWindow
         RenderTasksPage(tasks);
     }
 
+    /// <summary>
+    /// Chat 5 — the same page with one of the two inline panels already open. Both are row state
+    /// rather than a separate screen, so a shot of the page without them proves nothing about them.
+    /// </summary>
+    internal void PreviewFillTasksWithPanelOpen(
+        IReadOnlyList<LocalApiTaskRow> tasks,
+        string filter,
+        IReadOnlyList<LocalApiProject> projects,
+        long editingLineFor = 0,
+        long assigningProjectFor = 0)
+    {
+        _taskPageProjects = projects;
+        _editingResultLineFor = editingLineFor;
+        _assigningProjectFor = assigningProjectFor;
+        _taskFilter = filter;
+        RenderTasksPage(tasks);
+        _editingResultLineFor = 0;
+        _assigningProjectFor = 0;
+    }
+
     internal void PreviewFillReport(LocalApiReportDraft draft)
     {
         // Sample projects in the picker too, so the picture never shows whatever the live agent
