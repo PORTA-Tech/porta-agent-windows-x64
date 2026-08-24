@@ -4242,6 +4242,23 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
     /// deliberately NOT summed into anything: the bars are the shape of the work, and the billed
     /// figure is the lines.
     /// </summary>
+    /// <summary>
+    /// 2026-08-24 — the name the client sees for one task.
+    ///
+    /// The written client label when there is one, and the task's own title when there is not. The
+    /// per-project default is "raw titles are fine" (<c>label_style = 0</c>), so an unlabelled task
+    /// on a default project is not an unnamed task — it is one whose title IS the name.
+    ///
+    /// This matters because the server drops any report line with an empty label, so returning
+    /// empty here does not produce a blank line: it produces NO line, and the task disappears from
+    /// the client's report with nothing said about it.
+    /// </summary>
+    internal static string ClientFacingLabel(string? clientLabel, string? title)
+    {
+        string label = (clientLabel ?? string.Empty).Trim();
+        return label.Length > 0 ? label : (title ?? string.Empty).Trim();
+    }
+
     public AgentReportDraft ReadReportDraft(
         long projectId,
         string fromLocalDate,
@@ -4331,7 +4348,16 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                     perTask.GetValueOrDefault(
                         taskId,
                         (reader.GetString(2),
-                         reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                         // 2026-08-24 — fall back to the TITLE when no client-facing label was
+                         // written. This read raw client_label, and the server drops any line whose
+                         // label is empty, so a task the user never explicitly labelled vanished
+                         // from the report without a word. The project default is `label_style = 0`,
+                         // documented as "or is its raw title fine?" — so on those projects the
+                         // title IS the intended client-facing name, which is why every other read
+                         // in this file already does exactly this (see ReadTaskRows).
+                         ClientFacingLabel(
+                             reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                             reader.GetString(2)),
                          string.Equals(reader.GetString(4), "done", StringComparison.OrdinalIgnoreCase),
                          0d));
                 perTask[taskId] = line with { Seconds = line.Seconds + seconds };
@@ -4487,7 +4513,7 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
             lines.Add(new AgentReportLine(
                 TaskId: taskId,
                 Title: f.Title,
-                ClientLabel: f.Label,
+                ClientLabel: ClientFacingLabel(f.Label, f.Title),
                 Finished: false,
                 Hours: 0d,
                 UnattributedHours: 0d,
