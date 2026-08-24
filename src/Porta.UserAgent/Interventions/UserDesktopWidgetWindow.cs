@@ -135,8 +135,14 @@ internal sealed class UserDesktopWidgetWindow : Window
     // clears the clip edge instead of ending flush against it.
     private const double TitleScrollTrailingPad = 2d;
 
-    private static readonly FontFamily WidgetFontFamily =
-        new("Segoe UI Variable Text, Segoe UI Variable, Segoe UI");
+    // The NAME is shared, not a FontFamily instance. A static readonly FontFamily here builds a
+    // WPF object inside this type's initializer, and that initializer runs on whichever thread
+    // first touches ANY static on this class — including the pure helpers below, which tests and
+    // callers reach from ordinary pool threads with no STA and no dispatcher. Constructing WPF
+    // objects off the UI thread that way is not free, and it broke CI: window creation on the
+    // widget's own STA thread went from instant to over five seconds (2026-08-19). The font is
+    // built where it is used, on the thread that uses it.
+    private const string WidgetFontFamilyName = "Segoe UI Variable Text, Segoe UI Variable, Segoe UI";
     private readonly Button _pauseFifteenButton;
     private readonly Button _pauseHourButton;
     private readonly Button _resumeButton;
@@ -347,7 +353,7 @@ internal sealed class UserDesktopWidgetWindow : Window
                 Color = Color.FromRgb(0, 0, 0)
             }
         };
-        FontFamily = WidgetFontFamily;
+        FontFamily = new FontFamily(WidgetFontFamilyName);
         TextOptions.SetTextFormattingMode(_rootBorder, TextFormattingMode.Display);
         TextOptions.SetTextRenderingMode(_rootBorder, TextRenderingMode.ClearType);
         _rootBorder.PreviewMouseLeftButtonDown += BeginDragFromSurface;
@@ -3743,7 +3749,7 @@ internal sealed class UserDesktopWidgetWindow : Window
             FontSize = 9,
             // Set explicitly rather than inherited: phase 4.4 measures this TextBlock before it
             // joins the tree, and a detached measure would use the default face and mis-size it.
-            FontFamily = WidgetFontFamily,
+            FontFamily = new FontFamily(WidgetFontFamilyName),
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = new SolidColorBrush(closed
