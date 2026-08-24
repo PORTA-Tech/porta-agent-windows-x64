@@ -1,4 +1,4 @@
-namespace Porta.ControlCenter;
+﻿namespace Porta.ControlCenter;
 
 using System.Collections.Generic;
 using System.Linq;
@@ -211,13 +211,47 @@ public partial class MainWindow
 
         right.Children.Add(links);
         right.Children.Add(PageKit.Text(
-            // An unknown outcome is NEVER shown as a failure.
-            r.SendState == "sent" ? "delivered" : "outcome unknown", 11, PageKit.Ink3,
+            // Chat 7 (2026-08-24) — WHEN it was sent, beside whether it was.
+            //
+            // sent_at_utc has been written from the server's timestamp, read back, and put on the
+            // wire the whole time; the page simply never rendered it, so a list of sent reports
+            // showed the period covered and the word "delivered" and left the user to work out
+            // which of three sends of the same week this row was.
+            //
+            // An unknown outcome is still NEVER shown as a failure, and a row whose timestamp
+            // cannot be read says only what it knows rather than inventing a date.
+            SentOutcomeLine(r), 11, PageKit.Ink3,
             margin: new Thickness(0, 5, 0, 0)));
         Grid.SetColumn(right, 1);
         grid.Children.Add(right);
 
         return grid;
+    }
+
+    /// <summary>
+    /// Chat 7 — "delivered · 20 Aug, 1:37 pm", in the user's own local time.
+    ///
+    /// The stored value is UTC and is rendered local because the question this answers is "was that
+    /// the one I sent before lunch?". An unparseable or absent timestamp degrades to the outcome
+    /// alone: a report that was definitely delivered must not start looking doubtful because its
+    /// clock reading was odd.
+    /// </summary>
+    internal static string SentOutcomeLine(LocalApiSentReport r)
+    {
+        // An unknown outcome is NEVER shown as a failure.
+        string outcome = r.SendState == "sent" ? "delivered" : "outcome unknown";
+
+        if (!DateTimeOffset.TryParse(
+                r.SentAtUtc,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out DateTimeOffset sentUtc))
+        {
+            return outcome;
+        }
+
+        DateTimeOffset local = sentUtc.ToLocalTime();
+        return $"{outcome} · {local:d MMM, h:mm tt}";
     }
 
     private static string SentSummaryLine(LocalApiSentReport r)

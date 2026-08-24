@@ -10,8 +10,12 @@ namespace Porta.UserAgent.Interventions;
 // rejected by CreateTask (which returns null under 60s or over 8h, SqliteBrainStateStore.cs:2154).
 internal static class UserCheckInTaskPlanner
 {
-    // Locked 2026-08-07: one box, "+ add" for more, three is the ceiling.
-    public const int MaxMorningTasks = 3;
+    // Was three, locked 2026-08-07. Raised to six (Chat 7, 2026-08-24) because three was not enough
+    // for a real morning and the card silently dropped the rest.
+    //
+    // Not unlimited: the card still has to fit on screen, and a morning list long enough to scroll
+    // is a to-do list, which this is deliberately not.
+    public const int MaxMorningTasks = 6;
     public const int DefaultPlannedSeconds = 3600;
     public const int MinPlannedSeconds = 60;
     public const int MaxPlannedSeconds = 8 * 3600;

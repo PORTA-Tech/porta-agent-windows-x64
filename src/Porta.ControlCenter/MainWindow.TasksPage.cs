@@ -28,6 +28,23 @@ public partial class MainWindow
     // absent when the read fails: a picker with nothing in it says so, where a missing picker would
     // look like the feature is gone.
     private long _assigningProjectFor;
+
+    // Chat 7 — the add-task panel and what it has been given so far. Kept across the re-render that
+    // picking a project causes, so a chip tap does not wipe the title already typed.
+    private bool _addingTask;
+    private string _newTaskTitle = string.Empty;
+    private long _newTaskProjectId;
+    private int _newTaskSeconds = 3600;
+    private string _newTaskError = string.Empty;
+
+    /// <summary>
+    /// Chat 7 — the estimates offered when adding a task here. The same ladder the widget's
+    /// quick-add uses, so the two surfaces do not teach different habits.
+    /// </summary>
+    private static readonly (int Seconds, string Label)[] TaskEstimatePresets =
+    {
+        (600, "10m"), (1800, "30m"), (3600, "1h"), (7200, "2h"), (14400, "4h")
+    };
     private IReadOnlyList<LocalApiProject> _taskPageProjects = System.Array.Empty<LocalApiProject>();
 
     private static readonly (string Key, string Label)[] TaskFilters =
@@ -101,6 +118,28 @@ public partial class MainWindow
             TasksPageHost.Children.Add(PageKit.Card(PageKit.Empty(
                 "Can't reach the agent.", "This is not the same as having no tasks.")));
             return;
+        }
+
+        // Chat 7 (2026-08-24) — a task can be made HERE now.
+        //
+        // The page built a title, a blurb, filter chips, rows and a filter note, and no way to add
+        // anything: tasks could only be created from the widget's quick-add. LocalApiClient already
+        // carried CreateTaskAsync with no caller anywhere in Control Center, so this was a missing
+        // control rather than a missing capability.
+        if (_addingTask)
+        {
+            TasksPageHost.Children.Add(PageKit.Card(BuildAddTaskPanel()));
+        }
+        else
+        {
+            var addRow = new StackPanel { Margin = new Thickness(2, 16, 0, 0) };
+            addRow.Children.Add(PageKit.Link("+ new task", () =>
+            {
+                _addingTask = true;
+                _newTaskError = string.Empty;
+                _ = RefreshTasksPageAsync();
+            }, PageKit.Accent));
+            TasksPageHost.Children.Add(addRow);
         }
 
         List<LocalApiTaskRow> rows = tasks.Where(MatchesFilter).ToList();
@@ -272,6 +311,156 @@ public partial class MainWindow
 
         panel.Children.Add(chips);
         return panel;
+    }
+
+    /// <summary>
+    /// Chat 7 — the add-task panel: a name, an estimate, a project.
+    ///
+    /// The project list is NOT capped. The widget's picker truncates because a card is 380px wide;
+    /// this is a full page, and a project the user cannot see is one they cannot file against —
+    /// which is exactly how a task ends up untagged and unable to reach a client report.
+    ///
+    /// "None" is offered as a real choice rather than left as a silent default, because untagged is
+    /// a permanent valid state and hiding that is what makes people pick a project they did not mean.
+    /// </summary>
+    private UIElement BuildAddTaskPanel()
+    {
+        var panel = new StackPanel { Margin = new Thickness(26, 20, 26, 20) };
+        panel.Children.Add(PageKit.FieldLabel("What are you going to do"));
+
+        var box = new TextBox
+        {
+            Text = _newTaskTitle,
+            FontSize = 13,
+            Foreground = PageKit.B(PageKit.Ink),
+            CaretBrush = PageKit.B(PageKit.Ink),
+            Background = PageKit.B(PageKit.Raised),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(11, 8, 11, 8),
+            AcceptsReturn = false
+        };
+        box.TextChanged += (_, _) => _newTaskTitle = box.Text;
+        box.Loaded += (_, _) => { box.Focus(); box.CaretIndex = box.Text.Length; };
+        panel.Children.Add(box);
+
+        panel.Children.Add(PageKit.FieldLabel("How long, roughly"));
+        panel.Children.Add(BuildChipRow(
+            TaskEstimatePresets.Select(p => (p.Label, (object)p.Seconds)).ToList(),
+            _newTaskSeconds,
+            picked =>
+            {
+                _newTaskSeconds = (int)picked;
+                _ = RefreshTasksPageAsync();
+            }));
+
+        panel.Children.Add(PageKit.FieldLabel("Which project"));
+        var projectChoices = new List<(string Label, object Value)> { ("None", 0L) };
+        projectChoices.AddRange(_taskPageProjects.Select(p => (p.Name, (object)p.Id)));
+        panel.Children.Add(BuildChipRow(
+            projectChoices,
+            _newTaskProjectId,
+            picked =>
+            {
+                _newTaskProjectId = (long)picked;
+                _ = RefreshTasksPageAsync();
+            }));
+
+        if (_newTaskError.Length > 0)
+        {
+            panel.Children.Add(PageKit.Text(
+                _newTaskError, 12, PageKit.Warn, margin: new Thickness(0, 6, 0, 0), wrap: true));
+        }
+
+        var buttons = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
+        buttons.Children.Add(PageKit.PrimaryButton("Add task", () => _ = CreateTaskAsync(box.Text)));
+        buttons.Children.Add(PageKit.GhostButton("Cancel", CancelAddTask));
+        panel.Children.Add(buttons);
+
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                _ = CreateTaskAsync(box.Text);
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                CancelAddTask();
+                e.Handled = true;
+            }
+        };
+
+        return panel;
+    }
+
+    /// <summary>One row of single-select chips, with the chosen one filled.</summary>
+    private static UIElement BuildChipRow(
+        IReadOnlyList<(string Label, object Value)> options,
+        object selected,
+        System.Action<object> onPick)
+    {
+        var row = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) };
+        foreach ((string label, object value) in options)
+        {
+            object captured = value;
+            Button chip = PageKit.GhostButton(label, () => onPick(captured));
+            // Room underneath as well as beside: with no cap on the project list these wrap onto a
+            // second row, and the default margin leaves the rows touching.
+            chip.Margin = new Thickness(0, 0, 9, 9);
+
+            if (Equals(value, selected))
+            {
+                chip.Background = PageKit.B(PageKit.Accent);
+                chip.Foreground = PageKit.B(PageKit.Ink);
+            }
+
+            row.Children.Add(chip);
+        }
+
+        return row;
+    }
+
+    private void CancelAddTask()
+    {
+        _addingTask = false;
+        _newTaskTitle = string.Empty;
+        _newTaskProjectId = 0;
+        _newTaskSeconds = 3600;
+        _newTaskError = string.Empty;
+        _ = RefreshTasksPageAsync();
+    }
+
+    private async Task CreateTaskAsync(string title)
+    {
+        string clean = (title ?? string.Empty).Trim();
+        if (clean.Length == 0)
+        {
+            // Says so rather than doing nothing: a button that silently ignores a click reads as
+            // broken, which is worse than the refusal itself.
+            _newTaskTitle = clean;
+            _newTaskError = "Give it a name first.";
+            await RefreshTasksPageAsync().ConfigureAwait(true);
+            return;
+        }
+
+        LocalApiTaskCreateResponse? created = await _apiClient
+            .CreateTaskAsync(new LocalApiTaskCreateRequest(
+                SchemaVer: 1, Title: clean, PlannedSeconds: _newTaskSeconds, ProjectId: _newTaskProjectId))
+            .ConfigureAwait(true);
+
+        if (created?.Success != true)
+        {
+            // The one refusal the agent actually returns is the per-day cap. Naming it beats a
+            // generic failure the user cannot do anything about.
+            _newTaskTitle = clean;
+            _newTaskError = created?.Reason == "cap_reached"
+                ? "That is as many tasks as one day takes."
+                : "Couldn't add it. The agent may not be running.";
+            await RefreshTasksPageAsync().ConfigureAwait(true);
+            return;
+        }
+
+        CancelAddTask();
     }
 
     private void ToggleProjectAssign(long taskId)

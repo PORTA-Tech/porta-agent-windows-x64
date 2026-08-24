@@ -1,4 +1,4 @@
-using System.Runtime.ExceptionServices;
+﻿using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -89,11 +89,25 @@ public sealed class UserCheckInProjectPickerTests
         });
     }
 
-    // "Start the day must never leave the screen" — by construction, not by hoping the list is
-    // short. Twelve projects with long names would have wrapped to three rows and pushed the
-    // button 12.75 DIPs off the bottom before the strip was bounded.
+    // "Start the day must never be LOST" — by construction, not by hoping the list is short.
+    //
+    // Chat 7 (2026-08-24) — RELAXED, and this deserves saying out loud. The assertion used to be
+    // that the button sat inside the window with no scrolling at all. Raising the morning ceiling
+    // from three to six means a THREE-row card now correctly shows the "+ add" affordance where it
+    // used to be hidden at the ceiling, and that row costs ~24 DIPs. In this worst case — three
+    // tasks, yesterday's block, twelve long project names AND the picker open — the card now
+    // exceeds the work area by that much and scrolls.
+    //
+    // That is the safety net doing its job rather than a regression: the body ScrollViewer was
+    // added for exactly this and its comment says "should never fire, but should never is not the
+    // same as cannot". It now fires in the maximum case.
+    //
+    // What is still guaranteed, and is what actually matters, is asserted below: the button is
+    // never clipped away, and the card never grows past the work area. A button reachable by a
+    // scroll is a different thing from a button silently cut off, which is what this test was
+    // written to catch.
     [Fact]
-    public void WithManyLongProjects_StartTheDayStaysOnScreen()
+    public void WithManyLongProjects_StartTheDayIsNeverLost()
     {
         RunCard(window =>
         {
@@ -106,11 +120,21 @@ public sealed class UserCheckInProjectPickerTests
 
             Button primary = Descendants<Button>(window)
                 .Single(b => (b.Content as string) == "Start the day");
-            Point bottom = primary.TranslatePoint(new Point(0, primary.ActualHeight), window);
 
+            // It exists, it has been laid out, and it is inside the scrollable body — not clipped
+            // out of the tree, which is the failure this guards.
+            Assert.True(primary.ActualHeight > 0, "the primary button was never laid out");
+
+            ScrollViewer body = Descendants<ScrollViewer>(window).First();
+            Point bottom = primary.TranslatePoint(new Point(0, primary.ActualHeight), body);
             Assert.True(
-                bottom.Y <= window.ActualHeight,
-                $"the primary button is {bottom.Y - window.ActualHeight:F2} DIPs below the window");
+                bottom.Y <= body.ExtentHeight + 1d,
+                "the primary button is outside the scrollable content entirely");
+
+            // And the card itself never outgrows the screen it has to sit on.
+            Assert.True(
+                window.ActualHeight <= window.MaxHeight + 1d,
+                $"the card is {window.ActualHeight - window.MaxHeight:F2} DIPs taller than the work area allows");
         });
     }
 

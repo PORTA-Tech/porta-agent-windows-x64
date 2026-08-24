@@ -53,7 +53,8 @@ public sealed class UserCheckInLoopCardTests
     }
 
     [Fact]
-    public void Morning_ProposalNeverExceedsTheThreeRowCeiling()
+    // Chat 7 — written against the constant; the ceiling moved from three to six.
+    public void Morning_ProposalNeverExceedsTheRowCeiling()
     {
         RunCard(window =>
         {
@@ -61,7 +62,10 @@ public sealed class UserCheckInLoopCardTests
                 UserCheckInKind.Morning,
                 "Today's list",
                 "Lots open.",
-                Tasks: Enumerable.Range(1, 5).Select(i => Line(i, $"Task {i}")).ToArray()));
+                Tasks: Enumerable
+                    .Range(1, UserCheckInTaskPlanner.MaxMorningTasks + 2)
+                    .Select(i => Line(i, $"Task {i}"))
+                    .ToArray()));
 
             Assert.Equal(UserCheckInTaskPlanner.MaxMorningTasks, Descendants<TextBox>(window).Count);
         });
@@ -145,13 +149,18 @@ public sealed class UserCheckInLoopCardTests
     {
         RunCard(window =>
         {
+            // Chat 7 — filled to the ceiling, whatever the ceiling is. What is guarded is the
+            // behaviour at the boundary, not the number three.
             window.ShowPrompt(new UserCheckInPrompt(
-                UserCheckInKind.Morning, "Today's list", "Three things.",
-                Tasks: new[] { Line(1, "A"), Line(2, "B"), Line(3, "C") }));
+                UserCheckInKind.Morning, "Today's list", "A full card.",
+                Tasks: Enumerable
+                    .Range(1, UserCheckInTaskPlanner.MaxMorningTasks)
+                    .Select(i => Line(i, $"Task {i}"))
+                    .ToArray()));
 
             Assert.Equal(Visibility.Collapsed, AddButton(window).Visibility);
 
-            Click(RemoveButtons(window)[2]);
+            Click(RemoveButtons(window)[UserCheckInTaskPlanner.MaxMorningTasks - 1]);
 
             Assert.Equal(Visibility.Visible, AddButton(window).Visibility);
         });

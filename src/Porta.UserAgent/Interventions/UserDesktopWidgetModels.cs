@@ -1,4 +1,4 @@
-namespace Porta.UserAgent.Interventions;
+﻿namespace Porta.UserAgent.Interventions;
 
 internal enum UserDesktopWidgetMode
 {
@@ -143,7 +143,15 @@ internal sealed record UserDesktopWidgetTaskInfo(
     double ActiveSeconds,
     double FocusedSeconds,
     double OfftaskSeconds,
-    int ExtendedSeconds);
+    int ExtendedSeconds,
+    // Chat 7 (2026-08-24) — which project this belongs to, shown quietly on the row. Empty =
+    // untagged, which shows nothing at all rather than the word "untagged": on a 200 DIP row that
+    // would be a label for a non-event on most rows.
+    //
+    // It already rides along on LocalApiTask for exactly this ("the name rides along so the widget,
+    // repainting every 4s, never needs a second call") and was simply never read. Defaulted so
+    // every existing caller is unaffected.
+    string ProjectName = "");
 
 // Workstream 4 — a task command flowing widget → presenter → local API.
 // Kind: create (Title + PlannedSeconds used) | start | done | abandon | extend (Id used).

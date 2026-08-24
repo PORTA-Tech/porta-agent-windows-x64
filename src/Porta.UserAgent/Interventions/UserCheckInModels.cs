@@ -179,12 +179,25 @@ internal static class UserCheckInChoices
 
     // Step 3 — Ari proposes the duration and the user taps it. The first entry is the default, so a
     // morning card answered without touching these still produces a valid, honest planned duration.
-    // A typed number is deliberately impossible here: the morning card is the three seconds the
-    // whole product depends on, and a numeric keypad in it spends them.
+    //
+    // Chat 7 (2026-08-24) — the comment here used to end "a typed number is deliberately impossible
+    // here: the morning card is the three seconds the whole product depends on, and a numeric keypad
+    // in it spends them". The tap-only ladder stays and is still the fast path — but three presets
+    // is not the world, and the WIDGET has never been preset-only: it already offers these chips, a
+    // ±15 stepper and free text. A ceiling on the card the widget does not have taught two
+    // different habits for the same number.
+    //
+    // The chips are unchanged and still first. The stepper and the box are for the minority of rows
+    // that are not 1h, 2h or 3h, and cost nothing to ignore.
     public static readonly (int Seconds, string Label)[] MorningTaskDurations =
     {
         (3600, "1h"),
         (7200, "2h"),
         (10800, "3h"),
     };
+
+    /// <summary>Chat 7 — the stepper's increment, and the floor it will not go under.</summary>
+    public const int MorningDurationStepMinutes = 15;
+
+    public const int MorningDurationFloorMinutes = 5;
 }

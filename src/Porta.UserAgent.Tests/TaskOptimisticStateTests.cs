@@ -1,4 +1,4 @@
-using Porta.UserAgent.Interventions;
+﻿using Porta.UserAgent.Interventions;
 
 namespace Porta.UserAgent.Tests;
 
@@ -35,15 +35,18 @@ public sealed class TaskOptimisticStateTests
         Assert.Equal(expectedState, next[0].State);
     }
 
+    // Chat 7 (2026-08-24) — the "extend" arm is gone with the +15 that fed it, removed on
+    // 17 August. What replaces this test is the guarantee that the verb is now INERT rather than
+    // half-wired: an unknown verb must leave the list alone, which is what "extend" now is.
     [Fact]
-    public void Extend_AddsBudget_KeepsActive()
+    public void Extend_IsNoLongerAVerb_AndLeavesTheListUnchanged()
     {
         var tasks = new[] { Task(3, "active", extended: 0) };
 
         var next = UserDesktopWidgetWindow.ComputeOptimisticTaskState("extend", 3, tasks);
 
         Assert.Equal("active", next[0].State);
-        Assert.Equal(UserDesktopWidgetWindow.TaskExtendSeconds, next[0].ExtendedSeconds);
+        Assert.Equal(0, next[0].ExtendedSeconds);
     }
 
     [Fact]

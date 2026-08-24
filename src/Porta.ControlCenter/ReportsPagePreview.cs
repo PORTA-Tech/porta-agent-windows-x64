@@ -394,6 +394,11 @@ internal static class ReportsPagePreview
         new("tasks in progress", "Tasks", w => w.PreviewFillTasks(SampleTasks, "prog"), Height: 900),
         new("tasks blocked", "Tasks", w => w.PreviewFillTasks(SampleTasks, "block"), Height: 900),
 
+        // Chat 7 (2026-08-24) — a task can be made from the Control Center now. Every project is
+        // offered, uncapped, because a project the user cannot see is one they cannot file against.
+        new("tasks CHAT 7 — add a task, with every project offered", "Tasks",
+            w => w.PreviewFillTasksAdding(ResultLineSample, PickerProjects), Height: 1000),
+
         // Chat 5 (2026-08-24) — the line a client reads, and the two dead ends around it.
         // Row 1 has a SAVED line: it is now clickable and reopens the editor prefilled, which was
         // impossible before. Row 2 is UNTAGGED and now offers a project instead of just saying no.

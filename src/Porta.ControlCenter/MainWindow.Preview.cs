@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Porta.Agent.LocalApi;
@@ -319,6 +319,18 @@ public partial class MainWindow
     }
 
     /// <summary>The Tasks page at a chosen filter, so a broken filter is visible in a picture.</summary>
+    /// <summary>Chat 7 — the Tasks page with the add-task panel open.</summary>
+    internal void PreviewFillTasksAdding(
+        IReadOnlyList<LocalApiTaskRow> tasks,
+        IReadOnlyList<LocalApiProject> projects)
+    {
+        _taskPageProjects = projects;
+        _addingTask = true;
+        _taskFilter = "all";
+        RenderTasksPage(tasks);
+        _addingTask = false;
+    }
+
     internal void PreviewFillTasks(IReadOnlyList<LocalApiTaskRow> tasks, string filter)
     {
         _taskFilter = filter;

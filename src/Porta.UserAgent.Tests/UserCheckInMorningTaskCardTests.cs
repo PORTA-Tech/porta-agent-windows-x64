@@ -1,4 +1,4 @@
-using System.Runtime.ExceptionServices;
+﻿using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -26,21 +26,23 @@ public sealed class UserCheckInMorningTaskCardTests
     }
 
     [Fact]
-    public void Morning_AddButton_RevealsUpToThreeRowsThenHidesItself()
+    // Chat 7 (2026-08-24) — the ceiling moved from three to six, so this counts up to the CONSTANT
+    // rather than to a literal. What it guards is unchanged and is the point: the affordance is
+    // hidden AT the ceiling rather than letting a row be added and then silently refused by the
+    // planner. A row you can add and that then vanishes is the worst of both.
+    public void Morning_AddButton_RevealsRowsUpToTheCeilingThenHidesItself()
     {
         RunCard(window =>
         {
             window.ShowPrompt(MorningPrompt());
 
-            Click(AddButton(window));
-            Assert.Equal(2, Descendants<TextBox>(window).Count);
-            Assert.Equal(Visibility.Visible, AddButton(window).Visibility);
+            for (int expected = 2; expected <= UserCheckInTaskPlanner.MaxMorningTasks; expected++)
+            {
+                Assert.Equal(Visibility.Visible, AddButton(window).Visibility);
+                Click(AddButton(window));
+                Assert.Equal(expected, Descendants<TextBox>(window).Count);
+            }
 
-            Click(AddButton(window));
-            Assert.Equal(3, Descendants<TextBox>(window).Count);
-
-            // Three is the ceiling (locked 2026-08-07). Hide the affordance rather than let a
-            // fourth row be added and then silently refused by the planner.
             Assert.Equal(Visibility.Collapsed, AddButton(window).Visibility);
         });
     }

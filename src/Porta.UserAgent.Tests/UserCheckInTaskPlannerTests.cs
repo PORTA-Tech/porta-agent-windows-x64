@@ -1,4 +1,4 @@
-using Porta.UserAgent.Interventions;
+﻿using Porta.UserAgent.Interventions;
 
 namespace Porta.UserAgent.Tests;
 
@@ -10,23 +10,30 @@ public sealed class UserCheckInTaskPlannerTests
     private static readonly string[] NothingOpen = Array.Empty<string>();
 
     [Fact]
-    public void Plan_KeepsUpToThree_AndRefusesTheFourthWithAReason()
+    // Chat 7 (2026-08-24) — the ceiling was three and is now six. Written against the CONSTANT
+    // rather than a literal, so the next change to it does not need this test rewritten again;
+    // what is actually guarded is that the ceiling holds and that the overflow is REFUSED WITH A
+    // REASON rather than dropped silently.
+    public void Plan_KeepsUpToTheCeiling_AndRefusesTheNextWithAReason()
     {
-        MorningTaskPlan plan = UserCheckInTaskPlanner.Plan(
-            new[]
-            {
-                new UserCheckInTaskEntry("Pricing page", 3600),
-                new UserCheckInTaskEntry("Client revisions", 7200),
-                new UserCheckInTaskEntry("Invoices", 3600),
-                new UserCheckInTaskEntry("Inbox", 3600),
-            },
-            NothingOpen);
+        var entries = Enumerable
+            .Range(1, UserCheckInTaskPlanner.MaxMorningTasks + 1)
+            .Select(i => new UserCheckInTaskEntry($"Task {i}", 3600))
+            .ToArray();
 
-        Assert.Equal(3, plan.Accepted.Count);
+        MorningTaskPlan plan = UserCheckInTaskPlanner.Plan(entries, NothingOpen);
+
+        Assert.Equal(UserCheckInTaskPlanner.MaxMorningTasks, plan.Accepted.Count);
         SkippedMorningTask skipped = Assert.Single(plan.Skipped);
-        Assert.Equal("Inbox", skipped.Title);
+        Assert.Equal($"Task {UserCheckInTaskPlanner.MaxMorningTasks + 1}", skipped.Title);
         Assert.Equal("over_max_tasks", skipped.ReasonCode);
     }
+
+    // Six, not three. Asserted directly so raising it again is a deliberate act with a failing
+    // test attached, rather than something that drifts.
+    [Fact]
+    public void TheMorningCeilingIsSix()
+        => Assert.Equal(6, UserCheckInTaskPlanner.MaxMorningTasks);
 
     [Fact]
     public void Plan_PreservesTheOrderTyped_SoTheFirstEntryIsTheOneAutoStarted()
@@ -129,17 +136,18 @@ public sealed class UserCheckInTaskPlannerTests
     [Fact]
     public void Plan_GoalTextExcludesRefusedEntries()
     {
-        MorningTaskPlan plan = UserCheckInTaskPlanner.Plan(
-            new[]
-            {
-                new UserCheckInTaskEntry("A", 3600),
-                new UserCheckInTaskEntry("B", 3600),
-                new UserCheckInTaskEntry("C", 3600),
-                new UserCheckInTaskEntry("D", 3600),
-            },
-            NothingOpen);
+        // Chat 7 — one past the ceiling, whatever the ceiling is. The goal sentence must carry
+        // exactly what was accepted and nothing that was refused.
+        var entries = Enumerable
+            .Range(1, UserCheckInTaskPlanner.MaxMorningTasks + 1)
+            .Select(i => new UserCheckInTaskEntry($"T{i}", 3600))
+            .ToArray();
 
-        Assert.Equal("A; B; C", plan.GoalText);
+        MorningTaskPlan plan = UserCheckInTaskPlanner.Plan(entries, NothingOpen);
+
+        string expected = string.Join("; ",
+            Enumerable.Range(1, UserCheckInTaskPlanner.MaxMorningTasks).Select(i => $"T{i}"));
+        Assert.Equal(expected, plan.GoalText);
     }
 
     [Fact]

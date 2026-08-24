@@ -3297,8 +3297,11 @@ internal sealed class UserDesktopWidgetWindow : Window
         _collapseTimer.Stop();
         _suspendAutoCollapseUntilPointerLeaves = true;
 
+        // Chat 7 (2026-08-24) — TaskAskExtend is gone from this route. The "+15" that raised it was
+        // removed on 17 August and ResolveTaskAsk never had a case for it, so routing it here
+        // marked the ask RESOLVED and sent nothing: the card vanished and the user's tap did
+        // nothing at all. A dead route that silently succeeds is worse than one that throws.
         if (action is UserDesktopWidgetAction.TaskAskDone
-            or UserDesktopWidgetAction.TaskAskExtend
             or UserDesktopWidgetAction.TaskAskSwitched)
         {
             ResolveTaskAsk(action);
@@ -3771,7 +3774,21 @@ internal sealed class UserDesktopWidgetWindow : Window
             Orientation = Orientation.Vertical,
             Visibility = Visibility.Collapsed
         };
-        _taskProjectOptionsHost.Children.Add(_taskProjectOptions);
+
+        // Chat 7 (2026-08-24) — SCROLL rather than truncate.
+        //
+        // The picker showed the first four projects and simply did not mention the rest, so a
+        // project past the fourth could not be chosen from the widget at all and the task went out
+        // untagged — which is the one state that can never reach a client report. The width
+        // constraint that produced the cap is real; the answer to it is a height ceiling and a
+        // scrollbar, not a list that quietly ends.
+        _taskProjectOptionsHost.Children.Add(new ScrollViewer
+        {
+            Content = _taskProjectOptions,
+            MaxHeight = 96,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        });
 
         _taskProjectChip = CreateQuickAddPickerButton("+ project");
         _taskProjectChip.Click += (_, _) => ToggleTaskProjectPicker();
@@ -3868,6 +3885,27 @@ internal sealed class UserDesktopWidgetWindow : Window
             Text = BuildTaskDetailText(task)
         };
         row.Children.Add(BuildTaskTitleHost(title));
+
+        // Chat 7 (2026-08-24) — which project this row is for. It rides along on the state already
+        // and was never shown, so the widget listed a day's tasks with no way to tell which client
+        // each was for. A step dimmer than the detail line: it is context, not the measurement.
+        //
+        // Untagged shows NOTHING rather than the word "untagged". On most rows that would be a
+        // label for a non-event, and on a 200 DIP row every character is spent.
+        if (task.ProjectName.Trim().Length > 0)
+        {
+            row.Children.Add(new TextBlock
+            {
+                FontSize = 8,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(5, 0, 0, 0),
+                Foreground = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B)),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 62,
+                Text = task.ProjectName.Trim()
+            });
+        }
+
         row.Children.Add(detail);
 
         switch (task.State)
@@ -4018,7 +4056,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         switch (task.State)
         {
             case "pending":
-                return FormatTaskDuration(task.PlannedSeconds);
+                return FormatTaskDuration(budgetSeconds);
             case "active":
             {
                 double remaining = budgetSeconds - task.ActiveSeconds;
@@ -4032,7 +4070,14 @@ internal sealed class UserDesktopWidgetWindow : Window
             case "done":
             case "abandoned":
             {
-                string line = $"planned {FormatTaskDuration(task.PlannedSeconds)} · took {FormatTaskDuration((int)Math.Round(task.ActiveSeconds))}";
+                // Chat 7 (2026-08-24) — the SAME number the running row counted down against.
+                // This reported PlannedSeconds while the active case above used planned + extended,
+                // so any task carrying extended seconds counted down against one figure and then
+                // reported another: "1h30m left" on a 2h budget, closing as "planned 1h". The +15
+                // that produced those extended seconds was removed on 17 August, but the rows it
+                // left behind still disagree, and a row that reports a budget the user never sees
+                // is exactly the kind of small lie this file keeps being fixed for.
+                string line = $"planned {FormatTaskDuration(budgetSeconds)} · took {FormatTaskDuration((int)Math.Round(task.ActiveSeconds))}";
                 int offtaskMinutes = (int)Math.Round(task.OfftaskSeconds / 60d);
                 return offtaskMinutes > 0 ? $"{line} · {offtaskMinutes}m off-task" : line;
             }
@@ -4215,7 +4260,6 @@ internal sealed class UserDesktopWidgetWindow : Window
                     "start" => t with { State = "active" },
                     "done" => t with { State = "done" },
                     "abandon" => t with { State = "abandoned" },
-                    "extend" => t with { ExtendedSeconds = t.ExtendedSeconds + TaskExtendSeconds },
                     _ => t
                 });
             }
@@ -4297,9 +4341,10 @@ internal sealed class UserDesktopWidgetWindow : Window
 
     // ── Step 9a: the compose's project picker ──
     //
-    // Four at most, because the widget is 200 DIPs wide and a list that wraps three times turns a
-    // glance into a form. The rest are managed in Control Center, same rule as the card.
-    private const int WidgetMaxPickerProjects = 4;
+    // Chat 7 — no cap. It was four, because the widget is 200 DIPs wide and a list that wraps three
+    // times turns a glance into a form. That reasoning was right about the width and wrong about
+    // the remedy: the list now scrolls inside a fixed height, so it stays a glance AND every
+    // project is reachable. See the ScrollViewer where the host is built.
 
     private void ToggleTaskProjectPicker()
     {
@@ -4312,7 +4357,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _taskProjectOptions.Children.Clear();
         _taskProjectNewBox = null;
 
-        foreach (UserDesktopWidgetProject project in _projects.Take(WidgetMaxPickerProjects))
+        foreach (UserDesktopWidgetProject project in _projects)
         {
             Button option = CreateQuickAddPickerButton(project.Name);
             option.Margin = new Thickness(0, 0, 3, 3);

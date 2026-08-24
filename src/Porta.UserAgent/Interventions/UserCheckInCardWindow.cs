@@ -1,5 +1,6 @@
-namespace Porta.UserAgent.Interventions;
+﻿namespace Porta.UserAgent.Interventions;
 
+using Porta.Agent.Common;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -665,6 +666,7 @@ internal sealed class UserCheckInCardWindow : Window
                 {
                     _userInteracted = true;
                     row.PlannedSeconds = seconds;
+                    row.DurationPickedExplicitly = true;
                     for (int i = 0; i < durationChips.Count; i++)
                     {
                         HighlightChip(durationChips[i], durationChips[i] == chip);
@@ -674,6 +676,76 @@ internal sealed class UserCheckInCardWindow : Window
             }
 
             HighlightChip(durationChips[0], true);
+
+            // Chat 7 (2026-08-24) — the stepper, and free entry through the TITLE.
+            //
+            // The card was preset-only (1h / 2h / 3h) while the widget has never been: it has
+            // chips, a ±15 stepper, and it reads a duration out of the title as you type. A ceiling
+            // the widget does not have taught two habits for the same number.
+            //
+            // The free entry deliberately does NOT add a second text box per row. The card's whole
+            // focus model is one box per row — there is a test file about which box owns the caret —
+            // and on a six-row card a second box each would double the tab stops on the three
+            // seconds the morning card is meant to cost. Instead the title carries it, exactly as
+            // the widget does: "landing page copy 90m" sets 90 minutes, through the SAME
+            // ReminderTimeParser grammar, and the title keeps what the user typed.
+            void SetRowMinutes(int minutes)
+            {
+                _userInteracted = true;
+                int clamped = Math.Max(UserCheckInChoices.MorningDurationFloorMinutes, minutes);
+                row.PlannedSeconds = clamped * 60;
+                row.DurationPickedExplicitly = true;
+
+                // A stepped value that lands back on a preset lights that chip again; one that does
+                // not leaves every chip unlit, because none of them is what the row now says.
+                for (int i = 0; i < durationChips.Count; i++)
+                {
+                    HighlightChip(
+                        durationChips[i],
+                        UserCheckInChoices.MorningTaskDurations[i].Seconds == row.PlannedSeconds);
+                }
+            }
+
+            // "−" and "+" rather than "−15" and "+15": this row already carries three presets and
+            // the project chip, and the card is 380 DIPs wide. The widget can afford the longer
+            // labels because its row carries nothing else. The step is in the tooltip and is
+            // obvious the first time it is pressed.
+            Button stepDown = MakeChip("−");
+            stepDown.ToolTip = $"{UserCheckInChoices.MorningDurationStepMinutes} minutes less";
+            stepDown.Click += (_, _) => SetRowMinutes(
+                (row.PlannedSeconds / 60) - UserCheckInChoices.MorningDurationStepMinutes);
+            durationRow.Children.Add(stepDown);
+
+            Button stepUp = MakeChip("+");
+            stepUp.ToolTip = $"{UserCheckInChoices.MorningDurationStepMinutes} minutes more";
+            stepUp.Click += (_, _) => SetRowMinutes(
+                (row.PlannedSeconds / 60) + UserCheckInChoices.MorningDurationStepMinutes);
+            durationRow.Children.Add(stepUp);
+
+            row.Box.TextChanged += (_, _) =>
+            {
+                // An explicit tap always wins: once the user has picked, the title must not keep
+                // moving the number under them.
+                if (row.DurationPickedExplicitly)
+                {
+                    return;
+                }
+
+                if (!UserDesktopWidgetWindow.TryParseTaskDurationMinutes(row.Box.Text, out int typed))
+                {
+                    return;
+                }
+
+                row.PlannedSeconds = Math.Max(
+                    UserCheckInChoices.MorningDurationFloorMinutes, typed) * 60;
+
+                for (int i = 0; i < durationChips.Count; i++)
+                {
+                    HighlightChip(
+                        durationChips[i],
+                        UserCheckInChoices.MorningTaskDurations[i].Seconds == row.PlannedSeconds);
+                }
+            };
 
             // ORDER IS LOAD-BEARING. The duration row goes in FIRST so the picker lands BENEATH
             // it, which is what the brief specifies and what the press needs to look like.
@@ -763,6 +835,12 @@ internal sealed class UserCheckInCardWindow : Window
         public int PlannedSeconds { get; set; } = plannedSeconds;
 
         public Button Remove { get; } = MakeRemoveButton();
+
+        /// <summary>
+        /// Chat 7 — true once a chip or the stepper was tapped. After that the title no longer
+        /// moves the number: an explicit pick must not be overwritten by what gets typed next.
+        /// </summary>
+        public bool DurationPickedExplicitly { get; set; }
 
         public StackPanel Panel { get; set; } = new();
 

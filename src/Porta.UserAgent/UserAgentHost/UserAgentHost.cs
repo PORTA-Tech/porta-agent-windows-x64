@@ -1711,7 +1711,8 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 ActiveSeconds: task.ActiveSeconds,
                 FocusedSeconds: task.FocusedSeconds,
                 OfftaskSeconds: task.OfftaskSeconds,
-                ExtendedSeconds: task.ExtendedSeconds));
+                ExtendedSeconds: task.ExtendedSeconds,
+                ProjectName: task.ProjectName));
         }
 
         return mapped;
@@ -2169,11 +2170,28 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 // Part 5b — the text box feeds the LLM: Ari's confirmation responds to the goal
                 // the user actually typed. Fail-soft to the short honest template.
                 string? morningReply = await TryGetNarrativeLineAsync("reply_morning", goal, CancellationToken.None).ConfigureAwait(false);
-                _checkInCardPresenter.ShowConfirmation(
-                    UserCheckInKind.Morning,
-                    morningReply ?? (startedTitle is null
-                        ? "Locked in. I'll help you protect it today."
-                        : $"Locked in — the clock is on “{startedTitle}”."));
+                string confirmation = morningReply ?? (startedTitle is null
+                    ? "Locked in. I'll help you protect it today."
+                    : $"Locked in — the clock is on “{startedTitle}”.");
+
+                // Chat 7 (2026-08-24) — say so when the ceiling dropped something.
+                //
+                // Extras over the ceiling were logged and otherwise discarded in silence: the user
+                // typed six things, four were created, and nothing anywhere said the other two were
+                // gone. Silently losing something a user just wrote down is the worst kind of
+                // small bug — it is invisible until they go looking for the work.
+                //
+                // Only the ceiling is surfaced. A duplicate was already open, so nothing was lost
+                // and saying so would be noise.
+                int overCeiling = plan.Skipped.Count(s => s.ReasonCode == "over_max_tasks");
+                if (overCeiling > 0)
+                {
+                    confirmation += overCeiling == 1
+                        ? $" One more didn't fit — {UserCheckInTaskPlanner.MaxMorningTasks} is the most for a day."
+                        : $" {overCeiling} more didn't fit — {UserCheckInTaskPlanner.MaxMorningTasks} is the most for a day.";
+                }
+
+                _checkInCardPresenter.ShowConfirmation(UserCheckInKind.Morning, confirmation);
                 break;
             }
 
