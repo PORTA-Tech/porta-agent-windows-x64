@@ -4267,7 +4267,10 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         // identifiable application, so a day chart built from it would not sum to its own totals.
         var perDayTask = new Dictionary<string, Dictionary<long, double>>();
         // The six approved per-task fields, read once from tasks rather than joined per rollup row.
-        var taskFields = new Dictionary<long, (string Status, string Dates, string Result, string Blocked, string Expected, int Slot)>();
+        // Chat 4 (2026-08-24) — now also carries title and client label, because this dictionary is
+        // the ONLY place a task with no recorded hours can be found. It always read every task in
+        // the project and then threw the unworked ones away; see the zero-hour pass below.
+        var taskFields = new Dictionary<long, (string Status, string Dates, string Result, string Blocked, string Expected, int Slot, string Title, string Label)>();
         string projectName = string.Empty;
         string clientName = string.Empty;
 
@@ -4374,7 +4377,8 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 fieldCmd.CommandText =
                     """
                     SELECT id, status, completed_at_utc, started_at_utc, result_line,
-                           blocked_reason, expected_finish_day, colour_slot
+                           blocked_reason, expected_finish_day, colour_slot,
+                           title, client_label
                     FROM tasks
                     WHERE project_id = $project;
                     """;
@@ -4394,7 +4398,9 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                         Result: fieldReader.IsDBNull(4) ? string.Empty : fieldReader.GetString(4),
                         Blocked: fieldReader.IsDBNull(5) ? string.Empty : fieldReader.GetString(5),
                         Expected: fieldReader.IsDBNull(6) ? string.Empty : fieldReader.GetString(6),
-                        Slot: fieldReader.IsDBNull(7) ? 0 : fieldReader.GetInt32(7));
+                        Slot: fieldReader.IsDBNull(7) ? 0 : fieldReader.GetInt32(7),
+                        Title: fieldReader.IsDBNull(8) ? string.Empty : fieldReader.GetString(8),
+                        Label: fieldReader.IsDBNull(9) ? string.Empty : fieldReader.GetString(9));
                 }
             }
         }
@@ -4424,8 +4430,10 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
             // some other report, so it cannot be shown against these hours.
             bool measurable = inputs.Measurable && Math.Abs(inputs.LifetimeRollupSeconds - seconds) < 0.5d;
 
-            (string Status, string Dates, string Result, string Blocked, string Expected, int Slot) f =
-                taskFields.GetValueOrDefault(taskId, ("planned", string.Empty, string.Empty, string.Empty, string.Empty, 0));
+            (string Status, string Dates, string Result, string Blocked, string Expected, int Slot, string Title, string Label) f =
+                taskFields.GetValueOrDefault(
+                    taskId,
+                    ("planned", string.Empty, string.Empty, string.Empty, string.Empty, 0, title, label));
 
             lines.Add(new AgentReportLine(
                 TaskId: taskId,
@@ -4441,6 +4449,53 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 BlockedReason: f.Blocked,
                 // CONDITION 1: read straight from what the user typed. Never derived, never filled
                 // from an estimate, a velocity or anything else.
+                ExpectedFinishDay: f.Expected,
+                ColourSlot: f.Slot));
+        }
+
+        // ── Chat 4 (2026-08-24): the work that has not started yet ────────────────────────
+        //
+        // Every line above came from app_usage_rollup, so a task with no recorded hours in this
+        // range could never become one — it was fetched by the fields query a few lines up and then
+        // thrown away. The result was a client report that silently omitted everything still to
+        // come, which reads as "there is nothing else planned".
+        //
+        // This is a missing feed, not a deliberate exclusion. The report renderer already orders
+        // done, in_progress, blocked, planned and already has a "Planned" heading that the payload
+        // could never populate, and the build plan specifies the four-way status as intended.
+        //
+        // Only planned and in_progress are added. A task marked DONE with no hours in this range
+        // was finished in some other window and is not this report's news; a BLOCKED one with no
+        // hours has never been started, and a blocked line carries a reason the user has not been
+        // asked for. Both would be claims rather than facts.
+        //
+        // Hours are 0 and the gap is not measurable, which is exactly right: there is nothing to
+        // measure. The line shows the name and the status, which is consistent with hours living
+        // below the work and never being the headline.
+        foreach ((long taskId, var f) in taskFields.OrderBy(p => p.Key))
+        {
+            if (perTask.ContainsKey(taskId))
+            {
+                continue;
+            }
+
+            if (f.Status is not ("planned" or "in_progress"))
+            {
+                continue;
+            }
+
+            lines.Add(new AgentReportLine(
+                TaskId: taskId,
+                Title: f.Title,
+                ClientLabel: f.Label,
+                Finished: false,
+                Hours: 0d,
+                UnattributedHours: 0d,
+                UnattributedMeasurable: false,
+                Status: f.Status,
+                Dates: f.Dates,
+                ResultLine: f.Result,
+                BlockedReason: f.Blocked,
                 ExpectedFinishDay: f.Expected,
                 ColourSlot: f.Slot));
         }

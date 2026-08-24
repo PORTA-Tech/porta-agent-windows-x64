@@ -1,4 +1,4 @@
-namespace Porta.ControlCenter;
+﻿namespace Porta.ControlCenter;
 
 using System.Collections.Generic;
 using System.Linq;
@@ -34,8 +34,11 @@ public partial class MainWindow
     {
         ["today"] = "What you have touched today, plus anything still open. Decided from measured work, not from a list you keep.",
         ["week"] = "Monday to today. This is the set a weekly report is built from.",
-        ["upcoming"] = "Start dates ahead of today. Ari never starts these for you.",
-        ["prog"] = "Time recorded against them, and you have not marked them finished.",
+        // Chat 4 (2026-08-24) — both of these described the OLD rule and would now be untrue. The
+        // In-progress note in particular said "time recorded against them", which was the bug: the
+        // tab gated on hours and so could never show a task you had just moved into it.
+        ["upcoming"] = "Dated ahead of today and not started yet. Ari never starts these for you.",
+        ["prog"] = "Started and not finished — either you moved it here, or time landed on it.",
         ["block"] = "Blocked is the one status a client acts on, so it is the one Ari never sets for you.",
         ["done"] = "Finished work. Amber means the one line about what came of it is still missing.",
         ["all"] = "Everything, including untagged work that can never reach a client report."
@@ -105,57 +108,13 @@ public partial class MainWindow
             margin: new Thickness(0, 14, 0, 0), wrap: true));
     }
 
-    private bool MatchesFilter(LocalApiTaskRow t) => _taskFilter switch
-    {
-        "all" => true,
+    // Chat 4 (2026-08-24) — the rules moved to TaskFilterRules so they could be tested. They were
+    // wrong in a way only clicking revealed; see that file for what and why.
+    private bool MatchesFilter(LocalApiTaskRow t)
+        => TaskFilterRules.Matches(_taskFilter, t, System.DateTime.Now);
 
-        // "Time recorded against them, and you have not marked them finished" — the filter's own
-        // description, which is what it now does. It used to require status == 'in_progress', a
-        // value almost nothing carries, so the tab was empty while real work was underway.
-        "prog" => t.Status != "done" && t.Status != "blocked" && t.Hours > 0,
-
-        "block" => t.Status == "blocked",
-        "done" => t.Status == "done",
-
-        // A task you POSTPONED is the main thing that belongs here, and it was the one thing this
-        // could not see: it read the expected-finish date and never the deferred-until day, so
-        // "not today, tomorrow" vanished from every filter instead of appearing under Upcoming.
-        "upcoming" => t.Status != "done" && IsAhead(t.DeferredUntilDay, t.ExpectedFinishDay),
-
-        "week" => WorkedWithin(t, 7) || IsOpen(t),
-        _ => WorkedWithin(t, 0) || IsOpen(t)
-    };
-
-    /// <summary>Still open: not finished, and not parked for a later day.</summary>
-    private static bool IsOpen(LocalApiTaskRow t)
-        => t.Status != "done" && !IsAhead(t.DeferredUntilDay, t.ExpectedFinishDay);
-
-    private static bool WorkedWithin(LocalApiTaskRow t, int days)
-        => System.DateTime.TryParseExact(
-               t.LastWorkedDay, "yyyy-MM-dd",
-               System.Globalization.CultureInfo.InvariantCulture,
-               System.Globalization.DateTimeStyles.None,
-               out System.DateTime d)
-           && (System.DateTime.Now.Date - d.Date).TotalDays <= days;
-
-    /// <summary>True if either day is set and lands after today. Deferral wins when both are.</summary>
     private static bool IsAhead(params string[] days)
-    {
-        foreach (string day in days)
-        {
-            if (System.DateTime.TryParseExact(
-                    day, "yyyy-MM-dd",
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    System.Globalization.DateTimeStyles.None,
-                    out System.DateTime d)
-                && d.Date > System.DateTime.Now.Date)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+        => TaskFilterRules.IsAhead(System.DateTime.Now, days);
 
     private UIElement BuildTaskRow(LocalApiTaskRow t)
     {

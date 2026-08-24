@@ -340,6 +340,20 @@ internal static class ReportsPagePreview
         new(4, "Finish the send button", "done", "PORTA", false, "17 Aug", 1.7, 4, "", "2026-08-17", "", "")
     ];
 
+    /// Chat 4 — the task that used to vanish between the tabs. "Pricing page" still carries the
+    /// future finish day it had while it was upcoming, which is what kept it stuck there; it has
+    /// been moved to in_progress and has no measured hours yet, which is what kept it out of the
+    /// In-progress tab. One task, two tabs, and before the fix it showed in the wrong one.
+    private static readonly LocalApiTaskRow[] MovedTaskSample =
+    [
+        new(10, "Pricing page", "in_progress", "Northbridge", false, "from 24 Aug", 0, 1,
+            "", "", DateTime.Now.AddDays(6).ToString("yyyy-MM-dd"), ""),
+        new(11, "Case study", "planned", "Northbridge", false, "—", 0, 2,
+            "", "", DateTime.Now.AddDays(9).ToString("yyyy-MM-dd"), ""),
+        new(12, "Rewrite the onboarding email", "done", "Northbridge", false, "24 Aug", 1.4, 3,
+            "Sent to the client for sign-off.", "2026-08-24", "", "")
+    ];
+
     /// Yadin's actual situation on 18 Aug: his real project archived and invisible, beside the
     /// replacement he had to make because he could not get the first one back.
     private static readonly LocalApiProject ArchivedRealProject = new(
@@ -359,6 +373,16 @@ internal static class ReportsPagePreview
         new("tasks upcoming", "Tasks", w => w.PreviewFillTasks(SampleTasks, "upcoming"), Height: 900),
         new("tasks in progress", "Tasks", w => w.PreviewFillTasks(SampleTasks, "prog"), Height: 900),
         new("tasks blocked", "Tasks", w => w.PreviewFillTasks(SampleTasks, "block"), Height: 900),
+
+        // Chat 4 (2026-08-24) — the move that used to lose a task. "Pricing page" has been moved
+        // out of Upcoming to In progress and has NO measured hours yet, which is exactly the state
+        // that fell between the two tabs: it could not enter In progress (which gated on hours) and
+        // it could not leave Upcoming (whose predicate was date-only). These two shots are the pair
+        // to look at — it must appear in the first and be absent from the second.
+        new("tasks CHAT 4 — moved task now IN PROGRESS", "Tasks",
+            w => w.PreviewFillTasks(MovedTaskSample, "prog"), Height: 900),
+        new("tasks CHAT 4 — and gone from UPCOMING", "Tasks",
+            w => w.PreviewFillTasks(MovedTaskSample, "upcoming"), Height: 900),
         new("step2 builder from build-a-report", "Reports",
             w => Console.WriteLine("     WALK: " + w.PreviewWalkBuildAReport([ProjectWithWork], SampleDraft)),
             Height: 1560),
