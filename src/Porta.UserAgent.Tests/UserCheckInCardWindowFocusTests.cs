@@ -1,4 +1,4 @@
-using System.Runtime.ExceptionServices;
+﻿using System.Runtime.ExceptionServices;
 using System.Windows.Controls;
 using Porta.UserAgent.Interventions;
 
@@ -43,8 +43,12 @@ public sealed class UserCheckInCardWindowFocusTests
         });
     }
 
+    // Chat 6 (2026-08-24) — REVERSED half. This asserted BOTH cards arm a box. The evening card's
+    // box is gone on a task-less day, so what this now guards is the thing it was really for: a
+    // stale target must never survive from one prompt to the next. The morning arms its box; the
+    // evening that follows arms nothing, and crucially does not keep pointing at the morning's.
     [Fact]
-    public void ShowPrompt_EndOfDayAfterMorning_ArmsTheEndOfDayBox()
+    public void ShowPrompt_EndOfDayAfterMorning_ClearsTheMorningsBoxRatherThanKeepingIt()
     {
         RunOnStaThread(() =>
         {
@@ -55,14 +59,13 @@ public sealed class UserCheckInCardWindowFocusTests
             Control? morningTarget = window.FocusTarget;
 
             window.ShowPrompt(new UserCheckInPrompt(
-                UserCheckInKind.EndOfDay, "Wrap up", "Here is how today went.", QuestionLabel: "Plan tomorrow?"));
+                UserCheckInKind.EndOfDay, "Wrap up", "Here is how today went."));
             Control? eodTarget = window.FocusTarget;
 
             window.Close();
 
             Assert.IsType<TextBox>(morningTarget);
-            Assert.IsType<TextBox>(eodTarget);
-            Assert.NotSame(morningTarget, eodTarget);
+            Assert.Null(eodTarget);
         });
     }
 

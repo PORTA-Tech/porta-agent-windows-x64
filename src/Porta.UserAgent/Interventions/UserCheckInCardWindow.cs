@@ -1392,29 +1392,28 @@ internal sealed class UserCheckInCardWindow : Window
 
         if (board.Count == 0)
         {
-            // No tasks for the day at all — nothing to close. Keep the old plan box so the evening
-            // card is never an empty shell, and so a pre-step-3 day still records something.
-            AddQuestionLabel(prompt.QuestionLabel);
-            // The copy says "tomorrow" because that is what happens to it: this text is stored as
-            // plan_tomorrow and pre-fills tomorrow's morning card. It used to say "note".
-            TextBox planBox = MakeInputBox("What's first tomorrow?");
-            planBox.TextChanged += (_, _) => _userInteracted = true;
-            _bodyStack.Children.Add(planBox);
-
-            Button saveNote = MakePrimaryButton("Save for tomorrow");
-            saveNote.Click += (_, _) => Respond(new UserCheckInResponse(
-                UserCheckInKind.EndOfDay, planBox.Text.Trim(), Choice: null, Dismissed: false));
-            planBox.KeyDown += (_, e) =>
-            {
-                if (e.Key == Key.Enter)
-                {
-                    Respond(new UserCheckInResponse(UserCheckInKind.EndOfDay, planBox.Text.Trim(), null, Dismissed: false));
-                    e.Handled = true;
-                }
-            };
-
-            _bodyStack.Children.Add(saveNote);
-            _focusTarget = planBox;
+            // Chat 6 (2026-08-24) — the empty question is gone.
+            //
+            // This asked "What's first tomorrow?" into a blank box with nothing prefilled and
+            // nothing computed to suggest. On a day with no tasks Ari knows nothing about tomorrow,
+            // so the box was Ari asking the user to do the work of proposing and then calling the
+            // answer a plan. Ask only when there is something to propose.
+            //
+            // What is left is a card that still does its job: the measured line, the correction
+            // block above (which is how you say the day is not over), and a way to close the day.
+            // That is more honest than a text box nobody filled in.
+            //
+            // The cost is real and accepted: this box was the only way a task-less day recorded
+            // plan_tomorrow, so a "just track" day no longer carries a typed sentence into the
+            // morning. It was carrying one the user was prompted to invent, which is the thing
+            // being removed.
+            Button closeDay = MakePrimaryButton("Close the day");
+            closeDay.Click += (_, _) => Respond(new UserCheckInResponse(
+                UserCheckInKind.EndOfDay,
+                TextReply: null,
+                Choice: null,
+                Dismissed: false));
+            _bodyStack.Children.Add(closeDay);
             return;
         }
 

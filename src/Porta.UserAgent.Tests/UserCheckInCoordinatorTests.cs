@@ -1,4 +1,4 @@
-using Porta.Agent.LocalApi;
+﻿using Porta.Agent.LocalApi;
 using Porta.UserAgent.Interventions;
 
 namespace Porta.UserAgent.Tests;
@@ -300,29 +300,67 @@ public sealed class UserCheckInCoordinatorTests
         Assert.Equal("Did you get to your goal?", withoutLlm.QuestionLabel);
     }
 
-    // Step 7 changed WHAT the evening asks — "Plan for tomorrow?" is gone, because Yadin stopped
-    // answering it and unfinished work now carries itself. Part 2b's rule is unchanged and is what
-    // this still guards: a fixed question is always present, whatever the LLM line does.
+    // Chat 6 (2026-08-24) — REVERSED, deliberately.
+    //
+    // This asserted the evening card ALWAYS carries a question, including "Anything for tomorrow?"
+    // on a day with no tasks. The comment below the assertions argued the case: with no tasks, the
+    // single box was the only way anything reached tomorrow, so asking there was honest.
+    //
+    // Yadin's complaint is that the question proposes nothing — on a day Ari knows nothing about,
+    // it asks the user to invent a plan and then stores the answer as one. The box is gone and so
+    // is the label above it: a heading over a control that no longer exists is just a heading over
+    // nothing.
+    //
+    // Part 2b's rule survives where it still means something: when there IS open work, the fixed
+    // question is present whatever the LLM line does.
     [Fact]
-    public void BuildPrompt_EndOfDay_AlwaysCarriesTheFixedQuestionLabel_EvenWithNarrative()
+    public void BuildPrompt_EndOfDay_CarriesTheFixedQuestion_OnlyWhenThereIsOpenWorkToMove()
+    {
+        UserCheckInPrompt withOpenWork = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.EndOfDay, goal: null, EmptyMetrics(), narrativeLine: "Nice close.",
+            board: new[] { Line(1, "Pricing page", "pending") });
+
+        Assert.Equal("What moves to tomorrow?", withOpenWork.QuestionLabel);
+        Assert.DoesNotContain("Plan for tomorrow", withOpenWork.QuestionLabel, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildPrompt_EndOfDay_AsksNothing_WhenThereIsNothingToPropose()
     {
         UserCheckInPrompt withLlm = UserCheckInCoordinator.BuildPrompt(
             UserCheckInKind.EndOfDay, goal: null, EmptyMetrics(), narrativeLine: "Nice close.");
         UserCheckInPrompt withoutLlm = UserCheckInCoordinator.BuildPrompt(
             UserCheckInKind.EndOfDay, goal: null, EmptyMetrics(), narrativeLine: "");
 
-        Assert.Equal("Anything for tomorrow?", withLlm.QuestionLabel);
-        Assert.Equal("Anything for tomorrow?", withoutLlm.QuestionLabel);
+        Assert.Equal(string.Empty, withLlm.QuestionLabel);
+        Assert.Equal(string.Empty, withoutLlm.QuestionLabel);
+    }
 
-        // The guard here used to be "the label must not mention tomorrow", standing in for step 7
-        // having removed "Plan for tomorrow?". That was too blunt once the copy was corrected on
-        // 2026-08-13: with NO tasks at all, unfinished work cannot carry itself, the single box IS
-        // the only way anything reaches tomorrow, and what is typed there is stored as
-        // plan_tomorrow and pre-fills the next morning. Asking about tomorrow there is honest.
-        //
-        // What step 7 actually killed is the old wording, on a day that HAS work. Guard that.
-        Assert.DoesNotContain("Plan for tomorrow", withLlm.QuestionLabel, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Plan for tomorrow", withoutLlm.QuestionLabel, StringComparison.OrdinalIgnoreCase);
+    // Chat 6 — the morning's blank arm states rather than asks. It is reached only with no open
+    // tasks and no carried plan, so there is nothing for a question to be about.
+    [Fact]
+    public void BuildPrompt_Morning_WithNothingToPropose_DoesNotAskAQuestion()
+    {
+        UserCheckInPrompt blank = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Morning, goal: null, EmptyMetrics());
+
+        Assert.Equal("Today", blank.Title);
+        Assert.DoesNotContain("?", blank.Title, StringComparison.Ordinal);
+    }
+
+    // ...but the two arms that DO have something to propose still ask, because there the question
+    // is about something Ari is actually holding up for confirmation.
+    [Fact]
+    public void BuildPrompt_Morning_WithSomethingToPropose_StillAsks()
+    {
+        UserCheckInPrompt proposed = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Morning, goal: null, EmptyMetrics(),
+            board: new[] { Line(1, "Pricing page", "pending") });
+        UserCheckInPrompt carried = UserCheckInCoordinator.BuildPrompt(
+            UserCheckInKind.Morning, goal: null, EmptyMetrics(), carriedPlan: "finish the deck");
+
+        Assert.Contains("?", proposed.Title, StringComparison.Ordinal);
+        Assert.Contains("?", carried.Title, StringComparison.Ordinal);
     }
 
     [Fact]

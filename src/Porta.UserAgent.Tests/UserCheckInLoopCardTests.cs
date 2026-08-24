@@ -1,4 +1,4 @@
-using System.Runtime.ExceptionServices;
+﻿using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -316,15 +316,44 @@ public sealed class UserCheckInLoopCardTests
         Assert.Empty(captured!.TaskOutcomes!);
     }
 
+    // Chat 6 (2026-08-24) — REVERSED, and the old name said the reasoning out loud: a note box was
+    // kept so the card was "never an empty shell". The box asked "What's first tomorrow?" with
+    // nothing prefilled on a day Ari knew nothing about, which is Yadin's complaint — a question
+    // that proposes nothing and stores the answer as a plan.
+    //
+    // The card is not an empty shell without it. It still carries the measured line, the correction
+    // block ("Ari thinks your day is done"), and a way to close the day. That is a card that says
+    // something, where the box was a card asking the user to.
     [Fact]
-    public void EndOfDay_NoTasksAtAll_KeepsANoteBox_SoTheCardIsNeverAnEmptyShell()
+    public void EndOfDay_NoTasksAtAll_AsksNothing_AndStillClosesTheDay()
+    {
+        UserCheckInResponse? captured = null;
+
+        RunCard(window =>
+        {
+            window.ShowPrompt(new UserCheckInPrompt(
+                UserCheckInKind.EndOfDay, "Wrapping up", "Quiet day."));
+
+            Assert.Empty(Descendants<TextBox>(window));
+            Click(ButtonWithContent(window, "Close the day"));
+        }, r => captured = r);
+
+        Assert.NotNull(captured);
+        Assert.False(captured!.Dismissed);
+        Assert.Null(captured.TextReply);
+    }
+
+    // The way OUT of that card is the correction block, which is why removing the box is safe.
+    [Fact]
+    public void EndOfDay_NoTasksAtAll_StillOffersTheCorrection()
     {
         RunCard(window =>
         {
             window.ShowPrompt(new UserCheckInPrompt(
-                UserCheckInKind.EndOfDay, "Wrapping up", "Quiet day.", QuestionLabel: "Anything for tomorrow?"));
+                UserCheckInKind.EndOfDay, "Wrapping up", "Quiet day."));
 
-            Assert.Single(Descendants<TextBox>(window));
+            Assert.NotEmpty(ButtonsWithContent(window, "Not done yet"));
+            Assert.NotEmpty(ButtonsWithContent(window, "Wasn't working today"));
         });
     }
 

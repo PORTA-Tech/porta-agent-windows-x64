@@ -1,4 +1,4 @@
-using System.Runtime.ExceptionServices;
+﻿using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -58,10 +58,21 @@ public sealed class UserCheckInCardCaretTests
     }
 
     [Fact]
-    public void EndOfDay_TheNoteBoxActuallyTakesTheCaret()
-        => AssertCaretLands(new UserCheckInPrompt(
-            UserCheckInKind.EndOfDay, "Wrapping up", "Wrapping up the day.",
-            QuestionLabel: "Anything for tomorrow?"));
+    // Chat 6 (2026-08-24) — REVERSED. The evening card's note box is gone on a day with no tasks:
+    // it asked "What's first tomorrow?" into a blank with nothing prefilled and nothing to suggest.
+    // There is now nothing to type into there, so nothing should be armed — asserted so "no caret"
+    // stays a deliberate state rather than looking like the arming bug this file exists to catch.
+    public void EndOfDay_NoTasks_ArmsNothing_BecauseThereIsNoBoxToTypeInto()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(new UserCheckInPrompt(
+                UserCheckInKind.EndOfDay, "Wrapping up", "Wrapping up the day."));
+
+            Assert.Null(window.FocusTarget);
+            Assert.Empty(Descendants<TextBox>(window));
+        });
+    }
 
     // Midday is chips-only, so there is nothing to type into and nothing should be armed. Asserted
     // so "no caret" stays a deliberate state rather than looking like the same failure.
@@ -114,10 +125,21 @@ public sealed class UserCheckInCardCaretTests
             UserCheckInKind.Morning, "What's the one thing today?", "Name today's focus."));
 
     [Fact]
-    public void EndOfDay_NoteBox_WhenRefused_ShowsTheHintAndTheGreyBorder()
-        => AssertRefusedStateVisible(new UserCheckInPrompt(
-            UserCheckInKind.EndOfDay, "Wrapping up", "Wrapping up the day.",
-            QuestionLabel: "Anything for tomorrow?"));
+    // Chat 6 — the evening card no longer has a box on a task-less day, so it needs no keyboard
+    // and must show no refusal hint. Same shape as the midday assertion below it.
+    public void EndOfDay_NoTasks_WhenRefused_ShowsNothing_BecauseItNeedsNoKeyboard()
+    {
+        RunCard(window =>
+        {
+            window.ShowPrompt(new UserCheckInPrompt(
+                UserCheckInKind.EndOfDay, "Wrapping up", "Wrapping up the day."));
+
+            Assert.DoesNotContain(
+                Descendants<TextBlock>(window),
+                t => t.Visibility == Visibility.Visible
+                     && t.Text.Contains("Click the box to type", StringComparison.Ordinal));
+        });
+    }
 
     [Fact]
     public void Midday_WhenRefused_ShowsNothing_BecauseItNeedsNoKeyboard()

@@ -1,4 +1,4 @@
-namespace Porta.UserAgent.Interventions;
+﻿namespace Porta.UserAgent.Interventions;
 
 using System.ComponentModel;
 using System.IO;
@@ -180,6 +180,34 @@ internal sealed class UserDesktopWidgetWindow : Window
     private readonly Action<UserDesktopWidgetReminderCommand>? _reminderCommandRequested;
     private UserDesktopWidgetReminderInfo? _nextReminder;
     private long _resolvedReminderId = -1;      // fired reminder already acted on locally
+
+    /// <summary>
+    /// Chat 6 (2026-08-24) — the smallest gap between one inline card leaving and the next taking
+    /// the surface.
+    ///
+    /// The inline surface was a bare priority ladder with no queue and no dwell: RefreshInlineMessage
+    /// re-evaluates every source on every state push AND again after every resolve, so answering one
+    /// card dropped straight into the next with zero gap. Two different questions in the same place
+    /// with no pause between them reads as one card being replaced mid-glance, and the second is
+    /// answered by a tap aimed at the first.
+    ///
+    /// 1.2 seconds: long enough to register that something finished and something else began, short
+    /// enough that a queue of cards does not feel like it is being doled out.
+    /// </summary>
+    private static readonly TimeSpan InlineSurfaceDwell = TimeSpan.FromSeconds(1.2);
+
+    private DateTimeOffset _inlineSurfaceFreeAtUtc = DateTimeOffset.MinValue;
+    private System.Windows.Threading.DispatcherTimer? _inlineDwellTimer;
+
+    /// <summary>The dwell, for tests. The window itself needs an STA thread and a real HWND.</summary>
+    internal static TimeSpan InlineSurfaceDwellForTests => InlineSurfaceDwell;
+
+    /// <summary>
+    /// The dwell DECISION, pure, so it can be tested without a window. Held while now is strictly
+    /// before the moment the surface frees — so the instant it frees, the next card may take it.
+    /// </summary>
+    internal static bool InlineSurfaceHeldAt(DateTimeOffset nowUtc, DateTimeOffset freeAtUtc)
+        => nowUtc < freeAtUtc;
     private long _chimedReminderId = -1;        // fired reminder currently in the ring cycle
     private int _reminderRingCount;             // rings played for it (max 5)
     private DateTimeOffset _lastReminderRingUtc = DateTimeOffset.MinValue;
@@ -2795,6 +2823,39 @@ internal sealed class UserDesktopWidgetWindow : Window
         _titleText.Foreground = new SolidColorBrush(badgeForeground);
     }
 
+    /// <summary>
+    /// Chat 6 — called the moment a queued card is resolved. Holds the inline surface for
+    /// <see cref="InlineSurfaceDwell"/> and schedules the re-evaluation itself, because a resolve
+    /// handled entirely inside the widget raises no state push: without the timer the next card
+    /// would wait for an unrelated refresh, which is the opposite failure.
+    /// </summary>
+    private void HoldInlineSurfaceAfterResolve()
+    {
+        _inlineSurfaceFreeAtUtc = DateTimeOffset.UtcNow + InlineSurfaceDwell;
+
+        _inlineDwellTimer ??= CreateInlineDwellTimer();
+        _inlineDwellTimer.Stop();
+        _inlineDwellTimer.Interval = InlineSurfaceDwell;
+        _inlineDwellTimer.Start();
+    }
+
+    private System.Windows.Threading.DispatcherTimer CreateInlineDwellTimer()
+    {
+        var timer = new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Normal, Dispatcher)
+        {
+            Interval = InlineSurfaceDwell
+        };
+
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            RefreshInlineMessage();
+        };
+
+        return timer;
+    }
+
     private void RefreshInlineMessage()
     {
         if (!CanAcceptUiActions)
@@ -2832,6 +2893,19 @@ internal sealed class UserDesktopWidgetWindow : Window
                 tertiaryAction: _stateTakeoverMessage.TertiaryAction,
                 tertiaryLabel: _stateTakeoverMessage.TertiaryLabel,
                 suppressLabel: _stateTakeoverMessage.SuppressLabel);
+            return;
+        }
+
+        // Chat 6 — the dwell. Everything ABOVE this line is state: a critical condition, an
+        // attention message, a takeover. Those describe what is true right now and must not be
+        // held back. Everything BELOW is a queued CARD asking the user something, and a card that
+        // arrives in the same frame the last one left is the complaint this fixes.
+        //
+        // Held means the summary surface, not a frozen card: the widget goes back to being a
+        // widget for a moment, which is what makes the next card read as a new arrival.
+        if (InlineSurfaceHeldAt(DateTimeOffset.UtcNow, _inlineSurfaceFreeAtUtc))
+        {
+            RenderSummarySurface();
             return;
         }
 
@@ -3326,6 +3400,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         // Suppress re-showing this reminder locally while the ack round-trips.
         _resolvedReminderId = reminder.Id;
+        HoldInlineSurfaceAfterResolve();
         _reminderCommandRequested?.Invoke(new UserDesktopWidgetReminderCommand(
             Kind: action == UserDesktopWidgetAction.ReminderDone ? "done" : "snooze",
             Id: reminder.Id,
@@ -3347,6 +3422,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         }
 
         _resolvedReminderId = reminder.Id;
+        HoldInlineSurfaceAfterResolve();
         _reminderCommandRequested?.Invoke(new UserDesktopWidgetReminderCommand(
             Kind: "dismiss",
             Id: reminder.Id,
@@ -3419,12 +3495,31 @@ internal sealed class UserDesktopWidgetWindow : Window
         RefreshReminderPill();
         UpdateWindowHeight();
 
-        // The widget is WS_EX_NOACTIVATE (it must never steal focus in normal operation), but
-        // the quick-add box needs real keyboard focus. Temporarily allow activation — and
-        // because the opening click did NOT activate us (that's what NOACTIVATE means), a
-        // plain Activate() is refused by the foreground rules; SetForegroundWindow works here
-        // since our process just received the user's click. Focus is set after the activation
-        // settles (Input priority), otherwise WPF grants it before the HWND is foreground.
+        TakeKeyboardFocusForInlineBox(_quickAddBox, () => _quickAddOpen);
+    }
+
+    /// <summary>
+    /// Chat 6 (2026-08-24) — give an inline box REAL keyboard focus on a WS_EX_NOACTIVATE window.
+    ///
+    /// The widget must never steal focus in normal operation, so it carries WS_EX_NOACTIVATE
+    /// unconditionally. A box inside it therefore cannot receive keystrokes from
+    /// <c>Focus()</c> alone: WPF grants focus INSIDE a window that is never foreground, which
+    /// looks exactly like a working text box that ignores the keyboard.
+    ///
+    /// The sequence matters and every step earns its place:
+    ///   * clear the no-activate style, or the window can never come forward;
+    ///   * <c>SetForegroundWindow</c> natively, because the opening click did NOT activate us —
+    ///     that is what NOACTIVATE means — so a plain <c>Activate()</c> is refused by the
+    ///     foreground rules. It works here only because our process just received the click;
+    ///   * <c>Activate()</c>;
+    ///   * focus deferred to Input priority, otherwise WPF grants it before the HWND is foreground
+    ///     and the box is left focused-but-deaf again.
+    ///
+    /// This existed twice, verbatim, and the result prompt was written without it — which is why
+    /// "what came of it?" could not be typed into. One copy now, called from all three.
+    /// </summary>
+    private void TakeKeyboardFocusForInlineBox(System.Windows.Controls.Control box, Func<bool> stillOpen)
+    {
         SetNoActivateStyle(enabled: false);
         IntPtr hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd != IntPtr.Zero)
@@ -3435,9 +3530,11 @@ internal sealed class UserDesktopWidgetWindow : Window
         Activate();
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () =>
         {
-            if (_quickAddOpen)
+            // Re-checked after the hop: the user may have dismissed the box while the activation
+            // settled, and focusing a closed box would take the keyboard for nothing.
+            if (stillOpen())
             {
-                Keyboard.Focus(_quickAddBox);
+                Keyboard.Focus(box);
             }
         });
     }
@@ -4064,7 +4161,10 @@ internal sealed class UserDesktopWidgetWindow : Window
         _resultPanel.Visibility = Visibility.Visible;
         RenderTaskRows();
         UpdateWindowHeight();
-        _resultBox.Focus();
+
+        // Chat 6 — this called _resultBox.Focus() and nothing else, so the caret appeared and the
+        // keyboard went to whatever was actually foreground. The box looked fine and ate nothing.
+        TakeKeyboardFocusForInlineBox(_resultBox, () => _resultTaskId > 0);
     }
 
     private void ConfirmResultPrompt()
@@ -4157,22 +4257,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         _tasksSection.Visibility = Visibility.Visible;
         UpdateWindowHeight();
 
-        // Same NOACTIVATE dance as the reminder quick-add: the box needs real focus.
-        SetNoActivateStyle(enabled: false);
-        IntPtr hwnd = new WindowInteropHelper(this).Handle;
-        if (hwnd != IntPtr.Zero)
-        {
-            _ = NativeSetForegroundWindow(hwnd);
-        }
-
-        Activate();
-        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () =>
-        {
-            if (_taskAddOpen)
-            {
-                Keyboard.Focus(_taskTitleBox);
-            }
-        });
+        TakeKeyboardFocusForInlineBox(_taskTitleBox, () => _taskAddOpen);
     }
 
     private void CloseTaskAdd()
@@ -4432,6 +4517,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         // Suppress re-showing this exact nudge while the host still holds it (until its backstop).
         _resolvedSignupNudgeId = nudge.NudgeId;
+        HoldInlineSurfaceAfterResolve();
         if (action == UserDesktopWidgetAction.SignupNudgeAccept)
         {
             // Open the Control Center at the sign-in screen (where linking actually happens).
@@ -4465,6 +4551,7 @@ internal sealed class UserDesktopWidgetWindow : Window
         // estimate itself does — which, since the +15 was removed, means it does not change at all
         // for a running task. Asked once, answered once.
         _resolvedTaskAskId = ask.AskId;
+        HoldInlineSurfaceAfterResolve();
 
         switch (action)
         {
@@ -4494,6 +4581,7 @@ internal sealed class UserDesktopWidgetWindow : Window
 
         // Suppress re-showing this exact prompt while the host still holds it (until its backstop).
         _resolvedLabelPromptId = prompt.PromptId;
+        HoldInlineSurfaceAfterResolve();
         if (action != UserDesktopWidgetAction.LabelDismiss)
         {
             string answer = action == UserDesktopWidgetAction.LabelAnswerPositive

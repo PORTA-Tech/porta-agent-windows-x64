@@ -109,9 +109,18 @@ internal static class UserCheckInCoordinator
                 YesterdaySummary: yesterdaySummary,
                 Projects: projects),
 
+            // Chat 6 (2026-08-24) — the blank morning. This arm is reached only when there are no
+            // open tasks AND no carried plan, so Ari has nothing whatever to propose.
+            //
+            // It used to open "What's the one thing today?" — a question that sounds like Ari has
+            // something in mind and is checking, when in fact it is asking the user to do all of
+            // the work and will call whatever comes back a plan. The card's JOB here is still
+            // right: it hands over empty rows so the day can be stated. But it states that rather
+            // than asking it. The two arms above still ask, because there they have something to
+            // ask ABOUT.
             UserCheckInKind.Morning => new UserCheckInPrompt(
                 Kind: UserCheckInKind.Morning,
-                Title: "What's the one thing today?",
+                Title: "Today",
                 Message: line.Length > 0 ? line : "Name today's focus and I'll help you protect it.",
                 Yesterday: lastDay,
                 YesterdaySummary: yesterdaySummary,
@@ -192,9 +201,11 @@ internal static class UserCheckInCoordinator
                 // CARD. It said "note" and behaved as "plan": you would jot a thought and find it
                 // in tomorrow's task box. The copy moved rather than the behaviour, because the
                 // behaviour is the useful half — it is what carries a just-track day forward.
-                QuestionLabel: open.Count > 0
-                    ? "What moves to tomorrow?"
-                    : movingNotice.Length > 0 ? "Anything else for tomorrow?" : "Anything for tomorrow?"),
+                // Chat 6 — only when there is open work to move. The two no-open-work arms this
+                // used to have ("Anything for tomorrow?") sat above a blank box on a day Ari knew
+                // nothing about; that box is gone, and a label for a control that no longer exists
+                // would just be a heading over nothing.
+                QuestionLabel: open.Count > 0 ? "What moves to tomorrow?" : string.Empty),
         };
 
         // Chat 2 — the day-off tap is a property of WHICH CARD THIS IS IN THE DAY, not of the kind,
