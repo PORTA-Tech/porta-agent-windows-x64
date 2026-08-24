@@ -279,6 +279,19 @@ internal static class CheckInCardPreview
                     UserCheckInKind.Morning, null, metrics, board: oneOpen),
                 PressProjectChip),
 
+            // Chat 2 — the FIRST card of the day carries the day-off tap. Any of the four kinds can
+            // be the first one, so both ends of the day are here: the card that usually opens a day
+            // and the card that opens a day nobody worked.
+            new("morning CHAT 2 — first card of the day, not working today",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.Morning, null, metrics, board: threeOpen, projects: projects,
+                    offersNotWorkingToday: true)),
+
+            new("evening CHAT 2 — first card of the day, not working today",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.EndOfDay, goal, metrics, narrativeLine: "",
+                    offersNotWorkingToday: true)),
+
             // ── midday ──
             new("midday with today's tasks",
                 UserCheckInCoordinator.BuildPrompt(

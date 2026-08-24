@@ -1,4 +1,4 @@
-namespace Porta.UserAgent.Interventions;
+﻿namespace Porta.UserAgent.Interventions;
 
 using Porta.Agent.Common;
 using Porta.Agent.LocalApi;
@@ -65,7 +65,10 @@ internal static class UserCheckInCoordinator
         IReadOnlyList<TaskBoardLine>? yesterday = null,
         // Step 9a — the projects the picker offers, most-recently-used first. Only the morning
         // card names tasks, so only the morning prompts carry it; the others are untouched.
-        IReadOnlyList<UserCheckInProject>? projects = null)
+        IReadOnlyList<UserCheckInProject>? projects = null,
+        // Chat 2 — this is the first card of the day, so it carries the day-off tap. Defaults off,
+        // so every existing caller and test is unaffected.
+        bool offersNotWorkingToday = false)
     {
         string goalText = (goal?.GoalText ?? string.Empty).Trim();
         string plan = (carriedPlan ?? string.Empty).Trim();
@@ -80,7 +83,7 @@ internal static class UserCheckInCoordinator
         IReadOnlyList<TaskBoardLine> lastDay = yesterday ?? Array.Empty<TaskBoardLine>();
         string yesterdaySummary = UserCheckInTaskBoard.SummarizeDay(lastDay);
 
-        return kind switch
+        UserCheckInPrompt prompt = kind switch
         {
             // Step 4 — propose, never an empty box. Unfinished work IS the proposal, so the morning
             // opens with something to confirm rather than something to compose. This outranks the
@@ -193,6 +196,11 @@ internal static class UserCheckInCoordinator
                     ? "What moves to tomorrow?"
                     : movingNotice.Length > 0 ? "Anything else for tomorrow?" : "Anything for tomorrow?"),
         };
+
+        // Chat 2 — the day-off tap is a property of WHICH CARD THIS IS IN THE DAY, not of the kind,
+        // so it is applied once here rather than repeated in all seven arms above. Any card can be
+        // the first one of a day.
+        return prompt with { OffersNotWorkingToday = offersNotWorkingToday };
     }
 
     // Step 4 — the honest proposal copy. Names the work rather than describing it, because the list

@@ -42,7 +42,11 @@ internal sealed record UserCheckInPrompt(
     // Step 9a — the projects the picker offers, most-recently-used first. The card renders at most
     // the first six plus "+ new"; the rest are managed in Control Center. Empty on every card that
     // does not name a task, and on any older caller.
-    IReadOnlyList<UserCheckInProject>? Projects = null);
+    IReadOnlyList<UserCheckInProject>? Projects = null,
+    // Chat 2 — this is the FIRST card of the day, so it carries the one way to say the day is not a
+    // working day at all. Offered once and only once: a second card would mean the first was
+    // already ignored, and repeating the offer is the nagging it exists to prevent.
+    bool OffersNotWorkingToday = false);
 
 // Step 3 — one line of the morning list: what the user intends to do, and how long they tapped for
 // it. The duration is always chosen from the chips, never typed (locked decision 2026-08-07), so a
@@ -102,7 +106,11 @@ internal sealed record UserCheckInResponse(
     // folded into Choice or TaskOutcomes: a correction is not an answer to the card's question, and
     // every existing consumer of those two must keep reading exactly what it read before. Null on
     // every other kind and on any card that raises no correction, which is the ordinary case.
-    string? Correction = null)
+    string? Correction = null,
+    // Chat 2 — "not working today". Not an answer to the card's question and not a correction of an
+    // assumption: it says the whole day is not a working day, and the only thing it does is buy
+    // silence until the next 5:00 boundary.
+    bool NotWorkingToday = false)
 {
     public static UserCheckInResponse DismissedFor(UserCheckInKind kind)
         => new(kind, TextReply: null, Choice: null, Dismissed: true);
@@ -112,6 +120,19 @@ internal sealed record UserCheckInResponse(
     /// do NOTHING else to the day: no eod stamp, no task outcomes, no plan.
     /// </summary>
     public bool IsCorrection => UserCheckInCorrections.IsKnown(Correction);
+}
+
+/// <summary>
+/// Chat 2 — the one tap that says today is not a working day.
+///
+/// Sentence case and no capital, like every other label on these cards. It is deliberately not a
+/// setting and not a schedule: there is no concept of a weekend, a holiday or working days anywhere
+/// in the product, and inventing one would mean asking the user to describe their week before Ari
+/// could be quiet on a Sunday. One tap, one day, no configuration.
+/// </summary>
+internal static class UserCheckInDayOff
+{
+    public const string Label = "not working today";
 }
 
 /// <summary>

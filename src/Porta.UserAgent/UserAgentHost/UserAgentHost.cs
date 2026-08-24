@@ -1,4 +1,4 @@
-namespace Porta.UserAgent;
+﻿namespace Porta.UserAgent;
 
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -1742,13 +1742,53 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         foreach (LocalApiCurrentSnapshotResponse entry in snapshots)
         {
             DateTimeOffset local = entry.TimestampUtc.ToLocalTime();
-            if (string.Equals(UserCheckInStalenessPolicy.GoalDayOf(local), goalDayKey, StringComparison.Ordinal))
+            if (!string.Equals(UserCheckInStalenessPolicy.GoalDayOf(local), goalDayKey, StringComparison.Ordinal))
             {
-                return local;
+                continue;
             }
+
+            // Chat 2 (2026-08-24) — the day starts when WORK starts, not when the machine does.
+            //
+            // This used to return the first bucket of any kind. Buckets are written from the moment
+            // the machine is on and logged in after 05:00, including pure away ones, so a machine
+            // left on overnight declared a 05:00 start. 05:00 plus an 8h day is a 13:00 predicted
+            // end and a 15:00 hard ceiling — which is the wrap-up card arriving at 3pm after a 9am
+            // start, with nothing anywhere cross-checking the prediction against hours worked.
+            if (!IsWorkStartCandidate(entry))
+            {
+                continue;
+            }
+
+            return local;
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Chat 2 — whether one captured bucket is evidence that WORK had begun.
+    ///
+    /// Two exclusions, both of them "the machine was on but nobody was working":
+    /// away segments, and buckets with no input of any kind in them. An idle bucket is
+    /// indistinguishable from an empty chair, and neither starts a working day.
+    ///
+    /// Deliberately NOT a judgement about what KIND of work it is. Whether time in front of a video
+    /// should count as work at all is a question about crediting, it is owned by the measured-time
+    /// work, and answering it here would put the same rule in two places.
+    /// </summary>
+    internal static bool IsWorkStartCandidate(LocalApiCurrentSnapshotResponse entry)
+    {
+        if (LocalAttentionSegmentAnalytics.IsAwaySegment(entry))
+        {
+            return false;
+        }
+
+        // Raw rather than smoothed: the smoothed channels decay across bucket boundaries, so an
+        // overnight bucket can still carry a trace of the evening before. The raw values are what
+        // happened in THIS bucket.
+        return entry.TypingBurstIntensity > 0d
+            || entry.ScrollVelocityIndex > 0d
+            || entry.FocusSwitchRate > 0d;
     }
 
     private async Task RefreshCheckInAsync(
@@ -1824,9 +1864,12 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
         DateTimeOffset? workStartLocal = ResolveWorkStartLocal(goalDayKey);
 
         // Feed the learned day length before reading it back, so today counts from tomorrow on.
+        // Chat 2 — a day that never carried real work is not recorded at all, so a run of light
+        // days cannot drag the learned day length down and pull every card forward.
         if (workStartLocal is { } startedAt && nowLocal > startedAt)
         {
-            _workDayLengthStore.Observe(goalDayKey, nowLocal - startedAt);
+            _workDayLengthStore.Observe(
+                goalDayKey, nowLocal - startedAt, activeWorkSinceMorning ?? TimeSpan.Zero);
         }
 
         LocalApiTask? activeTask = todayRows?
@@ -1937,9 +1980,13 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
             ? await GetPickerProjectsAsync(token).ConfigureAwait(false)
             : Array.Empty<UserCheckInProject>();
 
+        // Chat 2 — is this the first card of the day? Read BEFORE showing, because showing is what
+        // writes the per-day mute: after TryShowGatedCheckIn every card looks like a repeat.
+        bool isFirstCardToday = !UserCheckInScheduler.AllKinds.Any(IsCheckInOffered);
+
         UserCheckInPrompt prompt = UserCheckInCoordinator.BuildPrompt(
             kind, goal, metrics, goalResponse.CarriedPlanTomorrow, narrativeLine: null, middaySkipped, awayGap,
-            board, yesterday, projects);
+            board, yesterday, projects, offersNotWorkingToday: isFirstCardToday);
 
         bool shown = _interventionExecutor.TryShowGatedCheckIn(
             UserCheckInScheduler.MuteClassFor(kind),
@@ -2064,6 +2111,19 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
 
         switch (response.Kind)
         {
+            // Chat 2 — FIRST arm, ahead of every kind. The day-off tap can arrive from any of the
+            // four cards, and a `case UserCheckInKind.Morning` above it would swallow the tap on a
+            // morning card and record a goal for a day the user just said they are not working.
+            case var _ when response.NotWorkingToday:
+            {
+                // One tap, one day. Mutes every card class until the next 5:00 boundary, reusing
+                // the mute the cards already gate on rather than adding a schedule, a weekday
+                // concept or a settings page. Nothing else is written: today is not a working day,
+                // so there is no goal to record and no outcome to apply.
+                MuteEveryCheckInForToday();
+                break;
+            }
+
             case UserCheckInKind.Morning:
             {
                 // Step 3 — the morning check-in stops storing a sentence and starts creating real
@@ -2230,6 +2290,23 @@ public sealed class UserAgentHost : BackgroundService, IDisposable
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// Chat 2 — silences every check-in card for the rest of the goal day.
+    ///
+    /// The per-day mute already expires at the next 5:00 local, which is the same boundary the goal
+    /// day itself uses, so "until tomorrow" needs no new concept of time. Every kind is muted by
+    /// name: the card that fired is not the only one that would otherwise arrive today.
+    /// </summary>
+    private void MuteEveryCheckInForToday()
+    {
+        foreach (UserCheckInKind kind in UserCheckInScheduler.AllKinds)
+        {
+            _interventionExecutor.MuteClassForToday(UserCheckInScheduler.MuteClassFor(kind));
+        }
+
+        UserAgentFileLog.Info($"checkin_not_working_today kinds={UserCheckInScheduler.AllKinds.Count}");
     }
 
     /// <summary>

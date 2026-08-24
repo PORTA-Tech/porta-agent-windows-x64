@@ -34,6 +34,19 @@ internal static class UserCheckInScheduler
     public static readonly TimeSpan AwayGapThreshold = TimeSpan.FromHours(2);
 
     /// <summary>
+    /// Chat 2 — every card kind there is. Written out rather than derived from Enum.GetValues so
+    /// that "all of them" is a deliberate list: the day-off tap mutes every entry here, and a kind
+    /// added later must be considered rather than silently included or silently missed.
+    /// </summary>
+    public static readonly IReadOnlyList<UserCheckInKind> AllKinds =
+    [
+        UserCheckInKind.Morning,
+        UserCheckInKind.Midday,
+        UserCheckInKind.MiddayClose,
+        UserCheckInKind.EndOfDay,
+    ];
+
+    /// <summary>
     /// Phase 5 — how long "not done yet" buys before the evening card may ask again.
     ///
     /// Lives HERE and not in UserCheckInDayTiming: it is not a fact about how long a working day is,
@@ -174,7 +187,16 @@ internal static class UserCheckInScheduler
             && !goal.MorningRecorded
             && !alreadyOfferedToday(UserCheckInKind.Morning))
         {
-            return (UserCheckInKind.Morning, "morning:first_activity");
+            // Chat 2 (2026-08-24) — a morning card is about the day ahead, so it has an hour
+            // ceiling. Without this the arm above was the whole rule and a laptop opened at 23:00
+            // was greeted with "what's the one thing today?".
+            UserCheckInDayTiming.TimingDecision morning = UserCheckInDayTiming.IsMorningDue(nowLocal);
+            if (morning.Due)
+            {
+                return (UserCheckInKind.Morning, "morning:first_activity");
+            }
+
+            return (null, $"morning_suppressed:{morning.Reason}");
         }
 
         return (null, "none_due");

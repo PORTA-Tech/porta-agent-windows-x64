@@ -35,9 +35,27 @@ internal sealed class UserWorkDayLengthStore
         _path = string.IsNullOrWhiteSpace(path) ? BuildPath() : path;
     }
 
-    /// <summary>Records (or overwrites) the observed span for one goal-day.</summary>
-    public void Observe(string goalDayKey, TimeSpan span)
+    /// <summary>
+    /// Records (or overwrites) the observed span for one goal-day.
+    ///
+    /// Chat 2 (2026-08-24) — a day only counts once it has carried real work.
+    ///
+    /// Every day used to be recorded, including days that were barely worked at all. The average of
+    /// the last five then drags the learned day length down, the predicted end moves earlier, and
+    /// the wrap-up card creeps forward a little every day — a run of half days teaches Ari that the
+    /// user's day is four hours long. Excluding them is not throwing data away: a day nobody worked
+    /// is not evidence about how long this person works.
+    ///
+    /// The gate lives here rather than at the call site so the rule is in one place and testable,
+    /// and because "what counts as a day" is the store's own question.
+    /// </summary>
+    public void Observe(string goalDayKey, TimeSpan span, TimeSpan activeWorkToday)
     {
+        if (activeWorkToday < UserCheckInDayTiming.FirstMiddayActiveWorkFloor)
+        {
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(goalDayKey) || span <= TimeSpan.Zero)
         {
             return;

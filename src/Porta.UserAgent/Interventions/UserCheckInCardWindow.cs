@@ -280,6 +280,14 @@ internal sealed class UserCheckInCardWindow : Window
                 break;
         }
 
+        // Chat 2 — the day-off tap goes LAST on every card, under the primary action. It applies to
+        // all four kinds because the first card of a day is whichever one happens to fire first, and
+        // it sits at the bottom because it is the exception: the card's own answer is the main road.
+        if (prompt.OffersNotWorkingToday)
+        {
+            AddNotWorkingTodayTap();
+        }
+
         if (!IsVisible)
         {
             Show();
@@ -1374,12 +1382,13 @@ internal sealed class UserCheckInCardWindow : Window
         // Phase 5 — the correction, directly under the measured line and above the day's work. It
         // sits ABOVE because it is about the card's own premise: if Ari has the day wrong, nothing
         // below it is worth answering, and the user should not have to read a whole board to find
-        // the way out. Only offered when there IS a board, i.e. when Ari is actually claiming
-        // something about the day's work.
-        if (board.Count > 0)
-        {
-            AddCorrectionBlock();
-        }
+        // the way out.
+        //
+        // Chat 2 (2026-08-24) — rendered on EVERY evening card, including the no-tasks branch. It
+        // used to be gated on there being a board, which left the one day that most needs it with no
+        // way out of the card at all: a day with no tasks is exactly the day "wasn't working today"
+        // is for, and the branch below offers only a box asking what is first tomorrow.
+        AddCorrectionBlock();
 
         if (board.Count == 0)
         {
@@ -1498,6 +1507,32 @@ internal sealed class UserCheckInCardWindow : Window
         });
         frame.Children.Add(inner);
         _bodyStack.Children.Add(frame);
+    }
+
+    /// <summary>
+    /// Chat 2 — "not working today", offered once on the first card of the day.
+    ///
+    /// Quiet by construction: a muted, left-aligned chip below the primary action, not a second
+    /// button competing with it. Someone who IS working should be able to ignore it without reading
+    /// it, and someone who is not should find it without hunting.
+    /// </summary>
+    private void AddNotWorkingTodayTap()
+    {
+        Button chip = MakeChip(UserCheckInDayOff.Label);
+        chip.HorizontalAlignment = HorizontalAlignment.Left;
+        chip.Margin = new Thickness(0, 10, 0, 0);
+        chip.Foreground = new SolidColorBrush(LabelFg);
+        chip.Click += (_, _) => Respond(new UserCheckInResponse(
+            _kind,
+            TextReply: null,
+            Choice: null,
+            // Not a dismissal: a dismissal says nothing about the day, and this says the day is not
+            // a working one. The host needs to tell them apart to know whether to mute.
+            Dismissed: false,
+            TaskOutcomes: null,
+            Correction: null,
+            NotWorkingToday: true));
+        _bodyStack.Children.Add(chip);
     }
 
     private void Respond(UserCheckInResponse response)

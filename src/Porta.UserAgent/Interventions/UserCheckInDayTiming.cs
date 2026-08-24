@@ -43,6 +43,20 @@ internal static class UserCheckInDayTiming
     public static readonly TimeSpan FirstMiddayActiveWorkFloor = TimeSpan.FromMinutes(90);
 
     /// <summary>
+    /// Chat 2 (2026-08-24) — the latest local hour a morning card may appear.
+    ///
+    /// There was no hour test anywhere in the check-in path: the morning arm asked only whether a
+    /// goal had been recorded and whether the card had been offered, so opening the laptop at 23:00
+    /// on a day that was never worked produced "what's the one thing today?" at eleven at night.
+    ///
+    /// A morning card is a card about the day AHEAD. Past this hour there is no day ahead to plan,
+    /// and the honest move is to say nothing rather than to ask a question whose answer cannot
+    /// matter. 11:00 is late enough for a slow start and early enough that the answer is still worth
+    /// giving.
+    /// </summary>
+    public const int MorningLatestHour = 11;
+
+    /// <summary>
     /// When there is no estimate to expire (no active task), the first midday falls back to the
     /// fraction the four-card model would have given it anyway. Keeps one rule instead of two.
     /// </summary>
@@ -101,6 +115,20 @@ internal static class UserCheckInDayTiming
         public static TimingDecision Yes(string reason) => new(true, reason);
         public static TimingDecision No(string reason) => new(false, reason);
     }
+
+    /// <summary>
+    /// Chat 2 — whether a MORNING card may still be offered. The scheduler owns "has the morning
+    /// been answered"; this owns "is it still morning".
+    ///
+    /// One rule covers both halves of the fix. Asking "is it past 11:00 now" also answers "did work
+    /// start after 11:00", because now is never earlier than work start — a day whose first real
+    /// activity is at 11:30 cannot reach this before 11:30, so it is skipped entirely rather than
+    /// showing a stale card later.
+    /// </summary>
+    public static TimingDecision IsMorningDue(DateTimeOffset nowLocal)
+        => nowLocal.Hour >= MorningLatestHour
+            ? TimingDecision.No($"past_morning_ceiling:{nowLocal:HH\\:mm}>={MorningLatestHour}:00")
+            : TimingDecision.Yes("within_morning_window");
 
     /// <summary>
     /// Clamps a learned day length into something sane, falling back to the default when there is
@@ -191,6 +219,22 @@ internal static class UserCheckInDayTiming
     /// </summary>
     public static TimingDecision IsEveningDue(DateTimeOffset nowLocal, WorkDaySnapshot day)
     {
+        // Chat 2 (2026-08-24) — there must be a day before there is a day to wrap up.
+        //
+        // The hard ceiling below fires UNCONDITIONALLY once the predicted end has passed, so on a
+        // day with no work in it the card arrived anyway and asked how the day had gone. Combined
+        // with a work start that used to land near 05:00 on a machine left on overnight, that is
+        // the wrap-up at 15:00 on a Sunday.
+        //
+        // Reusing the first midday's floor rather than inventing a second number: it is already the
+        // project's answer to "has enough happened to be worth interrupting", and two different
+        // thresholds for the same question would drift.
+        if (day.ActiveWorkToday < FirstMiddayActiveWorkFloor)
+        {
+            return TimingDecision.No(
+                $"below_active_work_floor:{(int)day.ActiveWorkToday.TotalMinutes}m<{(int)FirstMiddayActiveWorkFloor.TotalMinutes}m");
+        }
+
         if (FractionAt(day, 1d) is not { } predictedEnd)
         {
             return TimingDecision.No("no_work_start");
