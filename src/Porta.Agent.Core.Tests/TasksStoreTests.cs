@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Porta.Agent.Core.Outputs;
 
 namespace Porta.Agent.Core.Tests;
@@ -121,15 +121,20 @@ public sealed class TasksStoreTests
             Attribute(dbPath, 5d, "off_task_distraction");
             Attribute(dbPath, 5d, "away"); // contributes nothing
 
+            // Chat 3 (2026-08-24) — active_seconds was 20 here: every kind except away was
+            // credited as work, so the two distraction buckets counted BOTH as off-task and as
+            // work on the task at the same time. That double-count is what made a film read as
+            // 4.9 hours. Only focus and in_meeting are work now; the distraction seconds are
+            // still recorded, still off-task, and no longer called work.
             AgentTask running = store.ReadTasks(Now.AddHours(-1), Now).Single();
-            Assert.Equal(20d, running.ActiveSeconds, precision: 6);
+            Assert.Equal(10d, running.ActiveSeconds, precision: 6);
             Assert.Equal(10d, running.FocusedSeconds, precision: 6);
             Assert.Equal(10d, running.OfftaskSeconds, precision: 6);
 
             store.ActOnTask(task.Id, "done", Now.AddMinutes(30));
             Attribute(dbPath, 5d, "focus"); // no active task anymore → no-op
             AgentTask closed = store.ReadTasks(Now.AddHours(-1), Now).Single();
-            Assert.Equal(20d, closed.ActiveSeconds, precision: 6);
+            Assert.Equal(10d, closed.ActiveSeconds, precision: 6);
             Assert.Equal("done", closed.State);
             Assert.NotNull(closed.EndedAtUtc);
         });

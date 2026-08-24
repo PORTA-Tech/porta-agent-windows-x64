@@ -473,7 +473,12 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                     connection,
                     tx,
                     Time.bucketSeconds,
-                    derivedSession.AttentionSegmentKind);
+                    derivedSession.AttentionSegmentKind,
+                    mapped.StartUtc);
+                // Chat 3 — after the credit, before anything reads the task: a task that has gone
+                // 45 minutes without working time stops being active. Same transaction, so the
+                // hours and the state can never disagree about when the work ended.
+                AutoCloseStaleActiveTask(connection, tx, mapped.StartUtc);
                 // ...and onto the per-task-per-day table (phase 0.1), which is the grain the
                 // report's main chart needs and the one thing here that takes EVERY attributed
                 // bucket, not only those with a recognised application.
@@ -3829,18 +3834,36 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// Chat 3 — how long an active task may go with no credited working time before Ari stops it.
+    /// 45 minutes: long enough to survive a meeting, a coffee or a long read without losing the
+    /// task, short enough that an afternoon cannot quietly land on it.
+    /// </summary>
+    internal const double StaleActiveTaskSeconds = 45d * 60d;
+
     internal static void AttributeBucketToActiveTask(
         SqliteConnection connection,
         SqliteTransaction tx,
         double bucketSeconds,
-        string? attentionSegmentKind)
+        string? attentionSegmentKind,
+        string? bucketStartUtcRaw = null)
     {
         if (bucketSeconds <= 0d || AttentionSegmentKinds.IsAway(attentionSegmentKind))
         {
             return;
         }
 
-        bool offtask = AttentionSegmentKinds.IsDistraction(attentionSegmentKind);
+        // Chat 3 (2026-08-24) — only WORKING kinds are credited as work.
+        //
+        // This guard used to be the single away test above, so every other kind landed in
+        // active_seconds in full: a film with a keypress once a minute is passive_consumption, was
+        // counted to offtask_seconds AND credited as 4.9 hours of work on the active task at the
+        // same time. active_seconds is the number under the client's report, so this was the
+        // product's evidence being wrong, not a cosmetic count.
+        //
+        // Nothing is discarded. Non-working time still flows to offtask_seconds exactly as before;
+        // it simply stops also being called work.
+        bool working = AttentionSegmentKinds.IsWorkingKind(attentionSegmentKind);
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText =
@@ -3848,12 +3871,73 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
             UPDATE tasks
             SET active_seconds = active_seconds + $seconds,
                 focused_seconds = focused_seconds + $focused,
-                offtask_seconds = offtask_seconds + $offtask
+                offtask_seconds = offtask_seconds + $offtask,
+                -- Chat 3 — stamped ONLY when working seconds landed. This column is what
+                -- distinguishes a task being worked on from a task merely left marked active,
+                -- so an off-task bucket must not refresh it.
+                last_credited_at_utc = CASE WHEN $working = 1 AND $at <> ''
+                                            THEN $at ELSE last_credited_at_utc END
             WHERE state = 'active';
             """;
-        cmd.Parameters.AddWithValue("$seconds", bucketSeconds);
-        cmd.Parameters.AddWithValue("$focused", offtask ? 0d : bucketSeconds);
-        cmd.Parameters.AddWithValue("$offtask", offtask ? bucketSeconds : 0d);
+        cmd.Parameters.AddWithValue("$seconds", working ? bucketSeconds : 0d);
+        cmd.Parameters.AddWithValue("$focused", working ? bucketSeconds : 0d);
+        cmd.Parameters.AddWithValue("$offtask", working ? 0d : bucketSeconds);
+        cmd.Parameters.AddWithValue("$working", working ? 1 : 0);
+        cmd.Parameters.AddWithValue("$at", bucketStartUtcRaw ?? string.Empty);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Chat 3 (2026-08-24) — stops a task nobody is working on any more.
+    ///
+    /// There is no pause button and there never will be: a button you have to remember to press is
+    /// exactly the failure that produced 4.9 hours on a film. A task stayed active across idle,
+    /// lock, logoff, shutdown and day rollover, and every bucket that passed kept landing on it.
+    ///
+    /// So the clock stops itself. After <see cref="StaleActiveTaskSeconds"/> with no CREDITED
+    /// working time, the task returns to pending and the moment of closure is recorded as the last
+    /// bucket that carried work — never "now". Closing at now would hand the task the whole idle
+    /// stretch as the thing this change exists to prevent.
+    ///
+    /// Deliberately NOT marked done or abandoned. Ari does not know which it was, and the evening
+    /// card asks — a task back in pending shows up under "still open" with its Done / Keep / Drop it
+    /// row, which is the honest ask instead of an assumed outcome.
+    /// </summary>
+    internal static void AutoCloseStaleActiveTask(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        string? bucketStartUtcRaw)
+    {
+        if (!DateTimeOffset.TryParse(
+                bucketStartUtcRaw,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out DateTimeOffset bucketStart))
+        {
+            return;
+        }
+
+        string cutoff = bucketStart
+            .ToUniversalTime()
+            .AddSeconds(-StaleActiveTaskSeconds)
+            .ToString("O");
+
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        // A task that has never been credited at all has an empty last_credited_at_utc and is left
+        // alone: it was started moments ago, or it predates this column. Auto-closing on an absent
+        // reading would be the same guess-in-the-dark this change removes, only in the other
+        // direction.
+        cmd.CommandText =
+            """
+            UPDATE tasks
+            SET state = 'pending',
+                auto_closed_at_utc = last_credited_at_utc
+            WHERE state = 'active'
+              AND last_credited_at_utc <> ''
+              AND last_credited_at_utc < $cutoff;
+            """;
+        cmd.Parameters.AddWithValue("$cutoff", cutoff);
         cmd.ExecuteNonQuery();
     }
 
@@ -3898,7 +3982,9 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         }
 
         string localDay = AgentCoreController.GoalDay(bucketStart.ToLocalTime());
-        bool offtask = AttentionSegmentKinds.IsDistraction(attentionSegmentKind);
+        // Chat 3 — same working-kind rule as AttributeBucketToActiveTask. These two are the same
+        // measurement at two grains and must never disagree, so the rule lives in one predicate.
+        bool working = AttentionSegmentKinds.IsWorkingKind(attentionSegmentKind);
 
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
@@ -3915,12 +4001,17 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
                 offtask_seconds = offtask_seconds + excluded.offtask_seconds;
             """;
         cmd.Parameters.AddWithValue("$day", localDay);
-        cmd.Parameters.AddWithValue("$seconds", bucketSeconds);
-        cmd.Parameters.AddWithValue("$focused", offtask ? 0d : bucketSeconds);
-        cmd.Parameters.AddWithValue("$offtask", offtask ? bucketSeconds : 0d);
+        cmd.Parameters.AddWithValue("$seconds", working ? bucketSeconds : 0d);
+        cmd.Parameters.AddWithValue("$focused", working ? bucketSeconds : 0d);
+        cmd.Parameters.AddWithValue("$offtask", working ? 0d : bucketSeconds);
         cmd.ExecuteNonQuery();
 
-        PromoteActiveTaskToInProgress(connection, tx, bucketStart);
+        // Chat 3 — only real work makes a task "in progress". A film running in front of a planned
+        // task must not promote it, or the status is as wrong as the hours were.
+        if (working)
+        {
+            PromoteActiveTaskToInProgress(connection, tx, bucketStart);
+        }
     }
 
     /// <summary>
@@ -4010,7 +4101,10 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
             return;
         }
 
-        bool offtask = AttentionSegmentKinds.IsDistraction(attentionSegmentKind);
+        // Chat 3 — the same working-kind rule as the two accumulators above. This table is what
+        // ReadReportDraft builds the client report's hours from, so if it kept the old rule the
+        // report would still show the film as work even after the Tasks page stopped doing so.
+        bool working = AttentionSegmentKinds.IsWorkingKind(attentionSegmentKind);
 
         long taskId = 0;
         using (var active = connection.CreateCommand())
@@ -4042,9 +4136,9 @@ public sealed partial class SqliteBrainStateStore : IBrainStateStore, IBucketFin
         cmd.Parameters.AddWithValue("$hour", HourStartUtc(bucketStartUtc));
         cmd.Parameters.AddWithValue("$task", taskId);
         cmd.Parameters.AddWithValue("$app", app);
-        cmd.Parameters.AddWithValue("$focused", offtask ? 0d : bucketSeconds);
-        cmd.Parameters.AddWithValue("$offtask", offtask ? bucketSeconds : 0d);
-        cmd.Parameters.AddWithValue("$seconds", bucketSeconds);
+        cmd.Parameters.AddWithValue("$focused", working ? bucketSeconds : 0d);
+        cmd.Parameters.AddWithValue("$offtask", working ? 0d : bucketSeconds);
+        cmd.Parameters.AddWithValue("$seconds", working ? bucketSeconds : 0d);
         cmd.ExecuteNonQuery();
     }
 

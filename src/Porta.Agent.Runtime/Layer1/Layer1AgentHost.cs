@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -939,20 +939,41 @@ public sealed class Layer1AgentHost : IDisposable
         return (used * 100.0) / memoryStatus.TotalPhys;
     }
 
+    // Chat 3 — see IdleReadFallback. Zero-on-failure read as "just typed" and credited every
+    // bucket a broken idle channel touched.
+    private static double? _lastGoodIdleSeconds;
+    private static long _lastGoodIdleAtTicks;
+
     private static double GetIdleDurationSeconds()
     {
         NativeMethods.LastInputInfo info = new()
         {
             CbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.LastInputInfo>()
         };
-        if (!NativeMethods.GetLastInputInfo(ref info))
+
+        bool ok = NativeMethods.GetLastInputInfo(ref info);
+        double raw = 0d;
+        if (ok)
         {
-            return 0;
+            uint tickCount = unchecked((uint)Environment.TickCount64);
+            uint elapsedMs = unchecked(tickCount - info.DwTime);
+            raw = Math.Max(0d, elapsedMs / 1000.0);
         }
 
-        uint tickCount = unchecked((uint)Environment.TickCount64);
-        uint elapsedMs = unchecked(tickCount - info.DwTime);
-        return elapsedMs / 1000.0;
+        long nowTicks = Environment.TickCount64;
+        TimeSpan sinceLastGood = _lastGoodIdleSeconds is null
+            ? TimeSpan.Zero
+            : TimeSpan.FromMilliseconds(Math.Max(0L, nowTicks - _lastGoodIdleAtTicks));
+
+        double resolved = IdleReadFallback.Resolve(ok, raw, _lastGoodIdleSeconds, sinceLastGood);
+
+        if (ok)
+        {
+            _lastGoodIdleSeconds = raw;
+            _lastGoodIdleAtTicks = nowTicks;
+        }
+
+        return resolved;
     }
 
     private static string BuildMachineId()

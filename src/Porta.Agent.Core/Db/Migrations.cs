@@ -175,7 +175,13 @@ internal static class Migrations
         new(
             Version: 33,
             Name: "check_in_corrections_v33",
-            Apply: Schema.ApplyCheckInCorrectionsV33)
+            Apply: Schema.ApplyCheckInCorrectionsV33),
+        // Chat 3 (2026-08-24) — when a task last carried real work, and whether Ari closed it.
+        // Additive, defaulted, LOCAL ONLY.
+        new(
+            Version: 34,
+            Name: "task_auto_close_v34",
+            Apply: Schema.ApplyTaskAutoCloseV34)
     ];
 
     internal static void Migrate(SqliteConnection connection)

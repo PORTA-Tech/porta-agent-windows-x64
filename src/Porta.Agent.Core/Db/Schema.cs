@@ -1081,6 +1081,24 @@ internal static class Schema
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// Chat 3 (2026-08-24) — the two facts needed to stop a forgotten task running forever.
+    ///
+    /// <c>last_credited_at_utc</c> is the bucket that last put WORKING seconds on the task. It is
+    /// the only way to tell "still being worked on" from "still marked active", which is the
+    /// difference between 40 minutes and 4.9 hours.
+    ///
+    /// <c>auto_closed_at_utc</c> records that Ari stopped the task rather than the user, and when
+    /// the work actually stopped — never when the timer noticed. An auto-closed task is NOT done
+    /// and NOT abandoned: it goes back to pending so the evening card asks about it, because
+    /// assuming an outcome is exactly what this whole change is against.
+    /// </summary>
+    internal static void ApplyTaskAutoCloseV34(SqliteConnection connection)
+    {
+        EnsureColumnExists(connection, "tasks", "last_credited_at_utc", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(connection, "tasks", "auto_closed_at_utc", "TEXT NOT NULL DEFAULT ''");
+    }
+
     internal static void ApplyContractSchemaV3(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();

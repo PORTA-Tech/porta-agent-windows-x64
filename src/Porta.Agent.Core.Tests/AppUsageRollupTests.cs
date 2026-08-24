@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Porta.Agent.Core.Outputs;
 
 namespace Porta.Agent.Core.Tests;
@@ -25,11 +25,16 @@ public sealed class AppUsageRollupTests
             Accumulate(dbPath, seconds: 5, kind: Porta.Agent.Common.Analysis.AttentionSegmentKinds.Focus, app: AppA, at: Now);
             Accumulate(dbPath, seconds: 5, kind: Porta.Agent.Common.Analysis.AttentionSegmentKinds.OffTaskDistraction, app: AppA, at: Now);
 
+            // Chat 3 (2026-08-24) — active_seconds was 10 here. This table is what the client
+            // report's hours are built from, so it follows the same working-kind rule as the task
+            // attribution: the off-task 5 seconds are still recorded as off-task and are no longer
+            // also counted as work. The two must never disagree or the report and the Tasks page
+            // would show different totals for the same work.
             AgentAppUsageHour row = Single(store);
             Assert.Equal(AppA, row.AppHash);
             Assert.Equal(5d, row.FocusedSeconds, precision: 6);
             Assert.Equal(5d, row.OfftaskSeconds, precision: 6);
-            Assert.Equal(10d, row.ActiveSeconds, precision: 6);
+            Assert.Equal(5d, row.ActiveSeconds, precision: 6);
             Assert.False(row.Backfilled);
         });
     }

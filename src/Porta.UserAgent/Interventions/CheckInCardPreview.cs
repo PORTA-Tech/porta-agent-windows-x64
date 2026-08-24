@@ -292,6 +292,21 @@ internal static class CheckInCardPreview
                     UserCheckInKind.EndOfDay, goal, metrics, narrativeLine: "",
                     offersNotWorkingToday: true)),
 
+            // Chat 3 — the day from the fix plan, as the evening card now reports it. The task
+            // carries the 40 minutes that were real, NOT the 3h40m the old rule credited, and it
+            // is back under STILL OPEN because Ari auto-closed it rather than deciding it was
+            // finished. The ask is the point: Ari does not know how it ended, so it asks.
+            new("evening CHAT 3 — the film did not become work",
+                UserCheckInCoordinator.BuildPrompt(
+                    UserCheckInKind.EndOfDay, goal, metrics, narrativeLine: "",
+                    board:
+                    [
+                        Task(31, "Landing page copy", "pending",
+                            measured: 2400, planned: 7200, project: "Northbridge"),
+                        Task(32, "Send the March invoices", "done",
+                            measured: 2400, planned: 2400, project: "Admin"),
+                    ])),
+
             // ── midday ──
             new("midday with today's tasks",
                 UserCheckInCoordinator.BuildPrompt(

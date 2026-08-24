@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Threading.Channels;
 using System.Threading;
@@ -554,6 +554,12 @@ namespace Porta.Agent.Runtime
             }
         }
 
+        // Chat 3 — the last idle reading Windows actually gave us, and when. Used to keep the idle
+        // clock running when GetLastInputInfo fails, instead of resetting it to zero. See
+        // IdleReadFallback for why zero was the dangerous answer.
+        private static double? _lastGoodIdleSeconds;
+        private static long _lastGoodIdleAtTicks;
+
         private static double ReadIdleDurationSeconds()
         {
             NativeMethods.LastInputInfo info = new()
@@ -561,14 +567,29 @@ namespace Porta.Agent.Runtime
                 CbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.LastInputInfo>()
             };
 
-            if (!NativeMethods.GetLastInputInfo(ref info))
+            bool ok = NativeMethods.GetLastInputInfo(ref info);
+            double raw = 0d;
+            if (ok)
             {
-                return 0d;
+                uint tickCount = unchecked((uint)Environment.TickCount64);
+                uint elapsedMs = unchecked(tickCount - info.DwTime);
+                raw = Math.Max(0d, elapsedMs / 1000d);
             }
 
-            uint tickCount = unchecked((uint)Environment.TickCount64);
-            uint elapsedMs = unchecked(tickCount - info.DwTime);
-            return Math.Max(0d, elapsedMs / 1000d);
+            long nowTicks = Environment.TickCount64;
+            TimeSpan sinceLastGood = _lastGoodIdleSeconds is null
+                ? TimeSpan.Zero
+                : TimeSpan.FromMilliseconds(Math.Max(0L, nowTicks - _lastGoodIdleAtTicks));
+
+            double resolved = IdleReadFallback.Resolve(ok, raw, _lastGoodIdleSeconds, sinceLastGood);
+
+            if (ok)
+            {
+                _lastGoodIdleSeconds = raw;
+                _lastGoodIdleAtTicks = nowTicks;
+            }
+
+            return resolved;
         }
 
         private async Task ReportMetricsAsync(CancellationToken token)

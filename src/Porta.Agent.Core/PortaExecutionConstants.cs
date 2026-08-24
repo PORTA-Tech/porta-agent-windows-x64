@@ -325,7 +325,12 @@ public static class PortaExecutionConstants
     // attentive-in-meeting, up to this cap (a machine left on Zoom overnight is NOT a meeting).
     public static class MeetingMeasurement
     {
-        public const double MaxStillSeconds = 7200d; // 2h of stillness before meeting → away
+        // Chat 3 (2026-08-24) — was 7200 (2h). Two hours of COMPLETE stillness is not a meeting,
+        // it is an empty chair with a meeting window open, and every one of those seconds was
+        // being credited to the active task as work. Twenty minutes is long enough for a real
+        // stretch of listening without speaking or typing, and short enough that a call left open
+        // over lunch stops counting.
+        public const double MaxStillSeconds = 1200d; // 20m of stillness before meeting → away
     }
 
     // Phase 2c — reminders: a plain alarm clock attached to the widget. Time-based ONLY (no
